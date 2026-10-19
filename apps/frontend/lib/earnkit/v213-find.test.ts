@@ -7,7 +7,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
 import { tools } from './tools';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { mcpCall } from './fixtures/mcp-call';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';

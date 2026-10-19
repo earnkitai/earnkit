@@ -437,7 +437,7 @@ test('5.19 the admin page lists contested logins with a confirm button per group
 
 test('6.13 reverse phish with X: an attacker holding a victim\'s login claims their own X, and GitHub\'s X field names the victim\'s X: still not confirmed', db, async () => {
   const { saveVerification } = await import('./github-verify');
-  const { bindX } = await import('./claim');
+  const { bindX } = await import('./x-install');
   await scoreOn(async () => {
     const login = `rx-${stamp()}`.slice(0, 39);
     const victimX = `vx${process.pid}`.slice(0, 15);

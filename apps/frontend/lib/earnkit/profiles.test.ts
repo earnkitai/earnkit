@@ -8,7 +8,7 @@ import {
 
 /**
  * v2.12.1 T12: the v2.12 slug rules (X, login, wallet), setXHandle and the consent line are gone. A
- * page is public only once claimed with X (claim.ts bindX; here its effect is written directly: the
+ * page is public only once claimed with X (x-install.ts bindX; here its effect is written directly: the
  * X user id, the handle and the slug).
  */
 const shownProfile = ensureProfile;

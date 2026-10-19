@@ -141,7 +141,7 @@ export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
   'update: { text } posts this week\'s update (your weekly task writes it from git log and deploys); { hide: "YYYY-MM-DD" } hides that week\'s. ' +
   'updates: { on } when they say yes to weekly posting or stop posting updates. coin: their coin answer, or { raising } when they open a community round or close it. ' +
-  'move_up: their answer to the last line, with its kind and project_key. pickup, profile (hide or show), card (yes or skip): their answers. ' +
+  'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
   'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
@@ -427,7 +427,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'confirm', input),
   );
 
-  // v2.10 item 4 (R16): tell_earnkit, pick_up_entries and record_submission's "I submitted". It
+  // v2.10 item 4 (R16): tell_earnkit and record_submission's "I submitted" (v2.14: no pickup). It
   // writes, so it is not read-only; find stays read-only. Statements are read leniently (TellInput).
   server.registerTool(
     'tell',
@@ -445,7 +445,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             })
             .strict()
             .optional(),
-          pickup: z.enum(['yes', 'no']).optional().describe("The builder's answer to the pick-up question"),
           // v2.12 spec 7, 8.
           profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
           card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),

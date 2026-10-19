@@ -21,7 +21,7 @@ import {
   tokenRow,
 } from './entry-text';
 import { SCORE_SHARED } from './score-tool';
-import { POST_LINE, SKIPPED_LINE, claimFirstLine } from './share';
+import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, rollingLine, standingNews, usersMoneyLine, type StandProject } from './stand-text';
 import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
@@ -871,7 +871,7 @@ export const v2121Texts: [string, string][] = [
   ['rollingLine', rollingLine('Arc Microgrants', 'up to $500', true)],
   ['rollingLine no projects', rollingLine('Arc Microgrants', 'up to $500', false)],
   ['POST_LINE', POST_LINE('lee')],
-  ['claimFirstLine', claimFirstLine('earnkit.com/claim/abcdefghijkl')],
+  ['signInFirstLine', signInFirstLine('https://earnkit.com/signin/abcdefghijklmnopqrstuv')],
   ['GO_LIVE_LINES.onIt', GO_LIVE_LINES.onIt],
   ['GO_LIVE_LINES.cant', GO_LIVE_LINES.cant('TipJar')],
 ];

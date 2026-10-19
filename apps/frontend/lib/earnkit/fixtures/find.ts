@@ -111,7 +111,7 @@ export const find = (id: number, input: Record<string, unknown> = {}, extra: Rec
  * it claims first (a unique X account, as the claim page's sign-in binds it).
  */
 export async function claimX(id: number): Promise<string> {
-  const { bindX } = await import('../claim');
+  const { bindX } = await import('../x-install');
   const { ensureProfile } = await import('../profiles');
   await ensureProfile(id, new Date());
   const tag = randomBytes(5).toString('hex');

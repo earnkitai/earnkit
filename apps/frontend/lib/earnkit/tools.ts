@@ -152,8 +152,7 @@ import { verifiedProject } from './builder-score';
 import { builtLiveAnswer, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
-import { PROBATION_LINES, onProbation } from './page-joins';
-import { JOIN_TEXT, answerJoin, joinQuestion, askJoin, pendingJoinOf, rootOf } from './identity';
+import { rootOf } from './identity';
 import type { FieldKind } from './program-file';
 import type { ProgramRow } from './programs';
 import { RateLimitError, enforce } from './rate-limit';
@@ -164,7 +163,7 @@ import { LAUNCHING, NOT_LAUNCHED_YET, REPO_HAS_TOKEN, launchClaimedAt, repoCoinP
 export type ToolContext = {
   /** v2.8.1 §E18: the installation the tools act as (a linked installation's group root). */
   installationId: number;
-  /** v2.8.1 §E18: the token's own installation (the pickup offer's); defaults to installationId. */
+  /** v2.8.1 §E18: the token's own installation; defaults to installationId. */
   ownInstallationId?: number;
   /**
    * v2.8.1 §E17: the token's installation came from a hosted agent client: saved answers are reused
@@ -200,26 +199,7 @@ export type ToolContext = {
   freshDeps?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
   /** v2.12.1 T8: test injection only: the on-demand refresh's readers (person-score.ts refreshPerson). */
   readerDeps?: ReaderDeps;
-  /**
-   * v2.13.4 R7: the caller's own installation joined this page by R1 under 24 hours ago: it may only post
-   * updates (page-joins.ts). Set by the builder tools (withProbation); never by the MCP route.
-   */
-  probation?: boolean;
 };
-
-/** v2.13.4 R7: the context with `probation` filled. Never throws (R8: a failed read is probation). */
-export async function withProbation(ctx: ToolContext): Promise<ToolContext> {
-  if (ctx.probation !== undefined) return ctx;
-  const own = ctx.ownInstallationId ?? ctx.installationId;
-  // v2.13.4 R8 (2): fails CLOSED: a failed read counts as probation.
-  return { ...ctx, probation: own !== ctx.installationId && (await onProbation(own).catch(() => true)) };
-}
-
-/** v2.13.4 R7: a write refused on probation: one line, then one question whose yes is this week's update. */
-async function probationReply(ctx: ToolContext, kind: 'main' | 'write'): Promise<Reply> {
-  const main = await mainProjectOf(ctx.installationId).catch(() => null);
-  return { show_to_builder: PROBATION_LINES[kind], ...(main && { move_up: { kind: 'post_update', project_key: main, agent_note: BENCH_MOVE_UP_NOTE } }) };
-}
 
 /**
  * v2.11 T7: the no-repo lead's switches. Deploys on a chain need the deployer key, the chain in
@@ -818,22 +798,6 @@ export const USERS_NOTE =
   'The reply asks whether this repo has real users or revenue. Pass the builder\'s answer, never your guess: ' +
   'call tell with repo_facts: [{ repo: users_question.repo, has_users: true or false }].';
 
-/** v2.8.1 §E18: what the agent does with list_programs' pick_up offer. */
-export const PICKUP_NOTE =
-  'Ask the builder pick_up.question once, as written, before anything else. On yes, call tell with pickup: "yes"; ' +
-  'on no, with answer "no". Never answer it for them.';
-/** v2.8.1 §E18: the builder's lines for the pickup answer. */
-export const PICKUP_TEXT = {
-  linked: 'Done. Your earlier entries, saved answers and alerts are here now.',
-  declined: 'Okay. Your earlier entries stay where they are.',
-  none: 'There is nothing to pick up right now.',
-  proof: 'One step first: I need to add a short proof line to your repo, then your earlier entries come over.',
-  unreadable: "EarnKit couldn't read your repo on GitHub right now. Try again in a minute.",
-  unclear: 'Pick up your earlier entries? Yes or no.',
-  /** v2.9 B9: followed by the one-time sign-in link. */
-  signIn: 'Or one click to prove the repo is yours, then your earlier entries come over:',
-} as const;
-
 /** v2.8.1 §E18: a yes or a no as an agent passes it; null when it is neither. Pure; exported for tests. */
 export { yesNo };
 
@@ -1111,26 +1075,14 @@ export const handlers = {
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
     const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, signed_in, more, identity, project } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
-    // v2.12.1 (plan S10): people join only on proven ties (identity.ts joinOnProvenTie), so find never
-    // offers a pickup and what the agent reports is only a clue. A shared client has no page (R2).
+    // v2.14: an installation joins a page only by signing in with its X (x-install.ts attachToX), so find
+    // never asks anyone to join and what the agent reports is only a clue. A shared client has no page (R2).
     const scoring = !ctx.sharedClient;
-    // Fix rounds 1, 2: each group of a pending join (another agent proved its GitHub) sees that one yes
-    // first, once (identity.ts askJoin).
-    // v2.13.4 R7: on probation, find writes nothing to the page (no join answered, no identity, no proof).
-    const join = scoring && !ctx.probation
-      ? await askJoin(ctx.installationId).catch((err: unknown) => {
-          console.error('[list_programs] join', err instanceof Error ? err.name : 'error');
-          return null;
-        })
-      : null;
-    const pickup = join ? { question: join.question, entries: 0 } : null;
-    if (wallet && !ctx.probation) await rememberWallets(ctx.installationId, [wallet]);
+    if (wallet) await rememberWallets(ctx.installationId, [wallet]);
     // v2.12 spec 1, 3: the public profile (made on the first find; named by the first remembered
     // wallet until a login is proven) and its clues. Never fails the tool and never waits on a read.
     // A shared group gets none (R2).
     let profiled = false as boolean;
-    /** v2.13.4 R7: this agent on probation named another project; it stays and the reply says why. */
-    let holdMain = false as boolean;
     // v2.12.1 T8 (spec 2): the person's own public data is re-read inside this call, within its
     // budget, in parallel with the reads below (stand-view.ts startRefresh). Never fails the tool.
     const start = Date.now();
@@ -1142,15 +1094,6 @@ export const handlers = {
         if (!made) return;
         profiled = true;
         if (made.created || wallet) await setFallback(ctx.installationId, {});
-        if (ctx.probation) {
-          // v2.13.4 R7: a newcomer on probation reads the page as it is: no main project, identity or
-          // proof writes, no proof check. Naming another project is refused in one line (the reply's ask
-          // is this week's update).
-          const current = await mainProjectOf(ctx.installationId);
-          if (project && (!current || current.toLowerCase() !== projectKeyOf(project).toLowerCase())) holdMain = true;
-          refresh.started = startRefresh(ctx.installationId, { now, start, reader: ctx.readerDeps });
-          return;
-        }
         // v2.13 R1: the one project only; only its sources proposed and github_user filled (B3).
         // v2.13.1 O2 (B6): a different project replaces it until it is Bench-confirmed; after that it is
         // set once (B2) and a different project is stored in identity only.
@@ -1164,7 +1107,7 @@ export const handlers = {
     // v2.9 B9, Rulings G6, G7, G9: on a shared client, the GitHub-verified login of the pasted code.
     const login = await sharedLogin(ctx, signed_in, 'list_programs');
     const [memory, openPrograms, campaigns, told] = await Promise.all([
-      checkPrograms(ctx.installationId, ctx.probation ? {} : { github_user, repos, local_repos }),
+      checkPrograms(ctx.installationId, { github_user, repos, local_repos }),
       listPrograms(),
       earnkitCampaignRows(ctx.installationId),
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: a shared client's verified login's).
@@ -1251,7 +1194,7 @@ export const handlers = {
         // O5 fix round 1: every finished match of the one project is kept, so a reply cut short shows the
         // last one (under an hour old); a late GitHubError or RateLimitError is logged once.
         const mainKey = bench ? (repoList?.[0] ?? null) : null;
-        if (mainKey && !ctx.probation) void matching.then((m) => keepBenchMatch(ctx.installationId, mainKey, m, new Date()), () => undefined);
+        if (mainKey) void matching.then((m) => keepBenchMatch(ctx.installationId, mainKey, m, new Date()), () => undefined);
         const lateError = (err: unknown) => {
           if (err instanceof GitHubError || err instanceof RateLimitError) console.error('[list_programs] late matching', err.name);
         };
@@ -1267,7 +1210,7 @@ export const handlers = {
         // access" link (an `app` nonce, R8); the reply shows only that one.
         const [first, ...restUnseen] = matched.unseen ?? [];
         const link =
-          appOn && first && !ctx.probation // v2.13.4 R8 (6): no App verify link on probation
+          appOn && first
             ? await createVerifyLink({ installationId: ctx.installationId, projectId: null, repoKey: first.full_name, purpose: 'app' }).catch(
                 (err: unknown) => {
                   console.error('[list_programs] app link', err instanceof Error ? err.name : 'error');
@@ -1279,7 +1222,7 @@ export const handlers = {
         // Final fix I2 (ledger c1): with the App on and no can't-see link in the reply (one link, one
         // ask), the first private repo matched from the local view with no App proof yet gets the link
         // on its own line, once.
-        if (appOn && !first && matched.fromLocal?.length && !ctx.probation) {
+        if (appOn && !first && matched.fromLocal?.length) {
           let localLink: { full_name: string; link: string } | null = null;
           for (const l of matched.fromLocal) {
             if (await hasAppProof({ installationId: ctx.installationId, login: appLogin, repoKey: l.full_name })) continue;
@@ -1313,7 +1256,7 @@ export const handlers = {
     // v2.9 A7: the builder's best owned repos that fit something, for new program alerts (no GitHub
     // call there). Never fails the tool; a failed match leaves the last ones. Ruling G7: not on a
     // shared client (one installation serves many builders, and its alerts are off).
-    if (own && !ctx.probation && yourRepos && 'fits' in yourRepos) {
+    if (own && yourRepos && 'fits' in yourRepos) {
       const fitRepos = yourRepos.fits
         .map((f) => fitRepoOf(f, (f.key && told.repos.get(f.key)) || null))
         .filter((r): r is FitRepo => r !== null);
@@ -1335,7 +1278,7 @@ export const handlers = {
     );
     // EarnKit wins come from the alerts engine (shown once); sponsor wins from here, placed right
     // after them (money first). Read last, so nothing after it can throw away the news.
-    const alerts = own && !ctx.probation
+    const alerts = own
       ? await alertsFor(ctx.installationId, { offer: true, otherWins: entries.wins })
       : { lines: [] as string[], scheduleNote: null };
 
@@ -1363,7 +1306,7 @@ export const handlers = {
       wonUsd: await wonSource.read(),
       // v2.10 item 15 (R12, Pre-flight P19): after "Your entries"; the same entries (a shared
       // client's only for its verified login, none without one).
-      deadline: ctx.probation ? null : await takeDeadlineLine(ctx.installationId, myEntries),
+      deadline: await takeDeadlineLine(ctx.installationId, myEntries),
       more: more === true,
       // v2.11 T7: the no-repo lead's switches; off (no pick) unless deploys and hosting are on.
       fresh: freshSwitches(ctx, agent_can_build),
@@ -1371,13 +1314,12 @@ export const handlers = {
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // after every other read (review minor 11), so nothing after marking it asked can lose the
     // question. Never fails the tool (the entry is then asked on a later call). v2.10 Ruling H10
-    // (I3): one question per reply, pickup first, then this one, then the lead's: with a pickup it
-    // waits (not read, so not marked asked).
-    const ask = pickup || ctx.probation || (!own && !loginEntries?.length) ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
+    // (I3): one question per reply: this one, then the lead's.
+    const ask = !own && !loginEntries?.length ? null : await outcomeToAsk(ctx.installationId, undefined, loginEntries ?? undefined).catch((err: unknown) => {
       console.error('[list_programs] outcome ask', err instanceof Error ? err.name : 'error');
       return null;
     });
-    first.holdQuestion = Boolean(pickup || ask);
+    first.holdQuestion = Boolean(ask);
     // v2.12.1 T8 (spec 2): the Bench's three-part reply (where you stand, ways to get funded, how to
     // move up) replaces the short v2.11 reply. "Show more" (more: true) and a shared client keep the
     // v2.11 tables.
@@ -1387,12 +1329,10 @@ export const handlers = {
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
-        start, first, cards: shownCards, repos: yourRepos, myEntries, pickup, ask, alerts, agentCanBuild: agent_can_build, hide, project,
-        notice: holdMain ? PROBATION_LINES.main.split('\n')[0] : null,
+        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, agentCanBuild: agent_can_build, hide, project,
       });
       return {
         ...r,
-        ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
         ...(walletNote && { wallet_note: walletNote }),
         ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: ASK_OUTCOME_NOTE } }),
         matches:
@@ -1437,8 +1377,7 @@ export const handlers = {
 
     const shown = show_to_builder;
     return {
-      show_to_builder: pickup ? [pickup.question, shown].filter(Boolean).join('\n\n') : shown,
-      ...(pickup && { pick_up: { question: pickup.question, agent_note: PICKUP_NOTE } }),
+      show_to_builder: shown,
       note:
         'Show show_to_builder to the builder exactly as written. ' +
         (!own && (user || repoList?.length || local?.length)
@@ -2223,30 +2162,6 @@ export const handlers = {
     );
   },
 
-  // v2.8 Ruling C21: the builder's own answer to ask_outcome's question, for their own entry only
-  // (another installation's is NotFoundError). Kept apart so list_programs stays read-only.
-  // v2.8.1 §E18: the builder's yes or no to list_programs' "Pick up your N earlier entries?".
-  pick_up_entries: async (input: unknown, ctx: ToolContext) => {
-    const answer = yesNo((input as { answer?: unknown } | null)?.answer);
-    // v2.12.1 fix round 1: the same yes answers a pending join first.
-    const join = !ctx.sharedClient ? await pendingJoinOf(ctx.installationId) : null;
-    if (join && answer === null)
-      return { show_to_builder: joinQuestion(join.tie, join.side), agent_note: 'Ask the builder, then call tell with pickup: "yes" or "no".' };
-    if (join && answer !== null) {
-      const r = await answerJoin(ctx.installationId, answer);
-      const here = join.side === 'joiner';
-      if (r === 'linked') return { show_to_builder: here ? JOIN_TEXT.linkedHere : JOIN_TEXT.linked, agent_note: 'Call find again to show their page.' };
-      if (r === 'waiting') return { show_to_builder: here ? JOIN_TEXT.waitingHere : JOIN_TEXT.waiting };
-      if (r === 'declined') return { show_to_builder: here ? JOIN_TEXT.declinedHere : JOIN_TEXT.declined };
-      if (r === 'refused') return { show_to_builder: JOIN_TEXT.refused, agent_note: 'On a yes, call find. Don\'t show this note.' };
-      if (r === 'expired') return { show_to_builder: JOIN_TEXT.expired, agent_note: 'On a yes, call find. Don\'t show this note.' };
-    }
-    if (answer === null)
-      return { show_to_builder: PICKUP_TEXT.unclear, agent_note: 'Ask the builder, then pass answer "yes" or "no".' };
-    // v2.12.1 fix round 2: people join only through a pending join both groups said yes to (above).
-    return { show_to_builder: PICKUP_TEXT.none };
-  },
-
   // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
   // repos: chains, live link, users, not theirs). It replaced report_outcome; list_programs stays read-only.
   // Ruling G6: on a shared client nothing about programs or repos is kept (memoryKey null).
@@ -3023,7 +2938,6 @@ export const TellToolInput = z
       })
       .strict()
       .optional(),
-    pickup: z.enum(['yes', 'no']).optional(),
     // v2.12 spec 8: "hide" or "show".
     profile: z.enum(['hide', 'show']).optional(),
     // v2.12.1 T12: kept and ignored. v2.12's tell took the X handle the builder confirmed; an agent
@@ -3362,8 +3276,7 @@ export const withoutBonusLine = (text: string) =>
   text.split('\n\n').filter((s) => !s.startsWith('Builder bonus:')).join('\n\n');
 
 /** find without the paste code: list_programs, or one program and its guide (get_program). */
-async function findReply(input: unknown, ctx0: ToolContext): Promise<Reply> {
-  const ctx = await withProbation(ctx0);
+async function findReply(input: unknown, ctx: ToolContext): Promise<Reply> {
   const { program_id, repo, ...parsed } = FindInput.parse(input ?? {});
   // v2.13.3 (1): local_repos as the agent sent it (list_programs reads it again), so a live link the
   // matcher drops (a placeholder host such as earnkit.com) still reaches the Bench's identity.
@@ -3396,7 +3309,7 @@ export const tools = {
     if (sign_in_code !== undefined && !ctx0.sharedClient) {
       const own = ctx0.ownInstallationId ?? ctx0.installationId;
       const b = await bindFromPaste(own, sign_in_code, new Date());
-      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own, probation: undefined };
+      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own };
       signInNote = b.ok ? SIGN_IN_NOTES.bound : SIGN_IN_NOTES.bad;
     }
     const reply = await findReply(input, ctx0);
@@ -3408,10 +3321,7 @@ export const tools = {
   // so the reply's contract check sees it (item 13: "goes straight into the A5 check") and never says
   // "No contract found" next to the deployed line. The program is read first, so an unknown one
   // spends nothing; a draft that fails after a deploy still returns the deploy.
-  prepare: async (input: unknown, ctx0: ToolContext) => {
-    // v2.13.4 R7: entries, builds, deploys and hosting are writes a newcomer on probation can't make.
-    const ctx = await withProbation(ctx0);
-    if (ctx.probation) return probationReply(ctx, 'write');
+  prepare: async (input: unknown, ctx: ToolContext) => {
     // v2.11 T8: the build path (plan S7).
     let join: BuildJoin | undefined;
     if (input && typeof input === 'object' && 'build' in input) {
@@ -3450,10 +3360,7 @@ export const tools = {
   },
 
   // R15: the builder's yes (or skip the token) to the confirm line; or an entry's token (project_id).
-  confirm: async (input: unknown, ctx0: ToolContext) => {
-    // v2.13.4 R7: entries and every coin launch are writes a newcomer on probation can't make.
-    const ctx = await withProbation(ctx0);
-    if (ctx.probation) return probationReply(ctx, 'write');
+  confirm: async (input: unknown, ctx: ToolContext) => {
     const c = ConfirmInput.parse(input);
     const tokenEdits = c.token ?? {};
     const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
@@ -3513,39 +3420,20 @@ export const tools = {
     return { ...joined, ...confirmed, show_to_builder: joined.show_to_builder, agent_note: joined.agent_note };
   },
 
-  // R16: what the builder said: pickup, then "I submitted", then statements; replies joined.
-  tell: async (input: unknown, ctx0: ToolContext) => {
+  // R16: what the builder said: "I submitted", then statements; replies joined.
+  tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const ctx = await withProbation(ctx0);
-    const { pickup, submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, signed_in, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
-    // v2.13.4 R7: on probation the only write is posting an update (updates.ts refuses one over another
-    // installation's); a move_up answer goes to benchMoveUp, which allows only the week's update. Every
-    // other part is refused in one line and one question (not_mine: the project line).
-    if (ctx.probation) {
-      const out: Reply[] = [];
-      if (update?.text !== undefined) out.push(await postUpdate(ctx.installationId, update.text, new Date(), ctx.ownInstallationId ?? ctx.installationId, { probation: true }));
-      if (move_up) out.push(await benchMoveUp(ctx, move_up)); // never the coin or go-live yes (moveUpAnswer)
-      const facts = TellInput.safeParse(defined({ ...statements, signed_in }));
-      const notMine = facts.success && (facts.data.repo_facts ?? []).some((f) => f.not_mine === true);
-      const refused = Boolean(pickup !== undefined || submitted || profile || card || coin || updates || update?.hide !== undefined || Object.keys(statements).length > 0);
-      if (!refused && out.length > 0) return joinReplies(out);
-      // R8 (8): one reply, one question, last: what was done (each reply's first line, its question
-      // dropped), then the refusal's line and question.
-      const refusal = await probationReply(ctx, notMine ? 'main' : 'write');
-      const done = out.map((r) => String(r.show_to_builder ?? '').split('\n').filter((l) => l && !l.includes('?')).join('\n')).filter(Boolean);
-      const notes = out.map((r) => r.agent_note).filter((n): n is string => typeof n === 'string' && n.length > 0);
-      return { ...refusal, show_to_builder: [...done, refusal.show_to_builder].join('\n'), ...(notes.length && { agent_note: notes.join(' ') }) };
-    }
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
     if (ctx.sharedClient && (profile || card || move_up || coin || update || updates))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
-      if (card === 'yes') replies.push(await cardYes(ctx.installationId));
+      if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).
@@ -3574,7 +3462,6 @@ export const tools = {
           console.error('[tell] not mine', err instanceof Error ? err.name : 'error'),
         );
       }
-    if (pickup !== undefined) replies.push((await handlers.pick_up_entries({ answer: pickup }, ctx)) as Reply);
     if (submitted) replies.push((await markSubmitted(submitted, signed_in, ctx)) as Reply);
     if (Object.keys(statements).length > 0 || replies.length === 0)
       replies.push((await handlers.tell_earnkit(defined({ ...statements, signed_in }), ctx)) as Reply);
@@ -3582,16 +3469,7 @@ export const tools = {
   },
 
   // v2.12 spec 7: the builder's score.
-  score: async (_input: unknown, ctx0: ToolContext) => {
-    // v2.12.1 fix rounds 1, 2: a pending join's one yes is asked once (pick_up, answered through tell).
-    // T8: it is the reply's one question, last; the step up waits a reply.
-    const ctx = await withProbation(ctx0);
-    const join = !ctx.sharedClient && !ctx.probation ? await askJoin(ctx.installationId) : null;
-    const reply = await scoreReply(ctx, new Date(), { hold: Boolean(join), reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) });
-    if (!join) return reply;
-    const { question } = join;
-    return { ...reply, show_to_builder: [reply.show_to_builder, question].filter(Boolean).join('\n\n'), pick_up: { question, agent_note: PICKUP_NOTE } };
-  },
+  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date(), { reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) }),
 
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
 

@@ -6,7 +6,7 @@ import { pageUrl } from './reserved-routes';
  * name and the starter's offer are names (plan B12). Pure.
  */
 export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded', up: 'How to move up' } as const;
-export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later' | 'install_app' | 'start' | 'claim' | 'remove_agent';
+export type BenchAskKind = 'build' | 'go_live' | 'updates' | 'post_update' | 'coin' | 'raise' | 'enter' | 'grants' | 'suggest' | 'other_project' | 'grants_later' | 'install_app' | 'start';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   | { kind: 'fits'; title: string; prize: string; when: string }
@@ -17,7 +17,7 @@ export type FundLine =
   | { kind: 'needs'; title: string; prize: string | null; needs: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 export type BenchView = {
-  project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
+  project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null;
   /**
    * v2.14 spec 2: the one project (a repo key) while it isn't confirmed: `private` (not proven yet: the read-only
    * App's install is the ask), `taken` (another person holds the repo) or `copy` (a fork or a template). Null:
@@ -34,8 +34,6 @@ export type BenchView = {
   page?: string | null;
   /** Money already on its way (v2.12.1 `due`: a deadline, an entry waiting on the builder's own submission). */
   due?: string[];
-  /** v2.13.4 (R1): this agent just joined the page from the claim page: "Linked to your page: ..." once. */
-  linked?: boolean;
 };
 
 /** v2.13.3 (3): no project: the stand line, with or without a build to offer (the ask leads with existing work). */
@@ -46,18 +44,6 @@ export const NO_OFFER_LINE = NO_PROJECT_LINE;
  * v2.14 A18: find offers no build, so this line is the last line.
  */
 export const START_ASK = "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?";
-/** v2.13.3 (4): the X claim, a line (v2.13.4: only beside a build in progress, which asks nothing). */
-export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
-/**
- * v2.13.4 (spec 2, R4): the first find asks for X once, as the only question: the claim link, then one
- * yes or no. `name`: the project the claim puts on the Bench (null: none, or one that can't join).
- */
-export const claimAskLine = (link: string) => `Claim your page with X (it's your name and photo on the Bench): ${link}`;
-export const claimQuestion = (name: string | null) =>
-  name ? `Want me to put ${name} on the Bench once that's done?` : "Want me to find money you can win once that's done?";
-export const claimAsk = (link: string, name: string | null) => `${claimAskLine(link)}\n${claimQuestion(name)}`;
-/** v2.13.4 (R1): the first reply after this agent joined the page from the claim page. */
-export const linkedLine = (page: string) => `Linked to your page: ${page}`;
 /** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
 export const buildingNowLine = (name: string) => `Building ${name}. I'll be back with the live link.`;
 /** v2.13.1 O2: once claimed, the page link after the stand line. */
@@ -160,13 +146,11 @@ export function chooseAsk(o: {
 }
 
 function standLines(v: BenchView): string[] {
-  // v2.13.4 (spec 2): the X claim is the reply's one question (the ask), never a line beside another ask.
-  const claim = v.building && !v.claimed && v.claimLink ? [claimLine(v.claimLink)] : [];
-  // v2.13.4 (spec 2, R4): once claimed, "Your page: ..." (or, right after a join, "Linked to your page: ...").
+  // v2.13.4 (spec 2, R4): once claimed, "Your page: ...".
   // One link a reply: beside the install ask's link the page is named without https (earnkit.com/<handle>).
   const shown = v.ask?.kind === 'install_app' && v.handle ? pageUrl(v.handle) : v.page;
-  const page = v.claimed && v.handle && shown ? [v.linked ? linkedLine(shown) : pageLine(shown)] : [];
-  if (v.building) return [buildingNowLine(v.building), ...claim, ...page];
+  const page = v.claimed && v.handle && shown ? [pageLine(shown)] : [];
+  if (v.building) return [buildingNowLine(v.building), ...page];
   const p = v.project;
   if (!p) return [NO_PROJECT_LINE, ...page];
   // v2.13.4 (spec 3): the install ask says the project is private itself.
@@ -179,12 +163,6 @@ function standLines(v: BenchView): string[] {
   if (!v.claimed) return [CONFIRMED_LINE(p.name)];
   return [onBenchLine(p.name, v.rank, p.weeks), ...page];
 }
-/**
- * Whether the reply shows the claim link (find's `claim` field goes with it). v2.13.4: only as the claim
- * ask (or beside a build in progress). Pure.
- */
-export const showsClaimLink = (v: BenchView): boolean => Boolean(!v.claimed && v.claimLink && (v.ask?.kind === 'claim' || v.building));
-
 function fundLines(v: BenchView): string[] {
   const name = v.project?.name ?? '';
   const ideas = v.fund.filter((f): f is Extract<FundLine, { kind: 'idea' }> => f.kind === 'idea');

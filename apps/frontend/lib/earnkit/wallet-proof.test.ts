@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { verifyMessage } from 'viem';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { WALLET_TEXT, proveWallet, upgradeToken, upgradeOf, walletGet, walletMessage, walletPost } from './wallet-proof';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';

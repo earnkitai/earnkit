@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { discover, discoverPerson, enqueueClue, enqueueDiscovery, localGitInput, provenLogin } from './discovery';
 import { rememberWallets } from './installations';
 import { rescorePerson, standingOf } from './person-score';

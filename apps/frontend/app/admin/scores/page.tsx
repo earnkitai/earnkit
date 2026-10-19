@@ -1,7 +1,6 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { heldForReview, partLines, scoresAdminKey } from '@/lib/earnkit/builder-score';
-import { loginContests } from '@/lib/earnkit/login-contests';
 import { oneParam, secretMatches } from '@/lib/earnkit/http';
 import { ownerClears, xHandleConflicts } from '@/lib/earnkit/profiles';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
@@ -37,8 +36,6 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
   const held = await heldForReview();
   // v2.12 T7 review: X handles two people's GitHub profiles list (self-declared): clear the holder's.
   const conflicts = await xHandleConflicts();
-  // v2.12.1 T5 fix round 2: GitHub logins two unlinked groups prove; confirmed for none until ruled.
-  const contests = await loginContests();
   // Final fix wave: X accounts the owner cleared claim nothing again until released here.
   const cleared = await ownerClears();
   return (
@@ -115,27 +112,6 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
                 <input type="hidden" name="builder" value={c.builder_id} />
                 <button type="submit" className="underline">Release</button>
               </form>
-            </li>
-          ))}
-        </ul>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">Contested GitHub logins</h2>
-        <p className="mt-2 text-sm">
-          Two or more agents that are not one person signed in as the same GitHub. It counts for none of them, unless one has the X that GitHub profile lists. Confirming it for one takes it off the others.
-        </p>
-        {contests.length === 0 ? <p className="mt-6 text-sm text-ek-white">No contests.</p> : null}
-        <ul className="mt-6 text-sm">
-          {contests.map((c) => (
-            <li key={c.login} className="flex flex-wrap gap-4 border-t border-ek-navy py-2">
-              <span>{c.line}</span>
-              {c.groups.map((g) => (
-                <form key={g} method="post" action="/api/admin/scores">
-                  <input type="hidden" name="key" value={key} />
-                  <input type="hidden" name="action" value="rule_login" />
-                  <input type="hidden" name="login" value={c.login} />
-                  <input type="hidden" name="builder" value={g} />
-                  <button type="submit" className="underline">Confirm for #{g}</button>
-                </form>
-              ))}
             </li>
           ))}
         </ul>

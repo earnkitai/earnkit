@@ -44,12 +44,6 @@ const pick = (a: Args, keys: string[]): Args => Object.fromEntries(keys.filter((
 /** v2.12 (R23): yesNo lives in yes-no.ts (tools.ts reads it there); re-exported for old imports. */
 export { yesNo };
 
-/** pick_up_entries' answer as tell's "yes" or "no"; an unclear one passes as given (tell refuses it). */
-const pickupOf = (v: unknown) => {
-  const a = yesNo(v);
-  return a === null ? v : a ? 'yes' : 'no';
-};
-
 /**
  * An old tool call as its new tool and arguments, until ALIASES_UNTIL (R17) or with
  * EARNKIT_TOOL_ALIASES=on (aliasesOn); null for any other name or after the date. Pre-flight P15:
@@ -69,7 +63,8 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
   const newForm = ['yes', 'skip_token', 'check', 'submitted', 'pickup'].some((k) => a[k] !== undefined);
   if (newForm && ['confirm_entry', 'launch_token', 'record_submission'].includes(name))
     return { name: a.submitted !== undefined && a.yes === undefined && a.skip_token === undefined && a.program_id === undefined ? 'tell' : 'confirm', args: a };
-  if (newForm && name === 'pick_up_entries') return { name: 'tell', args: a };
+  // v2.14 T7: there is no pickup any more; an old pick_up_entries call is an empty tell (nothing to pick up).
+  if (name === 'pick_up_entries') return { name: 'tell', args: {} };
   switch (name) {
     case 'list_programs':
       return { name: 'find', args: a };
@@ -131,8 +126,6 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
     }
     case 'tell_earnkit':
       return { name: 'tell', args: a };
-    case 'pick_up_entries':
-      return { name: 'tell', args: { pickup: pickupOf(a.answer) } };
     default:
       return null;
   }

@@ -33,7 +33,7 @@ export type MoveUp = {
   line: string;
 };
 export type StandView = {
-  standing: Standing; claimed: boolean; handle: string | null; claimLink: string | null;
+  standing: Standing; claimed: boolean; handle: string | null; signInLink: string | null;
   projects: StandProject[]; earn: EarnLine[]; fresh: { title: string; prize: string } | null; step: MoveUp | null; news: string | null;
   /**
    * Money already on the way, first under "Ways to earn right now": the deadline line and an entry

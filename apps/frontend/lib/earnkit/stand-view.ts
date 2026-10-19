@@ -1,4 +1,4 @@
-import { claimLink } from './claim';
+import { signInLink } from './x-link';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { REFRESH_BUDGET_MS, refreshPerson, standingOf, trackingHeld } from './person-score';
@@ -114,7 +114,8 @@ export const hostFor = (agentCanBuild: boolean) => (key: string) => REPO_KEY.tes
 
 /**
  * The person's view without programs or a step: their standing (Task 4), their projects (shipped
- * first, then people, then newest), and the claim link while they have no page. Null without a profile.
+ * first, then people, then newest), and the X sign-in link while they have no page (x-link.ts signInLink, for the
+ * caller's own installation). Null without a profile.
  */
 export async function standBase(id: number, o: { fresh?: TipSwitches; own?: number } = {}): Promise<{ base: StandBase; seen: Seen; created_at: Date; page_ready_shown_at: Date | null } | null> {
   const [p] = await sql()<{ standing_seen: unknown; created_at: Date; page_ready_shown_at: Date | null }[]>`
@@ -179,8 +180,8 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
     confirmed: r.confirmed,
   }));
   const claimed = s.claimed && Boolean(s.handle);
-  const link = claimed ? null : await claimLink(id, o.own ?? id).catch((err: unknown) => {
-    console.error('[stand] claim link', err instanceof Error ? err.name : 'error');
+  const link = claimed ? null : await signInLink(o.own ?? id, new Date()).catch((err: unknown) => {
+    console.error('[stand] sign-in link', err instanceof Error ? err.name : 'error');
     return null;
   });
   const standing: Standing = { ranked: s.ranked, rank: s.rank, total: s.total };
@@ -195,8 +196,8 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
   const past = projects.find((x) => x.shipped && x.untracked_contract && x.untracked_people > 0 && !pastKey(x.key) && (x.provable || canProve));
   if (past?.provable) past.certain = !(await trackingHeld(id, past.untracked_contract!, new Date()));
   // Fix round 1 (ruling 4): a step is offered only when its yes can deliver. `prove`: the one tap to
-  // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the claim
-  // link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
+  // show work is theirs can be made (claimed: the wallet page needs the secret; unclaimed: the X
+  // sign-in link, X sign-in on). `tag`: the person code can be made. `tips`: a tip jar can be deployed now
   // (read only when a project could be offered one).
   const tipsWanted = projects.some((x) => x.shipped && x.app && !x.sends_tx && paymentStepFits(`${x.what ?? ''} ${x.name}`));
   const can = {
@@ -205,7 +206,7 @@ export async function standBase(id: number, o: { fresh?: TipSwitches; own?: numb
     tips: tipsWanted ? (await tipsPick(id, new Date(), o.fresh).catch(() => null)) !== null : false,
   };
   return {
-    base: { standing, claimed, handle: claimed ? s.handle : null, claimLink: link, projects, can, ...(declined.length > 0 && { declined }) },
+    base: { standing, claimed, handle: claimed ? s.handle : null, signInLink: link, projects, can, ...(declined.length > 0 && { declined }) },
     seen,
     created_at: p.created_at,
     page_ready_shown_at: p.page_ready_shown_at,

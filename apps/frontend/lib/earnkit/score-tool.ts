@@ -14,7 +14,6 @@ export type StandScoreReply = {
   show_to_builder: string;
   agent_note?: string;
   move_up?: { kind: MoveUp['kind']; project_key: string | null; agent_note: string };
-  claim?: { link: string };
   lead?: { program_id: string };
   /** With a lead: prepare it with lead.program_id when the builder picks it (find's EARN_NOTE). */
   note?: string;

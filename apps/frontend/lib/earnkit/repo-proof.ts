@@ -2,6 +2,7 @@ import { CONFIRMED_PROOFS } from './confirmed';
 import { sql, type Db } from './db';
 import { appTokenFor, githubAppEnabled, installationToken, repoInstallation, type AppDeps } from './github-app';
 import { createVerifyLink, repoEverDerived } from './github-verify';
+import { lockPerson } from './identity';
 import { sharedGroup } from './installations';
 import { profileChanged } from './profile-cache';
 import { hit, windowStart } from './rate-limit';
@@ -103,9 +104,9 @@ type RepoMeta = { id?: unknown; full_name?: unknown; private?: unknown; fork?: u
  * ranks it. A fork or template is refused (`derived`); a repo another person holds with the App stays theirs
  * (`taken`); another person's non-App hold is replaced (REPLACED_BY_APP, rescored).
  * Preflight S8: the hold check and the write run in ONE transaction under the repo's advisory lock
- * (`repo_hold:<key>`), so two people completing the App on one repo at once can't both hold it. The person's
- * own `source_proof:<id>` lock (page-joins.ts attachFresh takes it too) keeps an R1 join's emptiness check
- * and this write apart.
+ * (`repo_hold:<key>`), so two people completing the App on one repo at once can't both hold it. Then the
+ * person's lock (identity.ts lockPerson, so attachToX can't attach this root to a page meanwhile) and its
+ * `source_proof:<id>` lock, in the global order identity.ts lockPerson documents.
  */
 export async function proveByApp(a: { builderId: number; repoKey: string; githubInstallationId: number }, deps: AppDeps = {}): Promise<RepoProof> {
   const key = a.repoKey.toLowerCase();
@@ -144,8 +145,8 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   const replaced: number[] = [];
   const out = await sql().begin(async (tx): Promise<RepoProof> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`repo_hold:${key}`}))`;
-    // Fix round 1: the person's page lock before the source lock, the order page-joins.ts attachFresh takes them in.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${a.builderId}`}))`;
+    // The person's lock before the source lock (the global order, identity.ts lockPerson).
+    await lockPerson(tx, a.builderId);
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`source_proof:${a.builderId}`}))`;
     // Only while the builder id is still a person's root (an installation attached to a page meanwhile writes nothing).
     const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${a.builderId}`;

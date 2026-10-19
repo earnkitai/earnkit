@@ -47,13 +47,13 @@ test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic
     // v2.13.4: a caller's transaction may defer it until its commit (afterCommit).
     assert.match(body, /profileChanged\(\)|afterCommit\(db, profileChanged\)/, fn);
   }
-  const claim = readFileSync(join(import.meta.dirname, 'claim.ts'), 'utf8');
-  const bind = claim.slice(claim.indexOf('export async function bindX(')).split('\nexport ')[0];
-  // v2.14 T4: bindX (and attachToX) run afterBind once the transaction committed; afterBind expires the cache.
-  assert.match(bind, /await afterBind\(/, 'bindX');
-  const after = claim.slice(claim.indexOf('export async function afterBind(')).split('\nexport ')[0];
-  assert.match(after, /profileChanged\(\)/, 'afterBind');
+  // v2.14 T4, T7: bindX (and attachToX) run afterBind once the transaction committed; afterBind expires the cache
+  // in a finally, so a failed discovery enqueue never leaves a stale page.
   const install = readFileSync(join(import.meta.dirname, 'x-install.ts'), 'utf8');
+  const bind = install.slice(install.indexOf('export async function bindX(')).split('\nexport ')[0];
+  assert.match(bind, /await afterBind\(/, 'bindX');
+  const after = install.slice(install.indexOf('export async function afterBind(')).split('\nexport ')[0];
+  assert.match(after, /finally \{\s*profileChanged\(\);/, 'afterBind');
   assert.match(install.slice(install.indexOf('export async function attachToX(')), /await afterBind\(/, 'attachToX');
   // v2.12.1 T12: the v2.12 page (ProfileView, profile-load, profile-data) is gone; /b/ serves reserved handles only.
   for (const gone of ['../../app/b/[slug]/ProfileView.tsx', '../../app/b/[slug]/profile-load.ts', 'profile-data.ts'])

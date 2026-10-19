@@ -1,10 +1,14 @@
 import { createHash, randomBytes } from 'node:crypto';
+import type postgres from 'postgres';
 import { xSignInEnabled } from './builder-score-flag';
 import { X_ICON, brandShell } from './brand-page';
-import { afterBind, bindXIn, type BoundX } from './claim';
 import { sql } from './db';
+import { enqueueDiscovery } from './discovery';
+import { noteEvent } from './events';
 import { cookieValue } from './github-verify';
+import { lockPerson, rootOf } from './identity';
 import { issueCode, publicOrigin, type CheckedAuthorize, type PendingAuthorize } from './oauth';
+import { profileChanged } from './profile-cache';
 import { ensureProfile } from './profiles';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { pkcePair, xAuthorizeUrl, xOAuth, type XOAuthDeps, type XUser } from './x-oauth';
@@ -76,7 +80,7 @@ type CallbackDeps = { x?: XOAuthDeps; limit?: (request: Request) => Promise<unkn
 const limitOf = (request: Request) => enforce('xSignIn', clientIp(request.headers), SIGNIN_TEXT.busy);
 
 /**
- * GET /x/callback for a v2.14 sign-in. Null when the state isn't one (the claim flow handles it until T7).
+ * GET /x/callback for a v2.14 sign-in. Null when the state isn't one (the route answers 404).
  * This browser's cookie must match the row (else 403, before any X call, and the row stays for its own
  * browser); the row is deleted on use. X down: 502, nothing issued.
  */
@@ -170,10 +174,10 @@ export async function attachToX(own: number, user: XUser, now: Date): Promise<At
 class StaleRead extends Error {}
 
 /**
- * One attempt. Lock order (fix round 2; see identity.ts linkInTx): the advisory locks `x_attach:<id>`, `x_user:<id>`,
- * `x_handle:<h>` (bindX's order), then `page_join:<root>` for the installation's group root and the X's page root,
- * sorted (as attachFresh and answerJoin take them), then `own` and its members' installation rows in id order (one
- * statement), then the profile rows of `own`, its root and the X's page in builder_id order (one statement).
+ * One attempt. Lock order (the global order, identity.ts lockPerson): the advisory locks `x_attach:<id>`, `x_user:<id>`,
+ * `x_handle:<h>` (bindX's order), then `person:<root>` (lockPerson) for the installation's group root and the X's page
+ * root, sorted, then `own` and its members' installation rows in id order (one statement), then the profile rows of
+ * `own`, its root and the X's page in builder_id order (one statement).
  */
 async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachResult> {
   let done: { root: number; out: BoundX; created: boolean };
@@ -189,7 +193,7 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
         FROM installations i WHERE i.id = ${own}`;
       if (!pre) throw new Error('no installation');
       for (const r of [...new Set([pre.mine, pre.held ?? pre.mine])].sort((a, b) => a - b))
-        await tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${r}`}))`;
+        await lockPerson(tx, r);
       await tx`SELECT id FROM installations WHERE id = ${own} OR builder_id = ${own} ORDER BY id FOR UPDATE`;
       const [me] = await tx<{ builder_id: number | null; shared: boolean; x: string | null }[]>`
         SELECT builder_id, shared_client AS shared, x_user_id AS x FROM installations WHERE id = ${own}`;
@@ -247,6 +251,91 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
     throw err;
   }
   // Fix round 2 (C): the bind is committed; a failed after-step (event, discovery, cache) is logged, never a failure.
-  await afterBind(done.root, user, done.out).catch((err: unknown) => console.error('[x attach] afterBind', err instanceof Error ? err.name : 'error'));
+  await afterBind(done.root, user, done.out).catch((err: unknown) => console.error('[x attach] afterBind', errText(err)));
   return { ok: true, root: done.root, handle: done.out.handle, created: done.created };
+}
+
+/** A failure for the log: the Postgres error code and message (never a query's values), else the error's name. Pure. */
+export function errText(err: unknown): string {
+  if (!(err instanceof Error)) return 'error';
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? `${code} ${err.message}` : `${err.name}: ${err.message}`;
+}
+
+// ---- The X profile writer (v2.14 T7: moved from claim.ts; the claim page, its joins and the held branch are gone) ----
+
+export type BindResult = { ok: true; handle: string; root: number } | { ok: false; reason: 'claimed_by_other' | 'owner_cleared' };
+
+/**
+ * The X profile on `builderId`'s person (its group root). One X account per person: a person claimed with another X
+ * account is refused ('claimed_by_other'), an X account the owner cleared binds nowhere ('owner_cleared'). Else the X
+ * id, handle, name and picture are written; the page moves to the handle, the old handle (a rename) redirects for
+ * HANDLE_REDIRECT_DAYS, and the old slug follows the person. Nobody is ever asked: attachToX resolves an X account
+ * another page holds before it writes (under its `x_attach` lock), so this only binds the page's own root. An X account
+ * already on another page is refused by the database (builder_profiles_x_user), never merged.
+ */
+export async function bindX(builderId: number, user: XUser, now: Date): Promise<BindResult> {
+  const root = await rootOf(builderId);
+  const out = await sql().begin((tx) => bindXIn(tx, root, user, now));
+  if (!out.ok) return out;
+  await afterBind(root, user, out);
+  return { ok: true, handle: out.handle, root };
+}
+
+/** What bindXIn did, for afterBind (its events and caches, after the commit). */
+export type BoundX = { ok: true; handle: string; renamed: boolean; first: boolean };
+
+/**
+ * bindX's checks and writes on group root `root`, inside the caller's transaction (attachToX binds the installation
+ * and its page in one). Takes the `x_user:<id>` and `x_handle:<h>` locks.
+ */
+export async function bindXIn(tx: postgres.TransactionSql, root: number, user: XUser, now: Date): Promise<BoundX | Exclude<BindResult, { ok: true }>> {
+  const h = user.username.toLowerCase();
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_user:${user.id}`}))`;
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${h}`}))`;
+  const [p] = await tx<{ x_user_id: string | null; x_handle: string | null; slug: string }[]>`
+    SELECT x_user_id, x_handle, slug FROM builder_profiles WHERE builder_id = ${root} FOR UPDATE`;
+  if (!p) throw new Error('no profile');
+  // An X account the owner cleared binds nowhere until the owner releases it.
+  const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
+  if (cleared) return { ok: false as const, reason: 'owner_cleared' as const };
+  if (p.x_user_id && p.x_user_id !== user.id) return { ok: false as const, reason: 'claimed_by_other' as const };
+  // X says this handle is this account's now. A stale holder is cleared (hidden until they sign in again); no
+  // history row may send this handle anywhere else; an unclaimed profile whose internal slug equals it moves to a
+  // random one.
+  await tx`UPDATE builder_profiles SET x_handle = NULL, slug = 'b-' || substr(md5(random()::text), 1, 8), updated_at = now()
+    WHERE builder_id <> ${root} AND (lower(x_handle) = ${h} OR slug = ${h})`;
+  await tx`DELETE FROM profile_slug_history WHERE old_slug = ${h}`;
+  const renamed = p.x_user_id !== null && p.x_handle !== null && p.x_handle.toLowerCase() !== h;
+  if (renamed)
+    await tx`
+      INSERT INTO profile_slug_history (old_slug, builder_id, moved_at, handle_rename) VALUES (${p.x_handle!.toLowerCase()}, ${root}, ${now}, true)
+      ON CONFLICT (old_slug) DO UPDATE SET builder_id = EXCLUDED.builder_id, moved_at = EXCLUDED.moved_at, handle_rename = true`;
+  // slug's CHECK wants a leading letter or digit; an X handle may start with '_' (then the old slug stays).
+  const slug = /^[a-z0-9]/.test(h) ? h : p.slug;
+  if (slug !== p.slug)
+    await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
+  // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; X sending none keeps the stored one.
+  const keep = user.avatar === null;
+  await tx`
+    UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
+      claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
+    WHERE builder_id = ${root}`;
+  await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
+  return { ok: true as const, handle: user.username, renamed, first: p.x_user_id === null };
+}
+
+/**
+ * bindX's effects once its transaction committed: the claim or rename event, discovery, the profile cache. Carried
+ * review fix: the cache is dropped whatever discovery does, so a failed enqueue never leaves a stale page.
+ */
+export async function afterBind(root: number, user: XUser, out: BoundX): Promise<void> {
+  const h = user.username.toLowerCase();
+  try {
+    const type = out.first ? 'page_claimed' : out.renamed ? 'x_renamed' : null;
+    if (type) await noteEvent(type, () => ({ type, dedupe_key: `${type}:${root}:${h}`, installation_id: root }));
+    await enqueueDiscovery(root, 'signin'); // the X field match is checked on the next read
+  } finally {
+    profileChanged();
+  }
 }

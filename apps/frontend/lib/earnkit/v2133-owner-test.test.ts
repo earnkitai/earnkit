@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { tools, listProgramsInput } from './tools';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX as claimFx, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import * as React from 'react';

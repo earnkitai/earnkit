@@ -96,14 +96,14 @@ export const RECORDS_REMOVAL_AFTER = [
 
 /**
  * v2.12 spec 8, v2.12.1 T12: /terms#builder-profiles, in plain words (app/terms/page.tsx). Each point matches the code: the page is public only after the X
- * claim (claim.ts bindX; profiles.ts resolveHandle); it shows the X name and picture, projects,
+ * claim (x-install.ts bindX; profiles.ts resolveHandle); it shows the X name and picture, projects,
  * people and money when measured, programs entered and won (page-data.ts); the readers read only
  * cheap public data and EarnKit's own records and never add anything to a site (person-github.ts,
  * source-readers.ts, S9: no earnkit.txt); only confirmed proofs count (confirmed.ts); a second agent
  * joins one page only with a yes (identity.ts pending joins); hide is tell's profile: 'hide', and a
  * hidden person is in no one's rank (person-score.ts listedRanked, T11); X is read at each sign-in
  * (a rename is picked up then, plan S4) and EarnKit keeps the X user id, handle, name and picture
- * (x-oauth.ts, claim.ts bindX). The page shows the rank and the score ring only when the rank reads
+ * (x-oauth.ts, x-install.ts bindX). The page shows the rank and the score ring only when the rank reads
  * well (page-data.ts pageHead).
  */
 export const PROFILES_TITLE = 'Builder profiles';

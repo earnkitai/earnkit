@@ -1,4 +1,4 @@
-import { lockPageJoin } from './page-joins';
+import { lockPerson } from './identity';
 import { sql, withDeferred, type Db } from './db';
 import {
   CLUE_PATHS,
@@ -295,8 +295,8 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     for (const c of found) await claim(`${c.chain}:${c.address}`, key, { clue: c, repoCreated: meta.created_at ?? null });
   }
   // v2.12.1 S9: no merged-PR clue (4) and no earnkit.txt site check (6); existing rows stay, not confirmed.
-  // Every read is done: now the verdicts. v2.13.4 (final review): in one transaction holding this
-  // person's own root lock (`page_join:<root>`, which an R1 join onto a page never takes for the newcomer),
+  // Every read is done: now the verdicts. v2.13.4 (final review), v2.14: in one transaction holding this
+  // person's own lock (identity.ts lockPerson, which attachToX takes before it attaches `root` to a page),
   // only while `root` is still a group's root (an installation attached to a page meanwhile writes nothing),
   // and every verdict write on this same transaction's connection (never a second pooled connection while
   // the lock is held, so concurrent discoveries can't exhaust the pool).
@@ -306,7 +306,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   const verifiedBefore = out.verified;
   try {
     await withDeferred(async (tx) => {
-      await lockPageJoin(tx, root);
+      await lockPerson(tx, root);
       const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${root}`;
       if (r && r.root !== root) return;
       for (const v of verdicts) await v(tx);

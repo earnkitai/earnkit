@@ -3,7 +3,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { EVENT_LOG_FLAG } from './events';
 import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, raiseLine, showBuiltLive } from './coin-moments';
 import { offerKey, readShownOffer, recordDecline } from './token-offers';
