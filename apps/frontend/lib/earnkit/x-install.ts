@@ -43,7 +43,7 @@ export function signinPage(line: string, status: number, headers: Record<string,
 }
 
 /** One pending sign-in row and its cookie; returns X's authorize URL and the Set-Cookie value. Exported for T5. */
-export async function newSignin(row: { purpose: 'install'; oauth: PendingAuthorize } | { purpose: 'link'; installationId: number }, now = new Date()) {
+export async function newSignin(row: { purpose: 'install'; oauth: PendingAuthorize } | { purpose: 'link'; installationId: number; linkHash: string }, now = new Date()) {
   const { verifier, challenge } = pkcePair();
   const state = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
@@ -51,9 +51,9 @@ export async function newSignin(row: { purpose: 'install'; oauth: PendingAuthori
   // Expired one-use rows only (allowed by the Global Constraints, as OAuth states today).
   await sql()`DELETE FROM x_signins WHERE expires_at < now()`;
   await sql()`
-    INSERT INTO x_signins (state_hash, purpose, oauth, installation_id, code_verifier, csrf_hash, expires_at)
+    INSERT INTO x_signins (state_hash, purpose, oauth, installation_id, link_hash, code_verifier, csrf_hash, expires_at)
     VALUES (${h}, ${row.purpose}, ${row.purpose === 'install' ? sql().json(row.oauth as never) : null}, ${row.purpose === 'link' ? row.installationId : null},
-      ${verifier}, ${sha256(csrf)}, ${new Date(now.getTime() + STATE_TTL_MS)})`;
+      ${row.purpose === 'link' ? row.linkHash : null}, ${verifier}, ${sha256(csrf)}, ${new Date(now.getTime() + STATE_TTL_MS)})`;
   return { to: xAuthorizeUrl({ state, challenge }), cookie: setCookie(h, csrf) };
 }
 
@@ -71,7 +71,7 @@ export async function startInstallSignIn(c: CheckedAuthorize, now = new Date()):
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, 'Set-Cookie': cookie } });
 }
 
-type SigninRow = { purpose: 'install' | 'link'; oauth: PendingAuthorize | null; installation_id: number | null; code_verifier: string };
+type SigninRow = { purpose: 'install' | 'link'; oauth: PendingAuthorize | null; installation_id: number | null; link_hash: string | null; code_verifier: string };
 type CallbackDeps = { x?: XOAuthDeps; limit?: (request: Request) => Promise<unknown> };
 const limitOf = (request: Request) => enforce('xSignIn', clientIp(request.headers), SIGNIN_TEXT.busy);
 
@@ -98,7 +98,7 @@ export async function xSignInCallback(request: Request, deps: CallbackDeps = {})
   if (!csrf || !/^[A-Za-z0-9_-]{43}$/.test(csrf)) return signinPage(SIGNIN_TEXT.failed, 403);
   const [row] = await sql()<SigninRow[]>`
     DELETE FROM x_signins WHERE state_hash = ${h} AND csrf_hash = ${sha256(csrf)} AND expires_at > now()
-    RETURNING purpose, oauth, installation_id, code_verifier`;
+    RETURNING purpose, oauth, installation_id, link_hash, code_verifier`;
   const clear = clearCookie(h);
   if (!row) return signinPage(SIGNIN_TEXT.failed, 403, clear);
   const code = q.get('code') ?? '';
@@ -114,8 +114,10 @@ export async function xSignInCallback(request: Request, deps: CallbackDeps = {})
   const [cleared] = await sql()`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
   if (cleared) return signinPage(SIGNIN_TEXT.paused, 403, clear);
   // v2.14 T5: the fallback link's sign-in shows a paste code; nothing is bound until the agent sends it back.
-  if (row.purpose === 'link' && row.installation_id !== null)
-    return (await import('./x-link')).linkSignedIn(row.installation_id, user, clear, new Date());
+  if (row.purpose === 'link')
+    return row.installation_id !== null && row.link_hash
+      ? (await import('./x-link')).linkSignedIn(row.installation_id, user, clear, new Date(), row.link_hash)
+      : signinPage(SIGNIN_TEXT.failed, 400, clear);
   if (row.purpose !== 'install' || !row.oauth) return signinPage(SIGNIN_TEXT.failed, 400, clear);
   let to: URL;
   try {
@@ -160,11 +162,19 @@ export async function attachToX(own: number, user: XUser, now: Date): Promise<At
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_user:${user.id}`}))`;
       // bindX's handle lock before any row lock, in bindX's own order, so a concurrent bindX can't deadlock with it.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`x_handle:${user.username.toLowerCase()}`}))`;
+      // Lock order (fix round 1, beside identity.ts linkInTx): the advisory locks above, then `own` and its members'
+      // installation rows in id order, in one statement, before any other read.
+      await tx`SELECT id FROM installations WHERE id = ${own} OR builder_id = ${own} ORDER BY id FOR UPDATE`;
       const [me] = await tx<{ builder_id: number | null; shared: boolean; x: string | null }[]>`
-        SELECT builder_id, shared_client AS shared, x_user_id AS x FROM installations WHERE id = ${own} FOR UPDATE`;
+        SELECT builder_id, shared_client AS shared, x_user_id AS x FROM installations WHERE id = ${own}`;
       if (!me) throw new Error('no installation');
       if (me.x && me.x !== user.id) throw new AttachRefused('other_x');
       const mine = me.builder_id ?? own;
+      // Fix round 1 (1): an installation whose own or group root's page is claimed by another X account belongs to
+      // that person; it never leaves for another X (and never detaches that person's members).
+      const [otherX] = await tx`
+        SELECT 1 FROM builder_profiles WHERE builder_id IN (${own}, ${mine}) AND x_user_id IS NOT NULL AND x_user_id <> ${user.id}`;
+      if (otherX) throw new AttachRefused('other_x');
       const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
       if (cleared) throw new AttachRefused('owner_cleared');
       const [held] = await tx<{ root: number }[]>`SELECT builder_id AS root FROM builder_profiles WHERE x_user_id = ${user.id} FOR UPDATE`;

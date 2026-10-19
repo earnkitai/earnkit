@@ -1587,6 +1587,10 @@ CREATE TABLE IF NOT EXISTS x_signin_links (
 );
 CREATE INDEX IF NOT EXISTS x_signin_links_installation ON x_signin_links (installation_id, expires_at DESC);
 CREATE INDEX IF NOT EXISTS x_signin_links_paste ON x_signin_links (paste_hash) WHERE paste_hash IS NOT NULL;
+-- T5 fix round 1: the expired-row cleanups (newSignin, signInLink) use these; the link a 'link' sign-in opened.
+CREATE INDEX IF NOT EXISTS x_signins_expires ON x_signins (expires_at);
+CREATE INDEX IF NOT EXISTS x_signin_links_expires ON x_signin_links (expires_at);
+ALTER TABLE x_signins ADD COLUMN IF NOT EXISTS link_hash text;
 -- v2.14 bind:start
 -- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
 -- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.

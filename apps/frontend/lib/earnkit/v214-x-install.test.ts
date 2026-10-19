@@ -216,7 +216,8 @@ test('4.13 S5: a bindX refusal leaves the installation unbound and unattached (o
   const own = (await connectInstallation(t))!.own;
   // Its own (pre-v2.14) profile holds another X account without a handle: bindX refuses (claimed_by_other).
   await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at, x_user_id) VALUES (${own}, ${`ref${RUN}${own}`}, now(), ${`89${RUN}${own}`})`;
-  assert.deepEqual(await attachToX(own, person('fay'), new Date()), { ok: false, reason: 'claimed_by_other' });
+  // T5 fix round 1 (1): refused up front as other_x (its own page is another X's), before anything is written.
+  assert.deepEqual(await attachToX(own, person('fay'), new Date()), { ok: false, reason: 'other_x' });
   const [row] = await sql()<{ x: string | null; b: number | null }[]>`SELECT x_user_id AS x, builder_id AS b FROM installations WHERE id = ${own}`;
   assert.deepEqual(row, { x: null, b: null });
   assert.equal((await connectInstallation(t))!.x, null);

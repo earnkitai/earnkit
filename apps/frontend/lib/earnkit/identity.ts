@@ -35,7 +35,12 @@ export async function linkInstallations(own: number, roots: number[]): Promise<n
   return r.n;
 }
 
-/** linkInstallations inside a caller's transaction (v2.13.4: answerJoin checks and links in one). */
+/**
+ * linkInstallations inside a caller's transaction (v2.13.4: answerJoin checks and links in one).
+ * Lock order (v2.14 T5 fix round 1): advisory locks first, then installation rows. Here: `own`'s row only.
+ * x-install.ts attachToX: `x_attach`, `x_user`, `x_handle` advisory locks, then `own` and its members' rows in
+ * id order (one SELECT ... ORDER BY id FOR UPDATE), then profile rows.
+ */
 async function linkInTx(tx: postgres.TransactionSql, own: number, roots: number[]): Promise<{ n: number; moved: boolean }> {
   let profilesMoved = false;
   const n = await (async () => {

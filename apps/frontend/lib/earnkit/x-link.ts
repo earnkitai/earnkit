@@ -5,6 +5,7 @@ import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
+import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { SIGNIN_TEXT, attachToX, newSignin, signinPage } from './x-install';
 import type { XUser } from './x-oauth';
 
@@ -30,6 +31,7 @@ export const LINK_TEXT = {
   paste: (code: string) => `Paste this code to your agent: ${code}`,
   codeWarning: 'Anyone you give this code to can act as your EarnKit page. Paste it only into the agent you are using right now.',
   gone: 'This link is used or expired. Ask your agent for a new one.',
+  busy: 'Too many sign-in links opened from here. Try again in an hour.',
 } as const;
 export const SIGN_IN_NOTES = {
   bound: "Signed in. Show show_to_builder as written. Don't show this note.",
@@ -79,8 +81,19 @@ export async function signInLink(own: number, now: Date): Promise<string | null>
   return `${siteUrl()}/signin/${code}`;
 }
 
-/** GET /signin/<code>: an open link shows the agent, the warning and one Continue with X (the state bound to this browser). */
-export async function signinGet(_request: Request, code: string): Promise<Response> {
+const linkLimit = (request: Request) => enforce('signinLink', clientIp(request.headers), LINK_TEXT.busy);
+
+/**
+ * GET /signin/<code>: an open link shows the agent, the warning and one Continue with X (the state bound to this
+ * browser). Rate-limited per IP before any read or write (fix round 1: each view writes an x_signins row).
+ */
+export async function signinGet(request: Request, code: string, deps: { limit?: (request: Request) => Promise<unknown> } = {}): Promise<Response> {
+  try {
+    await (deps.limit ?? linkLimit)(request);
+  } catch (err) {
+    if (err instanceof RateLimitError) return signinPage(LINK_TEXT.busy, 429);
+    throw err;
+  }
   if (!xSignInEnabled()) return signinPage(SIGNIN_TEXT.notOpen, 200);
   if (!/^[A-Za-z0-9_-]{22}$/.test(code)) return signinPage(LINK_TEXT.gone, 410);
   const [row] = await sql()<{ installation_id: number; name: string | null; at: Date }[]>`
@@ -88,7 +101,7 @@ export async function signinGet(_request: Request, code: string): Promise<Respon
     WHERE l.link_hash = ${sha256(code)} AND l.used_at IS NULL AND l.x_user_id IS NULL AND l.expires_at > now()
       AND i.x_user_id IS NULL AND NOT i.shared_client`;
   if (!row) return signinPage(LINK_TEXT.gone, 410);
-  const { to, cookie } = await newSignin({ purpose: 'link', installationId: row.installation_id });
+  const { to, cookie } = await newSignin({ purpose: 'link', installationId: row.installation_id, linkHash: sha256(code) });
   const body = brandShell(
     `<h1>${escapeHtml(LINK_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(LINK_TEXT.agent(row.name, agoText(row.at)))}</p>` +
       `<p class="ek-small">${escapeHtml(LINK_TEXT.warning)}</p>` +
@@ -97,15 +110,13 @@ export async function signinGet(_request: Request, code: string): Promise<Respon
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, 'Set-Cookie': cookie } });
 }
 
-/** The callback's link branch: the X user and a paste code's hash are kept on the newest open link (15 minutes); nothing is bound. */
-export async function linkSignedIn(installationId: number, user: XUser, headers: Record<string, string>, now: Date): Promise<Response> {
+/** The callback's link branch: the X user and a paste code's hash are kept on the link this browser opened (15 minutes); nothing is bound. */
+export async function linkSignedIn(installationId: number, user: XUser, headers: Record<string, string>, now: Date, linkHash: string): Promise<Response> {
   const code = pasteCode();
   const [row] = await sql()<{ link_hash: string }[]>`
     UPDATE x_signin_links SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${user.avatar},
       paste_hash = ${sha256(code)}, paste_expires_at = ${new Date(now.getTime() + PASTE_TTL_MS)}
-    WHERE link_hash = (SELECT link_hash FROM x_signin_links WHERE installation_id = ${installationId} AND used_at IS NULL AND x_user_id IS NULL
-      AND expires_at > ${now} ORDER BY created_at DESC LIMIT 1)
-      AND x_user_id IS NULL
+    WHERE link_hash = ${linkHash} AND installation_id = ${installationId} AND used_at IS NULL AND x_user_id IS NULL AND expires_at > ${now}
     RETURNING link_hash`;
   if (!row) return signinPage(LINK_TEXT.gone, 410, headers);
   const body = brandShell(
@@ -118,19 +129,35 @@ export async function linkSignedIn(installationId: number, user: XUser, headers:
 /**
  * find { sign_in_code }: used once (the UPDATE ... used_at IS NULL ... RETURNING claims it), by the installation
  * that minted the link, within PASTE_TTL_MS; then attachToX. The lookup is by the code's sha256 (an indexed
- * equality on a hash, so no timing leak of the code itself). A refused attach still uses the code up.
+ * equality on a hash, so no timing leak of the code itself). A refused attach uses the code up; a thrown error
+ * (a transient failure) gives it back. Fix round 1 (6): the same code again from the same installation, once it is
+ * bound to that code's X, is ok (a retry after a failed reply), and binds nothing new.
  */
 export async function bindFromPaste(own: number, raw: unknown, now: Date): Promise<{ ok: true; root: number; handle: string } | { ok: false }> {
   const code = normalizePaste(raw);
   if (!code) return { ok: false };
-  const [row] = await sql()<{ x_user_id: string; x_handle: string; x_name: string | null; x_avatar_url: string | null }[]>`
+  const h = sha256(code);
+  const [row] = await sql()<{ link_hash: string; x_user_id: string; x_handle: string; x_name: string | null; x_avatar_url: string | null }[]>`
     UPDATE x_signin_links SET used_at = ${now}
-    WHERE paste_hash = ${sha256(code)} AND installation_id = ${own} AND used_at IS NULL AND paste_expires_at > ${now}
+    WHERE paste_hash = ${h} AND installation_id = ${own} AND used_at IS NULL AND paste_expires_at > ${now}
       AND x_user_id IS NOT NULL
-    RETURNING x_user_id, x_handle, x_name, x_avatar_url`;
-  if (!row) return { ok: false };
+    RETURNING link_hash, x_user_id, x_handle, x_name, x_avatar_url`;
+  if (!row) {
+    const [again] = await sql()<{ root: number; handle: string }[]>`
+      SELECT p.builder_id AS root, p.x_handle AS handle FROM x_signin_links l
+        JOIN installations i ON i.id = l.installation_id AND i.x_user_id = l.x_user_id
+        JOIN builder_profiles p ON p.x_user_id = l.x_user_id AND p.x_handle IS NOT NULL
+      WHERE l.paste_hash = ${h} AND l.installation_id = ${own} AND l.used_at IS NOT NULL AND l.paste_expires_at > ${now}`;
+    return again ? { ok: true, root: again.root, handle: again.handle } : { ok: false };
+  }
   const user: XUser = { id: row.x_user_id, username: row.x_handle, name: row.x_name ?? row.x_handle, avatar: row.x_avatar_url };
-  const r = await attachToX(own, user, now);
+  let r: Awaited<ReturnType<typeof attachToX>>;
+  try {
+    r = await attachToX(own, user, now);
+  } catch (err) {
+    await sql()`UPDATE x_signin_links SET used_at = NULL WHERE link_hash = ${row.link_hash} AND used_at = ${now}`.catch(() => undefined);
+    throw err;
+  }
   if (!r.ok) return { ok: false };
   // S2: a page bound by a pasted code is logged (the installation, the page; never the code).
   await noteEvent('signed_in_by_code', () => ({ type: 'signed_in_by_code', dedupe_key: `signed_in_by_code:${own}:${r.root}`, installation_id: own, detail: { root: r.root } }));
