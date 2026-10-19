@@ -319,3 +319,36 @@ test('L2.9 tell main_project switches to another App-proven repo, even a confirm
   await mcpCall(q.ctx, 'tell', { main_project: a });
   assert.equal(await mainProjectOf(q.id), null);
 });
+
+test('L2.12 final fix I2: an organization installation proves and holds only the repo that becomes the one project; the others stay free', db, async () => {
+  const p = await signedIn('ola');
+  const org = `guild${RUN}`;
+  const [a, b, c] = ['alpha', 'beta', 'gamma'].map((n) => `${org}/${n}`);
+  const inst = Number(`68${RUN}`);
+  const repo = (id: string, days: number) => ({ id: Number(id), owner: org, ownerType: 'Organization' as const, installation: inst, admins: [p.login], commits: [ago(days, `${id}c`)] });
+  const gh = fakeGitHub({ [a]: repo(`85${RUN}`, 9), [b]: repo(`86${RUN}`, 1), [c]: repo(`87${RUN}`, 4) });
+  const { res, text } = await setup(await pickerLink(p.ctx), p.login, inst, gh);
+  assert.equal(res.status, 200, text);
+  assert.equal(await mainProjectOf(p.id), b, 'the most recently pushed');
+  assert.deepEqual(await source(p.id, b), { state: 'verified', proof: 'github_app', reject_reason: null });
+  for (const k of [a, c]) assert.equal((await source(p.id, k))?.state === 'verified', false, `${k} is not held`);
+  assert.ok(text.includes(PICK_PAGE.remove(false)), 'one repo: "this repo"');
+  const v = await sql()<{ repo_key: string }[]>`SELECT repo_key FROM github_verifications WHERE installation_id = ${p.id} AND via = 'app' AND github_installation_id = ${inst}`;
+  assert.deepEqual(v.map((x) => x.repo_key), [b]);
+});
+
+test('L2.13 final fix I2: on an organization installation, a picked one project is the repo proven (not the newest)', db, async () => {
+  const p = await signedIn('pia');
+  const org = `crew${RUN}`;
+  const [old, fresh] = [`${org}/old`, `${org}/fresh`];
+  await mcpCall(p.ctx, 'find', { identity: { project: { name: 'Old', repo: `https://github.com/${old}` } } });
+  assert.equal(await mainProjectOf(p.id), old);
+  const inst = Number(`69${RUN}`);
+  const repo = (id: string, days: number) => ({ id: Number(id), owner: org, ownerType: 'Organization' as const, installation: inst, admins: [p.login], commits: [ago(days, `${id}c`)] });
+  const gh = fakeGitHub({ [old]: repo(`88${RUN}`, 20), [fresh]: repo(`89${RUN}`, 1) });
+  const { res, text } = await setup(await pickerLink(p.ctx), p.login, inst, gh);
+  assert.equal(res.status, 200, text);
+  assert.equal(await mainProjectOf(p.id), old);
+  assert.deepEqual(await source(p.id, old), { state: 'verified', proof: 'github_app', reject_reason: null });
+  assert.equal((await source(p.id, fresh))?.state === 'verified', false, 'the newer org repo stays free');
+});

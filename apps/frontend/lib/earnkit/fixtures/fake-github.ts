@@ -55,7 +55,7 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
     if ((m = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(p)) && method === 'POST') return json(201, { token: `ghs_fake_${m[1]}` });
     if ((m = /^\/app\/installations\/(\d+)$/.exec(p))) {
       const r = Object.values(repos).find((x) => x.installation === Number(m![1]));
-      return r ? json(200, { account: { login: r.owner } }) : json(404, {});
+      return r ? json(200, { account: { login: r.owner, type: r.ownerType ?? 'User' } }) : json(404, {});
     }
     // Launch ready L2: the picker's setup reads pushed_at (the newest commit's date) and pages by per_page and page.
     if (p === '/installation/repositories') {

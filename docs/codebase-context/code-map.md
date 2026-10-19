@@ -1114,7 +1114,8 @@ apps/frontend/
                                repo-proof.ts proveByApp for the person's root)
                                Launch ready L2: installationToken(id, null) (the installation's repo list, metadata read);
                                pickedRepos (GET /installation/repositories, PICK_LIST_MAX 100, newest push first; own account
-                               or admin, R8; PICK_ADMIN_CHECKS 30 in batches of PICK_ADMIN_BATCH 5; stops at PICK_PROVE_MAX 20);
+                               or admin, R8; PICK_ADMIN_CHECKS 30 in batches of PICK_ADMIN_BATCH 5; stops at PICK_PROVE_MAX 20; returns org: an organization's installation proves
+                               only the one project's repo, final fix I2);
                                pickSetup (appSetup for a PICK_REPOS nonce, one PICK_BUDGET_MS 25 s deadline through
                                budgetedFetch: repo-proof.ts proveOne per repo, the verification only for a proven one; the one
                                project kept when picked, else setMainProject(newest proven); connectProven in what is left);
@@ -1451,8 +1452,8 @@ apps/frontend/
     bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
                                no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
                                STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
-                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; R8 ranked: SHIP_STEP
-                               "Ship this week to climb.", kind ship); benchReply: stand line (+ the why, "Your page"),
+                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; ranked: the weekly target
+                               line (L5, weekly-target.ts), SHIP_STEP "Ship this week to climb." only without a Shipping row, kind ship); benchReply: stand line (+ the why, "Your page"),
                                "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
                                Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
                                else the page; none when there is no page, X off). Launch ready L2: no_project asks the
@@ -1547,7 +1548,8 @@ apps/frontend/
                                sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
                                as of now's week); R16b removed countUse
     weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
-                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."), weekStartLine (the moment's "This week starts empty: ..." line), poolPlace
+                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."; final fix I3: "D short of #k"
+                               via shortOf), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
                                (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
@@ -1583,6 +1585,7 @@ apps/frontend/
                                when last week isn't fully read); no weekly call past ReaderDeps.deadline.
     badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
                                ranked"), badgeMarkdown, badgeFor ("not found" for unknown, unclaimed, hidden), badgeResponse
+                               final fix M6: badgeFileOk / badgeMiss (a name that can't be a handle never reaches the cache or DB)
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),

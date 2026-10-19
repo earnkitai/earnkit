@@ -23,3 +23,19 @@ Owner, 2026-10-19:
 | L10 | **UX pass:** walk the whole site and the agent flow as a new builder and as a designer, on desktop and mobile. Fix every bug, inconsistency, confusing line and broken layout found. Run it as one batched pass, then one confirm pass. |
 
 Out of scope (owner): trends, records, milestones, chain comparisons, the score preview, the daily live check, sponsor prizes, and token flows.
+
+## Recorded at build (2026-10-20)
+
+- **Ranks only.** No other builder's name or handle in any reply, target line, moment or share text: the weekly
+  target names ranks ("enough to pass #2", "7 short of #2", "to hold #1"). Another builder's X name is text they
+  control, so it never reaches an agent.
+- **The target in public.** The profile shows the same weekly target in a neutral voice for visitors ("Code this week
+  adds +14 points, enough to pass #2."); replies keep "Ship code this week: ...".
+- **Visitor CTA.** Every profile ends with "Want your own page? It is free." and the install button; the header's "Add
+  to your agent" is on every page.
+- **L4.** No program was added: research found no official program with a dated deadline between Oct 25 and Dec 31 on
+  a fitting chain.
+- **Org picker.** On an organization's GitHub App installation the repo picker proves and holds only the repo that
+  becomes the main project; on the builder's own account it proves up to 20 picked repos.
+- **`shared` in /api/stats** counts weeks confirmed at the weekly share offer (a yes), not proven posts. Tell
+  jenil.ai so it labels the number that way.

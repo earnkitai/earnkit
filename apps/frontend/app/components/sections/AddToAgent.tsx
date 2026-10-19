@@ -287,14 +287,22 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
   return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
 }
 
-/** A shell command that wraps only between words: a flag like --transport never splits at its hyphens. */
-function Command({ text }: { text: string }) {
+/**
+ * A command or config that wraps only between words: a flag like --transport never splits at its hyphens. Lines
+ * first (final fix I1): a multi-line block (Cursor's mcp.json) keeps its line breaks and indentation.
+ */
+export function Command({ text }: { text: string }) {
   return (
     <>
-      {text.split(' ').map((word, i) => (
-        <span key={i}>
-          {i > 0 && ' '}
-          <span className="whitespace-nowrap">{word}</span>
+      {text.split('\n').map((line, l) => (
+        <span key={l}>
+          {l > 0 && '\n'}
+          {line.split(' ').map((word, i) => (
+            <span key={i}>
+              {i > 0 && ' '}
+              <span className="whitespace-nowrap">{word}</span>
+            </span>
+          ))}
         </span>
       ))}
     </>

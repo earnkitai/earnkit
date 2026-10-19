@@ -87,7 +87,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   // Not enough to pass: the builder above far ahead.
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(behind.endsWith('How to move up\nShip code this week: +13 points, 34 behind #1.'), behind);
+  assert.ok(behind.endsWith('How to move up\nShip code this week: +13 points, 22 short of #1.'), behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
@@ -136,7 +136,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   const [lead, titles, week] = s.split('\n');
   assert.equal(lead, 'Last week you finished at Shipping 50 (+6), #2 (up 1).', s);
   assert.equal(titles, 'Add dark mode · Fix the login loop', 'no title with a host');
-  assert.equal(week, 'This week starts empty: ship code to add +13 points, 17 behind #1.');
+  assert.equal(week, 'This week starts at Shipping 35: ship code to add +13 points, 5 short of #1.');
   assert.ok(s.split('\n\n')[1].startsWith('Where you stand'), 'the moment leads, then the usual reply');
   const share = links(s);
   assert.equal(share.length, 1, `one link: ${s}`);
@@ -177,7 +177,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   for (const tool of ['find', 'score'] as const) {
     const again = show(await mcpCall(ctx(me.id), tool, {}));
     assert.doesNotMatch(again, /Last week|Share your week/, `${tool}: ${again}`);
-    assert.match(again, /How to move up\nShip code this week: \+\d+ points, \d+ behind #1\.$/, again);
+    assert.match(again, /How to move up\nShip code this week: \+\d+ points, \d+ short of #1\.$/, again);
   }
 });
 
@@ -190,13 +190,14 @@ test('L6.4 the moment through score, once per installation (another agent of the
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(s.startsWith('Last week you finished at Shipping 30, #1.\nThis week starts empty: ship code to add +14 points to hold #1.\n\nWhere you stand'), s);
+  assert.match(s, /^Last week you finished at Shipping 30, #1\.\nThis week starts at Shipping \d+: ship code to add \+14 points to hold #1\.\n\nWhere you stand/, s);
   assert.doesNotMatch(s, /Secret launch/);
   assert.match(s, /Share your week on X: https:\/\/x\.com\/intent\/post\?\S+\nDoes last week look right\?$/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  // Final fix M1: an agent that drops project_key still answers the one open offer.
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
   const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
@@ -227,7 +228,7 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
     replies.push(JSON.stringify(r.reply));
   }
   assert.ok(replies[0].includes('Last week you finished at Shipping 40, #2.'), 'the moment showed');
-  assert.ok(replies.some((r) => r.includes('Ship code this week: +14 points,') && r.includes('behind #1.')), 'the target showed');
+  assert.ok(replies.some((r) => r.includes('Ship code this week: +14 points,') && r.includes('short of #1.')), 'the target showed');
   for (const r of replies) {
     noHostile(r);
     assert.ok(!r.includes('ignore_prev'), r);

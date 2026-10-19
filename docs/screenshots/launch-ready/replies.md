@@ -15,7 +15,7 @@ Circle Developer Grants: up to $100K for an Arc app, once it's live.
 Avalanche Team1 Mini Grants: up to $10K for an Avalanche app.
 
 How to move up
-Sign in with X to get your page (one click): https://earnkit.com/signin/ciyTFQzN89wUFt6Olr76Aw
+Sign in with X to get your page (one click): https://earnkit.com/signin/cIHreu3OKIKkh5WKdmUQnw
 Want me to put your work on the leaderboard once you're in?
 ```
 
@@ -35,7 +35,7 @@ Circle Developer Grants: up to $100K for an Arc app, once it's live.
 Avalanche Team1 Mini Grants: up to $10K for an Avalanche app.
 
 How to move up
-Install the read-only EarnKit app on the repo you want ranked (one click): https://earnkit.com/github/verify?n=5x6o4EjTpA4DnLy5bBjxn1Cp2wmhQf4qEOLBzyUsu9U
+Install the read-only EarnKit app on the repo you want ranked (one click): https://earnkit.com/github/verify?n=5u9D4mz_Gxmg1Emy9-u25weot82-tuwdg4jZYRgp0Gc
 Want me to rank it once that's done?
 ```
 
@@ -55,7 +55,7 @@ Circle Developer Grants: up to $100K for an Arc app, once it's live.
 Avalanche Team1 Mini Grants: up to $10K for an Avalanche app.
 
 How to move up
-Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=n5SmbyiM5LGtw5BtmlZh2EvlNn3CIxo339_GCXHYcbY
+Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=3_XcGXAgum8PZOtfwurMskKVYmF2QZGL-KfUQHPAhow
 Want me to count it once that's done?
 ```
 
@@ -100,7 +100,7 @@ Done this week: +13 points. Next week adds up to 14 more.
 ```
 Last week you finished at Shipping 50 (+6), #2 (up 1).
 Add dark mode · Fix the login loop
-This week starts empty: ship code to add +13 points, 17 behind #1.
+This week starts at Shipping 35: ship code to add +13 points, 5 short of #1.
 
 Where you stand
 Recipes: Shipping 35 · #2 of 3 builders this week.
@@ -161,7 +161,7 @@ EarnKit now ranks github.com/jon/alpha.
 `tell { main_project: "jon/gamma" }`
 
 ```
-github.com/jon/gamma isn't connected yet. Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=jAxpNI2cn2AoIvpG1pMbRYU4of1EvXZqs1ydoGoIFLY
+github.com/jon/gamma isn't connected yet. Install the read-only EarnKit app on it (one click): https://earnkit.com/github/verify?n=oT-B3kIzfGJfaQTkH7hfOVickCdF8y8mv1k5WiKC8U8
 Want me to rank it once that's done?
 ```
 

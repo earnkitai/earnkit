@@ -20,7 +20,8 @@ export type TargetIn = { gains: WeekGains; score: number; rank: number | null; a
  * - this week done: "Done this week: +14 points. Next week adds up to 13 more."
  * - #1 (no one scores higher): "Ship code this week: +14 points to hold #1."
  * - someone above, and this week's points pass them: "Ship code this week: +14 points, enough to pass #2."; not
- *   enough (a tie is not a pass): "Ship code this week: +14 points, 20 behind #2."
+ *   enough (a tie is not a pass): "Ship code this week: +14 points, 7 short of #2." (final fix I3: what is
+ *   still missing after this week's points, passing meaning strictly above)
  * - outside the pool (no rank shown): "Ship code this week: +14 points."
  * A week that adds nothing (never under today's weights, kept total): "Ship code this week to hold #3." /
  * "Done this week. Next week adds up to 13 more."
@@ -28,6 +29,12 @@ export type TargetIn = { gains: WeekGains; score: number; rank: number | null; a
  * instead of telling the reader to ship: "Code this week adds +14 points, enough to pass #2." / "Shipped this week:
  * +14 points. Next week adds up to 13 more."; null when the week adds nothing.
  */
+/**
+ * Final fix I3: how many more points after this week's would pass the rank above. Passing means strictly above (a
+ * tie is not a pass), so it is their score minus (score + gain), plus 1. Pure.
+ */
+export const shortOf = (score: number, gain: number, aboveScore: number) => aboveScore - (score + gain) + 1;
+
 export function weeklyTarget(t: TargetIn, voice?: 'reply'): string;
 export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page'): string | null;
 export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page' = 'reply'): string | null {
@@ -46,7 +53,7 @@ export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page' = 'reply'): st
   if (!t.above) return `${lead} to hold #${t.rank}.`;
   const { above } = t;
   if (t.score + gain > above.score) return `${lead}, enough to pass #${above.rank}.`;
-  return `${lead}, ${above.score - t.score} behind #${above.rank}.`;
+  return `${lead}, ${shortOf(t.score, t.gains.gain, above.score)} short of #${above.rank}.`;
 }
 
 /**
@@ -68,17 +75,18 @@ export async function poolPlace(builderId: number, o: { only?: number[] } = {}):
 
 /**
  * Launch ready L6 (fix round 1): the weekly moment's line about the new week, from the same target: "This week starts
- * empty: ship code to add +14 points, enough to pass #2." / "... to hold #1." / "..., 20 behind #2.". Null once this
+ * empty: ship code to add +14 points, enough to pass #2." / "... to hold #1." / "..., 7 short of #2.". Null once this
  * week has code or adds nothing (the moment then says nothing about it). No question, no link. Pure.
  */
 export function weekStartLine(t: TargetIn): string | null {
   const { active, gain } = t.gains;
   if (active || gain <= 0) return null;
-  const lead = `This week starts empty: ship code to add +${gain} points`;
+  // Final fix M2: the new week's score is named, so the drop from last week reads as the new week, not a loss.
+  const lead = `This week starts at Shipping ${t.score}: ship code to add +${gain} points`;
   if (t.rank === null) return `${lead}.`;
   if (!t.above) return `${lead} to hold #${t.rank}.`;
   if (t.score + gain > t.above.score) return `${lead}, enough to pass #${t.above.rank}.`;
-  return `${lead}, ${t.above.score - t.score} behind #${t.above.rank}.`;
+  return `${lead}, ${shortOf(t.score, t.gains.gain, t.above.score)} short of #${t.above.rank}.`;
 }
 
 /**

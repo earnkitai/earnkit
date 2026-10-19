@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFor, badgeMarkdown, badgeResponse, badgeSvg, badgeValue, textWidth } from './badge';
+import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFileOk, badgeFor, badgeMarkdown, badgeResponse, badgeSvg, badgeValue, textWidth } from './badge';
 import { DATA } from './fixtures/profile-data';
 import { isReserved } from './reserved-routes';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
@@ -100,6 +100,14 @@ test('L8 a listed builder\'s badge has their score and rank; unlisted (held or h
   assert.equal((await badgeFor('a b<c>.svg')).found, false, 'never a malformed handle');
 });
 
+test('final fix M6: only an X-handle-shaped name plus .svg is looked up (the route checks before the cache)', async () => {
+  for (const ok of ['maya_makes.svg', 'A.svg', 'abcdefghijklmno.SVG']) assert.equal(badgeFileOk(ok), true, ok);
+  for (const no of ['abcdefghijklmnop.svg', 'a-b.svg', 'a b.svg', '.svg', 'maya.png', 'maya.svg.svg', '../x.svg', 'm%C3%A9.svg']) assert.equal(badgeFileOk(no), false, no);
+  assert.deepEqual(await badgeFor('x'.repeat(200) + '.svg'), { found: false, svg: badgeSvg('not found', { muted: true }) });
+  const route = readFileSync(join(import.meta.dirname, '../../app/badge/[file]/route.ts'), 'utf8');
+  assert.match(route, /badgeFileOk\(file\) \? await cachedBadge\(file\) : badgeMiss\(\)/);
+});
+
 test('L8 fix round 1: the response is always 200 (GitHub\'s image proxy shows it), an SVG, cached an hour or 10 minutes for not found', async () => {
   const ok = badgeResponse({ found: true, svg: badgeSvg('Shipping 12 · #3') });
   assert.equal(ok.status, 200);
@@ -116,7 +124,7 @@ test('L8 fix round 1: the response is always 200 (GitHub\'s image proxy shows it
 test('L8 fix round 1: the route reads the badge through a per-file cache (an hour, PROFILE_TAG); the copy button says when copying failed and clears its timer', () => {
   const dir = join(import.meta.dirname, '../../app/badge/[file]');
   assert.match(readFileSync(join(dir, 'badge-load.ts'), 'utf8'), /unstable_cache\(async \(\) => badgeFor\(file\), \['badge-l8', file\.toLowerCase\(\)\], \{ revalidate: 3600, tags: \[PROFILE_TAG\] \}\)/);
-  assert.match(readFileSync(join(dir, 'route.ts'), 'utf8'), /badgeResponse\(await cachedBadge\(/);
+  assert.match(readFileSync(join(dir, 'route.ts'), 'utf8'), /badgeResponse\(badgeFileOk\(file\) \? await cachedBadge\(/);
   const copy = readFileSync(join(import.meta.dirname, '../../app/[handle]/BadgeCopy.tsx'), 'utf8');
   assert.match(copy, /writeText\(md\)\.then\(\(\) => show\('copied'\), \(\) => show\('failed'\)\)/);
   assert.match(copy, /useEffect\(\(\) => \(\) => \{\n\s+if \(timer\.current\) clearTimeout\(timer\.current\);/);

@@ -239,12 +239,14 @@ export type PickedRepo = { key: string; pushedAt: number };
 export async function pickedRepos(
   a: { installationId: number; login: string; deadline?: number },
   deps: AppDeps = {},
-): Promise<{ listed: number; mine: PickedRepo[] }> {
+): Promise<{ listed: number; mine: PickedRepo[]; org: boolean }> {
   const f = deps.fetch ?? fetch;
   const login = a.login.toLowerCase();
   const deadline = a.deadline ?? Infinity;
-  const inst = await ghApp<{ account?: { login?: string } | null }>(f, `/app/installations/${a.installationId}`, appJwt(deps.now));
+  const inst = await ghApp<{ account?: { login?: string; type?: string } | null }>(f, `/app/installations/${a.installationId}`, appJwt(deps.now));
   const account = typeof inst.account?.login === 'string' ? inst.account.login.toLowerCase() : null;
+  // Final fix I2: an installation on an organization (or any account that isn't the installer's own) is "org".
+  const org = inst.account?.type === 'Organization' || (account !== null && account !== login);
   const token = await installationToken(a.installationId, null, deps);
   type Listed = { full_name?: unknown; pushed_at?: unknown };
   const all: Listed[] = [];
@@ -285,7 +287,7 @@ export async function pickedRepos(
       if (ok[k] && mine.length < PICK_PROVE_MAX) mine.push(r);
     });
   }
-  return { listed: repos.length, mine };
+  return { listed: repos.length, mine, org };
 }
 
 /** How a setup page names a one project: a repo as its GitHub link, anything else as it is. Pure. */
@@ -321,15 +323,21 @@ function donePage(lines: string[], these: boolean, headers: Record<string, strin
 async function pickSetup(row: NonceRow & { login: string; account_created_at: Date }, installationId: number, now: Date, deps: AppDeps, clear: Record<string, string>, deadline: number): Promise<Response> {
   const { budgetedFetch, proveOne, connectProven } = await import('./repo-proof');
   const timed = { ...deps, now, fetch: budgetedFetch(deps.fetch ?? fetch, deadline) };
-  const { listed, mine } = await pickedRepos({ installationId, login: row.login, deadline }, timed);
+  const { listed, mine, org } = await pickedRepos({ installationId, login: row.login, deadline }, timed);
   if (!listed) return verifyPage(PICK_PAGE.none, 403, clear);
   if (!mine.length) return verifyPage(PICK_PAGE.notYours, 403, clear);
   const builderId = await (await import('./identity')).rootOf(row.installation_id);
+  const main = await import('./main-project');
+  const current = (await main.mainProjectOf(builderId))?.toLowerCase() ?? null;
+  // Final fix I2 (ruling): on an organization's installation only the repo that becomes the one project is proven and
+  // held: the current one project when it was picked, else the most recently pushed one that proves. A user account
+  // (the builder's own repos) proves up to PICK_PROVE_MAX.
+  const order = org && current !== null && mine.some((r) => r.key === current) ? [mine.find((r) => r.key === current)!, ...mine.filter((r) => r.key !== current)] : mine;
   const proven: Awaited<ReturnType<typeof proveOne>>[] = [];
   let tried = 0;
   let threw = 0;
-  for (const r of mine) {
-    if (Date.now() >= deadline) break;
+  for (const r of order) {
+    if (Date.now() >= deadline || (org && proven.length > 0)) break;
     tried++;
     const p = await proveOne({ builderId, repoKey: r.key, githubInstallationId: installationId }, timed).catch((err: unknown) => {
       console.error('[github-app] prove', err instanceof Error ? err.name : 'error');
@@ -347,8 +355,6 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
   }
   // M3: GitHub failed every proof (or none could start): the failed page, never "none could count".
   if (!proven.length) return threw === tried ? verifyPage(VERIFY_PAGE.failed, 502, clear) : verifyPage(PICK_PAGE.noneCounted, 403, clear);
-  const main = await import('./main-project');
-  const current = (await main.mainProjectOf(builderId))?.toLowerCase() ?? null;
   // `mine` is newest push first, so the first proven is the most recently pushed.
   if (current === null || !proven.some((p) => p.key === current)) {
     const key = proven[0].key;
@@ -357,7 +363,7 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
   const ranked = (await main.mainProjectOf(builderId)) ?? proven[0].key;
   await connectProven(builderId, proven, { ...deps, now }, { deadline })
     .catch((err: unknown) => console.error('[github-app] connect', err instanceof Error ? err.name : 'error'));
-  return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id)), PICK_PAGE.next], true, clear);
+  return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id)), PICK_PAGE.next], proven.length > 1, clear);
 }
 
 /** GitHub's install page for the App, with the v2.9 nonce as `state` (R8). Pure. */

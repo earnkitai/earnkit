@@ -173,13 +173,14 @@ export async function openShare(builderId: number, o: ShareOpen): Promise<void> 
 /**
  * The yes or no to the share offer: taken once (one UPDATE removing it, returning what it held), only while `now` is in
  * the week it was shown and for its project. A yes approves that week (approveWeek). Null: nothing open to answer.
+ * Final fix M1: with no project_key (an agent that dropped it) the one open offer is the one answered.
  */
 export async function answerShare(builderId: number, projectKey: string | null | undefined, answer: 'yes' | 'no', now: Date): Promise<boolean | null> {
   const [r] = await sql()<{ o: ShareOpen }[]>`
     UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'share_open'
     FROM (SELECT standing_seen->'share_open' AS o FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE) old
     WHERE p.builder_id = ${builderId} AND old.o->>'shown_week' = ${isoWeekOf(now)}
-      AND lower(old.o->>'key') = lower(${projectKey ?? ''})
+      AND (${!projectKey}::boolean OR lower(old.o->>'key') = lower(${projectKey ?? ''}))
     RETURNING old.o AS o`;
   if (!r) return null;
   if (answer === 'no') return false;

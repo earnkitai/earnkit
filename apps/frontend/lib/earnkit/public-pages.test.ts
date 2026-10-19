@@ -12,7 +12,7 @@ import Footer from '../../app/components/common/Footer';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
 import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
-import { INTRO } from '../../app/components/sections/AddToAgent';
+import { AGENTS, Command, INTRO } from '../../app/components/sections/AddToAgent';
 import { NO_CELL } from './present';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
@@ -629,4 +629,19 @@ test('L10 the header names Programs (the money); the install modal: no "no accou
   assert.ok(h.includes(INTRO), h);
   // The first tab (Grok Bot) has two steps: a numbered list.
   assert.match(h, /<ol[^>]*list-decimal/);
+});
+
+test('final fix I1: a command wraps only between words, and a multi-line block keeps its lines and indentation', () => {
+  const plain = (h: string) => h.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"');
+  for (const a of AGENTS) for (const code of [a.code, a.afterCode]) {
+    if (!code) continue;
+    const h = renderToStaticMarkup(React.createElement(Command, { text: code }));
+    assert.equal(plain(h), code, a.name);
+    // nowrap collapses a line break into a space, so no nowrap span may hold one (the regression: flat mcp.json).
+    for (const m of h.matchAll(/<span class="whitespace-nowrap">([^<]*)<\/span>/g)) assert.ok(!m[1].includes('\n'), `${a.name}: ${JSON.stringify(m[1])}`);
+  }
+  const cursor = AGENTS.find((a) => a.name === 'Cursor')!.code!;
+  assert.ok(cursor.includes('\n'), 'the Cursor block is multi-line');
+  assert.equal(plain(renderToStaticMarkup(React.createElement(Command, { text: cursor }))).split('\n').length, cursor.split('\n').length);
+  assert.match(renderToStaticMarkup(React.createElement(Command, { text: 'claude mcp add --transport http' })), /<span class="whitespace-nowrap">--transport<\/span>/);
 });

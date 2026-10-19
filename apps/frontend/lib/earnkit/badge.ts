@@ -70,14 +70,21 @@ export const badgeMarkdown = (handle: string) =>
   `[![EarnKit](https://earnkit.com/badge/${handle}.svg)](https://earnkit.com${pagePath(handle)})`;
 
 /**
+ * Final fix M6: only a name that can be an X handle plus ".svg" is looked up; anything else is the not-found badge
+ * before any cache entry or database read (the route checks first), so junk names can't fill the cache. Pure.
+ */
+export const badgeFileOk = (file: string) => /^[A-Za-z0-9_]{1,15}\.svg$/i.test(file);
+export const badgeMiss = () => ({ found: false, svg: badgeSvg(BADGE_NOT_FOUND, { muted: true }) });
+
+/**
  * The badge of `file` ("<handle>.svg"): the live row on every request (cached by the response header). A rename or
  * another case serves the same person's badge (a README keeps working); unknown, unclaimed or hidden is not found.
  * `only` limits the rank's pool (tests).
  */
 export async function badgeFor(file: string, o: { only?: number[] } = {}): Promise<{ found: boolean; svg: string }> {
-  const miss = { found: false, svg: badgeSvg(BADGE_NOT_FOUND, { muted: true }) };
+  const miss = badgeMiss();
   const m = /^(.+)\.svg$/i.exec(file);
-  if (!m) return miss;
+  if (!m || !badgeFileOk(file)) return miss;
   let r = await resolveHandle(m[1]);
   if (r && 'redirect' in r) r = await resolveHandle(r.redirect.split('/').pop() ?? '');
   if (!r || 'redirect' in r) return miss;

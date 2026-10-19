@@ -5781,8 +5781,10 @@ v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one t
 - **Money always shows**, signed out included; with nothing open: "No program is open right now. I'll look again next week."
 - **One link (A14, D5).** The action link is the one https link and the page is named beside it without https;
   otherwise the page is the link. No page to name means no link (a shared client gets zero links).
-- **One next step (A16, A17, R8).** States 1 to 3 always ask their fixed question; `ranked` always says "Ship this
-  week to climb." (no question). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
+- **One next step (A16, A17, R8).** States 1 to 3 always ask their fixed question; `ranked` says the weekly target line
+  (launch ready L5, `weekly-target.ts weeklyTarget`: "Ship code this week: +14 points, enough to pass #2." / "..., 7 short
+  of #2." / "... to hold #1." / "Done this week: +14 points. Next week adds up to 13 more."; "Ship this week to climb."
+  only without a Shipping row; no question), or once a week the share ask (L6). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
   the state's question, except signed out, where the sign-in question wins (`signedOutNow`).
 - **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it starts with
   "Signed in as @<handle>." and clears it (`takeSignedIn` clears it only with a handle, so a failed read never eats it).
@@ -6197,8 +6199,8 @@ ranking higher.
   proven and shipping merged into `ranked` (the streak lives in the Shipping score, so the stand line is the score
   line alone; the reply still carries `streak`). `STATE_COPY` is the one copy table: each state has one stand line
   and one next step (`stateAsk`, now total). `rankedState` is `state === 'ranked'`.
-- **Move up (R8).** The ranked state's one next step is exactly "Ship this week to climb." (`SHIP_STEP`, ask kind
-  `ship`). It is a statement, so a ranked reply has no question at all; its `move_up.agent_note` is
+- **Move up (R8).** The ranked state's one next step was "Ship this week to climb." (`SHIP_STEP`, ask kind
+  `ship`); since launch ready L5 it is the weekly target line (`SHIP_STEP` only without a Shipping row). It is a statement, so a ranked reply has no question at all; its `move_up.agent_note` is
   `bench-find.ts SHIP_STEP_NOTE` (a yes: one small, real thing to ship this week from the repo). A `tell move_up
   { kind: 'ship', answer: 'yes' }` returns `SHIP_NOTE` once. The other states keep their steps (sign in, name a repo,
   install the App; app_off keeps "Want me to suggest one small thing to ship...", kind `suggest`).
@@ -6393,7 +6395,11 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling 
   metadata read), `GET /installation/repositories` (pages of 100, the first `PICK_LIST_MAX` = 100 listed), newest
   `pushed_at` first; a repo passes R8 as `appProof` does for one: the installation is the installer's own account and
   the repo is on it, or the installer is the repo's admin (at most `PICK_ADMIN_CHECKS` = 30 admin checks,
-  `PICK_ADMIN_BATCH` = 5 at a time, until `PICK_PROVE_MAX` = 20 passed). Each passing repo goes through `proveOne`
+  `PICK_ADMIN_BATCH` = 5 at a time, until `PICK_PROVE_MAX` = 20 passed). Final fix I2 (ruling): `pickedRepos` also
+  returns `org` (the installation's account is an Organization, or isn't the installer's own); on an org installation
+  `pickSetup` proves and holds only the repo that becomes the one project (the current one project when it was picked,
+  else the most recently pushed one that proves), so the org's other repos stay free for their own builders; a user
+  account (the builder's own repos) still proves up to 20. The success page then says "this repo". Each passing repo goes through `proveOne`
   (every proveByApp rule: GitHub names this installation, a fork or template is `derived`, `repo_hold:<key>` then the
   person's and source locks, another person's App hold is `taken`, a non-App hold replaced); only a proven repo then
   gets its `via = 'app'` verification (fix round 1, M2: a taken repo or a copy gets none, so `appTokenFor` never mints
@@ -6525,3 +6531,17 @@ and as a designer. Screenshots and the rendered replies: `docs/screenshots/launc
 - **Tests.** `public-pages` (404, header, modal), `bench-page` (Show everyone), `profile-bench` (L10 page states),
   `weekly-target` (page voice), `v214-signin-link` (`.ek-code`), copy-review scans the page voice; updated pins in
   `weekly-moment`, `v214-app-proof`, `repo-picker`, `github-app`, `install`, `leaderboard-clarity`, `fixtures/ranked-step.ts`.
+
+### Final fixes (coordinator's final review)
+
+- **I1 Command wrap.** `AddToAgent.tsx Command` splits on line breaks first, then wraps only between words (each word
+  `whitespace-nowrap`), so Cursor's multi-line mcp.json keeps its lines and a flag never splits at its hyphens.
+- **I2 Org picker.** See the picker section above: an organization's installation proves only the one project's repo.
+- **I3 Target copy.** Not passing reads "D short of #k", D = their score - (score + gain) + 1 (passing means strictly
+  above; a tie is 1 short): replies "Ship code this week: +14 points, 7 short of #2.", the page "Code this week adds
+  +14 points, 7 short of #2.", the moment's line likewise (`weekly-target.ts shortOf`).
+- **M1 Share yes.** `answerShare` with no `project_key` answers the one open offer.
+- **M2 Moment line.** "This week starts at Shipping S: ship code to add +G points, ..." (S the new week's score), so
+  the drop from last week's number reads as the new week.
+- **M6 Badge.** `badge.ts badgeFileOk` (X handle, 1 to 15 of `[A-Za-z0-9_]`, plus ".svg"); the route answers
+  `badgeMiss()` for anything else before `unstable_cache` or the database.
