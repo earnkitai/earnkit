@@ -186,7 +186,8 @@ apps/frontend/
                                row (no-store 404, 308 to pagePath)
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
   app/[handle]/BadgeCopy.tsx   launch-ready L8: "Add the badge to your README", the markdown and a Copy button (client)
-  app/badge/[file]/route.ts    launch-ready L8: GET /badge/<handle>.svg over badge.ts badgeFor (1 h cache, 404 SVG)
+  app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
+                               cachedBadge (unstable_cache per file, 1 h, PROFILE_TAG)
   app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's
                                v2.12 slug (live or old) 308s to /<handle>; else 404
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
@@ -1547,10 +1548,10 @@ apps/frontend/
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
                                R16b: REPO_FIELDS has no stars or forks; no org contributors call.
                                Launch-ready: readGithubRepos returns { repos, failed } (one busy repo's failed weekly
-                               call fails only it); needsAllWeeks (the 52-week call only without a reader-2 baseline or
+                               call fails only it; a repo refused on its own alias is in refused, aliasErrors); needsAllWeeks (the 52-week call only without a reader-2 baseline or
                                when last week isn't fully read); no weekly call past ReaderDeps.deadline.
     badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
-                               ranked"), badgeMarkdown, badgeFor (404 "not found" for unknown, unclaimed, hidden)
+                               ranked"), badgeMarkdown, badgeFor ("not found" for unknown, unclaimed, hidden), badgeResponse
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),

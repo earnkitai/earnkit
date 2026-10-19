@@ -5206,7 +5206,8 @@ raisingEnabled` = `EARNKIT_RAISING === 'on'` (v2.14: the Bench is always on); of
 `fixtures/test-guard.ts`). Off under the Bench: `pillOf` is null (no pill on the profile, the Bench, the
 card, the landing; no Raising chip on update cards), `raiseAsk` and `setRaising` do nothing, coin moments
 say v2.12.1's coin line (`coinLine`) and a coin yes does not set `raising_at`, the "Raising" filter chip
-is hidden on `/bench` and the landing (`?raising=1` is ignored, `parseBenchFilter`), tell's `coin` is
+is hidden on `/bench` and the landing (`?raising=1` is ignored, `parseBenchFilter`; removed for good in launch-ready
+L3, flag on or off), tell's `coin` is
 v2.12.2's (no `{ raising }`, `TELL_DESCRIPTION_BENCH_NO_RAISING`), and `/llms.txt` names no raising.
 On: everything below, as built. The `/bench` and landing cache keys name the flag.
 
@@ -5408,7 +5409,7 @@ Replaced in v2.14 (item 5 below): see 'v2.14 One account'.
   `person-score.ts readPersonLive` (Bench only). Tokens are never stored or logged. Pages keep the I1 rule: a private
   repo reads "Private project" unless the builder's own agent named it.
 - **Ruling B, "community round".** Builder text never says raise or raising: the pill "Community round $X"
-  (`RaisingPill`, the share card), the chip (`FILTER_RAISING`), the week chip, `raiseLine` ("Want to open a community
+  (`RaisingPill`, the share card), the chip (`FILTER_RAISING`; removed in launch-ready L3), the week chip, `raiseLine` ("Want to open a community
   round for <project>? I'll launch $X on tokens.fun and you get 40% of its trading fees."), `showRaisingLine`,
   `RAISE_LINES`, the hero and How it works, tell's description, `/llms.txt`. Internal names (`raising_at`,
   `EARNKIT_RAISING`, `{ raising }`) stay. `fixtures/banned-words.ts BENCH_EXTRA` bans raise, raising and fundraise;
@@ -6330,26 +6331,36 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (rulings
 - **L8 README badge.** `GET /badge/<handle>.svg` (`app/badge/[file]/route.ts` over `badge.ts badgeFor`): "EarnKit |
   Shipping 72 · #3" (or "· Top 4%"), shields-like, navy label, `#579DFF` value, text XML-escaped. The value is the
   profile header's (`page-data.ts personFacts`): a rank only inside the pool, never a bare score, so outside it
-  "not ranked". Unknown, unclaimed or hidden: a 404 SVG "EarnKit | not found". Another case or a rename serves the
-  same person's badge. `Cache-Control` `public, max-age=3600, s-maxage=3600` (a miss: 600). `IMAGE_CSP` on
+  "not ranked". Unknown, unclaimed or hidden: "EarnKit | not found", answered 200 (owner ruling, fix round 1: GitHub's
+  image proxy shows it in a README). Another case or a rename serves the same person's badge. `Cache-Control`
+  `public, max-age=3600, s-maxage=3600` (not found: 600); the read itself is `unstable_cache`d per file for an hour
+  under `PROFILE_TAG` (`app/badge/[file]/badge-load.ts`). `IMAGE_CSP` on
   `/badge/:file` (next.config.ts). `badge` is in `RESERVED_ROUTES`. The profile (`BenchProfileView`, under the
   sources line, for everyone: the owner can't be told from a visitor on the web) shows "Add the badge to your
   README", the markdown `[![EarnKit](https://earnkit.com/badge/<h>.svg)](https://earnkit.com/<pagePath>)` and a
-  Copy button (`app/[handle]/BadgeCopy.tsx`, given the markdown so the client never loads `badge.ts`).
+  Copy button (`app/[handle]/BadgeCopy.tsx`, given the markdown so the client never loads `badge.ts`; "Copy failed"
+  when the clipboard refuses; its reset timer is cleared on unmount).
 - **L9 funnel numbers** (`stats.ts`, `/api/stats`, cache key `public-stats-l9`), after `builders`:
   - `activated`: claimed people (`x_user_id`) with a repo source verified by the App (`proof = 'github_app'`) and at
     least one checked ship-log week with a fact (`factWeek`: `facts.checked` plus code shipped, went live or a win,
     `hasFacts`' SQL twin). Until the weekly moment's approvals (L6) exist, that stands in for "first approved week".
-  - `weekly_active`: people with such a week that ended in the last 7 days (`week > now - 14 days`).
+  - `weekly_active`: activated people (the same base, so never above `activated`) with such a week that ended in
+    the last 7 days (`week > now - 14 days`).
   - `shared`: 0, documented, until Task 3 counts share links.
   - A test installation's group (`EARNKIT_TEST_INSTALLATIONS`) counts in neither.
 - **Hotfix carry-overs (repo reads).**
   - `person-github.ts readGithubRepos` returns `{ repos, failed }`. A busy repo's 52-week call that fails puts only
     that repo in `failed` (`sources.ts readAll` writes its failed reading with the message; `person-score.ts
     readPersonLive` writes a failed live row). The deadline or a spent budget still stops the whole read.
-  - `needsAllWeeks`: the extra call runs only when the source has no verified reader-2 baseline
-    (`needsPushCheck(previousRepoSignals(id))`), or the commits read don't reach before last week's Monday. A ref
-    read once for several sources has a baseline only when every one has.
+  - `needsAllWeeks`: the extra call runs only when the source has no verified reader-2 baseline, or the commits read
+    don't reach before last week's Monday. Fix round 1: the baseline is asked (`RepoReadOptions.baseline(key, r)`)
+    only for a short read, with the repo as read, so it is the write's own lookup (`previousRepoSignals(id, r)`); a
+    ref read once for several sources has a baseline only when every one has.
+  - Fix round 1, one refused repo: `readGithubRepos` asks `ghGraphql(..., { aliasErrors: true })`, so
+    `graphqlUsable` accepts an answer whose every non-NOT_FOUND error has a path starting at an `rN` alias
+    (`source-readers.ts aliasOf`). That repo goes to `refused` (GitHub's message) and is left unread: the App
+    fallback tries it, and the message is its failed reading only if the App can't read it either. An error without
+    such a path still fails the batch.
   - `ReaderDeps.deadline` (set by `defaultReaderDeps`): no weekly call starts past it (ScoreDeadline, the source
     stays due).
   - `week-facts.ts shipReading`, one LATERAL for `weekFactsFor`, `readingOf` and the catch-up's due query: the
