@@ -483,17 +483,22 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           // v2.13: the ship log.
           update: z
             .object({
-              text: z.string().max(2000).optional().describe("This week's update: one plain paragraph, at most 280 characters"),
+              text: z.string().max(2000).optional().describe("One plain line to add to this week's log, at most 280 characters"),
               hide: z.string().max(20).optional().describe('YYYY-MM-DD, any day of the week to hide'),
             })
             .strict()
             .optional()
-            .describe("This week's update, or the week to hide"),
+            .describe("A line for this week's log, or the week to hide"),
+          // v2.14 spec 3 (A12): the log writes itself; titles on or off for a private repo. An older agent's { on, scheduled } is answered.
           updates: z
-            .object({ on: z.boolean(), scheduled: z.boolean().optional().describe('true once your weekly task is scheduled') })
+            .object({
+              titles: z.boolean().optional().describe("true: show their commit titles on a private repo's log; false: only the facts"),
+              on: z.boolean().optional(),
+              scheduled: z.boolean().optional(),
+            })
             .strict()
             .optional()
-            .describe('Weekly posting on or off'),
+            .describe("A private repo's titles on or off"),
           program_status: z
             .array(
               z

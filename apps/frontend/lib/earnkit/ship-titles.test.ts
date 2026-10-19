@@ -45,3 +45,14 @@ test('8.3 the update-text filter: links elsewhere, tokens, mentions and digit ru
 test('8.4 nothing usable is an empty list (facts only)', () => {
   assert.deepEqual(shipTitles([c('WIP'), c('v1.0.1'), c('Merge branch x', { merge: true })], own), []);
 });
+
+test('8.11 titlesShown (S9): public always; private only while on, never naming the repo', async () => {
+  const { titlesShown, namesRepo } = await import('./ship-titles');
+  const t = ['Ship hush-proj dark mode', 'Fix the timer'];
+  assert.deepEqual(titlesShown(t, { hiddenRepo: false, titlesOn: false, repoKey: 'nora/hush-proj' }), t);
+  assert.deepEqual(titlesShown(t, { hiddenRepo: true, titlesOn: false, repoKey: 'nora/hush-proj' }), []);
+  assert.deepEqual(titlesShown(t, { hiddenRepo: true, titlesOn: true, repoKey: 'nora/hush-proj' }), ['Fix the timer']);
+  assert.ok(namesRepo('Rename HushProj module', 'nora/hush-proj'), 'run together');
+  assert.ok(!namesRepo('Add the app shell', 'nora/apps'), 'a word inside another is not the name');
+  assert.deepEqual(titlesShown(null, { hiddenRepo: false, titlesOn: true, repoKey: 'a/b' }), []);
+});

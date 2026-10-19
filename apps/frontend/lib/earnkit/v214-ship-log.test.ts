@@ -5,6 +5,8 @@ import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub, type FakeCommit } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
+import { feedWeeks } from './feed';
+import { profileData } from './bench-data';
 import { weeklyFactsStep } from './week-facts';
 import { attachToX } from './x-install';
 
@@ -25,7 +27,7 @@ const commits = (): FakeCommit[] => [
   { sha: 'f', message: 'Old work', date: '2026-10-05T09:00:00Z', login: 'maya' },
 ];
 
-async function provenPerson(handle: string, key: string, priv: boolean) {
+async function provenPerson(handle: string, key: string, priv: boolean, extra: FakeCommit[] = []) {
   const t = `ek_log_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false);
   const own = (await connectInstallation(t))!.own;
@@ -33,7 +35,7 @@ async function provenPerson(handle: string, key: string, priv: boolean) {
   const c = (await connectInstallation(t))!;
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false };
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
-  const gh = fakeGitHub({ [key]: { id: Number(`7${RUN}`) + handle.length, owner: `${handle}${RUN}`, installation: 90 + handle.length, private: priv, commits: commits(), pulls: [] } });
+  const gh = fakeGitHub({ [key]: { id: Number(`7${RUN}`) + handle.length, owner: `${handle}${RUN}`, installation: 90 + handle.length, private: priv, commits: [...commits(), ...extra], pulls: [] } });
   await installApp({ builderId: c.id, repoKey: key, login: `${handle}${RUN}`, gh });
   return { id: c.id, ctx, gh };
 }
@@ -77,4 +79,42 @@ test('8.8 a project without the App gets no titles (facts only, as before)', db,
   const gh = fakeGitHub({});
   await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [own], ghFetch: gh });
   assert.equal(gh.calls.length, 0);
+});
+
+/** On the feed: ranked and listed, the week's row given points (rankFeed's job, daily). */
+async function onFeed(id: number) {
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
+    VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now()) ON CONFLICT (builder_id) DO UPDATE SET ranked = true`;
+  await sql()`UPDATE project_updates SET points = 10 WHERE builder_id = ${id} AND week = ${WEEK}`;
+}
+const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [id] })).flatMap((w) => w.cards).find((c) => c.week === WEEK)?.titles;
+const profileTitles = async (id: number) => (await profileData(id, MONDAY_RUN, { only: [id] }))?.log.find((c) => c.week === WEEK)?.titles;
+
+test('8.9 S9: a private repo\'s titles show while titles are on (never one naming the repo); off hides stored ones at once, nothing deleted', db, async () => {
+  const key = `rosa${RUN}/hushproj`; // a handle whose X id (length, first letter) no other test shares
+  const p = await provenPerson('rosa', key, true, [{ sha: 'h', message: 'Ship hushproj dark mode', date: '2026-10-16T10:00:00Z', login: 'rosa' }]);
+  await mcpCall(p.ctx, 'tell', { updates: { titles: true } });
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  assert.deepEqual((await row(p.id)).titles, ['Ship hushproj dark mode', 'Fix the timer', 'Add the shopping list'], 'stored as read');
+  await onFeed(p.id);
+  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list'], 'the feed never names the private repo');
+  assert.deepEqual(await profileTitles(p.id), ['Fix the timer', 'Add the shopping list'], 'nor the profile');
+  const cards = JSON.stringify([await feedWeeks(MONDAY_RUN, { only: [p.id] }), await profileData(p.id, MONDAY_RUN, { only: [p.id] })]);
+  assert.ok(!/hushproj/i.test(cards), 'no card names it');
+  const off = await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
+  assert.match(String(off.reply?.show_to_builder), /only the facts/);
+  assert.deepEqual(await feedTitles(p.id), [], 'off: hidden from the feed');
+  // A week with nothing else to show (no checked facts here) has no card at all once its titles are hidden.
+  assert.deepEqual((await profileTitles(p.id)) ?? [], [], 'off: hidden from the profile');
+  assert.equal((await row(p.id)).titles.length, 3, 'nothing deleted');
+});
+
+test('8.10 S9: a public repo\'s titles always show, titles on or not', db, async () => {
+  const p = await provenPerson('pete', `pete${RUN}/garden`, false);
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  await onFeed(p.id);
+  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list']);
+  assert.deepEqual(await profileTitles(p.id), ['Fix the timer', 'Add the shopping list']);
+  await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
+  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list']);
 });
