@@ -50,10 +50,13 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
-test('v2.7.1: the header is Docs and the install, desktop and mobile; the X link is in the footer only', () => {
+test('v2.7.1, R18: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
-  assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
-  assert.equal((h.match(/<a[^>]*href="https:\/\/github\.com\/earnkitai\/earnkit#connect-an-agent"[^>]*>Docs<\/a>/g) ?? []).length, 2);
+  assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
+  assert.equal((h.match(/<a[^>]*href="https:\/\/github\.com\/earnkitai\/earnkit#connect-an-agent"[^>]*>Docs<\/a>/g) ?? []).length, 1);
+  assert.match(h, /href="\/leaderboard"/);
+  assert.match(h, /href="\/feed"/);
+  assert.match(h, /<header[^>]*class="[^"]*\bsticky\b/);
   assert.doesNotMatch(h, /x\.com\/jenilt/);
   assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
 });
@@ -83,7 +86,7 @@ test('v2.7 §1: the install modal asks the starting phrase, or the program\'s ow
 
 test('v2.7: the site description and llms.txt use the starting phrase and name the guides', () => {
   const layout = readFileSync(join(import.meta.dirname, '../../app/layout.tsx'), 'utf8');
-  assert.ok(layout.includes('EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "What can I earn?", build, and submit.'));
+  assert.ok(layout.includes('Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.'));
   const llms = readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8');
   assert.ok(llms.includes('What can I earn?'));
   assert.match(llms, /earnkit\.com\/programs\/<id>/);
@@ -127,7 +130,7 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
   assert.ok(t.includes('Difficulty: Medium (estimate). No past results yet.'));
   assert.doesNotMatch(h, /<h2/);
   assert.doesNotMatch(t, /Builder bonus/);
-  assert.equal(asks(emptyGuide).length, 2);
+  assert.equal(asks(emptyGuide).length, 1, 'R18: one Ask, at the top');
   assert.ok(asks(emptyGuide).every((p) => p === 'What can I earn on Circle Developer Grants?'));
   assert.match(h, /<span[^>]*aria-hidden="true"[^>]*>CD<\/span>/, 'the monogram (Ruling 1)');
   assert.ok(t.includes('Sources: program page'));
@@ -183,7 +186,7 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} open right now Ask your agent CW Crypto World`) && !fig.includes('By pool'), fig);
+  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} open right now CW Crypto World`) && !fig.includes('By pool'), fig);
   const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
   assert.match(page, /figure=\{landing\.open_text\}/);
   assert.match(page, /layout="grid"/);
@@ -206,16 +209,15 @@ function programsSection(h: string): string {
 }
 const chipsOf = (card: string) => [...card.matchAll(/<span class="[^"]*\bek-chip\b[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
 
-test('3.1 v2.8: the section is the h2, the figure, one "Ask your agent", then a list of whole-card links', () => {
+test('3.1 v2.8, R18: the section is the h2, the figure, then a list of whole-card links (no button: each card opens its guide)', () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, figure: homeFixture.open_text }));
   const sec = programsSection(h);
   const t = text(sec);
   assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
-  const order = ['>Open programs</h2>', `${homeFixture.open_text} open right now`, '>Ask your agent</button>', '<ul'].map((s) => sec.indexOf(s));
+  const order = ['>Open programs</h2>', `${homeFixture.open_text} open right now`, '<ul'].map((s) => sec.indexOf(s));
   assert.ok(order.every((n) => n >= 0), String(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
-  assert.equal(t.split('Ask your agent').length, 2, 'exactly one');
-  assert.equal(h.split('Ask your agent').length, 2, 'none anywhere else on the page');
+  assert.ok(!t.includes('Ask your agent') && !h.includes('Ask your agent'), 'R18: no repeated button');
   const cards = cardsOf(h);
   assert.equal(cards.length, 7);
   for (const [i, c] of cards.entries()) {
@@ -287,13 +289,13 @@ test('3.5 v2.8: zero tiles or a failed read render no Open programs section', ()
   }
 });
 
-test('3.6 v2.8: /programs is a grid of the same slim cards, with no arrows and one "Ask your agent"', () => {
+test('3.6 v2.8, R18: /programs is a grid of the same slim cards, with no arrows and no button', () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' }));
   const ul = h.match(/<ul[^>]*>/)?.[0] ?? '';
   assert.match(ul, /class="[^"]*\bgrid\b/);
   assert.doesNotMatch(ul, /snap-x|overflow-x-auto/);
   assert.doesNotMatch(h, /Previous programs|Next programs/);
-  assert.equal(h.split('Ask your agent').length, 2);
+  assert.ok(!h.includes('Ask your agent'));
   // The same cards as the carousel: same links, same text.
   const carousel = cardsOf(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })));
   assert.deepEqual(cardsOf(h).map((c) => text(c).trim()), carousel.map((c) => text(c).trim()));

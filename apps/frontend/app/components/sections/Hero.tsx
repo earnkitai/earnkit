@@ -1,22 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import AddToAgent from './AddToAgent';
+import { BTN_PRIMARY, BTN_SECONDARY } from '../common/Button';
 
-/** v2.13 spec "Landing page" 1: the hero's words (no eyebrow, no bonus pill). */
+/** v2.13 spec "Landing page" 1, R18: the hero's words. Shipping and funding; no coin, no community round. */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
-export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants and a community round.';
-/** v2.13.1 O3: with EARNKIT_RAISING off, the subtitle doesn't mention raising. */
-export const BENCH_HERO_SUBTITLE_NO_RAISE = 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants.';
+export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It ranks what you ship on the leaderboard and finds grants that fit.';
 
 /**
- * v2.8 Part A, v2.13: the Bench title and subtitle, the install and demo buttons, one short stats line
- * once there is something to show, and (v2.9 E20) the "Builders using EarnKit won $X" line under it
- * once an announced win exists. v2.13.1 O3 (`raising` false: EARNKIT_RAISING off): the subtitle
- * without raising.
+ * The title and subtitle, the install and demo buttons, one short stats line once there is
+ * something to show, and (v2.9 E20) the "Builders using EarnKit won $X" line once an announced win
+ * exists.
  */
-export default function Hero({ statsLine = null, wonLine = null, raising = false }: { statsLine?: string | null; wonLine?: string | null; raising?: boolean }) {
+export default function Hero({ statsLine = null, wonLine = null }: { statsLine?: string | null; wonLine?: string | null }) {
   const [open, setOpen] = useState(false);
   const [installOpen, setInstallOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
@@ -35,38 +32,24 @@ export default function Hero({ statsLine = null, wonLine = null, raising = false
 
   return (
     <>
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-        className="flex w-full flex-col items-center text-center"
-        style={{ willChange: 'transform, opacity' }}
-      >
-        <h1 className={`max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-white sm:text-[3.5rem] md:text-[4.5rem] lg:text-[5rem]`}>
+      <div className="flex w-full flex-col items-center text-center">
+        <h1 className="max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-ek-text sm:text-[3.5rem] md:text-[4.5rem]">
           {BENCH_HERO_TITLE}
         </h1>
 
-        <p className={`mt-6 max-w-[44ch] text-balance font-funnel-sans text-lg font-light text-ek-blue-light [text-shadow:0_0_16px_rgba(2,5,44,0.95)] md:text-xl`}>
-          {raising ? BENCH_HERO_SUBTITLE : BENCH_HERO_SUBTITLE_NO_RAISE}
+        <p className="mt-5 max-w-[42ch] text-balance font-funnel-sans text-lg text-ek-body md:text-xl">
+          {BENCH_HERO_SUBTITLE}
         </p>
 
-        <div className="mt-10 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
-          <button
-            type="button"
-            onClick={() => setInstallOpen(true)}
-            className="inline-flex items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-8 py-4 font-funnel-sans text-lg font-medium text-ek-navy-deep transition-colors duration-200 hover:bg-ek-blue-soft md:px-10 md:py-5 md:text-xl"
-          >
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+          <button type="button" onClick={() => setInstallOpen(true)} className={BTN_PRIMARY}>
             Add to your agent
           </button>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex items-center justify-center gap-2.5 text-nowrap rounded-full border-2 border-ek-blue-soft/60 px-8 py-[14px] font-funnel-sans text-lg font-medium text-ek-blue-light transition-colors duration-200 hover:border-ek-blue-light hover:text-white md:px-10 md:py-[18px] md:text-xl"
-          >
+          <button type="button" onClick={() => setOpen(true)} className={BTN_SECONDARY}>
             <svg
               viewBox="0 0 24 24"
               fill="currentColor"
-              className="h-5 w-5"
+              className="h-4 w-4"
               aria-hidden="true"
             >
               <path d="M8 5.5v13l11-6.5-11-6.5Z" />
@@ -76,13 +59,13 @@ export default function Hero({ statsLine = null, wonLine = null, raising = false
         </div>
 
         {statsLine && (
-          <p className="mt-8 font-funnel-sans text-sm text-ek-blue-soft md:text-base">{statsLine}</p>
+          <p className="mt-6 font-funnel-sans text-sm text-ek-muted">{statsLine}</p>
         )}
         {/* v2.9 E20: only once an announced win with a prize exists (never "$0"). */}
         {wonLine && (
-          <p className={`${statsLine ? 'mt-2' : 'mt-8'} font-funnel-sans text-sm text-ek-blue-soft md:text-base`}>{wonLine}</p>
+          <p className={`${statsLine ? 'mt-1' : 'mt-6'} font-funnel-sans text-sm text-ek-muted`}>{wonLine}</p>
         )}
-      </motion.div>
+      </div>
 
       {installOpen && <AddToAgent onClose={closeInstall} />}
 
@@ -91,14 +74,14 @@ export default function Hero({ statsLine = null, wonLine = null, raising = false
           role="dialog"
           aria-modal="true"
           aria-label="EarnKit demo video"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-ek-black/90 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-ek-page/90 p-4 backdrop-blur-sm"
           onClick={close}
         >
           <button
             type="button"
             onClick={close}
             aria-label="Close video"
-            className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full bg-ek-navy text-ek-blue-light transition-colors hover:bg-ek-blue-strong hover:text-white"
+            className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover"
           >
             <svg
               viewBox="0 0 24 24"

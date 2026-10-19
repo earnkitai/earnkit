@@ -13,7 +13,6 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
 import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
-import SlimTopBar from '../components/common/SlimTopBar';
 
 export type ProfileTab = 'log' | 'project';
 /** `?tab=project`, else the Ship log (the default, the plain URL). Pure. */
@@ -54,16 +53,10 @@ export async function HandleView({
   if ('redirect' in r) permanentRedirect(r.redirect);
   // A reserved handle reached at the root (/Terms) lives at /b/Terms.
   if (pagePath(r.handle) !== path) permanentRedirect(pagePath(r.handle));
-  // profile-whoop v2: the near-black page with its own slim top bar (data-ek-premium: globals.css).
   return (
-    <div data-ek-premium="" className="ek-premium">
-      <SlimTopBar />
-      <Suspense
-        fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}
-      >
-        <BenchPage id={r.builderId} tab={tab} />
-      </Suspense>
-    </div>
+    <Suspense fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}>
+      <BenchPage id={r.builderId} tab={tab} />
+    </Suspense>
   );
 }
 

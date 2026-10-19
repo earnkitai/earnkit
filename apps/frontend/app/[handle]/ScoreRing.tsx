@@ -99,12 +99,12 @@ export default function ScoreRing({
         className="absolute inset-0 flex flex-col items-center justify-center"
       >
         <span
-          className={`font-funnel-display font-medium leading-none tracking-[-0.03em] text-[var(--ek-p-text)] tabular-nums ${numberClassName}`}
+          className={`font-funnel-display font-medium leading-none tracking-[-0.03em] text-ek-text tabular-nums ${numberClassName}`}
         >
           {shown}
         </span>
         {caption ? (
-          <span className="mt-1.5 font-funnel-sans text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--ek-p-muted)]">
+          <span className="mt-1.5 font-funnel-sans text-xs font-medium text-ek-muted md:text-sm">
             {caption}
           </span>
         ) : null}

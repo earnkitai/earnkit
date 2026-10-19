@@ -15,7 +15,6 @@ import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import { FILTER_RAISING } from '../../app/leaderboard/FilterChip';
 import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
-import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
   BENCH_HEADS, NOT_ON_BENCH, STATE_COPY, benchReply,
@@ -422,7 +421,7 @@ test('B.1 "community round", never raise or raising, in builder text; the banned
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
   assert.equal(FILTER_RAISING, 'Community round');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Community round \$RECIPE</);
-  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, ...BENCH_STEPS, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
+  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
   assert.notDeepEqual(bannedInBench('Want to raise for it?', []), []);
   assert.notDeepEqual(bannedInBench('Raising $X', []), []);

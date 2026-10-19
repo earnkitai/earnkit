@@ -37,7 +37,7 @@ export default async function VetoPage({
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
-        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
+        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">
           {VETO_ERRORS['rate-limited']}
         </p>
       </div>
@@ -61,17 +61,17 @@ export default async function VetoPage({
   const removedId = Number(removed);
   return (
     <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
-        <Link href={`/campaigns/${slug}`} className="text-sm text-ek-blue-soft">← {program.title}</Link>
-        <h1 className="mt-4 font-funnel-display text-3xl text-ek-white">Review</h1>
+      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+        <Link href={`/campaigns/${slug}`} className="text-sm text-ek-muted">← {program.title}</Link>
+        <h1 className="mt-4 font-funnel-display text-3xl text-ek-text">Review</h1>
         <p className="mt-2 break-all text-sm">
           {funds
             ? `Prize wallet ${funds.wallet} holds ${Number(funds.balance).toLocaleString('en-US')} ${funds.symbol}; the cron pays ${paying.amount_each} ${paying.prize.symbol} each to ${picks.length} of ${paying.winners}.`
             : 'Prize wallet: not set up yet (CAMPAIGN_PAYOUT_PRIVATE_KEY), or its balance could not be read.'}
         </p>
-        {run?.note ? <p className="mt-2 text-sm text-ek-white">{run.note}</p> : null}
+        {run?.note ? <p className="mt-2 text-sm text-ek-text">{run.note}</p> : null}
         {error && Object.hasOwn(VETO_ERRORS, error) ? (
-          <p className="mt-2 text-sm text-ek-white">{VETO_ERRORS[error as keyof typeof VETO_ERRORS]}</p>
+          <p className="mt-2 text-sm text-ek-text">{VETO_ERRORS[error as keyof typeof VETO_ERRORS]}</p>
         ) : null}
         <p className="mt-2 text-sm">
           {open && run?.review_until
@@ -83,7 +83,7 @@ export default async function VetoPage({
         </p>
         <table className="mt-6 w-full text-sm">
           <thead>
-            <tr className="text-left text-ek-blue-soft">
+            <tr className="text-left text-ek-muted">
               <th>#</th><th>Entry</th><th>Users</th><th>Shared</th><th>Code</th><th>Deployers</th><th />
             </tr>
           </thead>
@@ -103,7 +103,7 @@ export default async function VetoPage({
                 <td className="py-2">
                   {r.counted} ({r.smart} smart)
                   {r.score_partial ? (
-                    <div className="text-xs text-ek-white">capped read: may be low; still pays</div>
+                    <div className="text-xs text-ek-text">capped read: may be low; still pays</div>
                   ) : null}
                 </td>
                 <td className="py-2">{r.shared}</td>
@@ -115,7 +115,7 @@ export default async function VetoPage({
                       <input type="hidden" name="slug" value={slug} />
                       <input type="hidden" name="key" value={key} />
                       <input type="hidden" name="entry" value={r.id} />
-                      <input name="reason" placeholder="reason (public)" maxLength={200} className="w-36 rounded bg-ek-navy px-2 py-1 text-ek-white" />
+                      <input name="reason" placeholder="reason (public)" maxLength={200} className="w-36 rounded bg-ek-navy px-2 py-1 text-ek-text" />
                       <button type="submit" className="ml-2 underline">Remove</button>
                     </form>
                   ) : null}
@@ -125,7 +125,7 @@ export default async function VetoPage({
           </tbody>
         </table>
         {skipped.length ? (
-          <ul className="mt-4 space-y-1 text-xs text-ek-blue-soft">
+          <ul className="mt-4 space-y-1 text-xs text-ek-muted">
             {skipped.map((s) => (
               <li key={s.id}>Skipped #{s.id}: {s.reason}</li>
             ))}

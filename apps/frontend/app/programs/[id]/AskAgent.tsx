@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import AddToAgent from '../../components/sections/AddToAgent';
+import { BTN_PRIMARY } from '../../components/common/Button';
 
 /** The guide's one primary action: the install modal, ending with the program's own question. */
 export default function AskAgent({ prompt }: { prompt: string }) {
@@ -12,7 +13,7 @@ export default function AskAgent({ prompt }: { prompt: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-12 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-7 py-3 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+        className={BTN_PRIMARY}
       >
         Ask your agent
       </button>

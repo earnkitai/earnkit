@@ -16,12 +16,12 @@ const investorLogos = [
 /** v2.13: the label is sentence case (no all-caps labels). */
 export default function BackedBy() {
   return (
-    <div className="flex w-full flex-col items-center gap-10 rounded-[40px] bg-ek-navy-deep py-14 md:rounded-[56px] md:py-16">
-      <p className="font-funnel-sans text-base font-medium text-ek-blue-soft">
+    <section aria-label="Backed by" className="flex w-full flex-col items-center gap-8">
+      <p className="font-funnel-sans text-sm text-ek-muted">
         Backed by
       </p>
 
-      <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-navy-deep before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-navy-deep after:to-transparent">
+      <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-page before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-page after:to-transparent">
         <ul className="flex w-fit animate-marquee items-center gap-16 px-8 md:gap-24">
           {/* Doubled for the seamless loop; the copies are decorative */}
           {[...investorLogos, ...investorLogos].map((logo, index) => (
@@ -34,13 +34,13 @@ export default function BackedBy() {
                 src={logo.src}
                 alt={index < investorLogos.length ? logo.alt : ''}
                 fill
-                className="object-contain brightness-0 invert"
+                className="object-contain opacity-70 brightness-0 invert"
                 sizes="(max-width: 768px) 112px, 144px"
               />
             </li>
           ))}
         </ul>
       </div>
-    </div>
+    </section>
   );
 }

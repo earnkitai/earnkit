@@ -2,237 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * One design system (scoring and clarity R18). The brand palette (ek-*, DESIGN.md) and the page
+ * tokens (--ek-p-*, lib/earnkit/theme.ts THEME; tested to match) are the only colors. Tailwind reads
+ * the page tokens as ek-page, ek-surface, ek-text and friends (tailwind.config.ts), so every page
+ * (landing, leaderboard, feed, profile, programs, terms) and the brandShell sign-in pages share one
+ * page, one card surface, one text scale.
+ */
 :root {
-  --background: #1a2238;
-  --foreground: #e5eefc;
-
-  /* Brand system - see DESIGN.md */
-  --ek-base: #1a2238;
-  --ek-black: #0a0b1a;
-  --ek-navy-deep: #0f1839;
+  /* Brand palette */
   --ek-navy: #112969;
+  --ek-blue-deep: #0d3991;
   --ek-blue: #2e70ea;
   --ek-blue-bright: #579dff;
   --ek-blue-soft: #a3c5fe;
   --ek-blue-light: #e5eefc;
-  /* v2.12 builder score accents (plan R17) */
-  --ek-score-orange: #ff7a1a;
-  --ek-score-purple: #9b6bff;
-}
 
-/* add the code bellow */
-@layer utilities {
-  html {
-    scroll-behavior: auto ;
-  }
-  .no-scrollbar {
-    scroll-behavior: smooth;
-  }
-  /* Hide scrollbar for Chrome, Safari and Opera */
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  /* Hide scrollbar for IE, Edge and Firefox */
-  .no-scrollbar {
-    -ms-overflow-style: none; /* IE and Edge */
-    scrollbar-width: none; /* Firefox */
-  }
-}
-
-/* @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-} */
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  color: var(--ek-blue-light);
-  background: var(--ek-base);
-  font-family: var(--font-funnel-sans), system-ui, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Browser surfaces are part of the design, not defaults. */
-::selection {
-  background: var(--ek-blue-bright);
-  color: var(--ek-navy-deep);
-}
-
-:focus-visible {
-  outline: 2px solid var(--ek-blue-bright);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
-
-html {
-  scrollbar-color: var(--ek-navy) var(--ek-base);
-}
-
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--ek-base);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--ek-navy);
-  border-radius: 999px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--ek-blue-deep, #0d3991);
-}
-
-@keyframes ek-marquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-.animate-marquee {
-  animation: ek-marquee 30s linear infinite;
-}
-
-.animate-marquee:hover {
-  animation-play-state: paused;
-}
-
-@keyframes ek-float {
-  0% {
-    transform: translateY(0) rotate(var(--coin-rot, 0deg));
-  }
-  100% {
-    transform: translateY(-14px) rotate(var(--coin-rot, 0deg));
-  }
-}
-
-.coin-float {
-  animation: ek-float 6s ease-in-out infinite alternate;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-.primary-btn {
-  background-color: #2563e4;
-}
-.primary-btn:active {
-  background-color: #183e81;
-}
-
-.primary-btn:hover {
-  background:
-    linear-gradient(90deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2)),
-    linear-gradient(90deg, #2563e4, #2563e4);
-}
-.logoSVG {
-  width: 124px;
-  height: 23px;
-}
-.logoSVG svg path {
-  color: #579dff;
-}
-.logoSVG:hover svg path {
-  fill: #ffffff;
-}
-.coinvise-btn-warpcast {
-  background: transparent;
-}
-.coinvise-btn-warpcast:hover {
-  background:
-    linear-gradient(0deg, #8154d4, #8154d4),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
-  background-blend-mode: multiply;
-}
-
-.custom-list li::before {
-  content: '•';
-  position: absolute;
-  left: -1rem;
-}
-
-.custom-list {
-  list-style: none;
-}
-
-.custom-list li {
-  position: relative;
-}
-
-.blog-home-link:hover {
-  background:
-    linear-gradient(0deg, var(--Color-2, #2563e4), var(--Color-2, #2563e4)),
-    linear-gradient(0deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.2));
-  background-blend-mode: multiply;
-}
-.mobile-header-bg {
-  /* box-shadow: #0a0917 56px 56px 0px 56px; */
-  box-shadow: 0 60px #0a0917;
-  /* box-shadow: 0 4px 10px; */
-}
-
-.global-text-shadow {
-  text-shadow: 0 0 30px rgba(255, 98, 0, 1);
-}
-.marquee {
-  animation: marquee 32s linear infinite;
-}
-.marquee:hover {
-  animation-play-state: paused;
-}
-@keyframes marquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-@media (max-width: 768px) {
-  .body {
-    background-color: #0a0917;
-  }
-}
-
-/* profile-whoop: a score ring's arc draws in once (ScoreRing). The global reduced-motion rule above
-   cuts it to an instant; this one also removes it outright. */
-@keyframes ek-arc-in {
-  from {
-    stroke-dashoffset: 100;
-  }
-}
-.ek-arc {
-  animation: ek-arc-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-@media (prefers-reduced-motion: reduce) {
-  .ek-arc {
-    animation: none;
-  }
-}
-
-/* profile-whoop v4: the premium deep-blue theme (lib/earnkit/theme.ts THEME; the values here are
-   tested to match it). Used by the profile, the feed, the slim top bar and the footer on those pages. */
-:root {
+  /* Page tokens (theme.ts THEME) */
   --ek-p-page: #070D24;
   --ek-p-page-top: #0A1433;
   --ek-p-glass: rgba(7, 13, 36, 0.85);
@@ -252,100 +38,108 @@ html {
   --ek-p-accent: #A3C5FE;
 }
 
-/* The premium pages (they wrap their content in data-ek-premium). A deep navy page with a soft
-   radial blue glow at the top, behind the hero; the site header gives way to the slim top bar;
-   the footer takes the same navy card. Scoped here so no other page changes. */
-body:has([data-ek-premium]) {
-  background: var(--ek-p-page);
-}
-body:has([data-ek-premium]) [data-ek-header] {
-  display: none;
-}
-.ek-premium {
-  min-height: 100dvh;
-  background:
-    radial-gradient(56rem 28rem at 50% -6rem, var(--ek-p-glow), transparent 70%),
-    linear-gradient(180deg, var(--ek-p-page-top), var(--ek-p-page) 40rem);
-  color: var(--ek-p-body);
-}
-.ek-premium footer {
-  background: transparent;
-  padding-bottom: 2.5rem;
-}
-.ek-premium footer > div:first-child {
-  background: linear-gradient(180deg, var(--ek-p-surface-top), var(--ek-p-surface));
-  border: 1px solid var(--ek-p-border);
-  border-radius: 24px;
-}
-/* Update cards (feed, Ship log), v3: the profile cards' surface exactly (ScoreParts SURFACE: 24px
-   radius, the dark gradient, a faint border) plus soft depth. Neutral throughout: soft grey chips,
-   a neutral avatar ring, white titles, muted meta. The one quiet accent is a small dot in the first
-   chip's score hue (data-hue: UpdateCard + score-colors.ts chipHue). */
-.ek-premium article[data-shape] {
-  background: linear-gradient(180deg, var(--ek-p-surface-top), var(--ek-p-surface));
-  border: 1px solid var(--ek-p-border);
-  border-radius: 24px;
-  box-shadow:
-    inset 0 1px 0 rgba(163, 197, 254, 0.05),
-    0 16px 40px -24px rgba(2, 6, 20, 0.8);
-}
-.ek-premium article[data-shape='long'] {
-  padding: 24px;
-}
-@media (min-width: 768px) {
-  .ek-premium article[data-shape='long'] {
-    padding: 28px 32px;
+@layer utilities {
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
-.ek-premium article[data-shape] [data-ek-week] {
-  color: var(--ek-p-muted);
-  font-size: 13px;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
-.ek-premium article[data-shape] p,
-.ek-premium article[data-shape] ul:not(.flex-wrap) li {
+
+/* Every page: deep navy with a soft blue glow at the top. */
+body {
+  min-height: 100dvh;
   color: var(--ek-p-body);
+  background-color: var(--ek-p-page);
+  background-image:
+    radial-gradient(56rem 28rem at 50% -6rem, var(--ek-p-glow), transparent 70%),
+    linear-gradient(180deg, var(--ek-p-page-top), var(--ek-p-page) 40rem);
+  background-repeat: no-repeat;
+  font-family: var(--font-funnel-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
-.ek-premium article[data-shape] [data-ek-name],
-.ek-premium article[data-shape] ul:not(.flex-wrap) li {
-  color: var(--ek-p-text);
+
+/* Browser surfaces are part of the design, not defaults. */
+::selection {
+  background: var(--ek-blue-bright);
+  color: var(--ek-p-page);
 }
-.ek-premium article[data-shape] a {
-  color: inherit;
+
+:focus-visible {
+  outline: 2px solid var(--ek-blue-bright);
+  outline-offset: 3px;
+  border-radius: 4px;
 }
-.ek-premium article[data-shape] [data-ek-meta] {
-  color: var(--ek-p-muted);
+
+html {
+  scrollbar-color: var(--ek-p-raised) var(--ek-p-page);
 }
-.ek-premium article[data-shape] [data-ek-meta] a:hover {
-  color: var(--ek-p-text);
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
-.ek-premium article[data-shape] ul.flex-wrap > li {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--ek-p-chip);
-  color: var(--ek-p-body);
-  border-radius: 9999px;
+
+::-webkit-scrollbar-track {
+  background: var(--ek-p-page);
 }
-.ek-premium article[data-shape] ul.flex-wrap > li:first-child[data-hue]::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 9999px;
-  background: var(--dot, var(--ek-p-muted));
-}
-.ek-premium li[data-hue='ship'] { --dot: #22d3ee; }
-.ek-premium li[data-hue='weeks'] { --dot: #f472b6; }
-.ek-premium li[data-hue='wins'] { --dot: #fb923c; }
-/* A little more air under the person row. */
-.ek-premium article[data-shape='long'] div:has(> [data-ek-ring]) {
-  margin-bottom: 16px;
-}
-/* The person's photo: a thin neutral ring. */
-.ek-premium article[data-shape] [data-ek-ring] > * {
-  box-shadow: 0 0 0 1px var(--ek-p-border-strong);
+
+::-webkit-scrollbar-thumb {
   background: var(--ek-p-raised);
-  color: var(--ek-p-body);
+  border-radius: 999px;
 }
-.ek-premium footer > div:nth-child(2) {
-  color: rgba(163, 197, 254, 0.05);
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ek-navy);
+}
+
+/* Backed by: the investors' logos scroll slowly; hover pauses. */
+@keyframes ek-marquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: ek-marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+/* profile-whoop: a score ring's arc draws in once (ScoreRing). */
+@keyframes ek-arc-in {
+  from {
+    stroke-dashoffset: 100;
+  }
+}
+.ek-arc {
+  animation: ek-arc-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ek-arc {
+    animation: none;
+  }
 }

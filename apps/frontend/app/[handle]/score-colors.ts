@@ -15,9 +15,8 @@ export const PART_COLORS = {
 export type PartLabel = keyof typeof PART_COLORS;
 export type Hue = { from: string; to: string; text?: string };
 
-/** profile-whoop v2: a dark card surface (hairline border, soft top-down gradient). */
-export const SURFACE =
-  'rounded-[24px] border border-[var(--ek-p-border)] bg-gradient-to-b from-[var(--ek-p-surface-top)] to-[var(--ek-p-surface)]';
+/** R18: the site's one card surface (Panel.tsx SURFACE). */
+export { SURFACE } from '../components/common/Panel';
 
 export const SCORE_COLORS = {
   /** The hero ring: white to the soft brand blue. */

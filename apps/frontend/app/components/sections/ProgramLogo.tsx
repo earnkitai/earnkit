@@ -32,7 +32,7 @@ export default function ProgramLogo({ logo, title, size = 48 }: { logo: string |
   return (
     <span
       aria-hidden="true"
-      className="flex flex-shrink-0 items-center justify-center rounded-full border border-ek-blue-soft/25 bg-ek-navy font-funnel-display font-medium text-ek-blue-soft"
+      className="flex flex-shrink-0 items-center justify-center rounded-full border border-ek-blue-soft/25 bg-ek-navy font-funnel-display font-medium text-ek-muted"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.36) }}
     >
       {monogram(title)}

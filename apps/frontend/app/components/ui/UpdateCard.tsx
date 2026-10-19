@@ -1,5 +1,6 @@
 import Avatar from '../../[handle]/Avatar';
-import { chipHue } from '../../[handle]/score-colors';
+import { chipHue, type PartLabel } from '../../[handle]/score-colors';
+import { SURFACE } from '../common/Panel';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
 import { weekLabel } from '../../../lib/earnkit/weeks';
@@ -34,25 +35,27 @@ function Body({ text }: { text: string }) {
     const href = m[0].replace(RENDERED_TRAILING, '');
     if (!linkable(href)) continue;
     if (m.index > at) out.push(text.slice(at, m.index));
-    out.push(<a key={m.index} href={href} rel="nofollow noopener ugc" className="underline underline-offset-2">{href.replace(/^https:\/\//, '')}</a>);
+    out.push(<a key={m.index} href={href} rel="nofollow noopener ugc" className="text-ek-accent underline underline-offset-2">{href.replace(/^https:\/\//, '')}</a>);
     at = m.index + href.length;
   }
   out.push(text.slice(at));
   return <>{out}</>;
 }
 
+/** The small dot on a card's first chip, in the hue of the fact it speaks to (score-colors.ts chipHue). */
+const DOT: Record<PartLabel, string> = { ship: '#22d3ee', weeks: '#f472b6', wins: '#fb923c' };
+
 /**
- * v2.13 spec "The feed": one update as a card, long (the feed, the profile) or square (the carousel).
- * Server-safe; no label says who wrote it. profile-whoop v3: each chip carries the hue of the fact it speaks
- * to (data-hue, score-colors.ts chipHue); the premium pages (.ek-premium in globals.css) show it only
- * as one small dot on the first chip, so the homepage carousel looks as before. `showWeek: false`
- * drops the week line where a section header already names the week (the feed).
+ * v2.13 spec "The feed": one update as a card, long (the feed, the profile) or square (the carousel),
+ * on the site's card surface (R18: Panel.tsx SURFACE). Server-safe; no label says who wrote it. Chips
+ * are neutral; the first carries one small dot in its fact's hue (data-hue, score-colors.ts chipHue).
+ * `showWeek: false` drops the week line where a section header already names the week (the feed).
  */
 export default function UpdateCard({ card, shape, showPerson = true, showWeek = true }: { card: UpdateCardData; shape: 'long' | 'square'; showPerson?: boolean; showWeek?: boolean }) {
   const square = shape === 'square';
   const shell = square
-    ? 'aspect-square rounded-[28px] bg-ek-navy p-5 flex flex-col justify-between w-[78vw] max-w-[18rem] sm:w-[18rem]'
-    : 'rounded-[28px] bg-ek-navy px-6 py-5 md:px-8 md:py-6 w-full';
+    ? `${SURFACE} aspect-square p-5 flex flex-col justify-between w-[78vw] max-w-[18rem] sm:w-[18rem]`
+    : `${SURFACE} p-5 md:px-8 md:py-6 w-full`;
   const raw = card.started ?? card.text;
   const text = raw && square ? raw.split(/(?<=[.!?])\s/)[0] : raw;
   const chips = square ? card.chips.slice(0, 2) : card.chips;
@@ -63,27 +66,31 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
     <article data-shape={shape} className={shell}>
       <div>
         {showPerson && handle && (
-          <div className="mb-3 flex items-center gap-3">
-            <span data-ek-ring="" className="inline-flex shrink-0 rounded-full">
-              <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
-            </span>
-            <div className="min-w-0 font-funnel-sans text-sm text-ek-blue-light">
-              <p data-ek-name="" className="break-words font-medium text-ek-white">{card.name}</p>
-              <p data-ek-meta="" className="break-words"><a href={pagePath(handle)} className="hover:text-ek-white">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
+          <div className="mb-4 flex items-center gap-3">
+            <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
+            <div className="min-w-0 font-funnel-sans text-sm">
+              <p data-ek-name="" className="break-words font-medium text-ek-text">{card.name}</p>
+              <p data-ek-meta="" className="break-words text-ek-muted"><a href={pagePath(handle)} className="hover:text-ek-text">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
             </div>
           </div>
         )}
-        {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-blue-soft">{weekLabel(card.week)}</p>}
-        {titles.length ? <ul className="mt-2 space-y-1">{titles.map((t) => <li key={t} className="font-funnel-sans text-[15px] text-ek-white">{t}</li>)}</ul> : null}
+        {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-muted">{weekLabel(card.week)}</p>}
+        {titles.length ? <ul className="mt-2 space-y-1">{titles.map((t) => <li key={t} className="font-funnel-sans text-[15px] font-medium text-ek-text">{t}</li>)}</ul> : null}
         {text && (
-          <p className={`mt-2 font-funnel-sans text-base text-ek-white ${square ? 'line-clamp-3' : ''}`}><Body text={text} /></p>
+          <p className={`mt-2 font-funnel-sans text-base text-ek-body ${square ? 'line-clamp-3' : ''}`}><Body text={text} /></p>
         )}
       </div>
       {chips.length > 0 && (
-        <ul className="mt-3 flex flex-wrap gap-2">
-          {chips.map((c) => (
-            <li key={c} data-hue={chipHue(c) ?? undefined} className="rounded-full bg-ek-navy-deep px-3 py-1 text-sm text-ek-blue-light">{c}</li>
-          ))}
+        <ul className="mt-4 flex flex-wrap gap-2">
+          {chips.map((c, i) => {
+            const hue = chipHue(c);
+            return (
+              <li key={c} data-hue={hue ?? undefined} className="inline-flex items-center gap-2 rounded-full bg-ek-chip px-3 py-1 font-funnel-sans text-sm text-ek-body">
+                {i === 0 && hue ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: DOT[hue] }} /> : null}
+                {c}
+              </li>
+            );
+          })}
         </ul>
       )}
     </article>

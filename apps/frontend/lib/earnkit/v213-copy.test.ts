@@ -111,12 +111,11 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
 test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async () => {
   const { default: HomeView } = await import('../../app/HomeView');
   const { homeFixture } = await import('./fixtures/landing');
-  const { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
+  const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
   const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
   const { CAROUSEL_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/UpdateCarousel');
-  const { BENCH_HOW_TITLE, BENCH_STEPS, BENCH_STEPS_NO_RAISE } = await import('../../app/components/sections/BenchHowItWorks');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, ...BENCH_STEPS_NO_RAISE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_HOW_TITLE, ...BENCH_STEPS, BENCH_FOOTER_TAGLINE])
+  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], titles: [], pinned: false };

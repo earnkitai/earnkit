@@ -648,7 +648,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
 test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the square cards', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('This week on the leaderboard'));
+  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('Shipped this week'));
   assert.ok((landing.bench?.rows.length ?? 0) <= 10);
   assert.match(page, /data-shape="square"/);
   assert.ok(landing.bench?.cards.some((c) => c.handle === 'maya_makes'));

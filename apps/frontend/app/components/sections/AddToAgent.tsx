@@ -105,7 +105,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         });
       }}
       aria-label={label}
-      className="flex-shrink-0 rounded-full bg-ek-blue-bright px-4 py-2 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+      className="flex-shrink-0 rounded-full bg-ek-blue-bright px-4 py-2 font-funnel-sans text-sm font-medium text-ek-page transition-colors hover:bg-ek-blue-soft"
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
@@ -142,11 +142,11 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-to-agent-title"
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-ek-black/85 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-ek-page/85 p-4 backdrop-blur-sm sm:items-center"
       onClick={onClose}
     >
       <div
-        className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[32px] bg-ek-navy-deep p-6 text-left md:p-8"
+        className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[24px] border border-ek-line bg-gradient-to-b from-ek-surface-top to-ek-surface p-6 text-left md:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -154,7 +154,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-ek-navy text-ek-blue-light transition-colors hover:bg-ek-blue-strong hover:text-white"
+          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover"
         >
           <svg
             viewBox="0 0 24 24"
@@ -171,16 +171,16 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
 
         <h2
           id="add-to-agent-title"
-          className="pr-12 font-funnel-display text-2xl font-medium text-ek-white md:text-3xl"
+          className="pr-12 font-funnel-display text-2xl font-medium text-ek-text md:text-3xl"
         >
           Add EarnKit to your agent
         </h2>
-        <p className="mt-2 font-funnel-sans text-base font-light text-ek-blue-soft">
+        <p className="mt-2 font-funnel-sans text-base text-ek-muted">
           Free, no account. Your agent connects with this link:
         </p>
 
-        <div className="mt-5 flex items-center gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-          <code className="min-w-0 flex-1 truncate font-mono text-sm text-ek-white md:text-base">
+        <div className="mt-5 flex items-center gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+          <code className="min-w-0 flex-1 truncate font-mono text-sm text-ek-text md:text-base">
             {MCP_URL}
           </code>
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" />
@@ -200,8 +200,8 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               onClick={() => setActive(i)}
               className={`inline-flex items-center gap-2 rounded-full py-2 pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors ${
                 i === active
-                  ? 'bg-ek-blue-light text-ek-navy-deep'
-                  : 'bg-ek-navy text-ek-blue-light hover:bg-ek-blue-strong'
+                  ? 'bg-ek-text text-ek-page'
+                  : 'bg-ek-chip text-ek-body hover:bg-ek-chip-hover'
               }`}
             >
               {/* One color per state: an SVG mark is drawn dark on the light tab, light on the navy one; an app icon (PNG) keeps its colors. */}
@@ -222,12 +222,12 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
 
         <div
           role="tabpanel"
-          className="mt-5 font-funnel-sans text-base text-ek-blue-light"
+          className="mt-5 font-funnel-sans text-base text-ek-body"
         >
           {agent.install && (
             <a
               href={agent.install}
-              className="mb-4 inline-flex rounded-full bg-ek-blue-bright px-5 py-2.5 font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+              className="mb-4 inline-flex rounded-full bg-ek-blue-bright px-5 py-2.5 font-medium text-ek-page transition-colors hover:bg-ek-blue-soft"
             >
               Add to {agent.name}
             </a>
@@ -238,8 +238,8 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
             ))}
           </ol>
           {agent.code && (
-            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
+            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
                 {agent.code}
               </pre>
               <CopyButton
@@ -250,8 +250,8 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           )}
           {agent.after && <p className="mt-3 font-light">{agent.after}</p>}
           {agent.afterCode && (
-            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
+            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
                 {agent.afterCode}
               </pre>
               <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
@@ -259,9 +259,9 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           )}
         </div>
 
-        <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">
+        <p className="mt-7 border-t border-ek-line pt-5 font-funnel-sans text-base text-ek-text">
           Then ask your agent:{' '}
-          <span className="text-ek-blue-bright">
+          <span className="text-ek-accent">
             &ldquo;{prompt}&rdquo;
           </span>
         </p>

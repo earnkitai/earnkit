@@ -17,10 +17,9 @@ import HomeView from '../../app/HomeView';
 import Footer from '../../app/components/common/Footer';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
 import { BENCH_FOOTER_TAGLINE } from './footer-links';
-import { BENCH_HERO_SUBTITLE, BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
+import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
 import { BENCH_TOP_TITLE, SEE_BENCH } from '../../app/components/sections/BenchTop';
 import { CAROUSEL_TITLE } from '../../app/components/sections/UpdateCarousel';
-import { BENCH_HOW_TITLE, BENCH_STEPS, BENCH_STEPS_NO_RAISE } from '../../app/components/sections/BenchHowItWorks';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -363,35 +362,31 @@ const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, pro
 
 test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants and a community round.');
+  // R18: shipping and funding; the landing never pitches a coin or a community round.
+  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It ranks what you ship on the leaderboard and finds grants that fit.');
   const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
 });
 
-test('12.1b (v2.13.1 O3) EARNKIT_RAISING off: the hero and How it works never mention raising; on: as built', () => {
-  assert.equal(BENCH_HERO_SUBTITLE_NO_RAISE, 'Add EarnKit to your AI agent. It puts your project on the leaderboard, posts what you ship, and finds you grants.');
-  assert.deepEqual(BENCH_STEPS_NO_RAISE, ['Add EarnKit to your agent and connect X.', 'Your project goes on the leaderboard and your agent posts what you ship each week.', 'Get funded: grants that fit.']);
-  const off = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: false } });
-  assert.ok(off.includes(BENCH_HERO_SUBTITLE_NO_RAISE) && !off.includes(BENCH_HERO_SUBTITLE), 'the raise-free subtitle');
-  for (const s of BENCH_STEPS_NO_RAISE) assert.ok(off.includes(s), s);
-  assert.doesNotMatch(off, /\braise\b|raising|your own coin/i);
-  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
-  assert.ok(on.includes(BENCH_HERO_SUBTITLE) && !on.includes(BENCH_HERO_SUBTITLE_NO_RAISE));
-  for (const s of BENCH_STEPS) assert.ok(on.includes(s), s);
+test('12.1b (R18) the landing never mentions a coin or a community round, raising on or off', () => {
+  for (const raising of [false, true]) {
+    const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising } });
+    assert.ok(h.includes(BENCH_HERO_SUBTITLE));
+    assert.doesNotMatch(h, /\braise\b|raising|community round|your own coin/i);
+  }
 });
 
-test('12.2 the sections in order: hero, the Bench top 10, this week on the Bench, grants open now, how it works, backed by', () => {
+test('12.2 the sections in order: hero, the leaderboard top 10, shipped this week, money open now, backed by (R18: no How it works, no filter chips)', () => {
   const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD], raising: true } });
-  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', BENCH_HOW_TITLE, 'Backed by'].map((s) => h.indexOf(s));
+  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', 'Backed by'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
   assert.match(h, new RegExp(`href="/leaderboard"[^>]*>${SEE_BENCH}`));
-  assert.match(h, /href="\/leaderboard\?chain=base"/);
-  assert.match(h, /href="\/leaderboard\?raising=1"/);
+  assert.doesNotMatch(h, /href="\/leaderboard\?/, 'the filters live on /leaderboard');
   assert.match(h, /data-shape="square"/);
-  for (const s of BENCH_STEPS) assert.ok(h.includes(s), s);
+  assert.ok(!h.includes('How it works'));
 });
 
 test('12.3 the square card: photo, @handle, project, the first line of the update and at most two chips', () => {
@@ -418,14 +413,11 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
 });
 
-test('12.8 no all-caps labels: "Backed by" and the footer column titles are sentence case', () => {
+test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no column titles and nothing uppercase', () => {
   const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
   const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD], raising: true } });
-  const fallback = page({ ...LANDING_FIXTURE, bench: null });
-  for (const t of ['Backed by', 'Product', 'Resources', 'Legal', 'Contact']) {
-    assert.ok(on.includes(`>${t}<`) && !caps(on, t), t);
-    assert.ok(!caps(fallback, t), `no Bench data: ${t}`);
-  }
+  assert.ok(on.includes('>Backed by<') && !caps(on, 'Backed by'));
+  for (const t of ['Product', 'Resources', 'Legal', 'Contact']) assert.ok(!on.includes(`>${t}<`), t);
   assert.doesNotMatch(on.split('<footer')[1], /\buppercase\b/, 'the footer');
 });
 

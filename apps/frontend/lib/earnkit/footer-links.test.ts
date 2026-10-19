@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Footer from '../../app/components/common/Footer';
-import { Wordmark } from '../../app/components/ui/Logo';
 import { EXTERNAL_ALLOW, FOOTER_COLUMNS, BENCH_FOOTER_TAGLINE, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root; see
@@ -42,19 +41,14 @@ test('appRoutes: includes the top-level routes and a dynamic segment', () => {
   for (const r of ['/', '/programs', '/terms', '/programs/[id]']) assert.ok(routes.includes(r), r);
 });
 
-test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the tagline, the faded wordmark, and the copyright', () => {
+test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the tagline and the copyright; R18: no faded wordmark, no column titles', () => {
   const h = renderToStaticMarkup(React.createElement(Footer));
   const hrefs = new Set([...h.matchAll(/href="([^"]+)"/g)].map((m) => m[1]));
   const expected = new Set(['/', ...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href))]);
   assert.deepEqual(hrefs, expected);
   assert.ok(h.includes(BENCH_FOOTER_TAGLINE));
-  // v2.8.1 (owner): the faded wordmark is the navbar's logo (the same SVG: mark and "EarnKit"), not text.
-  const faded = /<div aria-hidden="true" data-footer-wordmark=""[^>]*>(<svg[\s\S]*?<\/svg>)<\/div>/.exec(h);
-  assert.ok(faded, 'the faded wordmark is an SVG');
-  const navbar = renderToStaticMarkup(React.createElement(Wordmark));
-  assert.equal(/ d="([^"]+)"/.exec(faded[1])?.[1], / d="([^"]+)"/.exec(navbar)?.[1], 'the same logo path as the navbar');
-  assert.match(faded[1], /viewBox="0 0 124 23"/);
-  assert.doesNotMatch(faded[1], /role="img"/);
+  assert.doesNotMatch(h, /data-footer-wordmark/);
+  for (const c of FOOTER_COLUMNS) assert.ok(!h.includes(`>${c.title}<`), c.title);
   assert.doesNotMatch(h, />EARNKIT</);
   assert.match(h, new RegExp(`© ${new Date().getFullYear()} Tokenfi Inc\\. All rights reserved\\.`));
   assert.match(h, /aria-label="@jenilt on X"[^>]*>[\s\S]{0,200}?<svg/);

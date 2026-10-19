@@ -292,11 +292,11 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
 test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder who ships"; the money heading includes investments', () => {
-  assert.ok(html(React.createElement(BenchTop, { rows: [], chips: [], raising: false })).includes(BENCH_TOP_EMPTY));
+  assert.ok(html(React.createElement(BenchTop, { rows: [] })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
   // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
-  assert.equal(benchLine(1), '1 builder who ships, ranked by Shipping points.');
-  assert.equal(benchLine(2), '2 builders who ship, ranked by Shipping points.');
+  assert.equal(benchLine(1), '1 builder, ranked by Shipping points. Ship code every week to climb.');
+  assert.equal(benchLine(2), '2 builders, ranked by Shipping points. Ship code every week to climb.');
   const cards = html(React.createElement(ProgramCards, { tiles: [], bench: true }));
   assert.ok(cards.includes('Money open now'), cards);
   assert.ok(!cards.includes('Grants open now'));
