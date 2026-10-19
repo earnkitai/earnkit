@@ -46,8 +46,6 @@ import {
   walletQuestion,
   confirmLine,
   confirmOffer,
-  proofLineWaiting,
-  signInLine,
 } from './confirm';
 import { APP_CONFIRM_ONLY_YOURS, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
@@ -516,8 +514,6 @@ const confirmTexts: [string, string][] = [
   // v2.8.1 §A: the launch's builder lines.
   ['confirmOffer: with the proposal', confirmOffer({ ...offerBase, proposal: { name: 'TipJar', symbol: 'TIP' } })],
   ['confirmLine: no bonus', confirmLine({ proposal: { name: 'TipJar', symbol: 'TIP' }, wallet: null, walletKnown: false })],
-  ['proofLineWaiting', proofLineWaiting('main')],
-  ['proofLineWaiting: no branch', proofLineWaiting(null)],
   ['NOT_LAUNCHED_YET', NOT_LAUNCHED_YET],
   ['LAUNCHING', LAUNCHING],
   ['LAUNCH_STUCK', LAUNCH_STUCK],
@@ -760,8 +756,6 @@ const appliedOutsideText = presentFirstMessage({
 
 // v2.9 B9: the sign-in line, the browser pages and the pickup's sign-in words.
 const signInTexts: [string, string][] = [
-  ['signInLine', signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x')],
-  ['signInLine (no ticker)', signInLine('TipJar', null, 'https://earnkit.com/github/verify?n=x')],
   ...Object.entries(VERIFY_PAGE).map(([k, v]): [string, string] => [`VERIFY_PAGE.${k}`, v]),
   ['APP_CONFIRM_ONLY_YOURS', APP_CONFIRM_ONLY_YOURS],
   ['codeLine', codeLine('ABCDEFGHJK')],
@@ -1204,8 +1198,7 @@ test('v2.9 A3: the applied line reads "applied outside EarnKit"', () => {
   assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
 });
 
-test('v2.9 B9: the sign-in copy: money first, short, no em dashes, the spec line verbatim', () => {
-  assert.equal(signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x'), 'One click to prove TipJar is yours, then $TIP launches: https://earnkit.com/github/verify?n=x');
+test('v2.9 B9, v2.14: the App link copy: short, no em dashes, no tool names', () => {
   for (const [label, text] of signInTexts) {
     assert.doesNotMatch(text, /—/, label);
     assert.doesNotMatch(text, toolNameRe, label);
@@ -1440,6 +1433,6 @@ test('Ruling 31: every launch_token note is plain builder text; technical detail
   // The instructions are not lost: the no-wallet and proof-line cases carry them for the agent.
   const byLabel = new Map(notes);
   assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
-  assert.match(byLabel.get('launch note: gate: proof line missing')!.agent_note ?? '', /earnkit\.txt/);
+  assert.match(byLabel.get('launch note: gate: App not installed')!.note ?? '', /read-only EarnKit app/);
   assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
 });

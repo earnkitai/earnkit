@@ -96,7 +96,7 @@ import { RAW_CAP, canonicalBuilderUrl, cleanProject, quoted } from './untrusted-
 import { pagesLinkOf } from './pages-link';
 import { proveRepo, type ProvenRepo } from './token-gate';
 import { heldByOther, installLink } from './repo-proof';
-import { READY_TO_SUBMIT, confirmDecision, confirmOffer, proofLineWaiting, signInLine, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
+import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_TOKEN_HERE, NO_WALLET_HINT, TOKEN_ERROR_CONFIRM } from './confirm';
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { EARNKIT_ORGS } from './earnkit-orgs';

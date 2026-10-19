@@ -11,7 +11,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimAsk, confirmingLine, installAppAsk, linkedLine, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
+  CONFIRMED_LINE, NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, buildAsk, claimAsk, installAppAsk, linkedLine, privateLine, enterAsk, fitsLine, goLiveAsk, ideasLine, onBenchLine,
 } from './bench-reply';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
@@ -24,7 +24,7 @@ export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19)].flatMap((x) => [benchRank(x)!.short, benchRank(x)!.phrase]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [benchRank(s(1, 100), { chain })!.short, benchRank(s(2, 12), { chain })!.short]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
-  NO_PROJECT_LINE, confirmingLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6), UPDATES_ASK, POST_UPDATE_ASK,
+  NO_PROJECT_LINE, privateLine('Recipe planner'), onBenchLine('Recipe planner', 'top 18% of builders', 6), UPDATES_ASK, POST_UPDATE_ASK,
   goLiveAsk('Recipe planner'), enterAsk('Base Builder Grants'), fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'Recipe planner', 'open all year'),
   claimAsk('earnkit.com/claim/abcdefghijkl', 'Recipe planner'), claimAsk('earnkit.com/claim/abcdefghijkl', null), CONFIRMED_LINE('Recipe planner'),
   // v2.13.4: the private repo's lines, the install ask and the join line.

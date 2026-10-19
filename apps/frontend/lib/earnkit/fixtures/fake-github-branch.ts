@@ -22,7 +22,7 @@ export function fakeGitHub() {
     const url = new URL(String(input));
     calls.push(url.pathname + url.search);
     assert.equal(url.host, 'api.github.com');
-    assert.equal(init?.redirect, 'manual', 'redirects are refused');
+    assert.ok(init?.redirect === 'manual' || init?.redirect === 'error', 'redirects are refused');
     const m = /^\/repos\/([^/]+)\/([^/]+)(\/.*)?$/.exec(url.pathname);
     if (!m) return json(404, {});
     const key = `${m[1]}/${m[2]}`.toLowerCase();

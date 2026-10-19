@@ -365,8 +365,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     const asks = {
       project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), updatesOn: read.updatesOn,
       postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, declined, claimed: read.base.claimed,
-      // O2 fix round 1 (ruling 3): taken or a copy, a different project.
-      joining: Boolean(project && !project.confirmed && !branch),
+      // O2 fix round 1 (ruling 3): taken or a copy, a different project. A project not proven yet is joining
+      // (the updates yes), except for a chat-only agent, which can't schedule weekly posts (O5 N15).
+      joining: Boolean(project && !project.confirmed && (!branch || (branch === 'private' && o.agentCanBuild))),
       other: branch === 'taken' || branch === 'copy',
     };
     // v2.13.4 (spec 2): unclaimed, X comes first and is the reply's one question (asked until claimed or

@@ -7,7 +7,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './bench-data';
 import { chainPools } from './bench-rank';
-import { benchReply, confirmingLine, confirmingSlowLine, type BenchView as View } from './bench-reply';
 import { carouselCards, feedWeeks, rankFeed } from './feed';
 import { mainProjectOf, pickMainProject, setMainProject } from './main-project';
 import { RAISE_LINES, pillOf, raiseAsk, setRaising } from './raising';
@@ -130,20 +129,6 @@ test('F2 the lazy pick: nothing Bench-confirmed leaves it unset; a confirmed row
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${other}, 'repo', ${k('proven')}, ${k('proven')}, 'verified', 'proof_line', 'agent')`;
   assert.equal(await pickMainProject(other, sql()), k('proven'));
 });
-
-// ---- I3: no "a minute or two" forever ---
-
-test('F5 outside the hour of fast checks the reply promises no time; plain words, no em dash', () => {
-  const v: View = { project: { key: 'a/b', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 }, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
-  assert.equal(benchReply(v).split('\n')[1], confirmingLine('Recipe planner'));
-  const slow = benchReply({ ...v, slow: true }).split('\n')[1];
-  assert.equal(slow, confirmingSlowLine('Recipe planner'));
-  assert.equal(slow, "Recipe planner joins the Bench once I've confirmed it's yours. I check again every day.");
-  assert.ok(!slow.includes('minute') && !slow.includes('—'));
-  assert.ok(benchReply({ ...v, slow: true, branch: 'checking' }).includes('temporary branch'));
-});
-
-// ---- M1: a project that stops being confirmed leaves the Bench, the chain pools and the feed at once
 
 test('F6 the Bench gate is read now: a lost repo proof leaves /bench, the chain pool and the feed before the next rescore', dbTest, async () => {
   const a = await listed({ public: true, chains: ['base'], update: true });

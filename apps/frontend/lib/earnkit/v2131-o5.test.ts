@@ -10,7 +10,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, copyLine, grantsAsk, privateLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -19,7 +19,6 @@ import { mondayOf } from './weeks';
 import { takeNews } from './stand-view';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
-import { PROOF_BRANCH_NOTE, REPO_PROBE_KEEP_MS, removeNote } from './proof-branch';
 import { readPersonLive, rescorePerson } from './person-score';
 import { safeNames } from './page-data';
 import { EARN_NOTE } from './stand-text';
@@ -118,20 +117,19 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.ok(ms < 3000, `the first find took ${ms} ms`);
       assert.ok(gh.calls.length > 0, 'GitHub reads were started');
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
-      assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'), r.show_to_builder);
+      // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
+      assert.equal(r.show_to_builder.split('\n')[1], privateLine('Next.js'), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.ok(r.show_to_builder.endsWith('?'));
-      // O5 fix round 1: a find with an open code (its check waits on GitHub too) stays under 3 s.
-      assert.ok(r.proof, 'a code is open');
+      assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
-      assert.ok(Date.now() - t2 < 3000, `the find with an open code took ${Date.now() - t2} ms`);
-      assert.ok(gh.calls.some((c) => c.includes('/git/ref/heads/earnkit-')), 'the proof check started');
-      assert.equal(r2.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'));
+      assert.ok(Date.now() - t2 < 3000, `the second find took ${Date.now() - t2} ms`);
+      assert.equal(r2.show_to_builder.split('\n')[1], privateLine('Next.js'));
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'));
+      assert.equal(s.show_to_builder.split('\n')[1], privateLine('Next.js'));
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -142,141 +140,21 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
 
 // ---- N2, N3, N8: a project the branch can't prove says so at once ----------------------------------
 
-test('O5 N2 a User repo under another login: no code, the plain line and a different project at once; an org repo still gets its branch', dbTest, () =>
-  on(async () => {
-    const key = `${uniq('torvalds')}/linux`;
-    const gh = repoFake();
-    const id = await install();
-    const r = await find(id, named(key, uniq('octocat')), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r.show_to_builder.split('\n')[1], foreignLine('Linux'), r.show_to_builder);
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
-    assert.equal(r.proof, undefined, 'no branch to push');
-    assert.equal((await codes(id)).length, 0, 'no code issued');
-    assert.equal(r.move_up?.kind, 'claim', 'v2.13.4: X first');
-    // An organization's repo: any member may push, so the branch is given.
-    const org = `${uniq('vercel')}/next.js`;
-    const o = await install();
-    const og = repoFake({ [org]: { owner: { login: org.split('/')[0], type: 'Organization' } } });
-    const ro = await find(o, named(org, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: og.f });
-    assert.equal(ro.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'), ro.show_to_builder);
-    assert.ok(ro.proof);
-    // Their own repo (the login is the owner): the branch as before.
-    const own = `${uniq('maya')}/recipes`;
-    const m = await install();
-    const rm = await find(m, named(own), { ...NO_MATCH, proofBranchFetch: repoFake().f });
-    assert.equal(rm.show_to_builder.split('\n')[1], checkingBranchLine('Recipes'));
-  }),
-);
-
-test('O5 N2 a repo EarnKit cannot read (404): "EarnKit can\'t see" at once, no code; GitHub slow or down: the branch as before', dbTest, () =>
-  on(async () => {
-    const key = `${uniq('maya')}/secret`;
-    const id = await install();
-    const r = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({}, { [key]: 404 }).f });
-    // O5 fix round 1: a 404 is often the builder's own private repo: never the push line.
-    assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('Secret'), r.show_to_builder);
-    // v2.13.3 (5): with the read-only App off, said honestly.
-    assert.equal(cantSeeLine('secret'), "I can't see secret. EarnKit can only see public repos right now.");
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)));
-    assert.equal((await codes(id)).length, 0);
-    const down = `${uniq('maya')}/recipes`;
-    const d = await install();
-    const rd = await find(d, named(down), { ...NO_MATCH, proofBranchFetch: (async () => { throw new Error('down'); }) as typeof fetch });
-    assert.equal(rd.show_to_builder.split('\n')[1], checkingBranchLine('Recipes'), 'unknown: the branch is still given');
-  }),
-);
-
-test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once with the plain line and a different project', dbTest, () =>
-  on(async () => {
-    const key = `${uniq('vercel')}/next.js`;
-    const org = `${uniq('vercel')}/next.js`;
-    const id = await install();
-    const gh = repoFake({ [key]: { owner: { login: key.split('/')[0], type: 'Organization' } }, [org]: { owner: { login: org.split('/')[0], type: 'Organization' } } });
-    const r = await find(id, named(key, uniq('ravi')), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.ok(r.proof, 'the branch was given');
-    const t = (await tools.tell({ proof: { pushed: false } }, { installationId: id } as never)) as R;
-    assert.equal(t.show_to_builder, '');
-    assert.match(t.agent_note ?? '', /call find/i);
-    const next = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('Next.js'), next.show_to_builder);
-    assert.ok(next.show_to_builder.endsWith(claimQuestion(null)));
-    assert.equal(next.proof, undefined);
-  }),
-);
-
-test('O5 fix round 1: a fork or template gets no code and the copy line; each verdict is remembered a day (no GitHub read per find); a chat agent too', dbTest, () =>
-  on(async () => {
-    const fork = `${uniq('maya')}/forked`;
-    const gf = repoFake({ [fork]: { fork: true } });
-    const f = await install();
-    const rf = await find(f, named(fork), { ...NO_MATCH, proofBranchFetch: gf.f });
-    assert.equal(rf.show_to_builder.split('\n')[1], copyLine('Forked'), rf.show_to_builder);
-    assert.equal(copyLine('forked'), 'forked is a copy of another repo. Use your own project.');
-    assert.ok(rf.show_to_builder.endsWith(claimQuestion(null)));
-    assert.equal((await codes(f)).length, 0);
-    const tpl = `${uniq('maya')}/tpl`;
-    const t = await install();
-    const rt = await find(t, named(tpl), { ...NO_MATCH, proofBranchFetch: repoFake({ [tpl]: { is_template: true } }).f });
-    assert.equal(rt.show_to_builder.split('\n')[1], copyLine('Tpl'));
-    // Remembered: the next finds read GitHub no more.
-    const reads = () => gf.reads.filter((x) => x === `/repos/${fork}`).length;
-    assert.equal(reads(), 1);
-    await find(f, {}, { ...NO_MATCH, proofBranchFetch: gf.f });
-    assert.equal(reads(), 1, `the copy verdict is remembered: ${gf.reads.join(' ')}`);
-    for (const [kind, k, extra, fake] of [
-      ['foreign', `${uniq('torvalds')}/linux`, { login: uniq('octocat') }, (k: string) => repoFake()],
-      ['404', `${uniq('maya')}/private`, {}, (k: string) => repoFake({}, { [k]: 404 })],
-      ['needs_agent', `${uniq('maya')}/chat`, { chat: true }, () => repoFake()],
-    ] as const) {
-      const gh = fake(k);
-      const id = await install();
-      const input = { ...named(k, (extra as { login?: string }).login), ...((extra as { chat?: boolean }).chat && { agent_can_build: false }) };
-      await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
-      await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-      await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-      assert.equal(gh.reads.filter((x) => x === `/repos/${k}`).length, 1, `${kind}: one read a day`);
-    }
-  }),
-);
-
-test('O5 N3, N8, N10 the agent note says what to do when a find still says checking, and how to report a refused push; the plain line and the remove note', () => {
-  assert.match(PROOF_BRANCH_NOTE, /If the push is refused, call tell with proof: \{ pushed: false \} and don't retry\./);
-  assert.match(PROOF_BRANCH_NOTE, /If it still says it's checking, wait a minute and call find once more; never show the same reply twice\./);
-  assert.equal(cantShowLine('Next.js'), "I couldn't show Next.js is yours. It needs a project you can push to.");
-  assert.equal(foreignLine('linux'), "linux is under someone else's GitHub account.");
-  assert.equal(removeNote('git push origin :refs/heads/earnkit-x'), "Confirmed. Delete the branch now: git push origin :refs/heads/earnkit-x. Don't show this note.");
-  for (const b of ['failed', 'foreign'] as const) {
-    const v: BenchView = {
-      project: { key: 'a/b', name: 'b', confirmed: false, live: false, weeks: 0 }, rank: null, claimed: false, handle: null, claimLink: 'https://earnkit.com/claim/abcdefghijkl',
-      fund: [], ask: { kind: 'other_project', project_key: 'a/b', line: OTHER_PROJECT_ASK }, branch: b,
-    };
-    assert.equal(questions(benchReply(v)), 1);
-  }
-});
-
 // ---- N4: the new project is read at once -------------------------------------------------------
 
-test('O5 N4 a switch to a public repo names it at once (never "Private project"); a private or unreadable one stays unnamed; the refresh reads only the one project\'s proposed repo', dbTest, () =>
+test('O5 N4 a repo never read public stays unnamed ("Private project"); the refresh reads only the one project\'s proposed repo', dbTest, () =>
   on(async () => {
     const id = await install();
     const old = `${uniq('vercel')}/next.js`;
     const key = `${uniq('ravi')}/arc-usdc-tipjar`;
-    const gh = repoFake({ [old]: { owner: { login: old.split('/')[0], type: 'Organization' } } });
-    await find(id, named(old, key.split('/')[0]), { ...NO_MATCH, proofBranchFetch: gh.f });
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-    await rescorePerson(id, new Date());
-    assert.equal((await safeNames([id]))(id, key), 'arc-usdc-tipjar', 'read public at the switch');
-    // A private repo, and one EarnKit can't read: unnamed.
-    for (const [why, fake] of [
-      ['private', (k: string) => repoFake({ [k]: { private: true } })],
-      ['404', (k: string) => repoFake({}, { [k]: 404 })],
-    ] as const) {
-      const p = await install();
-      const k = `${uniq('maya')}/hidden`;
-      await find(p, named(k), { ...NO_MATCH, proofBranchFetch: fake(k).f });
-      await rescorePerson(p, new Date());
-      assert.equal((await safeNames([p]))(p, k), 'Private project', why);
-    }
+    await find(id, named(old, key.split('/')[0]), NO_MATCH);
+    await find(id, named(key), NO_MATCH);
+    // v2.14 spec 2: no cheap read marks it public any more (the readings or the App's install do).
+    const p = await install();
+    const k = `${uniq('maya')}/hidden`;
+    await find(p, named(k), NO_MATCH);
+    await rescorePerson(p, new Date());
+    assert.equal((await safeNames([p]))(p, k), 'Private project');
     // The refresh reads the one project's proposed repo, never the replaced one.
     const asked: string[] = [];
     const reader = {
@@ -361,13 +239,12 @@ test('O5 N13 confirmed but not claimed: the updates yes never says "on the Bench
   }),
 );
 
-test('O5 N15 a chat-only agent with a project: "Open <project> in your coding agent", and no weekly-posting ask it can\'t schedule', dbTest, () =>
+test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App proves it, not a push), and no weekly-posting ask', dbTest, () =>
   on(async () => {
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[1], needsAgentLine('Earny'), r.show_to_builder);
-    assert.equal(needsAgentLine('earny'), 'Open earny in your coding agent to put it on the Bench.');
+    assert.equal(r.show_to_builder.split('\n')[1], privateLine('Earny'), r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
     assert.ok(r.show_to_builder.endsWith('?'), r.show_to_builder);
     assert.equal(questions(r.show_to_builder), 1);
@@ -414,7 +291,7 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
   withEnv(ON, async () => {
     const bench = toolDescriptions(true, true).prepare;
     assert.doesNotMatch(bench, /earnkit\.txt|token: <code>/);
-    assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the proof step when it needs one\./);
+    assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the install link when it needs one\./);
     assert.ok(bench.length < 800, `${bench.length}`);
   }),
 );
@@ -475,31 +352,6 @@ test('O5 fix round 2: GitHubError and RateLimitError carry their class names (ev
   assert.equal(new GitHubError('x', 404).name, 'GitHubError');
   assert.equal(new RateLimitError('Too many.', 60).name, 'RateLimitError');
 });
-
-test('O5 fix round 2: a new repo read prunes kept reads older than a day; kept values keep their nulls through find', dbTest, () =>
-  on(async () => {
-    const id = await install();
-    await find(id, {}, NO_MATCH);
-    const old = new Date(Date.now() - REPO_PROBE_KEEP_MS - 60_000).toISOString();
-    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json({
-      repo_probe: { 'old/gone': { kind: 'missing', at: old } },
-      bench_match: { key: 'x/y', at: new Date().toISOString(), checked: 1, scored: 0, fits: [{ repo: 'y', repo_url: null, verdicts: [] }] },
-    } as never)}::jsonb - 'at' WHERE builder_id = ${id}`;
-    const key = `${uniq('maya')}/fresh`;
-    await find(id, named(key), { ...NO_MATCH, proofBranchFetch: repoFake({ [key]: { private: null } }).f });
-    const [r] = await sql()<{ probe: Record<string, Record<string, unknown>> }[]>`
-      SELECT standing_seen->'repo_probe' AS probe FROM builder_profiles WHERE builder_id = ${id}`;
-    assert.deepEqual(Object.keys(r.probe), [key], 'the old read is pruned');
-    assert.ok('private' in r.probe[key] && r.probe[key].private === null, JSON.stringify(r.probe));
-    // The kept match keeps its nulls when find records what it showed (takeNews rewrites standing_seen).
-    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || ${sql().json({
-      bench_match: { key: 'x/y', at: new Date().toISOString(), checked: 1, scored: 0, fits: [{ repo: 'y', repo_url: null, verdicts: [] }] },
-    } as never)}::jsonb WHERE builder_id = ${id}`;
-    await takeNews(id, {}, { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, claimLink: null, projects: [] }, new Date(), false);
-    const [m] = await sql()<{ match: { fits: Record<string, unknown>[] } }[]>`SELECT standing_seen->'bench_match' AS match FROM builder_profiles WHERE builder_id = ${id}`;
-    assert.ok('repo_url' in m.match.fits[0] && m.match.fits[0].repo_url === null, JSON.stringify(m.match));
-  }),
-);
 
 test('O5 fix round 2: a grants yes that finds nothing always ends on a question: posting, the week\'s post, else "check again next week" (its yes keeps grants quiet)', dbTest, () =>
   on(async () => {

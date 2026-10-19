@@ -7,11 +7,10 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { claimQuestion, NO_OFFER_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { mainProjectOf } from './main-project';
 import { mondayOf } from './weeks';
-import { coinBranchProof } from './proof-branch';
 
 /**
  * v2.13.1 O2: the reply-side fixes of the first-run audit, through the real tools under the Bench
@@ -39,7 +38,6 @@ const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: []
 const STARTER_ID = `o2-tip-${RUN}`;
 const OWN_FRESH = { deployOn: () => true, hostOn: true, canBuild: true, starters: { [STARTER_ID]: { ...TESTED_STARTERS['arc-tipjar'], id: STARTER_ID } } };
 const named = (repo: string) => ({ agent_can_build: true, identity: { github_login: repo.split('/')[0], project: { name: repo.split('/')[1], what: 'a thing', repo } } });
-const openCodes = (id: number) => sql()<{ repo_key: string }[]>`SELECT repo_key FROM proof_branches WHERE builder_id = ${id} AND used_at IS NULL AND closed_at IS NULL AND expires_at > now()`;
 type R = { show_to_builder: string; agent_note?: string; build_offer?: Record<string, unknown>; move_up?: { kind: string }; kit?: unknown };
 
 test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick something", no question pointing nowhere, the claim link', dbTest, () =>
@@ -58,29 +56,22 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
   }),
 );
 
-test('O2.4 B6: a newer project replaces an unconfirmed one (its open code cleared, the new one gets a code); not_mine clears it; once confirmed it never changes', dbTest, () =>
+test('O2.4 B6: a newer project replaces an unconfirmed one; not_mine clears it; once confirmed it never changes', dbTest, () =>
   on(async () => {
     const id = await install();
     const a = `${uniq('wrong')}/linux`;
     const b = `${uniq('maya')}/recipes`;
     await find(id, named(a), NO_MATCH);
     assert.equal(await mainProjectOf(id), a);
-    assert.deepEqual((await openCodes(id)).map((r) => r.repo_key), [a]);
     const r = await find(id, named(b), NO_MATCH);
     assert.equal(await mainProjectOf(id), b);
-    assert.deepEqual((await openCodes(id)).map((x) => x.repo_key), [b], "the old key's open code is closed");
-    assert.equal((await sql()`SELECT 1 FROM proof_branches WHERE builder_id = ${id} AND repo_key = ${a} AND closed_at IS NOT NULL`).length, 1, 'closed, never deleted');
-    assert.equal((r.proof as { repo?: string } | undefined)?.repo, b);
-    // Fix round 1 (ruling 2): the agent is told once to delete any branch it pushed for the old key.
-    const rm = (r as unknown as { remove_branch?: { remove: string; agent_note: string } }).remove_branch;
-    assert.match(rm?.remove ?? '', /^git push origin :refs\/heads\/earnkit-[a-z2-7]{12}$/);
-    assert.match(rm?.agent_note ?? '', /project changed/);
-    assert.equal((await find(id, named(b), NO_MATCH) as unknown as { remove_branch?: unknown }).remove_branch, undefined, 'told once');
+    // v2.14 spec 2: no proof branch for either key, so nothing to close or delete.
+    assert.equal((r as unknown as { proof?: unknown }).proof, undefined);
+    assert.equal((r as unknown as { remove_branch?: unknown }).remove_branch, undefined);
     assert.match(r.show_to_builder, /Recipes/);
     // not_mine on the current one clears it; the next project the agent names is the one.
     await tools.tell({ repo_facts: [{ repo: b, not_mine: true }] }, { installationId: id } as never);
     assert.equal(await mainProjectOf(id), null);
-    assert.deepEqual([...(await openCodes(id))], []);
     const c = `${uniq('maya')}/cooking`;
     await find(id, named(c), NO_MATCH);
     assert.equal(await mainProjectOf(id), c);
@@ -125,50 +116,7 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
   }),
 );
 
-/** A fake GitHub repo read for the coin gate: `/repos/<key>` as GitHub answers it (default: a User's own repo, not a fork). */
-const repoFetch = (meta: Record<string, unknown> = {}) => {
-  const reads: string[] = [];
-  const f = (async (u: RequestInfo | URL) => {
-    const url = new URL(String(u));
-    reads.push(url.pathname);
-    const m = /^\/repos\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-    if (!m) return new Response('{}', { status: 404 });
-    return new Response(JSON.stringify({ id: 4242, full_name: `${m[1]}/${m[2]}`, fork: false, is_template: false, owner: { login: m[1], type: 'User' }, ...meta }), { status: 200 });
-  }) as typeof fetch;
-  return { f, reads };
-};
-const setProof = (id: number, key: string, proof: string) => sql()`UPDATE builder_sources SET proof = ${proof} WHERE builder_id = ${id} AND kind = 'repo' AND ref = ${key}`;
-
-test('O2.10 a coin (revised ruling): a Bench-confirmed main project proven by control (a line, a sign-in) passes with no line after one repo read; repo_owner gets the proof branch; a repo another person holds is taken; a sign-in repo now a fork does not pass', dbTest, () =>
-  on(async () => {
-    const key = `${uniq('coin')}/recipes`;
-    const id = await person({ main: key, claimed: uniq('cn'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
-    const ok = repoFetch();
-    assert.deepEqual(await coinBranchProof(id, key, new Date(), { ghFetch: ok.f }), { ok: true });
-    assert.deepEqual(ok.reads, [`/repos/${key}`], 'one launch-time read of the repo');
-    // repo_owner (discovery, from history): never a shortcut; the proof branch is asked.
-    const org = `${uniq('coinorg')}/app`;
-    const p2 = await person({ main: org, claimed: uniq('co'), projects: [{ key: org, name: 'App', confirmed: true }] });
-    await setProof(p2, org, 'repo_owner');
-    const g2 = await coinBranchProof(p2, org, new Date(), { ghFetch: repoFetch({ owner: { login: org.split('/')[0], type: 'Organization' } }).f });
-    assert.ok('proof' in g2, JSON.stringify(g2));
-    // Another person holds the repo: taken (never the shortcut).
-    const held = `${uniq('held')}/recipes`;
-    const holder = await person({ main: held, claimed: uniq('h1'), projects: [{ key: held, name: 'Recipe planner', confirmed: true }] });
-    const p3 = await person({ main: held, claimed: uniq('h2'), projects: [{ key: held, name: 'Recipe planner', confirmed: true }] });
-    await sql()`UPDATE builder_sources SET verified_at = now() - interval '1 day' WHERE builder_id = ${holder}`;
-    assert.deepEqual(await coinBranchProof(p3, held, new Date(), { ghFetch: repoFetch().f }), { line: takenLine('recipes') });
-    // A sign-in repo that became a fork.
-    const fk = `${uniq('fork')}/recipes`;
-    const p4 = await person({ main: fk, claimed: uniq('fk'), projects: [{ key: fk, name: 'Recipe planner', confirmed: true }] });
-    await setProof(p4, fk, 'github_signin');
-    assert.deepEqual(await coinBranchProof(p4, fk, new Date(), { ghFetch: repoFetch().f }), { ok: true }, 'a sign-in passes while the repo reads the same');
-    const g4 = await coinBranchProof(p4, fk, new Date(), { ghFetch: repoFetch({ fork: true }).f });
-    assert.ok(!('ok' in g4), 'now a fork: no shortcut');
-  }),
-);
-
-test('O2 fix round 1 (ruling 3): every state ends on one question with a yes route: grants, the suggestion, a different project (failed and taken; taken never offers an entry), the week\'s update', dbTest, () =>
+test('O2 fix round 1 (ruling 3): every state ends on one question with a yes route: grants, the suggestion, a different project (taken never offers an entry), the week\'s update', dbTest, () =>
   on(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
@@ -201,17 +149,6 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     assert.ok(s0.show_to_builder.includes(NO_OFFER_LINE) && s0.show_to_builder.endsWith(START_ASK), s0.show_to_builder);
     const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
     assert.match(sy.agent_note ?? '', /identity/);
-    // Failed (the branch never showed in the hour): a different project; the yes asks the agent for it.
-    const f = await install();
-    await claimX(f);
-    const fk = `${uniq('fl')}/recipes`;
-    await find(f, named(fk), NO_MATCH);
-    await sql()`UPDATE proof_branches SET issued_at = issued_at - interval '2 hours', expires_at = expires_at - interval '2 hours' WHERE builder_id = ${f}`;
-    const fr = await find(f, {}, NO_MATCH);
-    assert.equal(fr.show_to_builder.split('\n')[1], cantShowLine('Recipes'), fr.show_to_builder);
-    assert.ok(fr.show_to_builder.endsWith(OTHER_PROJECT_ASK), fr.show_to_builder);
-    const fy = await tell(f, { kind: 'other_project', project_key: fk, answer: 'yes' });
-    assert.match(fy.agent_note ?? '', /identity\.project/);
     // Taken, with a program that fits the held repo: never an entry, never its program, a different project.
     const ava = await avalanche();
     const held = `${uniq('tk')}/recipes`;

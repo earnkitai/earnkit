@@ -1,7 +1,7 @@
 import './fixtures/no-network-checks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import * as nodeModule from 'node:module';
 import { join } from 'node:path';
@@ -19,7 +19,10 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, checkingBranchLine, claimAsk, takenLine } from './bench-reply';
+import { UPDATES_ASK, claimAsk, privateLine, takenLine } from './bench-reply';
+import { saveVerification } from './github-verify';
+import { rootOf } from './identity';
+import { proveByApp } from './repo-proof';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -47,18 +50,18 @@ import { GET as llms } from '../../app/llms.txt/route';
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
  * one without, the weekly update, the Bench filters, the raise, the landing page and no builder
  * bonus, through the real code paths: find,
- * prepare, confirm and tell as an agent calls them, the claim with X, the proof branch pushed by the
- * repo's agent (v2.13.1 O1), the refresh, the rescore, the weekly facts and feed rank steps, and the pages'
- * data and views. Plus Review Focus 3 (a claimant of the same repo who never pushed the line never
+ * prepare, confirm and tell as an agent calls them, the claim with X, the read-only App installed on the
+ * repo (v2.14 spec 2), the refresh, the rescore, the weekly facts and feed rank steps, and the pages'
+ * data and views. Plus Review Focus 3 (a claimant of the same repo who never installed the App on it never
  * reaches the Bench, the feed or the raise ask) and Review Focus 4 (flag off: the find heading,
  * /bench and /feed a 404).
  *
- * Real: every program file, the tools, the readers' parsing, discovery and the proof-line pusher
- * read, the score and rank, the claim, the starter build (deploy and its proof), the coin launch
+ * Real: every program file, the tools, the readers' parsing, discovery, the App proof (repo-proof.ts),
+ * the score and rank, the claim, the starter build (deploy and its proof), the coin launch
  * behind deployToken, and a throwaway database of its own (schema.sql, dropped after).
  *
- * Faked, the outside world only: GitHub (the by-name GraphQL repo read, the profile read, the REST
- * repo, push record, compare, commits and earnkit.txt), the site probe, Blockscout (five callers),
+ * Faked, the outside world only: GitHub (the by-name GraphQL repo read, the App's installations, tokens
+ * and token GraphQL read, the profile read, the REST repo, push record, compare and commits), the site probe, Blockscout (five callers),
  * tokens.fun (ticker check and deploy), X (token exchange and /2/users/me), the Arc deployer chain
  * and the sanctions screen. Every other fetch is noted and refused; 16.8 asserts none happened.
  *
@@ -101,12 +104,12 @@ const ENV: Record<string, string | undefined> = {
   X_CLIENT_SECRET: 'v213-journey-xs',
   EARNKIT_URL: 'https://earnkit.com',
   TOKENSFUN_DEPLOY_API_KEY: 'v213-journey-key',
-  // No sign-in and no App: every repo is proven by the earnkit.txt line its owner pushed.
-  GITHUB_OAUTH_CLIENT_ID: undefined,
-  GITHUB_OAUTH_CLIENT_SECRET: undefined,
-  GITHUB_APP_ID: undefined,
-  GITHUB_APP_SLUG: undefined,
-  GITHUB_APP_PRIVATE_KEY: undefined,
+  // v2.14 spec 2: every repo is proven by the read-only GitHub App (its install, on the fake GitHub below).
+  GITHUB_OAUTH_CLIENT_ID: 'v213-journey-gh',
+  GITHUB_OAUTH_CLIENT_SECRET: 'v213-journey-ghs',
+  GITHUB_APP_ID: '5355247',
+  GITHUB_APP_SLUG: 'earnkitai',
+  GITHUB_APP_PRIVATE_KEY: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
   GITHUB_TOKEN: undefined,
   // Hosting off (the build falls to GitHub Pages); the deployer is switched on for 16.2 only.
   R2_ACCOUNT_ID: undefined,
@@ -125,9 +128,9 @@ const sha = (c: string) => c.repeat(40);
 
 /**
  * GitHub as the builders' agents leave it. maya/recipes is 400 days old, live at its homepage, with
- * a commit in each of the last three ISO weeks; `pushBranch` is the agent's temporary proof branch
- * (v2.13.1 O1). maya2/tipjar is made and pushed by the starter build (a new repo: its
- * first push is a branch creation).
+ * a commit in each of the last three ISO weeks; `installRepo` is the builder installing the read-only
+ * EarnKit App on a repo (v2.14 spec 2). maya2/tipjar is made and pushed by the starter build (a new repo:
+ * its first push is a branch creation).
  */
 type GhRepo = {
   owner: string; name: string; createdAt: number; homepage: string | null;
@@ -148,13 +151,8 @@ function repo(owner: string, name: string, createdAt: number, homepage: string |
 const RECIPES = repo('maya', 'recipes', NOW.getTime() - 400 * DAY, 'https://recipes.app');
 /** maya's three weeks of commits (this week, last week, the week before). */
 const COMMITS = [NOW.getTime() - 1_000, NOW.getTime() - 7 * DAY, NOW.getTime() - 14 * DAY];
-/** v2.13.1 O1: the agent's temporary proof branch (`owner/repo#branch`), pointing at the current commit. */
-const BRANCHES = new Set<string>();
-function pushBranch(r: GhRepo, branch: string) {
-  BRANCHES.add(`${r.owner}/${r.name}#${branch}`);
-  // GitHub's activity record of the push: the repo's owner created the branch (fix round 1: the pusher is checked).
-  r.activity.unshift({ activity_type: 'branch_creation', ref: `refs/heads/${branch}`, before: sha('0'), after: sha('b'), timestamp: iso(Date.now()), actor: { login: r.owner } });
-}
+/** v2.14 spec 2: repos the read-only App is installed on (key -> GitHub's installation id). */
+const INSTALLED = new Map<string, number>();
 /** The starter build's `gh repo create` and first push (v2.11 journey). */
 function firstPush(r: GhRepo, line: string) {
   const at = Date.now();
@@ -178,9 +176,30 @@ const repoNode = (r: GhRepo, now: Date) => ({
 
 /** Every GitHub path asked (REST, raw), for the report on a failure. */
 const githubSeen: string[] = [];
-function github(u: URL): Response {
+function github(u: URL, init?: RequestInit): Response {
   const p = u.pathname;
   githubSeen.push(`${u.host}${p}${u.search}`);
+  // v2.14 spec 2: the read-only App (installation tokens, the installation's repos) and its token's GraphQL read.
+  const installation = p.match(/^\/app\/installations\/(\d+)(\/access_tokens)?$/);
+  if (installation && installation[2] && init?.method === 'POST') return json({ token: `ghs_journey_${installation[1]}` }, 201);
+  if (installation && !installation[2]) {
+    const key = [...INSTALLED].find(([, id]) => id === Number(installation[1]))?.[0];
+    return key ? json({ account: { login: key.split('/')[0] } }) : notFound();
+  }
+  if (p === '/installation/repositories') {
+    const id = Number(/ghs_journey_(\d+)/.exec(new Headers(init?.headers).get('authorization') ?? '')?.[1]);
+    return json({ repositories: [...INSTALLED].filter(([, v]) => v === id).map(([k]) => ({ full_name: k })) });
+  }
+  if (p === '/graphql' && init?.method === 'POST') {
+    const { query, variables } = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
+    graphqlSent.push(query);
+    const data: Record<string, unknown> = {};
+    for (let i = 0; variables[`o${i}`] !== undefined; i++) {
+      const r = GITHUB.get(`${variables[`o${i}`]}/${variables[`n${i}`]}`.toLowerCase());
+      if (r) data[`r${i}`] = repoNode(r, new Date());
+    }
+    return json({ data });
+  }
   if (u.host === 'raw.githubusercontent.com') {
     const [, owner, name, ref, ...rest] = p.split('/');
     const r = GITHUB.get(`${owner}/${name}`.toLowerCase());
@@ -205,6 +224,7 @@ function github(u: URL): Response {
     const rest = m[3] ?? '';
     if (rest === '') return json(repoJson(r));
     if (rest === '/activity') return json(r.activity);
+    if (rest === '/installation') return INSTALLED.has(`${r.owner}/${r.name}`) ? json({ id: INSTALLED.get(`${r.owner}/${r.name}`) }) : notFound();
     // maya/recipes has its three weeks of commits (COMMITS); a built repo, its first push.
     if (rest === '/commits' && r === RECIPES && !r.head)
       return json([{ sha: sha('d'), parents: [], author: { login: r.owner }, commit: { author: { date: iso(COMMITS[0]) }, committer: { date: iso(COMMITS[0]) } } }]);
@@ -213,11 +233,6 @@ function github(u: URL): Response {
     if (rest.startsWith('/compare/') && r.head && rest === `/compare/${r.head.before}...${r.head.after}`)
       return json({ status: 'ahead', total_commits: 1, commits: [{ sha: r.head.after, parents: [{ sha: r.head.before }], commit: { committer: { date: iso(r.head.at) } } }] });
     if (rest === '/branches') return json([{ name: 'main' }]);
-    const ref = rest.match(/^\/git\/ref\/heads\/(.+)$/);
-    if (ref)
-      return BRANCHES.has(`${r.owner}/${r.name}#${ref[1]}`)
-        ? json({ ref: `refs/heads/${ref[1]}`, url: `https://api.github.com/repos/${r.owner}/${r.name}/git/refs/heads/${ref[1]}`, object: { sha: sha('b'), type: 'commit' } })
-        : notFound();
     if (rest === '/contents/earnkit.txt') {
       const text = r.head && r.files.get(r.head.after);
       return text ? new Response(text) : notFound();
@@ -236,7 +251,7 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const u = new URL(url);
   if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return realFetch(input, init);
-  if (['api.github.com', 'github.com', 'raw.githubusercontent.com'].includes(u.host)) return github(u);
+  if (['api.github.com', 'github.com', 'raw.githubusercontent.com'].includes(u.host)) return github(u, init);
   if (u.hostname === 'tokens.fun' && u.pathname === '/api/check-ticker') return json({ available: true });
   if (u.hostname === 'tokens.fun' && u.pathname === '/api/v1/deploy') {
     const body = JSON.parse(String(init?.body)) as { symbol: string; creatorWallet: string };
@@ -277,7 +292,7 @@ const FAKE_READER: ReaderDeps = {
     return { data } as T;
   },
   gh: ghJson,
-  ghFetch: ((input: RequestInfo | URL) => Promise.resolve(github(new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url)))) as typeof fetch,
+  ghFetch: ((input: RequestInfo | URL, init?: RequestInit) => Promise.resolve(github(new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url), init))) as typeof fetch,
   probe: async (url) => ({ status: /^https:\/\/recipes\.app\/?$/.test(url) ? 200 : 404 }),
   fetchText: async () => {
     throw new Error('not found');
@@ -365,9 +380,9 @@ after(async () => {
 // ---- Helpers -----------------------------------------------------------------------------------
 
 type Reply = {
-  show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: { line?: string; branch?: string; remove?: string; agent_note?: string };
+  show_to_builder: string; agent_note?: string; claim?: { link: string }; proof?: unknown;
   move_up?: { kind: string; project_key: string | null }; build_offer?: { program_id: string }; schedule_weekly_update?: string;
-  kit?: { proof_line?: string | null; proof_branch?: { branch: string } }; project_id?: number;
+  kit?: { proof_line?: string | null; proof_branch?: unknown }; project_id?: number;
 };
 async function newInstall(): Promise<number> {
   const token = `v213-${randomBytes(16).toString('hex')}`;
@@ -383,6 +398,23 @@ const call = async (tool: 'find' | 'prepare' | 'confirm' | 'tell' | 'score', inp
 async function claimX(link: string): Promise<void> {
   const done = await claimThroughX(link, fakeX);
   assert.equal(done.status, 200, await done.clone().text());
+}
+
+/**
+ * v2.14 spec 2: the builder installs the read-only EarnKit App on `r` (github-app.ts appSetup's work after the
+ * sign-in hop named the owner): the App verification row, then repo-proof.ts proveByApp on the fake GitHub.
+ */
+async function installRepo(id: number, r: GhRepo): Promise<void> {
+  const key = `${r.owner}/${r.name}`;
+  const inst = 7000 + INSTALLED.size;
+  INSTALLED.set(key, inst);
+  const root = await rootOf(id);
+  await saveVerification(
+    { installation_id: root, project_id: null, repo_key: key, purpose: 'app', wallet: null, symbol: null },
+    { login: r.owner, created_at: new Date(NOW.getTime() - 400 * DAY), public_repos: 1 }, new Date(), { githubInstallationId: inst },
+  );
+  const out = await proveByApp({ builderId: root, repoKey: key, githubInstallationId: inst }, { fetch: FAKE_READER.ghFetch });
+  assert.ok(out.ok, JSON.stringify(out));
 }
 
 /** As if `ms` passed since the person's last read (the refresh guard). */
@@ -453,7 +485,7 @@ async function seedBaseBuilders(n: number): Promise<string> {
 }
 
 /** The starter build of the v2.11 journey (13.1 to 13.4 with the fakes), repo maya2/tipjar, through its deploy. */
-async function runStarterBuild(id: number, programId: string, o: { owner?: string; expire?: boolean } = {}): Promise<void> {
+async function runStarterBuild(id: number, programId: string, o: { owner?: string } = {}): Promise<void> {
   const owner = o.owner ?? 'maya2';
   const deployDeps: DeployDeps = { chain: (c) => (c === 'arc' ? fakeArc(() => MAYA2_WALLET) : null), usdPerNative: async () => 1 };
   const c = ctx(id, { ownInstallationId: id, deployDeps });
@@ -465,29 +497,18 @@ async function runStarterBuild(id: number, programId: string, o: { owner?: strin
     const tipjar = repo(owner, 'tipjar', Date.now() - 2 * 60_000, null);
     const repoUrl = `https://github.com/${owner}/tipjar`;
     const withRepo = await call('prepare', { program_id: programId, build: { program_id: programId, ...twist, wallet: MAYA2_WALLET, repo_url: repoUrl } }, c);
-    // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench the kit carries a proof branch, never a line.
-    assert.equal(withRepo.kit?.proof_line, null, JSON.stringify(withRepo));
-    const branch = withRepo.kit?.proof_branch?.branch;
-    assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(withRepo));
+    // v2.14 spec 2: the kit carries no proof line or branch; the builder installs the App on the new repo.
+    assert.ok(!('proof_line' in (withRepo.kit ?? {})) && !('proof_branch' in (withRepo.kit ?? {})), JSON.stringify(withRepo));
     firstPush(tipjar, '');
     const deploy = { chain: 'arc', bytecode: ARC_TIPJAR_BYTECODE, abi: TIPJAR_ABI, constructor_args: [MAYA2_WALLET, 'PodTips', '1000000'], owner_wallet: MAYA2_WALLET };
     const ship = () => call('prepare', { program_id: programId, project: { name: 'PodTips', description: twist.description, repo_url: repoUrl }, deploy, host: true, build: { program_id: programId } }, c);
-    let pushed = branch!;
-    if (o.expire) {
-      // v2.13.1 O3 (carried from O2's review): the build took longer than the code's hour, so its branch was never pushed in time.
-      await sql()`UPDATE proof_branches SET issued_at = issued_at - interval '2 hours', expires_at = expires_at - interval '2 hours' WHERE builder_id = ${id}`;
-      const refused = await ship();
-      const fresh = (refused as { proof?: { branch?: string; push?: string } }).proof;
-      assert.match(fresh?.branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(refused));
-      assert.notEqual(fresh!.branch, branch, 'a fresh code at the deploy step, not a 24 h lockout');
-      assert.ok(refused.agent_note?.includes(fresh!.push!), refused.agent_note);
-      pushed = fresh!.branch!;
-    }
-    pushBranch(tipjar, pushed);
+    // Not installed yet: no deploy; the agent is told the App is the way.
+    const refused = await ship();
+    assert.match(refused.agent_note ?? '', /read-only EarnKit app/, JSON.stringify(refused));
+    await installRepo(id, tipjar);
     const shipped = await ship();
     assert.equal((shipped as { deploy?: { address?: string } }).deploy?.address, ARC_CONTRACT, JSON.stringify(shipped));
-    // The branch proved it: the build is on the Bench the same day, and the agent is told to delete the branch.
-    assert.ok(shipped.agent_note?.includes(`git push origin :refs/heads/${pushed}`), shipped.agent_note);
+    // The App proved it: the build is on the Bench the same day.
     assert.equal(await mainConfirmed(id), true, 'the build is Bench-confirmed');
   });
 }
@@ -504,20 +525,19 @@ const RECIPES_PROJECT = { name: 'Recipe planner', what: 'a recipe planner', repo
 
 // ---- The journey -------------------------------------------------------------------------------
 
-test('16.1 acceptance 1, with a project: the first reply names it and carries the claim link and the proof; after X and the proof branch it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
+test('16.1 acceptance 1, with a project: the first reply names it and carries the claim link; after X and the App install it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
   assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
-  assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
+  assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Recipe planner'), r1.show_to_builder);
   assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   // v2.13.4 (spec 2): the X claim is the one ask, last.
   assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Recipe planner')), r1.show_to_builder);
-  const branch = r1.proof?.branch;
-  assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(r1.proof));
+  assert.equal(r1.proof, undefined, 'v2.14: no proof branch');
   await claimX(r1.claim!.link);
-  // v2.13.1 O1: the agent pushed the temporary branch in the same turn; the next find checks it.
-  pushBranch(RECIPES, branch!);
+  // v2.14 spec 2: the builder installs the read-only App on the repo; the setup URL proves it at once.
+  await installRepo(id, RECIPES);
   await advanceRefreshGuard(id, 61_000);
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
@@ -528,7 +548,6 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.equal(r2.move_up?.kind, 'coin');
   MAYA.offer = r2.show_to_builder;
   assert.equal(r2.claim, undefined, 'claimed: no claim link');
-  assert.equal(r2.proof?.agent_note, `Confirmed. Delete the branch now: git push origin :refs/heads/${branch}. Don't show this note.`);
   const page = await renderProfile('maya_makes', 'log');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
@@ -565,15 +584,6 @@ test('16.2 acceptance 2, without a project: ways to get funded and no build offe
   assert.notEqual(r.move_up?.kind, 'build');
   await runStarterBuild(id, 'arc-microgrants');
   assert.equal(await mainProjectOf(id), 'maya2/tipjar');
-});
-
-test('16.2b (v2.13.1 O3) a starter build whose proof code expired before the deploy gets a fresh code at the deploy step, then deploys', db, async () => {
-  const id = await newInstall();
-  const r0 = await call('find', { agent_can_build: true, github_user: 'maya3' }, ctx(id));
-  xUser = { id: 'x-maya3', username: 'maya3_builds', name: 'Maya Three', avatar: null };
-  await claimX(r0.claim!.link);
-  await runStarterBuild(id, 'arc-microgrants', { owner: 'maya3', expire: true });
-  assert.equal(await mainProjectOf(id), 'maya3/tipjar');
 });
 
 test('16.3 acceptance 3, the weekly update: yes, then "post this week\'s update now": a long card with chips; after the week is ranked it reaches /feed', db, async () => {
@@ -624,7 +634,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
-  // v2.13.1 O1 fix round 1 (ruling a): the repo's proof branch stands in for the earnkit.txt line: nothing is pushed.
+  // v2.14 spec 2: the App proved the repo: nothing is pushed.
   const launch = await call('confirm', { project_id: yes.project_id, yes: true, wallet: MAYA.wallet }, ctx(id));
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
