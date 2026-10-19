@@ -29,7 +29,8 @@ const unranked = (): RankLines => ({ bench: null, line: null, chains: [] });
  */
 export async function rankLines(builderId: number, o: { only?: number[] } = {}): Promise<RankLines> {
   const s = await standingOf(builderId, o);
-  if (!s.ranked) return unranked();
+  // Hotfix 2026-10-19: a public rank only inside the leaderboard's pool (never "#1 of 1" while held, hidden or unlisted).
+  if (!s.ranked || !s.listed) return unranked();
   const [me] = await sql()<{ chains: string[]; score: number }[]>`
     SELECT b.chains, l.score FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
       AND ${benchConfirmedSql(sql())}

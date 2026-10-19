@@ -5,6 +5,7 @@ import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
+import { poolChanged } from './profile-cache';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
 import { COIN_PROGRAM } from './policy-constants';
@@ -13,7 +14,7 @@ import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
 import { FORMULA_V2, SHIPPING_WEEKS, computeScoreV2, type ScoreInput, type Ship } from './score-v2';
 import {
-  defaultReaderDeps, isBudgetStop, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
+  defaultReaderDeps, isBudgetStop, readError, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
 } from './source-readers';
 import { firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
@@ -409,7 +410,7 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
     // A newer rescore exists (a refresh during this cron run). An older refresh writes nothing. The cron
     // rescores at the newer row's time: same readings, same computed_at (never moves back), the rank, cap
     // and projects rebuilt.
-    if (cur && cur.computed_at > now && !o.cron) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null };
+    if (cur && cur.computed_at > now && !o.cron) return { score: cur.score, ranked: cur.ranked, held: false, reason: null, s: null, before: null, changed: false };
     const at = cur && cur.computed_at > now ? cur.computed_at : now;
     const day = at.toISOString().slice(0, 10);
     // v2.13: the score is the one project's (plan B2: picked once when none was named).
@@ -469,7 +470,9 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
     if (mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping });
-    return { ...out, held: reason !== null, reason, s, before: before?.score ?? null };
+    // Hotfix 2026-10-19: the public pool moved (a new row, its score or rank, or a hold).
+    const changed = !cur || cur.score !== out.score || cur.ranked !== out.ranked || reason !== null;
+    return { ...out, held: reason !== null, reason, s, before: before?.score ?? null, changed };
   });
   if (result.reason && result.s) {
     const { reason, s, before } = result;
@@ -478,6 +481,8 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
       detail: { reason, score: s.score, previous: before },
     }));
   }
+  // Hotfix 2026-10-19: the home page, feed and leaderboard follow the pool at once (never a stale "Nobody").
+  if (result.changed) poolChanged();
   return { score: result.score, ranked: result.ranked, held: result.held };
 }
 
@@ -509,22 +514,23 @@ export const benchPool = (only?: number[]) => {
  * Where the person stands: their public live score and rank on the Bench (benchPool, the leaderboard's
  * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "M builders
  * this week"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
- * reply still has a place.
+ * reply still has a place; `listed` says whether they are in it (a public rank shows only then: bench-rank rankLines).
  */
-export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null }> {
+export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null; listed: boolean }> {
   const db = sql();
   const listed = benchPool(o.only);
-  const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number }[]>`
+  const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number; listed: boolean }[]>`
     SELECT l.score, l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AS ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
       (SELECT count(*)::int FROM ${listed} x)
         + CASE WHEN l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AND NOT EXISTS (SELECT 1 FROM ${listed} y WHERE y.builder_id = l.builder_id) THEN 1 ELSE 0 END AS total,
-      CASE WHEN l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} THEN 1 + (SELECT count(*)::int FROM ${listed} z WHERE z.score > l.score AND z.builder_id <> l.builder_id) ELSE 0 END AS rank
+      CASE WHEN l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} THEN 1 + (SELECT count(*)::int FROM ${listed} z WHERE z.score > l.score AND z.builder_id <> l.builder_id) ELSE 0 END AS rank,
+      EXISTS (SELECT 1 FROM ${listed} w WHERE w.builder_id = l.builder_id) AS listed
     FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id}`;
   if (row) return { ...row };
   const [p] = await db<{ claimed: boolean; handle: string | null }[]>`
     SELECT x_user_id IS NOT NULL AS claimed, x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`;
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${listed} x`;
-  return { ranked: false, rank: 0, total, score: 0, shipped: 0, people: 0, claimed: p?.claimed ?? false, handle: p?.handle ?? null };
+  return { ranked: false, rank: 0, total, score: 0, shipped: 0, people: 0, claimed: p?.claimed ?? false, handle: p?.handle ?? null, listed: false };
 }
 
 /**
@@ -558,7 +564,7 @@ export async function refreshPerson(id: number, o: { now: Date; deadline: number
         try {
           await run();
         } catch (err) {
-          console.error(`[refresh] ${step}`, err instanceof Error ? err.name : 'error');
+          console.error(`[refresh] ${step}`, readError(err));
         }
       }
     } finally {
@@ -658,6 +664,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     } catch (err) {
       if (err instanceof ScoreDeadline) return false;
       if (isBudgetStop(err)) return true;
+      console.error('[refresh] read failed', group.map((s) => s.id).join(','), readError(err));
       for (const s of group) await put(s, { ok: false });
     }
     return true;

@@ -480,7 +480,7 @@ test('4.15h fix round 3 (rule 4): a renamed repo (a new ref) finds its earlier r
   await person(id, { ring: true });
   const created = '2025-03-01T00:00:00Z';
   await source(id, { kind: 'repo', ref: `lee/old${id}`, state: 'verified', proof: 'github_app', by: 'server' });
-  await reading(`lee/old${id}`, { owner: 'lee', owner_type: 'User', created_at: created, commit_weeks: ['2026-W40'], pushes_checked: true }, NOW);
+  await reading(`lee/old${id}`, { owner: 'lee', owner_type: 'User', created_at: created, commit_weeks: ['2026-W40'], pushes_checked: true, reader: 2 }, NOW);
   await source(id, { kind: 'repo', ref: `lee/new${id}`, state: 'verified', proof: 'github_app', by: 'server' });
   const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${id} AND ref = ${`lee/new${id}`}`;
   // Owner and created_at match: the old ref's reading is the previous one (verified: no push check needed).

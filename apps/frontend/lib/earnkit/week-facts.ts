@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { noteEvent } from './events';
+import { poolChanged } from './profile-cache';
 import { benchConfirmedSql } from './main-project';
 import { weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
@@ -7,6 +8,7 @@ import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
 import { readWeekTitles, shipTitles } from './ship-titles';
+import { REPO_READER } from './sources';
 import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
 
 /**
@@ -20,6 +22,12 @@ export type WeekFacts = {
   won?: { title: string }[]; streak?: { w: number }; started?: { live: boolean; weeks: number; people?: number }; checked?: true;
   /** R13: the week's titles read completed (the backfill and its catch-up; never read again). */
   titles_read?: true;
+  /**
+   * Hotfix 2026-10-19: the repo reader version (sources.ts REPO_READER) of the reading the facts came from. A backfill
+   * week is done only when written from a current reading, so a week written from a short reading (a busy repo's
+   * newest 100 commits) is redone once.
+   */
+  reader?: number;
 };
 export const WEEKLY_HOUR_UTC = 15;
 export const WEEKLY_PER_RUN = 200;
@@ -183,7 +191,8 @@ export async function writeWeek(
     });
     titled = read && !failed;
   }
-  const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }) };
+  const reader = Number((await readingOf(id, key))?.reader ?? 0) || 0;
+  const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }), ...(reader > 0 && { reader }) };
   if (!(await upsertWeekFacts(id, key, monday, facts, titles))) return { wrote: false, facts, titled };
   const at = new Date(`${monday}T12:00:00Z`);
   // R16b: weekFactsFor never sets users_up (people aren't counted), so no users_up event is written.
@@ -224,6 +233,7 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
     people++;
     if ((await writeWeek(p, monday, now, { ghFetch: o.ghFetch })).wrote) rows++;
   }
+  if (rows > 0) poolChanged();
   return { people, rows };
 }
 
@@ -265,11 +275,13 @@ export async function backfillWeeks(
   p: { id: number; key: string }, now: Date, o: { deadline: number; ghFetch?: typeof fetch; mondays?: string[] },
 ): Promise<{ rows: number; done: boolean }> {
   const reading = await readingOf(p.id, p.key);
-  if (!reading || reading.pushes_checked === false) return { rows: 0, done: false };
+  // Hotfix 2026-10-19: also wait for a reading of the current reader (a short one would write short weeks).
+  if (!reading || reading.pushes_checked === false || !(Number(reading.reader) >= REPO_READER)) return { rows: 0, done: false };
   const mondays = o.mondays ?? backfillMondays(now);
   const have = await sql()<{ week: string; builder_id: number; done: boolean }[]>`
     SELECT week::text AS week, builder_id::int AS builder_id,
-      (facts ? 'checked' AND (NOT (facts ? 'shipped_code') OR cardinality(titles) > 0 OR facts ? 'titles_read')) AS done
+      (facts ? 'checked' AND COALESCE((facts->>'reader')::numeric, 0) >= ${REPO_READER}
+        AND (NOT (facts ? 'shipped_code') OR cardinality(titles) > 0 OR facts ? 'titles_read')) AS done
     FROM project_updates WHERE lower(project_key) = lower(${p.key}) AND week IN ${sql()(mondays)}`;
   let rows = 0;
   let done = true;
@@ -284,6 +296,8 @@ export async function backfillWeeks(
     if (w.wrote) rows++;
     if (w.wrote && w.facts.shipped_code && !w.titled) done = false;
   }
+  // Hotfix 2026-10-19: a written week can put a card in the feed and the landing carousel.
+  if (rows > 0) poolChanged();
   return { rows, done };
 }
 
@@ -324,10 +338,12 @@ export async function backfillStep(now: Date, o: { deadline: number; only?: numb
           UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
           ORDER BY at DESC LIMIT 1) x ON true
         WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
-          AND lower(s.project_key) = lower(b.project_key) AND x.signals->'pushes_checked' IS DISTINCT FROM 'false'::jsonb)
+          AND lower(s.project_key) = lower(b.project_key) AND x.signals->'pushes_checked' IS DISTINCT FROM 'false'::jsonb
+          AND COALESCE((x.signals->>'reader')::numeric, 0) >= ${REPO_READER})
       AND EXISTS (SELECT 1 FROM unnest(${mondays}::date[]) m(week) WHERE NOT EXISTS (
         SELECT 1 FROM project_updates u WHERE lower(u.project_key) = lower(b.project_key) AND u.week = m.week
-          AND (u.builder_id <> p.builder_id OR (u.facts ? 'checked' AND (NOT (u.facts ? 'shipped_code') OR cardinality(u.titles) > 0 OR u.facts ? 'titles_read')))))
+          AND (u.builder_id <> p.builder_id OR (u.facts ? 'checked' AND COALESCE((u.facts->>'reader')::numeric, 0) >= ${REPO_READER}
+            AND (NOT (u.facts ? 'shipped_code') OR cardinality(u.titles) > 0 OR u.facts ? 'titles_read')))))
       AND NOT EXISTS (SELECT 1 FROM rate_windows w WHERE w.key = 'backfill:' || p.builder_id AND w.window_start = ${day} AND w.count >= ${BACKFILL_TRIES_A_DAY})
       ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
     ORDER BY p.builder_id LIMIT ${BACKFILL_PER_RUN}`;

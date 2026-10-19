@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache';
 import { connection } from 'next/server';
 import { cache } from 'react';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
+import { PROFILE_TAG } from '../../lib/earnkit/profile-cache';
 import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type GuidePage, type Landing } from '../../lib/earnkit/landing';
 
 /**
@@ -16,7 +17,8 @@ const byKey = new Map<string, () => Promise<Landing>>();
 const cached = () => {
   const key = landingCacheKey();
   let read = byKey.get(key);
-  if (!read) byKey.set(key, (read = unstable_cache(() => readLanding(), [key], { revalidate: 600 })));
+  // Hotfix 2026-10-19: PROFILE_TAG, so a pool change (profile-cache.ts poolChanged) expires it at once.
+  if (!read) byKey.set(key, (read = unstable_cache(() => readLanding(), [key], { revalidate: 600, tags: [PROFILE_TAG] })));
   return read();
 };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 const MCP_URL = 'https://earnkit.com/mcp';
 
@@ -137,7 +138,10 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
     };
   }, [onClose]);
 
-  return (
+  // Rendered on document.body: an ancestor with backdrop-filter (the sticky header's blur) would
+  // otherwise become this fixed overlay's containing block and squeeze it into the header. The modal
+  // only opens in the browser; a server render (tests) gets it inline.
+  const dialog = (
     <div
       role="dialog"
       aria-modal="true"
@@ -268,4 +272,5 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
       </div>
     </div>
   );
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
 }

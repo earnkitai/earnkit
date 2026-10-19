@@ -317,6 +317,33 @@ export function graphqlUsable(body: unknown): boolean {
 }
 
 /**
+ * What a GraphQL answer graphqlUsable refuses said, for the failed reading and the log: each error's type, path and
+ * GitHub's message (at most 3), or why there is no data. GitHub's messages never carry the request's token. Pure;
+ * exported for tests.
+ */
+export function graphqlErrors(body: unknown): string {
+  const b = (body ?? {}) as { data?: unknown; errors?: unknown };
+  const errors = Array.isArray(b.errors) ? b.errors : [];
+  const said = errors.slice(0, 3).map((e) => {
+    const x = (e ?? {}) as { type?: unknown; path?: unknown; message?: unknown };
+    const path = Array.isArray(x.path) ? x.path.join('.') : '';
+    const message = typeof x.message === 'string' ? x.message.slice(0, 80) : '';
+    return [typeof x.type === 'string' ? x.type : 'ERROR', path && `at ${path}`, message && `(${message})`].filter(Boolean).join(' ');
+  });
+  if (said.length === 0) return 'GitHub GraphQL answered no data';
+  return `GitHub GraphQL answered errors: ${said.join('; ')}${errors.length > 3 ? ` (+${errors.length - 3} more)` : ''}`;
+}
+
+/**
+ * A failed read's error as text, for the failed reading's `error` and the log: its class and message, at most
+ * 200 characters. No read puts a token in an error message (GitHub's statuses and messages, fetch's causes). Pure.
+ */
+export function readError(err: unknown): string {
+  if (!(err instanceof Error)) return 'error';
+  return (err.message ? `${err.name}: ${err.message}` : err.name).slice(0, 200);
+}
+
+/**
  * One GitHub GraphQL call, counted against the run's budget (`github.take()`, GitHubBudgetStop when
  * spent). An answer graphqlUsable refuses throws: the caller writes failed readings.
  */
@@ -335,7 +362,7 @@ async function githubGraphql<T>(query: string, variables: Record<string, unknown
     github.watch(res);
     if (!res.ok) throw new Error(`GitHub GraphQL returned ${res.status}`);
     const body = await cappedJson<{ data?: unknown; errors?: unknown[] }>(res, GRAPHQL_MAX_BYTES);
-    if (!graphqlUsable(body)) throw new Error('GitHub GraphQL answered errors');
+    if (!graphqlUsable(body)) throw new Error(graphqlErrors(body));
     return body as T;
   } catch (err) {
     if (github.spent()) throw new GitHubBudgetStop();

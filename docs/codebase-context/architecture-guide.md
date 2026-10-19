@@ -4884,7 +4884,21 @@ repos) plus aliased by-name calls (25 a call) for tracked repos outside it and o
 REST contributors call each). npm downloads in bulk batches of 128 (`readNpmBulk`; scoped names
 keep `readNpm`). Blockscout once per contract per day (since its last daily read). One HEAD per
 site per day. A source that errors writes a failed reading once that day and is not retried; the
-page keeps the last good number. Every read is counted per provider (`read-usage.ts countingDeps`,
+page keeps the last good number. The failed reading's `error` is the error's class and message
+(`source-readers.ts readError`; a refused GraphQL answer names GitHub's type, path and message,
+`graphqlErrors`), and the read logs it as `[read] failed <source ids> <error>`. Hotfix 2026-10-19:
+repo queries never name a field GitHub refuses to EarnKit's fine-grained token or the App's
+installation token (`stargazers`, `forks`): one FORBIDDEN field fails the whole answer
+(`graphqlUsable`), so every repo read failed (`repo-read-forbidden.test.ts`).
+Hotfix 2026-10-19 (busy repos): the by-name query reads the newest 100 commits plus the 52 weeks' `totalCount`; when
+that is more, one more call (`person-github.ts weeklyCommitsQuery`, one `history(since, until) { totalCount }` alias a
+week, cost 1) gives every week's count. Repo readings carry `reader` (`sources.ts REPO_READER` = 2): an older reading
+is no rule 3 baseline, so the next read re-takes it once under rule 4 (push-backed weeks only). Ship-log weeks carry
+the same `reader`; the backfill writes only from a current reading and redoes a week written from an older one once
+(`busy-repo-weeks.test.ts`, `backfill.test.ts`). A public rank (`bench-rank.ts rankLines`, `page-data.ts personFacts`)
+shows only inside the leaderboard pool (`standingOf().listed`); a rescore that moves the pool and a written ship-log
+week call `profile-cache.ts poolChanged`, which expires the landing, feed and leaderboard caches (all tagged
+`PROFILE_TAG`) and paths. Every read is counted per provider (`read-usage.ts countingDeps`,
 `read_usage` table) against `FREE_LIMITS`, printed by the metric script. No new schedule: the cron
 slice is `SCORE_SLICE` = 0.4 of the hourly run.
 
