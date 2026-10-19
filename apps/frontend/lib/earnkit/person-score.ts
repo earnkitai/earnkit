@@ -684,12 +684,17 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     const viaAppIds = new Set(
       (await db<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${db(repos.map((s) => s.id))} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
     );
-    // Launch-ready (hotfix carry-over): the refs whose source has a verified baseline of the current reader, so a
-    // busy repo's extra 52-week call runs only when needed (person-github.ts needsAllWeeks).
-    // A ref read once for several sources has a baseline only when every one of them has.
-    const noBaseline = new Set<string>();
-    for (const s of repos) if (needsPushCheck(await previousRepoSignals(s.id))) noBaseline.add(s.ref.toLowerCase());
-    const opts = { baseline: (k: string) => !noBaseline.has(k) };
+    // Launch-ready (hotfix carry-over): a short read's extra 52-week call runs only when needed (person-github.ts
+    // needsAllWeeks). Fix round 1: "has a baseline" is the write's own lookup (previousRepoSignals with the repo as
+    // read), asked only for a short read; a ref read for several sources has one only when every one of them has.
+    const opts = {
+      baseline: async (k: string, r: PersonRepo) => {
+        for (const s of repos) if (s.ref.toLowerCase() === k && needsPushCheck(await previousRepoSignals(s.id, r))) return false;
+        return true;
+      },
+    };
+    /** Fix round 1: what GitHub said refusing a repo on its own alias (logged when the App can't read it either). */
+    const refused = new Map<string, string>();
     for (const s of repos.filter((x) => viaAppIds.has(x.id))) {
       const go = await attempt([s], async () => {
         for (const [k, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(k, r);
@@ -703,6 +708,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       const go = await attempt(batch, async () => {
         const got = await readGithubRepos(batch.map((s) => s.ref), o.reader, opts);
         for (const [k, r] of got.repos) found.set(k, r);
+        for (const [k, why] of got.refused) refused.set(k, why);
         for (const s of batch) {
           const err = got.failed.get(s.ref.toLowerCase());
           if (err === undefined) {
@@ -729,6 +735,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
       const r = app ?? found.get(s.ref.toLowerCase());
       if (!r) {
+        const why = refused.get(s.ref.toLowerCase());
+        if (why) console.error('[refresh] read failed', s.id, why);
         await put(s, { ok: false });
         continue;
       }

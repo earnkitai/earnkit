@@ -4,12 +4,13 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFor, badgeMarkdown, badgeSvg, badgeValue, textWidth } from './badge';
+import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFor, badgeMarkdown, badgeResponse, badgeSvg, badgeValue, textWidth } from './badge';
 import { DATA } from './fixtures/profile-data';
 import { isReserved } from './reserved-routes';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import { BADGE_COPY_LINE } from '../../app/[handle]/BadgeCopy';
-import { GET } from '../../app/badge/[file]/route';
+import { BADGE_COPY_LINE, COPY_FAILED } from '../../app/[handle]/BadgeCopy';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** Launch-ready L8: the README badge at earnkit.com/badge/<handle>.svg and the profile's copy-the-markdown line. */
 
@@ -79,36 +80,45 @@ test('L8 the profile offers the markdown, quietly, under the sources line', () =
   assert.equal(BADGE_COPY_LINE, 'Add the badge to your README');
 });
 
-test('L8 a listed builder\'s badge has their score and rank; unlisted (held or hidden) shows no rank or 404; unknown is a 404 badge', dbTest, async () => {
+test('L8 a listed builder\'s badge has their score and rank; unlisted (held or hidden) shows no rank or not found; unknown is the not-found badge', dbTest, async () => {
   const a = await listed(41);
   const b = await listed(30);
   const only = [a.id, b.id];
-  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { status: 200, svg: badgeSvg('Shipping 30 · #2') });
+  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { found: true, svg: badgeSvg('Shipping 30 · #2') });
   // Another case serves the same badge (a README written in lowercase keeps working).
   assert.equal((await badgeFor(`${b.handle.toLowerCase()}.svg`, { only })).svg, badgeSvg('Shipping 30 · #2'));
   // Held: still their page, but no public rank (the profile header's rule), so no score either.
   await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${b.id}`;
-  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { status: 200, svg: badgeSvg('not ranked') });
+  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { found: true, svg: badgeSvg('not ranked') });
   await sql()`UPDATE builder_profiles SET held = false WHERE builder_id = ${b.id}`;
-  // Hidden: no page, so a 404 badge.
+  // Hidden: no page, so the not-found badge.
   await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b.id}`;
-  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { status: 404, svg: badgeSvg('not found', { muted: true }) });
+  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { found: false, svg: badgeSvg('not found', { muted: true }) });
   await sql()`UPDATE builder_profiles SET hidden = false WHERE builder_id = ${b.id}`;
-  assert.equal((await badgeFor(`nobody${RUN}.svg`)).status, 404);
-  assert.equal((await badgeFor(`${b.handle}.png`)).status, 404, 'only .svg');
-  assert.equal((await badgeFor('a b<c>.svg')).status, 404, 'never a malformed handle');
+  assert.equal((await badgeFor(`nobody${RUN}.svg`)).found, false);
+  assert.equal((await badgeFor(`${b.handle}.png`)).found, false, 'only .svg');
+  assert.equal((await badgeFor('a b<c>.svg')).found, false, 'never a malformed handle');
 });
 
-test('L8 the route: an SVG, cached an hour for a badge and 10 minutes for a miss', dbTest, async () => {
-  const a = await listed(12);
-  const ok = await GET(new Request('https://earnkit.com/x'), { params: Promise.resolve({ file: `${a.handle}.svg` }) });
+test('L8 fix round 1: the response is always 200 (GitHub\'s image proxy shows it), an SVG, cached an hour or 10 minutes for not found', async () => {
+  const ok = badgeResponse({ found: true, svg: badgeSvg('Shipping 12 · #3') });
   assert.equal(ok.status, 200);
   assert.equal(ok.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
   assert.equal(ok.headers.get('cache-control'), BADGE_CACHE);
   assert.match(ok.headers.get('cache-control')!, /s-maxage=3600/);
-  assert.match(await ok.text(), /aria-label="EarnKit: Shipping 12 · (#\d+|Top [\d.]+%)"/);
-  const miss = await GET(new Request('https://earnkit.com/x'), { params: Promise.resolve({ file: `nobody${RUN}.svg` }) });
-  assert.equal(miss.status, 404);
+  assert.match(await ok.text(), /aria-label="EarnKit: Shipping 12 · #3"/);
+  const miss = badgeResponse({ found: false, svg: badgeSvg('not found', { muted: true }) });
+  assert.equal(miss.status, 200);
   assert.equal(miss.headers.get('cache-control'), BADGE_MISS_CACHE);
   assert.match(await miss.text(), /EarnKit: not found/);
+});
+
+test('L8 fix round 1: the route reads the badge through a per-file cache (an hour, PROFILE_TAG); the copy button says when copying failed and clears its timer', () => {
+  const dir = join(import.meta.dirname, '../../app/badge/[file]');
+  assert.match(readFileSync(join(dir, 'badge-load.ts'), 'utf8'), /unstable_cache\(async \(\) => badgeFor\(file\), \['badge-l8', file\.toLowerCase\(\)\], \{ revalidate: 3600, tags: \[PROFILE_TAG\] \}\)/);
+  assert.match(readFileSync(join(dir, 'route.ts'), 'utf8'), /badgeResponse\(await cachedBadge\(/);
+  const copy = readFileSync(join(import.meta.dirname, '../../app/[handle]/BadgeCopy.tsx'), 'utf8');
+  assert.match(copy, /writeText\(md\)\.then\(\(\) => show\('copied'\), \(\) => show\('failed'\)\)/);
+  assert.match(copy, /useEffect\(\(\) => \(\) => \{\n\s+if \(timer\.current\) clearTimeout\(timer\.current\);/);
+  assert.equal(COPY_FAILED, 'Copy failed');
 });

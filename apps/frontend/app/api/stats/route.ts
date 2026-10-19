@@ -13,7 +13,7 @@ import { readStats } from '@/lib/earnkit/stats';
  * Pre-launch 2026-10-19: `installs_used` (called find at least once) and `builders` (distinct
  * builder groups) sit beside `installs`, which counts every new OAuth client's first token.
  * Launch-ready L9, the funnel (counts only, no per-user data): `activated` (a claimed page, a repo proven by the
- * EarnKit app and a checked ship-log week with a fact), `weekly_active` (such a week that ended in the last 7 days)
+ * EarnKit app and a checked ship-log week with a fact), `weekly_active` (activated people with such a week that ended in the last 7 days)
  * and `shared` (0 until the weekly moment's share links are counted). stats.ts has the exact rules.
  * v2.9 F21: `open_money_usd` is the one money figure (stats.ts openMoneyUsd) and `open_money_text`
  * the text every page shows ("$1.1M+"). Ruling G23: `open_pools_usd`/`open_pools_plus` stay,

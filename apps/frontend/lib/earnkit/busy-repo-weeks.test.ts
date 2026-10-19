@@ -195,12 +195,12 @@ test('launch-ready (b): the 52-week call runs only without a verified baseline, 
       return { data: { r0: node(KEY, 100, 4 * 3_600_000, 900) } } as T;
     },
   } as unknown as ReaderDeps;
-  const r = (await readGithubRepos([KEY], wide, { baseline: () => true })).repos.get(KEY.toLowerCase())!;
+  const r = (await readGithubRepos([KEY], wide, { baseline: async () => true })).repos.get(KEY.toLowerCase())!;
   assert.deepEqual(calls, ['repos']);
   assert.ok(r.commit_counts![weekAgo(1)]! > 0 && r.commit_counts![weekAgo(0)]! > 0);
   // The busy repo (100 commits in under 2 days) still needs it, baseline or not.
   const busy: string[] = [];
-  await readGithubRepos([KEY], { ...twoRepos(busy, { weekly: 'ok' }), now: NOW } as ReaderDeps, { baseline: () => true });
+  await readGithubRepos([KEY], { ...twoRepos(busy, { weekly: 'ok' }), now: NOW } as ReaderDeps, { baseline: async () => true });
   assert.deepEqual(busy, ['repos', 'weekly']);
 });
 
@@ -228,4 +228,80 @@ test('launch-ready (a): the daily read writes the quiet repo\'s reading and one 
     SELECT source_id, ok, error FROM source_readings WHERE source_id IN ${sql()(ids)} AND day = ${NOW.toISOString().slice(0, 10)} ORDER BY source_id`;
   assert.deepEqual(got.map((r) => r.ok), [false, true]);
   assert.match(got[0].error!, /GitHub GraphQL returned 502/);
+});
+
+// ---- Launch-ready fix round 1: one refused alias fails only its repo; the baseline is asked with the repo as read ----
+
+const FORBIDDEN = (i: number) => ({ type: 'FORBIDDEN', path: [`r${i}`], message: 'Resource not accessible by personal access token' });
+
+test('fix round 1: aliasErrors keeps an answer usable when every other error is on one rN alias; an error without a path still refuses it', async () => {
+  const { graphqlUsable } = await import('./source-readers');
+  const body = { data: { r0: null, r1: {} }, errors: [FORBIDDEN(0)] };
+  assert.equal(graphqlUsable(body), false, 'off by default');
+  assert.equal(graphqlUsable(body, { aliasErrors: true }), true);
+  assert.equal(graphqlUsable({ data: {}, errors: [FORBIDDEN(0), { type: 'FORBIDDEN', message: 'x' }] }, { aliasErrors: true }), false, 'no path');
+  assert.equal(graphqlUsable({ data: {}, errors: [{ type: 'FORBIDDEN', path: ['user'] }] }, { aliasErrors: true }), false, 'not an alias');
+  assert.equal(graphqlUsable({ data: null, errors: [FORBIDDEN(0)] }, { aliasErrors: true }), false, 'no data');
+});
+
+test('fix round 1: readGithubRepos leaves a refused repo unread with GitHub\'s message; the rest read', async () => {
+  let opts: unknown;
+  const d = {
+    now: NOW,
+    ghGraphql: async <T,>(_q: string, _v: unknown, o?: unknown): Promise<T> => {
+      opts = o;
+      return { data: { r0: node(KEY, 3, 86_400_000, 3), r1: null }, errors: [FORBIDDEN(1)] } as T;
+    },
+  } as unknown as ReaderDeps;
+  const got = await readGithubRepos([KEY, KEY2], d);
+  assert.deepEqual(opts, { aliasErrors: true });
+  assert.deepEqual([...got.repos.keys()], [KEY.toLowerCase()]);
+  assert.equal(got.refused.get(KEY2.toLowerCase()), 'GitHub GraphQL answered errors: FORBIDDEN at r1 (Resource not accessible by personal access token)');
+  assert.equal(got.failed.size, 0);
+});
+
+test('fix round 1: the baseline is asked only for a short read, with the repo as read', async () => {
+  const asked: [string, string | undefined][] = [];
+  const baseline = async (k: string, r: { created_at?: string | null }) => (asked.push([k, r.created_at ?? undefined]), true);
+  const quiet = { now: NOW, ghGraphql: async <T,>(): Promise<T> => ({ data: { r0: node(KEY, 3, 86_400_000, 3) } }) as T } as unknown as ReaderDeps;
+  await readGithubRepos([KEY], quiet, { baseline });
+  assert.deepEqual(asked, [], 'a full read asks nothing');
+  const wide = { now: NOW, ghGraphql: async <T,>(): Promise<T> => ({ data: { r0: node(KEY, 100, 4 * 3_600_000, 900) } }) as T } as unknown as ReaderDeps;
+  await readGithubRepos([KEY], wide, { baseline });
+  assert.deepEqual(asked, [[KEY.toLowerCase(), CREATED]]);
+});
+
+test('fix round 1: a batch of 25 with one refused repo writes 24 good readings and one failed reading with GitHub\'s message', dbTest, async () => {
+  const keys = Array.from({ length: 25 }, (_, i) => `acme-${process.pid}/r${i}`);
+  const ids: number[] = [];
+  for (const key of keys) {
+    const [row] = await sql()<{ id: string }[]>`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by)
+      VALUES (${ID}, 'repo', ${key}, ${key}, 'proof_branch', 'verified', 'server') RETURNING id`;
+    ids.push(Number(row.id));
+  }
+  const no = async (): Promise<never> => {
+    throw new Error('unexpected read');
+  };
+  let calls = 0;
+  const reader = {
+    probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: NOW,
+    gh: async <T,>(): Promise<T> => [] as T,
+    ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
+      calls++;
+      const data: Record<string, unknown> = {};
+      const asked = Object.keys(v).filter((k) => /^o\d+$/.test(k)).length;
+      const bad = Array.from({ length: asked }, (_, i) => i).find((i) => `${v[`o${i}`]}/${v[`n${i}`]}` === keys[7].toLowerCase());
+      for (let i = 0; i < asked; i++) data[`r${i}`] = i === bad ? null : node(`${v[`o${i}`]}/${v[`n${i}`]}`, 2, 86_400_000, 2);
+      return { data, errors: bad === undefined ? undefined : [FORBIDDEN(bad)] } as T;
+    },
+  } as ReaderDeps;
+  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 20_000, reader, only: [ID] }), { read: 24, failed: 1 });
+  assert.equal(calls, 1, 'one call for the 25');
+  const got = await sql()<{ source_id: string; ok: boolean; error: string | null }[]>`
+    SELECT source_id, ok, error FROM source_readings WHERE source_id IN ${sql()(ids)} AND day = ${NOW.toISOString().slice(0, 10)}`;
+  assert.equal(got.filter((r) => r.ok).length, 24);
+  const failed = got.filter((r) => !r.ok);
+  assert.deepEqual(failed.map((r) => Number(r.source_id)), [ids[7]]);
+  assert.match(failed[0].error!, /FORBIDDEN at r\d+ \(Resource not accessible by personal access token\)/);
 });

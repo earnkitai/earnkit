@@ -7,7 +7,8 @@ import { pagePath } from './reserved-routes';
  * Launch-ready L8: the README badge, earnkit.com/badge/<handle>.svg: "EarnKit | Shipping 72 · #3" in the brand's
  * colors, shaped like a shields.io badge. The value is the profile header's (page-data personFacts): the rank only
  * inside the leaderboard's pool, and no bare score without a rank (as the page's ring), so outside it the badge says
- * "not ranked". An unknown, unclaimed or hidden handle gets a 404 badge, "EarnKit | not found".
+ * "not ranked". An unknown, unclaimed or hidden handle gets the badge "EarnKit | not found", answered 200 (owner
+ * ruling, fix round 1: GitHub's image proxy shows a 200 image in a README) with the short miss cache.
  */
 
 export const BADGE_LABEL = 'EarnKit';
@@ -15,7 +16,7 @@ export const BADGE_NOT_RANKED = 'not ranked';
 export const BADGE_NOT_FOUND = 'not found';
 /** A shared cache keeps a badge an hour (README images are fetched through GitHub's image proxy). */
 export const BADGE_CACHE = 'public, max-age=3600, s-maxage=3600';
-/** A 404 badge is kept 10 minutes, so a handle claimed just now shows soon. */
+/** A not-found badge is kept 10 minutes, so a handle claimed just now shows soon. */
 export const BADGE_MISS_CACHE = 'public, max-age=600, s-maxage=600';
 
 const NAVY = '#0F1839'; // ek-navy-deep
@@ -70,11 +71,11 @@ export const badgeMarkdown = (handle: string) =>
 
 /**
  * The badge of `file` ("<handle>.svg"): the live row on every request (cached by the response header). A rename or
- * another case serves the same person's badge (a README keeps working); unknown, unclaimed or hidden is the 404 badge.
+ * another case serves the same person's badge (a README keeps working); unknown, unclaimed or hidden is not found.
  * `only` limits the rank's pool (tests).
  */
-export async function badgeFor(file: string, o: { only?: number[] } = {}): Promise<{ status: 200 | 404; svg: string }> {
-  const miss = { status: 404 as const, svg: badgeSvg(BADGE_NOT_FOUND, { muted: true }) };
+export async function badgeFor(file: string, o: { only?: number[] } = {}): Promise<{ found: boolean; svg: string }> {
+  const miss = { found: false, svg: badgeSvg(BADGE_NOT_FOUND, { muted: true }) };
   const m = /^(.+)\.svg$/i.exec(file);
   if (!m) return miss;
   let r = await resolveHandle(m[1]);
@@ -82,5 +83,13 @@ export async function badgeFor(file: string, o: { only?: number[] } = {}): Promi
   if (!r || 'redirect' in r) return miss;
   const f = await personFacts(r.builderId, o);
   if (!f) return miss;
-  return { status: 200, svg: badgeSvg(badgeValue(f)) };
+  return { found: true, svg: badgeSvg(badgeValue(f)) };
+}
+
+/** The badge's response: always 200 (a README shows it), cached an hour, a not-found one 10 minutes. Pure. */
+export function badgeResponse(b: { found: boolean; svg: string }): Response {
+  return new Response(b.svg, {
+    status: 200,
+    headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': b.found ? BADGE_CACHE : BADGE_MISS_CACHE, 'X-Content-Type-Options': 'nosniff' },
+  });
 }

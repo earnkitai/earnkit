@@ -72,8 +72,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   installs: 'installs',
   installs_used: 'installs that asked what they can earn (find at least once)',
   builders: 'builders (one person\'s reinstalls and agents counted once)',
-  activated: 'activated builders (claimed page, repo proven by the EarnKit app, a checked ship-log week with code shipped)',
-  weekly_active: 'builders with a checked ship-log week that ended in the last 7 days',
+  activated: 'activated builders (claimed page, repo proven by the EarnKit app, a checked ship-log week: code shipped, went live or a win)',
+  weekly_active: 'activated builders with a checked ship-log week (code shipped, went live or a win) that ended in the last 7 days',
   shared: 'weekly shares (not counted yet, always 0)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
@@ -118,7 +118,7 @@ type Row = {
   builders?: number;
   /** Launch-ready L9: claimed people with an App-proven repo and at least one checked ship-log week with a fact. */
   activated?: number;
-  /** Launch-ready L9: people with a checked ship-log week with a fact that ended in the last 7 days. */
+  /** Launch-ready L9: activated people (fix round 1) with a checked ship-log week with a fact that ended in the last 7 days. */
   weekly_active?: number;
   labelled_entries: number;
   entries_won: number;
@@ -252,14 +252,16 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- Launch-ready L9 (the funnel): until the weekly moment's approvals (L6) exist, a "checked week" is a ship-log
       -- row the weekly job or the backfill checked (facts.checked) that holds a fact (week-facts.ts hasFacts: code
       -- shipped, went live or a win; a check alone is not one). Activated: a claimed page, a repo verified by the
-      -- read-only EarnKit app, and one such week. Weekly active: one such week that ended in the last 7 days.
+      -- read-only EarnKit app, and one such week. Weekly active: the same people (fix round 1: so weekly_active <=
+      -- activated) with one such week that ended in the last 7 days.
       -- People, never a test installation's group.
       (SELECT count(*) FROM builder_profiles p
         WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
           AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
           AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${factWeek(db)}))::int AS activated,
       (SELECT count(*) FROM builder_profiles p
-        WHERE ${notTest(db, ids)}
+        WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
+          AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
           AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${factWeek(db)}
             AND u.week > (${now}::timestamptz - interval '14 days')::date))::int AS weekly_active,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never

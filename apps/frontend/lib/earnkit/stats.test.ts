@@ -119,7 +119,7 @@ test('launch-ready L9: activated, weekly_active and shared are served after buil
   assert.deepEqual([s.activated, s.weekly_active, s.shared], [3, 2, 0]);
 });
 
-test('launch-ready L9: activated needs a claimed page, an App-proven repo and a checked week with a fact; weekly_active a fact week that ended in the last 7 days; test installations never count', db, async () => {
+test('launch-ready L9: activated needs a claimed page, an App-proven repo and a checked week with a fact; weekly_active the same people with a fact week that ended in the last 7 days; test installations never count', db, async () => {
   const tag = `stats-l9-${process.pid}-${Date.now()}`;
   const DAY = 86_400_000;
   const mondayOf = (t: number) => {
@@ -148,8 +148,8 @@ test('launch-ready L9: activated needs a claimed page, an App-proven repo and a 
     const active = await person(true, 'github_app', [[lastWeek, code]]); // activated, weekly active
     await person(true, 'github_app', [[longAgo, code]]); // activated, not weekly active
     await person(true, 'github_app', [[lastWeek, { checked: true }]]); // a check alone is no fact: neither
-    await person(true, 'proof_line', [[lastWeek, { checked: true, went_live: true }]]); // weekly active, not App-proven
-    await person(false, 'github_app', [[lastWeek, { checked: true, won: [{ title: 'Arc' }] }]]); // weekly active, not claimed
+    await person(true, 'proof_line', [[lastWeek, { checked: true, went_live: true }]]); // not App-proven: neither
+    await person(false, 'github_app', [[lastWeek, { checked: true, won: [{ title: 'Arc' }] }]]); // not claimed: neither
     await person(true, 'github_app', [[lastWeek, { shipped_code: { n: 5 } }]]); // never checked: neither
     const { base, mine, flagged } = await sql().begin('isolation level repeatable read', async (tx) => {
       process.env.EARNKIT_TEST_INSTALLATIONS = ids.join(',');
@@ -161,10 +161,12 @@ test('launch-ready L9: activated needs a claimed page, an App-proven repo and a 
       return { base, mine, flagged };
     });
     assert.equal(mine.activated - base.activated, 2);
-    assert.equal(mine.weekly_active - base.weekly_active, 3);
+    assert.equal(mine.weekly_active - base.weekly_active, 1);
+    // Fix round 1: weekly active is a subset of activated.
+    assert.ok(mine.weekly_active <= mine.activated && base.weekly_active <= base.activated);
     assert.equal(mine.shared, 0);
     assert.equal(flagged.activated - base.activated, 1, 'a test installation\'s person never counts');
-    assert.equal(flagged.weekly_active - base.weekly_active, 2);
+    assert.equal(flagged.weekly_active - base.weekly_active, 0);
   } finally {
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;

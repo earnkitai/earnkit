@@ -1,5 +1,5 @@
 import { ScoreDeadline } from './campaigns';
-import { isBudgetStop, isoWeek, type ReaderDeps, type RepoSignals } from './source-readers';
+import { aliasOf, graphqlErrors, isBudgetStop, isoWeek, type ReaderDeps, type RepoSignals } from './source-readers';
 
 /**
  * The fields read for every repo, in the person query and the by-name query: its homepage and commit days
@@ -131,8 +131,12 @@ export function needsAllWeeks(r: { truncated: boolean; oldest: number | null }, 
   return r.oldest >= Date.parse(commitWindows(now)[1].since);
 }
 
-/** How a by-name read treats one repo: `baseline` (needsAllWeeks); absent: no baseline, so a short read is completed. */
-export type RepoReadOptions = { baseline?: (key: string) => boolean };
+/**
+ * How a by-name read treats one repo: `baseline` (needsAllWeeks), asked only for a short read, with the repo as read
+ * (so the caller looks up the previous reading exactly as its write does: sources.ts previousRepoSignals(id, r));
+ * absent: no baseline, so a short read is completed.
+ */
+export type RepoReadOptions = { baseline?: (key: string, r: PersonRepo) => Promise<boolean> };
 
 /**
  * A repo read whose newest 100 commits missed some (history totalCount above the nodes read) gets its whole
@@ -141,10 +145,12 @@ export type RepoReadOptions = { baseline?: (key: string) => boolean };
  * the source stays due). A failed weekly read throws (the caller writes a failed reading, never a short one).
  */
 async function withAllWeeks(
-  r: RepoRead, now: Date, ask: (query: string, variables: Record<string, unknown>) => Promise<unknown>, o: { baseline: boolean; deadline?: number },
+  r: RepoRead, now: Date, ask: (query: string, variables: Record<string, unknown>) => Promise<unknown>, o: RepoReadOptions & { deadline?: number },
 ): Promise<PersonRepo> {
   const { truncated, oldest, ...repo } = r;
-  if (!needsAllWeeks({ truncated, oldest }, now, o.baseline)) return repo;
+  if (!truncated) return repo;
+  const baseline = o.baseline ? await o.baseline(repo.key, repo) : false;
+  if (!needsAllWeeks({ truncated, oldest }, now, baseline)) return repo;
   if (o.deadline !== undefined && Date.now() >= o.deadline) throw new ScoreDeadline();
   const [owner, name] = repo.key.split('/');
   const counts = weeklyCommitsFrom(await ask(weeklyCommitsQuery(now), { o: owner, n: name }), now);
@@ -210,16 +216,18 @@ export function personGithubFrom(json: unknown, now: Date): PersonGithub | null 
  * query's newest 100, or an organization's repo. `repos` is keyed by the asked name (lowercase); a repo GitHub
  * does not know, or a malformed name (never sent), is absent. Launch-ready (hotfix carry-over): a busy repo's weekly
  * call that fails puts only that repo in `failed` (its error), never the batch; the run's deadline or a spent budget
- * still stops the whole read.
+ * still stops the whole read. Fix round 1: a repo GitHub refuses on its own alias (FORBIDDEN) is in `refused` (the
+ * readable message) and left unread; an error without an alias path still fails the batch.
  */
 export async function readGithubRepos(
   keys: string[], d: ReaderDeps, opts: RepoReadOptions = {},
-): Promise<{ repos: Map<string, PersonRepo>; failed: Map<string, unknown> }> {
+): Promise<{ repos: Map<string, PersonRepo>; failed: Map<string, unknown>; refused: Map<string, string> }> {
   const repos = new Map<string, PersonRepo>();
   const failed = new Map<string, unknown>();
+  const refused = new Map<string, string>();
   // A malformed name is never sent (it is absent from the answer); the rest still are.
   const asked = [...new Set(keys.map((k) => k.toLowerCase()))].filter((k) => REPO.test(k));
-  if (asked.length === 0) return { repos, failed };
+  if (asked.length === 0) return { repos, failed, refused };
   if (asked.length > REPOS_MAX) throw new Error('too many repo names');
   const variables: Record<string, unknown> = { since: since(d.now) };
   asked.forEach((k, i) => {
@@ -227,18 +235,27 @@ export async function readGithubRepos(
     variables[`o${i}`] = o;
     variables[`n${i}`] = n;
   });
-  const data = obj(obj(await d.ghGraphql(reposQuery(asked.length), variables)).data);
+  const body = obj(await d.ghGraphql(reposQuery(asked.length), variables, { aliasErrors: true }));
+  const data = obj(body.data);
+  // Fix round 1: an error on one alias (GitHub refusing that repo) is that repo's alone: it is left unread (the
+  // caller tries the App, then writes this message only if the App can't read it either).
+  const errors = Array.isArray(body.errors) ? body.errors : [];
   for (const [i, k] of asked.entries()) {
+    const mine = errors.filter((e) => aliasOf(e) === `r${i}` && (e as { type?: unknown }).type !== 'NOT_FOUND');
+    if (mine.length > 0) refused.set(k, graphqlErrors({ errors: mine }));
+  }
+  for (const [i, k] of asked.entries()) {
+    if (refused.has(k)) continue;
     const r = repoFrom(data[`r${i}`], d.now);
     if (!r) continue;
     try {
-      repos.set(k, await withAllWeeks({ ...r, key: k }, d.now, (q, v) => d.ghGraphql(q, v), { baseline: opts.baseline?.(k) ?? false, deadline: d.deadline }));
+      repos.set(k, await withAllWeeks({ ...r, key: k }, d.now, (q, v) => d.ghGraphql(q, v), { baseline: opts.baseline, deadline: d.deadline }));
     } catch (err) {
       if (err instanceof ScoreDeadline || isBudgetStop(err)) throw err;
       failed.set(k, err);
     }
   }
-  return { repos, failed };
+  return { repos, failed, refused };
 }
 
 /** v2.13 (R2): the person's GitHub profile only, for the X field match; no repos (about 0.2 s). */
@@ -284,7 +301,7 @@ export async function readAppRepos(items: { id: number; builder_id: number; ref:
     };
     const r = repoFrom(obj(obj(await ask(reposQuery(1), { since: since(d.now), o0: o, n0: n })).data).r0, d.now);
     if (!r || r.key !== key) continue;
-    out.set(s.id, await withAllWeeks({ ...r, key }, d.now, ask, { baseline: opts.baseline?.(key) ?? false, deadline: d.deadline }));
+    out.set(s.id, await withAllWeeks({ ...r, key }, d.now, ask, { baseline: opts.baseline, deadline: d.deadline }));
   }
   return out;
 }
