@@ -29,7 +29,6 @@ import {
   SanctionsError,
   screenWallet,
 } from './sanctions';
-import { PROOF_LINE_PREFIX, SIGN_IN_FIRST, WALLET_CHANGED } from './token-gate';
 import { ProjectInfo, prepareSubmission, type KnownInfo } from './submission';
 import type { SubmissionRequirement } from './program-file';
 import { ENTRIES_PER_CAMPAIGN } from './rate-limit';
@@ -862,8 +861,6 @@ export async function startEntry(a: {
   created: boolean;
   token_url: string | null;
   confirm_choice: 'go' | 'skip';
-  /** Ruling C24: the last "go" on this entry stopped at the repo's proof line. */
-  proof_line_missed: boolean;
   /** v2.8.1 §A1: when the launch claim was taken (token_url 'pending'); null otherwise or before v2.8.1. */
   token_claimed_at: Date | null;
   /** v2.8.1 §A1: a pending claim whose deploy answered without a clear result (its note is set). */
@@ -890,7 +887,7 @@ export async function startEntry(a: {
     // the entry is submitted or proven (the choice is then locked). Fresh fragments per use.
     const earnkit = () => tx`(coin_address IS NOT NULL OR COALESCE(token_status IN ('launched', 'pending'), false))`;
     const locked = () => tx`(submission_confirmed_at IS NOT NULL OR submission_proof_ok_at IS NOT NULL)`;
-    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip'; proof_line_missed: boolean; token_claimed_at: Date | null; token_settled: boolean };
+    let row: { id: number; token_url: string | null; confirm_choice: 'go' | 'skip'; token_claimed_at: Date | null; token_settled: boolean };
     if (own) {
       [row] = await tx<typeof row[]>`
         UPDATE projects SET
@@ -915,9 +912,6 @@ export async function startEntry(a: {
           contract_verified_at = COALESCE(${checked?.contract_verified_at ?? null}::timestamptz, contract_verified_at)
         WHERE id = ${own.id}
         RETURNING id, CASE WHEN ${earnkit()} THEN token_url END AS token_url, confirm_choice,
-          -- v2.9 B9: a stop on the GitHub sign-in (G10, G11) counts the same way (P10).
-          COALESCE(token_status = 'gate_failed' AND (starts_with(token_note, ${PROOF_LINE_PREFIX})
-            OR starts_with(token_note, ${SIGN_IN_FIRST}) OR starts_with(token_note, ${WALLET_CHANGED})), false) AS proof_line_missed,
           token_claimed_at, (token_url = 'pending' AND token_note IS NOT NULL) IS TRUE AS token_settled`;
     } else {
       await a.charge?.();
@@ -936,14 +930,13 @@ export async function startEntry(a: {
           complete_at: completeNow,
           repo_private,
           ...checked,
-        })} RETURNING id, NULL::text AS token_url, confirm_choice, false AS proof_line_missed, NULL::timestamptz AS token_claimed_at, false AS token_settled`;
+        })} RETURNING id, NULL::text AS token_url, confirm_choice, NULL::timestamptz AS token_claimed_at, false AS token_settled`;
     }
     return {
       id: row.id,
       created: !own,
       token_url: row.token_url,
       confirm_choice: row.confirm_choice,
-      proof_line_missed: row.proof_line_missed,
       token_claimed_at: row.token_claimed_at,
       token_settled: row.token_settled,
     };

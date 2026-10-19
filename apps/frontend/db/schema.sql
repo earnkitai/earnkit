@@ -1351,7 +1351,7 @@ ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_kind_check
   CHECK (kind IN ('repo','site','package_npm','package_pypi','contract','merged_pr','coin'));
 ALTER TABLE builder_sources DROP CONSTRAINT IF EXISTS builder_sources_proof_check;
 ALTER TABLE builder_sources ADD CONSTRAINT builder_sources_proof_check
-  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted','proof_branch'));
+  CHECK (proof IN ('github_signin','proof_line','repo_owner','deployer','deploy_wallet','earnkit_txt','dns_txt','repo_link','x_match','wallet_signed','earnkit_hosted','proof_branch','github_app'));
 ALTER TABLE github_verify_nonces DROP CONSTRAINT IF EXISTS github_verify_nonces_purpose_check;
 ALTER TABLE github_verify_nonces ADD CONSTRAINT github_verify_nonces_purpose_check CHECK (purpose IN ('entry', 'pickup', 'host', 'app', 'claim'));
 ALTER TABLE builder_events DROP CONSTRAINT IF EXISTS builder_events_type_check;
@@ -1591,6 +1591,9 @@ CREATE INDEX IF NOT EXISTS x_signin_links_paste ON x_signin_links (paste_hash) W
 CREATE INDEX IF NOT EXISTS x_signins_expires ON x_signins (expires_at);
 CREATE INDEX IF NOT EXISTS x_signin_links_expires ON x_signin_links (expires_at);
 ALTER TABLE x_signins ADD COLUMN IF NOT EXISTS link_hash text;
+-- v2.14 (T6, spec 2): the read-only GitHub App is the only proof of a repo (repo-proof.ts): `github_app` sources are
+-- checked once a day (appCheckStep) that GitHub still names an App installation for the repo; this is when.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_checked_at timestamptz;
 -- v2.14 bind:start
 -- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
 -- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.

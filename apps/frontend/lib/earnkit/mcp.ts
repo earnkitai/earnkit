@@ -96,12 +96,12 @@ const TELL_CHAIN = z.union([
   z.object({ chain: z.union([z.string(), z.number()]), mainnet: z.union([z.boolean(), z.string()]).optional() }),
 ]);
 
-/** v2.13.1 O5 N9: a token's repo is proven by the proof branch EarnKit asks for (never an earnkit.txt line). */
-export const OWNERSHIP_FOR_TOKEN_BENCH = 'A token needs a repo proven yours; EarnKit gives you the proof step when it needs one.';
+/** v2.14 spec 2: a token's repo is proven by the read-only GitHub App (never an earnkit.txt line or a proof branch). */
+export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit gives you the install link when it needs one.';
 
 /**
  * v2.13 spec "Tools": find takes the one project the agent is in (identity.project) and every agent
- * note is followed (the proof line is in proof.agent_note). Under 800 characters (mcp.test.ts 2.8).
+ * note is followed. Under 800 characters (mcp.test.ts 2.8).
  */
 export const FIND_DESCRIPTION_BENCH =
   'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list, and identity.github_login (not github_user or repos); never ask. ' +
@@ -121,7 +121,7 @@ const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
   (buildOn ? 'build: a build_offer yes. ' : '') +
   (campaignOpen ? 'EarnKit campaigns: one Token row (a token on Base), then confirm is the entry. ' : '') +
-  OWNERSHIP_FOR_TOKEN_BENCH;
+  OWNERSHIP_FOR_TOKEN;
 
 /** v2.10 item 4 (R15): confirm's description (confirm_entry, launch_token and the entry write of record_submission). */
 const confirmDescription = (campaignOpen: boolean) =>
@@ -480,7 +480,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                 .strict()
                 .optional()
                 .describe('Their answer to a coin offer'),
-          // v2.13: the ship log and the proof branch.
+          // v2.13: the ship log.
           update: z
             .object({
               text: z.string().max(2000).optional().describe("This week's update: one plain paragraph, at most 280 characters"),
@@ -494,12 +494,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional()
             .describe('Weekly posting on or off'),
-          // v2.13.1 O5 N2: a refused push of the proof branch ends its wait at once.
-          proof: z
-            .object({ pushed: z.boolean().describe('false when GitHub refused the push of proof.push') })
-            .strict()
-            .optional()
-            .describe('The proof branch push, when it was refused'),
           program_status: z
             .array(
               z

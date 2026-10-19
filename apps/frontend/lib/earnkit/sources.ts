@@ -10,7 +10,7 @@ import { NPM_BULK_MAX, isBudgetStop, isoWeek, readCoin, readContract, readNpm, r
 export const READS_PER_RUN = 200;
 
 /** v2.12 spec 2: a person's sources and their daily readings. Only the server verifies (owner rule 1). */
-export type Proof = 'github_signin' | 'proof_line' | 'repo_owner' | 'deployer' | 'deploy_wallet' | 'earnkit_txt' | 'dns_txt' | 'repo_link' | 'proof_branch';
+export type Proof = 'github_signin' | 'proof_line' | 'repo_owner' | 'deployer' | 'deploy_wallet' | 'earnkit_txt' | 'dns_txt' | 'repo_link' | 'proof_branch' | 'github_app';
 
 /** Their own non-fork, non-template, never-derived repo; someone else's only when it is an organization's and they are its top contributor. */
 export const repoOwned = (s: RepoSignals, login: string, topContributor: boolean, everDerived: boolean) =>
@@ -107,9 +107,9 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
   const [row] = await db<{ builder_id: number; kind: string }[]>`
     UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
-    -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through a
-    -- fresh proof branch (proof-branch.ts checkProofBranch), never through any discovery clue.
-    WHERE id = ${id} AND state = 'proposed' AND reject_reason IS DISTINCT FROM 'stale' RETURNING builder_id, kind`;
+    -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through the
+    -- App (v2.14: the re-proof is the read-only GitHub App), never through any discovery clue.
+    WHERE id = ${id} AND state = 'proposed' AND (reject_reason IS DISTINCT FROM 'stale' OR ${proof}::text = 'github_app') RETURNING builder_id, kind`;
   if (row) await afterCommit(db, () => noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}`, installation_id: row.builder_id, detail: { source_id: id, kind: row.kind, proof } })));
 }
 
@@ -427,10 +427,24 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   const repos = due.filter((s) => s.kind === 'repo');
   for (const s of repos) if (!REPO_REF.test(s.ref)) await fail(s, 'not_a_repo');
   const named = repos.filter((s) => REPO_REF.test(s.ref));
-  const found = new Map<string, PersonRepo>();
-  for (let i = 0; i < named.length; i += REPOS_MAX) {
+  // v2.14 A10: a repo proven by the read-only App is read with its installation's token first (a per-call token,
+  // never kept); EarnKit's shared token reads by name only what isn't installed.
+  const viaAppIds = new Set(
+    (await sql()<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${sql()(named.length ? named.map((s) => s.id) : [-1])} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
+  );
+  const viaApp = new Map<number, PersonRepo>();
+  for (const s of named.filter((x) => viaAppIds.has(x.id))) {
     if (Date.now() >= o.deadline) return { read, failed };
-    const batch = named.slice(i, i + REPOS_MAX);
+    const go = await attempt([s], async () => {
+      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+    });
+    if (!go) return { read, failed };
+  }
+  const byName = named.filter((s) => !viaAppIds.has(s.id));
+  const found = new Map<string, PersonRepo>();
+  for (let i = 0; i < byName.length; i += REPOS_MAX) {
+    if (Date.now() >= o.deadline) return { read, failed };
+    const batch = byName.slice(i, i + REPOS_MAX);
     const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
     const go = await attempt(batch, async () => {
       for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
@@ -439,8 +453,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   }
   // v2.13.3 (5): what EarnKit's token couldn't read (private, or an org's it can't see), through the
   // read-only App when that source's person installed it on the repo (a per-call token, never kept).
-  const unread = named.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id) && !stalled.has(s.id));
-  const viaApp = new Map<number, PersonRepo>();
+  const unread = byName.filter((s) => !found.has(s.ref.toLowerCase()) && !settled.has(s.id) && !stalled.has(s.id));
   for (const s of unread) {
     if (Date.now() >= o.deadline) return { read, failed };
     const go = await attempt([s], async () => {
@@ -448,8 +461,10 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     });
     if (!go) return { read, failed };
   }
-  for (const s of named)
-    if (!(await writeRepo(s, found.get(s.ref.toLowerCase()) ?? viaApp.get(s.id), !found.has(s.ref.toLowerCase()) && viaApp.has(s.id)))) return { read, failed };
+  for (const s of named) {
+    const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
+    if (!(await writeRepo(s, app ?? found.get(s.ref.toLowerCase()), app !== undefined))) return { read, failed };
+  }
 
   // Unscoped npm packages, NPM_BULK_MAX names a call (one failing call fails only its own names).
   const npm = due.filter(bulkNpm);

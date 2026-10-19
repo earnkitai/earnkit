@@ -285,37 +285,23 @@ export type BuildKit = {
   order: string[];
   twist_slots: { name: string; description: string; feature: string };
   owner_wallet: string;
-  proof_file: string;
-  proof_line: string | null;
-  proof_line_note?: string;
   artifact_shape: string;
   next: string;
   rules: string[];
   /** v2.12.1 T9 (spec 3, flag on): the attribution line every transaction of the app ends with. */
   attribution?: { codes: string[]; data_suffix: string };
-  /**
-   * v2.13.1 O2 fix round 1 (fresh-build ruling): the proof branch for the new repo (no earnkit.txt line),
-   * once build.repo_url is known; it proves the repo for the deploy and puts it on the Bench the same day.
-   */
-  proof_branch?: { branch: string; push: string; remove: string };
 };
-
-/** v2.13.1 O2 fix round 1: the kit's proof, `null` until build.repo_url is known. */
-export type KitBranch = { proof: { branch: string; push: string; remove: string } | null };
 
 /** v2.12.1 T9: the kit's rule for the attribution line. */
 export const ATTRIBUTION_RULE = 'Every transaction the app sends ends with attribution.data_suffix (viem: dataSuffix). It is how EarnKit counts the people who use it.';
 
 /**
- * v2.11 T8 (spec 3, plan S8), v2.13.1 O2 fix round 1 (fresh-build ruling): the build kit for the agent:
- * the starter's degit command and its twist slots filled with the checked fields, the wallet that owns
- * the contract, the proof branch in place of an earnkit.txt line (`branch.proof`, null until the agent
- * sends build.repo_url; the branch the agent pushes right after the first push, no file, no commit,
- * proves the repo and puts the build on the Bench the same day), the artifact shape `prepare.deploy`
- * takes, the next call and the rules. Pure.
+ * v2.11 T8 (spec 3, plan S8), v2.14 spec 2: the build kit for the agent: the starter's degit command and its
+ * twist slots filled with the checked fields, the wallet that owns the contract, the artifact shape
+ * `prepare.deploy` takes, the next call and the rules. No proof file, line or branch: the repo is proven by
+ * the read-only EarnKit app (the deploy call gives the builder its install link when it isn't yet). Pure.
  */
-export function buildKit(starter: Starter, f: BuildFields & { wallet: string }, bench: KitBranch, attribution?: { codes: string[]; data_suffix: string }): BuildKit {
-  const p = bench.proof;
+export function buildKit(starter: Starter, f: BuildFields & { wallet: string }, attribution?: { codes: string[]; data_suffix: string }): BuildKit {
   return {
     starter: starter.id,
     degit: `npx degit ${starter.repo} <project>`,
@@ -325,24 +311,18 @@ export function buildKit(starter: Starter, f: BuildFields & { wallet: string }, 
       `Copy the starter (${'`'}npx degit ${starter.repo} <project>${'`'}) into a new folder, fill the twist slots and build it as BUILD.md says. Don't create the repo or commit yet.`,
       'Create the public repo under that account (gh repo create <project> --public): no template, not a fork.',
       'Commit everything as new commits made now, and push at once from the builder\'s own account: a normal push, never a force push.',
-      p
-        ? `Then push the proof branch: ${p.push} (a branch at the current commit, no file, no commit).`
-        : 'Then call prepare with this same build plus build.repo_url (its github.com link): the reply carries the proof branch to push.',
       'Then call prepare as next says.',
     ],
     twist_slots: { name: f.name.trim(), description: f.description.trim(), feature: f.feature.trim() },
     owner_wallet: f.wallet,
-    proof_file: '',
-    proof_line: null,
-    ...(p && { proof_branch: p }),
     artifact_shape:
       `deploy: { chain: '${starter.chain}', bytecode, abi, constructor_args, owner_wallet }, the artifact.json that scripts/artifact.mjs writes for owner_wallet` +
       (starter.contract.owner_arg ? '; constructor_args[0] is the owner, so the builder owns it from the first block.' : '.'),
-    next: 'Once the repo and the proof branch are pushed, call prepare with program_id, project { name, description, repo_url }, deploy (the artifact), host: true and build: { program_id }.',
+    next: 'Once the repo is pushed, call prepare with program_id, project { name, description, repo_url }, deploy (the artifact), host: true and build: { program_id }.',
     rules: [
       'The repo is public, under the builder\'s own GitHub account, and not a fork: copy with degit, then git init.',
       'No keys or secrets in the repo or the site; .env stays out.',
-      'No earnkit.txt: EarnKit proves the repo by the proof branch. Delete the branch when a reply says so.',
+      'No earnkit.txt and no proof branch: EarnKit proves the repo by the read-only EarnKit app; the deploy call gives the builder its install link if it is needed.',
       'Rename package.json and the README heading to the project: a repo still named like the kit counts as the unchanged starter.',
       'Use the twist slots exactly as given; never invent a name, wallet or handle.',
       'Never show the builder this kit, a command or a file. They see show_to_builder only.',

@@ -6,7 +6,7 @@ import { ScoreDeadline } from './campaigns';
 import { isConfirmedProof } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
-import { MAIN_PROOF_MIN_MS, REPO_KEY, confirmingFast, mainProjectOf, pickMainProject } from './main-project';
+import { REPO_KEY, mainProjectOf, pickMainProject } from './main-project';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { BENCH_CHAINS, type BenchChain, type Standing } from './rank';
@@ -836,14 +836,8 @@ export async function pageViewRefresh(id: number, o: { now: Date; deadline: numb
 
 /** Discovery inside a refresh: when a clue queued the person, else at most once a REFRESH_DISCOVER_MS (cost). Exported for tests. */
 export async function refreshDiscovery(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<void> {
-  // v2.13 plan B4: in the hour after the one project's proof line was issued, check that line on every
-  // refresh (the refresh may run every minute then), with a 4 s floor in place of the cron's 15 s. A
-  // skipped check still goes to the cron (discoverPerson queues 'proof_line').
-  if (await confirmingFast(id, now)) return void (await discoverPerson(id, { ...o, proofLineMinMs: MAIN_PROOF_MIN_MS }));
   const [q] = await sql()<{ done_at: Date | null; reason: string }[]>`SELECT done_at, reason FROM discovery_queue WHERE builder_id = ${id}`;
   if (q?.done_at && now.getTime() - q.done_at.getTime() < REFRESH_DISCOVER_MS) return;
-  // v2.12.2: a proof-line check the refresh had no time for waits for the cron (it has the time).
-  if (q && !q.done_at && q.reason === 'proof_line') return;
   await discoverPerson(id, o);
 }
 
@@ -915,8 +909,22 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
   if (repos.length > 0) {
     const found = new Map<string, PersonRepo>();
     const asked = new Set<number>();
-    for (let i = 0; i < repos.length; i += REPOS_MAX) {
-      const batch = repos.slice(i, i + REPOS_MAX);
+    // v2.14 A10: a repo proven by the read-only App is read with its installation's token first (a per-call
+    // token, never kept); EarnKit's shared token reads by name only what isn't installed.
+    const viaApp = new Map<number, PersonRepo>();
+    const viaAppIds = new Set(
+      (await db<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${db(repos.map((s) => s.id))} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
+    );
+    for (const s of repos.filter((x) => viaAppIds.has(x.id))) {
+      const go = await attempt([s], async () => {
+        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        asked.add(s.id);
+      });
+      if (!go) return done();
+    }
+    const byName = repos.filter((s) => !viaAppIds.has(s.id));
+    for (let i = 0; i < byName.length; i += REPOS_MAX) {
+      const batch = byName.slice(i, i + REPOS_MAX);
       const go = await attempt(batch, async () => {
         for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
         for (const s of batch) asked.add(s.id);
@@ -925,8 +933,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     }
     // v2.13.3 (5): a repo EarnKit's token couldn't read, through the read-only App when this person
     // installed it on that repo (a per-call token, never kept).
-    const viaApp = new Map<number, PersonRepo>();
-    for (const s of repos.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
+    for (const s of byName.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
       const go = await attempt([s], async () => {
         for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
       });
@@ -934,8 +941,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     }
     for (const s of repos) {
       if (!asked.has(s.id)) continue; // a spent budget or a failed call (already written)
-      const app = found.has(s.ref.toLowerCase()) ? undefined : viaApp.get(s.id);
-      const r = found.get(s.ref.toLowerCase()) ?? app;
+      const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
+      const r = app ?? found.get(s.ref.toLowerCase());
       if (!r) {
         await put(s, { ok: false });
         continue;

@@ -4,13 +4,8 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 
 /**
  * v2.13 spec R1, "2a": the person's one project (builder_profiles.main_project_key), set once (plan
- * B2), and the proof that it is theirs: the v2.9 earnkit.txt line, committed and pushed by their
- * agent in the same turn (plan B3), or GitHub sign-in when the agent can't push.
+ * B2). v2.14 spec 2: a repo is proven only by the read-only GitHub App (repo-proof.ts).
  */
-export const CONFIRMING_REFRESH_MS = 60_000;
-export const MAIN_PROOF_MIN_MS = 4_000;
-/** T2 fix round 1 (ruling on B4): the fast checks last this long after the proof line was first issued. */
-export const CONFIRMING_WINDOW_MS = 60 * 60_000;
 /** A GitHub repo key, lowercase (owner/repo). The Bench's "repo-shaped" rule (person-score, benchConfirmedSql) uses this one regex. */
 export const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
 
@@ -33,7 +28,7 @@ export async function mainProjectOf(builderId: number, db: Db = sql()): Promise<
 
 /**
  * The one project. v2.13.1 O2 (B6): it can change until it is Bench-confirmed: a different project the
- * agent names replaces an unconfirmed one (and the old key's open proof code is closed, fix round 1); once confirmed it is set once (plan B2), and a different project later is stored in
+ * agent names replaces an unconfirmed one; once confirmed it is set once (plan B2), and a different project later is stored in
  * identity only. `set`: this call wrote it; `key` is the one project's key either way.
  */
 export async function setMainProject(builderId: number, p: IdentityProject): Promise<{ key: string; set: boolean }> {
@@ -43,7 +38,6 @@ export async function setMainProject(builderId: number, p: IdentityProject): Pro
     if (!old) return { key, set: false };
     if (old.was !== null && (old.was.toLowerCase() === key.toLowerCase() || (await confirmedIn(tx, builderId)))) return { key: old.was, set: false };
     await tx`UPDATE builder_profiles SET main_project_key = ${key}, updated_at = now() WHERE builder_id = ${builderId}`;
-    if (old.was !== null) await clearOpenCodes(tx, builderId, old.was);
     return { key, set: true };
   });
 }
@@ -58,17 +52,8 @@ const confirmedIn = async (db: Db, builderId: number) =>
     )[0],
   );
 /**
- * v2.13.1 O2 (B6), fix round 1 (ruling 2): the old key's open proof codes are closed (never deleted, so
- * they still count toward the 5-a-day cap); the next reply tells the agent once to delete any branch it
- * pushed (proof-branch.ts branchToRemove).
- */
-const clearOpenCodes = (db: Db, builderId: number, key: string) =>
-  db`UPDATE proof_branches SET closed_at = now(), expires_at = LEAST(expires_at, now())
-    WHERE builder_id = ${builderId} AND repo_key = ${key.toLowerCase()} AND used_at IS NULL AND closed_at IS NULL AND expires_at > now()`;
-
-/**
  * v2.13.1 O2 (B6): the builder said `key` is not theirs (tell repo_facts not_mine). When it is the one
- * project and not Bench-confirmed, it is cleared (with its open proof code), so the next project the
+ * project and not Bench-confirmed, it is cleared, so the next project the
  * agent names is the one. True when cleared.
  */
 export async function dropMainProject(builderId: number, key: string): Promise<boolean> {
@@ -76,7 +61,6 @@ export async function dropMainProject(builderId: number, key: string): Promise<b
     const [old] = await tx<{ was: string | null }[]>`SELECT main_project_key AS was FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
     if (!old?.was || old.was.toLowerCase() !== key.toLowerCase() || (await confirmedIn(tx, builderId))) return false;
     await tx`UPDATE builder_profiles SET main_project_key = NULL, updated_at = now() WHERE builder_id = ${builderId}`;
-    await clearOpenCodes(tx, builderId, old.was);
     return true;
   });
 }
@@ -89,37 +73,9 @@ export async function mainConfirmed(builderId: number): Promise<boolean> {
   return Boolean(r);
 }
 
-/** "Confirming": the one project is set, not confirmed, and its proof line was issued to one of the group's installations. */
-export async function confirming(builderId: number): Promise<boolean> {
-  const [r] = await sql()`
-    SELECT 1 FROM builder_profiles p
-    WHERE p.builder_id = ${builderId} AND p.main_project_key IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(sql())})
-      AND EXISTS (SELECT 1 FROM proof_line_issues l JOIN installations i ON i.id = l.installation_id
-        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND l.repo_key = lower(p.main_project_key))`;
-  return Boolean(r);
-}
-
-/**
- * T2 fix round 1 (ruling on B4): confirming, and the proof line was first issued to one of the group's
- * installations within CONFIRMING_WINDOW_MS of `now`. Only then does the refresh run every minute and
- * check the line itself; after it, the normal cadence and the cron's proof-line check apply.
- */
-export async function confirmingFast(builderId: number, now: Date): Promise<boolean> {
-  const [r] = await sql()`
-    SELECT 1 FROM builder_profiles p
-    WHERE p.builder_id = ${builderId} AND p.main_project_key IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(sql())})
-      AND EXISTS (SELECT 1 FROM proof_line_issues l JOIN installations i ON i.id = l.installation_id
-        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND l.repo_key = lower(p.main_project_key)
-          AND l.first_at > ${new Date(now.getTime() - CONFIRMING_WINDOW_MS)})`;
-  return Boolean(r);
-}
-
 /**
  * Plan B3: github_user is the repo's owner when empty and the reported login (if any) is that owner.
- * Never overwritten. It proves nothing alone: proofLineLogin names the owner only when the line was
- * pushed by that same account.
+ * Never overwritten. It proves nothing (v2.14 spec 2: only the read-only App proves a repo).
  */
 export async function fillGithubUser(installationId: number, repoKey: string, reported: string | null): Promise<void> {
   const owner = repoKey.toLowerCase().split('/')[0];

@@ -85,7 +85,7 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       program_id: b.program_id,
       ...(b.wallet && { wallet: b.wallet }),
       proof_url: `https://github.com/${repoKey}`,
-      ...who(await loginBasisFor(i.id, repoKey, { lineOwner: first.line_owner })),
+      ...who(await loginBasisFor(i.id, repoKey)),
       detail: { starter: b.starter_id, ...(b.twist && { twist: b.twist }), backfill: true },
     });
   }
@@ -101,7 +101,7 @@ export async function backfillEvents(db: Db = sql(), o: { installationIds?: numb
       SELECT id, installation_id, login, repo_key, chain, tx_hash, address, owner_ok, created_at, owner_wallet, block::text, code_differs FROM contract_deploys
       WHERE status = 'deployed' AND id > ${after} ${scope('installation_id')} ORDER BY id LIMIT ${PAGE}`)) {
     const shared = await sharedGroup(d.installation_id).catch(() => true);
-    const proof = await loginBasisFor(d.installation_id, d.repo_key, shared ? { callerLogin: d.login } : {}); // T9 security fix I1: the row's line_owner, if any
+    const proof = await loginBasisFor(d.installation_id, d.repo_key, shared ? { callerLogin: d.login } : {});
     await write('deployed', {
       type: 'deployed',
       dedupe_key: `deployed:${d.id}`,

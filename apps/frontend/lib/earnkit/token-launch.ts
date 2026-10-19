@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { rememberWallet, sharedGroup } from './installations';
-import { OWNERSHIP_FILE } from './ownership';
 import type { Chain } from './chains';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
 import { answersOf } from './projects';
@@ -10,15 +9,9 @@ import { prepareSubmission, type KnownInfo } from './submission';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { LIMITS, RateLimitError, enforce, windowStart } from './rate-limit';
-import { PROOF_LINE_PREFIX, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { tokenGate, type GateDeps } from './token-gate';
 import { logoDefaults, type Logo } from './token-logo';
 
-/**
- * Ruling C24: the agent's way out of the proof-line loop (confirm mode). Agent text, so it names
- * the tool and the field.
- */
-export const CANT_PUSH_RETRY_NOTE =
-  "If you can't push to this repo, call confirm again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
 import { TOKEN_ERROR_CONFIRM } from './confirm';
 import { todoOf } from './entry-text';
 import {
@@ -189,14 +182,6 @@ export function decideToken(a: {
   return { action: 'launch', name: name.name, symbol };
 }
 
-/** What the agent must push before a launch (v2.6 §3: one ticker-free line; the builder edits nothing). */
-const ownershipLine = (tokenLine: string | null) =>
-  tokenLine
-    ? `Write the line "${tokenLine}" to ${OWNERSHIP_FILE} at the repo root (default branch) and push it yourself ` +
-      'before confirm; never ask the builder to edit files. It is for this agent and this repo only; ' +
-      'a new ticker needs no new line.'
-    : "Pass the project's repo_url to get its earnkit.txt token line.";
-
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
  * configured, or no name is known yet. v2.10 item 5: no builder text here (no earnings, terms or
@@ -209,7 +194,7 @@ export async function tokenProposalBlock(
     program: ProgramRow;
     projectName?: string;
     creatorWallet: string | null;
-    /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
+    /** The asking agent and the project's repo. */
     installationId: number;
     repoUrl?: string;
     /** v2.10 item 12: the entry's live link (its logo is tried first at launch). */
@@ -233,11 +218,7 @@ export async function tokenProposalBlock(
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
     notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
-  // v2.13.1 O1 fix rounds 1 and 2 (rulings): off a shared client the gate takes a proof branch, never a line.
-  const branchProven = !(await sharedGroup(a.installationId).catch(() => true));
-  // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
-  const tokenLine = a.repoUrl && !branchProven ? tokenLineFor(a.installationId, a.repoUrl) : null;
-  if (!branchProven) notes.push(ownershipLine(tokenLine));
+  // v2.14 spec 2: the repo is checked at confirm by the gate (the read-only App); the agent pushes nothing.
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',
@@ -675,8 +656,6 @@ async function runTokenFlow(
     const withNote = {
       ...out,
       ...(gate.agent_note && { agent_note: gate.agent_note }),
-      ...(gate.branch && { proof_branch: gate.branch }),
-      ...(gate.sign_in && { sign_in_needed: gate.sign_in }),
     };
     return gate.fixable ? fix(withNote) : withNote;
   }
@@ -959,16 +938,8 @@ export async function confirmToken(
 function toConfirmWords(out: TokenOutcome): TokenOutcome {
   const note = out.note?.replace(/say 'launch the token'/g, 'say go');
   if (!out.fixable) return { ...out, ...(note && { note }) };
-  const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
   const agentNote = out.agent_note?.replace(/call confirm with project_id and yes: true/g, 'call confirm again with yes: true');
-  return {
-    ...out,
-    ...(note && { note }),
-    ...((agentNote || proofLine) && {
-      agent_note: [agentNote, proofLine && CANT_PUSH_RETRY_NOTE].filter(Boolean).join(' '),
-    }),
-    ...(proofLine && { proof_line: true as const }),
-  };
+  return { ...out, ...(note && { note }), ...(agentNote && { agent_note: agentNote }) };
 }
 
 /**

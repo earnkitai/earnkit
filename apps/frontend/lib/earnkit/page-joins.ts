@@ -42,7 +42,8 @@ export const PROBATION_LINES = {
  * installations by foreign key (wallets, verify links, verifications, entries, token offers, hosted
  * sites, deploys, upload tokens, among others: see JOIN_TABLES). For tables keyed by builder_id without a
  * foreign key (sources, person wallets, coin moments), the protection is that the emptiness check and the
- * deletes run in that same transaction, the proof-branch lock (`proof_branch:<id>`), and discovery's own
+ * deletes run in that same transaction, the source-proof lock (`source_proof:<id>`, which repo-proof.ts proveByApp
+ * takes before it verifies a repo source), and discovery's own
  * check: discovery locks its OWN root (`page_join:<its root>`, not the page) and writes its verdicts only
  * while that root is still a root, so nothing it confirms lands on an installation attached meanwhile.
  */
@@ -128,7 +129,7 @@ export async function freshAndEmpty(id: number, db: Db = sql()): Promise<boolean
 
 /**
  * R8, R9 (with R7 item 3): the R1 join in ONE locked transaction: the page's lock, the installation's row
- * and proof-branch lock; then the page still holds this X account and the installation is still fresh and
+ * and source-proof lock; then the page still holds this X account and the installation is still fresh and
  * empty (checked under the locks); then it alone is attached, what its agent only reported is discarded
  * (nothing merged), and the join is recorded with the page's installations at this moment (`eligible`).
  * Null when any check fails (nothing written).
@@ -139,7 +140,7 @@ export async function attachFresh(o: { installation: number; page: number; xUser
     await lockPage(tx, o.page);
     const [me] = await tx<{ builder_id: number | null; shared: boolean }[]>`SELECT builder_id, shared_client AS shared FROM installations WHERE id = ${o.installation} FOR UPDATE`;
     if (!me || me.builder_id !== null) return { fail: 'gone' as const };
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`proof_branch:${o.installation}`}))`;
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`source_proof:${o.installation}`}))`;
     const [p] = await tx<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${o.page} FOR UPDATE`;
     if (p?.x !== o.xUserId || (await rootIn(tx, o.page)) !== o.page) return { fail: 'gone' as const };
     // Final review (minor): the shared-client and owner-clear checks are inside the locked transaction too.

@@ -19,18 +19,11 @@ export type BenchProject = { key: string; name: string; confirmed: boolean; live
 export type BenchView = {
   project: BenchProject | null; rank: string | null; claimed: boolean; handle: string | null; claimLink: string | null;
   /**
-   * v2.13.1 O1: the one project (a repo key) while it isn't confirmed: `checking` (the agent was given
-   * the proof branch), `failed` (the branch never showed within the hour, the agent said the push was
-   * refused, or EarnKit can't read the repo: O5 N2), `needs_agent` (fix round 1, ruling c: an agent that
-   * can't push gets no code), `taken` (another person holds the repo) or `foreign` (O5 N2: a User's repo
-   * whose owner isn't the login the agent reported, so no push of theirs can prove it); O5 fix round 1:
-   * `copy` (a fork or a template) or `unseen` (EarnKit's token can't read it: 404). v2.13.2 (1): `recheck`
-   * (checking, after an org repo's proof expired). v2.13.3 (5): `private` (unseen, and the read-only GitHub
-   * App is on: the install ask replaces the different-project one).
+   * v2.14 spec 2: the one project (a repo key) while it isn't confirmed: `private` (not proven yet: the read-only
+   * App's install is the ask), `taken` (another person holds the repo) or `copy` (a fork or a template). Null:
+   * nothing to say about its proof. T9 rewrites these into the five states.
    */
-  branch?: 'checking' | 'recheck' | 'failed' | 'needs_agent' | 'taken' | 'foreign' | 'copy' | 'unseen' | 'private' | null;
-  /** Final fix I3: not confirmed and outside the hour of fast checks (main-project confirmingFast): no "a minute or two". */
-  slow?: boolean;
+  branch?: 'taken' | 'copy' | 'private' | null;
   fund: FundLine[]; ask: BenchAsk | null;
   /**
    * v2.13.1 O2 (B4): a build is in progress for this person: the stand line is only "Building <name>. I'll
@@ -69,37 +62,19 @@ export const linkedLine = (page: string) => `Linked to your page: ${page}`;
 export const buildingNowLine = (name: string) => `Building ${name}. I'll be back with the live link.`;
 /** v2.13.1 O2: once claimed, the page link after the stand line. */
 export const pageLine = (url: string) => `Your page: ${url}`;
-export const confirmingLine = (name: string) => `${name} joins the Bench as soon as I've confirmed it's yours (a minute or two).`;
-/** Final fix I3: outside the hour of fast checks, no time is promised. */
-export const confirmingSlowLine = (name: string) => `${name} joins the Bench once I've confirmed it's yours. I check again every day.`;
-/** v2.13.1 O1: the proof branch, told to the builder in one line (no question). */
-export const checkingBranchLine = (name: string) => `I'll check ${name} is yours with a quick temporary branch on GitHub. It's removed right after.`;
-/** v2.13.2 (1): an org repo's proof expired after 90 days; a fresh branch is checking (no question). */
-export const stillYoursLine = (name: string) => `Time to show ${name} is still yours: I'll check with a quick temporary branch on GitHub.`;
-/** v2.13.1 O1: the branch never showed within the hour (the agent couldn't push): no loop, no proof line. O5 N8: the agent's own voice. */
-export const cantShowLine = (name: string) => `I couldn't show ${name} is yours. It needs a project you can push to.`;
-/** v2.13.1 O5 N2: a User's repo under another GitHub account than the one the agent reported. */
-export const foreignLine = (name: string) => `${name} is under someone else's GitHub account.`;
 /** v2.13.1 O5 fix round 1 (ruling): a fork or a template is never the builder's own work. */
 export const copyLine = (name: string) => `${name} is a copy of another repo. Use your own project.`;
 /**
- * v2.13.1 O5 fix round 1: GitHub answers 404 to EarnKit (often the builder's own private repo), so no push can help.
- * v2.13.3 (5): with the read-only GitHub App off, said honestly in one line.
+ * v2.13.4 (spec 3), v2.14 spec 2: the repo isn't proven yet (public or private: the App is the only proof), said
+ * with the project's display name, never "EarnKit can't see earnkit".
  */
-export const cantSeeLine = (name: string) => `I can't see ${name}. EarnKit can only see public repos right now.`;
-/**
- * v2.13.4 (spec 3): the App is on and EarnKit can't read the repo (private, or an org's): said with the
- * project's display name, never "EarnKit can't see earnkit".
- */
-export const privateLine = (name: string) => `${name} is private, so I can't count it yet.`;
+export const privateLine = (name: string) => `${name} isn't counted yet.`;
 /**
  * v2.13.4 (spec 3, R4): the install link (the App proof link: sign-in hop, then install) in one line, the
  * reply's one link, then the one yes or no, last.
  */
 export const installAppAsk = (name: string, link: string) =>
   `${privateLine(name)} Install the read-only EarnKit app on it (one click): ${link}\nWant me to count it once that's done?`;
-/** v2.13.1 O1 fix round 1 (ruling c): an agent that can't push gets no proof branch. O5 N15: names the project and why. */
-export const needsAgentLine = (name: string) => `Open ${name} in your coding agent to put it on the Bench.`;
 /** v2.13.1 O1 fix round 1 (authorization ruling): the first confirmed holder keeps a repo. */
 export const takenLine = (name: string) => `${name} is already on the Bench under another account.`;
 export const CONFIRMED_LINE = (name: string) => `${name} is confirmed as yours.`;
@@ -197,17 +172,8 @@ function standLines(v: BenchView): string[] {
   // v2.13.4 (spec 3): the install ask says the project is private itself.
   if (v.ask?.kind === 'install_app' && page.length) return page;
   if (!p.confirmed) {
-    const first =
-      v.branch === 'checking' ? checkingBranchLine(p.name)
-      : v.branch === 'recheck' ? stillYoursLine(p.name)
-      : v.branch === 'failed' ? cantShowLine(p.name)
-      : v.branch === 'needs_agent' ? needsAgentLine(p.name)
-      : v.branch === 'taken' ? takenLine(p.name)
-      : v.branch === 'foreign' ? foreignLine(p.name)
-      : v.branch === 'copy' ? copyLine(p.name)
-      : v.branch === 'unseen' ? cantSeeLine(p.name)
-      : v.branch === 'private' ? privateLine(p.name)
-      : v.slow ? confirmingSlowLine(p.name) : confirmingLine(p.name);
+    // v2.14 spec 2: not counted yet (taken, a copy, or not proven: the App's install is the ask).
+    const first = v.branch === 'taken' ? takenLine(p.name) : v.branch === 'copy' ? copyLine(p.name) : privateLine(p.name);
     return [first, ...page];
   }
   if (!v.claimed) return [CONFIRMED_LINE(p.name)];

@@ -7,8 +7,8 @@ import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
 import { readBuild, type StoredBuild } from './installations';
-import { benchConfirmedSql, confirmingFast } from './main-project';
-import { branchToRemove, checkProofBranch, proofBranchFor, type BranchState } from './proof-branch';
+import { REPO_KEY, benchConfirmedSql } from './main-project';
+import { installLink, repoProof, type RepoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { WEEKLY_UPDATE_NOTE, setUpdates } from './updates';
@@ -31,7 +31,6 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
-import { createVerifyLink } from './github-verify';
 import {
   GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, claimAsk, enterAsk, installAppAsk,
   showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
@@ -60,10 +59,10 @@ export const ENTER_NOTE = "Prepare it: call prepare with program_id as given. Do
 export const START_NOTE =
   "If the builder sends their GitHub login or a link to something they've made, call find with identity: { github_login, project: { name, repo or live_url } }. " +
   "A yes or 'build something': call tell with move_up: { kind, project_key, answer: 'yes' } (as given here); a no: answer 'no'. Don't show this note.";
-/** v2.13.3 (5): the install ask (the link in the reply, or after the X claim, in the next reply). */
+/** v2.13.3 (5), v2.14 spec 2: the install ask (the link in the reply, or after the X claim, in the next reply). */
 export const INSTALL_APP_NOTE =
   "The builder installs EarnKit (read-only) on the repo from the link in show_to_builder; if there is no link yet, it comes in the next find once their page is claimed. " +
-  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which checks the repo. Don't show this note.";
+  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which counts the repo. Don't show this note.";
 /** v2.13.4 (spec 2): the claim ask (the claim link in show_to_builder, then one yes or no). */
 export const CLAIM_NOTE =
   "The builder claims their page with X from the link in show_to_builder. A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). " +
@@ -291,15 +290,13 @@ type ViewIn = {
   held: boolean;
   agentCanBuild: boolean; due: string[];
   coinDeps?: { check?: TickerCheck };
-  /** O5 N2, N4: the fetch for the one cheap read of the repo before a proof code is issued. */
-  ghFetch?: typeof fetch;
   /** v2.13.4 (spec 4, R3): the one project's live link, checked (wording and program fit only). */
   live?: LiveSite | null;
   /** v2.13.4 (R1): this agent joined the page from the claim page since its last reply. */
   linked?: boolean;
   /** v2.13.4 R6, R7: the caller's own installation (the join notice is asked of it). */
   own?: number;
-  /** v2.13.4 R7: the caller is on probation: no proof code, no install link, no coin, no stored ask. */
+  /** v2.13.4 R7: the caller is on probation: no install link, no coin, no stored ask. */
   probation?: boolean;
 };
 
@@ -308,7 +305,7 @@ type ViewIn = {
  * ways to get funded, the one question (chooseAsk), stored for its yes, and the fields every Bench
  * reply carries: move_up, claim, rank_lines, streak.
  */
-async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | null; fields: Reply; branch: BranchState }> {
+async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | null; fields: Reply; proof: RepoProof | null }> {
   const { id, now, read } = o;
   const row = read.row;
   // v2.13.1 O2 (B4): while a build is in progress the reply says so, and asks and offers nothing.
@@ -321,13 +318,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     : read.main
       ? { key: read.main, name: displayName(o.name ?? read.main.split('/').pop() ?? read.main, read.main, title), confirmed: false, live: siteLive, weeks: 0 }
       : null;
-  // v2.13.1 O1: a repo-key project that isn't confirmed gets the proof branch (proof-branch.ts says when).
-  // O2: read before the ask, so a project being checked is asked the next Bench step (the updates yes).
-  const branch = project && !project.confirmed && !building && !o.probation
-    ? await proofBranchFor(id, project.key, now, { canBuild: o.agentCanBuild, ghFetch: o.ghFetch }).catch(logged('proof branch'))
+  // v2.14 spec 2: a repo-key project that isn't confirmed: is it proven (the read-only App), held by another
+  // person, or a copy? Read before the ask, so an unproven repo is asked the App install.
+  const proof = project && REPO_KEY.test(project.key.toLowerCase()) && !project.confirmed && !building
+    ? await repoProof(id, project.key).catch(logged('repo proof'))
     : null;
+  const branch: BenchView['branch'] = proof && !proof.ok ? (proof.why === 'none' ? 'private' : proof.why) : null;
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it.
-  const taken = branch?.kind === 'taken';
+  const taken = branch === 'taken';
   let fund: FundLine[] = [];
   /** v2.13.3 (2): the programs named so far (never named twice). */
   const named = new Set<string>();
@@ -367,27 +365,24 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     const asks = {
       project, canHost: Boolean(project && hostFor(o.agentCanBuild)(project.key) && web), updatesOn: read.updatesOn,
       postedThisWeek: read.postedThisWeek, scheduled: read.scheduled, declined, claimed: read.base.claimed,
-      // O2 fix round 1 (ruling 3): failed and taken, a different project. O5 N15: a chat-only agent
-      // (needs_agent) can't schedule weekly posts, so it is never asked the updates yes. O5 N2: a
-      // repo under someone else's account, a different project.
-      joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
-      other: taken || ['failed', 'foreign', 'copy', 'unseen'].includes(branch?.kind ?? ''),
+      // O2 fix round 1 (ruling 3): taken or a copy, a different project.
+      joining: Boolean(project && !project.confirmed && !branch),
+      other: branch === 'taken' || branch === 'copy',
     };
     // v2.13.4 (spec 2): unclaimed, X comes first and is the reply's one question (asked until claimed or
     // declined). The project it names is one the claim puts on the Bench (none that can't join).
     const claim: BenchAsk | null = !read.base.claimed && read.base.claimLink && !declined.includes(benchStepKey('claim', null))
       ? {
           kind: 'claim', project_key: null,
-          line: claimAsk(read.base.claimLink, project && (!asks.other || (appOn && branch?.kind === 'unseen')) ? project.name : null),
+          line: claimAsk(read.base.claimLink, project && !asks.other ? project.name : null),
         }
       : null;
-    // v2.13.3 (5), v2.13.4 (spec 3): a repo EarnKit can't see, with the read-only App on: the install link in
-    // one line, right after the claim (the reply's one link).
-    const install = !claim && !o.probation && appOn && project && branch?.kind === 'unseen' && !declined.includes(benchStepKey('install_app', project.key))
-      ? await createVerifyLink({ installationId: id, projectId: null, repoKey: project.key, purpose: 'app' }, now)
-          .then((link): BenchAsk => ({ kind: 'install_app', project_key: project.key, line: installAppAsk(project.name, link) }))
-          .catch(logged('app link'))
+    // v2.14 spec 2: a repo not proven yet, with the read-only App on: the install link in one line, right after
+    // the claim (the reply's one link).
+    const link = !claim && !o.probation && appOn && project && branch === 'private' && !declined.includes(benchStepKey('install_app', project.key))
+      ? await installLink(id, project.key, now)
       : null;
+    const install: BenchAsk | null = link && project ? { kind: 'install_app', project_key: project.key, line: installAppAsk(project.name, link) } : null;
     // Owner ruling A: the best fit's entry, else a community round (the coin), come before the Bench's own
     // steps. The coin is offered (and its moment recorded) only when nothing earlier applies.
     const before = claim ?? install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
@@ -411,12 +406,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
-  // Final fix I3: "a minute or two" only within the hour of fast checks after the line was issued (keys a branch can't prove).
-  const slow = Boolean(project && !project.confirmed && !branch) && !(await confirmingFast(id, now).catch(() => false));
   const view: BenchView = {
     project, rank: read.ranks.phrase, claimed: read.base.claimed, handle: read.base.handle, claimLink: read.base.claimLink,
-    branch: branch?.kind === 'checking' && branch.again ? 'recheck' : branch?.kind === 'unseen' && appOn ? 'private' : branch?.kind ?? null,
-    slow, fund, ask, due: building ? [] : o.due,
+    branch, fund, ask, due: building ? [] : o.due,
     building: building ? building.name : null,
     page: read.base.claimed && read.base.handle ? `${siteUrl()}${pagePath(read.base.handle)}` : null,
     linked: Boolean(o.linked && read.base.claimed),
@@ -434,7 +426,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
     rank_lines: [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)),
     streak: row?.streak ?? 0,
   };
-  return { view, ask, fields, branch };
+  return { view, ask, fields, proof };
 }
 
 /** O5 fix round 1: a match of the one project is kept this long for a reply that can't wait for it. */
@@ -463,8 +455,6 @@ export async function keptBenchMatch(id: number, key: string, now: Date): Promis
 export type BenchFindArgs = {
   /** O5 fix round 1: when the call started (Date.now()); every wait ends by start + REPLY_WAIT_MS. */
   start?: number;
-  /** O5 fix round 1: the proof check, started with the refresh so it shares the reply's wait. */
-  proofCheck?: Promise<boolean>;
   first: FirstMessage;
   cards: FirstMessage['cards'];
   repos: YourRepos | null;
@@ -488,12 +478,6 @@ export type BenchFindArgs = {
 export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Reply> {
   const id = ctx.installationId;
   const now = a.first.now;
-  // v2.13.1 O1: the open proof branch is checked first, so this reply already shows the confirmation.
-  // O5 N1: never longer than REPLY_WAIT_MS (a slower check lands for the next reply).
-  const ghFetch = ctx.proofBranchFetch ?? ctx.readerDeps?.ghFetch;
-  // O5 fix round 1: only the time left of the reply's wait, never a fresh one.
-  // v2.13.4 R7: a newcomer on probation never checks (or confirms) a repo for the page.
-  if (!ctx.probation) await settleWithin(a.proofCheck ?? checkProofBranch(id, now, { ghFetch }), (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const read = await benchRead(id, now, ctx.freshDeps, ctx.ownInstallationId ?? id);
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const linked = await takeLinked(id, ctx.ownInstallationId ?? id, read.seen);
@@ -510,16 +494,13 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const due = [...(a.first.deadline ? [a.first.deadline] : []), ...(submit ? [submitStepLine(submit)] : [])];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
-  const { view, ask, fields, branch } = await benchView({
+  const { view, ask, fields } = await benchView({
     id, now, read, name, fits, cards: a.cards, skip, held: held || Boolean(submit), agentCanBuild: a.agentCanBuild, due,
-    coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id, probation: ctx.probation === true,
+    coinDeps: { check: ctx.tokenDeps?.check }, live, linked, own: ctx.ownInstallationId ?? id, probation: ctx.probation === true,
   });
-  // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
-  const told = ctx.probation ? null : await branchToRemove(id, now).catch(logged('proof branch told'));
-  const proof = branch?.kind === 'checking' ? branch.proof : told;
-  const removeOld = branch?.kind === 'checking' ? told : null;
+  const taken = view.branch === 'taken';
   const asks = held || Boolean(submit) || Boolean(ask);
-  const lead = Boolean((fits[0] && !submit && branch?.kind !== 'taken') || submit);
+  const lead = Boolean((fits[0] && !submit && !taken) || submit);
   const news = read.profiled && !ctx.probation ? await takeNews(id, read.seen, read.base, now, !asks).catch(logged('news')) : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
   if (!ctx.probation) await recordShown(
@@ -542,10 +523,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
-    ...(fits[0] && !submit && branch?.kind !== 'taken' && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
+    ...(fits[0] && !submit && !taken && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
-    ...(proof && { proof }),
-    ...(removeOld && { remove_branch: removeOld }),
     ...(weekly && { schedule_weekly_update: WEEKLY_UPDATE_NOTE }),
   };
 }
@@ -556,16 +535,15 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreEarn), else the open-all-year program. One
  * score_viewed event a minute (v2.12). Null without a profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'freshDeps' | 'tokenDeps' | 'proofBranchFetch' | 'probation'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'freshDeps' | 'tokenDeps' | 'probation'>, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
   if (made.created) await enqueueDiscovery(id, 'first_find');
-  // O5 N1: the refresh and the proof check run on, but the reply waits for them at most REPLY_WAIT_MS.
+  // O5 N1: the refresh runs on, but the reply waits for it at most REPLY_WAIT_MS.
   const start = Date.now();
   const refresh = startRefresh(id, { now, start, reader: o.reader });
-  const ghFetch = ctx.proofBranchFetch ?? o.reader?.ghFetch;
-  await Promise.all([refresh.within(REPLY_WAIT_MS), ctx.probation ? undefined : settleWithin(checkProofBranch(id, now, { ghFetch }), start + REPLY_WAIT_MS - Date.now())]);
+  await refresh.within(REPLY_WAIT_MS);
   const read = await benchRead(id, now, ctx.freshDeps, ctx.ownInstallationId ?? id);
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
   const linked = await takeLinked(id, ctx.ownInstallationId ?? id, read.seen);
@@ -579,15 +557,11 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const money = main ? await scoreEarn(id, { cards: shown, entered, hidden, now, projects: read.base.projects }) : { earn: [] };
   const fits: Fit[] = money.earn.filter((e) => e.project.toLowerCase() === main).map((e) => ({ program_id: e.program_id, title: e.title, prize: e.prize, when: e.when }));
   const fresh = o.fresh;
-  const { view, fields, branch } = await benchView({
+  const { view, fields } = await benchView({
     id, now, read, name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: Boolean(o.hold),
-    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, ghFetch, live, linked, own: ctx.ownInstallationId ?? id,
+    agentCanBuild: fresh?.canBuild ?? false, due: [], coinDeps: { check: ctx.tokenDeps?.check }, live, linked, own: ctx.ownInstallationId ?? id,
     probation: ctx.probation === true,
   });
-  // O2 fix round 1 (ruling 2): a code closed by a project change is told alongside the new one (remove_branch).
-  const told = ctx.probation ? null : await branchToRemove(id, now).catch(logged('proof branch told'));
-  const proof = branch?.kind === 'checking' ? branch.proof : told;
-  const removeOld = branch?.kind === 'checking' ? told : null;
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',
     dedupe_key: `score_viewed:${id}:${Math.floor(now.getTime() / 60_000)}`,
@@ -597,9 +571,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   return {
     show_to_builder: benchReply(view),
     ...fields,
-    ...(fits[0] && branch?.kind !== 'taken' && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
-    ...(proof && { proof }),
-    ...(removeOld && { remove_branch: removeOld }),
+    ...(fits[0] && view.branch !== 'taken' && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
   };
 }
 

@@ -28,9 +28,9 @@ import {
  *   (`appSetup`), which needs the same browser cookie, consumes the nonce, and passes when the
  *   installation is the login's own account or the login is the repo's admin, and the installation
  *   lists the repo. A pass is a github_verifications row with `via = 'app'`.
- * - R9, what it grants: read access only. A launch still needs the v2.9 proof (a proof line or a
- *   wallet-bound sign-in, G10, G11); github-verify.ts verifiedFor never returns an App row unless
- *   asked for one (Pre-flight P11).
+ * - v2.14 spec 2: the install is the only proof of a repo. The setup URL verifies the person's repo
+ *   source as `github_app` (repo-proof.ts proveByApp), which the coin gate, builds, hosting and the
+ *   Bench all read; readings of an App-proven repo use its installation token.
  * - The private key is never stored, logged or returned. Installation tokens (1 hour, this repo only,
  *   contents and metadata read) are minted per call and never stored or logged; errors carry the HTTP
  *   status only.
@@ -238,6 +238,12 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
       now,
       { githubInstallationId: installationId },
     );
+    // v2.14 spec 2 (A8): the install verifies the person's repo source (`github_app`) and rescores them, so the
+    // next reply counts it. The page says done either way; the next reply says what counted.
+    const builderId = await (await import('./identity')).rootOf(row.installation_id);
+    await (await import('./repo-proof'))
+      .proveByApp({ builderId, repoKey: row.repo_key, githubInstallationId: installationId }, deps)
+      .catch((err: unknown) => console.error('[github-app] prove', err instanceof Error ? err.name : 'error'));
     return verifyPage(paste ? codeLine(paste) : VERIFY_PAGE.done, 200, clear);
   } catch (err) {
     console.error('[github-app] setup', err instanceof Error ? err.name : 'error');
