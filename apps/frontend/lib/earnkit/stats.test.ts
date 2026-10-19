@@ -111,15 +111,16 @@ test('pre-launch 2026-10-19: installs_used counts installations that called find
   }
 });
 
-test('launch-ready L9: activated, weekly_active and shared are served after builders, with labels; shared is 0 until the weekly moment counts it', () => {
+test('launch-ready L9: activated, weekly_active and shared are served after builders, with labels', () => {
   const i = STATS_KEYS.indexOf('builders');
   assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['activated', 'weekly_active', 'shared']);
   for (const k of ['activated', 'weekly_active', 'shared'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
-  const s = statsFrom({ ...emptyRow, activated: 3, weekly_active: 2 });
-  assert.deepEqual([s.activated, s.weekly_active, s.shared], [3, 2, 0]);
+  const s = statsFrom({ ...emptyRow, activated: 3, weekly_active: 2, shared: 4 });
+  assert.deepEqual([s.activated, s.weekly_active, s.shared], [3, 2, 4]);
+  assert.equal(statsFrom(emptyRow).shared, 0);
 });
 
-test('launch-ready L9: activated needs a claimed page, an App-proven repo and a checked week with a fact; weekly_active the same people with a fact week that ended in the last 7 days; test installations never count', db, async () => {
+test('launch-ready L9 (L6 approvals): activated needs a claimed page, an App-proven repo and an approved week; weekly_active the same people with a week approved in the last 7 days; shared counts approved weeks from the share offer; test installations never count', db, async () => {
   const tag = `stats-l9-${process.pid}-${Date.now()}`;
   const DAY = 86_400_000;
   const mondayOf = (t: number) => {
@@ -143,14 +144,15 @@ test('launch-ready L9: activated needs a claimed page, an App-proven repo and a 
     return id;
   };
   const code = { checked: true, shipped_code: { n: 3 } };
+  const approved = (at: number) => ({ ...code, approved: true, approved_at: new Date(at).toISOString(), approved_via: 'share' });
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   try {
-    const active = await person(true, 'github_app', [[lastWeek, code]]); // activated, weekly active
-    await person(true, 'github_app', [[longAgo, code]]); // activated, not weekly active
-    await person(true, 'github_app', [[lastWeek, { checked: true }]]); // a check alone is no fact: neither
-    await person(true, 'proof_line', [[lastWeek, { checked: true, went_live: true }]]); // not App-proven: neither
-    await person(false, 'github_app', [[lastWeek, { checked: true, won: [{ title: 'Arc' }] }]]); // not claimed: neither
-    await person(true, 'github_app', [[lastWeek, { shipped_code: { n: 5 } }]]); // never checked: neither
+    const active = await person(true, 'github_app', [[lastWeek, approved(now - DAY)]]); // activated, weekly active, shared
+    await person(true, 'github_app', [[longAgo, approved(now - 30 * DAY)]]); // activated, not weekly active, shared
+    await person(true, 'github_app', [[lastWeek, code]]); // a checked week with code, never approved: neither
+    await person(true, 'proof_line', [[lastWeek, approved(now - DAY)]]); // not App-proven: neither (still a shared week)
+    await person(false, 'github_app', [[lastWeek, approved(now - DAY)]]); // not claimed: neither (still a shared week)
+    await person(true, 'github_app', [[lastWeek, { ...code, approved: 'yes', approved_at: new Date(now).toISOString() }]]); // not a real approval: neither
     const { base, mine, flagged } = await sql().begin('isolation level repeatable read', async (tx) => {
       process.env.EARNKIT_TEST_INSTALLATIONS = ids.join(',');
       const base = await readStats(new Date(), tx);
@@ -164,9 +166,10 @@ test('launch-ready L9: activated needs a claimed page, an App-proven repo and a 
     assert.equal(mine.weekly_active - base.weekly_active, 1);
     // Fix round 1: weekly active is a subset of activated.
     assert.ok(mine.weekly_active <= mine.activated && base.weekly_active <= base.activated);
-    assert.equal(mine.shared, 0);
+    assert.equal(mine.shared - base.shared, 4, 'every approved week from the share offer');
     assert.equal(flagged.activated - base.activated, 1, 'a test installation\'s person never counts');
     assert.equal(flagged.weekly_active - base.weekly_active, 0);
+    assert.equal(flagged.shared - base.shared, 3);
   } finally {
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
