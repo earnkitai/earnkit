@@ -68,14 +68,18 @@ apps/frontend/
                                PROFILE_TAG). BenchRowItem: name and project wrap (R11, no truncate), the Shipping points column
                                (R17, BenchRow.points) and the rank line split by rank.ts rankSplit (number large, words small);
                                v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
-                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
+                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows);
+                               launch ready L10: BENCH_EMPTY "No builder matches this filter yet." + BENCH_SHOW_ALL link;
+                               a phone row is three lines (handle with chain logos, project with its fact)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
   app/[handle]/{BenchProfileView,ProjectTab,ShipGrid}.tsx  v2.13 T11: the Bench profile (scoring and clarity: one Shipping ring; photo,
                                rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
-                               and grid, Project tab shows name and what only
+                               and grid, Project tab shows name and what only; launch ready L10: "a private project" in
+                               the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
+                               line only with a rank, BENCH_SOURCES_LINE without "public data"
   app/components/sections/{BenchTop,UpdateCarousel,CarouselRow}.tsx  v2.13 T12: the landing's
                                leaderboard top 10 (R18: no chips), "Shipped this week" carousel, shared carousel
                                row. R18: BenchHowItWorks deleted; the hero has one subtitle (no raising variant)
@@ -132,7 +136,8 @@ apps/frontend/
                                FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
                                line; renders from lib/earnkit/footer-links.ts; real links only
   app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
-                               Leaderboard, Feed and Docs (from sm), "Add to your agent"
+                               Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
+  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
   app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
   apps/frontend/DESIGN.md      R18: the design system (tokens, surfaces, text roles, buttons, the profile's accent palette)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
@@ -1493,7 +1498,7 @@ apps/frontend/
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
                                tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
                                v2.14 T8: profile log cards carry titles (titlesShown, S9); launch ready L5: ProfileData.target
-                               (weekly-target.ts targetFor, ranks only), shown under the why by BenchProfileView
+                               (weekly-target.ts targetFor, ranks only, voice 'page' since L10), shown under the why by BenchProfileView
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
@@ -1542,7 +1547,7 @@ apps/frontend/
                                sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
                                as of now's week); R16b removed countUse
     weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
-                               done this week), weekStartLine (the moment's "This week starts empty: ..." line), poolPlace
+                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."), weekStartLine (the moment's "This week starts empty: ..." line), poolPlace
                                (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,

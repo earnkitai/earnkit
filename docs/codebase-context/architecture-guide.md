@@ -6405,11 +6405,11 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling 
   repo with the installation token, the rescore, R13's 3-week backfill for the one project (the hourly catch-up
   finishes the rest).
 - **The setup page** (`PICK_PAGE`, fix round 1, I1, I2): always names whatever the one project is now and its page:
-  "Done. EarnKit now ranks github.com/<repo> on earnkit.com/<handle>. Tell your agent if you want a different repo
-  ranked.", then "Not your page? Remove the EarnKit app from these repos in your GitHub settings:
+  "Done. EarnKit now ranks github.com/<repo> on earnkit.com/<handle>.", then (L10) `PICK_PAGE.next` "Go back to your
+  agent and say yes. To rank a different repo, tell your agent.", then "Not your page? Remove the EarnKit app from these repos in your GitHub settings:
   https://github.com/settings/installations" (the one link; `github-verify.ts pageWith`; the daily `app_check` then
   takes removed repos off the page). The single-repo success page says the same way out, after "Done. Go back to your
-  agent and say go." and "This adds github.com/<repo> to earnkit.com/<handle>.". Refusals: nothing picked or not the
+  agent and say yes." (L10; was "say go") and "This adds github.com/<repo> to earnkit.com/<handle>.". Refusals: nothing picked or not the
   installer's (403), none could count (403: forks, templates, taken), every proof failed at GitHub (502, M3).
 - **proveByApp split.** `proveByApp` = `proveOne` (the checks and the S8 transaction, returning `Proven`) +
   `connectProven(builderId, proven, deps, { deadline? })` (the connect read, rescore and backfill).
@@ -6442,12 +6442,12 @@ simple: one number (Shipping), one target this week, one weekly moment.
   - not active, someone above, score + gain > theirs: "Ship code this week: +14 points, enough to pass #2."
     (not enough, and a tie is not a pass: "Ship code this week: +14 points, 20 behind #2.", the points between them);
   - #1 (no one higher, ties included): "Ship code this week: +14 points to hold #1.";
-  - this week done: "Done this week: +14. Next week adds up to 13." (no question);
+  - this week done: "Done this week: +14 points. Next week adds up to 13 more." (no question; L10 added the units);
   - outside the pool (held, hidden): "Ship code this week: +14 points."; a week worth 0 points (impossible with
     today's weights: a week adds at least 13) reads "Ship code this week to hold #k." / "Done this week.".
   `targetFor` never throws (null: the caller keeps `SHIP_STEP`). Replies (`benchView`, find and score) put it as the
   ranked state's one next step (kind `ship`, the yes still `SHIP_NOTE`). The profile (`bench-data.ts
-  profileData.target`) shows the same line under the why.
+  profileData.target`) shows the same math under the why in the page's voice (L10, `voice: 'page'`; see the UX pass).
   The why sentence (`scoreWhy`) now holds only the weeks with code ("Code in 7 of the last 12 weeks, 3 of the last
   4."), so the step is never said twice. L5 said "owner view only" on the profile, but L7 rules the owner can't be
   told from a visitor on the web; the brief shows it to everyone with the rank only.
@@ -6490,3 +6490,38 @@ simple: one number (Shipping), one target this week, one weekly moment.
 - **Accepted limits.** Last week's rank is read from the daily history (the cron's first run each day); a builder whose
   row is missing that day is left out of that day's count. `STATS_LABELS.shared` is "weeks confirmed at the weekly
   share offer": a yes doesn't prove a post.
+
+## Launch ready (UX pass, L10): the site and the replies as a new builder sees them
+
+Walked every page (desktop 1440x900, phone 390x844) and the agent replies through `mcpCall` as a brand-new builder
+and as a designer. Screenshots and the rendered replies: `docs/screenshots/launch-ready/{before,after}/`,
+`replies.md` (after) and `replies-before.md`. The full issue table is in `.superpowers/sdd/launch-ready/task-ux-report.md`.
+
+- **404.** `app/not-found.tsx`: the site's own page ("Page not found", the leaderboard and home) for any unknown path
+  or handle; before, Next's white default.
+- **Header.** `Header.tsx` and `brand-page.ts brandShell` link Programs (from 640px, after Feed; the footer's order).
+- **Install modal** (`AddToAgent.tsx`). `INTRO` "Free. Your agent connects with this link:" (not "no account": the agent
+  signs the builder in with X). One step is a plain line, two or more a numbered list (no "1. Or add this"). Codex's
+  `after` is "Then sign in:" above the login command (it was said twice). Focus rings on the tabs, Copy and close.
+- **Leaderboard.** `BenchRowItem`: on a phone the @handle and chain logos share one line and the project and its
+  best fact share one (three lines a row, was five). `BenchView`: an empty filtered view says `BENCH_EMPTY` "No builder
+  matches this filter yet." with `BENCH_SHOW_ALL` "Show everyone" (`/leaderboard`).
+- **Program cards.** The days chip starts with a capital ("Rolling", "Ends today"), as the difficulty chip does.
+- **Profile** (`BenchProfileView`). L7: every page ends with the visitor CTA (`VISITOR_CTA` "Want your own page? It is
+  free." and "Add to your agent"). `confirmingCardLine` says "a private project" for `PRIVATE_NAME` (was "is getting
+  Private project"). No project and no week with code: one calm line, `noProjectLine` "<name> has no project on the
+  leaderboard yet." (was "Code in 0 of the last 52 weeks" over an empty grid). The README badge line only with a rank
+  and not while confirming (else the badge reads "not ranked"). `BENCH_SOURCES_LINE` drops "from public data" (App
+  repos may be private). Project links are 44px on phones.
+- **The weekly target's two voices** (`weekly-target.ts weeklyTarget(t, voice)`). Replies (`'reply'`, the default)
+  are unchanged except the done line: "Done this week: +14 points. Next week adds up to 13 more.". The public page
+  (`'page'`, `targetFor(..., { voice: 'page' })` from `profileData`) states the math to a visitor: "Code this week adds
+  +14 points, enough to pass #2." / "..., 20 behind #2." / "... to hold #1." / "Shipped this week: +14 points. Next
+  week adds up to 13 more."; null when the week adds nothing. Ranks only, as before.
+- **Setup and sign-in pages.** `VERIFY_PAGE.done` "say yes" (the reply's question is "Want me to ... once that's
+  done?"); the picker's page adds `PICK_PAGE.next`. The paste code is its own unbreakable line (`.ek-code`; it broke
+  at a dash on phones): `LINK_TEXT.paste` is now the label "Paste this code to your agent:".
+- **OG card.** `public/og.png` is the current headline (was "Agents only ... Launching soon"); the alt text matches.
+- **Tests.** `public-pages` (404, header, modal), `bench-page` (Show everyone), `profile-bench` (L10 page states),
+  `weekly-target` (page voice), `v214-signin-link` (`.ek-code`), copy-review scans the page voice; updated pins in
+  `weekly-moment`, `v214-app-proof`, `repo-picker`, `github-app`, `install`, `leaderboard-clarity`, `fixtures/ranked-step.ts`.

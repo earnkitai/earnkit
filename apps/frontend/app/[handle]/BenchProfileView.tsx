@@ -32,7 +32,7 @@ export const confirmingCardLine = (name: string, project: string) =>
 /** Launch ready L10: a page with no project yet: one calm line in place of an empty score and a 0-week grid. */
 export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
 /** Launch ready L7: the visitor's call to action. */
-export const VISITOR_CTA = 'Want a page like this? Add EarnKit to your agent.';
+export const VISITOR_CTA = 'Want your own page? It is free.';
 export { streakWords };
 
 

@@ -22,11 +22,11 @@ export default function Header() {
         <Link href="/leaderboard" className={LINK}>
           Leaderboard
         </Link>
-        <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
-          Programs
-        </Link>
         <Link href="/feed" className={`${LINK} hidden sm:inline-flex`}>
           Feed
+        </Link>
+        <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
+          Programs
         </Link>
         <a href={DOCS} target="_blank" rel="noopener noreferrer" className={`${LINK} hidden sm:inline-flex`}>
           Docs
