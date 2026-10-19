@@ -128,13 +128,16 @@ async function addEarnKit(redirect: string, name: string, user: XUser) {
 let first: Awaited<ReturnType<typeof addEarnKit>>;
 let installLinkSeen = '';
 
-test('12.1 acceptance 1: the install signs in with X; the first reply names the account, shows the page and asks for the work', db, async () => {
+test('12.1 acceptance 1: the install signs in with X; the first reply names the account, shows the page and offers the repo picker', db, async () => {
   first = await addEarnKit('http://127.0.0.1:41234/callback', 'Claude Code', ME);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   assert.equal(s.split('\n')[0], `Signed in as @${ME.username}.`, s);
   assert.match(s, /You're not on the leaderboard yet\./);
-  assert.ok(s.includes(`Your page: https://earnkit.com/${ME.username}`), s);
-  assert.ok(s.endsWith("What's your GitHub, or a link to something you've made?"), s);
+  // Launch ready L2: the page is named beside the picker's install link (A14), and no GitHub URL is asked for.
+  assert.ok(s.includes(`Your page: earnkit.com/${ME.username}`), s);
+  assert.match(links(s)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.ok(s.endsWith("Want me to rank it once that's done?"), s);
+  assert.doesNotMatch(s, /What's your GitHub/);
 });
 
 test('12.2 acceptance 2: a second agent with the same X is the same page, nothing to approve or merge', db, async () => {
@@ -220,8 +223,8 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const s = rule(bound);
   assert.ok(s.startsWith(`Signed in as @${kim.username}.\n\n`), s);
-  assert.ok(s.includes(`Your page: https://earnkit.com/${kim.username}`), s);
-  assert.ok(s.endsWith("What's your GitHub, or a link to something you've made?"), s);
+  assert.ok(s.includes(`Your page: earnkit.com/${kim.username}`), s);
+  assert.ok(s.endsWith("Want me to rank it once that's done?"), s);
 });
 
 test('12.7 no network: every GitHub call went through the fake and was routed; fetch was never called', () => {

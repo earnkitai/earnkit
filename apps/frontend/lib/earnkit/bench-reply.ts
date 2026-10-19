@@ -14,7 +14,8 @@ export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded
 export type ReplyState = 'signed_out' | 'no_project' | 'not_counted' | 'ranked';
 export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** R8: `ship` is the ranked state's one step; `suggest` stays for a project the App can't count (app_off). */
-export type BenchAskKind = 'sign_in' | 'start' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest';
+/** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string };
 export type FundLine =
   /** R12: a program that fits: its award, its deadline ("closes Oct 30" or "rolling") and why it fits. */
@@ -62,7 +63,10 @@ export const STATE_COPY = {
   },
   no_project: {
     stand: () => NOT_ON_BENCH,
-    ask: () => "What's your GitHub, or a link to something you've made?",
+    /** Launch ready L2: the repo picker's install link (GitHub's page picks the repos); never a GitHub URL asked for. */
+    ask: (link: string) => `Install the read-only EarnKit app on the repo you want ranked (one click): ${link}\nWant me to rank it once that's done?`,
+    /** The App link can't be made (the App is off): their work is asked for instead. */
+    noApp: () => "What's your GitHub, or a link to something you've made?",
   },
   not_counted: {
     stand: (name: string) => `${name} isn't counted yet.`,
@@ -102,7 +106,7 @@ export type BenchView = {
   originality: number | null;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
-  /** The state's action link: the sign-in link (signed_out) or the install link (not_counted, no variant). */
+  /** The state's action link: the sign-in link (signed_out), the repo picker (no_project) or the install link (not_counted, no variant). */
   link: string | null;
   fund: FundLine[]; due: string[]; ask: BenchAsk;
   /** A17: an outcome question or a submission step, asked instead of the state's step. */
@@ -114,7 +118,8 @@ export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'l
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
-  if (v.state === 'no_project') return { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() };
+  if (v.state === 'no_project')
+    return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   if (v.state === 'ranked') return { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask() };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
   if (v.variant === 'no_repo') return { kind: 'repo_behind', project_key: key, line: VARIANT_COPY.no_repo.ask(name) };

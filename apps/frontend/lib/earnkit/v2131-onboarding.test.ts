@@ -131,7 +131,7 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     const n = await install();
     await claimX(n); // v2.13.4: the asks after the X claim
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
-    assert.ok(s0.show_to_builder.includes(NOT_ON_BENCH) && s0.show_to_builder.endsWith(STATE_COPY.no_project.ask()), s0.show_to_builder);
+    assert.ok(s0.show_to_builder.includes(NOT_ON_BENCH) && s0.show_to_builder.endsWith(STATE_COPY.no_project.noApp()), s0.show_to_builder);
     const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
     assert.match(sy.agent_note ?? '', /identity/);
     // Taken, with a program that fits the held repo: never an entry, never its program, a different project.

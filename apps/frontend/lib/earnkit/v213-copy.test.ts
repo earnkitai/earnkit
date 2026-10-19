@@ -36,7 +36,7 @@ export const TEXTS: string[] = [
   ] as const).map((repo) => fitsLine('Avalanche Team1 Mini Grants', 'up to $10K', 'rolling',
     fitWhy({ chains: ['base', 'arc', 'monad', 'robinhood'], any_chain: false, tag: 'needs a live product' }, repo))),
   fitsLine('Base Builder Grants', 'up to $5K', 'closes Oct 30', fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false })),
-  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
+  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x'), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
   ideasLine([{ who: 'Arc', prize: 'up to $10K', for: 'payment apps' }, { who: 'Base', prize: 'up to $5K', for: 'a live app' }]),
   // T9: the raise lines and the pill's words.

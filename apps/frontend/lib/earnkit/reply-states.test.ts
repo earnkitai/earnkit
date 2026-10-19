@@ -98,7 +98,7 @@ test('9.6 R8: the ranked next step is always "Ship this week to climb." (never a
 
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
-    STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('A'),
+    STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x'), STATE_COPY.not_counted.stand('A'),
     STATE_COPY.not_counted.ask('https://x'), STATE_COPY.ranked.stand('A', 10, '#1 of 2 builders this week'), STATE_COPY.ranked.ask(),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];

@@ -116,7 +116,7 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
   }
   assert.deepEqual(found, []);
   const copy = [
-    NOT_ON_BENCH, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
+    NOT_ON_BENCH, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
   for (const c of copy) assert.doesNotMatch(c, /bench/i, c);

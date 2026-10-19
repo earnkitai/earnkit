@@ -7,7 +7,7 @@ import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
-import { installLink, repoProof } from './repo-proof';
+import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, coinOpen, offerCoin, openCoinLine } from './coin-moments';
@@ -60,6 +60,10 @@ export const SHIP_STEP_NOTE =
 export const START_NOTE =
   "If the builder sends their GitHub login or a link to something they've made, call find with identity: { github_login, project: { name, repo or live_url } }. " +
   "A no: call tell with move_up: { kind, project_key, answer: 'no' } (as given here). Don't show this note.";
+/** Launch ready L2, no_project: the repo picker's install link is in show_to_builder. */
+export const PICK_REPO_NOTE =
+  'The builder installs EarnKit (read-only) from the link in show_to_builder and picks their repos on GitHub; never ask them for a GitHub URL. ' +
+  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again: the most recently pushed repo they picked is ranked. Don't show this note.";
 /** v2.13.3 (5), v2.14 not_counted: the install link is in show_to_builder. */
 export const INSTALL_APP_NOTE =
   'The builder installs EarnKit (read-only) on the repo from the link in show_to_builder. ' +
@@ -328,7 +332,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   let variant: Variant = state !== 'not_counted' ? null : taken ? 'taken' : proof && !proof.ok && proof.why === 'copy' ? 'copy' : !isRepo ? 'no_repo' : null;
   const install = state === 'not_counted' && !variant ? await installLink(id, project!.key, now).catch(logged('install link')) : null;
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
-  const link = state === 'signed_out' ? signIn : install;
+  // Launch ready L2: with no project, the repo picker's install link (GitHub's page picks the repos; S7: a page is needed).
+  const pick = state === 'no_project' ? await pickLink(id, now).catch(logged('pick link')) : null;
+  const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : install;
 
   let fund: FundLine[] = [];
   /** v2.13.3 (2): the programs named so far (never named twice). */
@@ -367,7 +373,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
     handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
+  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
+    : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -554,7 +561,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null } | null> {
@@ -604,6 +611,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       return { show_to_builder: '', agent_note: SIGN_IN_YES_NOTE };
     case 'start':
       return { show_to_builder: '', agent_note: START_YES_NOTE };
+    case 'pick_repo':
+      return { show_to_builder: '', agent_note: PICK_REPO_YES_NOTE };
     case 'install_app':
       return { show_to_builder: '', agent_note: INSTALL_APP_YES_NOTE };
     case 'other_project':
@@ -628,6 +637,9 @@ export const REPO_BEHIND_NOTE =
 /** Owner ruling A (v2.13.3): the yes to "What's your GitHub, or a link to something you've made?". */
 export const START_YES_NOTE =
   "Ask the builder in one short question for their GitHub login or a link to something they've made, then call find with identity: { github_login, project: { name, repo or live_url } }. Don't show this note.";
+/** Launch ready L2: the yes to "Want me to rank it once that's done?" (the repo picker). */
+export const PICK_REPO_YES_NOTE =
+  "Once the builder has installed EarnKit from the link and picked their repos on GitHub, call find again. Don't show this note.";
 /** v2.13.3 (5): the yes to the install ask. */
 export const INSTALL_APP_YES_NOTE =
   "Once the builder has installed EarnKit on the repo from the link, call find again. Don't show this note.";

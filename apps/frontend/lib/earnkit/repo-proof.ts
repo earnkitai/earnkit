@@ -110,8 +110,25 @@ type RepoMeta = { id?: unknown; full_name?: unknown; private?: unknown; fork?: u
  * `source_proof:<id>` lock, in the global order identity.ts lockPerson documents.
  */
 export async function proveByApp(a: { builderId: number; repoKey: string; githubInstallationId: number }, deps: AppDeps = {}): Promise<RepoProof> {
+  const p = await proveOne(a, deps);
+  if (!p.out.ok) return p.out;
+  await connectProven(a.builderId, [p], deps);
+  return p.out;
+}
+
+/** One repo proven by proveOne: what connectProven needs for its read, rescore and backfill. */
+export type Proven = { out: RepoProof; rowId: number; key: string; firstProof: boolean; replaced: number[] };
+
+/**
+ * proveByApp's checks and its one transaction (S8), without the connect read: GitHub names this installation,
+ * one read of the repo, a fork or template is `copy`, `repo_hold:<key>`, another person's App hold is `taken`, a
+ * non-App hold is replaced. Launch ready L2: the repo picker (github-app.ts pickSetup) runs it for each picked
+ * repo, then connectProven once for all of them.
+ */
+export async function proveOne(a: { builderId: number; repoKey: string; githubInstallationId: number }, deps: AppDeps = {}): Promise<Proven> {
   const key = a.repoKey.toLowerCase();
-  if (await sharedGroup(a.builderId)) return { ok: false, why: 'none' }; // A19: no person on a shared client
+  const no = (out: RepoProof): Proven => ({ out, rowId: 0, key, firstProof: false, replaced: [] });
+  if (await sharedGroup(a.builderId)) return no({ ok: false, why: 'none' }); // A19: no person on a shared client
   const f = deps.fetch ?? fetch;
   const token = await installationToken(a.githubInstallationId, key.split('/')[1], deps);
   const res = await f(`https://api.github.com/repos/${key}`, {
@@ -120,28 +137,28 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   });
   if (!res.ok) {
     await res.body?.cancel().catch(() => {});
-    return { ok: false, why: 'none' };
+    return no({ ok: false, why: 'none' });
   }
   const meta = (await res.json().catch(() => null)) as RepoMeta | null;
   const owner = typeof meta?.owner?.login === 'string' ? meta.owner.login.toLowerCase() : null;
   const ownerType = meta?.owner?.type === 'User' || meta?.owner?.type === 'Organization' ? meta.owner.type : null;
   // Exactly this repo (never a renamed or transferred one), with GitHub's numeric id.
   if (!meta || typeof meta.full_name !== 'string' || meta.full_name.toLowerCase() !== key || !owner || owner !== key.split('/')[0]
-    || !ownerType || typeof meta.id !== 'number' || !Number.isSafeInteger(meta.id)) return { ok: false, why: 'none' };
+    || !ownerType || typeof meta.id !== 'number' || !Number.isSafeInteger(meta.id)) return no({ ok: false, why: 'none' });
   const now = deps.now ?? new Date();
   await proposeSource({ builder_id: a.builderId, kind: 'repo', ref: key, project_key: key, proposed_by: 'server' });
   const [row] = await sql()<{ id: number }[]>`
     SELECT id::int AS id FROM builder_sources WHERE builder_id = ${a.builderId} AND kind = 'repo' AND ${refKey(sql())} = ${key}
     ORDER BY (state = 'verified') DESC, id LIMIT 1`;
-  if (!row) return { ok: false, why: 'none' };
+  if (!row) return no({ ok: false, why: 'none' });
   // Final fix M6: a repo that ever read as a fork or a template is never the person's own work.
   if (await repoEverDerived(key, meta.fork !== false || meta.is_template === true)) {
     await rejectSource(row.id, 'derived');
-    return { ok: false, why: 'copy' };
+    return no({ ok: false, why: 'copy' });
   }
   // T6 security review (defence in depth): GitHub names this very installation for the repo now (appSetup's
   // appProof checked the installation lists it and the installer owns or administers it).
-  if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return { ok: false, why: 'none' };
+  if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return no({ ok: false, why: 'none' });
   const isPrivate = meta.private !== false;
   const replaced: number[] = [];
   let firstProof = false;
@@ -177,16 +194,26 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
       WHERE id = ${row.id}`;
     return { ok: true, via: 'app', owner, private: isPrivate };
   });
-  if (!out.ok) return out;
-  for (const other of new Set(replaced))
+  return { out, rowId: row.id, key, firstProof, replaced };
+}
+
+/**
+ * After proveOne: the people whose non-App hold was replaced are rescored, each proof is logged, then R5 (scored
+ * at connect): the proved repos are read once now (the App's installation token, the refresh's reader, which
+ * writes commit_weeks and commit_counts), so the rescore has their commit weeks, and R13: on a first proof the
+ * one project's last 3 finished weeks are backfilled. All within one REFRESH_BUDGET_MS; fail soft (a failed read
+ * writes nothing and leaves the proof standing; the next refresh, daily read or hourly catch-up finishes it).
+ */
+export async function connectProven(builderId: number, proven: Proven[], deps: AppDeps = {}): Promise<void> {
+  const done = proven.filter((p) => p.out.ok);
+  if (!done.length) return;
+  const now = deps.now ?? new Date();
+  for (const other of new Set(done.flatMap((p) => p.replaced)))
     await (await import('./person-score')).rescorePerson(other, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
-  await (await import('./events')).noteEvent('source_verified', () => ({
-    type: 'source_verified', dedupe_key: `source_verified:${row.id}:${now.toISOString()}`, installation_id: a.builderId, detail: { source_id: row.id, kind: 'repo', proof: APP_PROOF },
-  }));
-  // R5: scored at connect. The proved repo is read once now (the App's installation token, the refresh's
-  // reader, which writes commit_weeks and commit_counts), so the rescore below has its commit weeks.
-  // Fail soft: a failed read writes nothing (an earlier good reading still counts) and leaves the proof standing;
-  // the next refresh or daily read reads it.
+  for (const p of done)
+    await (await import('./events')).noteEvent('source_verified', () => ({
+      type: 'source_verified', dedupe_key: `source_verified:${p.rowId}:${now.toISOString()}`, installation_id: builderId, detail: { source_id: p.rowId, kind: 'repo', proof: APP_PROOF },
+    }));
   const scoring = await import('./person-score');
   const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
   let ghFetch: typeof fetch | undefined;
@@ -194,19 +221,17 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
     const { defaultReaderDeps } = await import('./source-readers');
     const reader = defaultReaderDeps(now, deadline);
     ghFetch = budgetedFetch(deps.fetch ?? reader.ghFetch ?? fetch, deadline);
-    await scoring.readPersonLive(a.builderId, now, { deadline, reader: { ...reader, ghFetch }, only: [row.id], soft: true });
+    await scoring.readPersonLive(builderId, now, { deadline, reader: { ...reader, ghFetch }, only: done.map((p) => p.rowId), soft: true });
   } catch (err) {
     console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
   }
-  await scoring.rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
-  // R13: on the first proof, the ship log's last 3 finished weeks from the reading just taken, within what is left
-  // of the connect budget (titles only while it lasts, each call aborted at the deadline). The hourly catch-up
-  // (week-facts.ts backfillStep) finishes whatever this leaves.
-  if (firstProof)
-    await (await import('./week-facts')).backfillOnConnect(a.builderId, key, now, { deadline, ghFetch })
+  await scoring.rescorePerson(builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+  // R13: only the one project is backfilled (backfillOnConnect reads nothing for another repo); the hourly
+  // catch-up (week-facts.ts backfillStep) finishes whatever this leaves.
+  for (const p of done.filter((x) => x.firstProof))
+    await (await import('./week-facts')).backfillOnConnect(builderId, p.key, now, { deadline, ghFetch })
       .catch((err: unknown) => console.error('[repo-proof] backfill', err instanceof Error ? err.name : 'error'));
   profileChanged();
-  return out;
 }
 
 /**
@@ -308,6 +333,15 @@ export async function recheckAppSource(
 export async function installLink(builderId: number, repoKey: string, now: Date): Promise<string | null> {
   if (!githubAppEnabled()) return null;
   return createVerifyLink({ installationId: builderId, projectId: null, repoKey: repoKey.toLowerCase(), purpose: 'app' }, now).catch(() => null);
+}
+
+/**
+ * Launch ready L2: the repo picker's install link (no repo named: GitHub's install page lets the builder pick),
+ * or null while the App is off or the person has no page (S7).
+ */
+export async function pickLink(builderId: number, now: Date): Promise<string | null> {
+  if (!githubAppEnabled()) return null;
+  return createVerifyLink({ installationId: builderId, projectId: null, repoKey: null, purpose: 'app' }, now).catch(() => null);
 }
 
 /**
