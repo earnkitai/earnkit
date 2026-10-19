@@ -2,11 +2,11 @@ import { githubRepo } from './ownership';
 import { ForkCheckError, repoCodeFacts, type RepoCode } from './match-projects';
 import type { TokenPolicy } from './program-file';
 import { BASE_MAINNET, screenWallet } from './sanctions';
-import { appTokenFor, hasAppProof } from './github-app';
+import { appTokenFor } from './github-app';
 import { markRepoPublic } from './repo-cache';
 import { sharedGroup } from './installations';
 import { rootOf } from './identity';
-import { installLink, repoProof } from './repo-proof';
+import { installLink, repoProof, sharedAppProven } from './repo-proof';
 
 export type GateInput = {
   policy: TokenPolicy;
@@ -75,7 +75,8 @@ const defaults: Required<Pick<GateDeps, 'repo' | 'screen' | 'shared' | 'appProve
   shared: (installationId) => sharedGroup(installationId),
   appProven: async (installationId, repoKey, login) => {
     if (login === null) return false;
-    if (login !== undefined) return hasAppProof({ installationId, login, repoKey });
+    // T6 fix round 1: a shared client's caller, checked live (never the stored row alone), failing closed.
+    if (login !== undefined) return sharedAppProven(installationId, repoKey, login);
     return (await repoProof(await rootOf(installationId), repoKey, undefined, { forAction: true })).ok;
   },
 };

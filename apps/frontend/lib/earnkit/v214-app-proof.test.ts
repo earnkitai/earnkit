@@ -8,7 +8,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof } from './repo-proof';
+import { APP_REMOVED, appCheckStep, installLink, proveByApp, repoProof, sharedAppProven } from './repo-proof';
 import { attachToX } from './x-install';
 import { readSources } from './sources';
 import { defaultReaderDeps } from './source-readers';
@@ -262,4 +262,30 @@ test('6.18 fix round 1 (ruling): an action on an App proof older than a day chec
   assert.deepEqual(await repoProof(p.id, key, undefined, { forAction: true, fetch: gh }), { ok: false, why: 'none' });
   const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
   assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
+});
+
+test('6.19 fix round 1: the shared-client coin gate checks the caller\'s App proof live and fails closed', db, async () => {
+  const t = `ek_app_sh_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, true, 'Grok');
+  const c = (await connectInstallation(t))!;
+  const key = `fay${RUN}/shared`;
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+    VALUES (${key}, ${`fay${RUN}`}, ${c.id}, now(), 3, 'app', 'app', 92)`;
+  const gh = fakeGitHub({ [key]: { id: 9040, owner: `fay${RUN}`, installation: 92 } });
+  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), true);
+  assert.equal(await sharedAppProven(c.id, key, `gus${RUN}`, { fetch: gh }), false, 'another caller');
+  gh.repos[key].installation = 93;
+  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, "another account's reinstall");
+  gh.repos[key].installation = null;
+  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, 'uninstalled');
+  gh.repos[key].installation = 92;
+  const err = console.error;
+  console.error = () => {};
+  try {
+    const broken = (() => { throw new Error('db down'); }) as unknown as Parameters<typeof sharedAppProven>[4];
+    assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }, broken), false, 'a database error');
+  } finally {
+    console.error = err;
+  }
 });

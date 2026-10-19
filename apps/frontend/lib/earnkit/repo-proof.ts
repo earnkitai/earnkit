@@ -236,6 +236,21 @@ export async function recheckAppSource(
   return r;
 }
 
+/**
+ * T6 fix round 1: the shared-client coin gate (Ruling G10): the caller's own verified `login` holds an App proof
+ * of `key` on this installation's group right now (appProofLive with the login). Fails closed: a database error,
+ * a GitHub error, an uninstalled App or another account's install is false.
+ */
+export async function sharedAppProven(installationId: number, repoKey: string, login: string, deps: AppDeps = {}, db: Db = sql()): Promise<boolean> {
+  try {
+    const [r] = await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${installationId}`;
+    return (await appProofLive({ root: r?.root ?? installationId, key: repoKey, login }, deps, db)) === 'held';
+  } catch (err) {
+    console.error('[repo-proof] shared proof', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+
 /** The reply's install link (the v2.10 App link: sign-in hop, then install), or null while the App is off (or the person has no page). */
 export async function installLink(builderId: number, repoKey: string, now: Date): Promise<string | null> {
   if (!githubAppEnabled()) return null;
