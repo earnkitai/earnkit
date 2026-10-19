@@ -68,10 +68,11 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
         {showPerson && handle && (
           <div className="mb-4 flex items-center gap-3">
             <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
-            <div className="min-w-0 font-funnel-sans text-sm">
-              <p data-ek-name="" className="break-words font-medium text-ek-text">{card.name}</p>
-              <p data-ek-meta="" className="break-words text-ek-muted"><a href={pagePath(handle)} className="hover:text-ek-text">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
-            </div>
+            {/* The name and @handle are one link to their page (a 44px tap target). */}
+            <a href={pagePath(handle)} className="group block min-h-11 min-w-0 font-funnel-sans text-sm">
+              <p data-ek-name="" className="break-words font-medium text-ek-text group-hover:underline group-hover:underline-offset-4">{card.name}</p>
+              <p data-ek-meta="" className="break-words text-ek-muted">@{handle}{card.project ? ` · ${card.project}` : ''}</p>
+            </a>
           </div>
         )}
         {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-muted">{weekLabel(card.week)}</p>}
