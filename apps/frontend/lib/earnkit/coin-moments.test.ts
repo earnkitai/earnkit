@@ -68,7 +68,7 @@ test('10.4 R8 (Task 4 fix round 1): a program entry\'s confirm never pitches a t
 });
 
 /** A fake token flow: the gate passes (the App proved the repo), the deploy records what tokens.ts would. */
-function tokenDeps(id: number, repo: string) {
+function tokenDeps(_id: number, _repo: string) {
   const calls = { deploy: 0, wallets: [] as string[] };
   const deps = {
     available: () => true,

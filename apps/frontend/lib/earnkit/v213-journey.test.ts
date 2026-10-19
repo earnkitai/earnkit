@@ -267,7 +267,6 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 const graphqlSent: string[] = [];
 /** maya's tracked contract on Base, and its callers (none until 16.5 gives five). */
 const CONTRACT = `0x${randomBytes(20).toString('hex')}`;
-let callers: { timestamp: string; status: string; from: { hash: string }; value: string }[] = [];
 
 const ghJson = async <T,>(path: string): Promise<T> => {
   const res = github(new URL(`https://api.github.com${path}`));
@@ -435,7 +434,6 @@ function nextMonday15(now: Date): Date {
 
 /** Five people call maya's tracked contract, then her refresh reads them (the first_five moment). */
 async function giveFivePeople(id: number) {
-  callers = Array.from({ length: 5 }, (_, i) => ({ timestamp: iso(Date.now() - (1 + i) * DAY), status: 'ok', from: { hash: `0x${randomBytes(20).toString('hex')}` }, value: '0' }));
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${MAYA_WALLET.toLowerCase()}, ${id}) ON CONFLICT DO NOTHING`;
   await sql()`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)

@@ -57,7 +57,7 @@ export default async function VetoPage({
     prizeFunds(paying, { fresh: true }),
   ]);
   // The same rule as the veto itself: open while review_until is ahead.
-  const open = run?.state === 'review' && run.review_until !== null && run.review_until.getTime() > Date.now();
+  const open = run?.state === 'review' && run.review_until !== null && run.review_until.getTime() > new Date().getTime();
   const removedId = Number(removed);
   return (
     <div className="w-full pt-4">

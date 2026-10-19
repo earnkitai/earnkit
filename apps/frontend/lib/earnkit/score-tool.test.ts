@@ -51,9 +51,6 @@ const profile = (id: number, o: { held?: boolean } = {}) =>
   sql()`INSERT INTO builder_profiles (builder_id, slug, held) VALUES (${id}, ${`s${id}`}, ${o.held ?? false})`;
 const source = (id: number, kind: string, ref: string, state: string, proof: string | null = null, project_key = ref) =>
   sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, ${kind}, ${ref}, ${project_key}, ${state}, ${proof}, 'server')`;
-const project = (id: number, key: string, confirmed: boolean, people: number, money: number) =>
-  sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people, money_usd)
-    VALUES (${id}, ${key}, 'app', 'app', ${confirmed}, true, ${people}, ${money})`;
 
 test('8.12 (v2.12.1 S9) discovery no longer reads earnkit.txt: a repo-linked site keeps its repo_link proof', dbTest, async () => {
   const id = T + 5;

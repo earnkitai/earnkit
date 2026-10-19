@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, READ_CAPS, appCredential, budgetedGh, defaultReaderDeps, isBudgetStop, isoWeek, pep503, probeSite, readContractOrigin, readNpm, readNpmBulk, readPypi, readSite, soft, walletCreationsFrom, type ReaderDeps } from './source-readers';
+import { GH_RATE_FLOOR, GH_RUN_CAP, GitHubBudgetStop, appCredential, budgetedGh, defaultReaderDeps, isBudgetStop, pep503, probeSite, readContractOrigin, readNpm, readNpmBulk, readPypi, readSite, soft, walletCreationsFrom, type ReaderDeps } from './source-readers';
 import { CONTRACT_REFUSALS, contractOwned, contractOwnership, packageOwned, siteOwnedByText } from './sources';
 import type { Resolver, Transport } from './safe-fetch';
 

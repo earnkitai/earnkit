@@ -24,7 +24,7 @@ import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
 import { wonSource } from './stats';
-import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, emailQuestionFor } from './digest';
+import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN } from './digest';
 import { saveVerification } from './github-verify';
 import { mcpCall } from './fixtures/mcp-call';
 import { committedProgram } from './fixtures/program-file';

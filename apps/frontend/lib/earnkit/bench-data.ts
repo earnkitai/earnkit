@@ -5,7 +5,6 @@ import { raisingEnabled } from './builder-score-flag';
 import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
-import { listedRanked } from './person-score';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';

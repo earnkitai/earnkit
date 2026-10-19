@@ -113,7 +113,6 @@ export default function Hero({ statsLine = null, wonLine = null, raising = false
             </svg>
           </button>
 
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
             src="/videos/earnkit-launch.mp4"
             controls

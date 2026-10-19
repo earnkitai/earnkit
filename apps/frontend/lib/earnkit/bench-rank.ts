@@ -48,7 +48,6 @@ export async function rankLines(builderId: number, o: { only?: number[] } = {}):
   // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder this week").
   const bench = rankLine(s);
   const out: RankLines = { bench, line: bench ? scoreLine(s.score, bench) : null, chains: [] };
-  const pools = await chainPools(o);
   for (const chain of BENCH_CHAINS) {
     if (!me.chains.includes(chain)) continue;
     const [r] = await sql()<{ total: number; rank: number }[]>`

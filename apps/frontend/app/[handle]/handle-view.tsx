@@ -23,9 +23,10 @@ export const tabOf = (
 
 /** v2.13: the whole Bench profile, after a fresh read of the person's sources when the last is over a day old (pageViewRefresh, under the hourly caps). */
 async function BenchPage({ id, tab }: { id: number; tab: ProfileTab }) {
+  const now = new Date();
   await pageViewRefresh(id, {
-    now: new Date(),
-    deadline: Date.now() + REFRESH_BUDGET_MS,
+    now,
+    deadline: now.getTime() + REFRESH_BUDGET_MS,
     ip: clientIp(await headers()),
   });
   const data = await profileData(id, new Date());
