@@ -19,7 +19,7 @@ import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
   BENCH_HEADS, NO_PROJECT_LINE, OTHER_PROJECT_ASK, START_ASK, privateLine, startBuildAsk, benchReply, cantSeeLine, checkingBranchLine,
-  benchStepKey, chooseAsk, claimAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
+  benchStepKey, chooseAsk, connectAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
 } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, coinAskBench, fundNeeds, needsPicks } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
@@ -251,10 +251,9 @@ test('4.1 (v2.13.4: the claim is the one ask) the claim link, then one yes or no
     const key = `${uniq('maya')}/recipes`;
     const r = await find(id, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, { ...NO_MATCH, proofBranchFetch: fakeGitHub().f });
     assert.ok(r.claim?.link);
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     assert.equal(links(r.show_to_builder).length, 1);
-    assert.equal(questions(r.show_to_builder), 1);
-    assert.ok(r.show_to_builder.endsWith('?'));
+    assert.equal(questions(r.show_to_builder), 0, 'no question beside the connect link');
   }));
 
 // ---- 5. Private and org repos through the read-only GitHub App -----------------------------------
@@ -346,9 +345,8 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       const r1 = await find(id, named(key, login), { ...NO_MATCH, proofBranchFetch: gh.f });
       assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Earnkit'), r1.show_to_builder);
       assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
-      assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Earnkit')), r1.show_to_builder);
-      assert.equal(questions(r1.show_to_builder), 1);
-      assert.ok(r1.show_to_builder.endsWith('?'));
+      assert.ok(r1.show_to_builder.endsWith(connectAsk(r1.claim!.link)), r1.show_to_builder);
+      assert.equal(questions(r1.show_to_builder), 0);
       assert.equal(r1.move_up?.kind, 'claim');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.

@@ -19,7 +19,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk, takenLine } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, connectAsk, startBuildAsk, takenLine } from './bench-reply';
 import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
@@ -514,7 +514,7 @@ test('16.1 acceptance 1, with a project: the first reply names it and carries th
   assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
   assert.match(r1.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
   // v2.13.4 (spec 2): the X claim is the one ask, last.
-  assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Recipe planner')), r1.show_to_builder);
+  assert.ok(r1.show_to_builder.endsWith(connectAsk(r1.claim!.link)), r1.show_to_builder);
   const branch = r1.proof?.branch;
   assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(r1.proof));
   await claimX(r1.claim!.link);
@@ -556,7 +556,7 @@ test('16.2 acceptance 2, without a project: ways to get funded and one build off
   const id = await newInstall();
   // v2.13.4 (spec 2): X first; the build offer once claimed.
   const r0 = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+  assert.ok(r0.show_to_builder.endsWith(connectAsk(r0.claim!.link)), r0.show_to_builder);
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await claimX(r0.claim!.link);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));

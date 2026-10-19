@@ -60,13 +60,11 @@ export const startBuildAsk = (offer: string, program: string) =>
 /** v2.13.3 (4): the X claim, a line (v2.13.4: only beside a build in progress, which asks nothing). */
 export const claimLine = (link: string) => `Your page: claim it with X at ${link}`;
 /**
- * v2.13.4 (spec 2, R4): the first find asks for X once, as the only question: the claim link, then one
- * yes or no. `name`: the project the claim puts on the Bench (null: none, or one that can't join).
+ * Sign-in-first (one-pager step 2): while unclaimed the reply's one ask is a connect link, GitHub then X,
+ * with nothing to type and no question after it. The ask kind stays `claim` (its decline key and stored
+ * ask are unchanged).
  */
-export const claimAskLine = (link: string) => `Claim your page with X (it's your name and photo on the Bench): ${link}`;
-export const claimQuestion = (name: string | null) =>
-  name ? `Want me to put ${name} on the Bench once that's done?` : "Want me to find money you can win once that's done?";
-export const claimAsk = (link: string, name: string | null) => `${claimAskLine(link)}\n${claimQuestion(name)}`;
+export const connectAsk = (link: string) => `Connect GitHub and X to get ranked (two sign-ins, nothing to type): ${link}`;
 /** v2.13.4 (R1): the first reply after this agent joined the page from the claim page. */
 export const linkedLine = (page: string) => `Linked to your page: ${page}`;
 /** v2.13.1 O2 (B4): a build is in progress: the whole stand part, no ask. */
@@ -163,6 +161,8 @@ export function chooseAsk(o: {
   fallback?: boolean;
   /** O5 N13: claimed with X (absent: claimed). Until then the updates yes never says "on the Bench". */
   claimed?: boolean;
+  /** First run: the project isn't confirmed with a posted update yet, so no `enter` ask. */
+  firstRun?: boolean;
 }): BenchAsk | null {
   const p = o.project;
   if (!p) {
@@ -174,7 +174,9 @@ export function chooseAsk(o: {
   if (o.other && !p.confirmed) return off('other_project') ? null : { kind: 'other_project', project_key: p.key, line: OTHER_PROJECT_ASK };
   // Owner ruling A (v2.13.3): a project is tied to something it can win: the best-fitting program's entry,
   // else a community round (the coin, once the project is confirmed); only then the Bench's own steps.
-  if (o.enter && !off('enter')) return o.enter;
+  // Programs are optional: until the project is confirmed and has posted an update, `enter` (which leads to
+  // prepare's typed questions) is never the ask; programs stay in "Ways to get funded".
+  if (o.enter && !o.firstRun && !off('enter')) return o.enter;
   if (o.coin) return o.coin;
   if (!p.live && o.canHost && !off('go_live')) return { kind: 'go_live', project_key: p.key, line: goLiveAsk(p.name) };
   if ((p.confirmed || o.joining) && !o.updatesOn && !off('updates'))

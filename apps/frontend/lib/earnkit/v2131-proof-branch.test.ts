@@ -10,7 +10,7 @@ import {
   PROOF_BRANCH_NOTE, PROOF_BRANCH_RECHECK_MS, PROOF_BRANCH_TTL_MS, checkProofBranch, coinBranchProof, proofBranchFor, proofBranchStep,
   removeCommand,
 } from './proof-branch';
-import { benchReply, claimAsk, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
+import { benchReply, connectAsk, copyLine, needsAgentLine, cantShowLine, checkingBranchLine, confirmingSlowLine, takenLine, type BenchView } from './bench-reply';
 import { COIN_YES_NOTE, coinYesNote } from './coin-moments';
 import { coinBranchReason, tokenGate, type GateDeps } from './token-gate';
 import { discoverPerson } from './discovery';
@@ -105,7 +105,7 @@ test('O1.2 the owner pushes: one https link, the branch for the agent, the code 
     assert.equal(lines[1], checkingBranchLine('Recipe planner'), r.show_to_builder);
     assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\/[a-z2-7]{12}$/);
     // v2.13.4 (spec 2): the X claim is the one ask, last.
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'the claim link is the only link');
     const code = branch.replace(/^earnkit-/, '');
     assert.match(code, /^[a-z2-7]{12}$/);
@@ -155,7 +155,7 @@ test('O1.3 never confirmed: a fork (same key), a 301 rename, another full_name, 
       if (why === 'fork' || why === 'template') {
         assert.equal(r.show_to_builder.split('\n')[1], copyLine('Recipe planner'), why);
         // v2.13.4: unclaimed, X comes first (naming no project that can't join).
-        assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, null)), why);
+        assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), why);
         assert.equal(r.proof, undefined, why);
         assert.equal((await rows(id)).length, 0, `${why}: no code`);
         continue;

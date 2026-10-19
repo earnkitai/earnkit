@@ -35,7 +35,7 @@ import { CHAIN_NAMES, type Chain } from './chains';
 import { githubAppEnabled } from './github-app';
 import { createVerifyLink } from './github-verify';
 import {
-  GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, claimAsk, enterAsk, installAppAsk, startBuildAsk,
+  GRANTS_LATER_ASK, POST_UPDATE_ASK, SUGGEST_ASK, UPDATES_ASK, UPDATES_ASK_JOINING, benchReply, benchStepKey, chooseAsk, connectAsk, enterAsk, installAppAsk, startBuildAsk,
   showsClaimLink, type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -68,12 +68,12 @@ export const INSTALL_APP_NOTE =
   "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which checks the repo. Don't show this note.";
 /** v2.13.4 (spec 2): the claim ask (the claim link in show_to_builder, then one yes or no). */
 export const CLAIM_NOTE =
-  "The builder claims their page with X from the link in show_to_builder. A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). " +
-  "Once they say they've signed in, call find again. Don't show this note.";
+  "The builder connects GitHub, then X, from the link in show_to_builder (two sign-ins, nothing to type). Ask nothing else. If they decline, call tell with move_up: { kind, project_key, answer: 'no' } (as given here). " +
+  "Once they say they've connected, call find again. Don't show this note.";
 /** v2.13.4 I-1, I-2: a remove_agent answer from an installation that may not answer that join. */
 export const NOTICE_NOT_YOURS = 'Only an agent that was on your page before that one joined can answer that.';
 /** v2.13.4: the yes to the claim ask. */
-export const CLAIM_YES_NOTE = "Once the builder has signed in with X from the link, call find again. Don't show this note.";
+export const CLAIM_YES_NOTE = "Once the builder has connected GitHub and X from the link, call find again. Don't show this note.";
 /** The yes to the build ask: the v2.11 build path, started for the program the ask named. */
 export const buildYesNote = (programId: string) =>
   `Call prepare with build: { start: true, program_id: '${programId}' } and program_id: '${programId}' at the top. EarnKit then asks the builder one question before any work starts. Don't show this note.`;
@@ -385,6 +385,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       ? { kind: 'build', project_key: null, program_id: pick.card.id, line: startBuildAsk(pick.starter.offer, pick.card.title) }
       : null;
     const enter: BenchAsk | null = project && o.fits[0] && !taken ? { kind: 'enter', project_key: project.key, program_id: o.fits[0].program_id, line: enterAsk(o.fits[0].title) } : null;
+    // First run (programs are optional): until the project is confirmed and has posted an update.
+    const firstRun = !project?.confirmed || project.weeks === 0;
     const web = project ? read.base.projects.some((x) => x.key.toLowerCase() === project.key.toLowerCase() && x.web) : false;
     // O5 N5: a grants yes that found nothing keeps grants quiet a week, as a no keeps an ask away.
     const declined = [...declinedNow(read.seen, now.getTime()), ...quietNow(read.seen, now.getTime())];
@@ -397,12 +399,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       joining: Boolean(project && !project.confirmed && (!branch || branch.kind === 'checking')),
       other: taken || ['failed', 'foreign', 'copy', 'unseen'].includes(branch?.kind ?? ''),
     };
-    // v2.13.4 (spec 2): unclaimed, X comes first and is the reply's one question (asked until claimed or
-    // declined). The project it names is one the claim puts on the Bench (none that can't join).
+    // Sign-in first: unclaimed, the connect link (GitHub, then X) is the reply's one ask, with no question
+    // (shown until claimed or declined).
     const claim: BenchAsk | null = !read.base.claimed && read.base.claimLink && !declined.includes(benchStepKey('claim', null))
       ? {
           kind: 'claim', project_key: null,
-          line: claimAsk(read.base.claimLink, project && (!asks.other || (appOn && branch?.kind === 'unseen')) ? project.name : null),
+          line: connectAsk(read.base.claimLink),
         }
       : null;
     // v2.13.3 (5), v2.13.4 (spec 3): a repo EarnKit can't see, with the read-only App on: the install link in
@@ -414,12 +416,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; ask: BenchAsk | 
       : null;
     // Owner ruling A: the best fit's entry, else a community round (the coin), come before the Bench's own
     // steps. The coin is offered (and its moment recorded) only when nothing earlier applies.
-    const before = claim ?? install ?? chooseAsk({ ...asks, coin: null, enter, fallback: false });
+    const before = claim ?? install ?? chooseAsk({ ...asks, coin: null, enter, firstRun, fallback: false });
     const coinFirst = !before || ['go_live', 'updates', 'post_update'].includes(before.kind);
     const coin = coinFirst && !o.probation && project && row
       ? await coinAskBench(id, { ...project, people: row.people, has_coin: row.has_coin, streak: row.streak, shipped: row.shipped }, read.seen, o.coinDeps).catch(logged('coin'))
       : null;
-    ask = coin ?? before ?? chooseAsk({ ...asks, coin: null, enter });
+    ask = coin ?? before ?? chooseAsk({ ...asks, coin: null, enter, firstRun });
     // v2.13.4 R7: on probation the only ask is this week's update (or, with no project, a suggestion);
     // its yes is answered by benchMoveUp's probation branch, never through the page's stored ask.
     if (o.probation)

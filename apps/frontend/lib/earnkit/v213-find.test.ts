@@ -11,7 +11,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { UPDATES_ASK, checkingBranchLine, claimAsk, startBuildAsk } from './bench-reply';
+import { UPDATES_ASK, checkingBranchLine, connectAsk, startBuildAsk } from './bench-reply';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -58,7 +58,7 @@ test('8.6 a fresh install with identity.project: the project named, Confirming (
     assert.equal(lines[1], checkingBranchLine('Recipe planner'));
     // v2.13.4 (spec 2): the https claim link is the one ask, last.
     assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     assert.match((r.proof as { branch?: string } | undefined)?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
     assert.equal(r.schedule_daily_check, undefined, 'B18: no daily check under the flag');
   }),
@@ -100,7 +100,7 @@ test('8.8 no project: ideas first, one build offer aimed at the program (spec 2b
       const id = await install();
       // v2.13.4 (spec 2): unclaimed, the X claim is the one ask; the build offer comes once claimed.
       const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+      assert.ok(r0.show_to_builder.endsWith(connectAsk(r0.claim!.link)), r0.show_to_builder);
       await claimX(id);
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
@@ -145,7 +145,7 @@ test('8.11 the yes is answered as asked: another kind is "Okay." and changes not
   benchOn(async () => {
     const p = await avalanche();
     const key = `mayan${RUN}/recipes`;
-    const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 1 }] });
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
     // v2.13.3 owner ruling A: the program's entry first.

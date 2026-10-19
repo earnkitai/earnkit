@@ -14,6 +14,7 @@ import {
   verifyPage,
   type RouteDeps,
 } from './github-verify';
+import { connectSetup, isConnectKey } from './github-connect';
 
 /**
  * v2.10 item 7b: the optional read-only GitHub App (Contents: read, Metadata: read, nothing else),
@@ -68,7 +69,7 @@ export function appJwt(now = new Date(), env: Record<string, string | undefined>
 export type AppDeps = { fetch?: typeof fetch; now?: Date };
 
 /** One App API call: a non-2xx throws GitHubError with the status only (never a token or a body). */
-async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await f(`${API}${path}`, {
     method: init.method ?? 'GET',
     headers: {
@@ -89,13 +90,13 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
 }
 
 /**
- * A 1-hour installation token for one repo (`repo`: its name), with contents and metadata read
- * only. Minted per call; never stored or logged.
+ * A 1-hour installation token for one repo (`repo`: its name; null: every repo the installation covers,
+ * to list them), with contents and metadata read only. Minted per call; never stored or logged.
  */
-export async function installationToken(installationId: number, repo: string, deps: AppDeps = {}): Promise<string> {
+export async function installationToken(installationId: number, repo: string | null, deps: AppDeps = {}): Promise<string> {
   const out = await ghApp<{ token?: unknown }>(deps.fetch ?? fetch, `/app/installations/${installationId}/access_tokens`, appJwt(deps.now), {
     method: 'POST',
-    body: { repositories: [repo], permissions: { contents: 'read', metadata: 'read' } },
+    body: { ...(repo !== null && { repositories: [repo] }), permissions: { contents: 'read', metadata: 'read' } },
   });
   if (typeof out.token !== 'string' || out.token === '') throw new GitHubError('GitHub App request failed (no token)');
   return out.token;
@@ -229,6 +230,8 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
   const now = deps.now ?? new Date();
   const row = await takeNonce(nonce, now, { purpose: 'app' });
   if (!row || !row.login || !row.account_created_at) return verifyPage(VERIFY_PAGE.expired, 410, clear);
+  // Sign-in first: a connect link has no repo yet (github-connect.ts lists and picks them).
+  if (isConnectKey(row.repo_key)) return connectSetup(row, nonce, installationId, now, deps);
   try {
     const proof = await appProof({ installationId, login: row.login, repoKey: row.repo_key }, deps);
     if (!proof.ok) return verifyPage(proof.reason === 'not_listed' ? APP_PAGE.notListed : APP_PAGE.notYours, 403, clear);

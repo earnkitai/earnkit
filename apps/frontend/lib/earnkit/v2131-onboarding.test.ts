@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { claimAsk, claimQuestion, NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
+import { connectAsk, NO_OFFER_LINE, NO_PROJECT_LINE, OTHER_PROJECT_ASK, POST_UPDATE_ASK, START_ASK, UPDATES_ASK_JOINING, buildingNowLine, cantShowLine, grantsAsk, shipAsk, takenLine } from './bench-reply';
 import { noGrantLine } from './bench-find';
 import { BENCH_BUILD_ID, TWIST_QUESTION } from './fresh-build';
 import { mainProjectOf } from './main-project';
@@ -58,7 +58,7 @@ test('O2.1 B1, B2, B4, item 7: no project and no program to build for: the start
     const r0 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
     assert.equal(r0.show_to_builder.split('\n')[1], NO_PROJECT_LINE);
     // v2.13.4 (spec 2): X first, as the one ask (its link the only link); then existing work.
-    assert.ok(r0.show_to_builder.endsWith(claimAsk(r0.claim!.link, null)), r0.show_to_builder);
+    assert.ok(r0.show_to_builder.endsWith(connectAsk(r0.claim!.link)), r0.show_to_builder);
     assert.equal(links(r0.show_to_builder).length, 1, 'the claim link is the only link');
     assert.equal(r0.move_up?.kind, 'claim');
     await claimX(id);
@@ -127,7 +127,7 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
     assert.match(r.show_to_builder, /^You're not on the Bench yet\.$/m);
     // v2.13.4: unclaimed, the X claim is the one ask.
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     assert.match(r.claim?.link ?? '', /^https:\/\/earnkit\.com\/claim\//);
     assert.equal(r.build_offer, undefined);
     // An open program may be named with what it needs (v2.13.3 (2)), never the raw tag.

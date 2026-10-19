@@ -66,7 +66,7 @@ export const JOIN_TABLES: readonly { table: string; column: string; rule: JoinRu
   { table: 'installations', column: 'builder_id', rule: 'blocks', why: 'another installation in its group' },
   { table: 'builder_sources', column: 'builder_id', rule: 'blocks', when: "state = 'verified'", why: 'a confirmed source; proposed ones are only reported (R9)' },
   { table: 'github_verifications', column: 'installation_id', rule: 'blocks', why: 'a proven GitHub login' },
-  { table: 'github_verify_nonces', column: 'installation_id', rule: 'blocks', when: 'used_at IS NULL AND expires_at > now()', why: 'an open verify link' },
+  { table: 'github_verify_nonces', column: 'installation_id', rule: 'blocks', when: "used_at IS NULL AND expires_at > now() AND repo_key NOT LIKE 'connect/%' AND repo_key NOT LIKE 'claim/%'", why: 'an open verify link (not the claim page\'s own GitHub step)' },
   { table: 'person_wallets', column: 'builder_id', rule: 'blocks', why: 'a signed wallet' },
   { table: 'installation_wallets', column: 'installation_id', rule: 'blocks', why: 'a wallet' },
   { table: 'projects', column: 'installation_id', rule: 'blocks', why: 'entries and coins' },

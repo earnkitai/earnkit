@@ -4,6 +4,8 @@ import { sql } from './db';
 import { enqueueDiscovery } from './discovery';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
+import { githubAppEnabled } from './github-app';
+import { connectRepoKey } from './github-connect';
 import { cookieValue, createVerifyLink, githubVerifyEnabled } from './github-verify';
 import { joinOnProvenTie, rootOf } from './identity';
 import { attachFresh, freshAndEmpty } from './page-joins';
@@ -67,6 +69,10 @@ export const CLAIM_TEXT = {
   /** v2.12.1 T7: the two optional upgrades under the done line (plain links, never a required step). */
   wallet: 'Show a wallet is yours (optional)',
   github: 'Sign in with GitHub (optional)',
+  /** Sign-in first: the connect page, GitHub then X. */
+  connectGithub: 'Connect GitHub',
+  connectGithubPublic: 'Public work only.',
+  connectX: 'Then connect X',
 } as const;
 
 const STATE_TTL_MS = 15 * 60_000;
@@ -184,6 +190,26 @@ async function limited(request: Request, deps: RouteDeps): Promise<Response | nu
   }
 }
 
+/**
+ * Sign-in first: under the Bench the page offers GitHub before X. With the read-only App on, the button is
+ * the App install (github-connect.ts: GitHub's install screen is the repo picker, private repos too); with it
+ * off, the scopeless GitHub sign-in (public repos only), said in one short line. No link: no GitHub step.
+ */
+async function githubStep(builderId: number): Promise<string> {
+  if (!githubVerifyEnabled()) return '';
+  const app = githubAppEnabled();
+  const link = await createVerifyLink(
+    app ? { installationId: builderId, projectId: null, repoKey: connectRepoKey(builderId), purpose: 'app' } : { installationId: builderId, projectId: null, repoKey: `claim/${builderId}`, purpose: 'claim' },
+  ).catch((err: unknown) => {
+    console.error('[claim] connect link', err instanceof Error ? err.name : 'error');
+    return null;
+  });
+  if (!link) return '';
+  return `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(link)}">${escapeHtml(CLAIM_TEXT.connectGithub)}</a></div>` +
+    (app ? '' : `<p class="ek-small">${escapeHtml(CLAIM_TEXT.connectGithubPublic)}</p>`) +
+    `<p class="ek-small">${escapeHtml(CLAIM_TEXT.connectX)}</p>`;
+}
+
 /** GET /claim/<code>: what becomes public, how to hide it, the warning, then one POST button (sets this code's cookie). */
 export async function claimGet(_request: Request, code: string): Promise<Response> {
   if (!builderScoreEnabled() || !CODE.test(code)) return notFound();
@@ -191,9 +217,10 @@ export async function claimGet(_request: Request, code: string): Promise<Respons
   const codeHash = sha256(code);
   if (!(await codeTarget(codeHash))) return claimPage(CLAIM_TEXT.used, 410);
   const csrf = randomBytes(32).toString('base64url');
+  const github = benchEnabled() ? await githubStep((await codeTarget(codeHash))!) : '';
   const body = shell(
     `<h1>${escapeHtml(CLAIM_TEXT.lead)}</h1><p class="ek-line">${escapeHtml(benchEnabled() ? CLAIM_TEXT.benchPublic : CLAIM_TEXT.public)}</p>` +
-      `<p class="ek-small">${escapeHtml(CLAIM_TEXT.warning)}</p>` +
+      `<p class="ek-small">${escapeHtml(CLAIM_TEXT.warning)}</p>${github}` +
       `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/claim/${code}">` +
       `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
       `<button class="ek-btn" type="submit">${X_ICON}<span>${escapeHtml(CLAIM_TEXT.button)}</span></button></form></div>`,

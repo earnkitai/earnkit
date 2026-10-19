@@ -677,6 +677,8 @@ export const CLAIM_CONFIRM_LEAD = 'Sign in with GitHub to show this GitHub accou
 export const CLAIM_CONFIRM_WARNING = 'This links your GitHub to your EarnKit page. Only continue if you opened this from your own page.';
 
 /** v2.10 item 7b: the confirm page's first line on an App link. */
+/** Sign-in first: the connect link's GitHub step (no repo yet; GitHub's install screen is the repo picker). */
+export const CONNECT_CONFIRM_LEAD = 'Sign in with GitHub, then choose the repos EarnKit may read. Read only: EarnKit never changes your code.';
 export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
 
 /** Ruling G8: the confirm page's warning, above the button. */
@@ -702,8 +704,10 @@ export function verifyPage(line: string, status = 200, headers: Record<string, s
  * requires Path=/, so it can't be scoped to the verify path. Pure.
  */
 export const csrfCookieName = (nonce: string) => `__Host-ekv-${sha256(nonce).slice(0, 16)}`;
-const setCsrf = (nonce: string, csrf: string) =>
+export const setCsrf = (nonce: string, csrf: string) =>
   `${csrfCookieName(nonce)}=${csrf}; Path=/; Max-Age=${VERIFY_TTL_MS / 1000}; HttpOnly; Secure; SameSite=Lax`;
+/** A response header object carrying one cookie (so other modules never name the header themselves). */
+export const cookieHeaders = (value: string) => ({ 'Set-Cookie': value });
 export const clearCsrf = (nonce: string) => `${csrfCookieName(nonce)}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 export function cookieValue(request: Request, name: string): string | null {
   for (const part of (request.headers.get('cookie') ?? '').split(';')) {
@@ -732,13 +736,13 @@ export function confirmPage(
         '<button type="submit">Continue with GitHub</button></form>',
     );
   const rows = [
-    `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
+    d.repo_key.startsWith('connect/') ? '' : `<li>Repo: github.com/${escapeHtml(d.repo_key)}</li>`,
     d.purpose === 'entry' && d.symbol ? `<li>Token: $${escapeHtml(d.symbol)}</li>` : '',
     // Ruling G11: an entry link always has its wallet (createVerifyLink refuses one without).
     d.purpose === 'entry' && d.wallet ? `<li>Wallet for fees: ${escapeHtml(d.wallet)}</li>` : '',
   ].join('');
   // v2.10 item 7b: an App link signs in, then installs the read-only App on the repo.
-  const lead = d.purpose === 'app' ? APP_CONFIRM_LEAD : 'Sign in with GitHub to prove this repo is yours.';
+  const lead = d.purpose === 'app' ? (d.repo_key.startsWith('connect/') ? CONNECT_CONFIRM_LEAD : APP_CONFIRM_LEAD) : 'Sign in with GitHub to prove this repo is yours.';
   return html(
     `<p>${escapeHtml(lead)}</p><ul>${rows}</ul><p>${escapeHtml(CONFIRM_WARNING)}</p>` +
       `<form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +

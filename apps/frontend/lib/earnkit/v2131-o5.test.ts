@@ -10,7 +10,7 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, connectAsk, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, cantSeeLine, cantShowLine, copyLine, checkingBranchLine, foreignLine, grantsAsk, needsAgentLine, shipAsk, type BenchView,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
@@ -122,7 +122,7 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('Next.js'), r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
-      assert.ok(r.show_to_builder.endsWith('?'));
+      assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)));
       // O5 fix round 1: a find with an open code (its check waits on GitHub too) stays under 3 s.
       assert.ok(r.proof, 'a code is open');
       const t2 = Date.now();
@@ -151,7 +151,7 @@ test('O5 N2 a User repo under another login: no code, the plain line and a diffe
     const id = await install();
     const r = await find(id, named(key, uniq('octocat')), { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.equal(r.show_to_builder.split('\n')[1], foreignLine('Linux'), r.show_to_builder);
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     assert.equal(r.proof, undefined, 'no branch to push');
     assert.equal((await codes(id)).length, 0, 'no code issued');
     assert.equal(r.move_up?.kind, 'claim', 'v2.13.4: X first');
@@ -179,7 +179,7 @@ test('O5 N2 a repo EarnKit cannot read (404): "EarnKit can\'t see" at once, no c
     assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('Secret'), r.show_to_builder);
     // v2.13.3 (5): with the read-only App off, said honestly.
     assert.equal(cantSeeLine('secret'), "I can't see secret. EarnKit can only see public repos right now.");
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)));
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)));
     assert.equal((await codes(id)).length, 0);
     const down = `${uniq('maya')}/recipes`;
     const d = await install();
@@ -201,7 +201,7 @@ test('O5 N2 a refused push: tell proof { pushed: false } ends the wait at once w
     assert.match(t.agent_note ?? '', /call find/i);
     const next = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.equal(next.show_to_builder.split('\n')[1], cantShowLine('Next.js'), next.show_to_builder);
-    assert.ok(next.show_to_builder.endsWith(claimQuestion(null)));
+    assert.ok(next.show_to_builder.endsWith(connectAsk(next.claim!.link)));
     assert.equal(next.proof, undefined);
     // Flag off: tell drops proof; no open code is ended.
     {
@@ -222,7 +222,7 @@ test('O5 fix round 1: a fork or template gets no code and the copy line; each ve
     const rf = await find(f, named(fork), { ...NO_MATCH, proofBranchFetch: gf.f });
     assert.equal(rf.show_to_builder.split('\n')[1], copyLine('Forked'), rf.show_to_builder);
     assert.equal(copyLine('forked'), 'forked is a copy of another repo. Use your own project.');
-    assert.ok(rf.show_to_builder.endsWith(claimQuestion(null)));
+    assert.ok(rf.show_to_builder.endsWith(connectAsk(rf.claim!.link)));
     assert.equal((await codes(f)).length, 0);
     const tpl = `${uniq('maya')}/tpl`;
     const t = await install();
@@ -338,7 +338,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.13.4 (spec 2): X first; once claimed, existing work.
-    assert.ok(r.show_to_builder.endsWith(claimQuestion(null)), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
     await claimX(id);
     const r1 = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
     assert.ok(r1.show_to_builder.endsWith(START_ASK), r1.show_to_builder);
@@ -395,8 +395,8 @@ test('O5 N15 a chat-only agent with a project: "Open <project> in your coding ag
     assert.equal(r.show_to_builder.split('\n')[1], needsAgentLine('Earny'), r.show_to_builder);
     assert.equal(needsAgentLine('earny'), 'Open earny in your coding agent to put it on the Bench.');
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('?'), r.show_to_builder);
-    assert.equal(questions(r.show_to_builder), 1);
+    assert.ok(r.show_to_builder.endsWith(connectAsk(r.claim!.link)), r.show_to_builder);
+    assert.equal(questions(r.show_to_builder), 0);
   }),
 );
 

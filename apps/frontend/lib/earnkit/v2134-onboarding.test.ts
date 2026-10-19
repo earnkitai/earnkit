@@ -14,7 +14,7 @@ import { agoText } from './claim';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { APP, installApp, privateGitHub } from './fixtures/private-github';
 import {
-  BENCH_HEADS, claimAskLine, claimQuestion, checkingBranchLine, installAppAsk, linkedLine, onBenchLine, pageLine, privateLine,
+  BENCH_HEADS, connectAsk, checkingBranchLine, installAppAsk, linkedLine, onBenchLine, pageLine, privateLine,
 } from './bench-reply';
 import { CLAIM_NOTE, displayName, fundNeeds } from './bench-find';
 import { checkLive, liveDefaults, parkedPage } from './live-check';
@@ -61,8 +61,13 @@ const xUser = (): XUser => ({ id: `v2134${randomBytes(6).toString('hex')}`, user
 /** (g) The reply ends on one question, last, with at most one link. */
 function oneQuestionLast(r: { show_to_builder: string }, what: string) {
   const t = r.show_to_builder;
-  assert.ok(t.trimEnd().endsWith('?'), `${what}: the last line is a question\n${t}`);
-  assert.equal(questions(t), 1, `${what}: one question\n${t}`);
+  // Sign-in first: the unclaimed ask is the connect link alone, with no question.
+  const connect = t.trimEnd().split('\n').pop()!.startsWith('Connect GitHub and X');
+  if (connect) assert.equal(questions(t), 0, `${what}: no question beside the connect link\n${t}`);
+  else {
+    assert.ok(t.trimEnd().endsWith('?'), `${what}: the last line is a question\n${t}`);
+    assert.equal(questions(t), 1, `${what}: one question\n${t}`);
+  }
   assert.ok(links(t).length <= 1, `${what}: at most one link\n${t}`);
 }
 /** (b) No claim link and no join question, anywhere in the reply or its fields. */
@@ -213,9 +218,8 @@ test('b.1 after the claim, no reply in that agent shows a claim link (find, scor
     const r1 = await find(id, {}, NO_MATCH);
     // a. The first find: where you stand, ways to get funded, then the one question: claim with X.
     assert.equal(r1.show_to_builder.split('\n')[0], BENCH_HEADS.stand);
-    const last = r1.show_to_builder.split('\n').slice(-2);
-    assert.equal(last[0], claimAskLine(r1.claim!.link));
-    assert.equal(last[1], claimQuestion(null));
+    const last = r1.show_to_builder.split('\n').slice(-1);
+    assert.equal(last[0], connectAsk(r1.claim!.link));
     assert.equal(r1.move_up?.kind, 'claim');
     assert.equal(r1.move_up?.agent_note, CLAIM_NOTE);
     oneQuestionLast(r1, 'first find');
@@ -245,7 +249,7 @@ test('c.1 a private org repo (700+ commits): first find asks only for X; right a
     const r1 = await find(id, input, { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Earnkit'), r1.show_to_builder);
     assert.doesNotMatch(r1.show_to_builder, /can't see/);
-    assert.ok(r1.show_to_builder.endsWith(`${claimAskLine(r1.claim!.link)}\n${claimQuestion('Earnkit')}`), r1.show_to_builder);
+    assert.ok(r1.show_to_builder.endsWith(connectAsk(r1.claim!.link)), r1.show_to_builder);
     assert.equal(links(r1.show_to_builder).length, 1);
     oneQuestionLast(r1, 'private, unclaimed');
     // b. The claim.
@@ -290,7 +294,7 @@ test('c.2 a public repo: right after the claim, "Your page" and the one-line pro
     const id = await install();
     const r1 = await find(id, { agent_can_build: true, identity: { github_login: login, project: { name: 'Recipe planner', repo: key } } }, { ...NO_MATCH, proofBranchFetch: gh.f });
     assert.equal(r1.show_to_builder.split('\n')[1], checkingBranchLine('Recipe planner'), r1.show_to_builder);
-    assert.ok(r1.show_to_builder.endsWith(`${claimAskLine(r1.claim!.link)}\n${claimQuestion('Recipe planner')}`), r1.show_to_builder);
+    assert.ok(r1.show_to_builder.endsWith(connectAsk(r1.claim!.link)), r1.show_to_builder);
     oneQuestionLast(r1, 'public, unclaimed');
     const user = xUser();
     await signIn(r1.claim!.link, user);

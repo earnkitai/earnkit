@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
-  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink, CONFIRMED_LINE, claimAsk, claimAskLine, claimQuestion,
+  NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink, CONFIRMED_LINE, connectAsk,
   NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
@@ -31,16 +31,16 @@ test('8.1 spec 2a, word for word', () => {
 test('8.2 spec 2a while confirming, and with the X claim still to do', () => {
   assert.equal(confirmingLine('Recipe planner'), "Recipe planner joins the Bench as soon as I've confirmed it's yours (a minute or two).");
   const link = 'earnkit.com/claim/abcdefghijkl';
-  const claim = { kind: 'claim' as const, project_key: null, line: claimAsk(link, 'Recipe planner') };
+  const claim = { kind: 'claim' as const, project_key: null, line: connectAsk(link) };
   const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: claim };
   // v2.13.4 (spec 2): the X claim is the one ask, last: the link, then one yes or no.
-  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), '', 'How to move up', claimAskLine(link), claimQuestion('Recipe planner')].join('\n'));
+  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), '', 'How to move up', connectAsk(link)].join('\n'));
   // v2.13.1 O1: the proof branch, then (never showed in the hour) the plain line.
   assert.equal(benchReply({ ...v, branch: 'checking' }).split('\n')[1], checkingBranchLine('Recipe planner'));
   assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
   const unclaimed = benchReply({ ...v, project: RECIPE });
   assert.equal(unclaimed.split('\n')[1], CONFIRMED_LINE('Recipe planner'));
-  assert.ok(unclaimed.endsWith(claimAsk(link, 'Recipe planner')));
+  assert.ok(unclaimed.endsWith(connectAsk(link)));
   // No claim ask (a held question, or declined): no claim link at all.
   assert.doesNotMatch(benchReply({ ...v, ask: null }), /claim/);
 });
@@ -105,8 +105,8 @@ test('O2.1 B1: "Pick something to build" only with the offer that follows; the s
 
 test('O2.2 B2 (v2.13.4: the claim is the ask): the claim link shows only as the one ask while unclaimed, project or not', () => {
   const link = 'https://earnkit.com/claim/abcdefghijkl';
-  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: { kind: 'claim', project_key: null, line: claimAsk(link, null) } };
-  assert.deepEqual(benchReply(v).split('\n').slice(-2), [claimAskLine(link), claimQuestion(null)]);
+  const v: BenchView = { project: null, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: { kind: 'claim', project_key: null, line: connectAsk(link) } };
+  assert.deepEqual(benchReply(v).split('\n').slice(-1), [connectAsk(link)]);
   assert.equal(showsClaimLink(v), true);
   assert.equal(showsClaimLink({ ...v, ask: null }), false);
   assert.equal(showsClaimLink({ ...v, claimed: true }), false);
