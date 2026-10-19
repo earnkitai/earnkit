@@ -350,7 +350,7 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key}`;
       assert.deepEqual({ ...s }, { state: 'verified', proof: 'github_app' });
       const r3 = await find(id, {}, NO_MATCH);
-      assert.match(r3.show_to_builder.split('\n')[1], /^Earnkit is on the Bench/, r3.show_to_builder);
+      assert.match(r3.show_to_builder.split('\n')[1], /^Earnkit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/, r3.show_to_builder);
       const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
       assert.equal(live?.ranked, true, 'the project ranks');
       // Readings: the daily read and the live refresh read the private repo with the installation token.

@@ -164,7 +164,7 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
-  assert.match(s, /EarnKit is on the Bench: (#\d+ of \d+ builders?|top \d+(\.\d)?% of builders)\./, s);
+  assert.match(s, /EarnKit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\./, s);
   assert.ok(s.includes(`earnkit.com/${ME.username}`), s);
 });
 

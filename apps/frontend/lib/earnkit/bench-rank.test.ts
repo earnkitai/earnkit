@@ -19,7 +19,7 @@ async function listed(score: number, chains: string[]): Promise<number> {
   return id;
 }
 
-test('7.4 a chain\'s line shows only from 10 ranked projects on it; the Bench line uses the whole pool (review focus 1)', dbTest, async () => {
+test('7.4 R16e a chain\'s line shows from one ranked project on it, in the main rank\'s words; the main line uses the whole pool and carries the score line', dbTest, async () => {
   const base: number[] = [];
   for (let i = 0; i < 10; i++) base.push(await listed(50 + i, ['base']));
   const arc: number[] = [];
@@ -31,11 +31,12 @@ test('7.4 a chain\'s line shows only from 10 ranked projects on it; the Bench li
   assert.equal(pools.arc, 9);
   assert.equal(pools.robinhood, 0);
   const lines = await rankLines(me, { only });
-  assert.equal(lines.bench, '#1 of 19 on the Bench');
-  assert.deepEqual(lines.chains, [{ chain: 'base', label: 'Base', line: '#1 of 10 on Base' }]);
+  assert.equal(lines.bench, '#1 of 19 builders this week');
+  assert.equal(lines.line, 'Shipping 59 · #1 of 19 builders this week');
+  assert.deepEqual(lines.chains, [{ chain: 'base', label: 'Base', line: '#1 of 10 builders on Base this week' }]);
   const arcTop = arc[8];
-  assert.deepEqual((await rankLines(arcTop, { only })).chains, [], 'arc has 9: no chip, no line');
+  assert.deepEqual((await rankLines(arcTop, { only })).chains, [{ chain: 'arc', label: 'Arc', line: '#1 of 9 builders on Arc this week' }], 'no 10-builder minimum');
   const low = base[0]; // score 50: behind the 9 higher Base scores, ahead of all 9 Arc scores
-  assert.equal((await rankLines(low, { only })).bench, '#10 of 19 on the Bench', '10th of 19 is the top half\'s last place');
-  assert.deepEqual((await rankLines(low, { only })).chains, [], '10th of 10 on Base is outside its top half');
+  assert.equal((await rankLines(low, { only })).bench, '#10 of 19 builders this week');
+  assert.deepEqual((await rankLines(low, { only })).chains, [{ chain: 'base', label: 'Base', line: '#10 of 10 builders on Base this week' }], 'every ranked builder sees a rank');
 });

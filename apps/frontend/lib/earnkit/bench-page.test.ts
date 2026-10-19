@@ -76,8 +76,8 @@ test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\
   assert.equal(all.count, 11);
   assert.deepEqual(all.chips, ['base'], 'arc has 1: no chip');
   assert.deepEqual(all.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-  assert.equal(all.rows[0].line, '#1 of 11');
-  assert.equal(all.rows[10].line, null, 'outside the top half: no rank line');
+  assert.equal(all.rows[0].line, '#1 of 11 builders this week');
+  assert.equal(all.rows[10].line, '#11 of 11 builders this week', 'every ranked builder sees a rank');
   // The pill only through pillOf's result.
   for (const [i, id] of ids.entries()) {
     const row = all.rows.find((r) => r.handle === `bn${RUN}${id}`)!;

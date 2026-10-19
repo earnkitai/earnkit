@@ -26,7 +26,8 @@ const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 /** D12: the rank phrase as 12.3 reads it: "#N of M builders" or a top percent. */
-const RANK = '(: (#\\d+ of \\d+ builders?|[Tt]op \\d+(\\.\\d)?% of builders))?';
+/** Scoring and clarity (R16c): the ranked stand line is the score line. */
+const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders) this week';
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
@@ -70,7 +71,7 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   assert.match(s, /Want me to count it once that's done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(four, new RegExp(`Kit is on the Bench${RANK}\\.`));
+  assert.match(four, new RegExp(`Kit${RANK}\\.`));
 });
 
 test('9.11 state 5, shipping weekly: the streak in the stand line', db, async () => {
@@ -83,7 +84,7 @@ test('9.11 state 5, shipping weekly: the streak in the stand line', db, async ()
   const weeks = [14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
   await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, new RegExp(`App is on the Bench${RANK}\\. 3 weeks in a row\\.`));
+  assert.match(s, new RegExp(`App${RANK}\\. 3 weeks in a row\\.`));
 });
 
 const noLimit = { limit: async () => {} };

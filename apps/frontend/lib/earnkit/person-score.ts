@@ -845,9 +845,10 @@ type LiveDue = { id: number; builder_id: number; kind: string; ref: string; stat
  * goes to source_live (never source_readings: the daily history stays the cron's); a failure is
  * `ok = false` and is not retried. A spent GitHub budget writes nothing; the deadline stops the reads.
  * `only`: just these sources, read now even within REFRESH_MS of their last read (the App connect reads the
- * one repo it proved, R5: a refresh may have tried it, as a proposed repo, moments before).
+ * one repo it proved, R5: a refresh may have tried it, as a proposed repo, moments before). `soft`: a failed
+ * read writes nothing, so an earlier good live reading still counts and the next refresh reads it again.
  */
-export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
+export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[]; soft?: boolean }): Promise<{ read: number; failed: number }> {
   const db = sql();
   const due = await db<LiveDue[]>`
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.state, b.last_read_day::text AS last_read_day
@@ -876,6 +877,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
         ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
     } else {
       failed++;
+      if (o.soft) return;
       // A failed read: personInputsV2 reads only ok rows, so the score falls back to the newest good
       // daily reading (the last good number). The row's old signals stay, unused.
       await db`

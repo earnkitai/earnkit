@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { heldForReview, partLines, publicRow, scoresAdminKey, scoresPost } from './builder-score';
 import { isConfirmedProof } from './confirmed';
 import { sql } from './db';
-import { PAGE_REFRESH_MS, pageViewRefresh, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
+import { PAGE_REFRESH_MS, pageViewRefresh, personInputsV2, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
+import { calibrationV2 } from './score-calibration';
+import { countUse } from './score-v2';
+import { isoWeekOf } from './weeks';
 import { LIMITS, windowStart } from './rate-limit';
 import type { ReaderDeps } from './source-readers';
 
@@ -76,19 +79,37 @@ async function live(id: number, l: { score: number; ranked: boolean }) {
   await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`ps${id}`}) ON CONFLICT (builder_id) DO NOTHING`;
   await sql()`
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
-    VALUES (${id}, ${l.score}, '{"shipped":{"points":10,"raw":{}}}'::jsonb, ${l.ranked}, ${l.ranked ? 1 : 0}, 0, 'v2', 'v2-launch', ${new Date(NOW.getTime() - DAY)})`;
+    VALUES (${id}, ${l.score}, '{"shipping":{"points":10,"raw":{"mask":0,"live_ships":1}}}'::jsonb, ${l.ranked}, ${l.ranked ? 1 : 0}, 0, 'v2', 'v2-shipping', ${new Date(NOW.getTime() - DAY)})`;
 }
-/** Yesterday's public history row (formula v2): the 30-point jump is measured against it. */
-async function history(id: number, score: number, day = new Date(NOW.getTime() - DAY)) {
+/** Yesterday's public history row (formula v2, the live calibration): the 30-point jump is measured against it. */
+async function history(id: number, score: number, day = new Date(NOW.getTime() - DAY), calibration = 'v2-shipping') {
   await sql()`
     INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, ${day.toISOString().slice(0, 10)}, ${score}, 0, '{}', '{}', 'v2', 'v2-launch', false)
+    VALUES (${id}, ${day.toISOString().slice(0, 10)}, ${score}, 0, '{}', '{}', 'v2', ${calibration}, false)
     ON CONFLICT (builder_id, day) DO NOTHING`;
 }
-/** 600 callers across 30 days on an EarnKit-deployed contract; `rich`: long-lived wallets sending $100 each (60+ from one source). */
-async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number } = {}) {
+/**
+ * A big score: an EarnKit-deployed contract (Shipping's live bonus) with 600 callers across 30 days (people,
+ * not scored; `rich`: long-lived wallets sending $100 each) on the person's one project, whose proven repo has
+ * commits in the `active` most recent weeks before `at` (default: every week from 80 days before NOW to 30
+ * days after it, so Shipping is 100 at any time a test scores). A second call (`seed`) adds a contract and
+ * replaces the repo's commit weeks.
+ */
+async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number; active?: number; at?: Date } = {}) {
   const addr = `0x${hex40(id + 1e9 * (o.seed ?? 0))}`;
   const key = `lee/big${id}`;
+  await sql()`UPDATE builder_profiles SET main_project_key = ${key} WHERE builder_id = ${id}`;
+  if (!o.seed) await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'repo_owner', by: 'server' });
+  const weeks = o.active !== undefined
+    ? Array.from({ length: o.active }, (_, i) => isoWeekOf(new Date((o.at ?? NOW).getTime() - i * 7 * DAY)))
+    : Array.from({ length: 17 }, (_, i) => isoWeekOf(new Date(NOW.getTime() + 30 * DAY - i * 7 * DAY)));
+  // Readings are append-only: a second call's weeks arrive as the live read (newer than the daily one).
+  const signals = sql().json({ owner: 'lee', owner_type: 'User', commit_weeks: weeks } as never);
+  if (o.seed) await sql()`
+    INSERT INTO source_live (source_id, signals, ok, read_at) SELECT id, ${signals}, true, ${NOW}
+    FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND ref = ${key}
+    ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
+  else await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: weeks });
   await sql()`
     INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
     VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${'a'.repeat(64)}`}, ${addr}, 'deployed', 0, ${new Date(NOW.getTime() - 40 * DAY)})`;
@@ -99,6 +120,9 @@ async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number } = {})
   }));
   await reading(`base:${addr}`, { callers, partial: false });
 }
+
+/** The people (score-v2 countUse, stored on the project rows, never scored) a rescore at `at` counts: the stored ring, as a refresh reads it. */
+const useAt = async (id: number, at: Date) => countUse((await personInputsV2(id, at)).input, calibrationV2(), at);
 
 test('4.0 confirmed proofs: earnkit.txt and DNS site proofs are not confirmed', () => {
   assert.equal(isConfirmedProof('repo_owner'), true);
@@ -299,8 +323,7 @@ test('4.12 the owner releasing a held day makes the pending live score public', 
   const review = (await heldForReview()).find((x) => x.builder_id === id)!;
   assert.deepEqual([review.score, review.formula, review.shown?.score], [target, 'v2', 10]);
   const lines = partLines(review.parts);
-  assert.equal(lines.length, 4);
-  assert.ok(lines.some((l) => /^shipped: [\d.]+ \(S 1, keep [\d.]+\)$/.test(l)), lines.join(' | '));
+  assert.deepEqual(lines, ['shipping: 100 (mask 4095, weeks 12, recent 4, live_ships 1)']);
   assert.deepEqual(partLines('junk'), []);
   process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
   try {
@@ -344,17 +367,24 @@ test('4.14 the 30-point jump is measured against yesterday\'s public score: 10, 
   assert.ok(row.pending!.score >= 40, String(row.pending?.score));
 });
 
-test('4.15 a first score of 60+ from one contract is held: public 0 and unranked, the score waits in pending', dbTest, async () => {
+test('4.15 scoring and clarity: a first score of 60+ with all its people from one contract is never held (people are not scored)', dbTest, async () => {
   const id = T + 16;
   await person(id, {});
   await fakeBigUse(id, { rich: true });
   const r = await rescorePerson(id, NOW);
-  assert.deepEqual([r.held, r.score, r.ranked], [true, 0, false]);
-  const [row] = await sql()<{ score: number; ranked: boolean; pending: { score: number } | null }[]>`SELECT score, ranked, pending FROM builder_live WHERE builder_id = ${id}`;
-  assert.deepEqual([row.score, row.ranked], [0, false]);
-  assert.ok(row.pending!.score >= 60, String(row.pending?.score));
+  assert.deepEqual([r.held, r.score, r.ranked], [false, 100, true]);
+  const [row] = await sql()<{ score: number; ranked: boolean; pending: unknown }[]>`SELECT score, ranked, pending FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual([row.score, row.ranked, row.pending], [100, true, null]);
   const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(p.held, true);
+  assert.equal(p.held, false);
+});
+
+test('4.15c the review hold measures a jump only from a history row of the live calibration (the four-part score is never the baseline)', dbTest, async () => {
+  const id = T + 16;
+  await person(id, {});
+  await history(id, 10, new Date(NOW.getTime() - DAY), 'v2-launch');
+  await fakeBigUse(id);
+  assert.equal((await rescorePerson(id, NOW)).held, false, 'a 90-point rise from a v2-launch row is not a jump');
 });
 
 test('4.16 a release is refused when the pending score changed after the owner reviewed it', dbTest, async () => {
@@ -404,21 +434,23 @@ test('4.18 a refresh reads only the person\'s stored ring (no scan of everyone\'
   await source(b, { kind: 'repo', ref: `${lb}/y`, state: 'verified', proof: 'repo_owner', by: 'server' });
   await reading(`${la}/x`, star(lb));
   await reading(`${lb}/y`, star(la));
-  const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
   const faded = (days: number) => 0.5 ** (days / 90); // the star is 2 days old at NOW
   // No stored ring yet: the refresh looks up only the owners of the accounts that touched a's work
   // (never everyone's edges): b is another EarnKit person, so b's star weighs 0.5.
   await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5 * faded(2)) < 1e-6, String(await starFork()));
+  const first = (await useAt(a, NOW)).star_fork;
+  assert.ok(Math.abs(first - 0.5 * faded(2)) < 1e-6, String(first));
   // The cron step computes and stores the ring: b and a star each other, so b's star weighs 0.5.
   await scorePeopleV2(new Date(NOW.getTime() + 4 * DAY), { deadline: Date.now() + 10_000, only: [a] });
   const [p] = await sql()<{ ring: { ring?: [string, number][] } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
   assert.deepEqual(p.ring.ring, [[`gh:${lb}`, 0.5]]);
-  await refreshPerson(a, { now: new Date(NOW.getTime() + 4 * DAY + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(await starFork()));
+  const at = new Date(NOW.getTime() + 4 * DAY + 11 * 60_000);
+  await refreshPerson(a, { now: at, deadline: Date.now() + 3000, reader: fakeReader() });
+  const then = (await useAt(a, at)).star_fork;
+  assert.ok(Math.abs(then - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(then));
 });
 
-test('4.19 a never-computed ring fails strict: another person\'s account counts 0.5, and no rank until the cron computes the ring', dbTest, async () => {
+test('4.19 a never-computed ring fails strict: another person\'s account counts 0.5; R4: the ring no longer gates the rank', dbTest, async () => {
   const [a, c] = [T + 3, T + 4];
   const [la, lc] = [`na${T}`, `nc${T}`];
   await person(c, { login: lc, ring: true });
@@ -428,14 +460,15 @@ test('4.19 a never-computed ring fails strict: another person\'s account counts 
   const starred = { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
     stargazers: [{ id: `gh:${lc}`, at: new Date(NOW.getTime() - 2 * DAY).toISOString(), created_at: '2020-01-01T00:00:00Z' }] };
   await reading(`${la}/x`, starred);
+  await mainIs(a, `${la}/x`);
   const r = await rescorePerson(a, NOW);
-  assert.equal(r.ranked, false, 'no rank before the ring is computed');
-  const [l] = await sql()<{ ranked: boolean; v: number }[]>`SELECT ranked, (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`;
-  assert.equal(l.ranked, false);
-  assert.ok(Math.abs(l.v - 0.5 * 0.5 ** (2 / 90)) < 1e-6, String(l.v));
-  // A redaction-cleared ring ('{}') is never-computed too; a malformed one as well.
+  assert.equal(r.ranked, true, 'R4: a confirmed project with a repo reading ranks before the ring is computed');
+  const v = (await useAt(a, NOW)).star_fork;
+  assert.ok(Math.abs(v - 0.5 * 0.5 ** (2 / 90)) < 1e-6, String(v));
+  // A redaction-cleared ring ('{}') is never-computed too; a malformed one as well: strict, still ranked.
   await sql()`UPDATE builder_profiles SET ring = '{"ring": "junk"}'::jsonb WHERE builder_id = ${a}`;
-  assert.equal((await rescorePerson(a, NOW)).ranked, false);
+  assert.equal((await rescorePerson(a, NOW)).ranked, true);
+  assert.ok(Math.abs((await useAt(a, NOW)).star_fork - v) < 1e-9);
   await scorePeopleV2(new Date(NOW.getTime() + 5 * DAY), { deadline: Date.now() + 10_000, only: [a] });
   assert.equal((await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${a}`)[0].ranked, true);
 });
@@ -449,8 +482,8 @@ test('4.20 with a stored ring, an account another person owns that the ring does
   await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
     stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }, { id: 'gh:stranger-x', at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
   await rescorePerson(a, NOW);
-  const [l] = await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`;
-  assert.ok(Math.abs(l.v - 1.5) < 1e-6, String(l.v));
+  const v = (await useAt(a, NOW)).star_fork;
+  assert.ok(Math.abs(v - 1.5) < 1e-6, String(v));
 });
 
 const release = async (id: number, f: Record<string, string>) => {
@@ -509,17 +542,16 @@ test('4.23 a one-directional user who is another EarnKit person: 0.5 in a refres
   await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
   await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
     stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
-  const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
-  await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5) < 1e-6, String(await starFork()));
+  const starFork = async (at: Date) => (await useAt(a, at)).star_fork;
+  assert.ok(Math.abs((await starFork(NOW)) - 0.5) < 1e-6, String(await starFork(NOW)));
   await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  assert.ok(Math.abs((await starFork()) - 1) < 1e-6, String(await starFork()));
+  assert.ok(Math.abs((await starFork(NOW)) - 1) < 1e-6, String(await starFork(NOW)));
   // The next refresh reads the stored check: still in full.
-  await refreshPerson(a, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(await starFork()));
+  const t11 = new Date(NOW.getTime() + 11 * 60_000);
+  assert.ok(Math.abs((await starFork(t11)) - 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(await starFork(t11)));
   // A check older than 36 hours is not honoured: strict again until the next cron run.
-  await refreshPerson(a, { now: new Date(NOW.getTime() + 37 * 3_600_000), deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5 * 0.5 ** ((37 / 24) / 90)) < 1e-6, String(await starFork()));
+  const t37 = new Date(NOW.getTime() + 37 * 3_600_000);
+  assert.ok(Math.abs((await starFork(t37)) - 0.5 * 0.5 ** ((37 / 24) / 90)) < 1e-6, String(await starFork(t37)));
 });
 
 test('4.24 a release publishes only the reviewed pending score: a cron-held day the owner never saw stays private and is never the baseline', dbTest, async () => {
@@ -529,8 +561,8 @@ test('4.24 a release publishes only the reviewed pending score: a cron-held day 
   await person(id, { ring: true });
   await history(id, 10, new Date(D.getTime() - DAY));
   await live(id, { score: 10, ranked: true });
-  await fakeBigUse(id);
-  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] }); // the cron holds about 53 on D
+  await fakeBigUse(id, { active: 4, at: D }); // the live bonus and the last 4 weeks: 58
+  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] }); // the cron holds 58 on D
   const [cronHeld] = await sql()<{ score: number; held: boolean }[]>`SELECT score, held FROM builder_scores WHERE builder_id = ${id} AND day = ${d}`;
   assert.equal(cronHeld.held, true);
   // A later rescore that day holds 30 instead; the owner reviews and releases 30.
@@ -539,9 +571,9 @@ test('4.24 a release publishes only the reviewed pending score: a cron-held day 
   assert.equal((await sql()<{ score: number }[]>`SELECT score FROM builder_live WHERE builder_id = ${id}`)[0].score, 30);
   const pub = await sql()`SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.day = ${d} AND ${publicRow()}`;
   assert.equal(pub.length, 0, `the cron-held ${cronHeld.score} was never reviewed: not public`);
-  // The next day's rescore (about 53) is measured from the released 30, not from 10 (held) or the unseen day.
+  // The next day's rescore (58) is measured from the released 30, not from 10 (held) or the unseen day.
   const r = await rescorePerson(id, new Date(D.getTime() + DAY));
-  assert.equal(r.held, false, 'a 23-point rise from the released 30');
+  assert.equal(r.held, false, 'a 28-point rise from the released 30');
   assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`)[0].held, false);
 });
 
@@ -554,19 +586,19 @@ test('4.25 a checked account whose owner changed since the cron counts 0.5 again
   await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
   await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
     stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
-  const starFork = async () => (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
   await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  assert.ok(Math.abs((await starFork()) - 1) < 1e-6, 'checked by the cron: in full');
+  assert.ok(Math.abs((await useAt(a, NOW)).star_fork - 1) < 1e-6, 'checked by the cron: in full');
   // The login now belongs to another person.
   await sql()`UPDATE builder_profiles SET github_login = NULL WHERE builder_id = ${c}`;
   await sql()`UPDATE builder_profiles SET github_login = ${lc} WHERE builder_id = ${e}`;
-  await refreshPerson(a, { now: new Date(NOW.getTime() + 11 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
-  assert.ok(Math.abs((await starFork()) - 0.5 * 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(await starFork()));
+  const t11 = new Date(NOW.getTime() + 11 * 60_000);
+  const v = (await useAt(a, t11)).star_fork;
+  assert.ok(Math.abs(v - 0.5 * 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(v));
 });
 
 // ---- Fix round 4.
 
-test('4.27 a refresh newer than the cron run never stops the cron storing the ring: checked_at is the run, and the rank comes only from a rescore with the computed ring', dbTest, async () => {
+test('4.27 a refresh newer than the cron run never stops the cron storing the ring: checked_at is the run; R4: ranked by its repo reading either way', dbTest, async () => {
   const [a, c] = [T + 18, T + 19];
   const [la, lc] = [`ra${T}`, `rc${T}`];
   await person(c, { login: lc, ring: true });
@@ -575,26 +607,28 @@ test('4.27 a refresh newer than the cron run never stops the cron storing the ri
   await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
   await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
     stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
+  await mainIs(a, `${la}/x`);
   // A refresh during the cron run, before this person's turn: a later `now`, never-computed ring.
   const later = new Date(NOW.getTime() + 10 * 60_000);
-  assert.equal((await rescorePerson(a, later)).ranked, false);
+  assert.equal((await rescorePerson(a, later)).ranked, true);
   await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
   const [p] = await sql()<{ ring: { ring?: unknown; checked?: [string, number[]][]; checked_at?: string } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
   assert.ok(Array.isArray(p.ring.ring), 'the cron stored the ring');
   assert.equal(p.ring.checked_at, NOW.toISOString());
   assert.ok(p.ring.checked?.some(([acct]) => acct === `gh:${lc}`));
   const [l] = await sql()<{ ranked: boolean; computed_at: Date }[]>`SELECT ranked, computed_at FROM builder_live WHERE builder_id = ${a}`;
-  // The cron rescored the newer row with its computed ring at the row's own time: ranked now, and the
-  // other person's star (checked by the cron) counts in full; computed_at never moves back.
-  const starNow = (await sql()<{ v: number }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v FROM builder_live WHERE builder_id = ${a}`)[0].v;
-  assert.equal(l.ranked, true, 'ranked by the ring-based rescore');
+  // The cron rescored the newer row with its computed ring at the row's own time: the other person's
+  // star (checked by the cron) counts in full; computed_at never moves back.
+  const starNow = (await useAt(a, later)).star_fork;
+  assert.equal(l.ranked, true);
   assert.ok(Math.abs(starNow - 0.5 ** ((10 / 1440) / 90)) < 1e-6, String(starNow));
   assert.equal(l.computed_at.getTime(), later.getTime(), 'computed_at stays the newer row\'s');
   // The next refresh honours the cron's check too.
-  await refreshPerson(a, { now: new Date(NOW.getTime() + 21 * 60_000), deadline: Date.now() + 3000, reader: fakeReader() });
-  const [v] = await sql()<{ v: number; ranked: boolean }[]>`SELECT (parts->'used'->'raw'->>'star_fork')::float AS v, ranked FROM builder_live WHERE builder_id = ${a}`;
-  assert.ok(Math.abs(v.v - 0.5 ** ((21 / 1440) / 90)) < 1e-6, String(v.v));
-  assert.equal(v.ranked, true);
+  const t21 = new Date(NOW.getTime() + 21 * 60_000);
+  await refreshPerson(a, { now: t21, deadline: Date.now() + 3000, reader: fakeReader() });
+  const v = (await useAt(a, t21)).star_fork;
+  assert.ok(Math.abs(v - 0.5 ** ((21 / 1440) / 90)) < 1e-6, String(v));
+  assert.equal((await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${a}`)[0].ranked, true);
 });
 
 test('4.33 a cron rescore of a newer held row gets a new version: the review page shown before it is refused once', dbTest, async () => {
@@ -636,13 +670,13 @@ test('4.28 a second release on the same day keeps the earlier released score pub
   await person(id, { ring: true });
   await history(id, 10, new Date(D.getTime() - DAY));
   await live(id, { score: 10, ranked: true });
-  await fakeBigUse(id);
-  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] }); // the cron holds about 53 on D
+  await fakeBigUse(id, { active: 4, at: D });
+  await scorePeopleV2(D, { deadline: Date.now() + 10_000, only: [id] }); // the cron holds 58 on D
   const isPublic = async () => (await sql()`SELECT 1 FROM builder_scores s WHERE s.builder_id = ${id} AND s.day = ${d} AND ${publicRow()}`).length === 1;
   const version = async () => (await heldForReview()).find((x) => x.builder_id === id)!.version!;
   assert.equal((await release(id, { day: d, version: await version() })).status, 303);
   assert.ok(await isPublic(), 'the reviewed cron score is public');
-  // Later that day a bigger rescore is held again and the owner releases it too.
+  // Later that day a bigger rescore (100, code every week) is held again and the owner releases it too.
   await fakeBigUse(id, { rich: true, seed: 2 });
   assert.equal((await rescorePerson(id, new Date(D.getTime() + 3_600_000))).held, true);
   assert.equal((await release(id, { day: d, version: await version() })).status, 303);
@@ -693,20 +727,39 @@ const mainIs = (id: number, key: string) => sql()`UPDATE builder_profiles SET ma
 const mainProven = async (id: number, key: string) => {
   await mainIs(id, key);
   await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'repo_owner', by: 'server' });
+  // R4: ranked needs a repo reading (no commits: Shipping counts the live bonus only).
+  await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [] });
 };
 
-test('4.2 an EarnKit-hosted live app is a confirmed ship: ranked, Shipped 10', dbTest, async () => {
+test('4.2 an EarnKit-hosted live app is a live ship: ranked, Shipping 10 (the live bonus)', dbTest, async () => {
   const id = T + 1;
   await person(id, { ring: true });
   await hosted(id, { slug: `tip${id}`, repo_key: `lee/tip${id}`, status: 'live' });
   await mainProven(id, `lee/tip${id}`);
   const r = await rescorePerson(id, NOW);
   assert.equal(r.ranked, true);
-  const [l] = await sql()<{ parts: { shipped: { points: number } } }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`;
-  assert.equal(l.parts.shipped.points, 10);
+  const [l] = await sql()<{ parts: { shipping: { points: number; raw: { live_ships: number } } } }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual([l.parts.shipping.points, l.parts.shipping.raw.live_ships], [10, 1]);
 });
 
-test('4.7 coin buys count toward Used and the creator fees toward Earned (an EarnKit coin is a ship)', dbTest, async () => {
+test('4.2b R4 the ranked rule: a confirmed project ranks only once a repo of it has a reading; no commits ranks at 0', dbTest, async () => {
+  const id = T + 1;
+  await person(id, { ring: true });
+  const key = `lee/rk${id}`;
+  await mainIs(id, key);
+  await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'repo_owner', by: 'server' });
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: false, held: false }, 'confirmed, never read: not ranked');
+  await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [] });
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: true, held: false }, 'read, no commits: ranked at 0, never hidden');
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+    SELECT id, ${sql().json({ owner: 'lee', owner_type: 'User', commit_weeks: [isoWeekOf(NOW)] } as never)}, true, ${NOW} FROM builder_sources WHERE builder_id = ${id} AND ref = ${key}`;
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 14, ranked: true, held: false }, 'this week only: 14');
+  // A proposed (unproven) repo with a reading never ranks.
+  await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL WHERE builder_id = ${id} AND ref = ${key}`;
+  assert.equal((await rescorePerson(id, NOW)).ranked, false);
+});
+
+test('4.7 coin buys count as people and the creator fees as money on the project row; neither is scored, and a coin is not a live ship', dbTest, async () => {
   const id = T + 8;
   await person(id, { ring: true });
   const coin = `0x${hex40(id + 7)}`;
@@ -724,11 +777,12 @@ test('4.7 coin buys count toward Used and the creator fees toward Earned (an Ear
   await reading(`base:${coin}`, { traders, partial: false });
   const r = await rescorePerson(id, NOW);
   assert.equal(r.ranked, true);
-  const [l] = await sql()<{ parts: { used: { raw: { U: number } }; earned: { raw: { E: number } }; shipped: { raw: { S: number } } } }[]>`
-    SELECT parts FROM builder_live WHERE builder_id = ${id}`;
-  assert.ok(l.parts.used.raw.U > 0, 'coin buys are people using it');
-  assert.equal(l.parts.earned.raw.E, 120);
-  assert.equal(l.parts.shipped.raw.S, 1, 'the coin and its source are one project');
+  assert.equal(r.score, 0, 'no commits and no live ship');
+  const [l] = await sql()<{ parts: Record<string, unknown> }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual(Object.keys(l.parts), ['shipping']);
+  const use = await useAt(id, NOW);
+  assert.ok(use.U > 0, 'coin buys are people using it');
+  assert.equal(use.E, 120);
   const [p] = await sql()`SELECT kind, has_coin, confirmed, people, money_usd::float AS money FROM builder_projects WHERE builder_id = ${id}`;
   assert.deepEqual({ ...p }, { kind: 'coin', has_coin: true, confirmed: true, people: 12, money: 120 });
 });
@@ -766,7 +820,7 @@ test('4.26 an older rescore never overwrites a newer one (decided and written un
   assert.equal((await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${id}`).length, 1);
 });
 
-test('4.32 a mid-cron refresh with a never-computed ring over a 15-person cluster is rescored to the capped score by the cron, never ranked inflated', dbTest, async () => {
+test('4.32 a mid-cron refresh with a never-computed ring over a 15-person cluster: the cron stores the ring that caps the people counted (not scored)', dbTest, async () => {
   const a = T + 1;
   // 14 other people: strict 0.5 each in the refresh (7) is above the cluster cap of 5.
   const cs = Array.from({ length: 14 }, (_, i) => T + 2 + i);
@@ -792,19 +846,20 @@ test('4.32 a mid-cron refresh with a never-computed ring over a 15-person cluste
   const addr = `0x${hex40(a + 3e9)}`;
   await source(a, { kind: 'contract', ref: `base:${addr}`, key: `${login(a)}/app`, state: 'verified', proof: 'deployer', by: 'server' });
   await reading(`base:${addr}`, { callers, partial: false });
-  const used = async () => (await sql()<{ u: number; score: number; ranked: boolean; computed_at: Date }[]>`
-    SELECT (parts->'used'->'raw'->>'U')::float AS u, score, ranked, computed_at FROM builder_live WHERE builder_id = ${a}`)[0];
+  const row = async () => (await sql()<{ score: number; ranked: boolean; computed_at: Date }[]>`
+    SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${a}`)[0];
   const later = new Date(NOW.getTime() + 10 * 60_000);
-  await rescorePerson(a, later); // the refresh: strict 0.5 per other-owned wallet, no cluster cap, unranked
-  const inflated = await used();
-  assert.equal(inflated.ranked, false);
-  assert.ok(inflated.u > 6, `inflated U ${inflated.u}`);
+  await rescorePerson(a, later); // the refresh: strict 0.5 per other-owned wallet, no cluster cap
+  const inflated = (await useAt(a, later)).U;
+  assert.ok(inflated > 6, `inflated U ${inflated}`);
+  const before = await row();
+  assert.equal(before.ranked, true, 'R4: ranked by its repo reading; people never move the score');
   await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  const capped = await used();
-  assert.ok(capped.u <= 5 + 1e-6, `capped U ${capped.u}`);
-  assert.ok(capped.score < inflated.score, `${capped.score} < ${inflated.score}`);
-  assert.equal(capped.ranked, true, 'ranked only at the capped score');
-  assert.equal(capped.computed_at.getTime(), later.getTime());
+  const capped = (await useAt(a, later)).U;
+  assert.ok(capped <= 5 + 1e-6, `capped U ${capped}`);
+  const after = await row();
+  assert.deepEqual([after.score, after.ranked], [before.score, true]);
+  assert.equal(after.computed_at.getTime(), later.getTime());
   await sql()`DELETE FROM installation_wallets WHERE installation_id IN ${sql()(cs)}`;
 });
 

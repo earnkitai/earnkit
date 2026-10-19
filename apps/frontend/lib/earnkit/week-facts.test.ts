@@ -307,7 +307,7 @@ test('4.14 a coin and an entry naming an unproven repo do not confirm it for the
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
 
-test('4.15 a scoped npm package as the one project, confirmed through its package source, is ranked and gets its Started row', dbTest, async () => {
+test('4.15 a scoped npm package as the one project, confirmed through its package source, gets its Started row; R4: unranked without a repo reading', dbTest, async () => {
   const id = T + 13;
   const key = `@v213s${T}/pkg`;
   await clear(id);
@@ -317,8 +317,8 @@ test('4.15 a scoped npm package as the one project, confirmed through its packag
     VALUES (${id}, 'package_npm', ${key}, ${key}, 'verified', 'repo_link', 'server') RETURNING id::int AS sid`;
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ weekly: 500 } as never)}, true, now())`;
   await rescorePerson(id, NOW);
-  const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
-  assert.equal(live.ranked, true);
+  const [live] = await sql()<{ ranked: boolean; score: number }[]>`SELECT ranked, score FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual([live.ranked, live.score], [false, 10], 'the published package is a live ship (10); no repo reading, no rank');
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
 

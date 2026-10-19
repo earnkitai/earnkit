@@ -180,13 +180,14 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   }));
   // R5: scored at connect. The proved repo is read once now (the App's installation token, the refresh's
   // reader, which writes commit_weeks and commit_counts), so the rescore below has its commit weeks.
-  // Fail soft: a failed read leaves the proof standing, and the next refresh or daily read reads it.
+  // Fail soft: a failed read writes nothing (an earlier good reading still counts) and leaves the proof standing;
+  // the next refresh or daily read reads it.
   const scoring = await import('./person-score');
   try {
     const { defaultReaderDeps } = await import('./source-readers');
     const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
     const reader = defaultReaderDeps(now, deadline);
-    await scoring.readPersonLive(a.builderId, now, { deadline, reader: deps.fetch ? { ...reader, ghFetch: deps.fetch } : reader, only: [row.id] });
+    await scoring.readPersonLive(a.builderId, now, { deadline, reader: deps.fetch ? { ...reader, ghFetch: deps.fetch } : reader, only: [row.id], soft: true });
   } catch (err) {
     console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
   }

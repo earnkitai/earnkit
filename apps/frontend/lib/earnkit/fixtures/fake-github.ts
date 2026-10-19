@@ -66,6 +66,12 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
         author: c.login ? { login: c.login, type: c.type ?? 'User' } : null, parents: Array.from({ length: c.parents ?? 1 }, (_, i) => ({ sha: `p${i}` })),
       })));
     }
+    // An organization repo's reading asks for its contributors (the owner's admins stand in for them).
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/contributors$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst)) return json(404, {});
+      return json(200, (r.admins ?? [r.owner]).map((login) => ({ login })));
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];
       if (!r || (r.private && r.installation !== inst)) return json(404, {});

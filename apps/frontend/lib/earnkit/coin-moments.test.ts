@@ -306,11 +306,12 @@ test('10.7 find: a project with people and no bigger step gets the coin as the o
   assert.equal(n, 1);
 });
 
-test('10.8 find: the reply that reports a project\'s first 5 people offers the coin in place of the step, and the news asks no card', dbTest, async () => {
+test('10.8 find: a project\'s first 5 people offer the coin in place of the step; no people news', dbTest, async () => {
   const seen = { people: { 'lee/five': 2 }, at: new Date(NOW.getTime() - 3 * DAY).toISOString() };
   const id = await person([{ key: 'lee/five', name: 'Five', people: 6 }], seen);
   const r = await find(id);
-  assert.ok(r.show_to_builder.startsWith('Since you last checked: 4 new people used Five this week.\n\n'), r.show_to_builder);
+  // Scoring and clarity: people are not scored, so new people are no longer news.
+  assert.doesNotMatch(r.show_to_builder, /new people used|Since you last checked/, r.show_to_builder);
   assert.match(r.show_to_builder, /How to move up\n5 people have used Five\. A coin pays you 40% of its trading fees\. Want to launch a coin, \$[A-Z0-9]+ \([^)]+\), for it\?$/, r.show_to_builder);
   const [m] = await sql()`SELECT moment FROM coin_moments WHERE builder_id = ${id}`;
   assert.equal(m.moment, 'first_five');

@@ -69,7 +69,7 @@ apps/frontend/
                                no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
-  app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
+  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid}.tsx  v2.13 T11: the Bench profile (scoring and clarity: one Shipping ring; photo,
                                rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
@@ -1399,8 +1399,8 @@ apps/frontend/
                                option (posted_by still written)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
-    bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
-                               CHAIN_CHIP_MIN, BENCH_CHAINS)
+    bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines ({ bench: rank line,
+                               line: score line, chains }; chain lines from one ranked project, R16e)
     bench-reply.ts(+test)      v2.14 T9 (spec 4): the reply as five states, pure. ReplyState (signed_out, no_project,
                                not_counted, proven, shipping), Variant (taken, copy, no_repo, app_off), replyState;
                                STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
@@ -1469,10 +1469,13 @@ apps/frontend/
                                SCORE_SHARED, SEND_LINK_NOTE (v2.12's reply removed in T12)
     reserved-routes.ts(+test)  v2.12.1 T1: RESERVED_ROUTES (every top-level route; the test fails on a new one),
                                isReserved, pagePath (/b/<handle> for a reserved one), pageUrl
-    score-v2.ts(+test)         v2.12.1 T2: computeScoreV2 (Shipped 20, Used 40, Earned 20, Consistency 20;
-                               fade 90-day half-life, Shipped keeps half; STAR_FORK_CAP 5; ranked = 1 ship)
-    rank.ts(+test)             v2.12.1 T2: rankWords ("#N of M builders on EarnKit" under RANK_LIST_UNTIL 50,
-                               top half only; then "top N% of people building with AI" for N <= 50), topPercentOf
+    score-v2.ts(+test)         scoring and clarity: computeScoreV2 (one Shipping score: round(90 x weighted active
+                               weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
+                               shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
+                               sentence), countUse (people and money for builder_projects, not scored; fade, STAR_FORK_CAP)
+    rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
+                               "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
+                               <rank line>"), benchPercent, CHAIN_CHIP_MIN (leaderboard chips only), BENCH_CHAINS
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).

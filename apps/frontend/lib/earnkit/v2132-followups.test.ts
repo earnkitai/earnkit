@@ -54,6 +54,11 @@ async function confirmed(key: string, org = false) {
     UPDATE builder_sources SET state = 'verified', proof = 'proof_branch', verified_at = now(), gh_owner = ${key.split('/')[0]},
       gh_owner_type = ${org ? 'Organization' : 'User'}
     WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()}`;
+  // R4: ranked once the repo has a reading.
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+    SELECT id, ${sql().json({ owner: key.split('/')[0], owner_type: org ? 'Organization' : 'User', commit_weeks: [] } as never)}, true, now()
+    FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()}
+    ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
   await rescorePerson(id, new Date());
   assert.equal(await ranked(id), true);
   return id;

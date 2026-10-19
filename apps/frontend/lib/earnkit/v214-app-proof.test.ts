@@ -112,8 +112,10 @@ test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standi
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `fynn${RUN}`, private: true });
   assert.equal(p.live.ranked, false, 'R4: no repo reading yet, no rank');
   assert.equal(p.live.score, 0);
-  const [l] = await sql()<{ ok: boolean }[]>`SELECT l.ok FROM source_live l JOIN builder_sources s ON s.id = l.source_id WHERE s.builder_id = ${p.id} AND s.kind = 'repo'`;
-  assert.equal(l.ok, false, 'the failed read is recorded, so the next refresh reads it again');
+  // The failed read writes nothing over the find's earlier attempt, so the next refresh reads it again.
+  const rows = await sql()<{ ok: boolean; read_at: Date }[]>`SELECT l.ok, l.read_at FROM source_live l JOIN builder_sources s ON s.id = l.source_id WHERE s.builder_id = ${p.id} AND s.kind = 'repo'`;
+  assert.ok(rows.every((x) => x.ok === false && x.read_at.getTime() < Date.now() - 1), JSON.stringify(rows));
+  assert.equal(gh.calls.filter((c) => c.path === '/graphql').length, 0, 'the 502 went through the wrapper');
 });
 
 test('6.3 the App on a fork is a copy: refused, not verified', db, async () => {

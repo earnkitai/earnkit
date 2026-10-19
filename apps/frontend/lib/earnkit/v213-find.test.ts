@@ -71,7 +71,7 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.match(r.show_to_builder, /^Recipe planner is on the Bench(: (top \d+(\.\d)?% of builders|#\d+ of \d+ builders?))?\.$/m);
+    assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m);
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)} pays up to \\$10K and fits Recipe planner; it's open all year\\.$`, 'm'));
     // v2.13.3 owner ruling A: the best fit's entry is asked first; a no to it, then the next step (never the updates yes).
     assert.ok(r.show_to_builder.endsWith(`Want me to prepare an entry for ${p.title}?`), r.show_to_builder);

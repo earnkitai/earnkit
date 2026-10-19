@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { isoWeekOf } from './weeks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -468,6 +469,10 @@ async function seedBaseBuilders(n: number): Promise<string> {
     await sql()`
       INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, verified_at)
       VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'server', now())`;
+    // R4: ranked once the repo has a reading (its commits this week and the i weeks before).
+    const weeks = Array.from({ length: i + 1 }, (_, w) => isoWeekOf(new Date(Date.now() - w * 7 * 86_400_000)));
+    await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+      SELECT id, ${sql().json({ owner: `base${i}`, owner_type: 'User', commit_weeks: weeks } as never)}, true, now() FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
     await sql()`
       INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, owner_ok, cost_micro_usd, created_at)
       VALUES (${id}, ${`base${i}`}, ${key}, 'base', ${`0x${randomBytes(32).toString('hex')}`}, ${`0x${randomBytes(20).toString('hex')}`}, 'deployed', true, 1000,
@@ -541,7 +546,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner is on the Bench(: .+?)?\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
   // v2.13.3 owner ruling A: nothing fits, so the confirmed project is offered a community round (once).
   assert.match(r2.show_to_builder, /I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, r2.show_to_builder);
   assert.equal(r2.move_up?.kind, 'coin');
@@ -618,7 +623,7 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
   assert.match(html(React.createElement(BenchView, { ...base, filter, raising: true })), /alt="Base"/);
-  assert.match(await renderProfile(BASE_HANDLE, 'log'), /#\d+ of \d+ on Base|Top \d+(\.\d)?% on Base/);
+  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base this week/);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
