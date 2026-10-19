@@ -6,13 +6,14 @@ import InstallButton from './InstallButton';
 /**
  * The site header. v2.7 fix round 1: the persistent call to action is the install ("Add to your
  * agent", the same modal as the hero). v2.7.1: "Docs" (footer-links DOCS) beside it on every page,
- * desktop and mobile; "Follow on X" lives in the footer only.
+ * desktop and mobile; "Follow on X" lives in the footer only. profile-whoop v2: hidden on the
+ * profile, which has its own slim top bar (globals.css, data-ek-header).
  */
 export default function Header() {
   return (
     <>
       {/* Desktop */}
-      <header className="hidden h-[12vh] w-full items-center justify-between font-funnel-display md:flex">
+      <header data-ek-header="" className="hidden h-[12vh] w-full items-center justify-between font-funnel-display md:flex">
         <div className="flex min-h-full flex-1 items-center justify-between rounded-[56px] bg-ek-navy pl-[5rem] pr-12">
           <Link
             href="/"
@@ -34,7 +35,7 @@ export default function Header() {
       </header>
 
       {/* Mobile - fixed bottom bar */}
-      <header className="container2 fixed bottom-0 z-50 flex w-full flex-col items-center justify-between font-funnel-display md:hidden">
+      <header data-ek-header="" className="container2 fixed bottom-0 z-50 flex w-full flex-col items-center justify-between font-funnel-display md:hidden">
         <div className="absolute left-0 top-[-56px] text-ek-black">
           <svg
             className="-rotate-90"

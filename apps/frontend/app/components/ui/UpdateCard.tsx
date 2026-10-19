@@ -1,4 +1,5 @@
 import Avatar from '../../[handle]/Avatar';
+import { chipHue } from '../../[handle]/score-colors';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
 import { weekLabel } from '../../../lib/earnkit/weeks';
@@ -40,8 +41,14 @@ function Body({ text }: { text: string }) {
   return <>{out}</>;
 }
 
-/** v2.13 spec "The feed": one update as a card, long (the feed, the profile) or square (the carousel). Server-safe; no label says who wrote it. */
-export default function UpdateCard({ card, shape, showPerson = true }: { card: UpdateCardData; shape: 'long' | 'square'; showPerson?: boolean }) {
+/**
+ * v2.13 spec "The feed": one update as a card, long (the feed, the profile) or square (the carousel).
+ * Server-safe; no label says who wrote it. profile-whoop v3: each chip carries the score hue it speaks
+ * to (data-hue, score-colors.ts chipHue); the premium pages (.ek-premium in globals.css) show it only
+ * as one small dot on the first chip, so the homepage carousel looks as before. `showWeek: false`
+ * drops the week line where a section header already names the week (the feed).
+ */
+export default function UpdateCard({ card, shape, showPerson = true, showWeek = true }: { card: UpdateCardData; shape: 'long' | 'square'; showPerson?: boolean; showWeek?: boolean }) {
   const square = shape === 'square';
   const shell = square
     ? 'aspect-square rounded-[28px] bg-ek-navy p-5 flex flex-col justify-between w-[78vw] max-w-[18rem] sm:w-[18rem]'
@@ -57,14 +64,16 @@ export default function UpdateCard({ card, shape, showPerson = true }: { card: U
       <div>
         {showPerson && handle && (
           <div className="mb-3 flex items-center gap-3">
-            <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
+            <span data-ek-ring="" className="inline-flex shrink-0 rounded-full">
+              <Avatar src={card.avatar ?? null} handle={handle} className="h-9 w-9 text-sm" />
+            </span>
             <div className="min-w-0 font-funnel-sans text-sm text-ek-blue-light">
-              <p className="truncate font-medium text-ek-white">{card.name}</p>
-              <p className="truncate"><a href={pagePath(handle)} className="hover:text-ek-white">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
+              <p data-ek-name="" className="truncate font-medium text-ek-white">{card.name}</p>
+              <p data-ek-meta="" className="truncate"><a href={pagePath(handle)} className="hover:text-ek-white">@{handle}</a>{card.project ? ` · ${card.project}` : ''}</p>
             </div>
           </div>
         )}
-        <p className="font-funnel-sans text-sm text-ek-blue-soft">{weekLabel(card.week)}</p>
+        {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-blue-soft">{weekLabel(card.week)}</p>}
         {titles.length ? <ul className="mt-2 space-y-1">{titles.map((t) => <li key={t} className="font-funnel-sans text-[15px] text-ek-white">{t}</li>)}</ul> : null}
         {text && (
           <p className={`mt-2 font-funnel-sans text-base text-ek-white ${square ? 'line-clamp-3' : ''}`}><Body text={text} /></p>
@@ -73,7 +82,7 @@ export default function UpdateCard({ card, shape, showPerson = true }: { card: U
       {chips.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-2">
           {chips.map((c) => (
-            <li key={c} className="rounded-full bg-ek-navy-deep px-3 py-1 text-sm text-ek-blue-light">{c}</li>
+            <li key={c} data-hue={chipHue(c) ?? undefined} className="rounded-full bg-ek-navy-deep px-3 py-1 text-sm text-ek-blue-light">{c}</li>
           ))}
         </ul>
       )}
