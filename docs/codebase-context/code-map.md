@@ -1484,7 +1484,7 @@ apps/frontend/
                                code with x), attachToX (one tx: row lock, checks, attach alone or page from X,
                                bindXIn, x_user_id last; T5: always the installation alone: a root's members detached
                                first, a member leaves its old root when no page holds the X); T7: the X profile writer
-                               moved here from claim.ts: BindResult, bindX (no held or join_pending branch; an X another
+                               moved here from the deleted claim module: BindResult, bindX (no held or join_pending branch; an X another
                                page holds is refused by the unique index), BoundX, bindXIn, afterBind (cache dropped in a
                                finally), errText (pg code + message for logs)
     x-link.ts                  v2.14 T5 (tests: v214-signin-link.test.ts): the fallback link. LINK_TTL_MS, PASTE_TTL_MS,

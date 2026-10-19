@@ -77,3 +77,17 @@ test('2.6 every v214 agent-input test goes through mcpCall, never a handler alon
     if (/\b(find|tell|score|prepare|confirm)\b/.test(src) && /mcp|tool/i.test(src)) assert.match(src, /mcpCall\(/, `${f} needs mcpCall`);
   }
 });
+
+test('2.7 the docs name v2.14 and the runbook covers acceptance 1 to 5 and the preflight checks', () => {
+  const root = join(import.meta.dirname, '..', '..', '..', '..');
+  const guide = readFileSync(join(root, 'docs/codebase-context/architecture-guide.md'), 'utf8');
+  assert.match(guide, /^## v2\.14 One account/m);
+  for (const name of ['x-install.ts', 'x-link.ts', 'repo-proof.ts', 'ship-titles.ts', 'STATE_COPY'])
+    assert.ok(guide.includes(name), name);
+  const map = readFileSync(join(root, 'docs/codebase-context/code-map.md'), 'utf8');
+  for (const f of ['x-install.ts', 'x-link.ts', 'repo-proof.ts', 'ship-titles.ts', 'app/signin/[code]/route.ts']) assert.ok(map.includes(f), f);
+  assert.doesNotMatch(map, /proof-branch\.ts|page-joins\.ts|claim\.ts\b/);
+  const book = readFileSync(join(root, 'docs/design-docs-and-implementation-plans/v2.14-acceptance-runbook.md'), 'utf8');
+  for (const h of ['## 0.', '## 1.', '## 2.', '## 3.', '## 4.', '## 5.']) assert.ok(book.includes(h), h);
+  assert.doesNotMatch(book, /—/);
+});
