@@ -1,5 +1,6 @@
 import { siteUrl } from './entry-text';
 import { pagePath, pageUrl } from './reserved-routes';
+import { scoreLine } from './rank';
 
 /**
  * v2.13 spec "2a", "2b", "5. Ways to get funded", "The last line", v2.14 spec 4: the reply in three parts
@@ -24,7 +25,8 @@ export const NOT_ON_BENCH = "You're not on the Bench yet.";
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** A13: the streak as the chips say it. */
 export const streakWords = (n: number) => `${n} weeks in a row`;
-const onBench = (name: string, rank: string | null) => (rank ? `${name} is on the Bench: ${rank}.` : `${name} is on the Bench.`);
+/** R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week." */
+export const shippingStand = (name: string, score: number | null, rank: string | null) => `${name}: ${scoreLine(score ?? 0, rank)}.`;
 
 /** `when` as stand-view earnWhen gives it: "open all year" or "closes Oct 14". */
 export const fitsLine = (title: string, prize: string, name: string, when: string) =>
@@ -61,8 +63,8 @@ export const STATE_COPY = {
     stand: (name: string) => `${name} isn't counted yet.`,
     ask: (link: string) => `Install the read-only EarnKit app on it (one click): ${link}\nWant me to count it once that's done?`,
   },
-  proven: { stand: (name: string, rank: string | null) => onBench(name, rank) },
-  shipping: { stand: (name: string, rank: string | null, streak: number) => `${onBench(name, rank)} ${streakWords(streak)}.` },
+  proven: { stand: (name: string, score: number | null, rank: string | null) => shippingStand(name, score, rank) },
+  shipping: { stand: (name: string, score: number | null, rank: string | null, streak: number) => `${shippingStand(name, score, rank)} ${streakWords(streak)}.` },
 } as const;
 /** A15: not counted, when the install link can't help. */
 export const VARIANT_COPY = {
@@ -82,6 +84,8 @@ export function replyState(i: { signedIn: boolean; project: BenchProject | null;
 
 export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null; rank: string | null; streak: number;
+  /** Shipping (0 to 100) and its why sentence (score-v2.ts scoreWhy), shown in proven and shipping only. */
+  score: number | null; why: string | null;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
   /** The state's action link: the sign-in link (signed_out) or the install link (not_counted, no variant). */
@@ -118,7 +122,7 @@ function standLine(v: BenchView): string {
   if (v.state === 'not_counted' && v.variant) return VARIANT_COPY[v.variant].stand(name);
   if (v.state === 'signed_out' || v.state === 'no_project') return NOT_ON_BENCH;
   if (v.state === 'not_counted') return STATE_COPY.not_counted.stand(name);
-  return v.state === 'shipping' ? STATE_COPY.shipping.stand(name, v.rank, v.streak) : STATE_COPY.proven.stand(name, v.rank);
+  return v.state === 'shipping' ? STATE_COPY.shipping.stand(name, v.score, v.rank, v.streak) : STATE_COPY.proven.stand(name, v.score, v.rank);
 }
 function fundLines(v: BenchView): string[] {
   const name = v.project?.name ?? '';
@@ -134,7 +138,9 @@ export function benchReply(v: BenchView): string {
   // question (A17) carries no link, so the page is then the link.
   const linked = Boolean(v.link) && (!v.held || v.state === 'signed_out');
   const page = v.handle ? `Your page: ${linked && v.state !== 'signed_out' ? pageUrl(v.handle) : `${siteUrl()}${pagePath(v.handle)}`}` : null;
-  const stand = [BENCH_HEADS.stand, standLine(v), ...(page && v.state !== 'signed_out' ? [page] : [])];
+  // The why sentence sits under the ranked stand line: a statement, never a second question.
+  const why = (v.state === 'proven' || v.state === 'shipping') && v.why ? [v.why] : [];
+  const stand = [BENCH_HEADS.stand, standLine(v), ...why, ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [NO_MONEY_LINE])];
   // Fix round 1 (ruling 4): signed out, the sign-in question always wins.

@@ -9,7 +9,7 @@ import type { PageHead } from '../../lib/earnkit/page-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
 import ProjectTab from './ProjectTab';
-import ScoreParts from './ScoreParts';
+import ShippingScore from './ShippingScore';
 import ScoreRing from './ScoreRing';
 import ShipGrid, { shippedWords } from './ShipGrid';
 
@@ -129,7 +129,7 @@ const TAB_OFF = 'text-ek-blue-light hover:bg-ek-navy hover:text-ek-white';
 
 /**
  * v2.13 spec "Profile" (R10, R11, R12): the header (photo, name, @handle, the Raising pill, the
- * Bench line then each chain's line with its logo), the score with its four parts, the 52-week
+ * Bench line then each chain's line with its logo), the Shipping score with why, the 52-week
  * shipping grid with the streak, then two tabs as plain links: the Ship log (default; long cards,
  * newest first, the Started card last) and the Project. A quiet sources line at the end.
  * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
@@ -160,9 +160,9 @@ export default function BenchProfileView({
               </div>
             ) : null}
           </div>
-          {d.bench ? (
+          {d.line ? (
             <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-funnel-sans text-base text-ek-white md:mt-6 md:text-lg">
-              <span className="font-medium">{d.bench}</span>
+              <span className="font-medium">{d.line}</span>
               {d.chainLines.map((c) => (
                 <span key={c.chain} className="inline-flex items-center gap-2">
                   <span aria-hidden="true" className="text-ek-blue-soft/60">
@@ -186,7 +186,7 @@ export default function BenchProfileView({
                   className="h-[6.5rem] w-[6.5rem] md:h-32 md:w-32"
                   numberClassName="text-[2rem] md:text-[2.5rem]"
                 />
-                <ScoreParts parts={d.parts} />
+                <ShippingScore why={d.why} />
               </div>
             ) : null}
             <div

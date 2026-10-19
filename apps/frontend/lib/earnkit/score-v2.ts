@@ -2,21 +2,22 @@ import type { CalibrationV2 } from './score-calibration';
 import { isoWeekOf } from './weeks';
 
 /**
- * Scoring and clarity (R1 to R3): the score out of 100 in two parts, from confirmed data only (the
- * caller passes only the one project's confirmed ships and commit weeks).
- * - Shipped (max 50): 10 per week with commits in the last 4 weeks, this week included (max 40),
- *   plus 5 per live ship: a live site, a contract deploy, a published package (max 10).
- * - Consistency (max 50): round(50 x weeks with commits in the last 12 weeks, this week included, / 12).
- * Weeks are ISO weeks (Monday to Sunday, UTC). Used and Earned are no longer part of the score; the
- * people and money a project has are still counted for its stored row (countUse). Pure.
+ * Scoring and clarity (owner ruling 2026-10-19, replacing R1 to R3): one score, Shipping, 0 to 100,
+ * from the one project's confirmed data only.
+ *   Shipping = round(90 x sum(w_i x active_i) / sum(w_i)) + live bonus
+ * where i = 0..11 is a week's age (0 = this ISO week, Monday to Sunday UTC), active_i = 1 when the
+ * repo has commits that week, and w_i = 12 - i (recent weeks weigh more; the weights sum to 78). The
+ * live bonus is 10 when any live ship exists (a live site, a contract deploy, a published package).
+ * Used and Earned are no longer scored; the people and money a project has are still counted for its
+ * stored row (countUse). `parts` holds { shipping } and leaves room for a separate 0 to 100
+ * { originality } a later change adds (never summed into Shipping). Pure.
  */
 export const FORMULA_V2 = 'v2';
-export const MAX_V2 = { shipped: 50, consistency: 50 } as const;
-export const CODE_WEEK_POINTS = 10;
-export const SHIPPED_WEEKS = 4;
-export const LIVE_SHIP_POINTS = 5;
-export const LIVE_SHIPS_MAX = 2;
-export const CONSISTENCY_WEEKS = 12;
+export const SHIPPING_MAX = 100;
+export const CODE_MAX = 90;
+export const LIVE_BONUS = 10;
+export const SHIPPING_WEEKS = 12;
+const WEIGHT_SUM = (SHIPPING_WEEKS * (SHIPPING_WEEKS + 1)) / 2; // 78
 export const HALF_LIFE_DAYS = 90;
 export const STAR_FORK_CAP = 5;
 const DAY_MS = 86_400_000;
@@ -27,18 +28,20 @@ export type Ship = { key: string; kind: 'site' | 'contract' | 'package' };
 export type ScoreInput = { ships: Ship[]; commitWeeks: string[] };
 export type ScorePart = { points: number; raw: Record<string, number> };
 /**
- * `shipped.raw`: code_weeks (of the last 4), live_ships (distinct, before the cap). `consistency.raw`:
- * weeks (of the last 12) and mask (bit i set: commits in the week i weeks before this one; bit 0 is
- * this week), which scoreWhy reads.
+ * `shipping.raw`: mask (bit i set: commits in the week i weeks before this one; bit 0 is this week),
+ * weeks (of the last 12), recent (of the last 4), live_ships (distinct). scoreWhy reads them.
+ * `originality`: reserved for a later, separate value.
  */
-export type ScoreParts = { shipped: ScorePart; consistency: ScorePart };
+export type ScoreParts = { shipping: ScorePart; originality?: ScorePart };
 export type V2Scored = { score: number; parts: ScoreParts; shipped: number };
 
+const LAST12 = (1 << SHIPPING_WEEKS) - 1;
+const LAST4 = 0b1111;
 /** The 12-bit mask of the last 12 ISO weeks with commits (bit 0: the week of `now`). Pure. */
 export function weekMask(commitWeeks: Iterable<string>, now: Date): number {
   const have = new Set(commitWeeks);
   let mask = 0;
-  for (let i = 0; i < CONSISTENCY_WEEKS; i++) if (have.has(isoWeekOf(new Date(now.getTime() - i * WEEK_MS)))) mask |= 1 << i;
+  for (let i = 0; i < SHIPPING_WEEKS; i++) if (have.has(isoWeekOf(new Date(now.getTime() - i * WEEK_MS)))) mask |= 1 << i;
   return mask;
 }
 const bits = (m: number) => {
@@ -46,73 +49,56 @@ const bits = (m: number) => {
   for (let x = m; x; x &= x - 1) n++;
   return n;
 };
-const LAST4 = (1 << SHIPPED_WEEKS) - 1;
-const LAST12 = (1 << CONSISTENCY_WEEKS) - 1;
 
-/** Both parts from a week mask and the distinct live ships. Pure. */
-export function partsOf(mask: number, liveShips: number): ScoreParts {
+/** Shipping from a week mask and the distinct live ships. Pure. */
+export function shippingOf(mask: number, liveShips: number): number {
   const m = Number.isInteger(mask) ? mask & LAST12 : 0;
-  const live = Number.isFinite(liveShips) && liveShips > 0 ? Math.floor(liveShips) : 0;
-  const w4 = bits(m & LAST4);
-  const w12 = bits(m);
-  return {
-    shipped: { points: CODE_WEEK_POINTS * w4 + LIVE_SHIP_POINTS * Math.min(LIVE_SHIPS_MAX, live), raw: { code_weeks: w4, live_ships: live } },
-    consistency: { points: Math.round((MAX_V2.consistency * w12) / CONSISTENCY_WEEKS), raw: { weeks: w12, mask: m } },
-  };
+  let w = 0;
+  for (let i = 0; i < SHIPPING_WEEKS; i++) if (m & (1 << i)) w += SHIPPING_WEEKS - i;
+  return Math.min(SHIPPING_MAX, Math.round((CODE_MAX * w) / WEIGHT_SUM) + (liveShips > 0 ? LIVE_BONUS : 0));
 }
-const total = (p: ScoreParts) => p.shipped.points + p.consistency.points;
 
 export function computeScoreV2(i: ScoreInput, now: Date): V2Scored {
   const live = new Set(i.ships.map((s) => s.key)).size;
-  const parts = partsOf(weekMask(i.commitWeeks, now), live);
-  return { score: Math.min(100, Math.max(0, total(parts))), parts, shipped: live };
+  const mask = weekMask(i.commitWeeks, now);
+  const score = shippingOf(mask, live);
+  return { score, parts: { shipping: { points: score, raw: { mask, weeks: bits(mask), recent: bits(mask & LAST4), live_ships: live } } }, shipped: live };
 }
 
 /**
- * The two parts of a stored `builder_live.parts` (jsonb), or null when it has none (an empty
- * placeholder, or a malformed row). A row stored by the old four-part formula still reads: its
- * `used` and `earned` keys are ignored, and without the two-part raw it reads as its points alone.
+ * Shipping as stored in `builder_live.parts` (jsonb), or null when the row has none (an empty
+ * placeholder, a malformed row, or one from an older formula: its shipped, used, earned and
+ * consistency keys are ignored).
  */
-export function storedParts(j: unknown): { shipped: number; consistency: number; mask: number | null; liveShips: number } | null {
+export function storedShipping(j: unknown): { points: number; mask: number; liveShips: number } | null {
   if (!j || typeof j !== 'object') return null;
-  const o = j as Record<string, { points?: unknown; raw?: Record<string, unknown> } | undefined>;
-  const pts = (k: 'shipped' | 'consistency') => (typeof o[k]?.points === 'number' && Number.isFinite(o[k]!.points) ? Math.round(o[k]!.points as number) : null);
-  const s = pts('shipped');
-  const c = pts('consistency');
-  if (s === null || c === null) return null;
-  const mask = o.consistency?.raw?.mask;
-  const live = o.shipped?.raw?.live_ships;
+  const sh = (j as Record<string, unknown>).shipping as { points?: unknown; raw?: Record<string, unknown> } | undefined;
+  const points = sh?.points;
+  const mask = sh?.raw?.mask;
+  if (typeof points !== 'number' || !Number.isFinite(points) || typeof mask !== 'number' || !Number.isInteger(mask) || mask < 0) return null;
+  const live = sh?.raw?.live_ships;
   return {
-    shipped: Math.max(0, Math.min(MAX_V2.shipped, s)),
-    consistency: Math.max(0, Math.min(MAX_V2.consistency, c)),
-    mask: typeof mask === 'number' && Number.isInteger(mask) && mask >= 0 ? mask & LAST12 : null,
+    points: Math.max(0, Math.min(SHIPPING_MAX, Math.round(points))),
+    mask: mask & LAST12,
     liveShips: typeof live === 'number' && Number.isFinite(live) && live > 0 ? Math.floor(live) : 0,
   };
 }
 
-const ships = (n: number) => `${n} live ${n === 1 ? 'ship' : 'ships'}`;
 /**
- * R7: one plain sentence on why the score is what it is, and what raises it. With no commits this
- * week yet: what shipping code this week adds (Shipped's 10 plus the Consistency step). With commits
- * this week: what shipping code next week adds over not shipping (or that it keeps every point,
- * once next week can add nothing). Null for stored parts without the two-part raw (scoreWhy needs
- * the week mask). Pure.
+ * One plain sentence on why Shipping is what it is, and what raises it: "Code in 7 of the last 12
+ * weeks, 3 of the last 4. Ship code this week to add up to 14 points." The points are what an active
+ * week adds by the formula: this week while it has no commits yet, else next week (over next week
+ * without commits). Null for parts without Shipping's raw. Pure.
  */
 export function scoreWhy(parts: unknown): string | null {
-  const p = storedParts(parts);
-  if (!p || p.mask === null) return null;
+  const p = storedShipping(parts);
+  if (!p) return null;
   const { mask, liveShips } = p;
-  const w4 = bits(mask & LAST4);
   const w12 = bits(mask);
-  const live = liveShips > 0 ? ships(liveShips) : null;
-  const why =
-    w12 === 0 ? (live ? `${live}, but no code in the last 12 weeks.` : 'No code in the last 12 weeks.')
-      : `${w4 === 0 ? `Code in ${w12} of the last 12 weeks, none in the last 4` : `Code in ${w4} of the last 4 weeks and ${w12} of the last 12`}${live ? `, plus ${live}` : ''}.`;
-  const now = total(partsOf(mask, liveShips));
-  if ((mask & 1) === 0) return `${why} Ship code this week to add up to ${total(partsOf(mask | 1, liveShips)) - now} points.`;
-  // Next week's window drops its oldest week: shipping then adds what that week held back, or keeps it all.
-  const over = total(partsOf(((mask << 1) & LAST12) | 1, liveShips)) - now;
-  return over > 0 ? `${why} Ship code next week to add up to ${over} points.` : `${why} Ship code next week to keep all ${now} points.`;
+  const why = w12 === 0 ? 'No code in the last 12 weeks.' : `Code in ${w12} of the last 12 weeks, ${bits(mask & LAST4)} of the last 4.`;
+  if ((mask & 1) === 0) return `${why} Ship code this week to add up to ${shippingOf(mask | 1, liveShips) - shippingOf(mask, liveShips)} points.`;
+  const next = (mask << 1) & LAST12;
+  return `${why} Ship code next week to add up to ${shippingOf(next | 1, liveShips) - shippingOf(next, liveShips)} points.`;
 }
 
 // ---- People and money (not scored): the stored builder_projects.people and money_usd -------------

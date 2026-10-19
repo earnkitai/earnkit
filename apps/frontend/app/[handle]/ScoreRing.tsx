@@ -11,7 +11,7 @@ const C = 2 * Math.PI * R;
 /**
  * v2.12 spec 7: the score ring. One dominant number in the middle; the arc (score / 100 of the
  * circle, from 12 o'clock) is stroked with the orange to purple gradient of the two score tokens
- * over an ek-navy track. The whole ring is one image with a text equivalent ("Score 41 of 100").
+ * over an ek-navy track. The whole ring is one image with a text equivalent ("Shipping 41 of 100").
  * Scales with its box: `className` sets the size (the viewBox does the rest).
  */
 export default function ScoreRing({
@@ -28,7 +28,7 @@ export default function ScoreRing({
   const shown = Math.max(0, Math.min(100, Math.round(score)));
   const arc = (C * shown) / 100;
   return (
-    <div role="img" aria-label={`Score ${shown} of 100`} className={`relative shrink-0 ${className}`}>
+    <div role="img" aria-label={`Shipping ${shown} of 100`} className={`relative shrink-0 ${className}`}>
       <svg viewBox={`0 0 ${VIEW} ${VIEW}`} aria-hidden="true" focusable="false" className="h-full w-full -rotate-90 overflow-visible">
         <defs>
           {/* In the rotated frame +x is up: orange at 12 o'clock, purple at 6. */}

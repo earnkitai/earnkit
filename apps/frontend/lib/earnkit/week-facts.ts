@@ -1,7 +1,6 @@
 import { sql } from './db';
 import { noteEvent } from './events';
 import { benchConfirmedSql } from './main-project';
-import { money } from './page-data';
 import { personInputsV2 } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { APP_PROOF, appClient } from './repo-proof';
@@ -22,16 +21,16 @@ export const WEEKLY_PER_RUN = 200;
 const DAY = 86_400_000;
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-/** The week's chips, in the order the card shows them. Pure. */
-export function factChips(f: WeekFacts, o: { raising?: string | null } = {}): string[] {
+/**
+ * The week's chips, in the order the card shows them. Scoring and clarity: shipping facts only (people,
+ * money and a community round are stored but never a chip). Pure.
+ */
+export function factChips(f: WeekFacts): string[] {
   const out: string[] = [];
   if (f.went_live) out.push('Went live');
   for (const w of f.won ?? []) out.push(`Won ${w.title}`);
-  if (f.users_up && f.users_up.n > 0) out.push(`+${plural(f.users_up.n, 'person', 'people')}`);
-  if (f.earned && f.earned.usd >= 1) out.push(`${money(f.earned.usd)} earned`);
   if (f.shipped_code && f.shipped_code.n > 0) out.push(plural(f.shipped_code.n, 'commit', 'commits'));
   if (f.streak && f.streak.w >= 2) out.push(`${f.streak.w} weeks in a row`);
-  if (o.raising) out.push(`Community round $${o.raising}`);
   return out;
 }
 export const startedLine = (name: string) => `Started tracking ${name}.`;
@@ -39,12 +38,10 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
   return [
     ...(s.live ? ['Live'] : []),
     ...(s.weeks > 0 ? [plural(s.weeks, 'week shipping', 'weeks shipping')] : []),
-    ...(s.people > 0 ? [plural(s.people, 'person uses it', 'people use it')] : []),
   ];
 }
-/** A fact is shipped code, going live, new people, money or a win; a streak, the start or the check alone is not. Pure. */
-export const hasFacts = (f: WeekFacts): boolean =>
-  Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.users_up?.n ?? 0) > 0 || (f.earned?.usd ?? 0) >= 1 || (f.won?.length ?? 0) > 0);
+/** A fact is shipped code, going live or a win; a streak, people, money, the start or the check alone is not. Pure. */
+export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
 
 /** The facts of the person's one project for the ISO week starting `monday`; {} unless that project is confirmed. */
 export async function weekFactsFor(builderId: number, monday: string, now: Date): Promise<WeekFacts> {

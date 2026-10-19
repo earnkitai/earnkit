@@ -241,7 +241,7 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
     await record(null);
     return null;
   }
-  const news = standingNews(seen, { standing: base.standing, projects: base.projects }, now, ask);
+  const news = standingNews(seen, { standing: base.standing }, now, ask);
   if (!news) return null;
   await record(news.card);
   await noteEvent('news_shown', () => ({

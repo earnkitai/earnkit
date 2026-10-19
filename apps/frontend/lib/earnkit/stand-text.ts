@@ -1,4 +1,4 @@
-import { rankWords, type Standing } from './rank';
+import { rankLine, type Standing } from './rank';
 
 /**
  * The Bench's shared reply text and types (v2.14: what stayed of v2.12.1's where-you-stand.ts once
@@ -104,28 +104,21 @@ export const rollingLine = (title: string, prize: string, canPrepare: boolean) =
   `You could win ${prize} from ${title}; it's open all year.${canPrepare ? ' I can prepare an entry with one of your projects.' : ''}`;
 
 /**
- * spec 4: "EarnKit messages only when something real happens": new people counted on a project,
- * or a move up into a rank that reads well. `ask`: the reply has no other question, so the card
- * is offered (spec 5's moments). Null when nothing happened. Pure.
+ * spec 4: "EarnKit messages only when something real happens": a move up the rank, in the rank line's
+ * own words ("You moved up to #2 of 40 builders this week."). Scoring and clarity: people aren't
+ * scored, so new people are no longer news. `ask`: the reply has no other question, so the card is
+ * offered (spec 5's moments). Null when nothing happened. Pure.
  */
 export function standingNews(
-  prev: { rank?: number; people?: Record<string, number>; at?: string },
-  now: { standing: Standing; projects: { key: string; name: string; people: number }[] },
-  at: Date,
+  prev: { rank?: number; at?: string },
+  now: { standing: Standing },
+  _at: Date,
   ask: boolean,
-): { line: string; card: 'people' | 'rank' | null } | null {
-  const grew = now.projects.map((p) => ({ ...p, n: p.people - (prev.people?.[p.key] ?? 0) })).filter((p) => p.n > 0).sort((a, b) => b.n - a.n)[0];
-  const words = rankWords(now.standing);
-  const up = words && prev.rank !== undefined && prev.rank > 0 && now.standing.rank < prev.rank ? now.standing : null;
-  if (!grew && !up) return null;
-  const seenAt = prev.at ? Date.parse(prev.at) : NaN;
-  const week = Number.isFinite(seenAt) && at.getTime() - seenAt <= 7 * 86_400_000 ? ' this week' : '';
-  // "top 20% of people building with AI": only the first letter is lowered (AI stays AI).
-  const rankBit = up ? (up.total < 50 ? `you moved up to #${up.rank}` : `you're now in the ${words!.short.replace(/^Top/, 'top')}`) : null;
-  const line = grew
-    ? `${grew.n} new ${grew.n === 1 ? 'person' : 'people'} used ${grew.name}${week}${rankBit ? `, and ${rankBit}` : ''}.`
-    : `${sentenceStart(rankBit!)}.`;
-  return { line: ask ? `${line} Want a card to share it?` : line, card: ask ? (grew ? 'people' : 'rank') : null };
+): { line: string; card: 'rank' | null } | null {
+  const words = rankLine(now.standing);
+  if (!words || prev.rank === undefined || !(prev.rank > 0) || now.standing.rank >= prev.rank) return null;
+  const line = `You moved up to ${words}.`;
+  return { line: ask ? `${line} Want a card to share it?` : line, card: ask ? 'rank' : null };
 }
 
 /**

@@ -372,7 +372,7 @@ export async function personInputsV2(
     let hasContract = deploysHere.length > 0;
     let hasPackage = false;
     let hasCoinSource = false;
-    // R2: the live ships (a live site, a contract deploy, a published package), each once. A coin is not one.
+    // Shipping's live bonus: the live ships (a live site, a contract deploy, a published package), each once. A coin is not one.
     const ships: Ship[] = [];
     for (const h of hostedHere) ships.push({ key: `site:${h.slug}.earnkit.com`, kind: 'site' });
     for (const x of deploysHere) ships.push({ key: `contract:${x.ref}`, kind: 'contract' });
@@ -575,8 +575,8 @@ export async function personInputsV2(
  * day, a public v2 history row or a released live score (a held day the owner never saw is neither).
  */
 async function holdOf(tx: Db, id: number, day: string, score: number) {
-  // Scoring and clarity: only a baseline of the live calibration counts (the two-part score's first
-  // day is never a jump from a four-part score). No source shares: people and money aren't scored.
+  // Scoring and clarity: only a baseline of the live calibration counts (Shipping's first day is never
+  // a jump from the four-part score). No source shares: people and money aren't scored.
   const cal = calibrationV2().id;
   const [before] = await tx<{ score: number }[]>`
     SELECT score FROM (

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import ChainLogo from '../components/ui/ChainLogo';
 import type { ProjectTabData } from '../../lib/earnkit/bench-data';
-import { NOTHING_YET, peopleUse } from '../../lib/earnkit/page-data';
+import { NOTHING_YET } from '../../lib/earnkit/page-data';
 
 export const FUNDS_TITLE = 'Ways to get funded';
 export const LIVE_LINK = 'Live site';
@@ -51,7 +51,7 @@ function Stat({
 
 /**
  * v2.13 spec "Project tab": the name, what it is, the live link and the code, its chain logos,
- * people using it and money, the coin with its tokens.fun link, programs entered and won, then
+ * the coin with its tokens.fun link, programs entered and won, then
  * "Ways to get funded". v2.13.1 O3: until the project is confirmed, its name and what it is, plainly.
  * Pure.
  */
@@ -82,7 +82,7 @@ export default function ProjectTab({
         ) : null}
       </div>
     );
-  const stats = p.people !== null || p.money !== null || p.coin !== null;
+  const stats = p.coin !== null;
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -131,10 +131,6 @@ export default function ProjectTab({
 
       {stats ? (
         <ul className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {p.people !== null ? (
-            <Stat>{`${peopleUse(p.people)} it`}</Stat>
-          ) : null}
-          {p.money !== null ? <Stat>{`${p.money} earned`}</Stat> : null}
           {p.coin ? (
             <Stat accent>
               <a

@@ -33,6 +33,7 @@ import {
   type BenchAsk, type BenchAskKind, type BenchProject, type BenchView, type FundLine, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
+import { scoreWhy, storedShipping } from './score-v2';
 import { displayName } from './bench-reply';
 export { displayName };
 
@@ -124,13 +125,15 @@ export function needsPicks(
 type BenchRead = {
   base: StandBase; seen: Seen; main: string | null; row: MainRow | null;
   ranks: RankLines;
+  /** builder_live's Shipping and its why (null: no live row yet). */
+  score: number | null; why: string | null;
   /** standBase answered (a profile exists): news is read only then. */
   profiled: boolean;
   /** v2.13.4 (spec 4): the live link the agent reported for the one project (identity), if any. */
   liveUrl: string | null;
 };
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null, projects: [] };
-const NO_RANK: RankLines = { bench: null, phrase: null, chains: [] };
+const NO_RANK: RankLines = { bench: null, line: null, chains: [] };
 const logged = (where: string) => (err: unknown) => {
   console.error(`[bench] ${where}`, err instanceof Error ? err.name : 'error');
   return null;
@@ -153,10 +156,12 @@ async function benchRead(id: number, fresh: ToolContext['freshDeps'], own: numbe
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
   const ranks = await rankLines(id).catch(() => NO_RANK);
+  const [live] = await sql()<{ score: number; parts: unknown }[]>`SELECT score, parts FROM builder_live WHERE builder_id = ${id}`.catch(() => []);
   // standBase's seen, else the profile's own (the Bench's keys are read from the same column).
   const seen = (stand?.seen ?? (p?.seen && typeof p.seen === 'object' ? p.seen : {})) as Seen;
   return {
     base: stand?.base ?? EMPTY_BASE, seen, main, row: row ?? null, ranks, profiled: stand !== null,
+    score: live ? (storedShipping(live.parts)?.points ?? live.score) : null, why: live ? scoreWhy(live.parts) : null,
     liveUrl: main ? reportedLive(p?.identity, main) : null,
   };
 }
@@ -340,7 +345,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
-    state, variant, project, rank: read.ranks.phrase, streak,
+    state, variant, project, rank: read.ranks.bench, streak, score: read.score, why: read.why,
     handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.
