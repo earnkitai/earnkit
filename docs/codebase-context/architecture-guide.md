@@ -5831,3 +5831,10 @@ no new cron, no paid service.
   (idempotent ADD COLUMN IF NOT EXISTS). `events-redact.mts` also clears `ship_titles_at`.
 - **Tests.** `ship-titles.test.ts` (pure), `v214-ship-log.test.ts` (8.5 to 8.10, through the real MCP layer and
   `fixtures/fake-github.ts`).
+- **Fix round 1.** `cleanTitle` drops a squash merge's `(#N)` suffix and dependency bumps; the duplicate key is
+  NFKC lower case over letters and digits of any script; the cap counts code points and applies to the stored
+  (normalised) text. `week-facts.ts weekTitles` runs only for a week with a `shipped_code` fact, and any error in it
+  leaves titles empty while the facts are still written. A repo without recent public evidence (titles off) is
+  checked with one `GET /repos/{key}` through the same App client; a public answer stamps `public_at`.
+  `setShipTitles({ titles: true })` without an App-proven repo returns `TITLES_NO_APP_NOTE`; a yes to a stored
+  pre-v2.14 `updates` / `post_update` ask is taken and answered with `UPDATE_LINES.auto`.

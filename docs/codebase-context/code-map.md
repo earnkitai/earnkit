@@ -1376,7 +1376,7 @@ apps/frontend/
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles)
     ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle, shipTitles (checkUpdate on each),
-                               readWeekTitles (2 calls), namesRepo, titlesShown (S9 read-time filter: private repo
+                               readWeekTitles (2 calls), namesRepo, titlesShown; week-facts.ts weekTitles (fix round 1) (S9 read-time filter: private repo
                                titles only while builder_profiles.ship_titles_at is set, never naming the repo);
                                tests ship-titles.test.ts, v214-ship-log.test.ts
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
