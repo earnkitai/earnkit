@@ -6171,3 +6171,63 @@ Spec: R6, R9, R10, R11 and R17 of `docs/design-docs-and-implementation-plans/sco
     (`untrusted-text.ts wholeWords`). `person-score.ts` uses the same rule for the stored name.
   - CSS: `truncate` is gone from names and projects in leaderboard rows, update cards and the profile header; they
     wrap (`break-words`). The square carousel's update text keeps its 3-line clamp, since it is body text, not a name.
+
+## Scoring and clarity (Task 4): Move up, funding matches, four states
+
+Spec: R8, R12 and R16a of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, plus the Task 3 review's
+carry-overs. Owner rule: no token, coin or community round step in find or score; moving up is shipping more and
+ranking higher.
+
+- **Four reply states (R16a).** `bench-reply.ts ReplyState` is `signed_out | no_project | not_counted | ranked`;
+  proven and shipping merged into `ranked` (the streak lives in the Shipping score, so the stand line is the score
+  line alone; the reply still carries `streak`). `STATE_COPY` is the one copy table: each state has one stand line
+  and one next step (`stateAsk`, now total). `rankedState` is `state === 'ranked'`.
+- **Move up (R8).** The ranked state's one next step is exactly "Ship this week to climb." (`SHIP_STEP`, ask kind
+  `ship`). It is a statement, so a ranked reply has no question at all; its `move_up.agent_note` is
+  `bench-find.ts SHIP_STEP_NOTE` (a yes: one small, real thing to ship this week from the repo). A `tell move_up
+  { kind: 'ship', answer: 'yes' }` returns `SHIP_NOTE` once. The other states keep their steps (sign in, name a repo,
+  install the App; app_off keeps "Want me to suggest one small thing to ship...", kind `suggest`).
+  - Gone from the default path: the entry ask (`enterAsk`), the coin and community round (`coinAskBench`,
+    `raising.ts raiseAsk/markRaiseAsked`, `offerCoin` from find), going live (`goLiveAsk`, and `tools.ts goLiveYes`
+    with its notes, now unreachable), `nextStepAsk`. Programs show only in "Ways to get funded" (find still returns
+    `lead` with `EARN_NOTE` for a builder who picks one). An ask an older reply stored (`enter`, `coin`, `raise`,
+    `go_live`) is a retired kind: a yes is "Okay.".
+  - **A token only when asked.** `tell { token: 'ask' }` (tools.ts `TellToolInput`, mcp.ts tell schema and
+    description: "only when they ask about a token") runs `bench-find.ts tokenAsk`: for the confirmed one project, a
+    launched coin not shown yet is the community-round line (`showRaisingLine`, EARNKIT_RAISING on; its yes is `tell
+    coin { raising: true }`); a coin out or launching says so; an open offer is shown again (`coin-moments.ts
+    openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
+    off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
+    { project_id }`; `confirm`, the build path's built_live moment and `launch` are unchanged.
+- **Funding matches (R12).** "Ways to get funded" names at most 3 programs the matcher fits, each as `fitsLine`:
+  "<title>: <award>, <closes Oct 30 | rolling>. <why>." (`stand-view.ts fundWhen`). The why is `bench-find.ts fitWhy`
+  from the matcher's facts: the program's chain where the repo has a deployed contract ("You deployed on Base"), a
+  deploy config naming its mainnet ("You deploy to Arc"), else code for it ("You build for Monad"); "It takes any
+  chain"; and "your app is live" for a program that needs a live product. The words avoid "contract" and "repo" (the
+  v2.12.1 copy rule); the chain phrases are allowed in `fixtures/banned-words.ts BENCH_PITCH_ALLOWED`.
+  - find: `layout` rows that `qualifies` (good odds) for the one repo, their facts from the match. score:
+    `stand-view.ts scoreFits`, the open programs by award whose `alerts.ts repoCanWin` passes for the one repo as find
+    last matched it (`installations.fit_repos`), at most `FITS_MAX` 3 (it used to name one).
+  - A ranked project gets only fits: no open-all-year pick (`rollingPick` is gone) and no "what it needs" lines;
+    with none it says `noFitLine` ("No open program fits Kit yet. I'll look again next week."). Not counted, no project
+    and taken keep `needsPicks` and the no-project idea as before.
+  - Closed programs never show: `listPrograms` filters `status = 'active'`, and arc-microgrants,
+    colosseum-worlds-fair and monad-metropolis are `"status": "closed"` in `programs/` (past their deadlines).
+- **Dead code removed.** `stand-view.ts`: the projects read in `standBase` (and its count-past and tip-jar steps,
+  `tipsPick`, `TIPJAR`, `hostFor`, `declinedNow`, `DECLINE_MS`), `scoreEarn`, `moneyFallback`, `rollingPick`,
+  `byLazy`; `StandBase` is now `{ standing, claimed, handle, signInLink }`. `stand-text.ts`: the step, project, view
+  and money-line types and helpers. `person-score.ts trackingHeld`. `week-facts.ts`: the users_up event branch
+  (R16b never sets the fact). `score-tool.ts`/`benchScore` no longer take `fresh`, and `benchFind` no `agentCanBuild`.
+- **Carry-overs from Task 3.** `token-proposal.ts tickerCandidates`: a first word over 10 letters gives its first 10
+  ("Recipeplanner" is RECIPEPLAN), never 3-letter initials first. EarnKit's own brand is allowed for a repo owned by
+  an EarnKit org (`earnkit-orgs.ts`, "earnkitai"): `OwnBrand { repoUrl }` on `tickerProblem`, `cleanTokenName`,
+  `proposeToken`, and `token-launch.ts decideToken`/`editsOf`/the stored proposal, so the owner's project proposes and
+  launches $EARNKIT (EarnKit); every other brand, and EARNKIT for anyone else, stays reserved. `untrusted-text.ts
+  wholeWords` never ends a cut on a comma, dash, colon or the like. `app/bench/page.tsx` redirects (308) to
+  `/leaderboard` with the same query string. The stale reserved-ticker comment in `tickerProblem` is fixed.
+- **Tests.** `move-up.test.ts` (through `mcpCall`): the ranked find and score replies (score line, why, at most 3 fit
+  lines with deadline and why, "Ship this week to climb.", no coin words, closed programs never shown), `tell token`
+  returning the offer (and find and score staying clean with it open), the four states' copy and steps, and a positive
+  real-matcher fit (transactions, a live link and commits on Base and Arc give good-odds fits; a low-odds repo none).
+  `reply-states`, `bench-reply`, `coin-moments`, `raising`, `v213-*`, `v2131-*`, `v2133-owner-test` and `v214-*` tests
+  were updated for R8, R12 and R16a.

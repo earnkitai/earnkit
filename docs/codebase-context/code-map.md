@@ -872,7 +872,9 @@ apps/frontend/
                                (Ruling 25: the program each repo's coin is entered in)
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
                                (TICKER_SHAPE 3-10 A-Z0-9, TICKER_MAX 10 = tokens.fun's limit; TICKER_RESERVED, brands),
-                               tickerCandidates (R11: the whole first word up to 10, else initials; never a cut word), proposeToken
+                               tickerCandidates (R11: the whole first word up to 10, a longer one its first 10, else initials), proposeToken
+                               (Task 4: OwnBrand/earnkitRepo: an earnkitai-org repo may use EARNKIT; tickerProblem, cleanTokenName
+                               and token-launch.ts decideToken/editsOf take { repoUrl }),
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
                                check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), v2.8.1
@@ -1413,32 +1415,37 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines ({ bench: rank line,
                                line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
                                project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
-    bench-reply.ts(+test)      v2.14 T9 (spec 4): the reply as five states, pure. ReplyState (signed_out, no_project,
-                               not_counted, proven, shipping), Variant (taken, copy, no_repo, app_off), replyState;
+    bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
+                               no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
                                STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
-                               NO_MONEY_LINE, streakWords; stateAsk (the fixed question of states 1 to 3), nextStepAsk
-                               (proven/shipping: best fit's entry, else a community round, else go live, else one small
-                               thing, never kept away); benchReply: stand line (+ "Your page"), "Ways to get funded"
-                               always, one question last, exactly one https link (the action link, else the page;
-                               none when there is no page, X off). Kinds sign_in, start, install_app, other_project,
-                               repo_behind, enter, coin, raise, go_live, suggest. Keeps fitsLine, needsLine, displayName.
-                               R10: rankedState (proven, shipping): the only states with a rank; bench-find gates
-                               rank_lines, view.rank and the move-up news on it. Copy says "the leaderboard" (R9).
-                               tests reply-states.test.ts, bench-reply.test.ts
-    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
+                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; R8 ranked: SHIP_STEP
+                               "Ship this week to climb.", kind ship); benchReply: stand line (+ the why, "Your page"),
+                               "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
+                               Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
+                               else the page; none when there is no page, X off). Kinds sign_in, start, install_app,
+                               other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
+                               displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
+                               the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
+                               tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
+                               tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
+                               showRaisingLine, an open offer again via openCoinLine, else offerCoin 'countable';
+                               TOKEN_NOT_YET, tokenUnavailable, tokenHasCoin, RAISE_NOTE), SHIP_STEP_NOTE; R12: fitWhy
+                               (the chain: deployed on / deploy to / build for, any chain, a live app) and whyFacts;
                                v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
                                install link, the sign-in link minted for the caller's own installation, D14), the
-                               money (fits, else the open-all-year program, else needsPicks; a taken project still
-                               names open programs, D6), the stored ask; a held question (find's outcome question or
+                               money (R12: up to 3 fits, never an open-all-year pick; not counted or no project:
+                               needsPicks too; a taken project still names open programs, D6), the stored ask; a held question (find's outcome question or
                                submission step, A17) replaces the state's, except signed out (signedOutNow: the
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
                                handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
-                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE); no grants ask,
+                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE);
+                               retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts
-    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
+    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
@@ -1462,10 +1469,11 @@ apps/frontend/
                                (T12 removed scoreBuilders, percentiles, publicScore, emptyReasonOf)
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
-    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b): the coin offered only at its moments (built_live,
-                               countable, first_five, has_people), replacing v2.12's score-20 gate. COIN_PROGRAM
+    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b), R8: the coin offered only when the builder asks (bench-find
+                               tokenAsk, moment countable) or on the build path (built_live); first_five, has_people and
+                               streak_five stay for offers already made. COIN_PROGRAM
                                (policy-constants.ts), coinLine, coinAllowed, coinWallet, offerCoin (records
-                               coin_moments, once per project), coinYes (the coin program's entry + saved offer;
+                               coin_moments, once per project), openCoinLine (an open offer shown again), coinYes (the coin program's entry + saved offer;
                                confirm by project_id launches it), coinNo (recordDecline), coinOpen,
                                coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
                                builtLiveAnswer, COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
@@ -1480,7 +1488,7 @@ apps/frontend/
     share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, signInFirstLine (v2.14 T7), cardYes(root, own) (the
                                share link of a page signed in with X, else "Sign in with X first: <x-link.ts signInLink>"); the
                                v2.12 offer is gone (T12)
-    score-tool.ts(+test)       v2.12.1 T8: scoreReply (where you stand, one way to earn, one step; score_viewed),
+    score-tool.ts(+test)       v2.12.1 T8: scoreReply (benchScore: where you stand, up to 3 fits, one step; score_viewed),
                                SCORE_SHARED, SEND_LINK_NOTE (v2.12's reply removed in T12)
     reserved-routes.ts(+test)  v2.12.1 T1: RESERVED_ROUTES (every top-level route; the test fails on a new one),
                                isReserved, pagePath (/b/<handle> for a reserved one), pageUrl
@@ -1515,7 +1523,7 @@ apps/frontend/
                                pageViewRefresh (page views: PAGE_REFRESH_MS a day, LIMITS.pageRefresh
                                200/h global, pageRefreshIp 20/h per IP),
                                readPersonLive (source_live; R16b: repos, sites, packages only), scorePeopleV2
-                               (cron; v2 history rows), trackingHeld; R16b: no people, money or ring
+                               (cron; v2 history rows); R16b: no people, money or ring
                                (rescorePerson(id, now, { cron }))
     read-cost.test.ts          R16b: the outside calls of one daily read and one refresh, by kind (before/after in the guide)
     confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
@@ -1547,11 +1555,13 @@ apps/frontend/
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     brand-page.ts              v2.12.1 T11: the claim, done and wallet pages' navy shell (fonts as data:), X_ICON
-    stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, stepKey, MoveUp, StandProject,
-                               StandView, plainWhat, rollingLine, standingNews, usersMoneyLine, paymentStepFits,
-                               paymentFits, EarnLine, NOTED_LINE
-    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase (v2.14 T7: base.signInLink = x-link.ts signInLink for the caller's own installation), takeNews, takePageReady, confirmYes,
-                               scoreEarn, moneyFallback, tipsPick, hostFor, currentStep, DECLINE_MS 30 days
+    stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, standingNews, NOTED_LINE
+                               (Task 4 removed the dead step, project and money-line types and helpers)
+    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase ({ standing, claimed, handle, signInLink }: v2.14 T7
+                               signInLink for the caller's own installation; Task 4 dropped the projects read and the
+                               count-past and tip-jar steps), takeNews, earnPrize, earnWhen, fundWhen (R12: "closes Oct
+                               30" or "rolling"), showable, biggestPick, scoreFits (R12: score's up to 3 fits from
+                               fit_repos and alerts.ts repoCanWin, FITS_MAX 3)
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
     page-data.ts(+test)        v2.12.1 T11: every public sentence (SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED,
