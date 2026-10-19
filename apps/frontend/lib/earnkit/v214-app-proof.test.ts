@@ -273,6 +273,11 @@ test('6.19 fix round 1: the shared-client coin gate checks the caller\'s App pro
     INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
     VALUES (${key}, ${`fay${RUN}`}, ${c.id}, now(), 3, 'app', 'app', 92)`;
   const gh = fakeGitHub({ [key]: { id: 9040, owner: `fay${RUN}`, installation: 92 } });
+  // Fix round 2: a verification alone is not enough; the group must hold the repo.
+  assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), false, 'no held source');
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+    VALUES (${c.id}, 'repo', ${key}, ${key}, 'server', 'verified', 'github_app', now(), ${`fay${RUN}`}, 'User', now())`;
   assert.equal(await sharedAppProven(c.id, key, `fay${RUN}`, { fetch: gh }), true);
   assert.equal(await sharedAppProven(c.id, key, `gus${RUN}`, { fetch: gh }), false, 'another caller');
   gh.repos[key].installation = 93;
@@ -303,4 +308,54 @@ test('6.20 fix round 1 (ruling): an App proof replaces another person\'s discove
   assert.deepEqual(await repoProof(holder.id, key), { ok: false, why: 'taken' });
   // The first holder installing the App now: the App hold stays the prover's.
   assert.deepEqual(await installApp({ builderId: holder.id, repoKey: key, login: `hal${RUN}`, gh }), { ok: false, why: 'taken' });
+});
+
+test('6.21 fix round 2: a redirect from GitHub (renamed or transferred repo) is gone: demoted at the daily check', db, async () => {
+  const key = `jan${RUN}/moved`;
+  const p = await personWith(key, 'jan');
+  const gh = fakeGitHub({ [key]: { id: 9060, owner: `jan${RUN}`, installation: 95 } });
+  await installApp({ builderId: p.id, repoKey: key, login: `jan${RUN}`, gh });
+  const moved = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    new URL(String(input)).pathname === `/repos/${key}/installation` ? new Response(null, { status: 301, headers: { location: 'https://api.github.com/repositories/9060/installation' } }) : gh(input, init)) as typeof fetch;
+  assert.deepEqual(await appCheckStep(new Date(Date.now() + 25 * 3_600_000), { deadline: Date.now() + 10_000, only: [p.id], fetch: moved }), { checked: 1, removed: 1 });
+  const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
+});
+
+test('6.22 fix round 2: rows GitHub keeps not answering never starve the daily queue', db, async () => {
+  const key = `kai${RUN}/ok`;
+  const p = await personWith(key, 'kai');
+  const gh = fakeGitHub({ [key]: { id: 9061, owner: `kai${RUN}`, installation: 96 } });
+  await installApp({ builderId: p.id, repoKey: key, login: `kai${RUN}`, gh });
+  // 55 App sources GitHub won't answer for, tried an hour ago and checked longer ago than the good one.
+  await sql()`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at, app_tried_at)
+    SELECT ${p.id}, 'repo', ${`kai${RUN}/down`} || n, ${`kai${RUN}/down`} || n, 'server', 'verified', 'github_app', now(), ${`kai${RUN}`}, 'User',
+      now() - interval '40 hours', now() - interval '1 hour'
+    FROM generate_series(1, 55) n`;
+  await sql()`UPDATE builder_sources SET app_checked_at = now() - interval '30 hours', app_tried_at = NULL WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
+  const flaky = (async (input: RequestInfo | URL, init?: RequestInit) =>
+    new URL(String(input)).pathname.includes('/down') ? new Response('{}', { status: 502 }) : gh(input, init)) as typeof fetch;
+  const r = await appCheckStep(new Date(), { deadline: Date.now() + 20_000, only: [p.id], fetch: flaky });
+  assert.ok(r.checked >= 1, JSON.stringify(r));
+  const [good] = await sql()<{ fresh: boolean }[]>`SELECT app_checked_at > now() - interval '1 minute' AS fresh FROM builder_sources WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
+  assert.equal(good.fresh, true, 'the answerable row was checked');
+  const [{ tried }] = await sql()<{ tried: number }[]>`SELECT count(*)::int AS tried FROM builder_sources WHERE builder_id = ${p.id} AND app_tried_at > now() - interval '1 minute'`;
+  assert.equal(tried, 50, 'every attempt is stamped, one run at most APP_CHECK_PER_RUN');
+});
+
+test('6.23 fix round 2: a second org admin whose App proof was taken is refused on a shared client', db, async () => {
+  const key = `lux${RUN}/org`;
+  const first = await personWith(key, 'lux');
+  const gh = fakeGitHub({ [key]: { id: 9062, owner: `lux${RUN}`, ownerType: 'Organization', installation: 97, admins: [`lux${RUN}`, `max${RUN}`] } });
+  assert.equal(((await installApp({ builderId: first.id, repoKey: key, login: `lux${RUN}`, gh })) as { ok: boolean }).ok, true);
+  const t = `ek_app_sh2_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, true, 'Grok');
+  const c = (await connectInstallation(t))!;
+  // The second admin's setup URL wrote a verification on the shared client; proveByApp held nothing there.
+  await sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+    VALUES (${key}, ${`max${RUN}`}, ${c.id}, now(), 3, 'app', 'app', 97)`;
+  assert.deepEqual(await proveByApp({ builderId: c.id, repoKey: key, githubInstallationId: 97 }, { fetch: gh }), { ok: false, why: 'none' });
+  assert.equal(await sharedAppProven(c.id, key, `max${RUN}`, { fetch: gh }), false);
 });

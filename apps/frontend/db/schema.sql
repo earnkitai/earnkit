@@ -1594,6 +1594,8 @@ ALTER TABLE x_signins ADD COLUMN IF NOT EXISTS link_hash text;
 -- v2.14 (T6, spec 2): the read-only GitHub App is the only proof of a repo (repo-proof.ts): `github_app` sources are
 -- checked once a day (appCheckStep) that GitHub still names an App installation for the repo; this is when.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_checked_at timestamptz;
+-- T6 fix round 2: when the daily check last tried (any answer), so unanswered rows go behind the others.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
 -- v2.14 bind:start
 -- Migration (spec 1): every installation of a claimed page (its group) is bound to that X account. Shared
 -- clients never are; unclaimed groups stay anonymous until they sign in. Fills only NULLs: a rerun is a no-op.

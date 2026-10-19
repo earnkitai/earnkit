@@ -79,8 +79,9 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
       ...(init.body !== undefined && { 'Content-Type': 'application/json' }),
     },
     ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
-    // T6 fix round 1: a redirect (a renamed or moved repo) is never followed; it throws (unknown to callers).
-    redirect: 'error',
+    // T6 fix rounds 1, 2: a redirect (a renamed or transferred repo) is never followed: it is a GitHubError with
+    // its 3xx status (repo-proof.ts appProofLive counts it as gone).
+    redirect: 'manual',
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) {

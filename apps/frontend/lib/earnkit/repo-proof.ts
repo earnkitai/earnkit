@@ -190,8 +190,8 @@ export type LiveHold = 'held' | 'gone' | 'unknown';
  * repo (none: gone), it must be one this person proved through the setup URL (github_verifications via 'app' on
  * their group `root`, `login` when given; another account's install: gone), and when the repo's account is not
  * the prover's own (an Organization's, or an owner other than the proving login) the prover must still be the
- * repo's admin (read with a per-call installation token; anything but admin: gone). A GitHub error or a redirect
- * is `unknown` (the caller decides: the daily check tries again, an action refuses). The token is never kept.
+ * repo's admin (read with a per-call installation token; anything but admin: gone). A redirect (a renamed or
+ * transferred repo, fix round 2) is gone; another GitHub error is `unknown` (the caller decides: the daily check tries again, an action refuses). The token is never kept.
  */
 export async function appProofLive(
   a: { root: number; key: string; login?: string | null; ownerType?: string | null },
@@ -199,11 +199,13 @@ export async function appProofLive(
   db: Db = sql(),
 ): Promise<LiveHold> {
   const key = a.key.toLowerCase();
+  const moved = (status: unknown) => typeof status === 'number' && status >= 300 && status < 400;
   let inst: number | null;
   try {
     inst = await repoInstallation(key, deps);
-  } catch {
-    return 'unknown';
+  } catch (err) {
+    // Fix round 2: a redirect (renamed or transferred) is gone: the builder re-proves under the new name.
+    return moved((err as { status?: unknown })?.status) ? 'gone' : 'unknown';
   }
   if (inst === null) return 'gone';
   const [v] = await db<{ login: string }[]>`
@@ -219,9 +221,9 @@ export async function appProofLive(
     const token = await installationToken(inst, key.split('/')[1], deps);
     const res = await f(`https://api.github.com/repos/${key}/collaborators/${encodeURIComponent(v.login)}/permission`, {
       headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28' },
-      redirect: 'error', signal: AbortSignal.timeout(10_000),
+      redirect: 'manual', signal: AbortSignal.timeout(10_000),
     });
-    if (res.status === 404) {
+    if (res.status === 404 || moved(res.status)) {
       await res.body?.cancel().catch(() => {});
       return 'gone';
     }
@@ -233,7 +235,7 @@ export async function appProofLive(
     return body?.permission === 'admin' ? 'held' : 'gone';
   } catch (err) {
     const status = (err as { status?: unknown })?.status;
-    return status === 404 || status === 422 ? 'gone' : 'unknown';
+    return status === 404 || status === 422 || moved(status) ? 'gone' : 'unknown';
   }
 }
 
@@ -247,8 +249,11 @@ export async function recheckAppSource(
   deps: AppDeps = {},
 ): Promise<LiveHold> {
   const db = sql();
+  // Fix round 2: every attempt is stamped (app_tried_at), so unanswered rows go behind the others in the daily queue;
+  // app_checked_at is written only on held, so an action's window still closes.
+  await db`UPDATE builder_sources SET app_tried_at = ${now} WHERE id = ${s.id}`;
   const r = await appProofLive({ root: s.builder_id, key: s.key, ownerType: s.gh_owner_type }, { ...deps, now }, db);
-  if (r === 'held') await db`UPDATE builder_sources SET app_checked_at = ${now} WHERE id = ${s.id}`;
+  if (r === 'held') await db`UPDATE builder_sources SET app_checked_at = ${now} WHERE id = ${s.id} AND state = 'verified' AND proof = ${APP_PROOF}`;
   if (r === 'gone') {
     const gone = await db`UPDATE builder_sources SET state = 'proposed', reject_reason = ${APP_REMOVED}, app_checked_at = ${now} WHERE id = ${s.id} AND state = 'verified' RETURNING 1`;
     if (gone.length) {
@@ -267,7 +272,15 @@ export async function recheckAppSource(
 export async function sharedAppProven(installationId: number, repoKey: string, login: string, deps: AppDeps = {}, db: Db = sql()): Promise<boolean> {
   try {
     const [r] = await db<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${installationId}`;
-    return (await appProofLive({ root: r?.root ?? installationId, key: repoKey, login }, deps, db)) === 'held';
+    const root = r?.root ?? installationId;
+    // Fix round 2: the group must hold the repo (a verified github_app source of its group), not only a verification
+    // row (a second org admin whose proveByApp was `taken` has one).
+    const [held] = await db`
+      SELECT 1 FROM builder_sources s JOIN installations i ON i.id = s.builder_id
+      WHERE COALESCE(i.builder_id, i.id) = ${root} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
+        AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${repoKey.toLowerCase()} LIMIT 1`;
+    if (!held) return false;
+    return (await appProofLive({ root, key: repoKey, login }, deps, db)) === 'held';
   } catch (err) {
     console.error('[repo-proof] shared proof', err instanceof Error ? err.name : 'error');
     return false;
@@ -311,7 +324,7 @@ export async function appCheckStep(now: Date, o: { deadline: number; only?: numb
     WHERE kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
       AND (app_checked_at IS NULL OR app_checked_at <= ${new Date(now.getTime() - APP_CHECK_EVERY_MS)})
       ${o.only ? db`AND builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
-    ORDER BY app_checked_at NULLS FIRST, id LIMIT ${APP_CHECK_PER_RUN}`;
+    ORDER BY greatest(app_checked_at, app_tried_at) NULLS FIRST, id LIMIT ${APP_CHECK_PER_RUN}`;
   let checked = 0;
   let removed = 0;
   for (const s of due) {
