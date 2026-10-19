@@ -37,7 +37,7 @@ export default async function VetoPage({
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
-        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+        <p className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">
           {VETO_ERRORS['rate-limited']}
         </p>
       </div>
@@ -61,7 +61,7 @@ export default async function VetoPage({
   const removedId = Number(removed);
   return (
     <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+      <section className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">
         <Link href={`/campaigns/${slug}`} className="text-sm text-ek-muted">← {program.title}</Link>
         <h1 className="mt-4 font-funnel-display text-3xl text-ek-text">Review</h1>
         <p className="mt-2 break-all text-sm">
@@ -89,7 +89,7 @@ export default async function VetoPage({
           </thead>
           <tbody>
             {ranked.map((r) => (
-              <tr key={r.id} className="border-t border-ek-navy align-top">
+              <tr key={r.id} className="border-t border-ek-line align-top">
                 <td className="py-2">{r.rank}{picks.some((p) => p.id === r.id) ? ' (wins)' : ''}</td>
                 <td className="py-2">
                   {r.name} (#{r.id}){r.vetoed_at ? `: removed, ${r.veto_reason}` : ''}
@@ -115,7 +115,7 @@ export default async function VetoPage({
                       <input type="hidden" name="slug" value={slug} />
                       <input type="hidden" name="key" value={key} />
                       <input type="hidden" name="entry" value={r.id} />
-                      <input name="reason" placeholder="reason (public)" maxLength={200} className="w-36 rounded bg-ek-navy px-2 py-1 text-ek-text" />
+                      <input name="reason" placeholder="reason (public)" maxLength={200} className="w-36 rounded bg-ek-raised px-2 py-1 text-ek-text" />
                       <button type="submit" className="ml-2 underline">Remove</button>
                     </form>
                   ) : null}

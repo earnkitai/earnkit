@@ -127,14 +127,17 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
 
 // ---- R6, R17: the row's points and rank ----------------------------------------------------------
 
-test('R17, R6, R11: a leaderboard row shows the Shipping points, the rank line in full, and long names whole', () => {
+test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (the full rank line to screen readers), and long names whole', () => {
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
     r: { rank: 3, line: '#3 of 12 builders this week', points: 72, handle: 'maxi', name, avatar: null, raising: null, chains: [], project, best: '3 weeks in a row' },
   }));
   assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*>Shipping<\/span>/);
-  assert.ok(html.includes('>#3<') && html.includes('of 12 builders this week'), 'the rank line, number then words');
+  // R18 fix 1 (supersedes R6 for rows): "#3" alone on screen; the whole rank line only for screen readers.
+  assert.match(html, /aria-hidden="true"[^>]*>#3<\/span><span class="sr-only">#3 of 12 builders this week<\/span>/);
+  assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('builders this week'), false, 'no rank words on screen');
+  assert.doesNotMatch(html, /max-w-\[/, 'the rank column is never squeezed');
   assert.ok(html.includes(name) && html.includes(project), 'names whole');
   assert.doesNotMatch(html, /\btruncate\b|text-ellipsis|line-clamp/, 'never cut: long names wrap');
   assert.deepEqual(rankSplit('#1,204 of 3,500 builders this week'), { lead: '#1,204', rest: 'of 3,500 builders this week' });

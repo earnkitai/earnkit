@@ -7,7 +7,7 @@ import RiskSection from './sections/RiskSection';
 import SponsorTermsSection from './sections/SponsorTermsSection';
 
 /** v2.13 R16: no builder bonus. */
-const DESCRIPTION = 'How EarnKit works, what it records, builder profiles, the risks, and the sponsor terms.';
+const DESCRIPTION = 'How EarnKit works, where token fees go, what it records, builder profiles, the risks, and the sponsor terms.';
 
 export function generateMetadata() {
   return {

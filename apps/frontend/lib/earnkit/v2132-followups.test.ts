@@ -113,9 +113,9 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
 
 test('v2.13.2 3: the Bench header says nobody, one builder, or many', () => {
   assert.equal(benchLine(0), 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
-  assert.equal(benchLine(1), '1 builder, ranked by Shipping points. Ship code every week to climb.');
-  assert.equal(benchLine(2), '2 builders, ranked by Shipping points. Ship code every week to climb.');
-  assert.equal(benchLine(1200), '1,200 builders, ranked by Shipping points. Ship code every week to climb.');
+  assert.equal(benchLine(1), '1 builder this week. Ranked by Shipping points.');
+  assert.equal(benchLine(2), '2 builders this week. Ranked by Shipping points.');
+  assert.equal(benchLine(1200), '1,200 builders this week. Ranked by Shipping points.');
 });
 
 // ---- Fix round 1
@@ -162,7 +162,7 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
   const filtered = page(5, 0, 'base');
   assert.ok(filtered.includes(BENCH_EMPTY));
-  assert.ok(filtered.includes('5 builders, ranked'));
+  assert.ok(filtered.includes('5 builders this week.'));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });
 

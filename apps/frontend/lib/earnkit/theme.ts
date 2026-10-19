@@ -1,7 +1,6 @@
 /**
- * profile-whoop v4: the premium deep-blue theme, one set of tokens for every redesigned page (the
- * profile, the feed, the slim top bar, the footer, and the brandShell pages: GitHub verify, X sign-in,
- * claim, wallet). React pages read them as CSS variables (--ek-p-*, defined in app/globals.css and
+ * R18: the site's one set of page tokens (every page, the header and footer, and the brandShell pages:
+ * GitHub verify, X sign-in, claim, wallet). React pages read them as CSS variables (--ek-p-*, defined in app/globals.css and
  * tested to match); brand-page.ts inlines them. Every text color is 4.5:1 or more on the page and both
  * card stops (profile-pages.test.ts 10.5).
  */
@@ -29,6 +28,8 @@ export const THEME = {
   body: '#C8D4EE',
   muted: '#94A3C4',
   accent: '#A3C5FE',
+  /** R18 fix 1: the brand blue (tailwind ek-blue-bright): the primary button (React and brand-page.ts). */
+  brand: '#579DFF',
 } as const;
 
 /** THEME key to CSS variable name: surfaceTop -> --ek-p-surface-top. */

@@ -34,9 +34,6 @@ const fontFaces = () =>
     })
     .join(''));
 
-/** The brand blue (tailwind ek-blue-bright): the site's one primary button color. */
-const BLUE = '#579DFF';
-
 const CSS = `
 :root{color-scheme:dark}
 *{box-sizing:border-box}
@@ -68,7 +65,7 @@ h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:7
 .ek-note strong{color:${T.text};font-weight:600}
 .ek-actions{margin-top:24px;display:flex;flex-direction:column;gap:12px}
 form{margin:0}
-.ek-btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${BLUE};color:${T.page};font:500 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
+.ek-btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.brand};color:${T.page};font:500 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
 .ek-btn:hover{background:${T.accent}}
 .ek-btn:focus-visible,.ek-link:focus-visible,.ek-nav a:focus-visible,.ek-home:focus-visible{outline:2px solid ${T.accent};outline-offset:3px}
 .ek-btn svg{width:20px;height:20px}

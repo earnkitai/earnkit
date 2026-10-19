@@ -26,7 +26,7 @@ test('1.8 /bench and /feed are reserved (no handle takes them)', () => {
 test('1.9 the v2.13 columns and project_updates exist; one row per project and week; week is a Monday; 280 characters', dbTest, async () => {
   const cols = async (t: string) => (await sql()<{ c: string }[]>`SELECT column_name AS c FROM information_schema.columns WHERE table_name = ${t}`).map((r) => r.c);
   for (const c of ['main_project_key', 'updates_on_at', 'updates_scheduled_at']) assert.ok((await cols('builder_profiles')).includes(c), c);
-  for (const c of ['chains', 'streak', 'weeks_shipping', 'ship_weeks']) assert.ok((await cols('builder_projects')).includes(c), c);
+  for (const c of ['chains', 'streak', 'weeks_shipping', 'ship_weeks', 'commit_weeks']) assert.ok((await cols('builder_projects')).includes(c), c);
   for (const c of ['raising_at', 'coin_tx', 'coin_chain_id']) assert.ok((await cols('projects')).includes(c), c);
   for (const c of ['id', 'builder_id', 'project_key', 'week', 'text', 'facts', 'points', 'pinned', 'hidden', 'feed_hidden', 'created_at', 'edited_at'])
     assert.ok((await cols('project_updates')).includes(c), c);

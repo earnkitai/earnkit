@@ -5,7 +5,8 @@ import { THEME } from '../../lib/earnkit/theme';
  * Scoring and clarity: one score (Shipping, the hero ring in SCORE_COLORS.total), so the hue families
  * are for the facts around it: `ship` (going live, commits), `weeks` (the grid, streaks) and `wins`
  * (program wins). Each keeps its gradient (`from` to `to`) and `text`, the one solid color it is set
- * in (4.5:1 or more on the page and the card surface, tested).
+ * in (4.5:1 or more on the page and the card surface, tested). R18 (owner): the profile's accent palette,
+ * kept on purpose to make the profile fun and encouraging; UpdateCard's chip dot reads `to` from here.
  */
 export const PART_COLORS = {
   ship: { from: '#3B82F6', to: '#22D3EE', text: '#67E8F9' }, // blue to cyan

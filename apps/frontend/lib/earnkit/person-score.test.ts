@@ -458,8 +458,10 @@ test('4.15g fix round 2 (anti-backdating rule 2): commit weeks before the repo w
   const r = await rescorePerson(id, NOW);
   // Only this week and the two before (the week it was created): round(90 x 33 / 78) = 38.
   assert.deepEqual(r, { score: 38, ranked: true, held: false });
-  const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id}`;
-  assert.equal(p.ship_weeks.length, 3, 'the grid and streak follow the same floor');
+  const [p] = await sql()<{ ship_weeks: string[]; commit_weeks: string[] }[]>`SELECT ship_weeks, commit_weeks FROM builder_projects WHERE builder_id = ${id}`;
+  assert.equal(p.ship_weeks.length, 3, 'the streak follows the same floor');
+  // R18 fix 1: the grid reads commit_weeks, the same counted weeks as the score.
+  assert.deepEqual(p.commit_weeks, p.ship_weeks, 'the grid follows the same floor');
 });
 
 test('4.15h fix round 3 (rule 4): a renamed repo (a new ref) finds its earlier reading by GitHub repo id, else owner and created_at, so it never gets a fresh first read', dbTest, async () => {

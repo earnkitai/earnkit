@@ -43,7 +43,7 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.match(none, />AM</);
   assert.doesNotMatch(none, /<img/);
   assert.match(none, /font-funnel-display/);
-  assert.match(none, /bg-ek-navy/);
+  assert.match(none, /bg-ek-raised/);
   const one = html(React.createElement(ProgramLogo, { logo: '/programs/arc-microgrants.svg', title: 'Arc Microgrants' }));
   assert.match(one, /<img src="\/programs\/arc-microgrants.svg" alt="Arc Microgrants"/);
   assert.equal(monogram('Base Builder Grant Program'), 'BB');

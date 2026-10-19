@@ -103,7 +103,7 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) SELECT id, '{"private": false}'::jsonb, true, now() FROM builder_sources WHERE builder_id = ${id}`;
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
     VALUES (${id}, 62, ${sql().json({ shipping: { points: 62, raw: { mask: 0b1010101110, weeks: 6, recent: 3, live_ships: 1 } }, used: { points: 24 }, earned: { points: 8 } } as never)}, true, 1, 0, 'v2', 'v2-shipping', now())`;
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, what, kind, confirmed, shipped, streak, ship_weeks) VALUES (${id}, ${key}, 'Recipe planner', 'a recipe planner', 'app', true, true, 2, ${['2026-W41', '2026-W42']})`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, what, kind, confirmed, shipped, streak, ship_weeks, commit_weeks) VALUES (${id}, ${key}, 'Recipe planner', 'a recipe planner', 'app', true, true, 2, ${['2026-W30', '2026-W41', '2026-W42']}, ${['2026-W41', '2026-W42']})`;
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES
     (${id}, ${key}, '2026-10-12', 'Shipped.', ${sql().json({ shipped_code: { n: 2 } } as never)}),
     (${id}, ${key}, '2026-10-05', 'Hidden.', '{}'::jsonb),
@@ -120,6 +120,7 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.');
   assert.equal(d.line, 'Shipping 62 · #1 of 1 builder this week');
   assert.equal(d.grid.length, 52);
+  // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
   assert.equal(d.grid.filter((g) => g.on).length, 2);
   assert.deepEqual(d.grid.slice(-2), [{ week: '2026-W41', on: true }, { week: '2026-W42', on: true }]);
   assert.equal(d.streak, 2);
@@ -245,7 +246,7 @@ test('11.17 (v2.13.1 O3) logCards: the start merges into its week\'s card as a c
 test('11.18 (v2.13.1 O3) the grid counts a week with an update and commits, even before the next rescore', dbTest, async () => {
   const key = `pr${RUN}/agree`;
   const id = await person(key, { named: 'Agree app' });
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, ship_weeks) VALUES (${id}, ${key}, 'Agree app', 'app', true, true, 0, ${[]})`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, commit_weeks) VALUES (${id}, ${key}, 'Agree app', 'app', true, true, 0, ${[]})`;
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts) VALUES
     (${id}, ${key}, '2026-10-12', 'Shipped a new onboarding flow.', ${sql().json({ shipped_code: { n: 4 }, started: { live: false, weeks: 0, people: 0 } } as never)}),
     (${id}, ${key}, '2026-10-05', 'Planned the next step.', '{}'::jsonb)`;

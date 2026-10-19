@@ -134,6 +134,7 @@ apps/frontend/
   app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
                                Leaderboard, Feed and Docs (from sm), "Add to your agent"
   app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
+  apps/frontend/DESIGN.md      R18: the design system (tokens, surfaces, text roles, buttons, the profile's accent palette)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·

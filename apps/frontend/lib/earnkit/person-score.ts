@@ -49,6 +49,8 @@ export type ProjectRow = {
   has_coin: boolean; sends_tx: boolean; last_active_at: Date | null;
   /** v2.13: the Bench chains it is on, its streak, weeks shipping in the last 52, and those weeks (plan B7). */
   chains: BenchChain[]; streak: number; weeks_shipping: number; ship_weeks: string[];
+  /** R18 fix 1: the weeks with counted commits on its repo (the profile grid; never deploys or sites). */
+  commit_weeks: string[];
   /**
    * v2.13 Bench gate (T4 fix round 1, ruling): confirmed, and for a repo-shaped key (owner/repo) a
    * confirmed repo source on that very key. A coin or an entry naming a repo never proves it. Not stored.
@@ -214,6 +216,7 @@ export async function personInputsV2(
     const low = lowKey(key);
     const inScope = !scopeLow || scopeLow === low;
     const ship = new Set<string>();
+    const commits = new Set<string>();
     const shipAt = (at: Date | null | undefined) => {
       const w = weekOf(at);
       if (w) ship.add(w);
@@ -258,6 +261,7 @@ export async function personInputsV2(
         // Fix rounds 2 and 3 (anti-backdating): no week before the repo existed; an unverified reading, its last 4 weeks.
         for (const wk of countedCommitWeeks(g, now)) {
           ship.add(wk);
+          commits.add(wk);
           if (inScope) input.commitWeeks.push(wk);
         }
       } else if (s.kind === 'site') {
@@ -337,6 +341,7 @@ export async function personInputsV2(
       last_active_at: lastActive ?? newest(...srcs.map((s) => s.created_at)),
       chains: chainList,
       ship_weeks: [...ship].filter((w) => last53.has(w)).sort(),
+      commit_weeks: [...commits].filter((w) => last53.has(w)).sort(),
       streak: streakOf(ship, now),
       weeks_shipping: weeksShipping(ship, now),
     });
@@ -451,14 +456,15 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
           confirmed: p.confirmed, shipped: p.shipped, tracked: tracked.has(p.key), people: 0, people_week: 0,
           money_usd: 0, has_coin: p.has_coin, sends_tx: p.sends_tx, tagged: false,
           untracked_contract: null, last_active_at: p.last_active_at, updated_at: at,
-          chains: p.chains, streak: p.streak, weeks_shipping: p.weeks_shipping, ship_weeks: p.ship_weeks,
+          chains: p.chains, streak: p.streak, weeks_shipping: p.weeks_shipping, ship_weeks: p.ship_weeks, commit_weeks: p.commit_weeks,
         })}
         ON CONFLICT (builder_id, project_key) DO UPDATE SET name = EXCLUDED.name, what = EXCLUDED.what, link = EXCLUDED.link,
           kind = EXCLUDED.kind, confirmed = EXCLUDED.confirmed, shipped = EXCLUDED.shipped, tracked = EXCLUDED.tracked,
           people = EXCLUDED.people, people_week = EXCLUDED.people_week, money_usd = EXCLUDED.money_usd, has_coin = EXCLUDED.has_coin,
           sends_tx = EXCLUDED.sends_tx, tagged = EXCLUDED.tagged, untracked_contract = EXCLUDED.untracked_contract,
           last_active_at = EXCLUDED.last_active_at, updated_at = EXCLUDED.updated_at, chains = EXCLUDED.chains,
-          streak = EXCLUDED.streak, weeks_shipping = EXCLUDED.weeks_shipping, ship_weeks = EXCLUDED.ship_weeks`;
+          streak = EXCLUDED.streak, weeks_shipping = EXCLUDED.weeks_shipping, ship_weeks = EXCLUDED.ship_weeks,
+          commit_weeks = EXCLUDED.commit_weeks`;
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
     if (mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping });

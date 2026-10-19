@@ -1,5 +1,5 @@
 import Avatar from '../../[handle]/Avatar';
-import { chipHue, type PartLabel } from '../../[handle]/score-colors';
+import { PART_COLORS, chipHue } from '../../[handle]/score-colors';
 import { SURFACE } from '../common/Panel';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
@@ -42,13 +42,11 @@ function Body({ text }: { text: string }) {
   return <>{out}</>;
 }
 
-/** The small dot on a card's first chip, in the hue of the fact it speaks to (score-colors.ts chipHue). */
-const DOT: Record<PartLabel, string> = { ship: '#22d3ee', weeks: '#f472b6', wins: '#fb923c' };
-
 /**
  * v2.13 spec "The feed": one update as a card, long (the feed, the profile) or square (the carousel),
  * on the site's card surface (R18: Panel.tsx SURFACE). Server-safe; no label says who wrote it. Chips
- * are neutral; the first carries one small dot in its fact's hue (data-hue, score-colors.ts chipHue).
+ * are neutral; the first, when it names a fact (data-hue, score-colors.ts chipHue), carries one small
+ * dot in that fact's hue (PART_COLORS, the profile's accent palette: the one place the card takes a color from).
  * `showWeek: false` drops the week line where a section header already names the week (the feed).
  */
 export default function UpdateCard({ card, shape, showPerson = true, showWeek = true }: { card: UpdateCardData; shape: 'long' | 'square'; showPerson?: boolean; showWeek?: boolean }) {
@@ -87,7 +85,7 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
             const hue = chipHue(c);
             return (
               <li key={c} data-hue={hue ?? undefined} className="inline-flex items-center gap-2 rounded-full bg-ek-chip px-3 py-1 font-funnel-sans text-sm text-ek-body">
-                {i === 0 && hue ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: DOT[hue] }} /> : null}
+                {i === 0 && hue ? <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full" style={{ background: PART_COLORS[hue].to }} /> : null}
                 {c}
               </li>
             );

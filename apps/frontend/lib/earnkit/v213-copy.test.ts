@@ -120,7 +120,7 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], titles: [], pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
-  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
+  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, count: 12, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
   // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
   const investors = ['The LAO', 'IDEO', 'GCR'];
   const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
@@ -138,7 +138,7 @@ test('13.8 no builder-visible bonus text: replies, landing, program pages, guide
   const { toolDescriptions, serverInstructions } = await import('./mcp');
   const bonusWords = /builder bonus|bonus pool|\bbonus\b/i;
   const pages = [
-    renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], chips: [], cards: [], raising: true } } })),
+    renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], count: 0, chips: [], cards: [], raising: true } } })),
     renderToStaticMarkup(React.createElement(HomeView, { landing: null })),
     renderToStaticMarkup(React.createElement(TermsPage)),
     renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),

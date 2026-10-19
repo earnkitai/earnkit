@@ -26,7 +26,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
-        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">{VETO_ERRORS['rate-limited']}</p>
+        <p className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">{VETO_ERRORS['rate-limited']}</p>
       </div>
     );
   }
@@ -40,7 +40,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
   const cleared = await ownerClears();
   return (
     <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+      <section className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">
         <h1 className="font-funnel-display text-3xl text-ek-text">Held scores</h1>
         <p className="mt-2 text-sm">
           A score that rose 30+ points in a day, or stands 60+ on one source, waits here. The public sees the last unheld score until you release it.
@@ -54,7 +54,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
           </thead>
           <tbody>
             {held.map((h) => (
-              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-navy align-top">
+              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-line align-top">
                 <td className="py-2">{h.slug} (#{h.builder_id})</td>
                 <td className="py-2">{h.score} on {h.day}</td>
                 <td className="py-2">{h.shown ? `${h.shown.score} on ${h.shown.day}` : 'none yet'}</td>
@@ -86,7 +86,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
         {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-text">No conflicts.</p> : null}
         <ul className="mt-6 text-sm">
           {conflicts.map((c) => (
-            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />
@@ -104,7 +104,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
         {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-text">None.</p> : null}
         <ul className="mt-6 text-sm">
           {cleared.map((c) => (
-            <li key={c.builder_id} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={c.builder_id} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />

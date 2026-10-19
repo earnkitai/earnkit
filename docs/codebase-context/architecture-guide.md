@@ -6273,3 +6273,16 @@ ranking higher.
   as wide as the React one.
 - Dead code removed: Positioning, EcosystemHero, BuilderBanner, CampaignTypes, EcosystemValue, FinalCta,
   CoinsField, ViewportHeightSetter, the unused globals.css classes.
+
+### Task 5b fix round 1
+
+- Leaderboard rows show "#N" alone (the full rank line in an sr-only span); `BenchTop.tsx benchLine` is the one
+  header line ("N builders this week. Ranked by Shipping points.") on /leaderboard and under the landing's title,
+  from `Landing['bench'].count` (every ranked builder). The landing cache key moved to `landing-r18`.
+- The profile grid reads `builder_projects.commit_weeks` (new column, written by `rescorePerson` from the counted
+  repo commit weeks, the same floor as the score) plus checked `shipped_code` weeks (`bench-data.ts gridWeeks`);
+  `ship_weeks` (commits, deploys, sites) still drives the streak and week facts.
+- Colors: #46's `PART_COLORS` (score-colors.ts) stay as the profile's accent palette (owner); UpdateCard's chip dot
+  reads them. THEME gained `brand` (#579DFF), the primary button in React and brand-page.ts; Tailwind keeps only
+  `ek-blue-bright`, `ek-blue-soft`, `ek-score-orange` and the page tokens (plus `ek-glass` for the header).
+  framer-motion removed. `apps/frontend/DESIGN.md` rewritten for R18.

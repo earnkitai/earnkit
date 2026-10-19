@@ -170,12 +170,13 @@ export function logCards(rows: { week: string; text: string | null; titles?: str
 }
 
 /**
- * v2.13.1 O3: the grid's shipping weeks: the rescored ship weeks, plus every shown week whose row
- * EarnKit checked commits for (facts.shipped_code), so a card with commits always has its square
- * filled, even before the next rescore. Pure.
+ * v2.13.1 O3, R18 fix 1: the grid's weeks are commit weeks only ("Code in N of the last 52 weeks"):
+ * the rescored commit weeks (builder_projects.commit_weeks, never a deploy or a site), plus every shown
+ * week whose row EarnKit checked commits for (facts.shipped_code), so a card with commits always has its
+ * square filled, even before the next rescore. Pure.
  */
-export function gridWeeks(shipWeeks: string[], rows: { week: string; facts: WeekFacts }[]): Set<string> {
-  const weeks = new Set(shipWeeks);
+export function gridWeeks(commitWeeks: string[], rows: { week: string; facts: WeekFacts }[]): Set<string> {
+  const weeks = new Set(commitWeeks);
   for (const r of rows) {
     const w = (r.facts?.shipped_code?.n ?? 0) > 0 ? weekOfMonday(r.week) : null;
     if (w) weeks.add(w);
@@ -248,8 +249,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
   if (!p.main) return empty;
-  const [b] = await db<{ chains: string[]; streak: number; ship_weeks: string[]; confirmed: boolean }[]>`
-    SELECT b.chains, b.streak, b.ship_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
+  const [b] = await db<{ chains: string[]; streak: number; commit_weeks: string[]; confirmed: boolean }[]>`
+    SELECT b.chains, b.streak, b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
     WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(${p.main})`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(p.main!));
   if (!b || !shown) return empty;
@@ -262,7 +263,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     : [];
   // Preflight S9: a repo that isn't read public shows its titles only while titles are on (and never its name).
   const updates = stored.map((u) => ({ ...u, titles: titlesShown(u.titles, { hiddenRepo: shown.hiddenRepo, titlesOn: p.titles_on, repoKey: p.main! }) }));
-  const weeks = confirmed ? gridWeeks(b.ship_weeks, updates) : new Set<string>();
+  const weeks = confirmed ? gridWeeks(b.commit_weeks, updates) : new Set<string>();
   const coin = confirmed ? await raisingCoin(builderId) : null;
   const repoKey = norm(p.main);
   const [programs, funds] = await Promise.all([projectPrograms(builderId, p.main), confirmed ? fundLines(builderId, p.main, now) : Promise.resolve([])]);

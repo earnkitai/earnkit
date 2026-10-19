@@ -3,21 +3,14 @@
 @tailwind utilities;
 
 /*
- * One design system (scoring and clarity R18). The brand palette (ek-*, DESIGN.md) and the page
- * tokens (--ek-p-*, lib/earnkit/theme.ts THEME; tested to match) are the only colors. Tailwind reads
- * the page tokens as ek-page, ek-surface, ek-text and friends (tailwind.config.ts), so every page
+ * One design system (scoring and clarity R18, DESIGN.md). The page tokens (--ek-p-*, lib/earnkit/theme.ts
+ * THEME; tested to match) are the colors. Tailwind reads them as ek-page, ek-surface, ek-text and
+ * friends (tailwind.config.ts), next to three brand colors (ek-blue-bright, ek-blue-soft,
+ * ek-score-orange), so every page
  * (landing, leaderboard, feed, profile, programs, terms) and the brandShell sign-in pages share one
  * page, one card surface, one text scale.
  */
 :root {
-  /* Brand palette */
-  --ek-navy: #112969;
-  --ek-blue-deep: #0d3991;
-  --ek-blue: #2e70ea;
-  --ek-blue-bright: #579dff;
-  --ek-blue-soft: #a3c5fe;
-  --ek-blue-light: #e5eefc;
-
   /* Page tokens (theme.ts THEME) */
   --ek-p-page: #070D24;
   --ek-p-page-top: #0A1433;
@@ -36,6 +29,7 @@
   --ek-p-body: #C8D4EE;
   --ek-p-muted: #94A3C4;
   --ek-p-accent: #A3C5FE;
+  --ek-p-brand: #579DFF;
 }
 
 @layer utilities {
@@ -69,12 +63,12 @@ body {
 
 /* Browser surfaces are part of the design, not defaults. */
 ::selection {
-  background: var(--ek-blue-bright);
+  background: var(--ek-p-brand);
   color: var(--ek-p-page);
 }
 
 :focus-visible {
-  outline: 2px solid var(--ek-blue-bright);
+  outline: 2px solid var(--ek-p-brand);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -98,7 +92,7 @@ html {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--ek-navy);
+  background: var(--ek-p-muted);
 }
 
 /* Backed by: the investors' logos scroll slowly; hover pauses. */

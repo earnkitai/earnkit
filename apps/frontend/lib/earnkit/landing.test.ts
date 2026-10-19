@@ -364,7 +364,7 @@ test('12.1 the hero, word for word, and its one button', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
   // R18: shipping and funding; the landing never pitches a coin or a community round.
   assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It ranks what you ship on the leaderboard and finds grants that fit.');
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising: true } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: ['base'], cards: [CARD], raising: true } });
   assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
@@ -372,17 +372,19 @@ test('12.1 the hero, word for word, and its one button', () => {
 
 test('12.1b (R18) the landing never mentions a coin or a community round, raising on or off', () => {
   for (const raising of [false, true]) {
-    const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: ['base'], cards: [CARD], raising } });
+    const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: ['base'], cards: [CARD], raising } });
     assert.ok(h.includes(BENCH_HERO_SUBTITLE));
     assert.doesNotMatch(h, /\braise\b|raising|community round|your own coin/i);
   }
 });
 
 test('12.2 the sections in order: hero, the leaderboard top 10, shipped this week, money open now, backed by (R18: no How it works, no filter chips)', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), chips: ['base'], cards: [CARD], raising: true } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), count: 12, chips: ['base'], cards: [CARD], raising: true } });
   const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', 'Backed by'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
+  // R18 fix 1: the count line under the title, for every ranked builder (not only the 10 rows).
+  assert.ok(h.includes('12 builders this week. Ranked by Shipping points.'));
   assert.match(h, new RegExp(`href="/leaderboard"[^>]*>${SEE_BENCH}`));
   assert.doesNotMatch(h, /href="\/leaderboard\?/, 'the filters live on /leaderboard');
   assert.match(h, /data-shape="square"/);
@@ -390,12 +392,12 @@ test('12.2 the sections in order: hero, the leaderboard top 10, shipped this wee
 });
 
 test('12.3 the square card: photo, @handle, project, the first line of the update and at most two chips', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD], raising: true } });
+  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [CARD], raising: true } });
   assert.ok(h.includes('Added fridge photo import.') && !h.includes('It plans a week.'));
   assert.ok(h.includes('Went live') && h.includes('+31 people') && !h.includes('12 commits'));
   assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
   // No updates this week: no carousel (the Bench and the grants still show).
-  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [], raising: true } });
+  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [], raising: true } });
   assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
 });
 
@@ -409,16 +411,22 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
   assert.ok(on.bench);
   assert.ok(Array.isArray(on.bench.rows) && on.bench.rows.length <= 10);
   assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 12);
-  assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'raising', 'rows']);
+  assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'count', 'raising', 'rows']);
+  assert.ok(Number.isInteger(on.bench.count) && on.bench.count >= on.bench.rows.length, 'every ranked builder, not only the 10 rows');
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
 });
 
-test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no column titles and nothing uppercase', () => {
+test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no column titles and nothing uppercase, with leaderboard data or without', () => {
   const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
-  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], chips: [], cards: [CARD], raising: true } });
-  assert.ok(on.includes('>Backed by<') && !caps(on, 'Backed by'));
-  for (const t of ['Product', 'Resources', 'Legal', 'Contact']) assert.ok(!on.includes(`>${t}<`), t);
-  assert.doesNotMatch(on.split('<footer')[1], /\buppercase\b/, 'the footer');
+  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [CARD], raising: true } });
+  // No leaderboard data (a failed read of its parts): the same page, minus the live sections.
+  const fallback = page({ ...LANDING_FIXTURE, bench: null });
+  for (const h of [on, fallback]) {
+    assert.ok(h.includes('>Backed by<') && !caps(h, 'Backed by'));
+    for (const t of ['Product', 'Resources', 'Legal', 'Contact']) assert.ok(!h.includes(`>${t}<`), t);
+    assert.doesNotMatch(h, /\buppercase\b/, 'nothing uppercase anywhere on the landing');
+  }
+  assert.ok(!fallback.includes('data-row=') && !fallback.includes('Ranked by Shipping points'), 'no data: no leaderboard section');
 });
 
 test('12.9 the landing\'s Bench parts never import the /bench page module (BenchView pulls in its Footer)', () => {

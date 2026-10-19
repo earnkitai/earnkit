@@ -13,7 +13,7 @@ const LINK =
  */
 export default function Header() {
   return (
-    <header data-ek-header="" className="sticky top-0 z-40 border-b border-ek-line bg-[var(--ek-p-glass)] backdrop-blur">
+    <header data-ek-header="" className="sticky top-0 z-40 border-b border-ek-line bg-ek-glass backdrop-blur">
       <nav aria-label="Site" className="mx-auto flex h-14 w-full max-w-6xl items-center gap-1 px-4 md:px-8">
         <Link href="/" className="mr-auto inline-flex min-h-11 items-center text-ek-text">
           <Wordmark className="h-[18px] w-auto md:h-5" />

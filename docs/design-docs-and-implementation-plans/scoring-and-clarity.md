@@ -28,6 +28,7 @@ EarnKit's goal is to connect builders with capital. Moving up means shipping mor
 | R17 | **The leaderboard table** has a Shipping points column. |
 
 | R18 | **Design system and simplification (owner, 2026-10-19).** The profile and feed redesign from #46 is tuned to blend with the rest of the site, using the shared tokens (THEME / --ek-p-*). The whole site is simplified to be minimal: fewer sections, fewer words, one idea per block. Overworded or confusing copy is rewritten. |
+| R18 fix 1 | **Leaderboard rows (owner, 2026-10-19; supersedes R6 for rows):** a row shows "#N" alone; the full rank line is read to screen readers, and one header line says what it is out of: "N builders this week. Ranked by Shipping points." (on /leaderboard and under the landing's title). R6 wording stays everywhere else (profile, replies, OG). The profile grid counts commit weeks only (`builder_projects.commit_weeks`). #46's gradient hues stay as the profile's accent palette (owner). |
 
 ## Tasks
 

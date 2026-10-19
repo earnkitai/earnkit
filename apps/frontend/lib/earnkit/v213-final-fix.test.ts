@@ -222,7 +222,7 @@ test('F11 raising off: the Bench, the landing top 10, tell\'s description and ll
   const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: true }));
   assert.ok(on.includes(FILTER_RAISING) && on.includes('raising=1'));
   // R18: the landing's top 10 has no filter chips at all (they live on /leaderboard).
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row] })).includes(FILTER_RAISING));
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes(FILTER_RAISING));
   await withRaising(false, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));

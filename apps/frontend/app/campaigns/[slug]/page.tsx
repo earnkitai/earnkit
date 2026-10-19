@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { COLUMN, H1, H2, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
 import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
@@ -64,14 +65,12 @@ export default async function CampaignPage({
   const disclosure = c.kind === 'sponsor' ? sponsorDisclosureParts(c.sponsor.name, identity, c.criteria) : null;
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pt-8 md:px-8 md:pt-12">
-      <section className="rounded-[24px] border border-ek-line bg-gradient-to-b from-ek-surface-top to-ek-surface px-5 py-10 md:px-10 md:py-12">
-        <p className="font-funnel-sans text-xs font-medium uppercase tracking-[0.3em] text-ek-muted">
+    <div className={`${COLUMN} pt-8 md:pt-12`}>
+      <section className={`${SURFACE} px-5 py-10 md:px-10 md:py-12`}>
+        <h1 className={H1}>{program.title}</h1>
+        <p className="mt-2 font-funnel-sans text-sm text-ek-muted">
           {campaignEyebrow(c.kind === 'sponsor', sponsorLabel(identity))}
         </p>
-        <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-text md:text-5xl">
-          {program.title}
-        </h1>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-body md:text-lg">
           {c.kind === 'sponsor'
             ? (c.what_to_build ?? program.description)
@@ -128,8 +127,8 @@ export default async function CampaignPage({
         )}
       </section>
 
-      <section className="mt-4 rounded-[24px] border border-ek-line bg-gradient-to-b from-ek-surface-top to-ek-surface px-5 py-10 md:px-10 md:py-12">
-        <h2 className="font-funnel-display text-2xl font-medium text-ek-text">
+      <section className={`${SURFACE} mt-4 px-5 py-10 md:px-10 md:py-12`}>
+        <h2 className={H2}>
           {ranked ? LEADERBOARD_HEADING : ENTRIES_HEADING}
         </h2>
         {rows.length === 0 ? (
@@ -165,7 +164,7 @@ export default async function CampaignPage({
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-t border-ek-navy text-ek-body"
+                  className="border-t border-ek-line text-ek-body"
                 >
                   {ranked ? (
                     <td className="py-3 tabular-nums">{r.rank ?? '–'}</td>
@@ -200,7 +199,7 @@ export default async function CampaignPage({
           </table>
         )}
         {offPlan?.some((o) => o.entry_id === null) ? (
-          <div className="mt-6 rounded-2xl border border-ek-blue-strong p-4 font-funnel-sans text-sm text-ek-body">
+          <div className="mt-6 rounded-2xl border border-ek-line-strong p-4 font-funnel-sans text-sm text-ek-body">
             <p className="text-ek-text">
               {OFF_PLAN_HEADING}
             </p>
@@ -218,8 +217,8 @@ export default async function CampaignPage({
       </section>
 
       {review && run ? (
-        <section className="mt-4 rounded-[24px] border border-ek-line bg-gradient-to-b from-ek-surface-top to-ek-surface px-5 py-10 md:px-10 md:py-12">
-          <h2 className="font-funnel-display text-2xl font-medium text-ek-text">
+        <section className={`${SURFACE} mt-4 px-5 py-10 md:px-10 md:py-12`}>
+          <h2 className={H2}>
             {run.state === 'review' ? REVIEW_HEADING_REVIEW : run.state === 'paid' ? REVIEW_HEADING_PAID : REVIEW_HEADING_PAYING}
           </h2>
           {run.state === 'review' && run.review_until ? (
@@ -244,7 +243,7 @@ export default async function CampaignPage({
               </thead>
               <tbody>
                 {review.picks.map((r) => (
-                  <tr key={r.id} className="border-t border-ek-navy text-ek-body">
+                  <tr key={r.id} className="border-t border-ek-line text-ek-body">
                     <td className="py-3 tabular-nums">{r.rank}</td>
                     <td className="truncate py-3 pr-4">
                       <Link href={`/p/${r.id}`} className="text-ek-text underline-offset-4 hover:underline">

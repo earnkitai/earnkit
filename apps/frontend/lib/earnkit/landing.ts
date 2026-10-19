@@ -56,7 +56,8 @@ export type Landing = {
   won_line: string | null;
   /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and this week's square cards (null from landingFrom alone). */
   /** `raising`: EARNKIT_RAISING was on for this read (the Raising chip shows only then). */
-  bench: { rows: BenchRow[]; chips: BenchChain[]; cards: FeedCard[]; raising: boolean } | null;
+  /** `count`: every ranked builder (R18 fix 1: the header count line), not only the 10 rows. */
+  bench: { rows: BenchRow[]; count: number; chips: BenchChain[]; cards: FeedCard[]; raising: boolean } | null;
 };
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
@@ -110,10 +111,10 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
   };
 }
 
-/** v2.13: the landing's Bench parts (only `rows` and `chips` from benchRows). Plain JSON. */
+/** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows). Plain JSON. */
 async function readBench(now: Date): Promise<Landing['bench']> {
-  const { rows, chips } = await benchRows({ chain: null, raising: false, weekly: false }, { limit: 10 });
-  return { rows, chips, cards: await carouselCards(now), raising: raisingEnabled() };
+  const { rows, count, chips } = await benchRows({ chain: null, raising: false, weekly: false }, { limit: 10 });
+  return { rows, count, chips, cards: await carouselCards(now), raising: raisingEnabled() };
 }
 
 /**

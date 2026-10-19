@@ -1449,6 +1449,8 @@ ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS chains text[] NOT NULL DEF
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS streak integer NOT NULL DEFAULT 0;
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS weeks_shipping integer NOT NULL DEFAULT 0;
 ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS ship_weeks text[] NOT NULL DEFAULT '{}';
+-- Scoring and clarity R18 fix 1: the profile grid's weeks, commit weeks only (ship_weeks also counts deploys and sites).
+ALTER TABLE builder_projects ADD COLUMN IF NOT EXISTS commit_weeks text[] NOT NULL DEFAULT '{}';
 -- Raising (R8): set on the yes, cleared on "stop raising"; the coin's launch tx and chain (tokens.fun's txHash, chainId).
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS raising_at timestamptz;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS coin_tx text;
