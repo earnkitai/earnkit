@@ -31,10 +31,10 @@ test('the tabs are Grok Bot, Claude Code, Cursor, Codex, Muse; Grok Bot is selec
   assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
 });
 
-test('Claude Code: user scope, then /mcp to approve', () => {
+test('Claude Code: user scope, then /mcp and Authenticate (the menu item Claude Code shows)', () => {
   const cc = byName('Claude Code');
   assert.equal(cc.code, CLAUDE_CODE);
-  assert.equal(cc.after, 'Then type /mcp, pick earnkit, approve.');
+  assert.equal(cc.after, 'Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.');
 });
 
 test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
@@ -42,7 +42,7 @@ test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
   assert.ok(cx.code?.startsWith('codex mcp add earnkit'), cx.code);
   assert.ok(cx.code?.includes('https://earnkit.com/mcp'));
   assert.equal(cx.code, CODEX);
-  assert.equal(cx.after, 'Then run codex mcp login earnkit and approve.');
+  assert.equal(cx.after, 'Then run codex mcp login earnkit.');
   // Fix round 1: the login command can be copied too.
   assert.equal(cx.afterCode, 'codex mcp login earnkit');
   const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
@@ -114,7 +114,7 @@ test('llms.txt: the token is not optional, the builder bonus, the starting phras
   assert.ok(llms.includes('builder bonus'));
   assert.ok(llms.includes('What can I earn?'));
   assert.ok(llms.includes(CLAUDE_CODE));
-  assert.ok(llms.includes('Then type /mcp, pick earnkit, approve.'));
+  assert.ok(llms.includes('Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.'));
   assert.ok(llms.includes(CODEX));
   assert.ok(llms.includes('codex mcp login earnkit'));
   assert.ok(llms.includes('Any other MCP client: add https://earnkit.com/mcp as a remote server'));
