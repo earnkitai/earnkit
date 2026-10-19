@@ -5838,3 +5838,45 @@ no new cron, no paid service.
   checked with one `GET /repos/{key}` through the same App client; a public answer stamps `public_at`.
   `setShipTitles({ titles: true })` without an App-proven repo returns `TITLES_NO_APP_NOTE`; a yes to a stored
   pre-v2.14 `updates` / `post_update` ask is taken and answered with `UPDATE_LINES.auto`.
+
+## v2.14 One account: replies as five states (Task 9, 2026-10-19)
+
+Brief: `.superpowers/sdd/v2.14-one-account-plan/task-9-brief.md`; rulings A13 to A17 and preflight D5, D6, D12, D14.
+`find` and `score` share `bench-find.ts benchView`, so both answer in the same five states. The copy lives in one
+table, `bench-reply.ts STATE_COPY` (plus `VARIANT_COPY` for not-counted cases), and `benchReply` is pure.
+
+| State | When | Stand line | The one link | The one question |
+|---|---|---|---|---|
+| `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
+| `no_project` | signed in, no one project | the same + "Your page: https://..." | the page | "What's your GitHub, or a link to something you've made?" |
+| `not_counted` | a project not confirmed | "<Project> isn't counted yet." + "Your page: earnkit.com/<handle>" | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
+| `proven` | confirmed, streak under 2 | "<Project> is on the Bench: <rank>." + page | the page | `nextStepAsk`: the best fit's entry, else a community round, else put it online, else one small thing to ship |
+| `shipping` | confirmed, streak 2 or more | the same + " <n> weeks in a row." | the page | the same order |
+
+- **Not counted variants (A15).** `taken` (another person holds the repo), `copy` (fork or template): "Want to use a
+  different project?"; `no_repo` (a link only): "Where does <Project> live on GitHub?"; `app_off` (no install link
+  can be made): one small thing to ship. A taken project still names the open programs (D6), never a fit.
+- **Money always shows.** "Ways to get funded" is in every state, signed out included; with nothing open it says
+  "No program is open right now. I'll look again next week."
+- **One link (A14, D5).** The action link (sign-in, install) is the one https link and the page is named beside it
+  without https; otherwise the page is the link. No page to name (X off, A5, answered as signed in; or an X-bound
+  person whose handle was taken by someone else, whose `/b/<slug>` does not resolve) means no link at all.
+- **One question (A16, A17).** States 1 to 3 always ask their fixed question (a no doesn't silence it); in 4 and 5 a no
+  keeps an ask away 30 days and "one small thing to ship" is never kept away. A held question (find's outcome
+  question, else a submission step due) replaces the state's question; the stored `bench_ask` is then cleared, and
+  `ask_outcome.agent_note` is `BENCH_OUTCOME_NOTE` (the question is already in show_to_builder).
+- **The sign-in link (D14).** Minted for the caller's own installation (`ctx.ownInstallationId ?? installationId`)
+  on both find and score, so its paste code binds through `find { sign_in_code }` from the same agent.
+- **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it (find or
+  score, OAuth at install or the paste code) starts with "Signed in as @<handle>." and clears it, so a builder sees a
+  wrong account at once (T4's leaked-authorize-URL note).
+- **Yeses.** `benchMoveUp` answers `sign_in` (`SIGN_IN_YES_NOTE`), `start`, `install_app`, `other_project`,
+  `repo_behind` (`REPO_BEHIND_NOTE`), `enter`, `raise`, `suggest` once each; `go_live` and `coin` stay in tools.ts.
+  The grants ask (`grantsYes`, quiet windows), the build ask kinds and the build-in-progress view are gone; a stored
+  pre-v2.14 `build` or `grants` ask is answered "Okay.".
+- **Also.** `setShipTitles` turns titles on only when the main project's own repo is App-proven; the alert lines no
+  longer link to the deleted `/bonus/<round>` pages (`entry-text.ts boardLink` removed).
+- **Schema.** `installations.x_signed_in_unseen boolean NOT NULL DEFAULT false` (idempotent).
+- **Tests.** `reply-states.test.ts` (pure: the five replies word for word, variants, held question, copy rule),
+  `v214-replies.test.ts` (through `fixtures/mcp-call.ts`: install, first find, each state; X off with no link; the
+  score link binding through find; "Signed in as" once).

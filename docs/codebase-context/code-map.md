@@ -1376,34 +1376,41 @@ apps/frontend/
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles)
     ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle, shipTitles (checkUpdate on each),
-                               readWeekTitles (2 calls), namesRepo, titlesShown; week-facts.ts weekTitles (fix round 1) (S9 read-time filter: private repo
-                               titles only while builder_profiles.ship_titles_at is set, never naming the repo);
-                               tests ship-titles.test.ts, v214-ship-log.test.ts
+                               readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
+                               while builder_profiles.ship_titles_at is set, never naming the repo); week-facts.ts
+                               weekTitles calls readWeekTitles; tests ship-titles.test.ts, v214-ship-log.test.ts
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
     updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles
-                               (tell updates { titles }), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
+                               (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
                                option (posted_by still written)
     feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
                                CHAIN_CHIP_MIN, BENCH_CHAINS)
-    bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
-                               v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, installAppAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
-                               v2.13.4: privateLine, installAppAsk (owner's copy, question last), displayName (site spelling or title
-                               case), the asks end on their question (R4). v2.14 T7: claimLine, claimAsk*, claimQuestion, linkedLine,
-                               showsClaimLink, the claim and remove_agent kinds and BenchView.claimLink/linked are gone.
-                               v2.14 T8: UPDATES_ASK*, POST_UPDATE_ASK and the updates / post_update kinds are gone
+    bench-reply.ts(+test)      v2.14 T9 (spec 4): the reply as five states, pure. ReplyState (signed_out, no_project,
+                               not_counted, proven, shipping), Variant (taken, copy, no_repo, app_off), replyState;
+                               STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
+                               NO_MONEY_LINE, streakWords; stateAsk (the fixed question of states 1 to 3), nextStepAsk
+                               (proven/shipping: best fit's entry, else a community round, else go live, else one small
+                               thing, never kept away); benchReply: stand line (+ "Your page"), "Ways to get funded"
+                               always, one question last, exactly one https link (the action link, else the page;
+                               none when there is no page, X off). Kinds sign_in, start, install_app, other_project,
+                               repo_behind, enter, coin, raise, go_live, suggest. Keeps fitsLine, needsLine, displayName.
+                               tests reply-states.test.ts, bench-reply.test.ts
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
-                               v2.14 T6: benchView reads repo-proof.ts repoProof (view.branch private / taken / copy),
-                               the install ask with installLink; no proof or remove_branch fields, no proof check.
-                               v2.13.4: fundNeeds(c, has), reportedLive, liveOf (v2.14 T7: no claim ask, CLAIM_NOTE, CLAIM_YES_NOTE,
-                               takeLinked, join notice, remove_agent route or probation branches; T9 adds the unsigned state);
-                               v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
-                               tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
-                               v2.13.3: fundNeeds, needsPicks (NEEDS_MAX 2), START_NOTE, START_YES_NOTE, INSTALL_APP_NOTE, INSTALL_APP_YES_NOTE; no generic starter.
+                               v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
+                               install link, the sign-in link minted for the caller's own installation, D14), the
+                               money (fits, else the open-all-year program, else needsPicks; a taken project still
+                               names open programs, D6), the stored ask; a held question (find's outcome question or
+                               submission step, A17) replaces the state's. "Signed in as @<handle>." once on the
+                               first reply after an X bind (installations.x_signed_in_unseen). benchMoveUp: taken-once
+                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE); no grants ask,
+                               no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
+                               needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
+                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),

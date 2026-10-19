@@ -24,10 +24,9 @@ export type StandScoreReply = {
 
 /**
  * v2.12.1 T8: the score tool. A shared client is never a person (plan R2): one plain line, nothing
- * read or written. Everyone else gets the Bench's three parts, as find's (bench-find.ts benchScore;
- * `hold`: the reply already asks something, a pending join, so the ask waits).
+ * read or written. Everyone else gets the Bench's reply in one of the five states, as find's (bench-find.ts benchScore).
  */
-export async function scoreReply(ctx: Ctx, now: Date, o: { hold?: boolean; reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<StandScoreReply> {
+export async function scoreReply(ctx: Ctx, now: Date, o: { reader?: ReaderDeps; fresh?: FreshOn } = {}): Promise<StandScoreReply> {
   const shared: StandScoreReply = { show_to_builder: SCORE_SHARED };
   if (ctx.sharedClient) return shared;
   return ((await benchScore(ctx, now, o)) as StandScoreReply | null) ?? shared;
