@@ -114,7 +114,10 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const fund = fundPart(s);
   assert.ok(fund.length >= 1 && fund.length <= 3, s);
   for (const l of fund) assert.match(l, FIT_LINE, l);
-  assert.ok(fund.some((l) => l === `${committedProgram('base-builder-grants').title}: up to $5K, rolling. You deployed on Base and your app is live.`), s);
+  // R12 (fix round 1): one order, present.ts byDeadline: all rolling here, so the bigger award first.
+  assert.equal(fund[0], `${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`, s);
+  assert.equal(fund.length, 3);
+  assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'circle-developer-grants', 'the lead is the first named');
   assert.equal(up, `How to move up\n${SHIP_STEP}`);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
   assert.doesNotMatch(s, COIN_WORDS, s);
@@ -129,7 +132,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const fits = fundPart(t);
   assert.equal(fits.length, 3, t);
   for (const l of fits) assert.match(l, FIT_LINE, l);
-  assert.ok(fits.includes(`${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`), t);
+  assert.deepEqual(fits, fund, 'find and score name the same fits in the same order');
   assert.ok(t.endsWith(`How to move up\n${SHIP_STEP}`), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
@@ -202,13 +205,13 @@ test('R12 positive match (Task 2c carry): a profiled builder with transactions, 
   assert.equal(repoCanWin(rows.get('base-builder-grants')!, repo), true, 'Base: deployed, live, real use');
   assert.equal(repoCanWin(rows.get('circle-developer-grants')!, repo), true, 'Arc: deployed, live, real use');
   for (const id of CLOSED) assert.equal(rows.has(id), false, `${id} is not open`);
-  // scoreFits over the stored fit repo: the biggest awards first, at most 3, each with its why.
+  // scoreFits over the stored fit repo: byDeadline order, at most 3, each with its why.
   const a = await agent('psf');
   await sql()`UPDATE installations SET fit_repos = ${sql().json([repo] as never)} WHERE id = ${a.id}`;
   const { listPrograms } = await import('./programs');
   const fits = await scoreFits(a.id, key, { cards: await listPrograms(), skip: new Set(), now: new Date() });
   assert.ok(fits.length >= 2 && fits.length <= 3, JSON.stringify(fits.map((f) => f.card.id)));
-  assert.equal(fits[0].card.id, 'circle-developer-grants', 'the biggest award first');
+  assert.equal(fits[0].card.id, 'circle-developer-grants', 'byDeadline: all rolling, so the biggest award first');
   assert.ok(fits.some((f) => f.card.id === 'avalanche-team1-mini-grants'), JSON.stringify(fits.map((f) => f.card.id)));
   assert.equal(fitWhy(fits[0].card, { chains: repo.chains, live: true }), 'You deployed on Arc and your app is live.');
   // A low-odds repo (no traction) gets none.
@@ -226,4 +229,11 @@ test('R12 fitWhy: from the matcher\'s facts, in plain words', () => {
   assert.equal(fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false }), 'It takes any chain.');
   // A credited mainnet comes before one only mentioned.
   assert.equal(fitWhy({ chains: ['base', 'arc'], any_chain: false, tag: null }, { chains: { base: d('mention'), arc: d('deployed') }, live: false }), 'You deployed on Arc.');
+});
+
+test('R12 byDeadline (fix round 1): the soonest deadline first, rolling last, then the bigger award, then the id', async () => {
+  const { byDeadline } = await import('./present');
+  const c = (id: string, ends: string | null, usd: number | null) => ({ id, ends_at: ends ? new Date(ends) : null, max_award_usd: usd });
+  const sorted = [c('roll-small', null, 500), c('late', '2026-12-01', 100), c('roll-big', null, 9000), c('soon', '2026-10-30', 50), c('soon-big', '2026-10-30', 5000)].sort(byDeadline);
+  assert.deepEqual(sorted.map((x) => x.id), ['soon-big', 'soon', 'late', 'roll-big', 'roll-small']);
 });

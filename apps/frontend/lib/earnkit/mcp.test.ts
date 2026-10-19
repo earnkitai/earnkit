@@ -241,7 +241,7 @@ test('v2.8.1 §B6 (fix round 1): every odd find input passes the MCP schema; wit
 });
 
 test('v2.7 §3, Ruling 15/18 (plan): prepare says to call again until ready; the campaign Token row only while one is open; no tool names Clanker', () => {
-  assert.match(TOOL_DESCRIPTIONS.prepare, /Call again until ready is true; then it ends with the confirm line \(token and wallet\)\./);
+  assert.match(TOOL_DESCRIPTIONS.prepare, /Call again until ready is true; then it ends with the confirm line \(no token unless the builder asked for a coin\)\./);
   assert.match(TOOL_DESCRIPTIONS.prepare, /one Token row \(a token on Base\)/);
   assert.doesNotMatch(toolDescriptions(false).prepare, /Token row|submission link/);
   for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);

@@ -148,7 +148,7 @@ import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
-import { builtLiveAnswer, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, showBuiltLive } from './coin-moments';
+import { coinNo, coinOpen, coinPitchAllowed, coinYes } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
@@ -967,31 +967,14 @@ async function needsRepoLine(program: { id: string; title: string }): Promise<st
 }
 
 /**
- * v2.12.1 T10 (spec 3b): the build path's entry: this installation's build names this program and
- * (when one is given) this repo. Its repo key (owner/repo, lowercase), the coin_moments key of the
- * built_live moment; null for any other entry or on a shared client.
- */
-async function buildEntryKey(ctx: ToolContext, programId: string, repoUrl: string | null | undefined): Promise<string | null> {
-  if (ctx.sharedClient) return null;
-  const b = await readBuild(ctx.installationId);
-  if (!b?.repo_url || b.program_id !== programId) return null;
-  if (repoUrl && normalizeRepoUrl(repoUrl) !== normalizeRepoUrl(b.repo_url)) return null;
-  const gh = githubRepo(b.repo_url);
-  return gh ? `${gh.owner}/${gh.repo}`.toLowerCase() : null;
-}
-
-/**
  * v2.12.1 T10 (spec 3b, replacing v2.12's score-20 gate): whether this entry's token may be
  * pitched, asked a wallet for or launched (coin-moments.ts coinPitchAllowed): the coin program's own
- * entry and the build path's entry at its built_live moment only; a failed read is no (fail strict).
- * Every pitch and launch path calls this one.
+ * entry only (R8, Task 4 fix round 1: the build path no longer pitches a coin); a failed read is no
+ * (fail strict). Every pitch and launch path calls this one.
  */
-async function tokenPitch(ctx: ToolContext, programId: string, repoUrl: string | null | undefined, projectId?: number): Promise<boolean> {
+async function tokenPitch(ctx: ToolContext, programId: string, _repoUrl: string | null | undefined, projectId?: number): Promise<boolean> {
   try {
-    const key = await buildEntryKey(ctx, programId, repoUrl);
-    return await coinPitchAllowed(ctx.installationId, {
-      program_id: programId, build: key !== null, ...(key && { project_key: key }), ...(projectId !== undefined && { project_id: projectId }),
-    });
+    return await coinPitchAllowed(ctx.installationId, { program_id: programId, ...(projectId !== undefined && { project_id: projectId }) });
   } catch (err) {
     console.error('[coin] pitch', err instanceof Error ? err.name : 'error');
     return false;
@@ -1615,19 +1598,9 @@ export const handlers = {
         })
       : null;
     const offersToken = facts !== null && !facts.coinIn && (canPush || signIn) && !prepTokensOff;
-    // v2.12.1 T10 (spec 3b): built through EarnKit, the reply that confirms the app is live asks the
-    // coin as its one yes ("It's live. Want to launch a coin for it?"), the wallet shown, in place of
-    // the v2.11 confirm line. No token here: the v2.11 line as before.
-    const builtCoin = Boolean(join && !join.noLive && offersToken && offer && offer !== READY_TO_SUBMIT);
-    const pitch = builtCoin ? coinLine('built_live', known.project?.name?.trim() || 'it', offerWallet ?? null, shownPair) : offer;
-    // Fix round 1 (minor): the built_live moment is recorded when its line is shown (here), with its wallet.
-    if (builtCoin) {
-      const built = await buildEntryKey(ctx, program_id, repoUrl).catch(() => null);
-      if (built)
-        await showBuiltLive(ctx.installationId, built, offerWallet ?? null).catch((err: unknown) =>
-          console.error('[prepare] coin moment', err instanceof Error ? err.name : 'error'),
-        );
-    }
+    // R8 (Task 4 fix round 1): the build path never pitches a coin at its live reply (v2.12.1's built_live
+    // moment is gone); the v2.11 entry line as before. A coin comes only from tell token: 'ask'.
+    const pitch = offer;
     // v2.14 spec 2: no token line: a token's repo is checked at confirm by the gate (the read-only App).
     // Part D.4: the check before submitting, never blocking; shown with the draft once ready.
     const checked = prep.ready
@@ -1655,7 +1628,7 @@ export const handlers = {
       : table;
     // v2.11 T10: on the build path earnkit.txt already holds the line (the build's proof), and there is no table.
     const notes = [
-      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? (builtCoin ? BUILD_COIN_NOTE : belowScore ? BUILD_ENTRY_NO_TOKEN_NOTE : BUILD_ENTRY_NOTE) : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
+      ...(prep.ready ? [agent_fixes.length > 0 && AGENT_FIXES_NOTE, join ? (belowScore ? BUILD_ENTRY_NO_TOKEN_NOTE : BUILD_ENTRY_NOTE) : DRAFT_NOTE, fixes.length > 0 && FIXES_NOTE] : [COACH_NOTE]),
     ].filter(Boolean);
     return withAlerts(ctx, withGuide({
       program_id,
@@ -1800,15 +1773,6 @@ export const handlers = {
       await declineOffer(ctx, declinedBy, program.id, repoUrl, i.project.name).catch((err: unknown) =>
         console.error('[confirm_entry] decline', err instanceof Error ? err.name : 'error'),
       );
-    // v2.12.1 T10 (spec 3b): the build entry's answer to its built_live coin, for the weekly metric
-    // (a yes with the token: accepted; skip: declined, one of the two). Never fails the confirmation.
-    if (offersToken && (decision.kind === 'skip' || ((decision.kind === 'launch' || decision.kind === 'sign_in') && entry.confirm_choice === 'go'))) {
-      const built = await buildEntryKey(ctx, program.id, repoUrl).catch(() => null);
-      if (built)
-        await builtLiveAnswer(ctx.installationId, built, decision.kind === 'skip' ? 'no' : 'yes', entry.id).catch((err: unknown) =>
-          console.error('[confirm_entry] coin answer', err instanceof Error ? err.name : 'error'),
-        );
-    }
     // v2.9 A8: the entry's product score as matching showed it, for the program's match floor. Never
     // fails the confirmation. Ruling G7: not on a shared client (nothing is recorded there).
     if (remembers(ctx))
@@ -2534,14 +2498,6 @@ export const BUILD_ENTRY_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
   'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say skip the token, skip_token: true instead of yes.';
 
-/**
- * v2.12.1 T10 (spec 3b): BUILD_ENTRY_NOTE when the live reply asks the coin (the built_live moment):
- * a yes enters the build's program with the coin, a no enters it without one.
- */
-export const BUILD_COIN_NOTE =
-  'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
-  'project: entry.project, answers: entry.answers, yes: true, wallet: shown_wallet and token: { name, symbol } of token.proposed; when they say no, skip_token: true instead of yes.';
-
 /** v2.12 spec 7 (R22), v2.12.1 T10: BUILD_ENTRY_NOTE where no token is pitched: no token to name or skip. */
 export const BUILD_ENTRY_NO_TOKEN_NOTE =
   'Show show_to_builder as written. The entry is drafted from the build (entry). When the builder says yes, call confirm with program_id, ' +
@@ -3133,7 +3089,7 @@ async function findReply(input: unknown, ctx: ToolContext): Promise<Reply> {
   if (!guide) return r;
   // v2.12 final review (T9), v2.12.1 T10: no builder bonus line where no token is pitched (funded by
   // a token). A guide is a program's, read before any entry: never the build's moment (nothing is recorded).
-  if (!(await coinPitchAllowed(ctx.installationId, { program_id, build: false }).catch(() => false))) {
+  if (!(await coinPitchAllowed(ctx.installationId, { program_id }).catch(() => false))) {
     guide = withoutBonusLine(guide);
     r.guide = { ...r.guide, text: guide };
   }

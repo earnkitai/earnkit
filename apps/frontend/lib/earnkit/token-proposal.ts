@@ -1,5 +1,4 @@
 import { mixedScriptProblem, plainLettersProblem, reservedBrands, type Brand } from './sponsor-identity';
-import { EARNKIT_ORGS } from './earnkit-orgs';
 import { UntrustedTextError, cleanText } from './untrusted-text';
 import { tokensFunUrl } from './tokens';
 
@@ -11,19 +10,15 @@ import { tokensFunUrl } from './tokens';
 
 
 /**
- * Scoring and clarity (Task 3 carry): EarnKit's own brand is reserved for everyone but EarnKit. A repo owned by
- * one of EarnKit's GitHub orgs (earnkit-orgs.ts, "earnkitai") may use it: the owner's own project gets $EARNKIT.
- * Every other brand stays reserved for every repo.
+ * Scoring and clarity (Task 3 carry, fix round 1): EarnKit's own brand is reserved for everyone but EarnKit.
+ * `ownEarnkit` is true only when the caller verified it (own-brand.ts earnkitOwnRepo: the repo is a
+ * github_app-proven source of this builder and its owner is an EarnKit org, "earnkitai"); a link alone never is.
+ * Then the owner's own project gets $EARNKIT. Every other brand stays reserved for every repo. Absent: false.
  */
-export type OwnBrand = { repoUrl?: string | null };
-/** Whether `repoUrl` is a GitHub repo owned by an EarnKit org. Pure. */
-export const earnkitRepo = (repoUrl: string | null | undefined): boolean => {
-  const m = repoUrl ? /^https:\/\/github\.com\/([^/]+)\/[^/?#]+/i.exec(repoUrl.trim()) : null;
-  return Boolean(m && (EARNKIT_ORGS as readonly string[]).includes(m[1].toLowerCase()));
-};
-/** Whether brand `b` is this repo's own (only EarnKit's, for an EarnKit org's repo). Pure. */
-const ownBrand = (b: Brand, o: OwnBrand) => b === 'earnkit' && earnkitRepo(o.repoUrl);
-/** The reserved tickers that are EarnKit's own brand (allowed for an EarnKit org's repo). */
+export type OwnBrand = { ownEarnkit?: boolean };
+/** Whether brand `b` is this caller's own (only EarnKit's, and only when verified). Pure. */
+const ownBrand = (b: Brand, o: OwnBrand) => b === 'earnkit' && o.ownEarnkit === true;
+/** The reserved tickers that are EarnKit's own brand (allowed only with a verified ownEarnkit). */
 const OWN_TICKERS: readonly string[] = ['EARNKIT'];
 
 /** Tickers that read as a brand's or a major asset's own (v2.3 §2). */
@@ -84,7 +79,7 @@ export function tickerProblem(symbol: string, o: OwnBrand = {}): string | null {
   // (EARNKIT, COINBASE, ROBINHOOD) fits the 3-to-10 shape and gets that message.
   if (symbol === 'CLANKER') return 'symbol: that ticker is reserved; pick another.';
   if (!TICKER_SHAPE.test(symbol)) return `symbol: 3 to ${TICKER_MAX} capital letters or digits.`;
-  const own = earnkitRepo(o.repoUrl) && OWN_TICKERS.includes(symbol);
+  const own = o.ownEarnkit === true && OWN_TICKERS.includes(symbol);
   if ((!own && (TICKER_RESERVED as readonly string[]).includes(symbol)) || reservedBrands(symbol).some((b) => !ownBrand(b, o)))
     return `symbol: ${symbol} reads as a brand's or a major asset's ticker; pick another.`;
   return null;
@@ -170,6 +165,7 @@ export async function proposeToken(
   projectName: string,
   check: TickerCheck = tokensFunTickerCheck,
   repoUrl?: string,
+  own: OwnBrand = {},
 ): Promise<Proposal> {
   // R11: the name is never cut; a name over the 50-character limit fails cleanTokenName and the next candidate is used.
   const trimmed = projectName.trim();
@@ -177,7 +173,7 @@ export async function proposeToken(
   // The name first (v2.8.1 §A2): the project name, "<name> Token", the repo name, then the name with
   // its brand words dropped ("ArcPay" → "Pay Token"); "<TICKER> Token" only when none of them pass.
   const readable = nameCandidates(trimmed, repo)
-    .map((n) => cleanTokenName(n, { repoUrl }))
+    .map((n) => cleanTokenName(n, own))
     .find((r): r is { name: string } => 'name' in r)?.name;
   // A fallback name leads the tickers too ("Pay Token" → $PAY, never $ARCPA2).
   const lead = readable && readable !== trimmed ? [tickerCandidates(readable), initialsCandidates(readable)] : [];
@@ -188,7 +184,7 @@ export async function proposeToken(
     initialsCandidates(trimmed),
     repo ? initialsCandidates(repo) : [],
     LAST_RESORT,
-  ].map((g) => g.filter((c) => !tickerProblem(c, { repoUrl })));
+  ].map((g) => g.filter((c) => !tickerProblem(c, own)));
   // A numbered variant is an earlier candidate's first nine letters plus a digit (TIPJAR2 of TIPJAR).
   const variant = (g: string[], c: string, i: number) =>
     g.slice(0, i).some((b) => /^\d$/.test(c.slice(-1)) && c.slice(0, -1) === b.slice(0, TICKER_MAX - 1));

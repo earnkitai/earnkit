@@ -10,6 +10,7 @@ import { DECLINES_MAX, declines, offerIdentity, offerKey, readShownOffer, record
 import { proposeToken, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { tokenLaunchesAvailable } from './tokens';
 import { repoReadPublic } from './repo-public';
+import { earnkitOwnRepo } from './own-brand';
 
 /**
  * v2.12.1 spec 3b, scoring and clarity R8: the token is offered only when the builder asks about one
@@ -169,7 +170,7 @@ export async function offerCoin(
   if (!p) return null;
   const { repo_url } = await confirmedLinks(builderId, p.project_key);
   const wallet = await coinWallet(builderId);
-  const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined);
+  const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   const coin = { name: pair.name, symbol: pair.symbol };
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
   await saveOffer(builderId, COIN_PROGRAM, offerKey(repo_url, p.name), coin, false, wallet);
@@ -189,17 +190,11 @@ export async function openCoinLine(builderId: number, projectKey: string, deps: 
   const { repo_url } = await confirmedLinks(builderId, m.project_key);
   const key = offerKey(repo_url, p.name);
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
-  const coin = shown ? { name: shown.name, symbol: shown.symbol } : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined);
+  const coin = shown
+    ? { name: shown.name, symbol: shown.symbol }
+    : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   if (!shown) await saveOffer(builderId, COIN_PROGRAM, key, { name: coin.name, symbol: coin.symbol }, false, m.wallet);
   return { line: coinLine(m.moment, p.name, m.wallet, { name: coin.name, symbol: coin.symbol }), wallet: m.wallet };
-}
-
-/**
- * Fix round 1 (minor): the build path's built_live moment, recorded when its line is shown (the
- * live reply), with the wallet the line shows. Never twice.
- */
-export async function showBuiltLive(builderId: number, projectKey: string, wallet: string | null): Promise<void> {
-  await claimMoment(builderId, projectKey, 'built_live', wallet);
 }
 
 type MomentRow = { project_key: string; moment: Moment; answer: 'yes' | 'no' | null; project_id: number | null; wallet: string | null };
@@ -253,7 +248,7 @@ export async function coinYes(
     return { show_to_builder: coinLine(m.moment, p.name, to, coin), agent_note: COIN_NOTE };
   };
   if (!shown) {
-    const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined);
+    const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repoUrl) });
     return again(given ?? m.wallet, { name: pair.name, symbol: pair.symbol });
   }
   const coin: Coin = { name: shown.name, symbol: shown.symbol };
@@ -329,18 +324,13 @@ export async function coinOpen(builderId: number, projectKey: string): Promise<b
 }
 
 /**
- * Whether this entry's confirm may pitch (and launch) a token. The coin
- * program's own entry (fix round 1, item 2): only for the person's guards (not shared, not held)
- * and an offer they said yes to that names this entry. The build path's entry (`build`: the
- * installation's build names this program and repo): its built_live moment, open (shown and not
- * declined), or not shown yet and coinAllowed; nothing is recorded here (showBuiltLive records it
- * with the line). Any other entry: never ("nowhere else"); EarnKit campaign entries are exempt at
- * their call sites.
+ * Whether this entry's confirm may pitch (and launch) a token: only the coin program's own entry (fix round
+ * 1, item 2), for the person's guards (not shared, not held) and an offer they said yes to that names this
+ * entry. Scoring and clarity R8 (Task 4 fix round 1): the build path no longer pitches a coin at its live
+ * reply (built_live); a coin comes only from tell token: 'ask'. Any other entry: never ("nowhere else");
+ * EarnKit campaign entries are exempt at their call sites.
  */
-export async function coinPitchAllowed(
-  builderId: number,
-  entry: { program_id: string; build: boolean; project_key?: string; project_id?: number },
-): Promise<boolean> {
+export async function coinPitchAllowed(builderId: number, entry: { program_id: string; project_id?: number }): Promise<boolean> {
   if (entry.program_id === COIN_PROGRAM) {
     if (!(await guards(builderId))) return false;
     // Fix round 2: a coin entry is checked only by its project_id (an accepted offer names it).
@@ -348,26 +338,5 @@ export async function coinPitchAllowed(
     const [m] = await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${builderId} AND project_id = ${entry.project_id} AND answer = 'yes'`;
     return Boolean(m);
   }
-  if (!entry.build) return false;
-  const key = entry.project_key ?? entry.program_id;
-  const m = await momentOf(builderId, key);
-  if (m) return m.moment === 'built_live' && m.answer !== 'no' && (await guards(builderId));
-  return coinAllowed(builderId, key);
-}
-
-/**
- * The build entry's answer to its built_live coin (confirm's yes with a token, or skip the token):
- * recorded once, as coinYes and coinNo record theirs (a no counts toward DECLINES_MAX).
- */
-export async function builtLiveAnswer(builderId: number, projectKey: string, answer: 'yes' | 'no', projectId?: number): Promise<void> {
-  const m = await momentOf(builderId, projectKey);
-  if (!m || m.moment !== 'built_live' || m.answer !== null) return;
-  const updated = await sql()`
-    UPDATE coin_moments SET answer = ${answer}, answered_at = now(), project_id = ${projectId ?? null}
-    WHERE builder_id = ${builderId} AND project_key = ${m.project_key} AND answer IS NULL RETURNING 1`;
-  if (updated.length > 0)
-    await noteEvent('coin_answered', () => ({
-      type: 'coin_answered', dedupe_key: `coin_answered:${builderId}:${m.project_key.toLowerCase()}`, installation_id: builderId,
-      ...(projectId && { project_id: projectId }), detail: { answer, moment: 'built_live' },
-    }));
+  return false;
 }

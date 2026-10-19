@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_COIN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, BUILD_WALLET_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_ENTRY_NO_TOKEN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutTokenLine, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -2560,9 +2560,9 @@ async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof ship
   return { ...t, ctx, launched, live, joined, confirm };
 }
 
-/** The Bench's built_live coin line (coin-moments.ts coinLine), with the build wallet shown before the yes. */
-const T10_CONFIRM = (symbol: string) =>
-  `It's live, and your entry is ready either way. A coin pays you 40% of its trading fees, paid to 0x12ab…9f3e. Want to launch a coin, $${symbol} (PodTips), for it?`;
+/** R8 (Task 4 fix round 1): the build path's live reply ends on the plain entry line, never a coin. */
+const T10_CONFIRM = 'Ready to submit?';
+const COIN = /coin|token|40%|tokens\.fun|\$[A-Z]{3,}/i;
 
 test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the agent; a github.io link of the repo owner that loads writes hosted (github_pages), anyone else\'s writes none', dbTest, (tc) =>
   withEventLog(() =>
@@ -2715,23 +2715,22 @@ test('10.0 the deploy-and-host call holds the deployed line: the builder sees no
   ),
 );
 
-test('10.1/10.2 after the live link: the entry is drafted from the build with no coach question, and one reply holds the live line, the deployed line and the confirm line (the build wallet, short)', dbTest, (tc) =>
+test('10.1/10.2 after the live link: the entry is drafted from the build with no coach question, and one reply holds the live line, the deployed line and the entry line (R8: never a coin)', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
         const t = await joinSetup('join', tc);
         const { upload } = await t.live();
         const j = await t.joined(upload.url);
-        const symbol = j.token?.proposed.symbol ?? '';
         assert.deepEqual(j.show_to_builder.split('\n'), [
           `PodTips is live: podtips-${t.login}.earnkit.com`,
           "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.",
-          T10_CONFIRM(symbol),
+          T10_CONFIRM,
         ]);
         assert.equal(j.ready, true);
         assert.ok(!('questions' in j), 'no coach question');
         atMostOneQuestion(j, '10.2');
-        assert.equal(j.show_to_builder.split('40%').length - 1, 1, '40% once');
+        assert.doesNotMatch(j.show_to_builder, COIN, 'no coin, unasked');
         assert.doesNotMatch(j.show_to_builder, /What won before|Ready\.|\|/, 'no guide, no draft table');
         // 10.1: the draft, from the build: the hosted link, the repo, the twist description, the owner's GitHub.
         assert.equal(String(j.entry?.project.live_url).replace(/\/$/, ''), upload.url);
@@ -2739,12 +2738,13 @@ test('10.1/10.2 after the live link: the entry is drafted from the build with no
         assert.equal(j.entry?.project.description, T8_POD.description);
         assert.deepEqual(j.entry?.project.contracts, [T9_ADDR]);
         assert.equal(j.entry?.answers.builder_profile, `https://github.com/${t.login}`);
-        assert.equal(j.shown_wallet, T8_WALLET);
+        assert.equal(j.shown_wallet, undefined, 'no token wallet line');
         assert.match(j.agent_note ?? '', /entry\.project/);
-        // Called again: the same coin, its moment recorded once.
+        assert.doesNotMatch(j.agent_note ?? '', /skip_token|token:/);
+        // Called again: still no coin, and no coin moment recorded.
         const again = await t.joined(upload.url);
-        assert.ok(again.show_to_builder.includes(`$${symbol} (PodTips)`), again.show_to_builder);
-        assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${t.inst}`).length, 1);
+        assert.doesNotMatch(again.show_to_builder, COIN);
+        assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${t.inst}`).length, 0);
       }),
     ),
   ),
@@ -2761,7 +2761,7 @@ test('10.2 (T9 concern 6) the GitHub Pages fallback: the live line names the git
         const j = await t.joined(`https://${t.login}.github.io/podtips/`);
         const lines = j.show_to_builder.split('\n');
         assert.deepEqual(lines.slice(0, 2), [`PodTips is live: ${t.login}.github.io/podtips`, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner."]);
-        assert.equal(lines[2], T10_CONFIRM(j.token?.proposed.symbol ?? ''));
+        assert.equal(lines[2], T10_CONFIRM);
         assert.equal(lines.length, 3);
         assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
       }),
@@ -2789,51 +2789,17 @@ test('10.2 a live link that is not the build\'s own (another site, or a Pages li
   ),
 );
 
-test('10.3 (owner ruling on final fix M4) another wallet is allowed but never unseen: the confirm line shows it, and only the next yes launches to the wallet shown', dbTest, (tc) =>
+test('10.3 R8 (Task 4 fix round 1): the build path\'s yes enters without a token, even when the agent passes one; nothing launches', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
         const t = await joinSetup('wallet', tc);
         const { upload } = await t.live();
         const j = await t.joined(upload.url);
-        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
-        const OTHER = '0x2222222222222222222222222222222222222222';
-        const other = await t.confirm({ ...input, yes: true, wallet: OTHER });
-        assert.ok(!('kit' in other), 'no kit');
-        assert.deepEqual(t.launched, [], 'nothing launched');
-        assert.match(other.show_to_builder, /^Yes submits your entry and launches \$\w+ \(PodTips\)\. Wallet: 0x2222…2222\. yes \/ skip the token$/);
-        assert.equal(other.shown_wallet, OTHER);
-        atMostOneQuestion(other as BuildReply, '10.3');
-        assert.equal(other.agent_note, BUILD_WALLET_NOTE);
-        // The next yes to the line that showed it launches to it, and only to it.
-        const yesOther = await t.confirm({ ...input, yes: true, wallet: OTHER });
-        assert.equal(yesOther.token?.status, 'launched');
-        assert.deepEqual(t.launched, [OTHER], 'the wallet the builder saw');
-        assert.ok(yesOther.kit);
-      }),
-    ),
-  ),
-);
-
-test('10.3 back to the build wallet after another was shown: shown again first, then the yes launches to it', dbTest, (tc) =>
-  withEventLog(() =>
-    withTokenEnv(() =>
-      withVars(shipVars(), async () => {
-        const t = await joinSetup('wallet2', tc);
-        const { upload } = await t.live();
-        const j = await t.joined(upload.url);
-        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
-        const OTHER = '0x2222222222222222222222222222222222222222';
-        await t.confirm({ ...input, yes: true, wallet: OTHER });
-        assert.deepEqual(t.launched, []);
-        // Back to the build wallet: shown again first, then the yes launches to it.
-        const back = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
-        assert.ok(!('kit' in back));
-        assert.match(back.show_to_builder, /Wallet: 0x12ab…9f3e\. yes \/ skip the token$/);
-        const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
-        assert.equal(yes.token?.status, 'launched');
-        assert.deepEqual(t.launched, [T8_WALLET]);
-        assert.ok(yes.kit);
+        const yes = await t.confirm({ project: j.entry!.project, answers: j.entry!.answers, yes: true, token: { name: 'PodTips', symbol: 'PODTIPS' } });
+        assert.ok(yes.kit, JSON.stringify(yes));
+        assert.deepEqual(t.launched, [], 'no coin launched');
+        assert.doesNotMatch(yes.show_to_builder, /Your token|tokens\.fun/);
       }),
     ),
   ),
@@ -2846,11 +2812,10 @@ test('10.4 the yes hands over the DoraHacks kit (copy-paste only); tell submitte
         const t = await joinSetup('kit', tc);
         const { upload } = await t.live();
         const j = await t.joined(upload.url);
-        const input = { project: j.entry!.project, answers: j.entry!.answers, token: { name: j.token!.proposed.name, symbol: j.token!.proposed.symbol } };
-        const yes = await t.confirm({ ...input, yes: true, wallet: T8_WALLET });
+        const yes = await t.confirm({ project: j.entry!.project, answers: j.entry!.answers, yes: true });
         assert.equal(yes.kit?.mode, 'copy_paste');
         assert.match(yes.kit!.show_to_builder, /dorahacks\.io/);
-        assert.match(yes.show_to_builder, /^Your token \$\w+ is live: tokens\.fun\/coin\/0x/);
+        assert.doesNotMatch(yes.show_to_builder, /Your token/, 'R8: no coin on the build path');
         const sub = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx as never)) as { show_to_builder: string };
         assert.match(sub.show_to_builder, /^Entered in T7 Tip Grants\./m);
         const [row] = await sql()<{ submission_confirmed_at: Date | null }[]>`SELECT submission_confirmed_at FROM projects WHERE id = ${yes.project_id!}`;
@@ -2863,23 +2828,20 @@ test('10.4 the yes hands over the DoraHacks kit (copy-paste only); tell submitte
   ),
 );
 
-test('10.13 the build path: the live reply asks "It\'s live. Want to launch a coin for it?" with the wallet; yes launches and is counted; a program entry never', dbTest, () =>
+test('10.13 R8 (Task 4 fix round 1): the build path\'s live reply never asks a coin; the yes enters without one; a program entry never either', dbTest, () =>
   withTokenEnv(async () => {
     const t = await confirmSetup('t10-built', { remembered: W8, noOffer: true });
     await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10b${t.inst}`}, now())`;
     await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
     const join = { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() };
-    const r = (await handlers.prepare_submission(t.input, t.ctx, join)) as { show_to_builder: string; agent_note: string; shown_wallet: string; token: { proposed: { name: string; symbol: string } } };
-    // Fix round 1 (rulings 5, 6): the coin that launches is named, and a no still enters.
-    const { name, symbol } = r.token.proposed;
-    assert.equal(r.show_to_builder, `Tip Jar is live: tipjar.xyz\nIt's live, and your entry is ready either way. A coin pays you 40% of its trading fees, paid to 0x1581…b9a3. Want to launch a coin, $${symbol} (${name}), for it?`);
-    const [shown] = await sql()`SELECT moment, wallet FROM coin_moments WHERE builder_id = ${t.inst}`;
-    assert.deepEqual({ ...shown }, { moment: 'built_live', wallet: W8.toLowerCase() }, 'recorded with the line, with its wallet');
-    assert.equal(r.agent_note.includes(BUILD_COIN_NOTE), true, r.agent_note);
-    const yes = (await tools.confirm({ ...t.input, yes: true, wallet: r.shown_wallet, token: { name: r.token.proposed.name, symbol: r.token.proposed.symbol } }, t.ctx)) as Confirmed;
-    assert.equal(t.calls.deploy, 1, JSON.stringify(yes));
-    const [m] = await sql()`SELECT moment, answer, project_id FROM coin_moments WHERE builder_id = ${t.inst}`;
-    assert.deepEqual({ ...m }, { moment: 'built_live', answer: 'yes', project_id: yes.project_id });
+    const r = (await handlers.prepare_submission(t.input, t.ctx, join)) as { show_to_builder: string; agent_note: string; shown_wallet?: string };
+    assert.equal(r.show_to_builder, 'Tip Jar is live: tipjar.xyz\nReady to submit?');
+    assert.equal(r.shown_wallet, undefined);
+    assert.ok(r.agent_note.includes(BUILD_ENTRY_NO_TOKEN_NOTE), r.agent_note);
+    assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${t.inst}`).length, 0, 'no coin moment');
+    const yes = (await tools.confirm({ ...t.input, yes: true }, t.ctx)) as Confirmed;
+    assert.equal(typeof yes.project_id, 'number', JSON.stringify(yes));
+    assert.equal(t.calls.deploy, 0, 'nothing launched');
     // Another program's entry by the same person: never a token.
     const other = await confirmSetup('t10-other', { remembered: W8 });
     await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${other.inst}, ${`t10o${other.inst}`}, now())`;
@@ -3084,20 +3046,6 @@ test('9.12 v2.12 under the pitch score nothing launches by project_id or the old
 );
 
 // ---- v2.12.1 T10 (spec 3b): built through EarnKit, the live reply asks the coin ----
-
-test('10.13b the build path: no to the coin enters without one and counts as a decline', dbTest, () =>
-  withTokenEnv(async () => {
-    const t = await confirmSetup('t10-no', { remembered: W8, noOffer: true });
-    await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10n${t.inst}`}, now())`;
-    await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
-    await handlers.prepare_submission(t.input, t.ctx, { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() });
-    const no = (await tools.confirm({ ...t.input, skip_token: true }, t.ctx)) as Confirmed;
-    assert.equal(typeof no.project_id, 'number');
-    assert.equal(t.calls.deploy, 0);
-    const [m] = await sql()`SELECT answer FROM coin_moments WHERE builder_id = ${t.inst}`;
-    assert.equal(m.answer, 'no');
-  }),
-);
 
 // v2.14 T3 fix round 1: the v2.11 repo matcher's privacy rule, still live on a shared client (the Bench has
 // no repo matching off one).

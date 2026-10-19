@@ -6,7 +6,7 @@ import type { Standing } from './rank';
 import type { ReaderDeps } from './source-readers';
 import { standingNews } from './stand-text';
 import { closeDayOf, prizeOf } from './entry-text';
-import { byPrize, type Card } from './present';
+import { byDeadline, byPrize, type Card } from './present';
 import { moneyText, openCurated } from './pool';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { readFitRepos } from './installations';
@@ -131,7 +131,7 @@ export const biggestPick = (cards: Card[], now: Date, skip: Set<string>, not: st
 /** R12: at most this many programs are named as fits. */
 export const FITS_MAX = 3;
 /**
- * R12: score's fits without a GitHub read: the open programs (biggest award first) the one project's repo,
+ * R12: score's fits without a GitHub read: the open programs (present.ts byDeadline, find's order) the one project's repo,
  * as find last matched it (installations.fit_repos), can really win (alerts.ts repoCanWin: good odds, the
  * verdict likely or one quick step, never a chain only mentioned). At most FITS_MAX, each with the repo's
  * facts for its why. Never throws (none on an error).
@@ -144,7 +144,7 @@ export async function scoreFits(id: number, main: string, o: { cards: Card[]; sk
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
     return o.cards
       .filter((c) => showable(c, o.now, o.skip))
-      .sort(byPrize)
+      .sort(byDeadline)
       .filter((c) => {
         const np = byId.get(c.id);
         return Boolean(np && repoCanWin(np, repo));

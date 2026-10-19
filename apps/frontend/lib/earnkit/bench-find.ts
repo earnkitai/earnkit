@@ -23,7 +23,7 @@ import {
   biggestPick, earnPrize, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byPrize, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byPrize, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { creditsMainnet, type Detection } from './match';
@@ -446,8 +446,12 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const entered = enteredIds(m);
   const main = read.main?.toLowerCase() ?? null;
   // Ways to get funded: the programs the one project qualifies for (as standFind's earn rows).
+  // R12 (fix round 1): one fit order with score (present.ts byDeadline); lead and recordShown use these same 3.
   const rows = main
-    ? layout(m, entered).rows.filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main).slice(0, 3)
+    ? layout(m, entered).rows
+        .filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
+        .sort((a, b) => byDeadline(a.card, b.card))
+        .slice(0, 3)
     : [];
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
   const fits: Fit[] = rows.map((r) => {
@@ -568,7 +572,7 @@ export async function benchAsked(id: number, m: { kind?: string; project_key?: s
 /**
  * The builder's yes or no to the Bench's last line (tools.ts moveUpAnswer routes it here; an open coin
  * offer's answer stays there). Only the ask stored with the last reply is answered; anything else is
- * "Okay." with nothing changed. A no keeps that ask away 30 days (DECLINE_MS).
+ * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
 export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;

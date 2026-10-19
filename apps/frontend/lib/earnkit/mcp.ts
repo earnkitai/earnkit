@@ -123,7 +123,7 @@ const BENCH_IDENTITY_WORDS =
 const prepareDescription = (campaignOpen: boolean, buildOn: boolean) =>
   'On a program pick, pass program_id, project, answers you drafted from the repo (by requirement key) and agent: { browser, can_push }. ' +
   'When it asks questions, pass the answers with coach_asked: true. Call again until ready is true; ' +
-  'then it ends with the confirm line (token and wallet). ' +
+  'then it ends with the confirm line (no token unless the builder asked for a coin). ' +
   'host: true hosts a static build with no live link (show host.show_to_builder, never upload_url). ' +
   // v2.11 T8: the build path starts from find's build_offer; named only with the build field (review M2).
   (buildOn ? 'build: a build_offer yes. ' : '') +

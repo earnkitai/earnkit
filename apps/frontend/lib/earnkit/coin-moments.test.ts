@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { bindX } from './x-install';
 import { EVENT_LOG_FLAG } from './events';
-import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, raiseLine, showBuiltLive } from './coin-moments';
+import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, raiseLine } from './coin-moments';
 import { offerKey, readShownOffer, recordDecline } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { entriesLine, enteredIds } from './present';
@@ -60,28 +60,11 @@ async function usedProject(id: number, key: string, name: string, people: number
       VALUES (${id}, 'repo', ${o.repo_url.replace(/^https:\/\/github\.com\//, '')}, ${key}, 'repo_owner', 'verified', 'server', now(), now())`;
 }
 
-test('10.4 a program entry\'s confirm never pitches a token; the build path and coin entries do', dbTest, async () => {
+test('10.4 R8 (Task 4 fix round 1): a program entry\'s confirm never pitches a token, nor the build path\'s; only an accepted coin offer\'s entry', dbTest, async () => {
   const id = await claimed('pitch_dev');
-  assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: false }), false);
-  assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants', build: true }), true);
+  assert.equal(await coinPitchAllowed(id, { program_id: 'arc-microgrants' }), false);
   // Fix round 2: a coin entry is only ever checked by its project_id (an accepted offer names it).
-  assert.equal(await coinPitchAllowed(id, { program_id: 'earnkit-coin', build: false }), false);
-});
-
-test('10.4b the build entry\'s moment is recorded once and stays open through its confirm; declined, it is gone; a held person never', dbTest, async () => {
-  const id = await claimed('build_dev');
-  const entry = { program_id: 'arc-microgrants', build: true, project_key: 'lee/podtips' };
-  assert.equal(await coinPitchAllowed(id, entry), true);
-  await showBuiltLive(id, 'lee/podtips', null);
-  assert.equal(await coinPitchAllowed(id, entry), true, 'the confirm after the live reply still pitches it');
-  const rows = await sql()`SELECT moment, answer FROM coin_moments WHERE builder_id = ${id}`;
-  assert.deepEqual(rows.map((r) => ({ ...r })), [{ moment: 'built_live', answer: null }]);
-  const { builtLiveAnswer } = await import('./coin-moments');
-  await builtLiveAnswer(id, 'lee/podtips', 'no');
-  assert.equal(await coinPitchAllowed(id, entry), false);
-  const held = await claimed('build_held');
-  await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${held}`;
-  assert.equal(await coinPitchAllowed(held, entry), false);
+  assert.equal(await coinPitchAllowed(id, { program_id: 'earnkit-coin' }), false);
 });
 
 /** A fake token flow: the gate passes (the App proved the repo), the deploy records what tokens.ts would. */
@@ -385,11 +368,11 @@ test('F2 a coin entry is refused once the person is held (confirm by project_id 
   const old = (await handlers.launch_token({ project_id: yes.project_id, builder_confirmed: true, creator_wallet: W }, ctx)) as { status: string };
   assert.equal(old.status, 'skipped');
   assert.equal(calls.deploy, 0);
-  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, build: false, project_id: yes.project_id }), false);
+  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, project_id: yes.project_id }), false);
   await sql()`UPDATE builder_profiles SET held = false WHERE builder_id = ${id}`;
-  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, build: false, project_id: yes.project_id }), true);
+  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, project_id: yes.project_id }), true);
   // An entry of the coin program no accepted offer names: refused.
-  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, build: false, project_id: 2_000_000_000 }), false);
+  assert.equal(await coinPitchAllowed(id, { program_id: COIN_PROGRAM, project_id: 2_000_000_000 }), false);
 });
 
 async function coinSetup(tag: string) {
@@ -483,17 +466,6 @@ test('F4 two skips of the older confirm-line offer for the repo count: no coin o
   assert.equal(await offerCoin(id, 'lee/f4', 'has_people'), null);
 });
 
-test('F5 the build moment is recorded only when its line is shown (a pitch check records nothing)', dbTest, async () => {
-  const id = await claimed('f5_dev');
-  const entry = { program_id: 'arc-microgrants', build: true, project_key: 'lee/f5' };
-  assert.equal(await coinPitchAllowed(id, entry), true);
-  assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0);
-  await showBuiltLive(id, 'lee/f5', '0x' + 'a'.repeat(40));
-  const [m] = await sql()`SELECT moment, wallet FROM coin_moments WHERE builder_id = ${id}`;
-  assert.deepEqual({ ...m }, { moment: 'built_live', wallet: '0x' + 'a'.repeat(40) });
-  assert.equal(await coinPitchAllowed(id, entry), true);
-});
-
 // ---- Fix round 2 -------------------------------------------------------------------------------
 
 test('9.7 every coin moment but built_live says the raise line', () => {
@@ -532,4 +504,44 @@ test('9.7b R8: a coin offered when the builder asks (countable, once); shown aga
   } finally {
     delete process.env.EARNKIT_RAISING;
   }
+});
+
+// ---- Scoring and clarity, Task 4 fix round 1: EarnKit's brand only on verified App proof -------------------
+
+test('Task 4 fix 1: earnkitOwnRepo needs an App-proven earnkitai repo of this builder; http://, www. and .git forms read the same', dbTest, async () => {
+  const { earnkitOwnRepo } = await import('./own-brand');
+  const id = await claimed('ob1');
+  const key = `earnkitai/kit${randomBytes(3).toString('hex')}`;
+  await usedProject(id, key, 'EarnKit', 0);
+  // A verified repo, but not by the App (repo_owner): not enough.
+  assert.equal(await earnkitOwnRepo(id, `https://github.com/${key}`), false);
+  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${id} AND kind = 'repo'`;
+  for (const u of [`https://github.com/${key}`, `http://github.com/${key}`, `https://www.github.com/${key}.git`, `github.com/${key.toUpperCase()}/`])
+    assert.equal(await earnkitOwnRepo(id, u), true, u);
+  // Another builder passing the same link: never.
+  const other = await claimed('ob2');
+  assert.equal(await earnkitOwnRepo(other, `https://github.com/${key}`), false);
+  // A proven repo of another org: never.
+  const lee = `lee/kit${randomBytes(3).toString('hex')}`;
+  await usedProject(other, lee, 'EarnKit', 0);
+  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${other} AND kind = 'repo'`;
+  assert.equal(await earnkitOwnRepo(other, `https://github.com/${lee}`), false);
+});
+
+test('Task 4 fix 1: a coin offer for an earnkitai link without App proof never proposes or stores $EARNKIT; the proven owner gets it', dbTest, async () => {
+  const unproven = await claimed('ou1');
+  const k1 = `earnkitai/coin${randomBytes(3).toString('hex')}`;
+  await usedProject(unproven, k1, 'EarnKit', 0);
+  const o1 = await offerCoin(unproven, k1, 'countable', noCheck);
+  assert.ok(o1);
+  assert.doesNotMatch(o1.line, /\$EARNKIT\b/);
+  const s1 = await readShownOffer(unproven, COIN_PROGRAM, offerKey(`https://github.com/${k1}`, 'EarnKit'));
+  assert.notEqual(s1?.symbol, 'EARNKIT');
+  const proven = await claimed('op1');
+  const k2 = `earnkitai/coin${randomBytes(3).toString('hex')}`;
+  await usedProject(proven, k2, 'EarnKit', 0);
+  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${proven} AND kind = 'repo'`;
+  const o2 = await offerCoin(proven, k2, 'countable', noCheck);
+  assert.match(String(o2?.line), /\$EARNKIT \(EarnKit\)/);
+  assert.equal((await readShownOffer(proven, COIN_PROGRAM, offerKey(`https://github.com/${k2}`, 'EarnKit')))?.symbol, 'EARNKIT');
 });

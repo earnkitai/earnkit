@@ -38,16 +38,17 @@ test('R11: EarnKit is $EARNKIT in full: reserved as a brand, but refused whole, 
   assert.deepEqual(p, { name: 'Recipekit', symbol: 'RECIPEKIT' });
 });
 
-test('Task 4 (Task 3 carry): EarnKit\'s own repo (the earnkitai org) gets $EARNKIT; every other repo and brand stays reserved', async () => {
-  const own = { repoUrl: 'https://github.com/earnkitai/earnkit' };
+test('Task 4 (fix round 1): EarnKit\'s brand only with a verified ownEarnkit; a link alone never; every other brand stays reserved', async () => {
+  const own = { ownEarnkit: true };
   assert.equal(tickerProblem('EARNKIT', own), null);
   assert.equal(tokenNameProblem('EarnKit', own), null);
   assert.match(String(tickerProblem('BASE', own)), /brand/, 'another brand stays reserved for the owner too');
-  assert.match(String(tickerProblem('EARNKIT', { repoUrl: 'https://github.com/lee/earnkit' })), /brand/);
-  assert.deepEqual(await proposeToken('EarnKit', async () => true, own.repoUrl), { name: 'EarnKit', symbol: 'EARNKIT' });
-  const other = await proposeToken('EarnKit', async () => true, 'https://github.com/lee/earnkit');
-  assert.notEqual(other.symbol, 'EARNKIT');
-  assert.notEqual(other.name, 'EarnKit');
+  assert.match(String(tickerProblem('EARNKIT', { ownEarnkit: false })), /brand/);
+  assert.deepEqual(await proposeToken('EarnKit', async () => true, 'https://github.com/earnkitai/earnkit', own), { name: 'EarnKit', symbol: 'EARNKIT' });
+  // The earnkitai link without the verified flag: never $EARNKIT.
+  const link = await proposeToken('EarnKit', async () => true, 'https://github.com/earnkitai/earnkit');
+  assert.notEqual(link.symbol, 'EARNKIT');
+  assert.notEqual(link.name, 'EarnKit');
 });
 
 test('R11: a project name over the 50-character limit is never cut into a token name', async () => {
