@@ -9,6 +9,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { registerClient } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { attachToX, bindX, xSignInCallback } from './x-install';
+import { PROFILES_POINTS, RECORDS_WITH } from './policy';
+import { SERVER_INSTRUCTIONS } from './mcp';
 import type { XOAuthDeps, XUser } from './x-oauth';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'removed-test-secret';
@@ -177,4 +179,24 @@ test('7.6 a re-authorization refused at the token exchange keeps the old token w
   const still = await connectInstallation(token);
   assert.ok(still, 'the existing token still connects');
   assert.equal(still.own, own);
+});
+
+test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.14 (no claim, no earnkit.txt, no GitHub sign-in proof)', async () => {
+  const BANNED = [/claim/i, /earnkit\.txt/i, /sign in with github/i, /signing in with github/i, /proof branch/i, /only public data/i, /signed_in/];
+  const tools = await mcpListTools({ installationId: 1 });
+  assert.equal(tools.length, 5);
+  const texts: [string, string][] = [
+    ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),
+    ...RECORDS_WITH.map((p, i): [string, string] => [`RECORDS_WITH.${i}`, p]),
+    ['llms/v213.txt', readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8')],
+    ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
+    // Each tool's description and its whole input schema (every field's describe()).
+    ...tools.map((t): [string, string] => [t.name, `${t.description ?? ''}\n${JSON.stringify(t.inputSchema)}`]),
+  ];
+  for (const [label, text] of texts) for (const re of BANNED) assert.doesNotMatch(text, re, label);
+  // What the terms do say: X at install, the App as the only proof, no merge, titles hidden not deleted.
+  const terms = PROFILES_POINTS.join(' ');
+  for (const must of [/sign in with X/, /same X account uses that same page/, /nothing from another page is merged/, /read-only EarnKit GitHub App/, /only proof/, /private ones too/, /never stores those tokens/, /stored titles stay stored but are hidden/])
+    assert.match(terms, must);
+  assert.doesNotMatch(terms, /—|\braise\b|\braising\b/i);
 });

@@ -439,9 +439,8 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     "A program result: the program's results page, or your own answer.",
     "A usage check: your contract's use, checked 30 and 90 days after its deploy.",
     'Each step notes the repo, the program and the wallet you gave.',
-    // The bases the code writes: events.ts LOGIN_BASES that loginBasisFor and hosting.ts return
-    // (repo_owner is never written).
-    'It notes your GitHub login only if EarnKit checked it: by GitHub sign-in, the EarnKit GitHub App, or the earnkit.txt line in your repo.',
+    // v2.14: github-verify.ts loginBasisFor returns the App's login, or a sign-in kept from before v2.14.
+    'It notes your GitHub login only if EarnKit checked it with the read-only EarnKit GitHub App. A step from before the App keeps the login checked then.',
     'EarnKit keeps it to show your builder history. Onchain proofs are public anyway.',
     'EarnKit keeps this history for as long as EarnKit runs, unless you ask to remove your login and wallet.',
     `To remove your GitHub login and wallet from your step history, email ${CONTACT_EMAIL} .`,
@@ -459,12 +458,12 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
 
 const withScoreFlag = <T,>(fn: () => T): T => fn();
 
-test('v2.12.1 T12: the terms say the page is public only after the X claim, what is read, confirmed vs not, joins and hide; no v2.12 slug or earnkit.txt words', () => {
+test('v2.14 final fix: the terms say the page is made at the X sign-in, what is read, confirmed vs not, same X same page and hide; no v2.12 slug or earnkit.txt words', () => {
   const t = withScoreFlag(() => text(html(React.createElement(TermsPage))));
-  assert.match(t, /public only after you claim it with X/);
+  assert.match(t, /page is made when you sign in with X/);
   assert.match(t, /GitHub, live sites, package downloads, public transactions/);
   assert.match(t, /marked not yet confirmed, and counts for nothing/);
-  assert.match(t, /your agents ask you before the two share one page/);
+  assert.match(t, /same X account uses that same page\. It is added with no question/);
   assert.match(t, /keeps your X user id, handle, name and picture/);
   const section = t.slice(t.indexOf('Builder profiles Your EarnKit page'), t.indexOf(' Risk Risk disclosure'));
   assert.ok(section.length > 100, 'the section is found');

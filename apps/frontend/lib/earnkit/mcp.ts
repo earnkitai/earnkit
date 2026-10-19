@@ -129,7 +129,7 @@ const confirmDescription = (campaignOpen: boolean) =>
   '(the entry is submitted and the token launches) or skip_token: true when they say skip the token. ' +
   "wallet: the shown_wallet they confirmed (never one they didn't see); token: { name, symbol } only if they changed it. " +
   'Without either it returns the confirm line. check: true reads a launching token. ' +
-  'project_id instead of program_id: an entry\'s token, e.g. after you pushed earnkit.txt. The submit kit is only in this reply. ' +
+  'project_id instead of program_id: an entry\'s token, e.g. after the builder installed the read-only App. The submit kit is only in this reply. ' +
   (campaignOpen ? 'EarnKit campaigns: this is the entry (contracts, deployer_signature). ' : '') +
   'Then follow agent_note.';
 
@@ -243,7 +243,7 @@ const BUILD_SCHEMA = z
     feature: z.string().optional().describe("From the twist: one sentence, not the kit's default"),
     for_whom: z.string().optional().describe('"for ..." from the twist, like "for your podcast listeners"'),
     wallet: z.string().optional().describe('The wallet the builder gave to own it; never one you made up'),
-    repo_url: z.string().optional().describe("The public repo under the builder's own account, for the earnkit.txt line"),
+    repo_url: z.string().optional().describe("The repo under the builder's own account; EarnKit proves it with the read-only GitHub App"),
   })
   .passthrough()
   .optional()
