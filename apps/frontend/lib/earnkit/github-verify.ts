@@ -676,9 +676,9 @@ export async function nonceDetails(
 export const CLAIM_CONFIRM_LEAD = 'Sign in with GitHub to show this GitHub account is yours. EarnKit then counts the work on it.';
 export const CLAIM_CONFIRM_WARNING = 'This links your GitHub to your EarnKit page. Only continue if you opened this from your own page.';
 
-/** v2.10 item 7b: the confirm page's first line on an App link. */
 /** Sign-in first: the connect link's GitHub step (no repo yet; GitHub's install screen is the repo picker). */
 export const CONNECT_CONFIRM_LEAD = 'Sign in with GitHub, then choose the repos EarnKit may read. Read only: EarnKit never changes your code.';
+/** v2.10 item 7b: the confirm page's first line on an App link. */
 export const APP_CONFIRM_LEAD = 'Sign in with GitHub, then let EarnKit read this repo. Read only: EarnKit never changes your code.';
 
 /** Ruling G8: the confirm page's warning, above the button. */
