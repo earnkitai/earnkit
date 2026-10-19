@@ -5922,6 +5922,10 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
      until one verifies it. There is no fallback to all weeks (fix round 4). A rename or a new
      ref of the same repo finds the earlier reading (`previousRepoSignals`: the builder's repo sources with the same
      GitHub repo id, else the same owner and created_at), so it never gets a fresh first read.
+  Known residual (parked): a dormant repo with 100+ old retained events can, on its first verified reading only,
+     get backdated middle weeks counted by pushing them and flooding 100+ events the same day (the gap then spans
+     the old events to today). Later readings add only this week and last week. The fix is to follow the Link
+     header for a few more activity pages within the connect budget, so real gaps get backed instead of trusted.
   Accepted costs: an imported or recreated repo loses its pre-creation history; a long-lived branch merged after
   the first verified reading keeps its old commit weeks uncounted (only this week and last can be new); a
   contributor who lands work only through fork PRs in a quiet repo gets the merge week, not the commit weeks.
