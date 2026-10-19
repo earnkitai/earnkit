@@ -285,6 +285,7 @@ apps/frontend/
                                              GitHub's callback; re-export github-verify.ts handlers
   app/github/verify/app/route.ts  v2.10 item 7b: the read-only GitHub App's setup URL (github-app.ts appSetup);
                                404 unless the App is configured
+  app/github/verify/app/pick/route.ts  sign-in first: the repo picker's POST (github-connect.ts pickPost)
   app/.well-known/             OAuth discovery metadata
   lib/earnkit/
     db.ts                      postgres.js pool (DATABASE_URL)
@@ -1132,6 +1133,8 @@ apps/frontend/
                                v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line only for
                                the builder's own User account; shared clients only the caller's or the entry's sign-in),
                                githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
+    github-connect.ts(+signin-github-first.test) sign-in first: connect link's App step (repo key `connect/<builder>`):
+                               ownedRepos, one repo -> main project + via=app proof, several -> picker, pickPost; then X
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents

@@ -5565,3 +5565,12 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 
+
+## Sign-in first (one-pager step 2)
+
+While unclaimed the Bench reply's one ask is `connectAsk` (kind `claim`, no question): GitHub then X. The claim page
+shows the read-only App install first (repo-agnostic `app` nonce, repo_key `connect/<builder>`; App off: the scopeless
+`claim` sign-in), X second. `github-connect.ts` lists the installation's repos after setup: one becomes the main project
+(plus the `via = 'app'` proof row that lets `appTokenFor` read its commits), several go to a signed, csrf-bound picker.
+`chooseAsk` skips `enter` during first run (`firstRun`: project unconfirmed or no update posted). No OAuth scope added.
+See `docs/design-docs-and-implementation-plans/signin-github-first.md`.
