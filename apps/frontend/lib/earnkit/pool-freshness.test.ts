@@ -20,7 +20,7 @@ test('hotfix: the landing, feed and leaderboard caches carry PROFILE_TAG', () =>
 
 test('hotfix: a rescore that moves the pool and a written ship-log week expire them (poolChanged)', () => {
   const score = src('person-score.ts');
-  assert.match(score, /const changed = !cur \|\| cur\.score !== out\.score \|\| cur\.ranked !== out\.ranked \|\| reason !== null;/);
+  assert.match(score, /const changed = !cur \|\| cur\.score !== out\.score \|\| cur\.ranked !== out\.ranked \|\| cur\.held !== \(reason !== null\);/);
   assert.match(score, /if \(result\.changed\) poolChanged\(\);/);
   const weeks = src('week-facts.ts');
   assert.equal(weeks.match(/if \(rows > 0\) poolChanged\(\);/g)?.length, 2, 'the backfill and the weekly job');

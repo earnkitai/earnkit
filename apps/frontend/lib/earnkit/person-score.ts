@@ -398,15 +398,16 @@ export async function ensureStartedRow(db: Db, builderId: number, key: string, a
  * public history row before today, so ten-minute refreshes can never step past it. `cron`: the cron's
  * score step (it rescores even when a refresh wrote a newer row during the run).
  */
-export async function rescorePerson(id: number, now: Date, o: { cron?: boolean } = {}): Promise<{ score: number; ranked: boolean; held: boolean }> {
+export async function rescorePerson(id: number, now: Date, o: { cron?: boolean } = {}): Promise<{ score: number; ranked: boolean; held: boolean; changed: boolean }> {
   const cal = calibrationV2();
   // One transaction for the decision and the write: a per-person advisory lock first (rescores of
   // one person never interleave), then every input the hold depends on (the live row, the
   // baseline, the stored ring) is read under it. A rescore older than the stored one writes nothing.
   const result = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
-    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
-      SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date; held: boolean }[]>`
+      SELECT l.score, l.ranked, l.computed_at, (l.pending IS NOT NULL OR COALESCE(p.held, false)) AS held
+      FROM builder_live l LEFT JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id} FOR UPDATE OF l`;
     // A newer rescore exists (a refresh during this cron run). An older refresh writes nothing. The cron
     // rescores at the newer row's time: same readings, same computed_at (never moves back), the rank, cap
     // and projects rebuilt.
@@ -470,8 +471,9 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
     if (mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping });
-    // Hotfix 2026-10-19: the public pool moved (a new row, its score or rank, or a hold).
-    const changed = !cur || cur.score !== out.score || cur.ranked !== out.ranked || reason !== null;
+    // Hotfix 2026-10-19: the public pool moved (a new row, its score or rank, or a hold starting or ending). A builder
+    // who stays held changes nothing public (the public columns stay), so their ten-minute refreshes expire no cache.
+    const changed = !cur || cur.score !== out.score || cur.ranked !== out.ranked || cur.held !== (reason !== null);
     return { ...out, held: reason !== null, reason, s, before: before?.score ?? null, changed };
   });
   if (result.reason && result.s) {
@@ -483,7 +485,7 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
   }
   // Hotfix 2026-10-19: the home page, feed and leaderboard follow the pool at once (never a stale "Nobody").
   if (result.changed) poolChanged();
-  return { score: result.score, ranked: result.ranked, held: result.held };
+  return { score: result.score, ranked: result.ranked, held: result.held, changed: result.changed };
 }
 
 /**
