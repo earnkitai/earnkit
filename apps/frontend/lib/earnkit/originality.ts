@@ -5,7 +5,7 @@ import knownIdeas from '../../../../programs/ideas/known-ideas.json';
 import { sql } from './db';
 import { githubAppEnabled } from './github-app';
 import { benchConfirmedSql } from './main-project';
-import { APP_PROOF, appClient } from './repo-proof';
+import { APP_PROOF, appClient, type AppGet } from './repo-proof';
 
 /**
  * Scoring and clarity R3: Originality, 0 to 100, a separate value per main project. Shown next to Shipping, never
@@ -103,10 +103,12 @@ export function nearestOf(vec: number[], self: { key: string; builder_id: number
   return { max: scored[0]?.similarity ?? 0, nearest: scored.slice(0, NEAREST) };
 }
 
-let model: Promise<(texts: string[], o: object) => Promise<{ tolist(): number[][] }>> | null = null;
+type Pipe = ((texts: string[], o: object) => Promise<{ tolist(): number[][] }>) & { dispose?: () => Promise<unknown> };
+let model: Promise<Pipe> | null = null;
 /**
- * The local model (transformers.js, quantized MiniLM: mean pooling, normalized, 384 numbers), loaded once per process
- * on first use. Its files are downloaded once from Hugging Face into EARNKIT_MODEL_DIR (default: the OS temp dir).
+ * The local model (transformers.js, quantized MiniLM: mean pooling, normalized, 384 numbers), loaded on first use in a
+ * step and released after it (releaseModel), so it is never resident between hourly runs. Its files are downloaded once
+ * from Hugging Face into EARNKIT_MODEL_DIR (default: the OS temp dir) and stay cached on disk.
  * EARNKIT_EMBED_OFF=1 refuses (tests set it, so no test downloads the model by accident).
  */
 export const localEmbed: Embed = async (texts) => {
@@ -122,6 +124,36 @@ export const localEmbed: Embed = async (texts) => {
   const out = await (await model)(texts, { pooling: 'mean', normalize: true });
   return out.tolist();
 };
+
+/**
+ * Frees the local model (its ONNX session) after a step; the files stay on disk. A load still pending (cut by the
+ * deadline) is disposed when it lands, never awaited.
+ */
+export function releaseModel(): void {
+  const m = model;
+  model = null;
+  m?.then((p) => p.dispose?.()).catch(() => {});
+}
+
+/** Thrown when the run's deadline passes during a model load or an embed. */
+export class EmbedDeadline extends Error {
+  constructor() {
+    super('originality: deadline');
+    this.name = 'EmbedDeadline';
+  }
+}
+/** `embed`, rejected with EmbedDeadline once `deadline` (ms epoch) passes, so a hung load never holds the cron. */
+export function boundedEmbed(embed: Embed, deadline: number): Embed {
+  return (texts) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return Promise.reject(new EmbedDeadline());
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new EmbedDeadline()), left);
+    });
+    return Promise.race([embed(texts), late]).finally(() => clearTimeout(timer));
+  };
+}
 
 const ideaList = (): string[] => [...new Set((knownIdeas as { ideas: string[] }).ideas.map((x) => x.trim()).filter(Boolean))];
 
@@ -144,9 +176,13 @@ async function ideaVectors(embed: Embed): Promise<{ title: string; vec: number[]
   return ideas.map((i) => ({ title: i.title, vec: have.get(i.hash)! }));
 }
 
-/** The README's text through the App's client (base64 in the JSON answer), or null when there is none or it failed. */
-export async function readReadme(get: <T>(path: string) => Promise<T | null>, key: string): Promise<string | null> {
-  const r = await get<{ content?: unknown; encoding?: unknown }>(`/repos/${key}/readme`);
+/**
+ * The README's text through the App's client (base64 in the JSON answer): '' when the repo has none (404), null when the
+ * read failed (so a failure never replaces a stored vector, while a deleted README re-embeds from the description).
+ */
+export async function readReadme(get: AppGet, key: string): Promise<string | null> {
+  const r = await get<{ content?: unknown; encoding?: unknown; missing?: true }>(`/repos/${key}/readme`, { on404: { missing: true } });
+  if (r?.missing) return '';
   if (typeof r?.content !== 'string' || r.encoding !== 'base64') return null;
   // Only the first README_MAX_BYTES are decoded (4 base64 characters carry 3 bytes; GitHub wraps lines with \n).
   const b64 = r.content.replace(/[^A-Za-z0-9+/=]/g, '').slice(0, Math.ceil(README_MAX_BYTES / 3) * 4);
@@ -163,8 +199,9 @@ type Due = {
  * R3's cron step: the main projects with an App-proven repo that are due (no embedding yet, another builder owned the
  * row, the description changed, or the README wasn't checked in RECHECK_MS), at most ORIGINALITY_PER_RUN while
  * `deadline` allows. Each one's README is read with its installation token; the text is embedded only when its hash
- * changed. Then Originality is written for every changed project, and for every other project a changed one is now
- * among the nearest of (so an earlier project's Originality drops when a close one arrives, and rises when it moves away).
+ * changed. Each new vector is written at once with its Originality, and every other project it now enters the nearest
+ * list of is rescored (so an earlier project's Originality drops when a close one arrives, and rises when it moves away).
+ * One project's failure never stops the others; past the deadline nothing more is written (due again next hour).
  */
 export async function originalityStep(
   now: Date,
@@ -203,77 +240,97 @@ export async function originalityStep(
     ORDER BY (e.project_key IS NULL) DESC, e.checked_at NULLS FIRST, d.id
     LIMIT ${ORIGINALITY_PER_RUN}`;
   if (due.length === 0) return { checked: 0, embedded: 0, updated: 0 };
-  const embed = o.embed ?? localEmbed;
+  // Fix round 1: every embed (the model load included) is bounded by the deadline, and the model is released after the
+  // step, so it is never resident between runs.
+  const embed = boundedEmbed(o.embed ?? localEmbed, o.deadline);
   const ghFetch = o.ghFetch ?? fetch;
-  const changed = new Map<string, { id: number; vec: number[]; text_hash: string; desc_hash: string }>();
+  let ideas: { title: string; vec: number[] }[] | null = null;
   let checked = 0;
-  for (const d of due) {
-    if (Date.now() >= o.deadline) break;
-    checked++;
-    // Another builder's row for the same repo: theirs is dropped (a derived cache), and this one starts fresh.
-    if (d.owner !== null && d.owner !== d.id) await db`DELETE FROM project_embeddings WHERE project_key = ${d.key} AND builder_id = ${d.owner}`;
-    const owned = d.owner === d.id && d.has_vec;
-    const stamp = (descHash: string | null) => db`
-      INSERT INTO project_embeddings (project_key, builder_id, desc_hash, checked_at) VALUES (${d.key}, ${d.id}, ${descHash}, ${now})
-      ON CONFLICT (project_key) DO UPDATE SET checked_at = EXCLUDED.checked_at, desc_hash = COALESCE(EXCLUDED.desc_hash, project_embeddings.desc_hash)`;
-    const get = await appClient(d.id, d.key, ghFetch);
-    if (!get) {
-      await stamp(null);
-      continue;
+  let embedded = 0;
+  let updated = 0;
+  try {
+    for (const d of due) {
+      if (Date.now() >= o.deadline) break;
+      checked++;
+      try {
+        const c = await checkOne(d, now, embed, ghFetch);
+        if (!c) continue;
+        // Written as it goes: a later failure never loses this vector. Past the deadline nothing is written or
+        // stamped, so the project is due again next hour.
+        if (Date.now() >= o.deadline) break;
+        ideas ??= await ideaVectors(embed);
+        if (Date.now() >= o.deadline) break;
+        embedded++;
+        updated += await rescoreOriginality(d.key, c, ideas, now);
+      } catch (err) {
+        if (err instanceof EmbedDeadline) break;
+        console.error('[originality] project', err instanceof Error ? err.name : 'error');
+      }
     }
-    const readme = await readReadme(get, d.key);
-    const text = originalityText(d.description, readme);
-    const hash = textHash(text);
-    // No new vector for: nothing to embed, the same text, or a README read that failed while the description stayed.
-    if (!text || (owned && (d.text_hash === hash || (readme === null && d.old_desc === d.desc_hash)))) {
-      await stamp(owned ? d.desc_hash : null);
-      continue;
-    }
-    const [vec] = await embed([text]);
-    if (!Array.isArray(vec) || vec.length !== DIMS) throw new Error('embedding: wrong size');
-    changed.set(d.key, { id: d.id, vec, text_hash: hash, desc_hash: d.desc_hash });
+  } finally {
+    releaseModel();
   }
-  const updated = changed.size ? await rescoreOriginality(changed, embed, now) : 0;
-  return { checked, embedded: changed.size, updated };
+  return { checked, embedded, updated };
+}
+
+type Changed = { id: number; vec: number[]; text_hash: string; desc_hash: string };
+
+/** One due project: its README read and its text embedded when the hash changed (the vector), else stamped (null). */
+async function checkOne(d: Due, now: Date, embed: Embed, ghFetch: typeof fetch): Promise<Changed | null> {
+  const db = sql();
+  // Another builder's row for the same repo: theirs is dropped (a derived cache), and this one starts fresh.
+  if (d.owner !== null && d.owner !== d.id) await db`DELETE FROM project_embeddings WHERE project_key = ${d.key} AND builder_id = ${d.owner}`;
+  const owned = d.owner === d.id && d.has_vec;
+  const stamp = (descHash: string | null) => db`
+    INSERT INTO project_embeddings (project_key, builder_id, desc_hash, checked_at) VALUES (${d.key}, ${d.id}, ${descHash}, ${now})
+    ON CONFLICT (project_key) DO UPDATE SET checked_at = EXCLUDED.checked_at, desc_hash = COALESCE(EXCLUDED.desc_hash, project_embeddings.desc_hash)`;
+  const get = await appClient(d.id, d.key, ghFetch);
+  if (!get) {
+    await stamp(null);
+    return null;
+  }
+  const readme = await readReadme(get, d.key);
+  const text = originalityText(d.description, readme);
+  const hash = textHash(text);
+  // No new vector for: nothing to embed, the same text, or a README read that failed while the description stayed.
+  if (!text || (owned && (d.text_hash === hash || (readme === null && d.old_desc === d.desc_hash)))) {
+    await stamp(owned ? d.desc_hash : null);
+    return null;
+  }
+  const [vec] = await embed([text]);
+  if (!Array.isArray(vec) || vec.length !== DIMS) throw new Error('embedding: wrong size');
+  return { id: d.id, vec, text_hash: hash, desc_hash: d.desc_hash };
 }
 
 /**
- * Writes the changed projects' vectors with their Originality and nearest list, then rescoring every stored project a
- * changed vector now beats its nearest list for (or that listed a changed project before). Cosine in JS (N is small).
+ * Writes one changed project's vector with its Originality and nearest list, then rescores every stored project the
+ * changed vector now enters the top NEAREST of (or whose nearest list named this project). Cosine in JS (N is small).
  */
-async function rescoreOriginality(
-  changed: Map<string, { id: number; vec: number[]; text_hash: string; desc_hash: string }>,
-  embed: Embed,
-  now: Date,
-): Promise<number> {
+async function rescoreOriginality(key: string, c: Changed, ideaVecs: { title: string; vec: number[] }[], now: Date): Promise<number> {
   const db = sql();
-  const ideas = (await ideaVectors(embed)).map((i) => ({ kind: 'idea' as const, ...i }));
+  const ideas = ideaVecs.map((i) => ({ kind: 'idea' as const, ...i }));
   const rows = await db<{ key: string; builder_id: number; embedding: number[]; nearest: Near[] }[]>`
-    SELECT project_key AS key, builder_id, embedding, nearest FROM project_embeddings WHERE embedding IS NOT NULL`;
-  const projects = new Map<string, { key: string; builder_id: number; vec: number[]; nearest: Near[] }>(
-    rows.map((r) => [r.key, { key: r.key, builder_id: r.builder_id, vec: r.embedding.map(Number), nearest: r.nearest ?? [] }]),
-  );
-  for (const [key, c] of changed) projects.set(key, { key, builder_id: c.id, vec: c.vec, nearest: [] });
-  const others: Other[] = [...[...projects.values()].map((p) => ({ kind: 'project' as const, key: p.key, builder_id: p.builder_id, vec: p.vec })), ...ideas];
-  let n = 0;
-  for (const [key, c] of changed) {
-    const { max, nearest } = nearestOf(c.vec, { key, builder_id: c.id }, others);
-    await db`
-      INSERT INTO project_embeddings (project_key, builder_id, text_hash, desc_hash, embedding, originality, nearest, computed_at, checked_at)
-      VALUES (${key}, ${c.id}, ${c.text_hash}, ${c.desc_hash}, ${c.vec}::real[], ${originalityOf(max)}, ${db.json(nearest as never)}, ${now}, ${now})
-      ON CONFLICT (project_key) DO UPDATE SET builder_id = EXCLUDED.builder_id, text_hash = EXCLUDED.text_hash, desc_hash = EXCLUDED.desc_hash,
-        embedding = EXCLUDED.embedding, originality = EXCLUDED.originality, nearest = EXCLUDED.nearest,
-        computed_at = EXCLUDED.computed_at, checked_at = EXCLUDED.checked_at`;
-    n++;
-  }
-  for (const p of projects.values()) {
-    if (changed.has(p.key)) continue;
+    SELECT project_key AS key, builder_id, embedding, nearest FROM project_embeddings WHERE embedding IS NOT NULL AND project_key <> ${key}`;
+  const projects = rows.map((r) => ({ key: r.key, builder_id: r.builder_id, vec: r.embedding.map(Number), nearest: r.nearest ?? [] }));
+  const others: Other[] = [
+    ...projects.map((p) => ({ kind: 'project' as const, key: p.key, builder_id: p.builder_id, vec: p.vec })),
+    { kind: 'project', key, builder_id: c.id, vec: c.vec },
+    ...ideas,
+  ];
+  const { max, nearest } = nearestOf(c.vec, { key, builder_id: c.id }, others);
+  await db`
+    INSERT INTO project_embeddings (project_key, builder_id, text_hash, desc_hash, embedding, originality, nearest, computed_at, checked_at)
+    VALUES (${key}, ${c.id}, ${c.text_hash}, ${c.desc_hash}, ${c.vec}::real[], ${originalityOf(max)}, ${db.json(nearest as never)}, ${now}, ${now})
+    ON CONFLICT (project_key) DO UPDATE SET builder_id = EXCLUDED.builder_id, text_hash = EXCLUDED.text_hash, desc_hash = EXCLUDED.desc_hash,
+      embedding = EXCLUDED.embedding, originality = EXCLUDED.originality, nearest = EXCLUDED.nearest,
+      computed_at = EXCLUDED.computed_at, checked_at = EXCLUDED.checked_at`;
+  let n = 1;
+  for (const p of projects) {
     const floor = p.nearest.length < NEAREST ? -Infinity : Math.min(...p.nearest.map((x) => x.similarity));
-    const touched = [...changed].some(([key, c]) =>
-      (c.id !== p.builder_id && cosine(p.vec, c.vec) > floor) || p.nearest.some((x) => x.kind === 'project' && x.key === key));
+    const touched = (c.id !== p.builder_id && cosine(p.vec, c.vec) > floor) || p.nearest.some((x) => x.kind === 'project' && x.key === key);
     if (!touched) continue;
-    const { max, nearest } = nearestOf(p.vec, p, others);
-    await db`UPDATE project_embeddings SET originality = ${originalityOf(max)}, nearest = ${db.json(nearest as never)} WHERE project_key = ${p.key}`;
+    const r = nearestOf(p.vec, p, others);
+    await db`UPDATE project_embeddings SET originality = ${originalityOf(r.max)}, nearest = ${db.json(r.nearest as never)} WHERE project_key = ${p.key}`;
     n++;
   }
   return n;

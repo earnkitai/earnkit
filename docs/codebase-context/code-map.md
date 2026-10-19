@@ -1476,7 +1476,8 @@ apps/frontend/
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
                                cosine, stripMarkdown, originalityText, textHash, nearestOf, localEmbed (transformers.js
                                MiniLM q8, lazy, EARNKIT_MODEL_DIR; EARNKIT_EMBED_OFF in tests), originalityStep (the cron
-                               step: due query, README via appClient, embed on hash change, rescore affected), readOriginality;
+                               step: due query, README via appClient (on404), embed on hash change, written per project, rescore affected),
+                               boundedEmbed/EmbedDeadline, releaseModel (after each step), readOriginality;
                                tables project_embeddings and known_idea_embeddings; ideas in programs/ideas/known-ideas.json
     sources.ts (fix round 2)   anti-backdating: withPastWeeks/withPastCounts (only this and last week new after a
                                reading), storedCommits (pushes_checked), needsPushCheck, pushedWeeks, readPushes, firstPushes

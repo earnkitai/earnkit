@@ -15,7 +15,7 @@ import { profileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import {
-  DIMS, README_CHARS, README_MAX_BYTES, cosine, localEmbed, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, stripMarkdown, textHash,
+  DIMS, README_CHARS, README_MAX_BYTES, cosine, localEmbed, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, releaseModel, boundedEmbed, EmbedDeadline, stripMarkdown, textHash,
   type Embed,
 } from './originality';
 
@@ -100,7 +100,8 @@ test('O2b a huge pathological README is capped before any pattern runs and strip
   const content = Buffer.from(big).toString('base64').replace(/(.{60})/g, '$1\n');
   const got = await readReadme(async <T,>() => ({ content, encoding: 'base64' }) as T, 'a/b');
   assert.equal(got!.length, README_MAX_BYTES);
-  assert.equal(await readReadme(async () => null, 'a/b'), null);
+  assert.equal(await readReadme(async () => null, 'a/b'), null, 'a failed read');
+  assert.equal(await readReadme(async (_p, o) => o!.on404 ?? null, 'a/b'), '', 'no README (404)');
 });
 
 test('O3 the nearest list leaves out the builder\'s own projects and itself; ideas count', () => {
@@ -238,12 +239,21 @@ test('O7 the due query: a changed description is due at once; the same one is no
   const h2 = (await rowOf(k))!.text_hash;
   assert.notEqual(h2, h1);
   assert.ok(embed.calls.at(-1)![0].startsWith('Glacier melt notebook\n'), 'the description comes first');
-  // The README stops answering at the weekly check, description unchanged: the vector stays.
-  delete gh.repos[k].readme;
+  // The README read fails (500) at the weekly check, description unchanged: the vector stays.
+  const md = gh.repos[k].readme;
+  gh.repos[k].readme = null;
   await sql()`UPDATE project_embeddings SET checked_at = ${new Date(NOW.getTime() - 8 * 86_400_000)} WHERE project_key = ${k}`;
   const r2 = await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed });
   assert.deepEqual(r2, { checked: 1, embedded: 0, updated: 0 });
   assert.equal((await rowOf(k))!.text_hash, h2);
+  assert.ok(md);
+  // Fix round 1 (5): the README is deleted (404): re-embedded from the description alone.
+  delete gh.repos[k].readme;
+  await sql()`UPDATE project_embeddings SET checked_at = ${new Date(NOW.getTime() - 8 * 86_400_000)} WHERE project_key = ${k}`;
+  const r3 = await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed });
+  assert.deepEqual(r3, { checked: 1, embedded: 1, updated: 1 });
+  assert.equal(embed.calls.at(-1)![0], 'Glacier melt notebook');
+  assert.notEqual((await rowOf(k))!.text_hash, h2);
   // Past the deadline: nothing is checked.
   await sql()`UPDATE builder_projects SET what = 'Another description' WHERE builder_id = ${p.id}`;
   assert.deepEqual(await originalityStep(NOW, { deadline: Date.now() - 1, only: [p.id], ghFetch: gh, embed }), { checked: 0, embedded: 0, updated: 0 });
@@ -255,6 +265,52 @@ test('O7 the due query: a changed description is due at once; the same one is no
   } finally {
     process.env.GITHUB_APP_ID = id;
   }
+});
+
+test('O7b fix round 1: a hung model load is cut at the deadline (nothing stamped, due next hour); one failed embed never loses the others', db, async () => {
+  const k1 = `hal${RUN}/one`;
+  const k2 = `ivy${RUN}/two`;
+  const gh = fakeGitHub({
+    [k1]: repo(9341, `hal${RUN}`, 341, '# One\nVolcanic ash dispersion forecaster for regional airports.'),
+    [k2]: repo(9342, `ivy${RUN}`, 342, '# Two\nBeekeeping hive acoustics classifier for swarm alerts.'),
+  });
+  const p1 = await connected(k1, 'hal', gh, 341);
+  const p2 = await connected(k2, 'ivy', gh, 342);
+  // A loader that never answers: the step returns at the deadline, writes nothing, and both stay due.
+  const hung: Embed = () => new Promise(() => {});
+  const t0 = Date.now();
+  const r = await originalityStep(NOW, { deadline: Date.now() + 300, only: [p1.id, p2.id], ghFetch: gh, embed: hung });
+  assert.ok(Date.now() - t0 < 2000, `returned in ${Date.now() - t0} ms`);
+  assert.deepEqual(r, { checked: 1, embedded: 0, updated: 0 });
+  assert.equal(await rowOf(k1), undefined, 'nothing stamped');
+  assert.equal(await rowOf(k2), undefined);
+  // The first embed throws, the second works: the second's vector is written, the first is due again.
+  const good = fakeEmbed();
+  let first = true;
+  const flaky: Embed = async (texts) => {
+    if (first) {
+      first = false;
+      throw new Error('onnx: boom');
+    }
+    return good(texts);
+  };
+  const r2 = await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: flaky });
+  assert.equal((r2 as { checked: number }).checked, 2);
+  assert.equal((r2 as { embedded: number }).embedded, 1);
+  const rows = [await rowOf(k1), await rowOf(k2)];
+  assert.equal(rows.filter((x) => x?.originality != null).length, 1, JSON.stringify(rows));
+  // The next run picks up the one that failed.
+  const r3 = await originalityStep(NOW, { deadline: far(), only: [p1.id, p2.id], ghFetch: gh, embed: fakeEmbed() });
+  assert.equal((r3 as { embedded: number }).embedded, 1);
+  assert.ok((await rowOf(k1))!.originality != null && (await rowOf(k2))!.originality != null);
+});
+
+test('O7c fix round 1: boundedEmbed rejects at the deadline; releaseModel is safe with no model loaded', async () => {
+  await assert.rejects(boundedEmbed(() => new Promise(() => {}), Date.now() + 20)(['x']), EmbedDeadline);
+  await assert.rejects(boundedEmbed(fakeEmbed(), Date.now() - 1)(['x']), EmbedDeadline);
+  assert.equal((await boundedEmbed(fakeEmbed(), Date.now() + 1000)(['abcd']))[0].length, DIMS);
+  releaseModel();
+  releaseModel();
 });
 
 test('O8 privacy: a private README is never stored as text; the nearest list names other projects by key only', db, async () => {
@@ -307,4 +363,5 @@ test('O10 opt-in (EARNKIT_MODEL_TEST=1): the real model scores two near-identica
   assert.equal(a.length, DIMS);
   assert.ok(cosine(a, b) > cosine(a, c) + 0.3, `${cosine(a, b)} vs ${cosine(a, c)}`);
   assert.ok(originalityOf(cosine(a, b)) < originalityOf(cosine(a, c)));
+  releaseModel();
 });

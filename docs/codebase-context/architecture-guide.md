@@ -5980,6 +5980,13 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
   (`localEmbed`): mean pooling, normalized, 384 numbers. It loads once per process on first use, after a one-time
   download of about 23 MB from Hugging Face into `EARNKIT_MODEL_DIR` (default `<os tmpdir>/earnkit-models`). There is no
   API key and no paid service. `next.config.ts serverExternalPackages` keeps it out of the bundle (native onnxruntime).
+  Fix round 1: the model is released after every step (`releaseModel` disposes the pipeline; the files stay on disk),
+  and every embed, the load included, is raced against the run's deadline (`boundedEmbed`, `EmbedDeadline`). Each new
+  vector is written as soon as it exists; one project's failure is logged and the others continue; past the deadline
+  nothing more is written or stamped, so the project is due again next hour. A 404 README (`appClient`'s `on404`) is ''
+  and re-embeds from the description alone; a failed read is null and keeps the vector. The repo-root `.npmrc` sets
+  `onnxruntime-node-install=skip` (read by its postinstall as `npm_config_onnxruntime_node_install`), so a linux x64
+  install never downloads the CUDA binaries from NuGet.
 - **When.** A step in the hourly cron (`builder-score.ts runScoreSteps`, `originality`, after `empty`), never in a
   request. `originalityStep` only runs while the App is on. A project is due when its main project is Bench-confirmed
   with an App-proven repo of the same key, and one of these holds: it has no row; its row belongs to another builder

@@ -299,18 +299,22 @@ export async function installLink(builderId: number, repoKey: string, now: Date)
   return createVerifyLink({ installationId: builderId, projectId: null, repoKey: repoKey.toLowerCase(), purpose: 'app' }, now).catch(() => null);
 }
 
-/** One installation token for one repo of this person, and a GET with it (null on any failure). Never stored or logged. */
-export async function appClient(builderId: number, repoKey: string, f: typeof fetch): Promise<(<T>(path: string) => Promise<T | null>) | null> {
+/**
+ * One installation token for one repo of this person, and a GET with it (null on any failure). Never stored or logged.
+ * `on404` (scoring and clarity R3): what a 404 answers instead of null, so a caller can tell "not there" from a failure.
+ */
+export type AppGet = <T>(path: string, o?: { on404?: T }) => Promise<T | null>;
+export async function appClient(builderId: number, repoKey: string, f: typeof fetch): Promise<AppGet | null> {
   const token = await appTokenFor({ installationId: builderId, repoKey: repoKey.toLowerCase() }, { fetch: f });
   if (!token) return null;
-  return async <T,>(path: string): Promise<T | null> => {
+  return async <T,>(path: string, o?: { on404?: T }): Promise<T | null> => {
     const res = await f(`https://api.github.com${path}`, {
       headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28' },
       redirect: 'error', signal: AbortSignal.timeout(10_000),
     }).catch(() => null);
     if (!res?.ok) {
       await res?.body?.cancel().catch(() => {});
-      return null;
+      return res?.status === 404 && o && 'on404' in o ? (o.on404 as T) : null;
     }
     return (await res.json().catch(() => null)) as T | null;
   };
