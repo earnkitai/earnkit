@@ -108,7 +108,8 @@ test('6.6 the feed page: long cards, plain words, no "written by", no all-caps l
   const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }] }));
   for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
-  assert.doesNotMatch(html, /written by|agent/i);
+  // R6 is about the words a person reads: a link's URL (the footer's Docs, README#connect-an-agent) isn't one.
+  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /written by|agent/i);
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);
