@@ -29,6 +29,7 @@ import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
+import { githubAppEnabled } from './github-app';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
@@ -414,6 +415,8 @@ export async function runCron(
   }
   for (const key of deployer?.needs_owner ?? []) needs_owner.push(key);
   needs_owner.push(...needs_owner_extra);
+  // v2.14 final fix 9: X sign-in and the GitHub App are hard prerequisites (full runs only; a scoped test run skips it).
+  if (!opts.only) needs_owner.push(...missingPrerequisites());
   return {
     now: now.toISOString(),
     campaigns,
@@ -428,6 +431,21 @@ export async function runCron(
     ...(builderScore && { builder_score: builderScore }),
     needs_owner,
   };
+}
+
+/**
+ * v2.14 final fix 9: the hard prerequisites. Sign in with X at install (the person is the X account) and the read-only
+ * GitHub App (the only proof) need these; each one unset (or a key that doesn't parse) is a needs_owner line naming
+ * it, `env-missing:<VAR>` or `env-invalid:GITHUB_APP_PRIVATE_KEY`, which alerts (503) until the owner sets it. No new
+ * service: the hourly cron already runs. Pure; exported for tests.
+ */
+export const PREREQ_VARS = ['X_CLIENT_ID', 'X_CLIENT_SECRET', 'GITHUB_APP_ID', 'GITHUB_APP_SLUG', 'GITHUB_APP_PRIVATE_KEY', 'GITHUB_OAUTH_CLIENT_ID', 'GITHUB_OAUTH_CLIENT_SECRET'] as const;
+export function missingPrerequisites(env: Record<string, string | undefined> = process.env): string[] {
+  const missing = PREREQ_VARS.filter((v) => !env[v]?.trim()).map((v) => `env-missing:${v}`);
+  // All App and GitHub sign-in values set, yet the App is off: the private key doesn't parse.
+  const appSet = PREREQ_VARS.slice(2).every((v) => env[v]?.trim());
+  if (appSet && !githubAppEnabled(env)) missing.push('env-invalid:GITHUB_APP_PRIVATE_KEY');
+  return missing;
 }
 
 /**

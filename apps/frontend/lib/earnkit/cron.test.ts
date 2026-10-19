@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
+import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, missingPrerequisites, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
@@ -676,4 +676,21 @@ test('13.7 the cron runs the ledger without rounds: no traction scoring, no proo
   assert.equal((on as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'no traction scoring');
   assert.equal((on as { proof_recheck?: unknown }).proof_recheck, undefined, 'no proof re-check');
   assert.ok(!on.needs_owner.some((l) => l.startsWith('bonus:')), on.needs_owner.join());
+});
+
+test('final fix 9: X sign-in and the GitHub App are hard prerequisites: each missing var is a needs_owner line naming it', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const full = {
+    X_CLIENT_ID: 'cid', X_CLIENT_SECRET: 'sec', GITHUB_APP_ID: '1', GITHUB_APP_SLUG: 'earnkitai', GITHUB_APP_PRIVATE_KEY: key,
+    GITHUB_OAUTH_CLIENT_ID: 'gh', GITHUB_OAUTH_CLIENT_SECRET: 'ghs',
+  };
+  assert.deepEqual(missingPrerequisites(full), []);
+  assert.deepEqual(missingPrerequisites({ ...full, X_CLIENT_SECRET: ' ' }), ['env-missing:X_CLIENT_SECRET']);
+  assert.deepEqual(missingPrerequisites({ ...full, GITHUB_APP_ID: undefined, X_CLIENT_ID: '' }), ['env-missing:X_CLIENT_ID', 'env-missing:GITHUB_APP_ID']);
+  assert.deepEqual(missingPrerequisites({ ...full, GITHUB_APP_PRIVATE_KEY: 'not a key' }), ['env-invalid:GITHUB_APP_PRIVATE_KEY']);
+  assert.equal(missingPrerequisites({}).length, 7);
+  // The cron lists them (alerting: no quiet suffix) on a full run; the source reads them from process.env.
+  const src = readFileSync(join(import.meta.dirname, 'cron.ts'), 'utf8');
+  assert.match(src, /if \(!opts\.only\) needs_owner\.push\(\.\.\.missingPrerequisites\(\)\);/);
 });
