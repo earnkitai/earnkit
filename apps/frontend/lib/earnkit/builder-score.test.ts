@@ -182,14 +182,8 @@ function fakeReader(gh: Record<string, unknown>, over: Partial<ReaderDeps> = {})
     probe: no('probe'),
     fetchText: no('fetchText'),
     json: no('json'),
-    baseTxs: no('baseTxs'),
     ghGraphql: no('ghGraphql'),
-    tokenTransfers: no('tokenTransfers'),
     contractOrigin: no('contractOrigin'),
-    arcLogs: no('arcLogs'),
-    arcHead: no('arcHead'),
-    arcSender: no('arcSender'),
-    usdPerNative: no('usdPerNative'),
     walletCreations: no('walletCreations'),
     now: NOW,
     ...over,
@@ -537,7 +531,7 @@ test('6.30 (post-push audit) the migration revokes any contract a typed wallet v
 
 // ---- Restored in v2.14 T3 fix round 1 ----
 
-test('6.12 readSources: each kind read once a day; packages verified on first read; a failed read is stored; a spent budget writes nothing', dbTest, async () => {
+test('6.12 readSources: each kind read once a day; packages verified on first read; R16b: contracts and merged PRs are never read', dbTest, async () => {
   const id = T + 24;
   const R = `r${T}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, github_login) VALUES (${id}, ${`s${id}`}, ${R})`;
@@ -554,20 +548,14 @@ test('6.12 readSources: each kind read once a day; packages verified on first re
   const pr = await add('merged_pr', 'https://github.com/big/lib2/pull/3', 'verified', 'oss');
   const npm = await add('package_npm', `r-pkg-${T}`, 'proposed');
   const pypi = await add('package_pypi', `other-${T}`, 'proposed');
-  const reader = fakeReader({
-    '/repos/big/lib': new GitHubBudgetStop(),
-    '/repos/big/lib2': { stargazers_count: 50 },
-    '/repos/big/lib2/pulls/3': { merged_at: iso(9), merged_by: { login: 'maint' } },
-  }, {
+  // R16b: a merged PR's target stars and a contract's callers are no longer read (fakeReader throws on any other read).
+  const reader = fakeReader({}, {
     // v2.13 R2: repos are read by name (no person query).
     ghGraphql: async <T,>(_q: string, v: Record<string, unknown>): Promise<T> => {
       assert.equal(`${v.o0}/${v.n0}`, `${R}/a`);
       return { data: { r0: { nameWithOwner: `${R}/a`, isFork: false, isTemplate: false, createdAt: iso(400), stargazerCount: 0 } } } as T;
     },
     probe: async () => ({ status: 200 }),
-    usdPerNative: async () => {
-      throw new Error('price down');
-    },
     json: async <T,>(url: string): Promise<T> => {
       if (url.includes('api.npmjs.org')) return { downloads: Array.from({ length: 28 }, () => ({ day: '2026-10-01', downloads: 10 })) } as T;
       if (url.includes('registry.npmjs.org')) return { repository: { url: `git+https://github.com/${R}/a.git` } } as T;
@@ -576,21 +564,18 @@ test('6.12 readSources: each kind read once a day; packages verified on first re
     },
   });
   const r = await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] });
-  assert.deepEqual(r, { read: 4, failed: 1 });
+  assert.deepEqual(r, { read: 3, failed: 0 });
   const readings = await sql()<{ source_id: number; ok: boolean; error: string | null; signals: Record<string, unknown> }[]>`
     SELECT source_id::int, ok, error, signals FROM source_readings WHERE source_id IN ${sql()([repo, site, contract, stopped, pr, npm, pypi])}`;
   const by = new Map(readings.map((x) => [x.source_id, x]));
   assert.equal(by.get(repo)?.ok, true);
   assert.equal(by.get(site)?.signals.up, true);
-  assert.deepEqual([by.get(contract)?.ok, by.get(contract)?.error], [false, 'Error']);
-  assert.equal(by.has(stopped), false, 'a spent GitHub budget leaves the source unread');
-  assert.deepEqual([by.get(pr)?.signals.target_stars, by.get(pr)?.signals.merged_at, by.get(pr)?.signals.author], [50, iso(9), R]);
+  assert.equal(by.has(contract), false, 'R16b: a contract is never read');
+  assert.equal(by.has(stopped) || by.has(pr), false, 'R16b: a merged PR is never read');
   assert.equal(by.get(npm)?.signals.weekly, 70);
   assert.equal(by.has(pypi), false);
   const s = await sourcesOf(id);
   assert.deepEqual([s[`package_npm r-pkg-${T}`].state, s[`package_npm r-pkg-${T}`].proof], ['verified', 'repo_link']);
   assert.deepEqual([s[`package_pypi other-${T}`].state, s[`package_pypi other-${T}`].reject_reason], ['rejected', 'repo_mismatch']);
-  const [left] = await sql()<{ last_read_day: string | null }[]>`SELECT last_read_day::text FROM builder_sources WHERE id = ${stopped}`;
-  assert.equal(left.last_read_day, null, 'still due');
-  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] }), { read: 0, failed: 0 }, 'once a day (the stopped one stays stopped)');
+  assert.deepEqual(await readSources(NOW, { deadline: Date.now() + 30_000, reader, only: [id] }), { read: 0, failed: 0 }, 'once a day');
 });

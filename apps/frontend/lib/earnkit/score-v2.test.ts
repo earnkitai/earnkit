@@ -1,12 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeScoreV2, countUse, fade, mondayDay, scoreWhy, shippingOf, storedShipping, weekMask, type Ship } from './score-v2';
-import { calibrationV2 } from './score-calibration';
+import { computeScoreV2, mondayDay, scoreWhy, shippingOf, storedShipping, weekMask, type Ship } from './score-v2';
 import { isoWeekOf } from './weeks';
 
 const NOW = new Date('2026-10-14T00:00:00Z'); // a Wednesday of 2026-W42
 const days = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
-const cal = calibrationV2();
 /** The ISO weeks `ages` weeks before NOW's (0 = this week). */
 const weeks = (...ages: number[]) => ages.map((a) => isoWeekOf(days(7 * a)));
 const site: Ship = { key: 'site:a.earnkit.com', kind: 'site' };
@@ -86,38 +84,3 @@ test('S8 the why of a row scored in an earlier week is read as of this week (nev
   assert.equal(scoreWhy({ shipping: { ...last.shipping, raw } }, new Date(NOW.getTime() + week)), scoreWhy(last, NOW));
 });
 
-// ---- People and money (stored on the project rows, never scored) ----------------------------------
-
-const use = (touches: Parameters<typeof countUse>[0]['touches']) => countUse({ touches, packages: [], earned: [] }, cal, NOW);
-
-test('U1 stars and forks by other people count at most 5', () => {
-  const stars = Array.from({ length: 40 }, (_, i) => ({ project: 'p', actor: `gh:u${i}`, at: days(1), weight: 1, kind: 'star' as const }));
-  const u = use(stars);
-  assert.equal(u.star_fork, 5);
-  assert.equal(u.U, 5);
-});
-
-test('U2 one person counts once per project, faded with a 90-day half-life', () => {
-  const t = (at: Date) => ({ project: 'p', actor: 'wallet:0x1', at, weight: 1, kind: 'caller' as const });
-  const u = use([t(days(200)), t(days(90))]);
-  assert.ok(Math.abs(u.U - 0.5) < 1e-9);
-  assert.equal(u.perProject.get('p')!.people, 1);
-});
-
-test('U3 the same account starring and calling counts as a user, not a capped star; money is unfaded', () => {
-  const at = days(1);
-  for (const order of [0, 1]) {
-    const t = [
-      { project: 'p', actor: 'GH:Bob', at, weight: 1, kind: 'star' as const },
-      { project: 'p', actor: 'gh:bob', at, weight: 1, kind: 'caller' as const },
-    ];
-    if (order) t.reverse();
-    const u = use(t);
-    assert.equal(u.star_fork, 0);
-    assert.ok(Math.abs(u.people - fade(at, NOW)) < 1e-9);
-  }
-  const m = countUse({ touches: [], packages: [], earned: [{ project: 'p', usd: 4000, kind: 'prize' }, { project: 'p', usd: Number.NaN, kind: 'coin_fees' }] }, cal, NOW);
-  assert.equal(m.E, 4000);
-  assert.equal(m.perProject.get('p')!.usd, 4000);
-  assert.equal(fade(new Date('nope'), NOW), 0);
-});

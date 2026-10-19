@@ -14,19 +14,17 @@ after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = randomBytes(3).toString('hex');
 const NOW = new Date('2026-10-21T12:00:00Z'); // a Wednesday; the last finished week is 2026-10-12
 
-test('6.1 the points table, exactly', () => {
+test('6.1 the points table, exactly (R16b: shipping facts only)', () => {
   assert.equal(pointsOf({ went_live: true }), 40);
   assert.equal(pointsOf({ won: [{ title: 'A' }, { title: 'B' }] }), 40, 'a win is 40, however many');
-  assert.equal(pointsOf({ users_up: { n: 1 } }), 6);
-  assert.equal(pointsOf({ users_up: { n: 31 } }), 30, 'min(30, 6 * log2(32)) = 30');
-  assert.equal(pointsOf({ users_up: { n: 7 } }), 18);
-  assert.equal(pointsOf({ earned: { usd: 10 } }), 5);
-  assert.equal(pointsOf({ earned: { usd: 150 } }), 20, 'min(20, 5 * log2(16))');
+  // R16b: an old row's people and money count nothing.
+  assert.equal(pointsOf({ users_up: { n: 31 } }), 0);
+  assert.equal(pointsOf({ earned: { usd: 150 } }), 0);
   assert.equal(pointsOf({ shipped_code: { n: 12 } }), 10);
   assert.equal(pointsOf({ streak: { w: 6 } }), 6);
   assert.equal(pointsOf({ streak: { w: 14 } }), 10);
   assert.equal(pointsOf({ started: { live: true, weeks: 6, people: 31 } }), 0, 'the start is not progress');
-  assert.equal(pointsOf({ went_live: true, users_up: { n: 31 }, shipped_code: { n: 1 }, streak: { w: 3 } }), 83);
+  assert.equal(pointsOf({ went_live: true, users_up: { n: 31 }, shipped_code: { n: 1 }, streak: { w: 3 } }), 53);
 });
 
 /** A listed person (claimed, ranked, shown) with one confirmed main project and rows by week. */

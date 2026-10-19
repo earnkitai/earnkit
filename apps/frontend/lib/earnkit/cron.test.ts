@@ -631,7 +631,7 @@ function fakeReader(): ReaderDeps {
   const no = async () => {
     throw new Error('unexpected');
   };
-  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date() };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: new Date() };
 }
 
 test('6.9 v2.12: runCron runs the builder score steps only with their deps under `only`; the step results come back and a failing read fails soft', db, async () => {

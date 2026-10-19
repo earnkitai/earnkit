@@ -42,11 +42,11 @@ test('10.1 filters come from the URL; anything unknown is ignored (16 variants a
 });
 
 test('10.2 the best fact in plain words', () => {
-  assert.equal(bestFact({ people_week: 31, streak: 6, weeks_shipping: 9, shipped: true }), '31 people this week');
-  assert.equal(bestFact({ people_week: 0, streak: 6, weeks_shipping: 9, shipped: true }), '6 weeks in a row');
-  assert.equal(bestFact({ people_week: 0, streak: 1, weeks_shipping: 9, shipped: true }), '9 weeks shipping');
-  assert.equal(bestFact({ people_week: 0, streak: 0, weeks_shipping: 0, shipped: true }), 'Live');
-  assert.equal(bestFact({ people_week: 0, streak: 0, weeks_shipping: 0, shipped: false }), 'Building');
+  // R16b: never "N people this week".
+  assert.equal(bestFact({ streak: 6, weeks_shipping: 9, shipped: true }), '6 weeks in a row');
+  assert.equal(bestFact({ streak: 1, weeks_shipping: 9, shipped: true }), '9 weeks shipping');
+  assert.equal(bestFact({ streak: 0, weeks_shipping: 0, shipped: true }), 'Live');
+  assert.equal(bestFact({ streak: 0, weeks_shipping: 0, shipped: false }), 'Building');
 });
 
 /**

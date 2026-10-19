@@ -3,9 +3,7 @@ import assert from 'node:assert/strict';
 import { heldForReview, partLines, publicRow, scoresAdminKey, scoresPost } from './builder-score';
 import { isConfirmedProof } from './confirmed';
 import { sql } from './db';
-import { PAGE_REFRESH_MS, pageViewRefresh, personInputsV2, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
-import { calibrationV2 } from './score-calibration';
-import { countUse } from './score-v2';
+import { PAGE_REFRESH_MS, pageViewRefresh, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
 import { needsPushCheck, previousRepoSignals } from './sources';
 import { isoWeekOf } from './weeks';
 import { LIMITS, windowStart } from './rate-limit';
@@ -38,7 +36,7 @@ function fakeReader(): ReaderDeps {
   const no = async () => {
     throw new Error('unexpected');
   };
-  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: NOW };
 }
 
 async function clear(id: number) {
@@ -122,8 +120,6 @@ async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number; active
   await reading(`base:${addr}`, { callers, partial: false });
 }
 
-/** The people (score-v2 countUse, stored on the project rows, never scored) a rescore at `at` counts: the stored ring, as a refresh reads it. */
-const useAt = async (id: number, at: Date) => countUse((await personInputsV2(id, at)).input, calibrationV2(), at);
 
 test('4.0 confirmed proofs: earnkit.txt and DNS site proofs are not confirmed', () => {
   assert.equal(isConfirmedProof('repo_owner'), true);
@@ -255,7 +251,7 @@ test('4.6 a 30-point jump is held: the public score stays, the new one waits in 
   assert.ok(row.pending!.score >= 40);
 });
 
-test('4.8 a tagged call marks the project tagged; junk in a reading never makes the score NaN; own wallets never count', dbTest, async () => {
+test('4.8 R16b: a contract\'s callers count nothing (not tagged, no people); junk in an old reading never makes the score NaN', dbTest, async () => {
   const id = T + 9;
   await person(id, {});
   const addr = `0x${hex40(id + 3)}`;
@@ -277,22 +273,22 @@ test('4.8 a tagged call marks the project tagged; junk in a reading never makes 
   const r = await rescorePerson(id, NOW);
   assert.ok(Number.isFinite(r.score) && r.score > 0, String(r.score));
   const [p] = await sql()`SELECT tagged, sends_tx, people, kind FROM builder_projects WHERE builder_id = ${id}`;
-  assert.deepEqual({ ...p }, { tagged: true, sends_tx: true, people: 3, kind: 'contract' });
+  assert.deepEqual({ ...p }, { tagged: false, sends_tx: true, people: 0, kind: 'contract' });
 });
 
-test('4.10 a refresh with a good read uses it over the daily one; a first refresh is never held against its own claim row', dbTest, async () => {
+test('4.10 a first refresh is never held against its own claim row (R16b: its contract is not read)', dbTest, async () => {
   const id = T + 11;
   await person(id, { login: null });
   await hosted(id, { slug: `up${id}`, repo_key: `lee/up${id}`, status: 'live' });
   await fakeBigUse(id);
-  const reader = { ...fakeReader(), baseTxs: async () => ({ items: [], next_page_params: null }), usdPerNative: async () => 2000 };
-  const r = await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader });
+  // R16b: the contract is never read (fakeReader throws on any read), so the refresh reads nothing here.
+  const r = await refreshPerson(id, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
   assert.deepEqual(r, { refreshed: true });
   const [l] = await sql()<{ score: number; pending: unknown; read_at: Date }[]>`SELECT score, pending, read_at FROM builder_live WHERE builder_id = ${id}`;
   assert.ok(l.score >= 40, 'the claim row (score 0) is not a previous score: no 30-point hold');
   assert.equal(l.pending, null);
-  const [live] = await sql()<{ ok: boolean }[]>`SELECT ok FROM source_live WHERE source_id = (SELECT id FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract')`;
-  assert.equal(live.ok, true);
+  const live = await sql()`SELECT 1 FROM source_live WHERE source_id = (SELECT id FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract')`;
+  assert.equal(live.length, 0, 'R16b: no contract read');
 });
 
 test('4.11 the cron score step: one history row per person per day (formula v2), and a rerun with nothing new scores no one', dbTest, async () => {
@@ -531,33 +527,7 @@ test('4.17 a shared client\'s group is never refreshed', dbTest, async () => {
   assert.equal(reads, 0);
 });
 
-test('4.18 a refresh reads only the person\'s stored ring (no scan of everyone\'s edges); the cron step stores it', dbTest, async () => {
-  const [a, b] = [T + 19, T + 5];
-  const [la, lb] = [`ra${T}`, `rb${T}`];
-  await person(a, { login: la });
-  await person(b, { login: lb });
-  const star = (who: string) => ({ owner: 'x', owner_type: 'User', fork: false, template: false, stargazers: [{ id: `gh:${who}`, at: new Date(NOW.getTime() - 2 * DAY).toISOString(), created_at: '2020-01-01T00:00:00Z' }], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false });
-  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
-  await source(b, { kind: 'repo', ref: `${lb}/y`, state: 'verified', proof: 'repo_owner', by: 'server' });
-  await reading(`${la}/x`, star(lb));
-  await reading(`${lb}/y`, star(la));
-  const faded = (days: number) => 0.5 ** (days / 90); // the star is 2 days old at NOW
-  // No stored ring yet: the refresh looks up only the owners of the accounts that touched a's work
-  // (never everyone's edges): b is another EarnKit person, so b's star weighs 0.5.
-  await refreshPerson(a, { now: NOW, deadline: Date.now() + 3000, reader: fakeReader() });
-  const first = (await useAt(a, NOW)).star_fork;
-  assert.ok(Math.abs(first - 0.5 * faded(2)) < 1e-6, String(first));
-  // The cron step computes and stores the ring: b and a star each other, so b's star weighs 0.5.
-  await scorePeopleV2(new Date(NOW.getTime() + 4 * DAY), { deadline: Date.now() + 10_000, only: [a] });
-  const [p] = await sql()<{ ring: { ring?: [string, number][] } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
-  assert.deepEqual(p.ring.ring, [[`gh:${lb}`, 0.5]]);
-  const at = new Date(NOW.getTime() + 4 * DAY + 11 * 60_000);
-  await refreshPerson(a, { now: at, deadline: Date.now() + 3000, reader: fakeReader() });
-  const then = (await useAt(a, at)).star_fork;
-  assert.ok(Math.abs(then - 0.5 * faded(6 + 11 / 1440)) < 1e-6, String(then));
-});
-
-test('4.19 a never-computed ring fails strict: another person\'s account counts 0.5; R4: the ring no longer gates the rank', dbTest, async () => {
+test('4.19 R4: a confirmed project with a repo reading ranks; R16b: stars and the ring are never read', dbTest, async () => {
   const [a, c] = [T + 3, T + 4];
   const [la, lc] = [`na${T}`, `nc${T}`];
   await person(c, { login: lc, ring: true });
@@ -569,28 +539,16 @@ test('4.19 a never-computed ring fails strict: another person\'s account counts 
   await reading(`${la}/x`, starred);
   await mainIs(a, `${la}/x`);
   const r = await rescorePerson(a, NOW);
-  assert.equal(r.ranked, true, 'R4: a confirmed project with a repo reading ranks before the ring is computed');
-  const v = (await useAt(a, NOW)).star_fork;
-  assert.ok(Math.abs(v - 0.5 * 0.5 ** (2 / 90)) < 1e-6, String(v));
-  // A redaction-cleared ring ('{}') is never-computed too; a malformed one as well: strict, still ranked.
+  assert.equal(r.ranked, true, 'R4: a confirmed project with a repo reading ranks');
+  // An old row's ring (even a malformed one) is never read: still ranked, and the cron never writes it.
   await sql()`UPDATE builder_profiles SET ring = '{"ring": "junk"}'::jsonb WHERE builder_id = ${a}`;
   assert.equal((await rescorePerson(a, NOW)).ranked, true);
-  assert.ok(Math.abs((await useAt(a, NOW)).star_fork - v) < 1e-9);
   await scorePeopleV2(new Date(NOW.getTime() + 5 * DAY), { deadline: Date.now() + 10_000, only: [a] });
-  assert.equal((await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${a}`)[0].ranked, true);
-});
-
-test('4.20 with a stored ring, an account another person owns that the ring does not name still counts 0.5', dbTest, async () => {
-  const [a, c] = [T + 2, T + 6];
-  const [la, lc] = [`sa${T}`, `sc${T}`];
-  await person(c, { login: lc, ring: true });
-  await person(a, { login: la, ring: true });
-  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
-  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
-    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }, { id: 'gh:stranger-x', at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
-  await rescorePerson(a, NOW);
-  const v = (await useAt(a, NOW)).star_fork;
-  assert.ok(Math.abs(v - 1.5) < 1e-6, String(v));
+  const [l] = await sql()<{ ranked: boolean; people: number; ring: unknown }[]>`
+    SELECT l.ranked, l.people, p.ring FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${a}`;
+  assert.deepEqual({ ...l }, { ranked: true, people: 0, ring: { ring: 'junk' } });
+  const [pr] = await sql()<{ people: number; people_week: number }[]>`SELECT people, people_week FROM builder_projects WHERE builder_id = ${a}`;
+  assert.deepEqual({ ...pr }, { people: 0, people_week: 0 }, 'a star by another EarnKit person counts nothing');
 });
 
 const release = async (id: number, f: Record<string, string>) => {
@@ -641,26 +599,6 @@ test('4.22 a refresh that holds after the cron wrote an unheld day still puts th
   assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`)[0].held, false);
 });
 
-test('4.23 a one-directional user who is another EarnKit person: 0.5 in a refresh before the cron, 1.0 once the cron has checked the full graph', dbTest, async () => {
-  const [a, c] = [T + 11, T + 12];
-  const [la, lc] = [`oa${T}`, `oc${T}`];
-  await person(c, { login: lc, ring: true });
-  await person(a, { login: la });
-  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
-  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
-    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
-  const starFork = async (at: Date) => (await useAt(a, at)).star_fork;
-  assert.ok(Math.abs((await starFork(NOW)) - 0.5) < 1e-6, String(await starFork(NOW)));
-  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  assert.ok(Math.abs((await starFork(NOW)) - 1) < 1e-6, String(await starFork(NOW)));
-  // The next refresh reads the stored check: still in full.
-  const t11 = new Date(NOW.getTime() + 11 * 60_000);
-  assert.ok(Math.abs((await starFork(t11)) - 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(await starFork(t11)));
-  // A check older than 36 hours is not honoured: strict again until the next cron run.
-  const t37 = new Date(NOW.getTime() + 37 * 3_600_000);
-  assert.ok(Math.abs((await starFork(t37)) - 0.5 * 0.5 ** ((37 / 24) / 90)) < 1e-6, String(await starFork(t37)));
-});
-
 test('4.24 a release publishes only the reviewed pending score: a cron-held day the owner never saw stays private and is never the baseline', dbTest, async () => {
   const id = T + 13;
   const D = new Date(NOW.getTime() + 9 * DAY);
@@ -684,28 +622,9 @@ test('4.24 a release publishes only the reviewed pending score: a cron-held day 
   assert.equal((await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`)[0].held, false);
 });
 
-test('4.25 a checked account whose owner changed since the cron counts 0.5 again in a refresh', dbTest, async () => {
-  const [a, c, e] = [T + 14, T + 15, T + 16];
-  const [la, lc] = [`ka${T}`, `kc${T}`];
-  await person(c, { login: lc, ring: true });
-  await person(e, { ring: true });
-  await person(a, { login: la });
-  await source(a, { kind: 'repo', ref: `${la}/x`, state: 'verified', proof: 'repo_owner', by: 'server' });
-  await reading(`${la}/x`, { owner: la, owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
-    stargazers: [{ id: `gh:${lc}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' }] });
-  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  assert.ok(Math.abs((await useAt(a, NOW)).star_fork - 1) < 1e-6, 'checked by the cron: in full');
-  // The login now belongs to another person.
-  await sql()`UPDATE builder_profiles SET github_login = NULL WHERE builder_id = ${c}`;
-  await sql()`UPDATE builder_profiles SET github_login = ${lc} WHERE builder_id = ${e}`;
-  const t11 = new Date(NOW.getTime() + 11 * 60_000);
-  const v = (await useAt(a, t11)).star_fork;
-  assert.ok(Math.abs(v - 0.5 * 0.5 ** ((11 / 1440) / 90)) < 1e-6, String(v));
-});
-
 // ---- Fix round 4.
 
-test('4.27 a refresh newer than the cron run never stops the cron storing the ring: checked_at is the run; R4: ranked by its repo reading either way', dbTest, async () => {
+test('4.27 a refresh newer than the cron run: the cron rescores at the newer row\'s time (computed_at never moves back); R4: ranked by its repo reading', dbTest, async () => {
   const [a, c] = [T + 18, T + 19];
   const [la, lc] = [`ra${T}`, `rc${T}`];
   await person(c, { login: lc, ring: true });
@@ -718,23 +637,13 @@ test('4.27 a refresh newer than the cron run never stops the cron storing the ri
   // A refresh during the cron run, before this person's turn: a later `now`, never-computed ring.
   const later = new Date(NOW.getTime() + 10 * 60_000);
   assert.equal((await rescorePerson(a, later)).ranked, true);
-  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  const [p] = await sql()<{ ring: { ring?: unknown; checked?: [string, number[]][]; checked_at?: string } }[]>`SELECT ring FROM builder_profiles WHERE builder_id = ${a}`;
-  assert.ok(Array.isArray(p.ring.ring), 'the cron stored the ring');
-  assert.equal(p.ring.checked_at, NOW.toISOString());
-  assert.ok(p.ring.checked?.some(([acct]) => acct === `gh:${lc}`));
+  const r = await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
+  assert.equal(r.scored, 1, 'the cron rescores the newer row');
   const [l] = await sql()<{ ranked: boolean; computed_at: Date }[]>`SELECT ranked, computed_at FROM builder_live WHERE builder_id = ${a}`;
-  // The cron rescored the newer row with its computed ring at the row's own time: the other person's
-  // star (checked by the cron) counts in full; computed_at never moves back.
-  const starNow = (await useAt(a, later)).star_fork;
   assert.equal(l.ranked, true);
-  assert.ok(Math.abs(starNow - 0.5 ** ((10 / 1440) / 90)) < 1e-6, String(starNow));
   assert.equal(l.computed_at.getTime(), later.getTime(), 'computed_at stays the newer row\'s');
-  // The next refresh honours the cron's check too.
   const t21 = new Date(NOW.getTime() + 21 * 60_000);
   await refreshPerson(a, { now: t21, deadline: Date.now() + 3000, reader: fakeReader() });
-  const v = (await useAt(a, t21)).star_fork;
-  assert.ok(Math.abs(v - 0.5 ** ((21 / 1440) / 90)) < 1e-6, String(v));
   assert.equal((await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${a}`)[0].ranked, true);
 });
 
@@ -866,7 +775,7 @@ test('4.2b R4 the ranked rule: a confirmed project ranks only once a repo of it 
   assert.equal((await rescorePerson(id, NOW)).ranked, false);
 });
 
-test('4.7 coin buys count as people and the creator fees as money on the project row; neither is scored, and a coin is not a live ship', dbTest, async () => {
+test('4.7 R16b: coin buys and creator fees are no longer counted, and a coin is not a live ship', dbTest, async () => {
   const id = T + 8;
   await person(id, { ring: true });
   const coin = `0x${hex40(id + 7)}`;
@@ -887,11 +796,8 @@ test('4.7 coin buys count as people and the creator fees as money on the project
   assert.equal(r.score, 0, 'no commits and no live ship');
   const [l] = await sql()<{ parts: Record<string, unknown> }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual(Object.keys(l.parts), ['shipping']);
-  const use = await useAt(id, NOW);
-  assert.ok(use.U > 0, 'coin buys are people using it');
-  assert.equal(use.E, 120);
   const [p] = await sql()`SELECT kind, has_coin, confirmed, people, money_usd::float AS money FROM builder_projects WHERE builder_id = ${id}`;
-  assert.deepEqual({ ...p }, { kind: 'coin', has_coin: true, confirmed: true, people: 12, money: 120 });
+  assert.deepEqual({ ...p }, { kind: 'coin', has_coin: true, confirmed: true, people: 0, money: 0 });
 });
 
 test('4.19b (final fix wave) a never-computed ring with no other EarnKit person touching the work ranks on the first rescore', dbTest, async () => {
@@ -925,49 +831,6 @@ test('4.26 an older rescore never overwrites a newer one (decided and written un
   const [l] = await sql()<{ score: number; computed_at: Date }[]>`SELECT score, computed_at FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual([l.score, l.computed_at.getTime()], [10, NOW.getTime() + DAY]);
   assert.equal((await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${id}`).length, 1);
-});
-
-test('4.32 a mid-cron refresh with a never-computed ring over a 15-person cluster: the cron stores the ring that caps the people counted (not scored)', dbTest, async () => {
-  const a = T + 1;
-  // 14 other people: strict 0.5 each in the refresh (7) is above the cluster cap of 5.
-  const cs = Array.from({ length: 14 }, (_, i) => T + 2 + i);
-  const login = (id: number) => `cl${id}x${T}`;
-  const all = [a, ...cs];
-  for (const id of all) await person(id, { login: login(id) });
-  await hosted(a, { slug: `cl${a}`, repo_key: `${login(a)}/app`, status: 'live' });
-  await mainProven(a, `${login(a)}/app`);
-  // Every ci stars every other's repo (a included): a mutual component of 5.
-  for (const id of cs) {
-    await source(id, { kind: 'repo', ref: `${login(id)}/r`, state: 'verified', proof: 'repo_owner', by: 'server' });
-    await reading(`${login(id)}/r`, { owner: login(id), owner_type: 'User', fork: false, template: false, forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false,
-      stargazers: all.filter((o) => o !== id).map((o) => ({ id: `gh:${login(o)}`, at: NOW.toISOString(), created_at: '2020-01-01T00:00:00Z' })) });
-  }
-  // Each ci owns 2 wallets that call a's contract.
-  const callers: unknown[] = [];
-  for (const [k, id] of cs.entries())
-    for (let i = 0; i < 2; i++) {
-      const w = `0x${hex40(7_000_000 + k * 10 + i + (process.pid % 900) * 1000)}`;
-      await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${w}) ON CONFLICT DO NOTHING`;
-      callers.push({ id: `wallet:${w}`, at: new Date(NOW.getTime() - ((k * 2 + i) % 7) * DAY - 3_600_000).toISOString(), value_usd: 0, codes: [], first_tx_at: '2024-01-01T00:00:00Z' });
-    }
-  const addr = `0x${hex40(a + 3e9)}`;
-  await source(a, { kind: 'contract', ref: `base:${addr}`, key: `${login(a)}/app`, state: 'verified', proof: 'deployer', by: 'server' });
-  await reading(`base:${addr}`, { callers, partial: false });
-  const row = async () => (await sql()<{ score: number; ranked: boolean; computed_at: Date }[]>`
-    SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${a}`)[0];
-  const later = new Date(NOW.getTime() + 10 * 60_000);
-  await rescorePerson(a, later); // the refresh: strict 0.5 per other-owned wallet, no cluster cap
-  const inflated = (await useAt(a, later)).U;
-  assert.ok(inflated > 6, `inflated U ${inflated}`);
-  const before = await row();
-  assert.equal(before.ranked, true, 'R4: ranked by its repo reading; people never move the score');
-  await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [a] });
-  const capped = (await useAt(a, later)).U;
-  assert.ok(capped <= 5 + 1e-6, `capped U ${capped}`);
-  const after = await row();
-  assert.deepEqual([after.score, after.ranked], [before.score, true]);
-  assert.equal(after.computed_at.getTime(), later.getTime());
-  await sql()`DELETE FROM installation_wallets WHERE installation_id IN ${sql()(cs)}`;
 });
 
 test('4.30 a mid-cron refresh that already had a known ring stays ranked through the cron skip', dbTest, async () => {

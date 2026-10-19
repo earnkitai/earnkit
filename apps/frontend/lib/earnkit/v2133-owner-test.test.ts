@@ -288,8 +288,8 @@ const reader = (f: typeof fetch): ReaderDeps => {
     throw new Error('unexpected read');
   };
   return {
-    gh: no, ghGraphql: async <T,>() => ({ data: { r0: null } }) as T, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date(), ghFetch: f,
+    gh: no, ghGraphql: async <T,>() => ({ data: { r0: null } }) as T, probe: no, fetchText: no, json: no, contractOrigin: no,
+    walletCreations: no, now: new Date(), ghFetch: f,
   };
 };
 
@@ -361,7 +361,7 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       assert.equal(reading?.ok, true, JSON.stringify(reading));
       assert.equal(reading.signals.private, true);
       assert.equal(Object.values(reading.signals.commit_counts ?? {}).reduce((a, b) => a + b, 0), 1);
-      assert.equal(reading.signals.contributors?.length, 1);
+      assert.deepEqual(reading.signals.contributors, [], 'R16b: no contributors call for an org repo');
       await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${id})`;
       await readPersonLive(id, new Date(), { deadline: Date.now() + 10_000, reader: reader(gh.f) });
       const [lv] = await sql()<{ ok: boolean }[]>`SELECT l.ok FROM source_live l JOIN builder_sources b ON b.id = l.source_id WHERE b.builder_id = ${id} AND b.kind = 'repo'`;

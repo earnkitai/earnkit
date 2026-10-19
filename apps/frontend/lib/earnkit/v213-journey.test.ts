@@ -297,18 +297,10 @@ const FAKE_READER: ReaderDeps = {
   fetchText: async () => {
     throw new Error('not found');
   },
-  baseTxs: async () => ({ items: callers, next_page_params: null }),
   contractOrigin: async () => ({ deployer: MAYA_WALLET, created_at: iso(NOW.getTime() - 30 * DAY) }),
-  tokenTransfers: async () => ({ items: [], next_page_params: null }),
   json: async () => {
     throw new Error('v213-journey: npm/pypi not served');
   },
-  arcLogs: async () => [],
-  arcHead: async () => 0n,
-  arcSender: async () => {
-    throw new Error('v213-journey: Arc sender not served');
-  },
-  usdPerNative: async () => 3000,
   walletCreations: async () => [],
 };
 

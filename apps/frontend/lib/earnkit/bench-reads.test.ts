@@ -23,7 +23,7 @@ const node = (key: string) => ({
 function reader(queries: string[]): ReaderDeps {
   const no = async () => { throw new Error('unexpected read'); };
   return {
-    gh: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
+    gh: no, probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: NOW,
     ghGraphql: async <R>(q: string, v: Record<string, unknown>) => {
       queries.push(q);
       const data: Record<string, unknown> = {};
