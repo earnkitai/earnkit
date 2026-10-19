@@ -440,7 +440,7 @@ test('12.1 v2.11 /terms "What EarnKit records": login and how it was checked, wa
     "A usage check: your contract's use, checked 30 and 90 days after its deploy.",
     'Each step notes the repo, the program and the wallet you gave.',
     // v2.14: github-verify.ts loginBasisFor returns the App's login, or a sign-in kept from before v2.14.
-    'It notes your GitHub login only if EarnKit checked it with the read-only EarnKit GitHub App. A step from before the App keeps the login checked then.',
+    'It notes your GitHub login only if EarnKit checked it with the read-only EarnKit GitHub App, or by a GitHub sign-in from before the App.',
     'EarnKit keeps it to show your builder history. Onchain proofs are public anyway.',
     'EarnKit keeps this history for as long as EarnKit runs, unless you ask to remove your login and wallet.',
     `To remove your GitHub login and wallet from your step history, email ${CONTACT_EMAIL} .`,
