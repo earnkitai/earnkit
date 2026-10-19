@@ -91,7 +91,8 @@ function rule(r: McpResult): string {
   // Final fix 14: bare earnkit.com links count too: at most the page, named once beside the one action link.
   assert.ok(bareLinks(s).length <= 1, s);
   assert.ok(links(s).length + bareLinks(s).length <= 2, s);
-  if (bareLinks(s).length) assert.ok(!links(s)[0].includes(bareLinks(s)[0]), `the page is not linked twice: ${s}`);
+  const [bare] = bareLinks(s);
+  if (bare) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
   assert.match(s, /Ways to get funded/);
   assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   assert.ok(s.trimEnd().endsWith('?'), s);
