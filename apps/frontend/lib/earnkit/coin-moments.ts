@@ -63,8 +63,8 @@ export const COIN_NOTE =
   "The last line offers a coin. When the builder says yes, call tell with coin: { project_key, answer: 'yes' } (add wallet: the address they gave, if they gave one); " +
   "when they say no, answer: 'no'. Never launch anything before that yes.";
 /**
- * coinYes's note: the confirm call that launches it. v2.13.1 O1 fix round 1 (ruling a): the repo was
- * proven by its proof branch, so the note names no line (the gate takes the branch, token-gate.ts).
+ * coinYes's note: the confirm call that launches it. v2.14 spec 2: the gate checks the read-only App's
+ * proof (token-gate.ts), so the note names no line.
  */
 export const COIN_YES_NOTE = 'Call confirm with project_id, yes: true, wallet and token exactly as given.';
 

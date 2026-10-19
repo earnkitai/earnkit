@@ -859,7 +859,7 @@ export const HOST_SIGN_IN_NOTE =
 /**
  * v2.9 C12, Ruling 8: prepare_submission's `host` block: the builder's sign-in line, the one-time
  * upload URL (for the agent only; never in builder text), or a plain reason. Never fails the tool.
- * The proof reads go through `ctx.deployDeps.gate` (tests).
+ * v2.14 spec 2: the repo is proven by the read-only App (hosting.ts issueUpload).
  */
 async function hostBlock(
   ctx: ToolContext,
@@ -868,8 +868,7 @@ async function hostBlock(
   /** v2.11 T9: the build path's proof of this repo on this call (token-gate.ts proveRepo). */
   proven: ProvenRepo | null = null,
 ): Promise<Record<string, string>> {
-  // v2.11 T9 (decision 2): off a shared client hosting needs no GitHub sign-in (issueUpload's
-  // proof-line gate); a shared client still does (issueUpload refuses there without it).
+  // v2.14 spec 2: issueUpload proves the repo with the read-only App (a shared client is not hosted).
   if (!r2Enabled()) return { unavailable: HOST_LINES.unavailable };
   const gh = repoUrl ? githubRepo(repoUrl) : null;
   if (!gh) return { unavailable: HOST_LINES.noRepo };
@@ -3094,7 +3093,7 @@ async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'y
   return 'project_id' in r ? { show_to_builder: '', ...r } : r;
 }
 
-/** Fix round 1: a thrown issueUpload, told apart from "no proof yet" (that one gets the proof line). */
+/** Fix round 1: a thrown issueUpload, told apart from "no proof yet" (that one gets the install link). */
 const GO_LIVE_FAILED = 'The hosting check failed.';
 /** v2.12.1 T9 (ruling S15): the go_live yes, in plain words. "Live" is said only by the reply that saw it load. */
 export const GO_LIVE_LINES = {
@@ -3121,7 +3120,7 @@ export const goLiveWrongLinkNote = (key: string) =>
 /**
  * v2.12.1 T9 (ruling S15): the yes to "Want me to put <app> online?": the named app goes online
  * through EarnKit hosting, the v2.11 path: with hosting on, a one-use upload URL (issueUpload: the
- * GitHub sign-in or the earnkit.txt proof line shows the repo is theirs); off, the GitHub Pages
+ * the read-only App proved the repo is theirs; unproven: its install link); off, the GitHub Pages
  * fallback, and EarnKit says it is live only once the repo's own Pages link loads. Anything else is
  * an honest "I can't put it online right now."
  */

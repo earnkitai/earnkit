@@ -5691,3 +5691,45 @@ the installation alone), S2, S10, D1, D2. For agent clients that can't do OAuth 
   before any read or write (429). `x_signins.link_hash` names the link a 'link' sign-in opened, and the X user
   is written to exactly that link. A thrown error during the bind gives the paste code back (`used_at` NULL);
   the same code again from the same installation, once bound to that X, is a retry and answers signed in.
+
+## v2.14 One account: the read-only GitHub App is the only proof (Task 6, 2026-10-19)
+
+Spec 2: "Install EarnKit on your repo (read-only, one click)" is the only way a repo is proven, public or private,
+personal or org. Removed: the proof branch (`proof-branch.ts`; the `proof_branches` table stays, unused), the
+earnkit.txt proof line for coins, deploys, hosting and builds (`proof_line_issues` stays, unused), owned-repo
+discovery and the x_match / top-contributor clues, and the GitHub sign-in proof (entry, pickup, host and claim
+links). Existing verified sources stay verified and keep counting on the Bench.
+
+- **The flow.** A reply for an unproven repo asks the App install (`repo-proof.ts installLink`, a v2.10 `app` nonce).
+  Preflight S7: only for a person with a page (`github-verify.ts pageHandle`), and the confirm page names the
+  destination ("This adds github.com/<repo> to earnkit.com/<handle>. Only continue if that is your page."). The
+  sign-in hop names the installer; GitHub's setup URL (`github-app.ts appSetup`) checks `appProof` (the installation
+  lists the repo; the installer owns the account or administers the repo), writes the `via = 'app'` verification,
+  then `proveByApp` for the person's root.
+- **proveByApp.** GitHub must name this very installation for the repo; one read of `/repos/{key}` with a per-call
+  installation token (exact key, numeric id, owner); a fork or template (ever) rejects the source `derived`. Then
+  (preflight S8) ONE transaction: `pg_advisory_xact_lock(hashtext('repo_hold:' || key))`, the person's
+  `source_proof:<id>` lock (page-joins.ts attachFresh takes it too, in place of the old `proof_branch:<id>`), the
+  builder id still a root, `heldByOther` (the first holder keeps a repo), then the source verified `github_app`
+  with gh ids, `app_checked_at` and `public_at` from GitHub's own `private`. Then the event, a rescore, the cache.
+- **What counts where.** The Bench counts any confirmed proof (`CONFIRMED_PROOFS` gains `github_app`). Actions (a coin
+  through `token-gate.ts tokenGate`, a deploy, a hosted site, a build's deploy) take only `repoProof(..., { forAction:
+  true })`: a `github_app` source GitHub confirmed within `APP_PROOF_FRESH_MS` (a day plus two hours). A source
+  verified before v2.14 (repo_owner, x_match, proof_line, proof_branch, github_signin) counts on the Bench but never
+  launches, deploys or hosts: the install link is asked (T6 security review: discovery-derived proofs were never
+  enough for a coin, and nothing re-reads a kept proof at the action). A shared client has no person: no App link,
+  no deploy, no hosting; its coin gate reads only the caller's own login's App row (`hasAppProof`).
+- **Staying true.** The cron's `app_check` step (`appCheckStep`, daily per source, 50 a run): GitHub must still name
+  an installation for the repo AND it must be one this person proved through the setup URL; else the source goes
+  back to `proposed` with `app_removed` and the person is rescored at once (off the Bench). The 90-day org expiry
+  stays for old `proof_branch` rows; their re-proof is the App (`verifySource` lets only `github_app` past `stale`).
+- **Readings (A10).** `sources.ts readAll` and `person-score.ts readPersonLive` read App-proven repos with their
+  installation token first (`readAppRepos`); EarnKit's GITHUB_TOKEN reads by name only what isn't installed.
+  Discovery's clue 3 scans App-proven repos with `appClient`. Tokens are minted per call, never stored or logged.
+- **Who.** `discovery.ts provenLogin` is the App installer's login (one across the group); `loginBasisFor` reads
+  verifications only. Hosting's login is the App installer (basis `app`, its sign-in hop's account facts).
+- **Copy.** The unproven line is "<name> isn't counted yet." (T9 rewrites the states); `OWNERSHIP_FOR_TOKEN`: "A token
+  needs a repo proven yours; EarnKit gives you the install link when it needs one."; tell has no `proof` field.
+- **Kept on purpose.** `verifiedEntryIds` (a shared client's pre-v2.14 entries stay scoped to the caller's login) and
+  `loginBasisFor` (events keep a login), both reading verifications only; the confirm decision's `signIn` now means
+  "the App is on" (an agent that can't push still gets the coin offer).

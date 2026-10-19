@@ -133,7 +133,7 @@ export async function claimDonePage(handle: string, root: number, headers: Recor
   const links: string[] = [];
   const t = upgradeToken(root, new Date());
   if (t) links.push(`<a class="ek-link" href="${escapeHtml(`${siteUrl()}/claim/wallet?t=${encodeURIComponent(t)}`)}">${escapeHtml(CLAIM_TEXT.wallet)}</a>`);
-  // v2.13.1 O5 N11: onboarding needs no GitHub sign-in (the proof branch does it).
+  // v2.13.1 O5 N11: onboarding needs no GitHub sign-in (the read-only App proves a repo).
   const body = shell(
     `<h1>${escapeHtml(heading)}</h1><p class="ek-url">${escapeHtml(pageUrl(handle))}</p>` +
       `<div class="ek-actions"><a class="ek-btn" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(CLAIM_TEXT.see)}</a></div>` +

@@ -288,6 +288,7 @@ apps/frontend/
                                chains and its needs_contract chain, tested_at set and at most 30 days before
                                verified_at, STARTER_TEST_MAX_AGE_DAYS)
     fresh-build.ts(+test)      v2.11 T7: the no-repo lead (pure). freshPick (Easy/Medium, <= $5,000, closes in
+                               v2.14 T6: buildKit(starter, fields, attribution?) carries no proof file, line or branch.
                                1 to 14 days or rolling, a tested starter on a chain EarnKit deploys to with
                                hosting on, or off with the starter's pages_fallback (T9); never a long shot, needs a live product, investment, hidden or
                                entered), contextLine ("$X in prizes is open right now across N programs."),
@@ -622,6 +623,8 @@ apps/frontend/
                                (relative path) and the hosting code
                                (Task 8: contentTypeFor moved here from the Worker, shared by both)
     hosting.ts(+test)          v2.9 C12-C15 (Task 8): HOST_LIMITS, STATIC_EXT, slugFor (P40/P41/G19),
+                               v2.14 T6: issueUpload proves with token-gate.ts proveRepo; the login is the App installer
+                               (appHost, basis 'app'); unproven: the App link as sign_in_url; a shared client is not hosted.
                                zipProblems, stripTopFolder, readZip (central directory + streaming
                                Inflate with byte caps), abuseFlags, usesStorage, withBadge, siteExpiry,
                                builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
@@ -663,6 +666,8 @@ apps/frontend/
                                (projects.live_url via pagesLinkOf, a deployed contract, probe: false); M1 host basis
     pages-link.ts              v2.11 final fix: githubPagesOwner, pagesLinkOf (pure; tools.ts re-exports them)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
+                               v2.14 T6: the repo proven by token-gate.ts proveRepo (a fresh App proof; never a shared
+                               client), its owner the per-owner cap key (contract_deploys.line_owner); DeployDeps.gate gone.
                                v2.11 T9: starter label (initcodeHash vs initcode_hash), lineOwner, beforeSend; caps per repo/wallet/pusher
                                final fix M8: settlePendingDeploy (an unknown build deploy settled read-only from its
                                receipt on the same call again; F1: only its row's starter + build wallet, the
@@ -873,31 +878,15 @@ apps/frontend/
                                v2.9 B10: recordDecline, declines (token_declines, per login and
                                owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
                                saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
-    token-gate.ts(+test)       v2.10 item 13 (R19): repoOwnershipPasses (OwnershipDeps.repoVerified: sign-in or
-                               v2.11 T9 security fix: proofLineOwner, proveRepo (branded ProvenRepo), OwnershipDeps.pusher
-                               App rows; else the proof line; shared clients: the caller's login only).
-                               v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
-                               earnkit.txt through the App token (ok: { private: true }); else, with the App on,
-                               GateDeps.appLink's "Allow read access" reason (P17). The launch proof is unchanged.
-                               tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
-                               match-projects.ts repoCodeFacts: commits, a fork only when ahead of
-                               its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via
-                               the contents API (ownership.ts fetchOwnershipViaApi) or the dev/test
-                               override, must carry the agent's ticker-free "token: <code>":
-                               tokenCode/tokenLineFor(installationId, repoUrl), the first 16 hex of
-                               an HMAC of "token-line:v2:<installation>:<normalized repo>" under
-                               EARNKIT_AUTH_SECRET, TOKEN_CODE_LENGTH; the v2.5 "token: <SYMBOL>
-                               <code10>" line still counts for that ticker, legacyTokenLineCode,
-                               PROOF_LINE_PREFIX (Ruling C24: how the proof-line miss starts),
-                               Ruling 1; no wallet line needed), sanctions screen; no live-link
-                               check; first failure as a reason in plain builder words (never the
-                               file or the line) plus agent_note with the technical detail (final
-                               review M7: the exact line to write and push); repo/owner/screen
-                               injectable (GateDeps); v2.8.1 §A3: GateDeps.latest (the most recently
-                               pushed other branch, ownership.ts fetchOwnershipLatestBranch; off with
-                               an injected owner or the dev/test override), ownerProblem's agent note
-                               says what was found where, the reason names the default branch
-                               (GateResult.branch → TokenOutcome.proof_branch)
+    token-gate.ts(+test)       tokenGate (v2.6 §3, v2.14 T6): policy, a GitHub repo with code (codeProblem over
+                               match-projects.ts repoCodeFacts; on "not found" GateDeps.appToken reads it through the
+                               App, ok: { private: true }), then the App proof (GateDeps.appProven: off a shared client
+                               repo-proof.ts repoProof forAction; on one, hasAppProof for the caller's own login),
+                               else appInstallReason with GateDeps.appLink (repo-proof.ts installLink), then the
+                               sanctions screen. proveRepo (branded ProvenRepo { installationId, repoKey, owner }) for
+                               builds, deploys and hosting. v2.14 T6 deleted the earnkit.txt token line (tokenCode,
+                               tokenLineFor, legacyTokenLineCode, ownerProblem, proofLineOwner, PROOF_LINE_PREFIX),
+                               repoOwnershipPasses, repoSignedIn, proveRepoByBranch, the sign-in reasons and OwnershipDeps.
     token-launch.ts(+test)     v2.8.1 §A: launchReplyMs (EARNKIT_LAUNCH_REPLY_MS, 40 s), withinReply
                                v2.10 item 5: TokenBlock has no earnings, terms, paired_with or say_to_builder.
                                (past it: LAUNCHING once deploying, else STILL_CHECKING /
@@ -1064,6 +1053,13 @@ apps/frontend/
                                (projects.product_score at confirmation), matchStats (pure, 30 labelled
                                minimum), updateMatchFloors (programs:sync: match_floor, match_precision)
     github-verify.ts(+test)    v2.9 B9: Sign in with GitHub. githubVerifyEnabled (both OAuth vars), createVerifyLink
+                               v2.14 T6: only the App link is made (createVerifyLink throws for other purposes; S7: not
+                               without the person's page handle, pageHandle); the confirm page names the page the repo is
+                               added to (appConfirmDestination, APP_CONFIRM_ONLY_YOURS); completeVerify serves only the
+                               App's sign-in hop (any other stored nonce: expired); saveVerification joins and queues
+                               nothing; entryVerifyLink, proofLineLogin, provenOwnerLogin, noteLineIssued, lineIssuedAt,
+                               takeHostVerification, ownershipPasses, OWNER_GATE deleted; loginBasisFor reads
+                               verifications only (no proof line); verifiedEntryIds kept for shared clients' old entries.
                                (github_verify_nonces, sha256 only, 15 min), peekNonce/takeNonce (atomic, single use),
                                nonceDetails, ownershipPasses, githubOAuth (exchange, user, repoPerms), completeVerify,
                                verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
@@ -1087,7 +1083,8 @@ apps/frontend/
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
                                and metadata read; never stored or logged), appProof (R8: listed, and own account or
                                admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
-                               null when off), installUrl, APP_PAGE, appSetup (the setup URL handler)
+                               null when off), installUrl, APP_PAGE, appSetup (the setup URL handler; v2.14 T6: then
+                               repo-proof.ts proveByApp for the person's root)
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client's verified login, else null),
@@ -1325,6 +1322,9 @@ apps/frontend/
                                profileCode / profileCodesIn (the earnkit.txt `profile:` line, HMAC under
                                EARNKIT_AUTH_SECRET)
     discovery.ts(+test)        v2.12 T4, T6: localGitInput, noteLocalGit (remotes and live_urls proposed,
+                               v2.14 T6: provenLogin is the App installer's login only (one across the group); clue 2
+                               (owned/remote repos, top contributor), the proof-line check, x_match and loginStands
+                               are gone; clue 3 scans App-proven repos with their own token (repo-proof.ts appClient).
                                agent), enqueueDiscovery, enqueueClue (wallet, signin; flag on, not shared),
                                LoginOf, provenLogin (R4), proofLineCheck, discover (DISCOVER_PER_RUN 20,
                                DISCOVER_CAPS; reads first, verdicts after), publicHttpsOrigin, homepageOrigin
@@ -1339,6 +1339,7 @@ apps/frontend/
     weeks.ts(+test)            v2.13 T1: ISO weeks (isoWeekOf, mondayOf, lastFinishedMonday, last52, streakOf,
                                weeksShipping)
     main-project.ts(+test)     v2.13 T2: the one project (main_project_key): mainProjectOf, setMainProject,
+                               v2.14 T6: confirming, confirmingFast, CONFIRMING_*, MAIN_PROOF_MIN_MS and clearOpenCodes deleted.
                                benchConfirmedSql (repo key needs a confirmed repo proof), CONFIRMING_WINDOW_MS
                                (1 h fast refresh), PROOF_NOTE (names proof.repo), proofFor (the line, or the
                                sign-in link: can't push, owner not github_user, an org, or the hour passed;
@@ -1346,33 +1347,20 @@ apps/frontend/
                                (Bench-confirmed only, else null); v2.13.1 O2: setMainProject replaces an
                                unconfirmed one (old key's open proof code cleared), dropMainProject (tell
                                repo_facts not_mine on the unconfirmed one project)
-    proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches: sha256 + seed, code =
-                               HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
-                               agents only; failed / needs_agent / taken; v2.13.1 O3 `buildDeploy`: a starter
-                               build's deploy gets a fresh code after an expiry, within the 5-a-day cap), checkProofBranch (once a minute per
-                               code; ref, repo, pusher: User repo owner only, org any; exclusive; proof
-                               `proof_branch` with gh_repo_id/gh_owner, login basis `proof_branch`, rescore),
-                               heldByOther (group roots; discovery asks it too), coinBranchProof (the token
-                               gate under the Bench: a proof under 30 days whose repo id still reads the same,
-                               else a fresh branch, never a line), branchToRemove, proofBranchStep (cron,
-                               deadline, 7-day cleanup); v2.13.1 O2: coinBranchProof passes a Bench-confirmed
-                               main project with any other confirmed proof; tests: v2131-proof-branch.test.ts,
-                               v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin);
-                               O2 fix round 1: controlProvenMain (coin: proof_line/github_signin only, one
-                               repo read, not held), PROOF_BRANCH_MAX_PER_DAY 5, closed_at + closedRemoveNote,
-                               branchProvenOwner (a build's deploy proof under the Bench); O5: probeRepo +
-                               knownUnprovable (one cheap repo read before a code: 404 -> failed, a User repo
-                               under another login -> foreign; public -> builder_sources.public_at), pushRefused
-                               (tell proof { pushed: false }), PROOF_BRANCH_NOTE says what to do while checking
-                               fix round 1: copy (fork/template) and unseen (404) verdicts, probe outside the
-                               lock, kept a day (standing_seen.repo_probe); bench-find keepBenchMatch /
-                               keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait;
-                               v2.13.2: ORG_PROOF_MAX_AGE_MS (90 days), expireOrgProofs (an Organization's
-                               proof_branch source back to proposed, reject_reason STALE 'stale', rescored),
-                               orgProofExpiryStep (cron step proof_expiry, ORG_PROOF_PER_RUN, the deadline; the
-                               day's slot taken only after a finished run),
-                               proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
-                               a stale source is never re-verified by discovery (discovery.ts, sources.ts verifySource);
+    repo-proof.ts              v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
+                               deleted; proof_branches and proof_line_issues stay, unused). APP_PROOF 'github_app', APP_REMOVED,
+                               APP_CHECK_PER_RUN 50, APP_CHECK_EVERY_MS 1 day, APP_PROOF_FRESH_MS (a day + 2 h);
+                               repoProof(builderId, key, db?, { forAction? }) (app / kept / none / taken / copy;
+                               forAction: only a github_app proof GitHub confirmed within APP_PROOF_FRESH_MS: coins,
+                               deploys, hosting); proveByApp (appSetup's last step: GitHub names this installation for
+                               the repo, one read with its token, fork/template -> derived, then ONE transaction under
+                               repo_hold:<key> and source_proof:<id> locks: heldByOther, verify github_app with gh ids,
+                               public_at from GitHub's private flag; then source_verified, rescore); installLink (the App
+                               link, null with the App off or no page); appClient (one token, GETs); appCheckStep (cron
+                               step app_check: GitHub still names an installation this person proved, else proposed +
+                               APP_REMOVED + rescore); moved here: heldByOther, ORG_PROOF_MAX_AGE_MS, ORG_PROOF_PER_RUN,
+                               STALE, STALE_RETRY, expireOrgProofs, orgProofExpiryStep (re-proof is the App);
+                               tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
                                v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
@@ -1393,6 +1381,8 @@ apps/frontend/
                                v2.13.4: claimAsk/claimAskLine/claimQuestion (kind claim), privateLine, installAppAsk (owner's copy, question last),
                                linkedLine, displayName (site spelling or title case), the asks end on their question (R4)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
+                               v2.14 T6: benchView reads repo-proof.ts repoProof (view.branch private / taken / copy),
+                               the install ask with installLink; no proof or remove_branch fields, no proof check.
                                v2.13.4: CLAIM_NOTE, CLAIM_YES_NOTE, fundNeeds(c, has), reportedLive, liveOf, takeLinked;
                                v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
                                tests: v2131-o5.test.ts (N1 to N16, P1 to P10)

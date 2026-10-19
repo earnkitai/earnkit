@@ -51,7 +51,7 @@ const rootSql = (db: Db, id: number) => db`COALESCE((SELECT COALESCE(i.builder_i
 
 /**
  * Whether another person (another group root: never the person's own linked installation) already holds a
- * confirmed repo source for `key` (the first holder keeps a repo). Moved from proof-branch.ts.
+ * confirmed repo source for `key` (the first holder keeps a repo). Moved from the v2.13.1 proof-branch module.
  */
 export async function heldByOther(builderId: number, key: string, db: Db = sql()): Promise<boolean> {
   const [r] = await db`
