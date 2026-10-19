@@ -12,7 +12,7 @@ const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, l
 test('8.1 spec 2a, word for word (v2.14: proven, the page the one link)', () => {
   const v: BenchView = {
     state: 'proven', variant: null, project: RECIPE, rank: 'Top 18% of builders this week', streak: 1, handle: 'maya_makes', link: null,
-    score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.',
+    score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.', originality: null,
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'open all year' }], due: [],
     ask: { kind: 'enter', project_key: 'maya/recipes', program_id: 'avax', line: enterAsk('Avalanche Team1 Mini Grants') }, held: null,
   };

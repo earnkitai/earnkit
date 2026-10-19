@@ -14,6 +14,7 @@ import { READ_CAPS, defaultReaderDeps, isoWeek, type ContractSignals, type Packa
 import { vetoKey } from './veto';
 import { feedRankStep } from './feed'; // feed imports person-score: functions only, called after load
 import { appCheckStep, orgProofExpiryStep } from './repo-proof';
+import { originalityStep, type Embed } from './originality';
 import { weeklyFactsStep } from './week-facts'; // week-facts imports person-score, which imports this file: functions only, called after load
 
 /**
@@ -316,7 +317,8 @@ export async function heldPeople(only?: number[]): Promise<number[]> {
   return rows.map((r) => r.builder_id);
 }
 
-export type ScoreCronDeps = { reader?: ReaderDeps; login?: LoginOf; only?: number[] };
+/** `embed`: Originality's embedder (default: the local model, originality.ts localEmbed); tests pass a fake. */
+export type ScoreCronDeps = { reader?: ReaderDeps; login?: LoginOf; only?: number[]; embed?: Embed };
 
 /**
  * spec 6: discover, readSources, score (v2.12.1: scorePeopleV2, the live score; the rank is read
@@ -343,6 +345,8 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   await step('read', () => readSources(now, { deadline: sliceEnd, reader, only: deps.only }));
   await step('score', () => scorePeopleV2(now, { deadline: sliceEnd, only: deps.only }));
   await step('empty', () => profileEmpty(now, { only: deps.only }));
+  // Scoring and clarity R3: Originality for main projects whose text changed (bounded; never ranked).
+  await step('originality', () => originalityStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch, embed: deps.embed }));
   // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
   await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
   // v2.13 spec "Cost": the feed rank, once a day (F11: from 15:00 UTC, after the weekly step).

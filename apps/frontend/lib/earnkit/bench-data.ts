@@ -4,6 +4,7 @@ import { benchPool, chainPools, rankLines } from './bench-rank';
 import { raisingEnabled } from './builder-score-flag';
 import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
+import { readOriginality } from './originality';
 import { listedRanked } from './person-score';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
@@ -121,6 +122,8 @@ export type ProfileData = {
   chainLines: { chain: BenchChain; label: string; line: string }[];
   /** Shipping, 0 to 100 (null: no rank line, so no score shown), and why it is what it is (score-v2.ts scoreWhy). */
   score: number | null; why: string | null;
+  /** Scoring and clarity R3: Originality, 0 to 100, shown small beside Shipping (never ranked); null until computed or while no score shows. */
+  originality: number | null;
   grid: { week: string; on: boolean }[]; streak: number; log: ProfileCard[]; project: ProjectTabData | null;
 };
 
@@ -241,6 +244,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).
     score: scored ? (storedShipping(live.parts)?.points ?? null) : null,
     why: scored ? scoreWhy(live.parts, now) : null,
+    originality: scored ? await readOriginality(builderId, p.main) : null,
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
   if (!p.main) return empty;

@@ -34,6 +34,7 @@ import {
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { scoreWhy, storedShipping } from './score-v2';
+import { readOriginality } from './originality';
 import { displayName } from './bench-reply';
 export { displayName };
 
@@ -127,6 +128,8 @@ type BenchRead = {
   ranks: RankLines;
   /** builder_live's Shipping (null: no Shipping row yet) and its stored parts (for the why). */
   score: number | null; parts: unknown;
+  /** The one project's Originality (originality.ts), null until computed. */
+  originality: number | null;
   /** standBase answered (a profile exists): news is read only then. */
   profiled: boolean;
   /** v2.13.4 (spec 4): the live link the agent reported for the one project (identity), if any. */
@@ -157,11 +160,12 @@ async function benchRead(id: number, fresh: ToolContext['freshDeps'], own: numbe
     : [];
   const ranks = await rankLines(id).catch(() => NO_RANK);
   const [live] = await sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`.catch(() => []);
+  const originality = await readOriginality(id, main).catch(() => null);
   // standBase's seen, else the profile's own (the Bench's keys are read from the same column).
   const seen = (stand?.seen ?? (p?.seen && typeof p.seen === 'object' ? p.seen : {})) as Seen;
   return {
     base: stand?.base ?? EMPTY_BASE, seen, main, row: row ?? null, ranks, profiled: stand !== null,
-    score: storedShipping(live?.parts)?.points ?? null, parts: live?.parts ?? null,
+    score: storedShipping(live?.parts)?.points ?? null, parts: live?.parts ?? null, originality,
     liveUrl: main ? reportedLive(p?.identity, main) : null,
   };
 }
@@ -345,7 +349,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
-    state, variant, project, rank: read.ranks.bench, streak, score: read.score, why: scoreWhy(read.parts, now),
+    state, variant, project, rank: read.ranks.bench, streak, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
     handle: read.base.claimed ? read.base.handle : null, link, fund, due: o.due, ask: finalAsk, held,
   };
   // A raise ask is answered through move_up (benchMoveUp: setRaising), as every Bench ask but the coin offer.

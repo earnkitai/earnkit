@@ -121,6 +121,15 @@ function Rank({
   );
 }
 
+/** Scoring and clarity R3: Originality, one small line under the Shipping ring (never a second ring, never ranked). */
+function Originality({ value }: { value: number }) {
+  return (
+    <p className="whitespace-nowrap font-funnel-sans text-sm text-[var(--ek-p-muted)] md:text-base">
+      Originality <span className="font-medium tabular-nums text-[var(--ek-p-text)]">{value}</span>
+    </p>
+  );
+}
+
 /** While the page's sources refresh: the photo, name and @handle at once, the rest as quiet shapes. */
 export function BenchProfileSkeleton({
   head,
@@ -232,15 +241,18 @@ export default function BenchProfileView({
                 className={`mt-5 flex items-center gap-6 p-6 md:mt-6 md:gap-14 md:p-10 ${SURFACE}`}
               >
                 {d.score !== null ? (
-                  <ScoreRing
-                    score={d.score}
-                    label={`Shipping ${d.score} of 100`}
-                    caption="Shipping"
-                    stroke={10}
-                    track={4}
-                    className="h-32 w-32 md:h-56 md:w-56"
-                    numberClassName="text-[2.75rem] md:text-[5rem]"
-                  />
+                  <div className="flex shrink-0 flex-col items-center gap-3 md:gap-4">
+                    <ScoreRing
+                      score={d.score}
+                      label={`Shipping ${d.score} of 100`}
+                      caption="Shipping"
+                      stroke={10}
+                      track={4}
+                      className="h-32 w-32 md:h-56 md:w-56"
+                      numberClassName="text-[2.75rem] md:text-[5rem]"
+                    />
+                    {d.originality !== null ? <Originality value={d.originality} /> : null}
+                  </div>
                 ) : null}
                 {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} chains={d.chainLines} /> : null}
               </div>

@@ -9,7 +9,7 @@ process.env.EARNKIT_URL = 'https://earnkit.com';
 const P: BenchProject = { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 3 };
 const fund = [{ kind: 'needs' as const, title: 'Base Builder Grants', prize: 'up to $5K', needs: 'for a Base app' }];
 const view = (v: Partial<BenchView>): BenchView => {
-  const base: BenchView = { state: 'proven', variant: null, project: P, rank: '#1 of 1 builder this week', streak: 0, score: 14, why: 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.', handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
+  const base: BenchView = { state: 'proven', variant: null, project: P, rank: '#1 of 1 builder this week', streak: 0, score: 14, originality: null, why: 'Code in 1 of the last 12 weeks, 1 of the last 4. Ship code next week to add up to 14 points.', handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
   return { ...base, ask: stateAsk(base) ?? base.ask };
 };
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];

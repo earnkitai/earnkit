@@ -1649,3 +1649,25 @@ FROM builder_profiles p
 WHERE p.builder_id = COALESCE(i.builder_id, i.id) AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
   AND i.x_user_id IS NULL AND NOT i.shared_client;
 -- v2.14 bind:end
+-- Scoring and clarity (Task 2, R3): Originality, a separate 0 to 100 value per main project (originality.ts). The
+-- project's text is never stored: only its hash, its vector (384 numbers, all-MiniLM-L6-v2), the score and the
+-- nearest list (other projects by key only, ideas by their public text). Additive; a rerun is a no-op.
+CREATE TABLE IF NOT EXISTS project_embeddings (
+  project_key text PRIMARY KEY,
+  builder_id  integer NOT NULL,
+  text_hash   text,
+  desc_hash   text,
+  embedding   real[],
+  originality smallint CHECK (originality BETWEEN 0 AND 100),
+  nearest     jsonb NOT NULL DEFAULT '[]'::jsonb,
+  computed_at timestamptz,
+  checked_at  timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS project_embeddings_builder ON project_embeddings (builder_id);
+-- The known public ideas' vectors (programs/ideas/known-ideas.json), embedded once, keyed by the idea's text hash.
+CREATE TABLE IF NOT EXISTS known_idea_embeddings (
+  text_hash   text PRIMARY KEY,
+  idea        text NOT NULL,
+  embedding   real[] NOT NULL,
+  computed_at timestamptz NOT NULL DEFAULT now()
+);

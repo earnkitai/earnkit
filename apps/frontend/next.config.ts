@@ -39,6 +39,9 @@ export const LEGAL_REDIRECTS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Scoring and clarity R3: Originality's local model (originality.ts) loads at runtime from node_modules (native
+  // onnxruntime binaries), never bundled.
+  serverExternalPackages: ['@huggingface/transformers', 'onnxruntime-node'],
   async redirects() {
     return LEGAL_REDIRECTS;
   },

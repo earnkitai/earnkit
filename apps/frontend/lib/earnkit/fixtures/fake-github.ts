@@ -14,6 +14,8 @@ export type FakeRepo = {
    * (a push) or a time with its activity type; null answers 500.
    */
   pushes?: (string | { at: string; type: string })[] | null; created?: string;
+  /** Scoring and clarity R3: the README's markdown (GET /repos/{key}/readme, base64 in JSON); none answers 404. */
+  readme?: string;
 };
 /** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
 export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
@@ -88,6 +90,11 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       if (url.searchParams.get('direction') === 'asc') all.reverse();
       const per = Number(url.searchParams.get('per_page') ?? 30);
       return json(200, all.slice(0, per).map((x, i) => ({ id: i, timestamp: x.at, activity_type: x.type, ref: 'refs/heads/main' })));
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/readme$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst) || r.readme === undefined) return json(404, {});
+      return json(200, { name: 'README.md', encoding: 'base64', content: Buffer.from(r.readme, 'utf8').toString('base64') });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];

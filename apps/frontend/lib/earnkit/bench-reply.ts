@@ -70,6 +70,8 @@ export const STATE_COPY = {
   proven: { stand: (name: string, score: number | null, rank: string | null) => shippingStand(name, score, rank) },
   shipping: { stand: (name: string, score: number | null, rank: string | null, streak: number) => `${shippingStand(name, score, rank)} ${streakWords(streak)}.` },
 } as const;
+/** Scoring and clarity R3: "Originality 72." beside the score line (computed only; never a rank). Pure. */
+export const originalityWords = (n: number) => `Originality ${n}.`;
 /** A15: not counted, when the install link can't help. */
 export const VARIANT_COPY = {
   taken: { stand: (n: string) => `${n} is already on the Bench under another account.`, ask: () => OTHER_PROJECT_ASK },
@@ -90,6 +92,8 @@ export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null; rank: string | null; streak: number;
   /** Shipping (0 to 100) and its why sentence (score-v2.ts scoreWhy), shown in proven and shipping only. */
   score: number | null; why: string | null;
+  /** Scoring and clarity R3: Originality (0 to 100, never ranked), after the score line in proven and shipping; null until computed. */
+  originality: number | null;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
   /** The state's action link: the sign-in link (signed_out) or the install link (not_counted, no variant). */
@@ -126,7 +130,8 @@ function standLine(v: BenchView): string {
   if (v.state === 'not_counted' && v.variant) return VARIANT_COPY[v.variant].stand(name);
   if (v.state === 'signed_out' || v.state === 'no_project') return NOT_ON_BENCH;
   if (v.state === 'not_counted') return STATE_COPY.not_counted.stand(name);
-  return v.state === 'shipping' ? STATE_COPY.shipping.stand(name, v.score, v.rank, v.streak) : STATE_COPY.proven.stand(name, v.score, v.rank);
+  const line = v.state === 'shipping' ? STATE_COPY.shipping.stand(name, v.score, v.rank, v.streak) : STATE_COPY.proven.stand(name, v.score, v.rank);
+  return v.originality !== null && v.score !== null ? `${line} ${originalityWords(v.originality)}` : line;
 }
 function fundLines(v: BenchView): string[] {
   const name = v.project?.name ?? '';
