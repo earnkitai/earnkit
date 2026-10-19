@@ -23,6 +23,9 @@ export const STATS_KEYS = [
   'installs',
   'installs_used',
   'builders',
+  'activated',
+  'weekly_active',
+  'shared',
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
@@ -69,6 +72,9 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   installs: 'installs',
   installs_used: 'installs that asked what they can earn (find at least once)',
   builders: 'builders (one person\'s reinstalls and agents counted once)',
+  activated: 'activated builders (claimed page, repo proven by the EarnKit app, a checked ship-log week with code shipped)',
+  weekly_active: 'builders with a checked ship-log week that ended in the last 7 days',
+  shared: 'weekly shares (not counted yet, always 0)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -110,6 +116,10 @@ type Row = {
   installs_used?: number;
   /** Pre-launch 2026-10-19: distinct builder groups (COALESCE(builder_id, id)): a linked reinstall counts once. */
   builders?: number;
+  /** Launch-ready L9: claimed people with an App-proven repo and at least one checked ship-log week with a fact. */
+  activated?: number;
+  /** Launch-ready L9: people with a checked ship-log week with a fact that ended in the last 7 days. */
+  weekly_active?: number;
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
@@ -157,6 +167,10 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     installs: Number(r.installs),
     installs_used: Number(r.installs_used ?? 0),
     builders: Number(r.builders ?? 0),
+    activated: Number(r.activated ?? 0),
+    weekly_active: Number(r.weekly_active ?? 0),
+    // Launch-ready L9: share links are counted from the weekly moment (L6); until then 0, the key already served.
+    shared: 0,
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
@@ -235,6 +249,19 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         WHERE programs_checked_at IS NOT NULL AND NOT (id = ANY(${ids}::int[])))::int AS installs_used,
       (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
         WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[])))::int AS builders,
+      -- Launch-ready L9 (the funnel): until the weekly moment's approvals (L6) exist, a "checked week" is a ship-log
+      -- row the weekly job or the backfill checked (facts.checked) that holds a fact (week-facts.ts hasFacts: code
+      -- shipped, went live or a win; a check alone is not one). Activated: a claimed page, a repo verified by the
+      -- read-only EarnKit app, and one such week. Weekly active: one such week that ended in the last 7 days.
+      -- People, never a test installation's group.
+      (SELECT count(*) FROM builder_profiles p
+        WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
+          AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
+          AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${factWeek(db)}))::int AS activated,
+      (SELECT count(*) FROM builder_profiles p
+        WHERE ${notTest(db, ids)}
+          AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${factWeek(db)}
+            AND u.week > (${now}::timestamptz - interval '14 days')::date))::int AS weekly_active,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
       -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:
@@ -250,6 +277,15 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (${wonUsdSql(db, ids)})::text AS builders_won_usd`;
   return statsFrom(r, now);
 }
+
+/** Launch-ready L9: `p` (a builder_profiles row) is no owner test installation's group. */
+const notTest = (db: Db, ids: number[]) => db`NOT (p.builder_id = ANY(${ids}::int[]))
+  AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.id = ANY(${ids}::int[]))`;
+/** Launch-ready L9: `u` (a project_updates row) is a checked week with a fact (week-facts.ts hasFacts's SQL twin). */
+const factWeek = (db: Db) => db`u.facts ? 'checked' AND (
+  CASE WHEN jsonb_typeof(u.facts->'shipped_code'->'n') = 'number' THEN (u.facts->'shipped_code'->>'n')::numeric > 0 ELSE false END
+  OR u.facts ? 'went_live'
+  OR (jsonb_typeof(u.facts->'won') = 'array' AND jsonb_array_length(u.facts->'won') > 0))`;
 
 /** v2.9 E20: the sum behind builders_won_usd (one SQL fragment for readStats and readWonUsd). */
 const wonUsdSql = (db: Db, ids: number[]) => db`
