@@ -79,6 +79,8 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
       ...(init.body !== undefined && { 'Content-Type': 'application/json' }),
     },
     ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+    // T6 fix round 1: a redirect (a renamed or moved repo) is never followed; it throws (unknown to callers).
+    redirect: 'error',
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -174,11 +176,13 @@ export async function repoInstallation(repoKey: string, deps: AppDeps = {}): Pro
 async function appProofRow(a: { installationId: number; login?: string | null; repoKey: string }) {
   const db = sql();
   const [row] = await db<{ gid: string }[]>`
-    SELECT github_installation_id::text AS gid FROM github_verifications
-    WHERE via = 'app' AND purpose = 'app' AND installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()}
-      AND used_at IS NULL AND github_installation_id IS NOT NULL
-      ${a.login != null ? db`AND login = ${a.login.toLowerCase()}` : db``}
-    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+    SELECT v.github_installation_id::text AS gid FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+    WHERE v.via = 'app' AND v.purpose = 'app' AND v.repo_key = ${a.repoKey.toLowerCase()}
+      -- T6 fix round 1: the person's group (an installation of the group proved it), as repo-proof.ts reads it.
+      AND COALESCE(i.builder_id, i.id) = COALESCE((SELECT COALESCE(g.builder_id, g.id) FROM installations g WHERE g.id = ${a.installationId}), ${a.installationId})
+      AND v.used_at IS NULL AND v.github_installation_id IS NOT NULL
+      ${a.login != null ? db`AND v.login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY v.verified_at DESC, v.id DESC LIMIT 1`;
   return row ?? null;
 }
 

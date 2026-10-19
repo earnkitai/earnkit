@@ -32,7 +32,10 @@ async function personWith(key: string, handle: string) {
   const a = await attachToX(own, { id: `93${RUN}${handle.length}${handle.charCodeAt(0)}`, username: `${handle}${RUN}`.slice(0, 15), name: handle, avatar: null }, NOW);
   assert.ok(a.ok);
   const c = (await connectInstallation(t))!;
-  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x };
+  // Fix round 1: no matcher or reader leaves the process (find's matching and refresh are faked).
+  const no = async () => { throw new Error('offline'); };
+  const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, xUserId: c.x, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }), readerDeps } as never;
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
   return { id: c.id, ctx };
 }
@@ -223,4 +226,17 @@ test('6.16 T6 security review: proveByApp verifies nothing unless GitHub names t
   const gh = fakeGitHub({ [key]: { id: 9022, owner: `cal${RUN}`, installation: 88 } });
   assert.deepEqual(await proveByApp({ builderId: p.id, repoKey: key, githubInstallationId: 89 }, { fetch: gh }), { ok: false, why: 'none' });
   assert.deepEqual(await repoProof(p.id, key), { ok: false, why: 'none' });
+});
+
+test('6.17 fix round 1: the daily check demotes an org repo whose prover is no longer its admin; an admin stays held', db, async () => {
+  const key = `org${RUN}/tool`;
+  const p = await personWith(key, 'dee');
+  const gh = fakeGitHub({ [key]: { id: 9030, owner: `org${RUN}`, ownerType: 'Organization', installation: 90, admins: [`dee${RUN}`] } });
+  assert.equal(((await installApp({ builderId: p.id, repoKey: key, login: `dee${RUN}`, gh })) as { ok: boolean }).ok, true);
+  const later = new Date(Date.now() + 25 * 3_600_000);
+  assert.deepEqual(await appCheckStep(later, { deadline: Date.now() + 10_000, only: [p.id], fetch: gh }), { checked: 1, removed: 0 });
+  gh.repos[key].admins = [];
+  assert.deepEqual(await appCheckStep(new Date(later.getTime() + 25 * 3_600_000), { deadline: Date.now() + 10_000, only: [p.id], fetch: gh }), { checked: 1, removed: 1 });
+  const [s] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${p.id} AND lower(ref) = ${key}`;
+  assert.deepEqual(s, { state: 'proposed', reject_reason: APP_REMOVED });
 });

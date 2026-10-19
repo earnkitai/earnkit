@@ -155,6 +155,83 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   return out;
 }
 
+/** What GitHub says about a person's App proof now (appProofLive). */
+export type LiveHold = 'held' | 'gone' | 'unknown';
+
+/**
+ * T6 fix round 1: does this person's App proof of `key` hold right now. GitHub must name an installation for the
+ * repo (none: gone), it must be one this person proved through the setup URL (github_verifications via 'app' on
+ * their group `root`, `login` when given; another account's install: gone), and when the repo's account is not
+ * the prover's own (an Organization's, or an owner other than the proving login) the prover must still be the
+ * repo's admin (read with a per-call installation token; anything but admin: gone). A GitHub error or a redirect
+ * is `unknown` (the caller decides: the daily check tries again, an action refuses). The token is never kept.
+ */
+export async function appProofLive(
+  a: { root: number; key: string; login?: string | null; ownerType?: string | null },
+  deps: AppDeps = {},
+  db: Db = sql(),
+): Promise<LiveHold> {
+  const key = a.key.toLowerCase();
+  let inst: number | null;
+  try {
+    inst = await repoInstallation(key, deps);
+  } catch {
+    return 'unknown';
+  }
+  if (inst === null) return 'gone';
+  const [v] = await db<{ login: string }[]>`
+    SELECT lower(v.login) AS login FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = ${a.root} AND v.via = 'app' AND v.repo_key = ${key} AND v.github_installation_id = ${inst}
+      ${a.login ? db`AND v.login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY v.verified_at DESC, v.id DESC LIMIT 1`;
+  if (!v) return 'gone';
+  const owner = key.split('/')[0];
+  if (a.ownerType !== 'Organization' && owner === v.login) return 'held';
+  const f = deps.fetch ?? fetch;
+  try {
+    const token = await installationToken(inst, key.split('/')[1], deps);
+    const res = await f(`https://api.github.com/repos/${key}/collaborators/${encodeURIComponent(v.login)}/permission`, {
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'User-Agent': 'earnkit', 'X-GitHub-Api-Version': '2022-11-28' },
+      redirect: 'error', signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status === 404) {
+      await res.body?.cancel().catch(() => {});
+      return 'gone';
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      return 'unknown';
+    }
+    const body = (await res.json().catch(() => null)) as { permission?: unknown } | null;
+    return body?.permission === 'admin' ? 'held' : 'gone';
+  } catch (err) {
+    const status = (err as { status?: unknown })?.status;
+    return status === 404 || status === 422 ? 'gone' : 'unknown';
+  }
+}
+
+/**
+ * T6 fix round 1: appProofLive for one `github_app` source, applied: held refreshes app_checked_at; gone sends it
+ * back to proposed (APP_REMOVED) and rescores its person at once; unknown changes nothing.
+ */
+export async function recheckAppSource(
+  s: { id: number; builder_id: number; key: string; gh_owner_type: string | null },
+  now: Date,
+  deps: AppDeps = {},
+): Promise<LiveHold> {
+  const db = sql();
+  const r = await appProofLive({ root: s.builder_id, key: s.key, ownerType: s.gh_owner_type }, { ...deps, now }, db);
+  if (r === 'held') await db`UPDATE builder_sources SET app_checked_at = ${now} WHERE id = ${s.id}`;
+  if (r === 'gone') {
+    const gone = await db`UPDATE builder_sources SET state = 'proposed', reject_reason = ${APP_REMOVED}, app_checked_at = ${now} WHERE id = ${s.id} AND state = 'verified' RETURNING 1`;
+    if (gone.length) {
+      await (await import('./person-score')).rescorePerson(s.builder_id, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+      profileChanged();
+    }
+  }
+  return r;
+}
+
 /** The reply's install link (the v2.10 App link: sign-in hop, then install), or null while the App is off (or the person has no page). */
 export async function installLink(builderId: number, repoKey: string, now: Date): Promise<string | null> {
   if (!githubAppEnabled()) return null;
@@ -179,17 +256,16 @@ export async function appClient(builderId: number, repoKey: string, f: typeof fe
 }
 
 /**
- * A8: each run, up to APP_CHECK_PER_RUN `github_app` sources not checked in a day: GitHub still names an App
- * installation for the repo and it is one this person proved (removed from the repo, uninstalled, or another
- * account's install: none), or the source goes back to proposed (APP_REMOVED) and the person is rescored at
- * once, so it leaves the Bench (which reads benchConfirmedSql live). A GitHub answer other than 404 changes
- * nothing (tried again next run).
+ * A8: each run, up to APP_CHECK_PER_RUN `github_app` sources not checked in a day, through recheckAppSource
+ * (appProofLive): held refreshes app_checked_at; gone (removed from the repo, uninstalled, another account's
+ * install, or an org's prover no longer its admin) goes back to proposed (APP_REMOVED) and the person is
+ * rescored at once, so it leaves the Bench (which reads benchConfirmedSql live); unknown is tried next run.
  */
 export async function appCheckStep(now: Date, o: { deadline: number; only?: number[]; fetch?: typeof fetch }): Promise<{ checked: number; removed: number }> {
   if (!githubAppEnabled()) return { checked: 0, removed: 0 };
   const db = sql();
-  const due = await db<{ id: number; builder_id: number; key: string }[]>`
-    SELECT id::int AS id, builder_id, ${refKey(db)} AS key FROM builder_sources
+  const due = await db<{ id: number; builder_id: number; key: string; gh_owner_type: string | null }[]>`
+    SELECT id::int AS id, builder_id, ${refKey(db)} AS key, gh_owner_type FROM builder_sources
     WHERE kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
       AND (app_checked_at IS NULL OR app_checked_at <= ${new Date(now.getTime() - APP_CHECK_EVERY_MS)})
       ${o.only ? db`AND builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
@@ -198,24 +274,11 @@ export async function appCheckStep(now: Date, o: { deadline: number; only?: numb
   let removed = 0;
   for (const s of due) {
     if (Date.now() >= o.deadline) break;
-    const inst = await repoInstallation(s.key, { fetch: o.fetch, now }).catch(() => undefined);
-    if (inst === undefined) continue; // GitHub didn't answer: try again next run
+    // T6 fix round 1: appProofLive (an installation this person proved, and an org's prover still its admin).
+    const r = await recheckAppSource(s, now, { fetch: o.fetch });
+    if (r === 'unknown') continue; // GitHub didn't answer: try again next run
     checked++;
-    // T6 security review (stale authorization): the installation GitHub names must be one this person proved
-    // through the setup URL (github_verifications via 'app', their group). Another admin's install, or one made
-    // outside EarnKit's link, is not this person's proof: back to proposed, re-proven through the link.
-    const [mine] = inst === null ? [] : await db`
-      SELECT 1 FROM github_verifications v JOIN installations i ON i.id = v.installation_id
-      WHERE COALESCE(i.builder_id, i.id) = ${s.builder_id} AND v.via = 'app' AND v.repo_key = ${s.key} AND v.github_installation_id = ${inst} LIMIT 1`;
-    if (mine) {
-      await db`UPDATE builder_sources SET app_checked_at = ${now} WHERE id = ${s.id}`;
-      continue;
-    }
-    const gone = await db`UPDATE builder_sources SET state = 'proposed', reject_reason = ${APP_REMOVED}, app_checked_at = ${now} WHERE id = ${s.id} AND state = 'verified' RETURNING 1`;
-    if (!gone.length) continue;
-    removed++;
-    await (await import('./person-score')).rescorePerson(s.builder_id, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
-    profileChanged();
+    if (r === 'gone') removed++;
   }
   return { checked, removed };
 }
