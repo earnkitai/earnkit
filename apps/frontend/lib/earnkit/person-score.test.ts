@@ -6,6 +6,7 @@ import { sql } from './db';
 import { PAGE_REFRESH_MS, pageViewRefresh, personInputsV2, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
 import { calibrationV2 } from './score-calibration';
 import { countUse } from './score-v2';
+import { needsPushCheck, previousRepoSignals } from './sources';
 import { isoWeekOf } from './weeks';
 import { LIMITS, windowStart } from './rate-limit';
 import type { ReaderDeps } from './source-readers';
@@ -463,6 +464,26 @@ test('4.15g fix round 2 (anti-backdating rule 2): commit weeks before the repo w
   assert.deepEqual(r, { score: 38, ranked: true, held: false });
   const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id}`;
   assert.equal(p.ship_weeks.length, 3, 'the grid and streak follow the same floor');
+});
+
+test('4.15h fix round 3 (rule 4): a renamed repo (a new ref) finds its earlier reading by GitHub repo id, else owner and created_at, so it never gets a fresh first read', dbTest, async () => {
+  const id = T + 23;
+  await person(id, { ring: true });
+  const created = '2025-03-01T00:00:00Z';
+  await source(id, { kind: 'repo', ref: `lee/old${id}`, state: 'verified', proof: 'github_app', by: 'server' });
+  await reading(`lee/old${id}`, { owner: 'lee', owner_type: 'User', created_at: created, commit_weeks: ['2026-W40'], pushes_checked: true }, NOW);
+  await source(id, { kind: 'repo', ref: `lee/new${id}`, state: 'verified', proof: 'github_app', by: 'server' });
+  const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${id} AND ref = ${`lee/new${id}`}`;
+  // Owner and created_at match: the old ref's reading is the previous one (verified: no push check needed).
+  const byCreated = await previousRepoSignals(sid, { owner: 'LEE', created_at: created });
+  assert.deepEqual((byCreated as { commit_weeks: string[] }).commit_weeks, ['2026-W40']);
+  assert.equal(needsPushCheck(byCreated), false);
+  assert.equal(await previousRepoSignals(sid, { owner: 'lee', created_at: '2025-03-02T00:00:00Z' }), null, 'another repo');
+  // The same GitHub repo id on both sources finds it without the reading's facts.
+  await sql()`UPDATE builder_sources SET gh_repo_id = ${900_000 + id} WHERE builder_id = ${id} AND kind = 'repo'`;
+  assert.deepEqual(((await previousRepoSignals(sid)) as { commit_weeks: string[] }).commit_weeks, ['2026-W40']);
+  // Another builder's repo never counts.
+  assert.equal(await previousRepoSignals(sid + 1_000_000, { owner: 'lee', created_at: created }), null);
 });
 
 test('4.15c the review hold measures a jump only from a history row of the live calibration (the four-part score is never the baseline)', dbTest, async () => {

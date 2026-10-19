@@ -5905,12 +5905,21 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
   2. *No new past weeks* (`sources.ts withPastWeeks`, `withPastCounts`): once a source has a previous good
      reading (daily or live, `previousRepoSignals`), a new reading may add only this week and last week; older
      weeks keep their stored values.
-  3. *First read, server push times* (`sources.ts storedCommits`, `pushedWeeks`, `readPushes`, `firstPushes`): a
-     source's first reading reads GET /repos/{o}/{r}/activity (the App's installation client when installed, else
-     EarnKit's reader; at most `ACTIVITY_PAGES` 2 pages of 100, inside the connect read's budget) and keeps a commit
-     week only when a push landed that week or the next. When the pages run out first, weeks older than the oldest
-     push seen are kept (can't be judged). If the endpoint fails or lists nothing, the weeks stand (fail soft; the
-     creation floor still applies), so an API error never zeroes a real builder.
+  3. *Server push times* (`sources.ts storedCommits`, `pushedWeeks`, `readPushes`, `firstPushes`; fix rounds 2 and
+     3): until a source has a verified reading, each reading reads GET /repos/{o}/{r}/activity (the App's
+     installation client when installed, else EarnKit's reader; at most `ACTIVITY_PAGES` 2 pages of 100, each call
+     aborted at the connect budget) and keeps a past week only when a landing event (push, force push, branch
+     creation, PR merge, merge queue merge; the endpoint filters one type a call, so the types are kept client-side)
+     landed that week or the next. The reading is then `pushes_checked: true` and is rule 2's baseline.
+     When EarnKit can't verify (the call failed, listed nothing, was cut by the deadline, or the pages ran out with
+     the oldest event seen under 4 weeks old: a flood) the reading is stored `pushes_checked: false` with
+     `push_tries`: the score counts only its last 4 weeks (never zero), it is no rule 2 baseline, and the next reads
+     check again; after `PUSH_TRIES` 3 failed tries the weeks stand on the creation floor alone. A rename or a new
+     ref of the same repo finds the earlier reading (`previousRepoSignals`: the builder's repo sources with the same
+     GitHub repo id, else the same owner and created_at), so it never gets a fresh first read.
+  Accepted costs: an imported or recreated repo loses its pre-creation history; a long-lived branch merged after
+  the first verified reading keeps its old commit weeks uncounted (only this week and last can be new); a
+  contributor who lands work only through fork PRs in a quiet repo gets the merge week, not the commit weeks.
 - **Deploy catch-up** (fix round 1): `listedRanked` and `standingOf` count only `builder_live` rows of the live
   calibration, so a four-part row is unranked (and shows no Shipping number) until rescored; `scorePeopleV2` takes
   every live row of an older calibration first, even when today already has a history row, within its deadline.

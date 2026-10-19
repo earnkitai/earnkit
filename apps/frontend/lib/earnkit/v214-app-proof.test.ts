@@ -12,6 +12,7 @@ import { APP_REMOVED, appCheckStep, budgetedFetch, installLink, proveByApp, repo
 import { ScoreDeadline } from './campaigns';
 import { attachToX } from './x-install';
 import { readSources } from './sources';
+import { readPersonLive, rescorePerson } from './person-score';
 import { defaultReaderDeps } from './source-readers';
 import { proveRepo, tokenGate } from './token-gate';
 
@@ -131,11 +132,46 @@ test('6.2e fix round 2 (anti-backdating rule 4): a first reading keeps only week
   const act = gh.calls.filter((c) => c.path.startsWith(`/repos/${key}/activity`));
   assert.equal(act.length, 1, 'one page (short), with the installation token');
   assert.equal(act[0].auth, 'Bearer ghs_fake_93');
-  // The activity endpoint fails: fall back to the weeks as read (the creation floor still applies).
-  const key2 = `iris${RUN}/soft`;
-  const gh2 = fakeGitHub({ [key2]: { id: 9104, owner: `iris${RUN}`, installation: 94, private: true, commits, pushes: null } });
-  const q = await connected(key2, 'iris', gh2, 94);
-  assert.equal(q.live.score, 90, 'never zeroed by an API error');
+});
+
+test('6.2f fix round 3: an unverified first reading (the push list fails, a flood, the deadline) counts its last 4 weeks, is retried on the next reads, and verifies once GitHub answers', db, async () => {
+  const commits = Array.from({ length: 12 }, (_, w) => ({ sha: `b${w}`, message: `old ${w}`, date: ago(w) }));
+  const liveOf = async (id: number) => (await sql()<{ score: number; signals: { pushes_checked?: boolean; push_tries?: number } }[]>`
+    SELECT l.score, x.signals FROM builder_live l JOIN builder_sources s ON s.builder_id = l.builder_id AND s.kind = 'repo'
+    JOIN source_live x ON x.source_id = s.id WHERE l.builder_id = ${id}`)[0];
+  // The activity endpoint fails: never zero, only the last 4 weeks (12 + 11 + 10 + 9 = 42 of 78: 48).
+  const key = `iris${RUN}/soft`;
+  const repos = { [key]: { id: 9104, owner: `iris${RUN}`, installation: 94, private: true, commits, pushes: null as string[] | null } };
+  const gh = fakeGitHub(repos);
+  const q = await connected(key, 'iris', gh, 94);
+  assert.equal(q.live.score, 48);
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).signals.push_tries], [false, 1]);
+  const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${q.id} AND kind = 'repo'`;
+  const reread = async (f: typeof fetch, ms: number) => {
+    const deadline = Date.now() + ms;
+    await readPersonLive(q.id, new Date(), { deadline, reader: { ...defaultReaderDeps(new Date(), deadline), ghFetch: budgetedFetch(f, deadline) }, only: [sid], soft: true });
+    await rescorePerson(q.id, new Date());
+  };
+  // The next read: the activity call hangs and is aborted at the deadline (point 5): still unverified, try 2.
+  repos[key].pushes = [new Date().toISOString()];
+  const hangActivity = ((input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/activity')
+    ? new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))
+    : gh(input, init)) as typeof fetch;
+  const t0 = Date.now();
+  await reread(hangActivity, 1_500);
+  assert.ok(Date.now() - t0 < 5_000, 'the hung page was aborted at the budget');
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).signals.push_tries, (await liveOf(q.id)).score], [false, 2, 48]);
+  // GitHub answers: every commit was pushed today, so only this week and last week stand (27), verified.
+  await reread(gh, 8_000);
+  assert.deepEqual([(await liveOf(q.id)).signals.pushes_checked, (await liveOf(q.id)).score], [true, 27]);
+
+  // A flood: 300 push events this week run the pages out before any 4-week-old push: unverified (48).
+  const key3 = `jade${RUN}/flood`;
+  const flood = Array.from({ length: 300 }, (_, i) => new Date(Date.now() - i * 60_000).toISOString());
+  const gh3 = fakeGitHub({ [key3]: { id: 9105, owner: `jade${RUN}`, installation: 95, private: true, commits, pushes: flood } });
+  const f = await connected(key3, 'jade', gh3, 95);
+  assert.equal(f.live.score, 48);
+  assert.equal(gh3.calls.filter((c) => c.path.startsWith(`/repos/${key3}/activity`)).length, 2, 'two pages at most');
 });
 
 test('6.2d fix round 1: the connect read\'s budget holds on every call: a hung request is aborted at the deadline, none starts after it', async () => {

@@ -293,11 +293,17 @@ const bulkNpm = (s: Due) => s.kind === 'package_npm' && !s.ref.startsWith('@');
 const WEEK = /^\d{4}-W\d{2}$/;
 /** The ISO weeks before which a new reading adds nothing once the source has a previous one (this week and last). */
 const recentFloor = (now: Date) => isoWeek(new Date(now.getTime() - 7 * DAY_MS));
-/** A previous good repo reading: one that carries its commit weeks (fix round 2, anti-backdating rule 3). */
+/**
+ * A previous VERIFIED repo reading's weeks (fix round 2, anti-backdating rule 3's baseline): one that carries its
+ * commit weeks and whose push check did not fail (fix round 3: `pushes_checked: false` is no baseline).
+ */
 const prevWeeks = (prev: unknown): Set<string> | null => {
-  const old = (prev as { commit_weeks?: unknown } | null)?.commit_weeks;
-  return Array.isArray(old) ? new Set(old.filter((w): w is string => typeof w === 'string' && WEEK.test(w))) : null;
+  const p = prev as { commit_weeks?: unknown; pushes_checked?: unknown } | null;
+  if (!Array.isArray(p?.commit_weeks) || p.pushes_checked === false) return null;
+  return new Set(p.commit_weeks.filter((w): w is string => typeof w === 'string' && WEEK.test(w)));
 };
+/** Fix round 3: the reading still needs GitHub's push check (no verified reading before it). */
+export const needsPushCheck = (prev: unknown): boolean => prevWeeks(prev) === null;
 
 /**
  * v2.13: a reading's commit counts merged with the previous reading's: the larger per week, last 52 weeks
@@ -343,7 +349,12 @@ export function withPastWeeks(weeks: string[], prev: unknown, now: Date): string
 
 /** Fix round 2 (rule 4): GitHub's push activity a first reading reads, at most this many pages of 100. */
 export const ACTIVITY_PAGES = 2;
-const LANDED = new Set(['push', 'force_push', 'pr_merge', 'merge_queue_merge']);
+/** Fix round 3: an unverified reading's push check is tried this many times, then the creation floor alone stands. */
+export const PUSH_TRIES = 3;
+/** Fix round 3: with the pages run out, older weeks are judged only when the oldest push seen is at least this old. */
+const FLOOD_MS = 28 * DAY_MS;
+/** The activity types that land commits on a branch. */
+const LANDED = new Set(['push', 'force_push', 'branch_creation', 'pr_merge', 'merge_queue_merge']);
 /** The ISO week after `week` ('2026-W42' -> '2026-W43'). Pure. */
 const nextWeek = (week: string): string | null => {
   const m = /^(\d{4})-W(\d{2})$/.exec(week);
@@ -352,33 +363,36 @@ const nextWeek = (week: string): string | null => {
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY_MS + (Number(m[2]) - 1) * 7 * DAY_MS;
   return isoWeek(new Date(monday + 7 * DAY_MS));
 };
+type Pushes = { pushes: string[]; covered: boolean };
 /**
- * Fix round 2 (anti-backdating rule 4), a source's FIRST reading: a commit week counts only when a push
- * landed on GitHub that week or the following one (`pushes`: the push times GitHub recorded, newest first).
- * `covered`: false when the pages ran out before the oldest push, so weeks older than the oldest push seen
- * can't be judged and are kept. No pushes at all (the endpoint failed or answered nothing): the weeks stand
- * (fail soft; the creation floor still applies when scoring). Pure.
+ * Fix rounds 2 and 3 (rule 4): the weeks GitHub's push record backs: a commit week counts when a push
+ * landed that week or the following one. With the pages run out (`covered` false), weeks older than the
+ * oldest push seen are kept only when that push is at least 4 weeks old (else a flood of events hid
+ * them). Null when the record can't judge (no record, nothing listed, or such a flood). Pure.
  */
-export function pushedWeeks(weeks: string[], pushes: string[] | null, covered = true): string[] {
-  if (!pushes || pushes.length === 0) return weeks;
-  const landed = new Set(pushes.flatMap((t) => (Number.isFinite(Date.parse(t)) ? [isoWeek(new Date(t))] : [])));
-  if (landed.size === 0) return weeks;
-  const oldest = [...landed].sort()[0];
-  return weeks.filter((w) => landed.has(w) || landed.has(nextWeek(w) ?? '') || (!covered && w < oldest));
+export function pushedWeeks(weeks: string[], record: Pushes | null, now: Date): string[] | null {
+  const times = (record?.pushes ?? []).map((t) => Date.parse(t)).filter(Number.isFinite);
+  if (!record || times.length === 0) return null;
+  const oldestAt = Math.min(...times);
+  if (!record.covered && now.getTime() - oldestAt < FLOOD_MS) return null;
+  const landed = new Set(times.map((t) => isoWeek(new Date(t))));
+  const oldest = isoWeek(new Date(oldestAt));
+  return weeks.filter((w) => landed.has(w) || landed.has(nextWeek(w) ?? '') || (!record.covered && w < oldest));
 }
 
 /**
- * Fix round 2 (rule 4): the push times of `key` from GET /repos/{key}/activity, up to ACTIVITY_PAGES pages,
- * through `get` (the App's installation client when the person installed it, else EarnKit's reader).
- * Null on any failure (fail soft). `covered`: whether the last page came back short (the whole list seen).
+ * Fix round 2 (rule 4): the push times of `key` from GET /repos/{key}/activity (the endpoint takes one
+ * activity_type a call, so the landing types are kept here), up to ACTIVITY_PAGES pages, through `get`
+ * (the App's installation client when installed, else EarnKit's reader). Null on any failure.
+ * `covered`: whether the last page came back short (the whole list seen).
  */
-export async function readPushes(key: string, get: <T>(path: string) => Promise<T | null>): Promise<{ pushes: string[]; covered: boolean } | null> {
+export async function readPushes(key: string, get: <T>(path: string) => Promise<T | null>): Promise<Pushes | null> {
   const pushes: string[] = [];
   try {
     for (let page = 1; page <= ACTIVITY_PAGES; page++) {
       const rows = await get<{ timestamp?: unknown; activity_type?: unknown }[]>(`/repos/${key}/activity?per_page=100&page=${page}`);
       if (!Array.isArray(rows)) return page === 1 ? null : { pushes, covered: false };
-      for (const r of rows) if (typeof r?.timestamp === 'string' && (typeof r.activity_type !== 'string' || LANDED.has(r.activity_type))) pushes.push(r.timestamp);
+      for (const r of rows) if (typeof r?.timestamp === 'string' && typeof r.activity_type === 'string' && LANDED.has(r.activity_type)) pushes.push(r.timestamp);
       if (rows.length < 100) return { pushes, covered: true };
     }
     return { pushes, covered: false };
@@ -387,19 +401,33 @@ export async function readPushes(key: string, get: <T>(path: string) => Promise<
   }
 }
 
+const weekList = (x: unknown) => (Array.isArray(x) ? x.filter((w): w is string => typeof w === 'string' && WEEK.test(w)) : []);
+const countMap = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? (x as Record<string, number>) : {});
 /**
- * Fix round 2: a repo reading's commit weeks and counts as stored. A source's first good reading (no
- * previous one, daily or live) keeps only weeks a push landed in or right before (rule 4; `pushes` read
- * then, null when unread); later readings add only this week and last week (rule 3). Pure.
+ * Fix rounds 2 and 3: a repo reading's commit weeks and counts as stored, with its push check.
+ * - After a verified reading: only this week and last week can be new (rule 3); `pushes_checked: true`.
+ * - Otherwise (the first reading, or the previous one unverified) the weeks as read, joined with the unverified
+ *   previous ones, are judged by GitHub's push record (rule 4): backed weeks only, `pushes_checked: true`.
+ * - No judgment (the call failed, listed nothing, was cut by the deadline, or a flood): `pushes_checked: false`
+ *   and `push_tries`; the score then counts only its last 4 weeks (never zero) and the next read tries again.
+ *   After PUSH_TRIES tries the weeks stand on the creation floor alone (`pushes_checked: true`). Pure.
  */
 export function storedCommits(
-  r: { commit_weeks: string[]; commit_counts?: Record<string, number> }, prev: unknown, now: Date, pushes: { pushes: string[]; covered: boolean } | null,
-): { commit_weeks: string[]; commit_counts: Record<string, number> } {
-  const first = prevWeeks(prev) === null;
-  const weeks = first ? pushedWeeks(r.commit_weeks, pushes?.pushes ?? null, pushes?.covered ?? true) : r.commit_weeks;
-  const keep = new Set(weeks);
-  const counts = first ? Object.fromEntries(Object.entries(r.commit_counts ?? {}).filter(([w]) => keep.has(w))) : (r.commit_counts ?? {});
-  return { commit_weeks: withPastWeeks(weeks, prev, now), commit_counts: withPastCounts(counts, prev, now) };
+  r: { commit_weeks: string[]; commit_counts?: Record<string, number> }, prev: unknown, now: Date, pushes: Pushes | null,
+): { commit_weeks: string[]; commit_counts: Record<string, number>; pushes_checked: boolean; push_tries?: number } {
+  if (!needsPushCheck(prev))
+    return { commit_weeks: withPastWeeks(r.commit_weeks, prev, now), commit_counts: withPastCounts(r.commit_counts ?? {}, prev, now), pushes_checked: true };
+  const p = prev as { commit_weeks?: unknown; commit_counts?: unknown; push_tries?: unknown } | null;
+  const raw = withPastWeeks([...r.commit_weeks, ...weekList(p?.commit_weeks)], null, now);
+  const rawCounts = withPastCounts({ ...countMap(p?.commit_counts), ...(r.commit_counts ?? {}) }, null, now);
+  const backed = pushedWeeks(raw, pushes, now);
+  if (backed) {
+    const keep = new Set(backed);
+    return { commit_weeks: backed, commit_counts: Object.fromEntries(Object.entries(rawCounts).filter(([w]) => keep.has(w))), pushes_checked: true };
+  }
+  const tries = (typeof p?.push_tries === 'number' ? p.push_tries : 0) + 1;
+  if (tries >= PUSH_TRIES) return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: true };
+  return { commit_weeks: raw, commit_counts: rawCounts, pushes_checked: false, push_tries: tries };
 }
 
 /**
@@ -417,12 +445,28 @@ export async function firstPushes(s: { builder_id: number; ref: string }, d: Rea
   }
 }
 
-/** Fix round 2: the newest good repo reading of a source, daily or live (rule 3's "previous reading"). */
-export async function previousRepoSignals(id: number): Promise<unknown> {
+/**
+ * Fix rounds 2 and 3: the newest good reading of a source's repo, daily or live (rule 3's "previous reading").
+ * A rename or a new ref of the same repo is the same repo: any of the builder's repo sources with the same
+ * GitHub repo id, else readings with the same owner and created_at (`r`, the new reading) count too.
+ */
+export async function previousRepoSignals(id: number, r?: { owner?: unknown; created_at?: unknown }): Promise<unknown> {
+  const owner = typeof r?.owner === 'string' ? r.owner.toLowerCase() : null;
+  const created = typeof r?.created_at === 'string' ? r.created_at : null;
   const [row] = await sql()<{ signals: unknown }[]>`
+    WITH me AS (SELECT builder_id, gh_repo_id FROM builder_sources WHERE id = ${id}),
+    srcs AS (
+      SELECT b.id FROM builder_sources b, me WHERE b.builder_id = me.builder_id AND b.kind = 'repo'
+        AND (b.id = ${id} OR (me.gh_repo_id IS NOT NULL AND b.gh_repo_id = me.gh_repo_id)))
     SELECT signals FROM (
-      (SELECT signals, day::timestamptz + interval '1 day' AS at FROM source_readings WHERE source_id = ${id} AND ok ORDER BY day DESC LIMIT 1)
-      UNION ALL (SELECT signals, read_at AS at FROM source_live WHERE source_id = ${id} AND ok)
+      (SELECT signals, day::timestamptz + interval '1 day' AS at FROM source_readings WHERE source_id IN (SELECT id FROM srcs) AND ok ORDER BY day DESC LIMIT 1)
+      UNION ALL (SELECT signals, read_at AS at FROM source_live WHERE source_id IN (SELECT id FROM srcs) AND ok)
+      UNION ALL (SELECT x.signals, x.day::timestamptz + interval '1 day' FROM source_readings x JOIN builder_sources b ON b.id = x.source_id, me
+        WHERE ${created}::text IS NOT NULL AND b.builder_id = me.builder_id AND b.kind = 'repo' AND x.ok
+          AND x.signals->>'created_at' = ${created} AND lower(x.signals->>'owner') = ${owner} ORDER BY x.day DESC LIMIT 1)
+      UNION ALL (SELECT x.signals, x.read_at FROM source_live x JOIN builder_sources b ON b.id = x.source_id, me
+        WHERE ${created}::text IS NOT NULL AND b.builder_id = me.builder_id AND b.kind = 'repo' AND x.ok
+          AND x.signals->>'created_at' = ${created} AND lower(x.signals->>'owner') = ${owner})
     ) x ORDER BY at DESC LIMIT 1`;
   return row?.signals ?? null;
 }
@@ -523,9 +567,9 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
           ? (await o.reader.gh<{ login?: unknown }[]>(`/repos/${r.key}/contributors?per_page=100`))
               .flatMap((c) => (typeof c?.login === 'string' ? [{ id: `gh:${c.login.toLowerCase()}`, at: now.toISOString() }] : []))
           : r.contributors;
-      const prev = await previousRepoSignals(s.id);
-      // Fix round 2 (rule 4): a first reading reads GitHub's push times (the App's client when installed).
-      const pushes = prevWeeks(prev) === null ? await firstPushes(s, o.reader) : null;
+      const prev = await previousRepoSignals(s.id, r);
+      // Fix rounds 2 and 3 (rule 4): until a reading is verified, read GitHub's push times (the App's client when installed).
+      const pushes = needsPushCheck(prev) ? await firstPushes(s, o.reader) : null;
       await ok(s, { ...r, contributors, ...storedCommits(r, prev, now, pushes) });
     });
   };

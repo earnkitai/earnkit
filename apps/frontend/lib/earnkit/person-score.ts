@@ -19,7 +19,7 @@ import {
   defaultReaderDeps, isBudgetStop, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
-import { firstPushes, previousRepoSignals, previousSignals, storedCommits } from './sources';
+import { firstPushes, needsPushCheck, previousRepoSignals, previousSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
 
@@ -396,8 +396,10 @@ export async function personInputsV2(
         // Fix round 2 (anti-backdating rule 2): no commit week before the repo existed on GitHub.
         const created = date(g.created_at);
         const born = created ? isoWeekOf(created) : null;
+        // Fix round 3: a reading whose push check failed counts only its last 4 weeks until GitHub's record backs it.
+        const unverified = (g as { pushes_checked?: unknown }).pushes_checked === false ? isoWeekOf(new Date(now.getTime() - 3 * WEEK_MS)) : null;
         for (const wk of list<unknown>(g.commit_weeks))
-          if (typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born)) {
+          if (typeof wk === 'string' && WEEK.test(wk) && (!born || wk >= born) && (!unverified || wk >= unverified)) {
             ship.add(wk);
             if (inScope) input.commitWeeks.push(wk);
           }
@@ -956,8 +958,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       const contributors = r.owner_type === 'Organization' && !app ? list<Who>(daily?.contributors) : r.contributors;
       // Fix round 2 (anti-backdating): the newest good reading, daily or live, decides what is new; a first
       // reading reads GitHub's push times (rule 4, within this read's deadline).
-      const prev = await previousRepoSignals(s.id);
-      const pushes = !Array.isArray((prev as { commit_weeks?: unknown } | null)?.commit_weeks) && Date.now() < o.deadline ? await firstPushes(s, o.reader) : null;
+      const prev = await previousRepoSignals(s.id, r);
+      const pushes = needsPushCheck(prev) && Date.now() < o.deadline ? await firstPushes(s, o.reader) : null;
       await put(s, { ok: true, signals: { ...r, contributors, ...storedCommits(r, prev, now, pushes) } });
     }
   }
