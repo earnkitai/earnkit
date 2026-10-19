@@ -6,7 +6,7 @@ import { benchEnabled } from '../../../lib/earnkit/builder-score-flag';
 
 /**
  * The site header. v2.7 fix round 1: the persistent call to action is the install ("Add to your
- * agent", the same modal as the hero). v2.7.1: "Docs" (docs.earnkit.com) beside it on every page,
+ * agent", the same modal as the hero). v2.7.1: "Docs" (footer-links DOCS) beside it on every page,
  * desktop and mobile; "Follow on X" lives in the footer only.
  */
 export default function Header() {
