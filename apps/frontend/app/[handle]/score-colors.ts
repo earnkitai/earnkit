@@ -1,31 +1,33 @@
+import { THEME } from '../../lib/earnkit/theme';
+
 /**
- * profile-whoop v2: the profile's premium dark palette. Each score keeps one hue family everywhere it
+ * profile-whoop v2 (v4: on the deep-blue THEME, lib/earnkit/theme.ts): the profile's premium palette. Each score keeps one hue family everywhere it
  * shows: its ring's gradient (`from` to `to`, along the stroke), its soft glow, and `text`, the one
  * solid color its label is set in (4.5:1 or more on the page and the card surface, tested). The total
  * is white to soft grey: it is the sum, not a fifth score.
  */
 export const PART_COLORS = {
-  Shipped: { from: '#2563EB', to: '#22D3EE', text: '#67E8F9' }, // deep blue to cyan
-  Used: { from: '#6366F1', to: '#A78BFA', text: '#C4B5FD' }, // indigo to violet
+  Shipped: { from: '#3B82F6', to: '#22D3EE', text: '#67E8F9' }, // blue to cyan (v4: a brighter start, so it reads on navy)
+  Used: { from: '#818CF8', to: '#A78BFA', text: '#C4B5FD' }, // indigo to violet
   Earned: { from: '#F59E0B', to: '#FB923C', text: '#FCD34D' }, // amber to orange
-  Consistency: { from: '#C026D3', to: '#F472B6', text: '#F9A8D4' }, // magenta to pink
+  Consistency: { from: '#D946EF', to: '#F472B6', text: '#F9A8D4' }, // magenta to pink
 } as const;
 export type PartLabel = keyof typeof PART_COLORS;
 export type Hue = { from: string; to: string; text?: string };
 
 export const SCORE_COLORS = {
-  /** The hero ring: white to soft grey. */
-  total: { from: '#FFFFFF', to: '#9CA3AF' } as Hue,
+  /** The hero ring: white to the soft brand blue. */
+  total: { from: '#FFFFFF', to: THEME.accent } as Hue,
   /** A ring's empty track: thin and dim. */
-  track: 'rgba(255, 255, 255, 0.07)',
-  /** The page behind everything (near-black). */
-  page: '#0B0B0F',
+  track: THEME.track,
+  /** The page behind everything (deep navy). */
+  page: THEME.page,
   /** A card surface: a soft top-down gradient between these two. */
-  surfaceTop: '#17191F',
-  surface: '#111318',
-  /** Text: primary, and the muted grey for secondary lines and labels. */
-  text: '#F5F6F8',
-  muted: '#9BA1AC',
+  surfaceTop: THEME.surfaceTop,
+  surface: THEME.surface,
+  /** Text: primary, and the muted blue-grey for secondary lines and labels. */
+  text: THEME.text,
+  muted: THEME.muted,
 } as const;
 
 /**

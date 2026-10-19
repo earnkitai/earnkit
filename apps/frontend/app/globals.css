@@ -230,27 +230,51 @@ html {
   }
 }
 
-/* profile-whoop v2: the profile page (handle-view.tsx wraps it in data-ek-premium). A near-black
-   page; the site header gives way to the profile's own slim top bar; the footer and the Ship log
-   cards take the same dark surfaces. Scoped here so no other page changes. */
+/* profile-whoop v4: the premium deep-blue theme (lib/earnkit/theme.ts THEME; the values here are
+   tested to match it). Used by the profile, the feed, the slim top bar and the footer on those pages. */
+:root {
+  --ek-p-page: #070D24;
+  --ek-p-page-top: #0A1433;
+  --ek-p-glass: rgba(7, 13, 36, 0.85);
+  --ek-p-surface-top: #111C3D;
+  --ek-p-surface: #0C1530;
+  --ek-p-raised: #16224A;
+  --ek-p-border: rgba(87, 157, 255, 0.12);
+  --ek-p-border-strong: rgba(87, 157, 255, 0.2);
+  --ek-p-hairline: rgba(87, 157, 255, 0.1);
+  --ek-p-chip: rgba(87, 157, 255, 0.1);
+  --ek-p-chip-hover: rgba(87, 157, 255, 0.18);
+  --ek-p-track: rgba(163, 197, 254, 0.1);
+  --ek-p-glow: rgba(87, 157, 255, 0.16);
+  --ek-p-text: #F5F8FF;
+  --ek-p-body: #C8D4EE;
+  --ek-p-muted: #94A3C4;
+  --ek-p-accent: #A3C5FE;
+}
+
+/* The premium pages (they wrap their content in data-ek-premium). A deep navy page with a soft
+   radial blue glow at the top, behind the hero; the site header gives way to the slim top bar;
+   the footer takes the same navy card. Scoped here so no other page changes. */
 body:has([data-ek-premium]) {
-  background: #0b0b0f;
+  background: var(--ek-p-page);
 }
 body:has([data-ek-premium]) [data-ek-header] {
   display: none;
 }
 .ek-premium {
   min-height: 100dvh;
-  background: #0b0b0f;
-  color: #c9cdd4;
+  background:
+    radial-gradient(56rem 28rem at 50% -6rem, var(--ek-p-glow), transparent 70%),
+    linear-gradient(180deg, var(--ek-p-page-top), var(--ek-p-page) 40rem);
+  color: var(--ek-p-body);
 }
 .ek-premium footer {
   background: transparent;
   padding-bottom: 2.5rem;
 }
 .ek-premium footer > div:first-child {
-  background: linear-gradient(180deg, #17191f, #111318);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, var(--ek-p-surface-top), var(--ek-p-surface));
+  border: 1px solid var(--ek-p-border);
   border-radius: 24px;
 }
 /* Update cards (feed, Ship log), v3: the profile cards' surface exactly (ScoreParts SURFACE: 24px
@@ -258,12 +282,12 @@ body:has([data-ek-premium]) [data-ek-header] {
    a neutral avatar ring, white titles, muted meta. The one quiet accent is a small dot in the first
    chip's score hue (data-hue: UpdateCard + score-colors.ts chipHue). */
 .ek-premium article[data-shape] {
-  background: linear-gradient(180deg, #17191f, #111318);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, var(--ek-p-surface-top), var(--ek-p-surface));
+  border: 1px solid var(--ek-p-border);
   border-radius: 24px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.03),
-    0 16px 40px -24px rgba(0, 0, 0, 0.75);
+    inset 0 1px 0 rgba(163, 197, 254, 0.05),
+    0 16px 40px -24px rgba(2, 6, 20, 0.8);
 }
 .ek-premium article[data-shape='long'] {
   padding: 24px;
@@ -274,32 +298,32 @@ body:has([data-ek-premium]) [data-ek-header] {
   }
 }
 .ek-premium article[data-shape] [data-ek-week] {
-  color: #9ba1ac;
+  color: var(--ek-p-muted);
   font-size: 13px;
 }
 .ek-premium article[data-shape] p,
 .ek-premium article[data-shape] ul:not(.flex-wrap) li {
-  color: #c9cdd4;
+  color: var(--ek-p-body);
 }
 .ek-premium article[data-shape] [data-ek-name],
 .ek-premium article[data-shape] ul:not(.flex-wrap) li {
-  color: #f5f6f8;
+  color: var(--ek-p-text);
 }
 .ek-premium article[data-shape] a {
   color: inherit;
 }
 .ek-premium article[data-shape] [data-ek-meta] {
-  color: #9ba1ac;
+  color: var(--ek-p-muted);
 }
 .ek-premium article[data-shape] [data-ek-meta] a:hover {
-  color: #f5f6f8;
+  color: var(--ek-p-text);
 }
 .ek-premium article[data-shape] ul.flex-wrap > li {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #c9cdd4;
+  background: var(--ek-p-chip);
+  color: var(--ek-p-body);
   border-radius: 9999px;
 }
 .ek-premium article[data-shape] ul.flex-wrap > li:first-child[data-hue]::before {
@@ -307,7 +331,7 @@ body:has([data-ek-premium]) [data-ek-header] {
   width: 6px;
   height: 6px;
   border-radius: 9999px;
-  background: var(--dot, #9ba1ac);
+  background: var(--dot, var(--ek-p-muted));
 }
 .ek-premium li[data-hue='Shipped'] { --dot: #22d3ee; }
 .ek-premium li[data-hue='Used'] { --dot: #a78bfa; }
@@ -319,10 +343,10 @@ body:has([data-ek-premium]) [data-ek-header] {
 }
 /* The person's photo: a thin neutral ring. */
 .ek-premium article[data-shape] [data-ek-ring] > * {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
-  background: #1c1f26;
-  color: #c9cdd4;
+  box-shadow: 0 0 0 1px var(--ek-p-border-strong);
+  background: var(--ek-p-raised);
+  color: var(--ek-p-body);
 }
 .ek-premium footer > div:nth-child(2) {
-  color: rgba(255, 255, 255, 0.035);
+  color: rgba(163, 197, 254, 0.05);
 }

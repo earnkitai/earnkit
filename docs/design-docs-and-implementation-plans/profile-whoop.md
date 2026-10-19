@@ -48,3 +48,12 @@ Screenshots: `docs/screenshots/profile-whoop/`, headless Chrome against `next de
 ## v3: calmer feed (Jenil's feedback)
 
 The colored left stripes and the hue key are gone. Update cards (feed and the profile's Ship log, which share `UpdateCard`) now match the profile cards exactly: 24px radius, the same dark gradient, a faint border, and soft depth. Chips are neutral soft grey and fully rounded; the only accent is a small dot in the first chip's score hue. Avatar rings are a thin neutral line. The feed drops the week line inside each card (`showWeek={false}`; its section header already names the week). The profile keeps it because it has no week headers. Spacing is more generous, and the hierarchy is calmer: white names and titles, #C9CDD4 body text, #9BA1AC meta. All of these are 4.5:1 or better on the card surface. No data or logic changes.
+
+## v4: deep blue theme (Jenil's feedback)
+
+The whole redesign moves from near-black to deep blue, using one shared token set, `THEME` in `lib/earnkit/theme.ts`. React pages read it as `--ek-p-*` CSS variables defined in `globals.css`, and test 10.5 checks they match. `brand-page.ts` inlines it for the GitHub verify, X sign-in, claim and wallet pages.
+- **Page:** #070D24, a touch lighter at the top (#0A1433), with a soft radial brand-blue glow behind the hero.
+- **Cards:** a #111C3D to #0C1530 gradient with a brand-blue border at 12%.
+- **Chips and accents:** muted navy chips and the slim top bar's glass. White text, #C8D4EE body text, #94A3C4 muted, #A3C5FE accent.
+- **Rings, tuned for navy:** Shipped starts at #3B82F6, Used at #818CF8, Consistency at #D946EF, and the total ring runs from white to #A3C5FE. Every ring stop is 3:1 or more on both card stops, and every text color is 4.5:1 or more (both tested).
+- Layout, radius and logic are unchanged.

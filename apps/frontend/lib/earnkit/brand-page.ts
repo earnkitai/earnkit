@@ -2,11 +2,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { WORDMARK_D } from '../../app/components/ui/Logo';
 import { DOCS } from './footer-links';
+import { THEME as T } from './theme';
 
 /**
  * v2.12.1 T11 fix round 2: the look of the claim, done and wallet pages (route handlers that answer
  * HTML with no script of ours but the wallet page's nonce one). The profile's navy design system in
- * one inline <style>. v2 (premium dark, same as the profile and feed): a near-black page, a slim top
+ * one inline <style>. v4 (premium deep blue, the shared THEME of theme.ts, same as the profile and feed): a deep navy page with a soft blue glow, a slim top
  * bar (wordmark plus quiet links), one centered dark gradient card, Funnel Display for the headline (embedded as
  * data: fonts; the wallet page's CSP allows font-src data: for them), one white primary button, a thin blue to cyan accent. Nothing external is
  * loaded, so no CSP changes.
@@ -37,41 +38,41 @@ const CSS = `
 :root{color-scheme:dark}
 *{box-sizing:border-box}
 html,body{margin:0}
-body{min-height:100vh;min-height:100dvh;background:#0B0B0F;color:#F5F6F8;font:400 1rem/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center}
-.ek-top{position:sticky;top:0;z-index:1;width:100%;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:rgba(11,11,15,.92);border-bottom:1px solid rgba(255,255,255,.06)}
-.ek-home{display:inline-flex;align-items:center;min-height:44px;color:#F5F6F8}
+body{min-height:100vh;min-height:100dvh;background:${T.page};background-image:radial-gradient(48rem 24rem at 50% -4rem,${T.glow},transparent 70%),linear-gradient(180deg,${T.pageTop},${T.page} 36rem);background-repeat:no-repeat;color:${T.text};font:400 1rem/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center}
+.ek-top{position:sticky;top:0;z-index:1;width:100%;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:${T.glass};border-bottom:1px solid ${T.hairline}}
+.ek-home{display:inline-flex;align-items:center;min-height:44px;color:${T.text}}
 .ek-home svg{height:18px;width:auto}
 .ek-nav{display:flex;gap:4px}
-.ek-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:#9BA1AC;font-size:.875rem;text-decoration:none;border-radius:8px}
-.ek-nav a:hover{color:#F5F6F8}
+.ek-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 10px;color:${T.muted};font-size:.875rem;text-decoration:none;border-radius:8px}
+.ek-nav a:hover{color:${T.text}}
 .ek-wrap{width:100%;display:flex;justify-content:center;padding:32px 16px 56px}
-.ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid rgba(255,255,255,.06);border-radius:24px;padding:32px 24px 28px;background:linear-gradient(180deg,#17191F,#111318);box-shadow:0 24px 64px -32px rgba(0,0,0,.8)}
-.ek-accent{display:block;width:40px;height:3px;border-radius:3px;background:linear-gradient(90deg,#2563EB,#22D3EE);margin-bottom:24px}
-.ek-mark{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;margin-bottom:20px;background:#1C1F26;border:1px solid rgba(255,255,255,.08);color:#F5F6F8}
+.ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid ${T.border};border-radius:24px;padding:32px 24px 28px;background:linear-gradient(180deg,${T.surfaceTop},${T.surface});box-shadow:inset 0 1px 0 rgba(163,197,254,.05),0 24px 64px -32px rgba(2,6,20,.85)}
+.ek-accent{display:block;width:40px;height:3px;border-radius:3px;background:linear-gradient(90deg,#3B82F6,#22D3EE);margin-bottom:24px}
+.ek-mark{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;margin-bottom:20px;background:${T.raised};border:1px solid ${T.borderStrong};color:${T.text}}
 .ek-mark svg{width:24px;height:24px}
 h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:1.75rem;line-height:1.15;letter-spacing:-.02em;margin:0;text-wrap:balance}
-.ek-line{margin:12px 0 0;font-size:1rem;line-height:1.55;color:#C9CDD4}
-.ek-url{margin:12px 0 0;font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:500;font-size:1.0625rem;color:#67E8F9;word-break:break-all}
-.ek-first{margin-top:0;font-size:1.0625rem;color:#F5F6F8}
-.ek-small{margin:16px 0 0;font-size:.875rem;line-height:1.55;color:#9BA1AC}
+.ek-line{margin:12px 0 0;font-size:1rem;line-height:1.55;color:${T.body}}
+.ek-url{margin:12px 0 0;font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:500;font-size:1.0625rem;color:${T.accent};word-break:break-all}
+.ek-first{margin-top:0;font-size:1.0625rem;color:${T.text}}
+.ek-small{margin:16px 0 0;font-size:.875rem;line-height:1.55;color:${T.muted}}
 .ek-rows{margin:24px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
 .ek-rows dd{margin:0}
 .ek-row{margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
-.ek-k{min-width:3rem;font-size:.8125rem;color:#9BA1AC}
-.ek-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:#F5F6F8;font:500 .875rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
-.ek-chip svg{flex:none;width:14px;height:14px;color:#9BA1AC}
-.ek-note{margin:20px 0 0;padding:12px 14px;border-radius:14px;background:rgba(34,211,238,.06);border:1px solid rgba(34,211,238,.18);color:#A5F3FC;font-size:.9375rem;line-height:1.45}
-.ek-note strong{color:#F5F6F8;font-weight:600}
+.ek-k{min-width:3rem;font-size:.8125rem;color:${T.muted}}
+.ek-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 12px;border-radius:999px;background:${T.chip};border:1px solid ${T.border};color:${T.text};font:500 .875rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.ek-chip svg{flex:none;width:14px;height:14px;color:${T.muted}}
+.ek-note{margin:20px 0 0;padding:12px 14px;border-radius:14px;background:${T.chip};border:1px solid ${T.borderStrong};color:${T.accent};font-size:.9375rem;line-height:1.45}
+.ek-note strong{color:${T.text};font-weight:600}
 .ek-actions{margin-top:24px;display:flex;flex-direction:column;gap:12px}
 form{margin:0}
-.ek-btn{display:flex;width:100%;min-height:52px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:#F5F6F8;color:#0B0B0F;font:600 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
+.ek-btn{display:flex;width:100%;min-height:52px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.text};color:${T.page};font:600 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
 .ek-btn:hover{background:#FFFFFF}
-.ek-btn:focus-visible,.ek-link:focus-visible,.ek-nav a:focus-visible,.ek-home:focus-visible{outline:2px solid #67E8F9;outline-offset:3px}
+.ek-btn:focus-visible,.ek-link:focus-visible,.ek-nav a:focus-visible,.ek-home:focus-visible{outline:2px solid ${T.accent};outline-offset:3px}
 .ek-btn svg{width:20px;height:20px}
-.ek-links{margin:24px 0 0;padding:16px 0 0;border-top:1px solid rgba(255,255,255,.06);list-style:none;display:flex;flex-direction:column;gap:4px}
-.ek-link{display:inline-flex;min-height:44px;align-items:center;color:#C9CDD4;text-decoration:underline;text-decoration-color:rgba(255,255,255,.25);text-underline-offset:4px;font-size:.9375rem}
-.ek-link:hover{color:#F5F6F8}
-.ek-status{margin:16px 0 0;min-height:1.5em;font-size:.9375rem;color:#C9CDD4}
+.ek-links{margin:24px 0 0;padding:16px 0 0;border-top:1px solid ${T.hairline};list-style:none;display:flex;flex-direction:column;gap:4px}
+.ek-link{display:inline-flex;min-height:44px;align-items:center;color:${T.body};text-decoration:underline;text-decoration-color:${T.borderStrong};text-underline-offset:4px;font-size:.9375rem}
+.ek-link:hover{color:${T.text}}
+.ek-status{margin:16px 0 0;min-height:1.5em;font-size:.9375rem;color:${T.body}}
 .ek-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 @media (min-width:640px){.ek-row{flex-direction:row;align-items:center;gap:12px}.ek-top{height:56px;padding:0 32px}.ek-wrap{padding-top:72px}.ek-panel{padding:40px 40px 36px}h1{font-size:2rem}}
@@ -93,7 +94,7 @@ export const X_ICON =
 export function brandShell(inner: string, o: { fonts?: boolean } = {}): string {
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-    `<meta name="theme-color" content="#0B0B0F"><meta name="robots" content="noindex"><title>EarnKit</title>` +
+    `<meta name="theme-color" content="${T.page}"><meta name="robots" content="noindex"><title>EarnKit</title>` +
     `<style>${o.fonts === false ? '' : fontFaces()}${CSS}</style></head><body>` +
     `<header class="ek-top"><a class="ek-home" href="/"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></a>` +
     `<nav class="ek-nav" aria-label="Site"><a href="/bench">Bench</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></header>` +

@@ -27,7 +27,7 @@ export { streakWords };
 
 /** profile-whoop v2: a small uppercase label with letter-spacing, muted grey. */
 const EYEBROW =
-  'font-funnel-sans text-[11px] font-semibold uppercase tracking-[0.18em] text-[#9BA1AC]';
+  'font-funnel-sans text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--ek-p-muted)]';
 /** The page column: content starts close to the slim top bar. */
 const COLUMN = 'mx-auto w-full max-w-6xl px-4 md:px-8';
 
@@ -37,7 +37,7 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
     <Avatar
       src={src}
       handle={handle}
-      className="h-11 w-11 text-base !bg-[#1C1F26] !text-[#C9CDD4] !ring-white/10 md:h-12 md:w-12 md:text-lg"
+      className="h-11 w-11 text-base !bg-[var(--ek-p-raised)] !text-[var(--ek-p-body)] !ring-[var(--ek-p-border-strong)] md:h-12 md:w-12 md:text-lg"
     />
   );
 }
@@ -46,11 +46,11 @@ function Photo({ src, handle }: { src: string | null; handle: string }) {
 function Who({ name, handle }: { name: string; handle: string }) {
   return (
     <div className="min-w-0 flex-1">
-      <h1 className="truncate font-funnel-display text-xl font-medium leading-tight tracking-tight text-[#F5F6F8] md:text-2xl">
+      <h1 className="truncate font-funnel-display text-xl font-medium leading-tight tracking-tight text-[var(--ek-p-text)] md:text-2xl">
         {name}
       </h1>
       {name !== `@${handle}` ? (
-        <p className="mt-0.5 truncate font-funnel-sans text-sm text-[#9BA1AC] md:text-base">
+        <p className="mt-0.5 truncate font-funnel-sans text-sm text-[var(--ek-p-muted)] md:text-base">
           @{handle}
         </p>
       ) : null}
@@ -83,20 +83,20 @@ function Rank({
       <p className="sr-only">{line}</p>
       <p
         aria-hidden="true"
-        className="mt-3 whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-[#F5F6F8] tabular-nums md:text-[5.5rem]"
+        className="mt-3 whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-[var(--ek-p-text)] tabular-nums md:text-[5.5rem]"
       >
         {lead}
       </p>
       {rest ? (
         <p
           aria-hidden="true"
-          className="mt-2 font-funnel-sans text-sm text-[#9BA1AC] md:mt-3 md:text-base"
+          className="mt-2 font-funnel-sans text-sm text-[var(--ek-p-muted)] md:mt-3 md:text-base"
         >
           {rest}
         </p>
       ) : null}
       {chains.length > 0 ? (
-        <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-[#C9CDD4] md:mt-6">
+        <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-[var(--ek-p-body)] md:mt-6">
           {chains.map((c) => (
             <li key={c.chain} className="inline-flex items-center gap-2">
               <ChainLogo chain={c.chain} size={18} />
@@ -116,7 +116,7 @@ export function BenchProfileSkeleton({
   head: Pick<PageHead, 'name' | 'handle' | 'avatar'>;
 }) {
   const bar =
-    'block rounded-full bg-white/[0.05] animate-pulse motion-reduce:animate-none';
+    'block rounded-full bg-[var(--ek-p-chip)] animate-pulse motion-reduce:animate-none';
   return (
     <div className={`${COLUMN} pt-5 md:pt-8`} aria-busy="true">
       <section aria-label="Profile">
@@ -153,9 +153,9 @@ function ConfirmingCard({ line }: { line: string }) {
         className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
       >
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/40 motion-reduce:animate-none" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#F5F6F8]" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[var(--ek-p-text)]" />
       </span>
-      <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-[#F5F6F8] md:text-2xl">
+      <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-[var(--ek-p-text)] md:text-2xl">
         {line}
       </p>
     </div>
@@ -164,8 +164,8 @@ function ConfirmingCard({ line }: { line: string }) {
 
 const TAB =
   'inline-flex h-9 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40';
-const TAB_ON = 'bg-white/[0.10] text-[#F5F6F8]';
-const TAB_OFF = 'text-[#9BA1AC] hover:bg-white/[0.05] hover:text-[#F5F6F8]';
+const TAB_ON = 'bg-[var(--ek-p-chip-hover)] text-[var(--ek-p-text)]';
+const TAB_OFF = 'text-[var(--ek-p-muted)] hover:bg-[var(--ek-p-chip)] hover:text-[var(--ek-p-text)]';
 
 /**
  * v2.13 spec "Profile" (R10, R11, R12), profile-whoop v2 layout on the near-black page: the header
@@ -241,11 +241,11 @@ export default function BenchProfileView({
                 Shipping
               </p>
               <div className="mb-5 mt-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <p className="font-funnel-display text-2xl font-medium tracking-[-0.02em] text-[#F5F6F8] md:text-3xl">
+                <p className="font-funnel-display text-2xl font-medium tracking-[-0.02em] text-[var(--ek-p-text)] md:text-3xl">
                   {streak ?? codeIn}
                 </p>
                 {streak ? (
-                  <p className="font-funnel-sans text-sm text-[#9BA1AC]">
+                  <p className="font-funnel-sans text-sm text-[var(--ek-p-muted)]">
                     {codeIn}
                   </p>
                 ) : null}
@@ -282,7 +282,7 @@ export default function BenchProfileView({
           {tab === 'project' ? (
             <ProjectTab project={d.project} />
           ) : confirming || d.log.length === 0 ? (
-            <p className="font-funnel-sans text-base font-light text-[#C9CDD4]">
+            <p className="font-funnel-sans text-base font-light text-[var(--ek-p-body)]">
               {LOG_EMPTY}
             </p>
           ) : (
@@ -295,7 +295,7 @@ export default function BenchProfileView({
             </ol>
           )}
         </div>
-        <p className="mt-6 max-w-3xl font-funnel-sans text-xs leading-relaxed text-[#9BA1AC] md:mt-8 md:text-sm">
+        <p className="mt-6 max-w-3xl font-funnel-sans text-xs leading-relaxed text-[var(--ek-p-muted)] md:mt-8 md:text-sm">
           {BENCH_SOURCES_LINE}
         </p>
       </section>

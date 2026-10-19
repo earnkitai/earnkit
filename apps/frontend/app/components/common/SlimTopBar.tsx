@@ -4,7 +4,7 @@ import { Wordmark } from '../ui/Logo';
 import { DOCS } from '../../lib/links';
 
 const LINK =
-  'inline-flex min-h-11 items-center px-2 font-funnel-sans text-[13px] font-medium text-[#9BA1AC] transition-colors hover:text-[#F5F6F8] md:min-h-0';
+  'inline-flex min-h-11 items-center px-2 font-funnel-sans text-[13px] font-medium text-[var(--ek-p-muted)] transition-colors hover:text-[var(--ek-p-text)] md:min-h-0';
 
 /**
  * profile-whoop v2: the slim top bar of the premium pages (the profile, the feed) (48px, 56px from md) in place of the site header
@@ -13,14 +13,14 @@ const LINK =
  */
 export default function SlimTopBar() {
   return (
-    <div className="sticky top-0 z-40 border-b border-white/[0.06] bg-[#0B0B0F]/90 backdrop-blur supports-[backdrop-filter]:bg-[#0B0B0F]/75">
+    <div className="sticky top-0 z-40 border-b border-[var(--ek-p-border)] bg-[var(--ek-p-glass)] backdrop-blur">
       <nav
         aria-label="Site"
         className="mx-auto flex h-12 w-full max-w-6xl items-center gap-2 px-4 md:h-14 md:px-8"
       >
         <Link
           href="/"
-          className="mr-auto inline-flex min-h-11 items-center text-[#F5F6F8] md:min-h-0"
+          className="mr-auto inline-flex min-h-11 items-center text-[var(--ek-p-text)] md:min-h-0"
         >
           <Wordmark className="h-[18px] w-auto md:h-5" />
         </Link>
@@ -38,7 +38,7 @@ export default function SlimTopBar() {
         >
           Docs
         </a>
-        <InstallButton className="ml-1 inline-flex h-8 items-center rounded-full border border-white/10 bg-white/[0.04] px-3.5 font-funnel-sans text-[13px] font-medium text-[#F5F6F8] transition-colors hover:bg-white/[0.09]" />
+        <InstallButton className="ml-1 inline-flex h-8 items-center rounded-full border border-[var(--ek-p-border-strong)] bg-[var(--ek-p-chip)] px-3.5 font-funnel-sans text-[13px] font-medium text-[var(--ek-p-text)] transition-colors hover:bg-[var(--ek-p-chip-hover)]" />
       </nav>
     </div>
   );

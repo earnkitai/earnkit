@@ -4,7 +4,7 @@ import { PART_COLORS, PART_WORDS } from './score-colors';
 
 /** profile-whoop v2: a dark card surface (hairline border, soft top-down gradient). */
 export const SURFACE =
-  'rounded-[24px] border border-white/[0.06] bg-gradient-to-b from-[#17191F] to-[#111318]';
+  'rounded-[24px] border border-[var(--ek-p-border)] bg-gradient-to-b from-[var(--ek-p-surface-top)] to-[var(--ek-p-surface)]';
 
 /**
  * profile-whoop v2: the score's parts, each on its own card: its gradient ring with the points in the
@@ -40,7 +40,7 @@ export default function ScoreParts({ parts }: { parts: ProfileData['parts'] }) {
               className="h-[5.5rem] w-[5.5rem] md:h-28 md:w-28"
               numberClassName="text-[1.9rem] md:text-[2.4rem]"
             />
-            <p className="font-funnel-sans text-[13px] leading-snug text-[#9BA1AC] md:text-sm">
+            <p className="font-funnel-sans text-[13px] leading-snug text-[var(--ek-p-muted)] md:text-sm">
               {PART_WORDS[p.label]}
             </p>
           </li>

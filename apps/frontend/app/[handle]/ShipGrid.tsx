@@ -44,7 +44,7 @@ export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
               data-week={g.week}
               data-on={g.on}
               title={monday ? weekLabel(monday) : undefined}
-              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-white/[0.05]'}`}
+              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-[var(--ek-p-chip)]'}`}
               style={g.on ? onStyle(i, grid.length) : undefined}
             />
           );

@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { PART_COLORS, SCORE_COLORS } from '../../app/[handle]/score-colors';
+import { THEME, themeVar } from './theme';
 import { sql } from './db';
 
 /**
@@ -23,9 +24,17 @@ test('10.5 (profile-whoop v2) each score keeps one hue family; every text color 
   const stops = hues.flatMap((h) => [h.from, h.to]);
   assert.equal(new Set(stops).size, stops.length, 'distinct gradient stops');
   // Text set in a hue (the part labels), the primary text and the muted grey: on the page and on both surface stops.
-  const texts = [...hues.map((h) => h.text), SCORE_COLORS.text, SCORE_COLORS.muted, SCORE_COLORS.total.from];
-  for (const bg of [SCORE_COLORS.page, SCORE_COLORS.surface, SCORE_COLORS.surfaceTop])
+  // v4: on the deep-blue THEME (theme.ts), plus its body and accent text and the raised spot.
+  const texts = [...hues.map((h) => h.text), SCORE_COLORS.text, SCORE_COLORS.muted, SCORE_COLORS.total.from, THEME.body, THEME.accent];
+  for (const bg of [SCORE_COLORS.page, SCORE_COLORS.surface, SCORE_COLORS.surfaceTop, THEME.pageTop, THEME.raised])
     for (const t of texts) assert.ok(ratio(t, bg) >= 4.5, `${t} on ${bg}: ${ratio(t, bg).toFixed(2)}`);
+  // The ring stops are graphics: 3:1 or more on both card stops, so every ring reads on navy.
+  for (const bg of [SCORE_COLORS.surface, SCORE_COLORS.surfaceTop])
+    for (const c of [...stops, SCORE_COLORS.total.from, SCORE_COLORS.total.to]) assert.ok(ratio(c, bg) >= 3, `ring ${c} on ${bg}: ${ratio(c, bg).toFixed(2)}`);
+  // One set of tokens: globals.css defines every THEME value as its --ek-p-* variable, unchanged.
+  const theme = readFileSync(join(import.meta.dirname, '../../app/globals.css'), 'utf8');
+  for (const k of Object.keys(THEME) as (keyof typeof THEME)[])
+    assert.match(theme, new RegExp(`${themeVar(k)}: ${THEME[k].replace(/[().]/g, '\\$&')};`, 'i'), k);
   // The rings are gradient strokes with a rounded cap; their draw-in stops under reduced motion.
   const ring = readFileSync(join(import.meta.dirname, '../../app/[handle]/ScoreRing.tsx'), 'utf8');
   assert.match(ring, /linearGradient/);
