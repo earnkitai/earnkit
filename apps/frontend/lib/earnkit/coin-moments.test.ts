@@ -7,7 +7,6 @@ import { bindX } from './claim';
 import { EVENT_LOG_FLAG } from './events';
 import { COIN_NOTE, COIN_PROGRAM, coinAllowed, coinLine, coinNo, coinPitchAllowed, coinYes, offerCoin, raiseLine, showBuiltLive } from './coin-moments';
 import { offerKey, readShownOffer, recordDecline } from './token-offers';
-import { tokenLineFor } from './token-gate';
 import { proposeToken } from './token-proposal';
 import { entriesLine, enteredIds } from './present';
 import { openEntries } from './projects';
@@ -85,7 +84,7 @@ test('10.4b the build entry\'s moment is recorded once and stays open through it
   assert.equal(await coinPitchAllowed(held, entry), false);
 });
 
-/** A fake token flow: the gate passes (the line is the repo's), the deploy records what tokens.ts would. */
+/** A fake token flow: the gate passes (the App proved the repo), the deploy records what tokens.ts would. */
 function tokenDeps(id: number, repo: string) {
   const calls = { deploy: 0, wallets: [] as string[] };
   const deps = {
@@ -94,9 +93,8 @@ function tokenDeps(id: number, repo: string) {
     check: async () => true,
     gate: {
       repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(id, repo)! }),
-      // The Bench proves a coin's repo by its proof branch (v2.13.1 O1), not the earnkit.txt line.
-      branchProof: async () => ({ ok: true as const }),
+      // v2.14 spec 2: the read-only App proved the coin's repo.
+      appProven: async () => true,
       screen: async () => {},
     },
     deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {

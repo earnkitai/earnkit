@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   OTHER_PROJECT_ASK, SUGGEST_ASK, UPDATES_ASK_JOINING, grantsAsk,
   NO_OFFER_LINE, START_ASK, benchBuildAsk, buildingNowLine, pageLine, showsClaimLink, CONFIRMED_LINE, claimAsk, claimAskLine, claimQuestion,
-  NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, cantShowLine, checkingBranchLine, chooseAsk, confirmingLine, enterAsk, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
+  NO_PROJECT_LINE, POST_UPDATE_ASK, UPDATES_ASK, benchReply, buildAsk, chooseAsk, copyLine, enterAsk, privateLine, takenLine, goLiveAsk, onBenchLine, type BenchAsk, type BenchView,
 } from './bench-reply';
 
 const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: true, weeks: 6 };
@@ -26,16 +26,17 @@ test('8.1 spec 2a, word for word', () => {
   ].join('\n'));
 });
 
-test('8.2 spec 2a while confirming, and with the X claim still to do', () => {
-  assert.equal(confirmingLine('Recipe planner'), "Recipe planner joins the Bench as soon as I've confirmed it's yours (a minute or two).");
+test('8.2 spec 2a not counted yet, and with the X claim still to do', () => {
+  // v2.14 spec 2: a project not counted yet says so (the App's install is how it counts).
+  assert.equal(privateLine('Recipe planner'), "Recipe planner isn't counted yet.");
   const link = 'earnkit.com/claim/abcdefghijkl';
   const claim = { kind: 'claim' as const, project_key: null, line: claimAsk(link, 'Recipe planner') };
   const v: BenchView = { project: { ...RECIPE, confirmed: false }, rank: null, claimed: false, handle: null, claimLink: link, fund: [], ask: claim };
   // v2.13.4 (spec 2): the X claim is the one ask, last: the link, then one yes or no.
-  assert.equal(benchReply(v), ['Where you stand', confirmingLine('Recipe planner'), '', 'How to move up', claimAskLine(link), claimQuestion('Recipe planner')].join('\n'));
-  // v2.13.1 O1: the proof branch, then (never showed in the hour) the plain line.
-  assert.equal(benchReply({ ...v, branch: 'checking' }).split('\n')[1], checkingBranchLine('Recipe planner'));
-  assert.equal(benchReply({ ...v, branch: 'failed' }).split('\n')[1], cantShowLine('Recipe planner'));
+  assert.equal(benchReply(v), ['Where you stand', privateLine('Recipe planner'), '', 'How to move up', claimAskLine(link), claimQuestion('Recipe planner')].join('\n'));
+  assert.equal(benchReply({ ...v, branch: 'private' }).split('\n')[1], privateLine('Recipe planner'));
+  assert.equal(benchReply({ ...v, branch: 'taken' }).split('\n')[1], takenLine('Recipe planner'));
+  assert.equal(benchReply({ ...v, branch: 'copy' }).split('\n')[1], copyLine('Recipe planner'));
   const unclaimed = benchReply({ ...v, project: RECIPE });
   assert.equal(unclaimed.split('\n')[1], CONFIRMED_LINE('Recipe planner'));
   assert.ok(unclaimed.endsWith(claimAsk(link, 'Recipe planner')));
@@ -122,7 +123,7 @@ test('O2.5 once claimed, the page link right after the stand line', () => {
   const v: BenchView = { project: RECIPE, rank: null, claimed: true, handle: 'maya_makes', claimLink: null, page: 'https://earnkit.com/maya_makes', fund: [], ask: null };
   assert.deepEqual(benchReply(v).split('\n').slice(1, 3), [onBenchLine('Recipe planner', null, 6), 'Your page: https://earnkit.com/maya_makes']);
   assert.equal(pageLine('https://earnkit.com/x'), 'Your page: https://earnkit.com/x');
-  assert.match(benchReply({ ...v, project: { ...RECIPE, confirmed: false }, branch: 'checking' }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
+  assert.match(benchReply({ ...v, project: { ...RECIPE, confirmed: false }, branch: 'private' }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
   assert.match(benchReply({ ...v, project: null }), /^Your page: https:\/\/earnkit\.com\/maya_makes$/m);
 });
 

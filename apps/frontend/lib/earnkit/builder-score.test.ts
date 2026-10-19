@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { sql } from './db';
 import { HOLD, SCORE_SLICE, buildInputs, siteShowsUse, emptyReason, holdReason, profileEmpty, publicRow, scoreSliceEnd, scoresAdminKey, scoresPost, sourceShares, type ReadingRow, type SourceRow } from './builder-score';
 import { ScoreDeadline } from './campaigns';
-import { discover, proofLineCheck, provenLogin } from './discovery';
+import { discover, provenLogin } from './discovery';
 import { oneParam } from './http';
 import { ownerClears } from './profiles';
 import { computeScore } from './score';
@@ -348,14 +348,15 @@ test('6.18b readSources: a read cut by the deadline writes no reading; the sourc
   assert.equal(left.last_read_day, null);
 });
 
-test('6.19 provenLogin: one login across the group or none; the proof-line check is injected, budgeted and deadline-bound', dbTest, async () => {
+test('6.19 provenLogin (v2.14): one App installer login across the group or none; a sign-in or a proof line names no one', dbTest, async () => {
   const stamp = `${T}-${process.pid}`;
   const inst = async (tag: string, root?: number) => {
     const [r] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`v212-t6-${tag}-${stamp}`}, ${root ?? null}) RETURNING id`;
     return r.id;
   };
-  const verified = (installationId: number, login: string) => sql()`
-    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos) VALUES (${`${login}/r`}, ${login}, ${installationId}, now(), 3)`;
+  const verified = (installationId: number, login: string, via: 'app' | 'oauth' = 'app') => sql()`
+    INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
+    VALUES (${`${login}/r`}, ${login}, ${installationId}, now(), 3, ${via === 'app' ? 'app' : 'entry'}, ${via})`;
   const a = await inst('a');
   await verified(a, 'ann');
   await verified(await inst('a2', a), 'Bob');
@@ -363,24 +364,11 @@ test('6.19 provenLogin: one login across the group or none; the proof-line check
   const c = await inst('c');
   await verified(c, 'Cy');
   await verified(await inst('c2', c), 'cy');
-  assert.deepEqual(await provenLogin(c), { login: 'cy', basis: 'signin' });
+  assert.deepEqual(await provenLogin(c), { login: 'cy', basis: 'app' });
   const e = await inst('e');
+  await verified(e, `dee${T}`, 'oauth');
   await proposeSource({ builder_id: e, kind: 'repo', ref: `dee${T}/x`, project_key: `dee${T}/x`, proposed_by: 'agent' });
-  const calls: string[] = [];
-  const proofLine = async (m: number, ref: string) => {
-    calls.push(`${m} ${ref}`);
-    return { login: `dee${T}`, basis: 'proof_line' as const };
-  };
-  assert.deepEqual(await provenLogin(e, { proofLine }), { login: `dee${T}`, basis: 'proof_line' });
-  assert.deepEqual(calls, [`${e} dee${T}/x`]);
-  assert.equal(await provenLogin(e), null, 'no check given: no proof-line login');
-  // The run's check: never without the run's budgeted fetch, never once the budget is spent or the slice is nearly over.
-  const noFetch = async () => {
-    throw new Error('unexpected fetch');
-  };
-  assert.equal(await proofLineCheck(fakeReader({}), Date.now() + 60_000)(e, `dee${T}/x`), null);
-  await assert.rejects(proofLineCheck(fakeReader({}, { ghFetch: noFetch, ghSpent: () => true }), Date.now() + 60_000)(e, `dee${T}/x`), GitHubBudgetStop);
-  await assert.rejects(proofLineCheck(fakeReader({}, { ghFetch: noFetch, ghSpent: () => false }), Date.now() + 1_000)(e, `dee${T}/x`), ScoreDeadline);
+  assert.equal(await provenLogin(e), null, 'a v2.9 sign-in or a proposed repo names no one');
   await sql()`DELETE FROM builder_sources WHERE builder_id = ${e}`;
   await sql()`DELETE FROM installations WHERE token_hash LIKE ${`v212-t6-%-${stamp}`}`;
 });

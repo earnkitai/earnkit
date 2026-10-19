@@ -17,11 +17,9 @@ import { guideText, programGuide } from './guide';
 import { rememberWallet, saveBuild, setWorkingOn } from './installations';
 import { enteredProgramIds, hasProgramEntry } from './projects';
 import { setSanctionsOracle } from './sanctions';
-import { tokenLineFor } from './token-gate';
 import type { DeployDeps } from './deploy';
 import { freshLead, presentFirstMessage, type RepoFit } from './present';
 import { launchLimit, type TokenFlowDeps } from './token-launch';
-import { fakeGitHub } from './fixtures/fake-github-branch';
 import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
@@ -257,7 +255,7 @@ async function afterGuide(programId: string, text: string) {
   return text.slice(g.length + 2);
 }
 
-async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean; keepContract?: boolean; branch?: boolean } = {}) {
+async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: string) => boolean; extra?: SubmissionRequirement[]; noOffer?: boolean; keepContract?: boolean } = {}) {
   const stamp = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const arc = committedProgram('arc-microgrants', { keepContract: o.keepContract });
   const p = { ...arc, id: `t8-${tag}-${stamp}`, status: 'active', ends_at: '2099-01-01T00:00:00Z', submission_requirements: [...arc.submission_requirements, ...(o.extra ?? [])] };
@@ -272,9 +270,8 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
     check: async (s: string) => (o.check ? o.check(s) : true),
     gate: {
       repo: async () => { calls.gate++; return { fork: false, hasCommits: true, aheadOfParent: null }; },
-      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(inst, repo)! }),
-      // `branch` (v2.14 T3 fix round 1): the Bench proves a coin's repo by its proof branch, not the line.
-      ...(o.branch && { branchProof: async () => ({ ok: true as const }) }),
+      // v2.14 spec 2: the read-only App proved the coin's repo.
+      appProven: async () => true,
       screen: async () => {},
     },
     // What the real deploy records (tokens.ts deployToken), so later calls see the row's token.
@@ -2080,25 +2077,19 @@ type ShipReply = BuildReply & { deploy?: Record<string, unknown>; host?: Record<
 
 /**
  * A started and checked build (the twist with the wallet and the repo) for a fresh login's repo
- * `<login>/podtips`, whose builder said the login is theirs; GitHub's public read of it is cached
- * (`days` old, 5 public repos). A fake Arc chain that counts deploys, the proof line in the repo
- * (`line: false`: none), a passing link probe, and `ship(deploy)` for the build mark.
+ * `<login>/podtips`. v2.14 spec 2 (`app`): the read-only App proved the repo (its `github_app` source and the
+ * App verification its setup URL wrote, the installer `login`, `days` old with 5 public repos). A fake Arc chain
+ * that counts deploys, a passing link probe, and `ship(deploy)` for the build mark.
  */
-type PusherFn = (r: { owner: string; repo: string }, hasLine: (text: string) => boolean, issuedAt: Date | null) => Promise<string | null>;
 async function shipSetup(
   tag: string,
   tc: TestContext,
-  o: { days?: number; line?: boolean; hostOn?: boolean; deployOn?: boolean; pusher?: string | null; ownerRead?: string; github?: (inst: number, login: string) => PusherFn; branch?: boolean } = {},
+  o: { days?: number; hostOn?: boolean; deployOn?: boolean; ownerRead?: string; app?: boolean } = {},
 ) {
   const t = await buildSetup(`t9-${tag}`, tc);
   const login = `jt9${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   const repo = `https://github.com/${login}/podtips`;
   const repoKey = `${login}/podtips`;
-  await sql()`UPDATE installations SET github_user = ${login} WHERE id = ${t.inst}`;
-  const note = JSON.stringify({ type: 'User', created_at: new Date(Date.now() - (o.days ?? 730) * 86_400_000).toISOString(), public_repos: 5 });
-  await sql()`
-    INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${login}`}, true, now(), ${note})
-    ON CONFLICT (key) DO UPDATE SET ok = true, checked_at = now(), note = EXCLUDED.note`;
   const sent: string[] = [];
   const chain = {
     estimate: async () => ({ gas: 100_000n, maxFeePerGas: 100_000_000_000n }),
@@ -2112,37 +2103,29 @@ async function shipSetup(
     write: async () => `0x${'cd'.repeat(32)}` as const,
   };
   const reads: string[] = [];
-  const gate = {
-    owner: async (r: { owner: string; repo: string }) => {
-      reads.push(`${r.owner}/${r.repo}`);
-      return o.line === false ? ({ status: 'missing' as const }) : ({ status: 'ok' as const, text: `${tokenLineFor(t.inst, `https://github.com/${r.owner}/${r.repo}`)}\n` });
-    },
-    latest: async () => null,
-    // T9 security fix I1: who GitHub's push record says added the line (default: the repo owner).
-    pusher: o.github ? o.github(t.inst, login) : async () => (o.pusher === undefined ? login : o.pusher),
-  };
   const probes: string[] = [];
-  const gh = fakeGitHub();
   const ctx = {
     ...t.ctx,
     freshDeps: { ...t.ctx.freshDeps, hostOn: o.hostOn ?? true, deployOn: () => o.deployOn ?? true },
     // A month of its own far ahead, so the shared monthly gas counter never runs out under other runs.
-    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2170 + (Date.now() % 50), Number(process.pid % 12), 3)), gate },
+    deployDeps: { chain: () => chain, usdPerNative: async () => 1, now: new Date(Date.UTC(2170 + (Date.now() % 50), Number(process.pid % 12), 3)) },
     verifyDeps: { probe: async (u: string) => void probes.push(u) },
-    // v2.14 T3 fix round 1 (`branch`): the Bench proves the build's repo by its proof branch on a fake GitHub.
-    ...(o.branch && { proofBranchFetch: gh.f }),
   };
   await withVars(shipVars(), async () => {
     await t.start(ctx);
     const twisted = await t.twist({ wallet: T8_WALLET, repo_url: repo }, ctx);
     assert.match(twisted.show_to_builder, /^Building PodTips/);
-    // The agent pushes the kit's proof branch from the builder's own account (as v213-journey 16.2 does).
-    if (o.branch) {
-      const branch = (twisted as { kit?: { proof_branch?: { branch?: string } } }).kit?.proof_branch?.branch;
-      assert.match(branch ?? '', /^earnkit-[a-z2-7]{12}$/, JSON.stringify(twisted));
-      gh.push(repoKey, branch!, login);
-    }
   });
+  if (o.app) {
+    // The builder installed the read-only App on the new repo (github-app.ts appSetup, repo-proof.ts proveByApp).
+    await sql()`
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type)
+      VALUES (${t.inst}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${login}, 'User')
+      ON CONFLICT (builder_id, kind, ref) DO UPDATE SET state = 'verified', proof = 'github_app', verified_at = now(), gh_owner = EXCLUDED.gh_owner, gh_owner_type = 'User'`;
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via)
+      VALUES (${repoKey}, ${login}, ${t.inst}, ${new Date(Date.now() - (o.days ?? 730) * 86_400_000)}, 5, 'app', 'app')`;
+  }
   reads.length = 0;
   // T9 N1: the starter's real forge bytecode (the build path deploys nothing else).
   const deploy = (d: Record<string, unknown> = {}) => ({
@@ -2163,7 +2146,7 @@ async function shipSetup(
       },
       c,
     ) as Promise<ShipReply>;
-  return { ...t, ctx, login, repo, repoKey, sent, reads, probes, ship, deploy, gh };
+  return { ...t, ctx, login, repo, repoKey, sent, reads, probes, ship, deploy };
 }
 
 const T8_REPO = 'https://github.com/jenil04/podtips';
@@ -2231,7 +2214,7 @@ test('T11 fix (journey 11.0): tell\'s "I submitted" keeps the entry\'s verified 
 test('security re-review 4 F1: the build\'s own unconfirmed deploy for a wallet that has since changed is never settled', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('f1wallet', tc, { branch: true });
+      const t = await shipSetup('f1wallet', tc, { app: true });
       const real = t.ctx.deployDeps.chain();
       const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
       assert.equal((await t.ship({}, slow)).agent_note, BUILD_PENDING_NOTE);
@@ -2357,9 +2340,9 @@ test('8.2 the twist with a wallet: the building line and the kit (degit path, pr
   atMostOneQuestion(r, '8.2');
   assert.equal(r.kit?.degit, 'npx degit earnkitai/chain-kits/arc/tipjar <project>');
   assert.deepEqual(r.kit?.twist_slots, { name: 'PodTips', description: T8_POD.description, feature: T8_POD.feature });
-  // The Bench: the repo is proven by its proof branch (no earnkit.txt line).
-  assert.equal(r.kit?.proof_line, null);
-  assert.match((r.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
+  // v2.14 spec 2: no proof line or branch in the kit: the read-only App proves the repo.
+  assert.ok(!('proof_line' in (r.kit ?? {})) && !('proof_branch' in (r.kit ?? {})), JSON.stringify(r.kit));
+  assert.doesNotMatch(JSON.stringify(r.kit), /earnkit-[a-z2-7]{12}|earnkit\.txt line|token: [0-9a-f]{16}/);
   assert.equal(r.kit?.owner_wallet, T8_WALLET);
   assert.deepEqual(r.build, { program_id: t.p.id, starter_id: t.starterId, step: 'build' });
   const s = await t.stored();
@@ -2373,12 +2356,11 @@ test('8.2 the twist with a wallet: the building line and the kit (degit path, pr
   // Sent again unchanged (the agent adding nothing new): the builder already saw the building line.
   const again = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
   assert.equal(again.show_to_builder, '');
-  assert.equal((again.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch, (r.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch, 'the same open code');
   // The next build's twist question needs no wallet: never asked twice.
   assert.equal((await t.start()).show_to_builder, twistQuestion(true));
 });
 
-test('8.2 the twist before the repo exists: the kit says to send build.repo_url for the proof branch, and that call shows the builder nothing new', dbTest, async (tc) => {
+test('8.2 the twist before the repo exists: the kit has no proof step, and the call with the repo shows the builder nothing new', dbTest, async (tc) => {
   const t = await buildSetup('norepo', tc);
   const secret = process.env.EARNKIT_AUTH_SECRET;
   process.env.EARNKIT_AUTH_SECRET = 'test-secret-t8';
@@ -2389,12 +2371,10 @@ test('8.2 the twist before the repo exists: the kit says to send build.repo_url 
   await t.start();
   const r = await t.twist({ wallet: T8_WALLET });
   assert.match(r.show_to_builder, /^Building PodTips/);
-  // No repo yet: no proof branch; the kit's order says to send build.repo_url for it.
   assert.equal((r.kit as { proof_branch?: unknown } | undefined)?.proof_branch, undefined);
-  assert.ok(r.kit?.order.some((o) => /build\.repo_url/.test(o)), JSON.stringify(r.kit?.order));
   const later = await t.twist({ wallet: T8_WALLET, repo_url: T8_REPO });
   assert.equal(later.show_to_builder, '');
-  assert.match((later.kit as { proof_branch?: { branch: string } } | undefined)?.proof_branch?.branch ?? '', /^earnkit-[a-z2-7]{12}$/);
+  assert.equal((later.kit as { proof_branch?: unknown } | undefined)?.proof_branch, undefined);
   // A repo under EarnKit's own org is the kit, never the builder's.
   refusedQuietly(await t.twist({ wallet: T8_WALLET, repo_url: 'https://github.com/earnkitai/chain-kits' }), /^Fix build\.repo_url/);
 });
@@ -2404,7 +2384,7 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
     withVars(shipVars(), async () => {
       const { deployedLine } = await import('./deploy');
       const { deploySite, liveLine } = await import('./hosting');
-      const t = await shipSetup('ship', tc, { branch: true });
+      const t = await shipSetup('ship', tc, { app: true });
       const r = await t.ship();
       assert.equal(t.sent.length, 1, 'exactly one deploy');
       const { decodeDeployData } = await import('viem');
@@ -2420,10 +2400,9 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       assert.deepEqual(r.build, { program_id: t.p.id, starter_id: t.starterId, step: 'host' });
       atMostOneQuestion(r, '9.3');
       assert.ok(!JSON.stringify(r.show_to_builder).includes(String(r.host?.upload_url)), 'the upload URL is never builder text');
-      // The Bench: the proof branch proved the build; the deploy's own gate read the repo once, never again for hosting.
-      assert.deepEqual(t.reads, [t.repoKey]);
+      // v2.14 spec 2: the App proved the build's repo; its installer is the hosting login.
       const [tok] = await sql()<{ basis: string; login: string }[]>`SELECT basis, login FROM host_upload_tokens WHERE installation_id = ${t.inst}`;
-      assert.deepEqual({ ...tok }, { basis: 'proof_line', login: t.login });
+      assert.deepEqual({ ...tok }, { basis: 'app', login: t.login });
       const events = await buildEventsOf(t.inst);
       assert.deepEqual(events.map((e) => e.type), ['built', 'deployed']);
       const [built, deployed] = events;
@@ -2431,12 +2410,12 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       assert.equal(built.proof_url, t.repo);
       assert.equal(built.program_id, t.p.id);
       assert.equal(built.wallet, T8_WALLET);
-      assert.deepEqual([built.github_login, built.login_basis], [t.login, 'proof_line']);
+      assert.deepEqual([built.github_login, built.login_basis], [t.login, 'app']);
       assert.deepEqual(built.detail, { starter: t.starterId, twist: T8_POD.twist });
       // T9 M3, N1: the starter's exact bytecode, so the deployed event names the starter.
       assert.equal(deployed.wallet, T8_WALLET);
       assert.equal(deployed.chain, 'arc');
-      assert.deepEqual([deployed.github_login, deployed.login_basis], [t.login, 'proof_line']);
+      assert.deepEqual([deployed.github_login, deployed.login_basis], [t.login, 'app']);
       assert.equal(deployed.detail.starter, t.starterId);
       assert.equal(deployed.detail.address, T9_ADDR);
       // 9.6: the upload's own reply is v2.9's liveLine, and it writes hosted once.
@@ -2447,7 +2426,7 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
       assert.equal(up.body.show_to_builder, liveLine('PodTips', `podtips-${t.login}`));
       assert.equal(up.body.show_to_builder, `PodTips is live: podtips-${t.login}.earnkit.com`);
       const after = await buildEventsOf(t.inst);
-      assert.deepEqual(after.map((e) => [e.type, e.login_basis]), [['built', 'proof_line'], ['deployed', 'proof_line'], ['hosted', 'proof_line']]);
+      assert.deepEqual(after.map((e) => [e.type, e.login_basis]), [['built', 'app'], ['deployed', 'app'], ['hosted', 'app']]);
       // A rerun of the same call writes no second built (one per repo and program).
       await t.ship();
       assert.equal((await buildEventsOf(t.inst)).filter((e) => e.type === 'built').length, 1);
@@ -2459,7 +2438,7 @@ test('9.3 the build mark with deploy and host: true deploys once (owner and cons
 test('9.4 v2.10.3 DEPLOY_CHAINS=base: the Arc build\'s deploy is refused as deployStep refuses it ("Deploys on Arc are off right now."); nothing deployed, read, hosted or logged; no chain left is the plain off line', dbTest, (tc) =>
   withEventLog(async () => {
     const { DEPLOY_LINES, deployOffLine, deployOffNote } = await import('./deploy');
-    const t = await shipSetup('chains', tc, { branch: true });
+    const t = await shipSetup('chains', tc, { app: true });
     const real = { ...t.ctx, freshDeps: { ...t.ctx.freshDeps, deployOn: undefined } };
     for (const [label, c] of [['the real switches', real], ['a deploy switch left on', t.ctx]] as const) {
       const r = await withVars({ ...shipVars(), DEPLOY_CHAINS: 'base' }, () => t.ship({}, c));
@@ -2485,10 +2464,10 @@ test('9.4 v2.10.3 DEPLOY_CHAINS=base: the Arc build\'s deploy is refused as depl
   }),
 );
 
-test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] that is not the build wallet, the wrong chain, no proof branch, no checked build, or a shared client: an agent note, nothing deployed or logged', dbTest, (tc) =>
+test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] that is not the build wallet, the wrong chain, a repo the App has not proven, no checked build, or a shared client: an agent note, nothing deployed or logged', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('m5', tc, { branch: true });
+      const t = await shipSetup('m5', tc, { app: true });
       const OTHER = '0x2222222222222222222222222222222222222222';
       const cases: [string, Record<string, unknown>, RegExp][] = [
         ['another owner_wallet', { owner_wallet: OTHER }, /^deploy\.owner_wallet must be the build's wallet/],
@@ -2506,10 +2485,10 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
       assert.deepEqual(upper.deploy, { address: T9_ADDR, chain: 'arc', owner_ok: true });
       assert.equal(t.sent.length, 1, 'only the matching call deployed');
 
-      // The Bench: no proof branch pushed yet, so no deploy: the agent is told to push it first.
+      // v2.14 spec 2: the App isn't installed on the repo yet, so no deploy (no page yet: no install link either).
       const noLine = await shipSetup('m5line', tc);
       const nl = await noLine.ship();
-      refusedQuietly(nl, /^Push the proof branch first: git push origin HEAD:refs\/heads\/earnkit-[a-z2-7]{12}/);
+      refusedQuietly(nl, /read-only EarnKit app/);
       assert.equal(noLine.sent.length, 0);
       assert.deepEqual(await buildEventsOf(noLine.inst), []);
 
@@ -2532,7 +2511,7 @@ test('9.x (review T8 M5) the mark fails closed: an owner or constructor_args[0] 
 test('security re-review 4 F1: a timed-out v2.10 deploy of other bytecode is never settled or labelled as the starter by the build path', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('f1v210', tc, { branch: true });
+      const t = await shipSetup('f1v210', tc, { app: true });
       const real = t.ctx.deployDeps.chain();
       const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
       // v2.10's plain prepare with deploy: any bytecode (here the starter's plus one byte), its receipt never comes.
@@ -2601,7 +2580,7 @@ type JoinedReply = ShipReply & {
  * to EarnKit hosting and returns its link; `joined(live_url)` is the call after the live link.
  */
 async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof shipSetup>[2] = {}) {
-  const t = await shipSetup(`t10-${tag}`, tc, { branch: true, ...o });
+  const t = await shipSetup(`t10-${tag}`, tc, { app: true, ...o });
   // The Bench: the builder has a page (find made it), so the build's live reply can pitch its coin.
   await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10j${t.inst}`}, now()) ON CONFLICT DO NOTHING`;
   const launched: string[] = [];
@@ -2611,9 +2590,8 @@ async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof ship
     check: async () => true,
     gate: {
       repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-      owner: async () => ({ status: 'ok' as const, text: tokenLineFor(t.inst, t.repo)! }),
-      // The Bench proves a coin's repo by its proof branch (v2.13.1 O1), not the earnkit.txt line.
-      branchProof: async () => ({ ok: true as const }),
+      // v2.14 spec 2: the read-only App proved the coin's repo.
+      appProven: async () => true,
       screen: async () => {},
     },
     deploy: async (d: { projectId: number; name: string; symbol: string; creatorWallet: string }) => {
@@ -2647,7 +2625,7 @@ const T10_CONFIRM = (symbol: string) =>
 test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the agent; a github.io link of the repo owner that loads writes hosted (github_pages), anyone else\'s writes none', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars({ r2: false }), async () => {
-      const t = await shipSetup('pages', tc, { hostOn: false, branch: true });
+      const t = await shipSetup('pages', tc, { hostOn: false, app: true });
       const r = await t.ship();
       assert.equal(t.sent.length, 1);
       assert.equal(r.show_to_builder, '', 'T10: the deployed line waits for the live link');
@@ -2678,7 +2656,7 @@ test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the age
 test('9.5 a github.io link that does not load writes no hosted event', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars({ r2: false }), async () => {
-      const t = await shipSetup('pagesdown', tc, { hostOn: false, branch: true });
+      const t = await shipSetup('pagesdown', tc, { hostOn: false, app: true });
       await t.ship();
       const down = { ...t.ctx, verifyDeps: { probe: async () => { throw new Error('404'); } } };
       await t.ship(null, down, { live_url: `https://${t.login}.github.io/podtips-down/` });
@@ -2702,7 +2680,7 @@ test('T9 I2 the Pages hosted event: only the build\'s own repo with a contract d
       assert.equal(pagesLinkOf('alice/site', 'https://bob.github.io/site/'), null);
       assert.equal(pagesLinkOf('alice/site', 'https://alice.github.io/site/?x=1'), null);
       // No contract deployed yet for this installation: nothing, even for the right link.
-      const t = await shipSetup('pagesi2', tc, { hostOn: false, branch: true });
+      const t = await shipSetup('pagesi2', tc, { hostOn: false, app: true });
       const live = `https://${t.login}.github.io/podtips/`;
       await t.ship(null, t.ctx, { live_url: live });
       assert.deepEqual(await buildEventsOf(t.inst), []);
@@ -2724,7 +2702,7 @@ test('T9 I2 the Pages hosted event: only the build\'s own repo with a contract d
 test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a deploy refused by a cap writes no built', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('notowned', tc, { ownerRead: '0x3333333333333333333333333333333333333333', branch: true });
+      const t = await shipSetup('notowned', tc, { ownerRead: '0x3333333333333333333333333333333333333333', app: true });
       const r = await t.ship();
       assert.equal(r.show_to_builder, 'PodTips is deployed on Arc: 0x0000…11ce.');
       assert.ok(!('host' in r), 'no host block');
@@ -2734,7 +2712,7 @@ test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a
       const capped = await t.ship();
       assert.equal(capped.show_to_builder, 'You can deploy once a day per chain, 3 times a month.');
       assert.equal(t.sent.length, 1);
-      const capOnly = await shipSetup('caponly', tc, { branch: true });
+      const capOnly = await shipSetup('caponly', tc, { app: true });
       // N2: three deploys of this repo today by other installations reach the per-repo day cap.
       await sql()`
         INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, status, cost_micro_usd)
@@ -2749,7 +2727,7 @@ test('T9 M6 a deployed contract the build wallet does not own gets no site; M4 a
 test('final fix M8: a receipt timeout never strands the build: the same deploy-and-host call again settles the sent deploy from its receipt, sends nothing new and goes on to hosting', dbTest, (tc) =>
   withEventLog(() =>
     withVars(shipVars(), async () => {
-      const t = await shipSetup('m8pending', tc, { branch: true });
+      const t = await shipSetup('m8pending', tc, { app: true });
       const real = t.ctx.deployDeps.chain();
       const slow = { ...t.ctx, deployDeps: { ...t.ctx.deployDeps, chain: () => ({ ...real, receipt: async () => null }) } };
       const first = await t.ship({}, slow);
@@ -2945,7 +2923,7 @@ test('10.4 the yes hands over the DoraHacks kit (copy-paste only); tell submitte
 
 test('10.13 the build path: the live reply asks "It\'s live. Want to launch a coin for it?" with the wallet; yes launches and is counted; a program entry never', dbTest, () =>
   withTokenEnv(async () => {
-    const t = await confirmSetup('t10-built', { remembered: W8, noOffer: true, branch: true });
+    const t = await confirmSetup('t10-built', { remembered: W8, noOffer: true });
     await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at) VALUES (${t.inst}, ${`t10b${t.inst}`}, now())`;
     await saveBuild(t.inst, { program_id: t.p.id, starter_id: 'arc-tipjar', started_at: new Date().toISOString(), wallet: W8.toLowerCase(), name: 'Tip Jar', repo_url: t.repo });
     const join = { lead: ['Tip Jar is live: tipjar.xyz'], wallet: W8.toLowerCase() };
@@ -2991,10 +2969,10 @@ test('9.4 deploys off: "Deploys are off right now.", nothing deployed, no upload
   }),
 );
 
-test('9.1 prepare host: true off a shared client: the proof line and the public account read give host.upload_url with no sign_in_url; 10 days old gives the gate line', dbTest, (tc) =>
+test('9.1 prepare host: true off a shared client: an App-proven repo gives host.upload_url with no sign_in_url; an installer 10 days old gives the gate line', dbTest, (tc) =>
   withVars(shipVars(), async () => {
     for (const [days, expect] of [[730, 'upload'], [10, 'gate']] as const) {
-      const t = await shipSetup(`host${days}`, tc, { days });
+      const t = await shipSetup(`host${days}`, tc, { days, app: true });
       const r = (await tools.prepare(
         { program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, host: true },
         t.ctx,

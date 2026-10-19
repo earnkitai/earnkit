@@ -373,10 +373,10 @@ test('8.5 BUILD_CHAT_ONLY: "I can\'t build from here", no question, no tool or p
 
 test('9.12 (v2.12.1 T9) buildKit with an attribution line carries it and one rule for the agent; without one, the v2.11 kit', () => {
   const line = { codes: ['ek_x', 'earnkit'], data_suffix: '0xabc' };
-  const kit = buildKit(TIPJAR, { ...POD, wallet: WALLET }, { proof: null }, line);
+  const kit = buildKit(TIPJAR, { ...POD, wallet: WALLET }, line);
   assert.deepEqual(kit.attribution, line);
   assert.ok(kit.rules.some((r) => r.includes('data_suffix')));
-  const plain = buildKit(TIPJAR, { ...POD, wallet: WALLET }, { proof: null });
+  const plain = buildKit(TIPJAR, { ...POD, wallet: WALLET });
   assert.ok(!('attribution' in plain));
   assert.ok(!plain.rules.some((r) => r.includes('data_suffix')));
   assert.deepEqual(kit.rules.slice(0, -1), plain.rules);

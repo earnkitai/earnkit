@@ -208,10 +208,16 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
       if (/^0x[0-9a-f]{40}$/.test(a)) await claim(`base:${a}`, `base:${a}`, {});
     }
 
-  const proof = await (o.login ?? provenLogin)(root);
+  let proof = await (o.login ?? provenLogin)(root);
+  if (proof) {
+    // One login, one person: a login another profile already holds names no one here, and once a profile has
+    // its login (set once, by setFallback) a different proven login names no one either.
+    const [taken] = await db`SELECT 1 FROM builder_profiles WHERE lower(github_login) = ${proof.login.toLowerCase()} AND builder_id <> ${root}`;
+    const [own] = await db<{ login: string | null }[]>`SELECT lower(github_login) AS login FROM builder_profiles WHERE builder_id = ${root}`;
+    if (taken || (own?.login && own.login !== proof.login.toLowerCase())) proof = null;
+  }
   if (proof) {
     const L = proof.login.toLowerCase();
-    // One login, one person: a login another profile already holds names no one here (setFallback sets it once).
     const user = await d.gh<{ blog?: string | null; twitter_username?: string | null }>(`/users/${L}`);
     const clues = githubProfileClues(user ?? {});
     verdicts.unshift(async (tx) => {

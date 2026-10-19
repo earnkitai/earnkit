@@ -23,19 +23,19 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, claimFirstLine } from './share';
 import { EARN_NOTE, rollingLine, standingNews, usersMoneyLine, type StandProject } from './stand-text';
-import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, goLiveLineNote, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
+import { GO_LIVE_LINES, GO_LIVE_NOT_YET_NOTE, goLivePagesNote, goLiveSignInNote, goLiveUploadNote, goLiveWrongLinkNote } from './tools';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
-import { OWNERSHIP_FOR_TOKEN_BENCH, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_OWNER_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, CANT_PUSH_SIGN_IN_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, SIGN_IN_OR_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, buildProofNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, PICKUP_TEXT, SIGN_IN_CODE_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
 import type { SubmissionRequirement } from './program-file';
-import { SIGN_IN_FIRST, WALLET_CHANGED, ownerProblem, tokenGate, tokenLineFor, type GateDeps, type GateInput } from './token-gate';
+import { tokenGate, type GateDeps, type GateInput } from './token-gate';
 import {
   CANT_PUSH,
   NEEDS_REPO,
@@ -49,7 +49,7 @@ import {
   proofLineWaiting,
   signInLine,
 } from './confirm';
-import { CONFIRM_WARNING, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
+import { APP_CONFIRM_ONLY_YOURS, VERIFY_PAGE, codeLine, confirmPage } from './github-verify';
 import { AGENT_FILL_STEPS, continuesLine, kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import {
   decideToken,
@@ -357,17 +357,14 @@ const policyText = policyHtml
 async function gatherGateReasons(): Promise<[string, string][]> {
   const REPO = 'https://github.com/acme/kit';
   const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
+  // v2.14 spec 2: the App is the only proof (appProven); nothing is read from earnkit.txt.
   const okDeps: Required<GateDeps> = {
-    verified: async () => null,
-    branchProof: async () => null,
-  shared: async () => false,
-    // v2.10 item 7b: no App reads.
+    shared: async () => false,
     appToken: async () => null,
-    appLink: async () => null,
+    appLink: async () => 'https://earnkit.com/github/verify?n=x',
     repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-    owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
-    latest: async () => null,
     screen: async () => {},
+    appProven: async () => true,
   };
   const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
     ['policy off', { policy: 'off' }, {}],
@@ -377,9 +374,8 @@ async function gatherGateReasons(): Promise<[string, string][]> {
     ['GitHub down (repo read)', {}, { repo: async () => { throw new Error('GitHub request failed (502)'); } }],
     ['no commits', {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }],
     ['fork with no new commits', {}, { repo: async () => ({ fork: true, hasCommits: true, aheadOfParent: 0 }) }],
-    ['earnkit.txt missing', {}, { owner: async () => ({ status: 'missing' }) }],
-    ['earnkit.txt lacks the line', {}, { owner: async () => ({ status: 'ok', text: 'payout_wallet: 0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' }) }],
-    ['GitHub down (earnkit.txt read)', {}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }],
+    ['App not installed', {}, { appProven: async () => false }],
+    ['App not installed, no link', {}, { appProven: async () => false, appLink: async () => null }],
     ['sanctioned wallet', {}, { screen: async () => { throw new Error("This wallet can't receive token fees on EarnKit."); } }],
   ];
   const out: [string, string][] = [];
@@ -387,15 +383,6 @@ async function gatherGateReasons(): Promise<[string, string][]> {
     const r = await tokenGate({ ...input, ...i }, { ...okDeps, ...d });
     if (!r.ok) out.push([`gate reason: ${label}`, r.reason]);
   }
-  // Also directly: the "file exists but the line is for a different ticker" branch (same as
-  // "earnkit.txt lacks the line" but through a file that parses, to exercise ownerProblem's other arm).
-  const mismatched = ownerProblem(
-    'github.com/acme/kit',
-    { status: 'ok', text: 'token: 1111111111111111' } as FetchResult,
-    '0000000000000000',
-    null,
-  );
-  if (mismatched) out.push(['gate reason: earnkit.txt has a different code', mismatched.reason]);
   return out;
 }
 
@@ -404,38 +391,8 @@ async function gatherGateReasons(): Promise<[string, string][]> {
 // coding agent, never shown to the builder as written), so it must never enter the "never names a
 // tool" / "never asks to edit a file" checks, only the coin/Clanker/emoji/vault/affiliation ones.
 async function gatherGateAgentNotes(): Promise<[string, string][]> {
-  const REPO = 'https://github.com/acme/kit';
-  const input: GateInput = { policy: 'encouraged', repoUrl: REPO, wallet: '0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3', symbol: 'KIT', installationId: 1 };
-  const okDeps: Required<GateDeps> = {
-    verified: async () => null,
-    branchProof: async () => null,
-  shared: async () => false,
-    // v2.10 item 7b: no App reads.
-    appToken: async () => null,
-    appLink: async () => null,
-    repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-    owner: async () => ({ status: 'ok', text: 'token: 0000000000000000' }),
-    latest: async () => null,
-    screen: async () => {},
-  };
-  const cases: [string, Partial<GateInput>, Partial<GateDeps>][] = [
-    ['earnkit.txt missing', {}, { owner: async () => ({ status: 'missing' }) }],
-    ['earnkit.txt lacks the line', {}, { owner: async () => ({ status: 'ok', text: 'payout_wallet: 0x1581AC8d887518Dbcb4a4A15231b96f03706B9a3' }) }],
-    ['GitHub down (earnkit.txt read)', {}, { owner: async () => ({ status: 'error', message: "GitHub didn't answer" }) }],
-  ];
-  const out: [string, string][] = [];
-  for (const [label, i, d] of cases) {
-    const r = await tokenGate({ ...input, ...i }, { ...okDeps, ...d });
-    if (!r.ok && r.agent_note) out.push([`gate agent_note: ${label}`, r.agent_note]);
-  }
-  const mismatched = ownerProblem(
-    'github.com/acme/kit',
-    { status: 'ok', text: 'token: 1111111111111111' } as FetchResult,
-    '0000000000000000',
-    null,
-  );
-  if (mismatched?.agent_note) out.push(['gate agent_note: earnkit.txt has a different code', mismatched.agent_note]);
-  return out;
+  // v2.14 spec 2: the gate gives no agent_note (no proof line to write).
+  return [];
 }
 
 // ---- v2.7 §4 fix round 1 (Important #1): decideToken's agent_note branches, plus the two named
@@ -806,12 +763,10 @@ const signInTexts: [string, string][] = [
   ['signInLine', signInLine('TipJar', 'TIP', 'https://earnkit.com/github/verify?n=x')],
   ['signInLine (no ticker)', signInLine('TipJar', null, 'https://earnkit.com/github/verify?n=x')],
   ...Object.entries(VERIFY_PAGE).map(([k, v]): [string, string] => [`VERIFY_PAGE.${k}`, v]),
-  ['CONFIRM_WARNING', CONFIRM_WARNING],
+  ['APP_CONFIRM_ONLY_YOURS', APP_CONFIRM_ONLY_YOURS],
   ['codeLine', codeLine('ABCDEFGHJK')],
-  ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', purpose: 'entry', symbol: 'TIP', wallet: null }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
+  ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', handle: 'alice' }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
   ['PICKUP_TEXT.signIn', PICKUP_TEXT.signIn],
-  ['SIGN_IN_FIRST', SIGN_IN_FIRST],
-  ['WALLET_CHANGED + link', `${WALLET_CHANGED} Sign in again: https://earnkit.com/github/verify?n=x`],
 ];
 
 // v2.10 item 4: confirm's line for a skip of an entry's token (the v2.9 offer path is gone).
@@ -1042,7 +997,6 @@ const agentFacing: [string, string][] = [
   // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['goLiveUploadNote', goLiveUploadNote()],
-  ['goLiveLineNote', goLiveLineNote('lee/tipjar', 'token: 0123456789abcdef')],
   ['goLiveSignInNote', goLiveSignInNote('lee/tipjar')],
   ['goLivePagesNote', goLivePagesNote('lee/tipjar')],
   ['GO_LIVE_NOT_YET_NOTE', GO_LIVE_NOT_YET_NOTE],
@@ -1066,7 +1020,6 @@ const agentFacing: [string, string][] = [
   ['BUILD_PAGES_NOTE', BUILD_PAGES_NOTE],
   // v2.11 T10: the held deployed line, the fresh-push refusal, the joined reply and the build wallet rule.
   ['BUILD_HOLD_NOTE', BUILD_HOLD_NOTE],
-  ['BUILD_OWNER_NOTE', BUILD_OWNER_NOTE],
   ['BUILD_ENTRY_NOTE', BUILD_ENTRY_NOTE],
   ['BUILD_WALLET_NOTE', BUILD_WALLET_NOTE],
   ['BUILD_PENDING_NOTE', BUILD_PENDING_NOTE],
@@ -1078,13 +1031,13 @@ const agentFacing: [string, string][] = [
     feature: 'Each tip can carry a question for the podcast.',
     for_whom: 'for your podcast listeners',
     wallet: '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e',
-  }, { proof: null }).order.map((t, i): [string, string] => [`buildKit.order[${i}]`, t]),
+  }).order.map((t, i): [string, string] => [`buildKit.order[${i}]`, t]),
   ['PLAN_NOTE', PLAN_NOTE],
   ['LAUNCHING_AGENT', LAUNCHING_AGENT],
   ['launchStuckAgent', launchStuckAgent('No answer from tokens.fun.')],
   ['SERVER_INSTRUCTIONS', SERVER_INSTRUCTIONS],
   ['serverInstructions()', serverInstructions()],
-  ['OWNERSHIP_FOR_TOKEN_BENCH', OWNERSHIP_FOR_TOKEN_BENCH],
+  ['OWNERSHIP_FOR_TOKEN', OWNERSHIP_FOR_TOKEN],
   ...Object.entries(TOOL_DESCRIPTIONS).map(([name, d]): [string, string] => [`TOOL_DESCRIPTIONS.${name}`, d]),
   // v2.8 Ruling 23 (plan): the descriptions while no EarnKit campaign is open.
   ...Object.entries(toolDescriptions(false)).map(([name, d]): [string, string] => [`toolDescriptions(false).${name}`, d]),
@@ -1112,9 +1065,7 @@ const agentFacing: [string, string][] = [
   ['SUBMITTED_AGAIN_NOTE', SUBMITTED_AGAIN_NOTE],
   ['SUBMITTED_SHARED_NOTE', SUBMITTED_SHARED_NOTE],
   ['SIGN_IN_NOTE', SIGN_IN_NOTE],
-  ['SIGN_IN_OR_NOTE', SIGN_IN_OR_NOTE],
   ['SIGN_IN_CODE_NOTE', SIGN_IN_CODE_NOTE],
-  ['CANT_PUSH_SIGN_IN_NOTE', CANT_PUSH_SIGN_IN_NOTE],
   // The shared-client note and the score tool's description.
   ['SHARED_PROFILE_NOTE', SHARED_PROFILE_NOTE],
   ['SCORE_DESCRIPTION', SCORE_DESCRIPTION],
@@ -1420,10 +1371,9 @@ async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
       check: async () => true,
       gate: {
         repo: async () => ({ fork: false, hasCommits: true, aheadOfParent: null }),
-        owner: async () => ({ status: 'ok', text: tokenLineFor(1, REPO)! }),
-        latest: async () => null,
-        // No proof branch (null): the earnkit.txt line, as on a shared client; the Bench's branch notes are proof-branch.ts's.
-        branchProof: async () => null,
+        // v2.14 spec 2: the App proved the repo (appProven), unless a case says otherwise.
+        appProven: async () => true,
+        appLink: async () => 'https://earnkit.com/github/verify?n=x',
         screen: async () => {},
         ...gate,
       },
@@ -1461,8 +1411,7 @@ async function gatherLaunchNotes(): Promise<[string, TokenOutcome][]> {
     run('bad image', {}, { image_data: 'data:text/plain;base64,aGk=' }),
     run('repo has a token', {}, {}, {}, {}, 'https://tokens.fun/coin/0x2'),
     run('repo launch pending', {}, {}, {}, {}, 'pending'),
-    run('gate: proof line missing', {}, {}, {}, { owner: async () => ({ status: 'missing' }) }),
-    run('gate: proof line unreadable', {}, {}, {}, { owner: async () => ({ status: 'error', message: 'GitHub said 502' }) }),
+    run('gate: App not installed', {}, {}, {}, { appProven: async () => false }),
     run('gate: no commits', {}, {}, {}, { repo: async () => ({ fork: false, hasCommits: false, aheadOfParent: null }) }),
     run('gate: no repo', { repo_url: null }),
     run('daily limit', {}, {}, { limit: async () => { throw new RateLimitError('This agent has launched 3 tokens today, the daily limit.', 60); } }),

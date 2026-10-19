@@ -83,7 +83,8 @@ test('4.15 a new clue queues the person again: a wallet not seen before (remembe
 test('4.16 the wiring: rememberWallets and saveVerification queue their clue', () => {
   const src = (f: string) => readFileSync(join(import.meta.dirname, f), 'utf8');
   assert.match(src('installations.ts'), /RETURNING wallet[\s\S]{0,300}enqueueClue\(installationId, 'wallet'\)/);
-  assert.match(src('github-verify.ts'), /INSERT INTO github_verifications[\s\S]{0,900}enqueueClue\(row\.installation_id, 'signin'\)/);
+  // v2.14 spec 1, 2: a GitHub login is no clue and joins no one (the App proves a repo, proveByApp).
+  assert.doesNotMatch(src('github-verify.ts'), /enqueueClue|joinOnProvenTie|settleLogin/);
 });
 
 // ---- v2.12.1 Task 7: confirmed vs not yet confirmed.
@@ -116,19 +117,16 @@ async function withScore<T>(fn: () => Promise<T>): Promise<T> {
   return fn();
 }
 
-test('7.2 the X field match proves the reported login; any other reported login stays not yet confirmed', dbTest, () => withScore(async () => {
+test('7.2 v2.14: a reported login proves nothing (no X field match); what it names stays not yet confirmed', dbTest, () => withScore(async () => {
   const id = await claimed('lee_builds');
   await sql()`UPDATE builder_profiles SET reported_github = 'lee' WHERE builder_id = ${id}`;
-  const reader = { ...fakeReader(), ghGraphql: async <T,>() => personBody('lee', 'Lee_Builds', ['lee/tipjar']) as T };
-  assert.deepEqual(await provenLogin(id, { reader }), { login: 'lee', basis: 'x_match' });
+  assert.equal(await provenLogin(id), null, 'no X field match: only the App names a login');
   await sql()`UPDATE builder_profiles SET reported_github = 'someone_else' WHERE builder_id = ${id}`;
-  const other = { ...fakeReader(), ghGraphql: async <T,>() => personBody('someone_else', 'not_lee', ['someone_else/app']) as T };
-  assert.equal(await provenLogin(id, { reader: other }), null);
+  assert.equal(await provenLogin(id), null);
   // An unclaimed profile never matches, whatever GitHub's X field says.
   const [{ id: plain }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v2121-t7-${randomBytes(8).toString('hex')}`}) RETURNING id`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, reported_github) VALUES (${plain}, ${`t7-${plain}`}, ${`u${plain}`}, 'lee')`;
-  const typed = { ...fakeReader(), ghGraphql: async <T,>() => personBody('lee', `u${plain}`, []) as T };
-  assert.equal(await provenLogin(plain, { reader: typed }), null);
+  assert.equal(await provenLogin(plain), null);
   // The reported project is live, so it would be a ship if it were confirmed; it must stay not yet confirmed.
   const [site] = await sql()<{ id: string }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by)
