@@ -369,35 +369,6 @@ async function holdOf(tx: Db, id: number, day: string, score: number) {
   return { before, reason: holdReason(before?.score ?? null, score, []) };
 }
 
-class DryRun extends Error {}
-/**
- * v2.12.1 T9 fix round 1: whether tracking the person's proposed contract `ref` now would be held for
- * the owner's review (a jump or one source). Scored as if verified inside a transaction that is
- * always rolled back: nothing is written. True on any error (fail strict: never promise "today").
- */
-export async function trackingHeld(id: number, ref: string, now: Date): Promise<boolean> {
-  let held = true;
-  try {
-    await sql().begin(async (tx) => {
-      await tx`
-        UPDATE builder_sources SET state = 'verified', proof = 'deploy_wallet', verified_at = ${now}
-        WHERE builder_id = ${id} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND state = 'proposed'`;
-      // The same scope as the rescore (rolled back with the rest).
-      const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
-      const { input } = await personInputsV2(id, now, tx, { scope: main });
-      const sc = computeScoreV2(input, now);
-      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score)).reason !== null;
-      throw new DryRun();
-    });
-  } catch (err) {
-    if (!(err instanceof DryRun)) {
-      console.error('[score] tracking held', err instanceof Error ? err.name : 'error');
-      return true;
-    }
-  }
-  return held;
-}
-
 /**
  * v2.13 plan B9: the "Started tracking" facts on the week the one project entered, once per builder
  * and project (F2: scoped to the builder, so someone else's row for the same key never blocks it).

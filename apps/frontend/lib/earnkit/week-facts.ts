@@ -186,11 +186,11 @@ export async function writeWeek(
   const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }) };
   if (!(await upsertWeekFacts(id, key, monday, facts, titles))) return { wrote: false, facts, titled };
   const at = new Date(`${monday}T12:00:00Z`);
-  const ev = (type: 'shipped_code' | 'went_live' | 'users_up', detail: Record<string, unknown>) =>
+  // R16b: weekFactsFor never sets users_up (people aren't counted), so no users_up event is written.
+  const ev = (type: 'shipped_code' | 'went_live', detail: Record<string, unknown>) =>
     noteEvent(type, () => ({ type, dedupe_key: `${type}:${key.toLowerCase()}:${week}`, installation_id: id, repo_key: key.toLowerCase(), at, detail }));
   if (f.shipped_code) await ev('shipped_code', { n: f.shipped_code.n, week });
   if (f.went_live) await ev('went_live', { week });
-  if (f.users_up) await ev('users_up', { n: f.users_up.n, week });
   return { wrote: true, facts, titled };
 }
 

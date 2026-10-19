@@ -138,7 +138,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_OUTCOME_NOTE, benchAsked, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, signedOutNow } from './bench-find';
+import { BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, signedOutNow, tokenAsk } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -1272,7 +1272,7 @@ export const handlers = {
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
-        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, agentCanBuild: agent_can_build, hide, project, signedOut,
+        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut,
       });
       return {
         ...r,
@@ -2895,6 +2895,9 @@ export const TellToolInput = z
       .strict()
       .refine((c) => c.answer !== undefined || c.raising !== undefined, { message: 'Pass answer, or raising.' })
       .optional(),
+    // Scoring and clarity R8: the builder asked about a token. Only then is the coin or community-round line
+    // offered (bench-find.ts tokenAsk); find and score never offer it.
+    token: z.literal('ask').optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
@@ -2930,83 +2933,16 @@ async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'y
   return 'project_id' in r ? { show_to_builder: '', ...r } : r;
 }
 
-/** Fix round 1: a thrown issueUpload, told apart from "no proof yet" (that one gets the install link). */
-const GO_LIVE_FAILED = 'The hosting check failed.';
-/** v2.12.1 T9 (ruling S15): the go_live yes, in plain words. "Live" is said only by the reply that saw it load. */
-export const GO_LIVE_LINES = {
-  onIt: "On it. I'll send you the link when it's live.",
-  cant: (name: string) => `I can't put ${name} online right now.`,
-} as const;
-const goLiveAgain = (key: string, extra = '') =>
-  `call tell with move_up: { kind: 'go_live', project_key: '${key}', answer: 'yes'${extra} } again`;
-export const goLiveUploadNote = () =>
-  'Build the app to static files (index.html at the top), zip that folder and POST it to host.upload_url within 15 minutes (Content-Type application/zip). ' +
-  "Show the upload reply's show_to_builder as written: it is the live link. If the upload is refused, tell the builder in one short line that you couldn't put it online. Don't show this note.";
-export const goLiveSignInNote = (key: string) => `Show show_to_builder. When the builder says the app is installed, ${goLiveAgain(key)}.`;
-export const goLivePagesNote = (key: string) =>
-  `EarnKit hosting is off, so publish the app on GitHub Pages from the builder's public repo ${key}; it is free and needs nothing from the builder. ` +
-  'Build it to static files and push that folder to the root of a gh-pages branch (`git subtree push --prefix <folder> origin gh-pages`), ' +
-  "then turn Pages on: `gh api -X POST repos/<owner>/<repo>/pages -f 'source[branch]=gh-pages' -f 'source[path]=/'` (a 409 means it is already on). " +
-  `Once https://<owner>.github.io/<repo>/ loads, ${goLiveAgain(key, ", live_url: that link")}: EarnKit checks it loads and tells the builder. ` +
-  "If it doesn't load within 15 minutes, tell the builder in one short line that you couldn't put it online. Don't show this note.";
-export const GO_LIVE_NOT_YET_NOTE =
-  "The link doesn't load yet. Wait a minute and call again with it; after 15 minutes, tell the builder in one short line that you couldn't put it online. Don't show this note.";
-export const goLiveWrongLinkNote = (key: string) =>
-  `live_url must be this repo's own GitHub Pages link, https://<owner>.github.io/<repo>/ for ${key}. Don't show this note.`;
-
 /**
- * v2.12.1 T9 (ruling S15): the yes to "Want me to put <app> online?": the named app goes online
- * through EarnKit hosting, the v2.11 path: with hosting on, a one-use upload URL (issueUpload: the
- * the read-only App proved the repo is theirs; unproven: its install link); off, the GitHub Pages
- * fallback, and EarnKit says it is live only once the repo's own Pages link loads. Anything else is
- * an honest "I can't put it online right now."
- */
-async function goLiveYes(ctx: ToolContext, key: string, liveUrl: string | undefined): Promise<Reply> {
-  const id = ctx.installationId;
-  const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
-  const gh = githubRepo(`https://github.com/${key}`);
-  if (!p || !gh) return { show_to_builder: NOTED_LINE };
-  const repoKey = `${gh.owner}/${gh.repo}`;
-  if (liveUrl !== undefined) {
-    const link = pagesLinkOf(repoKey, liveUrl.trim());
-    if (!link) return { show_to_builder: '', agent_note: goLiveWrongLinkNote(repoKey) };
-    if ((await liveCheckDetail(link, ctx.verifyDeps ?? {})).ok !== true) return { show_to_builder: '', agent_note: GO_LIVE_NOT_YET_NOTE };
-    // Shown from now on (not yet confirmed, read like any reported site); the next reply re-reads it.
-    const added = await sql()`
-      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${id}, 'site', ${link}, ${key}, 'agent')
-      ON CONFLICT (builder_id, kind, ref) DO NOTHING RETURNING id`;
-    // A new site: the next reply re-reads the person (once; a repeat yes reads nothing more).
-    if (added.length > 0) await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
-    return { show_to_builder: pagesLiveLine(p.name, link) };
-  }
-  if (!r2Enabled()) return { show_to_builder: GO_LIVE_LINES.onIt, agent_note: goLivePagesNote(repoKey) };
-  const offer = await issueUpload({ installationId: id, repoKey, project: p.name }, new Date()).catch((err: unknown) => {
-    console.error('[tell] go_live', err instanceof Error ? err.name : 'error');
-    return { unavailable: GO_LIVE_FAILED };
-  });
-  if ('upload_url' in offer) return { show_to_builder: GO_LIVE_LINES.onIt, host: offer, agent_note: goLiveUploadNote() };
-  if ('sign_in_url' in offer) return { show_to_builder: hostSignInLine(p.name, offer.sign_in_url), agent_note: goLiveSignInNote(repoKey) };
-  return { show_to_builder: GO_LIVE_LINES.cant(p.name), agent_note: `Why, for you only: ${offer.unavailable} Don't show this note.` };
-}
-
-/**
- * v2.12.1 T8, T9: the builder's answer to "How to move up". The step is the server's own
- * (stand-view.ts currentStep); the agent's kind is never trusted, and a yes to a step that is no
- * longer the current one (or another project's) changes nothing. A no keeps that step away for 30
- * days. `confirm` re-issues the link that shows the work is theirs (confirmYes); `go_live` puts the
- * app online (goLiveYes); a coin offer (kind coin, still open) is coinAnswer's; every other answer
- * is bench-find.ts benchMoveUp's.
+ * v2.12.1 T8, T9: the builder's answer to "How to move up". The step is the server's own (the ask the
+ * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
+ * current one (or another project's) changes nothing. An open coin offer (kind coin: one the builder asked
+ * for, tell token) is coinAnswer's; every other answer is bench-find.ts benchMoveUp's.
  */
 async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
-  // T10: a coin offer is answered as offered (the offer's own moment, which may not be chooseStep's
-  // step now: a countable or first-5 reply); coinOpen means EarnKit made it and it is unanswered.
+  // T10: a coin offer is answered as offered; coinOpen means EarnKit made it and it is unanswered.
   if (m.kind === 'coin' && m.project_key && (await coinOpen(id, m.project_key))) return coinAnswer(ctx, { project_key: m.project_key, answer: m.answer });
-  // v2.13 T8: the ask its last reply stored. go_live and coin yeses are answered here (goLiveYes,
-  // coinAnswer); every other answer is bench-find.ts benchMoveUp's.
-  const asked = m.answer === 'yes' ? await benchAsked(id, m) : null;
-  if (asked?.kind === 'go_live' && asked.key) return goLiveYes(ctx, asked.key, m.live_url);
-  if (asked?.kind === 'coin' && asked.key) return coinAnswer(ctx, { project_key: asked.key, answer: 'yes' });
   return benchMoveUp(ctx, m);
 }
 
@@ -3330,18 +3266,20 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, profile, x_handle, card, move_up, coin, update, updates, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
-    if (ctx.sharedClient && (profile || card || move_up || coin || update || updates))
+    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
+      // R8: the coin or community-round line, only because the builder asked about a token.
+      if (token === 'ask') replies.push(await tokenAsk(ctx.installationId, { check: ctx.tokenDeps?.check }));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).
       if (coin)
         replies.push(
@@ -3375,7 +3313,7 @@ export const tools = {
   },
 
   // v2.12 spec 7: the builder's score.
-  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date(), { reader: ctx.readerDeps, fresh: freshSwitches(ctx, true) }),
+  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date(), { reader: ctx.readerDeps }),
 
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
 

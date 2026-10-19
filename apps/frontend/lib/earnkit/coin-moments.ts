@@ -12,12 +12,11 @@ import { tokenLaunchesAvailable } from './tokens';
 import { repoReadPublic } from './repo-public';
 
 /**
- * v2.12.1 spec 3b: the token is offered as that reply's one yes only at these moments: built
- * through EarnKit (the reply that confirms the app is live and counting), an existing project made
- * countable or reaching its first 5 people, or a project with people and no coin when no bigger
- * step exists. At most once per project; never again after DECLINES_MAX declines; the coin and the
- * wallet shown before the yes; never for shared clients or held profiles. It replaces v2.12's
- * score-20 gate.
+ * v2.12.1 spec 3b, scoring and clarity R8: the token is offered only when the builder asks about one
+ * (bench-find.ts tokenAsk, moment 'countable') or on the build path (built through EarnKit, the reply
+ * that confirms the app is live: built_live); never in find's or score's default reply. At most once per
+ * project; never again after DECLINES_MAX declines; the coin and the wallet shown before the yes; never for
+ * shared clients or held profiles. first_five, has_people and streak_five are kept for offers already made.
  */
 export { COIN_PROGRAM };
 export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five';
@@ -175,6 +174,24 @@ export async function offerCoin(
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
   await saveOffer(builderId, COIN_PROGRAM, offerKey(repo_url, p.name), coin, false, wallet);
   return { line: coinLine(moment, p.name, wallet, coin), wallet };
+}
+
+/**
+ * R8 (tell token: 'ask'): an offer made and not answered yet, shown again as it was made: its moment's line,
+ * the pair saved with it (proposed and saved now if none was) and the wallet it showed. Null when no open
+ * offer (coinOpen) or the project is gone. The yes goes to coinYes as with the first showing.
+ */
+export async function openCoinLine(builderId: number, projectKey: string, deps: { check?: TickerCheck } = {}): Promise<{ line: string; wallet: string | null } | null> {
+  const m = await momentOf(builderId, projectKey);
+  if (!m || m.answer !== null || m.moment === 'built_live') return null;
+  const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
+  if (!p) return null;
+  const { repo_url } = await confirmedLinks(builderId, m.project_key);
+  const key = offerKey(repo_url, p.name);
+  const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
+  const coin = shown ? { name: shown.name, symbol: shown.symbol } : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined);
+  if (!shown) await saveOffer(builderId, COIN_PROGRAM, key, { name: coin.name, symbol: coin.symbol }, false, m.wallet);
+  return { line: coinLine(m.moment, p.name, m.wallet, { name: coin.name, symbol: coin.symbol }), wallet: m.wallet };
 }
 
 /**

@@ -3,14 +3,13 @@ import { sql } from './db';
 import { noteEvent } from './events';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { normalizeRepoUrl } from './campaigns';
-import type { BenchAsk } from './bench-reply';
 
 /**
  * v2.13 spec "4. Optional: raise" (R8): the one project's coin, the raising flag on it, the pill.
  * A coin launched before v2.13 never turns the pill on by itself: the builder says yes first
- * ("Want to show you're raising with $X?", once per project). "Stop raising" clears the flag; the
- * coin stays. The pill, the ask and
- * setRaising do nothing while EARNKIT_RAISING is off (final fix, controller ruling).
+ * ("Want to show your community round with $X?", only when the builder asks about a token: bench-find.ts
+ * tokenAsk, R8). "Stop raising" clears the flag; the coin stays. The pill, the line and setRaising do
+ * nothing while EARNKIT_RAISING is off (final fix, controller ruling).
  */
 export const RAISE_LINES = {
   on: (symbol: string) => `Done. Your page shows your community round with $${symbol}.`,
@@ -62,28 +61,4 @@ export async function pillOf(builderId: number): Promise<{ symbol: string; url: 
   const c = await raisingCoin(builderId);
   if (!c || c.status !== 'launched' || !c.raising || !(await mainConfirmed(builderId))) return null;
   return { symbol: c.symbol, url: c.url };
-}
-
-/**
- * A coin launched before v2.13 (or before the yes): "Want to show you're raising with $X?", once per
- * project. The caller gates on confirmation (bench-find coinAskBench); `coin` is its raisingCoin read, when it has one.
- */
-export async function raiseAsk(
-  builderId: number,
-  key: string,
-  seen: { raise_asked?: Record<string, string> },
-  coin?: RaisingCoin | null,
-): Promise<BenchAsk | null> {
-  if (!raisingEnabled() || seen.raise_asked?.[key]) return null;
-  const c = coin === undefined ? await raisingCoin(builderId) : coin;
-  if (!c || c.status !== 'launched' || c.raising) return null;
-  return { kind: 'raise', project_key: key, line: showRaisingLine(c.symbol) };
-}
-
-/** Records the raise ask as shown (standing_seen.raise_asked), so it is never asked again for this project. */
-export async function markRaiseAsked(builderId: number, key: string, now: Date): Promise<void> {
-  await sql()`
-    UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{raise_asked}',
-      COALESCE(standing_seen->'raise_asked', '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text))
-    WHERE builder_id = ${builderId}`;
 }

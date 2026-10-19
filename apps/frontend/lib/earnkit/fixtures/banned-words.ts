@@ -24,6 +24,8 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").
   /\bfor an? (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche) app\b/g,
   /\bfor an app on (?:(?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)(?:, | or )?)+/g,
+  // Scoring and clarity R12: why a program fits names the chain ("You deployed on Base", "you build for Arc").
+  /\b[Yy]ou (?:deployed on|deploy to|build for) (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)\b/g,
   // v2.13.3 (5): the owner's honest line while the read-only GitHub App is off.
   /EarnKit can only see public repos right now\./g,
 ];
