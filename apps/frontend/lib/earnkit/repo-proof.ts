@@ -178,7 +178,19 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   await (await import('./events')).noteEvent('source_verified', () => ({
     type: 'source_verified', dedupe_key: `source_verified:${row.id}:${now.toISOString()}`, installation_id: a.builderId, detail: { source_id: row.id, kind: 'repo', proof: APP_PROOF },
   }));
-  await (await import('./person-score')).rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
+  // R5: scored at connect. The proved repo is read once now (the App's installation token, the refresh's
+  // reader, which writes commit_weeks and commit_counts), so the rescore below has its commit weeks.
+  // Fail soft: a failed read leaves the proof standing, and the next refresh or daily read reads it.
+  const scoring = await import('./person-score');
+  try {
+    const { defaultReaderDeps } = await import('./source-readers');
+    const deadline = Date.now() + scoring.REFRESH_BUDGET_MS;
+    const reader = defaultReaderDeps(now, deadline);
+    await scoring.readPersonLive(a.builderId, now, { deadline, reader: deps.fetch ? { ...reader, ghFetch: deps.fetch } : reader, only: [row.id] });
+  } catch (err) {
+    console.error('[repo-proof] read', err instanceof Error ? err.name : 'error');
+  }
+  await scoring.rescorePerson(a.builderId, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
   profileChanged();
   return out;
 }

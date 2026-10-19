@@ -14,9 +14,9 @@ import { COIN_PROGRAM } from './policy-constants';
 import { LIMITS, hit } from './rate-limit';
 import { countingDeps, flushReadUsage } from './read-usage';
 import { LIVE_CALIBRATION_V2, calibrationV2 } from './score-calibration';
-import { FORMULA_V2, computeScoreV2, type Ship, type UseTouch, type V2Input, type V2Scored } from './score-v2';
+import { FORMULA_V2, computeScoreV2, countUse, type ScoreInput, type Ship, type UseInput, type UseTouch } from './score-v2';
 import {
-  defaultReaderDeps, isBudgetStop, isoWeek, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
+  defaultReaderDeps, isBudgetStop, readCoin, readContract, readContractOrigin, readNpm, readNpmBulk, readPypi, soft,
   type ContractSignals, type CoinSignals, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals, type Who,
 } from './source-readers';
 import { previousSignals, withPastCounts, withPastWeeks } from './sources';
@@ -57,6 +57,11 @@ export type ProjectRow = {
    * confirmed repo source on that very key. A coin or an entry naming a repo never proves it. Not stored.
    */
   bench_confirmed: boolean;
+  /**
+   * Scoring and clarity (R4): a confirmed repo source of this project has at least one good reading
+   * (daily or live). Ranked needs it on the one project. Not stored.
+   */
+  repo_read: boolean;
   /**
    * v2.12.1 T9: the distinct accounts of other people counted on a confirmed project (weight above 0
    * after every anti-farming rule; stars and forks aside), for "Done. 140 people who used it now
@@ -173,6 +178,9 @@ async function ownersOf(actors: string[], db: Db = sql()): Promise<Map<string, n
   return out;
 }
 
+/** The one project's score input (ships, commit weeks) and the people and money of every project. */
+export type PersonInput = ScoreInput & UseInput;
+
 type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_url?: unknown; package?: unknown; contracts?: unknown };
 
 /**
@@ -183,7 +191,7 @@ type IdentityProject = { name?: unknown; what?: unknown; repo?: unknown; live_ur
 export async function personInputsV2(
   id: number, now: Date, personRing?: PersonRing, db: Db = sql(), o: { scope?: string | null } = {},
 ): Promise<{
-  input: V2Input; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; ringComputed: boolean; checked: [string, number[]][];
+  input: PersonInput; projects: ProjectRow[]; perSource: Map<number, { users: number; money: number }>; checked: [string, number[]][];
   newPeople: Map<string, Record<string, number>>; shipWeeks: Map<string, string[]>; chains: Map<string, BenchChain[]>;
 }> {
   const yearAgo = new Date(now.getTime() - YEAR_MS);
@@ -289,13 +297,11 @@ export async function personInputsV2(
           for (const w of list<Who>(o.signals[f])) if (typeof w?.id === 'string') touchedBy.add(w.id.toLowerCase());
   const checked: [string, number[]][] = [];
   // Other EarnKit people's accounts that touched this person's work (the ring is about them only).
-  let others = 0;
   for (const [actor, who] of await ownersOf([...touchedBy], db)) {
     if (who.includes(id)) {
       self.add(actor);
       continue;
     }
-    others++;
     if (ring.ringOwner.has(actor)) continue;
     if (given) checked.push([actor, [...who].sort((x, y) => x - y)]);
     // Honoured only while it still has the owners the cron saw, and the check is fresh.
@@ -306,15 +312,11 @@ export async function personInputsV2(
   }
   const cal = calibrationV2();
 
-  const input: V2Input = { ships: [], touches: [], packages: [], earned: [], weeks: [] };
+  const input: PersonInput = { ships: [], commitWeeks: [], touches: [], packages: [], earned: [] };
   const perSource = new Map<number, { users: number; money: number }>();
   const rows: (Omit<ProjectRow, 'tracked' | 'people' | 'money_usd'> & { scored: boolean })[] = [];
   // v2.13 (scope): only the one project's work feeds the score; every project's row is still built.
   const scopeLow = o.scope ? lowKey(o.scope) : null;
-  const addWeek = (at: Date | null, inScope = true) => {
-    if (!inScope || !at || !Number.isFinite(at.getTime()) || now.getTime() - at.getTime() > YEAR_MS) return;
-    input.weeks.push({ week: isoWeek(at), at });
-  };
   const usedCreator = new Set<string>();
   const peopleWeek = new Map<string, number>();
   const newPeople = new Map<string, Record<string, number>>();
@@ -370,10 +372,11 @@ export async function personInputsV2(
     let hasContract = deploysHere.length > 0;
     let hasPackage = false;
     let hasCoinSource = false;
+    // R2: the live ships (a live site, a contract deploy, a published package), each once. A coin is not one.
     const ships: Ship[] = [];
-    for (const h of hostedHere) ships.push({ key, at: h.deployed_at, alive_at: now });
-    for (const x of deploysHere) ships.push({ key, at: x.created_at, alive_at: null });
-    for (const x of coinsHere) ships.push({ key, at: x.launched, alive_at: null });
+    for (const h of hostedHere) ships.push({ key: `site:${h.slug}.earnkit.com`, kind: 'site' });
+    for (const x of deploysHere) ships.push({ key: `contract:${x.ref}`, kind: 'contract' });
+    let repoRead = false;
 
     for (const s of srcs) {
       const scored = confirmedSrc(s);
@@ -385,14 +388,15 @@ export async function personInputsV2(
         if (typeof g.name === 'string' && g.name && lowKey(s.ref) === low) ghName ??= g.name;
         lastActive = newest(lastActive, date(g.pushed_at));
         if (!scored || !last) continue;
+        repoRead = true;
         // Members of their own org never count: every contributor of an org repo is self.
         if (g.owner_type === 'Organization') for (const w of list<Who>(g.contributors)) if (typeof w?.id === 'string') projSelf.add(w.id.toLowerCase());
         for (const w of list<Who>(g.stargazers)) add(s.id, 'stargazer', 'star', w);
         for (const w of list<Who>(g.forkers)) add(s.id, 'forker', 'fork', w);
         for (const wk of list<unknown>(g.commit_weeks))
-          if (typeof wk === 'string') {
-            addWeek(weekEnd(wk, now), inScope);
-            if (WEEK.test(wk)) ship.add(wk);
+          if (typeof wk === 'string' && WEEK.test(wk)) {
+            ship.add(wk);
+            if (inScope) input.commitWeeks.push(wk);
           }
       } else if (s.kind === 'site') {
         hasSite = true;
@@ -402,9 +406,7 @@ export async function personInputsV2(
           liveSite ??= s.ref;
           lastActive = newest(lastActive, last.at);
           // A site is a ship only on a project with a confirmed repo (spec: "Repos with a live homepage").
-          if (scored && confirmedRepo) {
-            ships.push({ key, at: firstUp(s.id, last.at), alive_at: last.at });
-          }
+          if (scored && confirmedRepo) ships.push({ key: `site:${hostOf(s.ref) ?? s.ref.toLowerCase()}`, kind: 'site' });
           // Fail strict: only a confirmed site's first day up is a shipping week.
           if (scored) shipAt(firstUp(s.id, last.at));
         }
@@ -417,7 +419,7 @@ export async function personInputsV2(
           lastActive = newest(lastActive, last!.at);
         }
         if (scored && last) {
-          ships.push({ key, at: oldest(s.id)!.at, alive_at: weekly > 0 ? last.at : null });
+          ships.push({ key: `package:${s.kind}:${s.ref.toLowerCase()}`, kind: 'package' });
           const credit = Math.min(cal.package_users, weekly / 50);
           if (inScope) input.packages.push({ project: key, users: credit, at: last.at });
           if (inScope) perSource.set(s.id, { users: credit, money: 0 });
@@ -458,13 +460,9 @@ export async function personInputsV2(
           }
         }
         lastActive = newest(lastActive, newestCall);
-        const made = isCoin ? coinsHere[0]?.launched : deploysHere[0]?.created_at;
-        ships.push({ key, at: made ?? oldest(s.id)?.at ?? s.created_at, alive_at: newestCall });
+        if (!isCoin) ships.push({ key: `contract:${s.ref.toLowerCase()}`, kind: 'contract' });
       }
     }
-    // The newest call or buy keeps a deploy or a coin alive.
-    const usedAt = newest(...touches.filter((t) => t.kind === 'caller').map((t) => t.at));
-    for (const sh of ships) if (sh.alive_at === null && usedAt) sh.alive_at = usedAt;
     if (inScope) input.ships.push(...ships);
 
     // Use: every touch through anti-farming; each counted account's newest touch per kind.
@@ -480,10 +478,7 @@ export async function personInputsV2(
       const b = best.get(k);
       if (!b || b.at < t.at) best.set(k, { project: key, actor: t.actor, at: t.at, weight: w, kind });
       if (kind === 'tagged') tagged = true;
-      if (kind !== 'star' && kind !== 'fork') {
-        addWeek(t.at, inScope);
-        if (now.getTime() - t.at.getTime() <= WEEK_MS && t.at <= now) recent.add(t.actor);
-      }
+      if (kind !== 'star' && kind !== 'fork' && now.getTime() - t.at.getTime() <= WEEK_MS && t.at <= now) recent.add(t.actor);
     }
     if (inScope) input.touches.push(...best.values());
     peopleWeek.set(key, recent.size);
@@ -550,6 +545,7 @@ export async function personInputsV2(
       confirmed, shipped, scored: confirmed,
       // Twin of main-project benchConfirmedSql: a repo source matched on its ref, whatever its project.
       bench_confirmed: confirmed && (!REPO_KEY.test(low) || sources.some((s) => s.kind === 'repo' && confirmedSrc(s) && lowKey(s.ref) === low)),
+      repo_read: repoRead,
       people_week: confirmed ? peopleWeek.get(key) ?? 0 : 0,
       has_coin: coinsHere.length > 0 || hasCoinSource,
       sends_tx: hasContract,
@@ -563,19 +559,13 @@ export async function personInputsV2(
       weeks_shipping: weeksShipping(ship, now),
     });
   }
-  // EarnKit's own events (built, deployed, hosted) mark their weeks.
-  for (const e of events) addWeek(e.at, !scopeLow || e.repo_key === scopeLow);
-
-  const scored = computeScoreV2(input, cal, now);
+  // People and money per project (stored on the project rows; not in the score).
+  const use = countUse(input, cal, now);
   const projects: ProjectRow[] = rows.map(({ scored: isScored, ...r }) => {
-    const p = scored.perProject.get(r.key);
+    const p = use.perProject.get(r.key);
     return { ...r, tracked: true, people: isScored ? Math.round(p?.people ?? 0) : 0, money_usd: isScored ? Math.round(100 * (p?.usd ?? 0)) / 100 : 0 };
   });
-  // Final fix wave (first-message rank): with no other EarnKit person's account touching the work
-  // there is no ring to find, so the ring counts as computed and a confirmed ship ranks on the first
-  // refresh. Touched by others and never computed by the cron: unranked until it is (fail strict;
-  // the touches above are already weighed as a partner's).
-  return { input, projects, perSource, ringComputed: stored !== null || others === 0, checked, newPeople, shipWeeks, chains: chainsOf };
+  return { input, projects, perSource, checked, newPeople, shipWeeks, chains: chainsOf };
 }
 
 // ---- Live score, rank, refresh ---------------------------------------------------------------------
@@ -584,17 +574,19 @@ export async function personInputsV2(
  * The review hold for a rescore `s` on `day`: the baseline is the newest public score before that
  * day, a public v2 history row or a released live score (a held day the owner never saw is neither).
  */
-async function holdOf(tx: Db, id: number, day: string, s: V2Scored, perSource: Map<number, { users: number; money: number }>) {
+async function holdOf(tx: Db, id: number, day: string, score: number) {
+  // Scoring and clarity: only a baseline of the live calibration counts (the two-part score's first
+  // day is never a jump from a four-part score). No source shares: people and money aren't scored.
+  const cal = calibrationV2().id;
   const [before] = await tx<{ score: number }[]>`
     SELECT score FROM (
       SELECT s.day, 0 AS pri, s.score FROM builder_scores s
-      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.day < ${day}::date AND ${publicRow()}
+      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.calibration = ${cal} AND s.day < ${day}::date AND ${publicRow()}
       UNION ALL
       SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date
+        AND EXISTS (SELECT 1 FROM builder_scores h WHERE h.builder_id = x.builder_id AND h.day = x.day AND h.calibration = ${cal})
     ) b ORDER BY day DESC, pri DESC LIMIT 1`;
-  const U = s.parts.used.raw.U;
-  const shares = [...perSource.values()].map((x) => (U > 0 ? x.users / U : 0));
-  return { before, reason: holdReason(before?.score ?? null, s.score, shares) };
+  return { before, reason: holdReason(before?.score ?? null, score, []) };
 }
 
 class DryRun extends Error {}
@@ -612,9 +604,9 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
         WHERE builder_id = ${id} AND kind = 'contract' AND lower(ref) = ${ref.toLowerCase()} AND state = 'proposed'`;
       // The same scope as the rescore (rolled back with the rest).
       const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
-      const { input, perSource } = await personInputsV2(id, now, undefined, tx, { scope: main });
-      const sc = computeScoreV2(input, calibrationV2(), now);
-      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc, perSource)).reason !== null;
+      const { input } = await personInputsV2(id, now, undefined, tx, { scope: main });
+      const sc = computeScoreV2(input, now);
+      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score)).reason !== null;
       throw new DryRun();
     });
   } catch (err) {
@@ -665,18 +657,18 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const day = at.toISOString().slice(0, 10);
     // v2.13: the score is the one project's (plan B2: picked once when none was named).
     const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
-    const { input, projects, perSource, ringComputed, checked } = await personInputsV2(id, at, ring, tx, { scope: main });
-    const s = computeScoreV2(input, cal, at);
+    const { input, projects, checked } = await personInputsV2(id, at, ring, tx, { scope: main });
+    const s = computeScoreV2(input, at);
     const mainRow = main ? projects.find((p) => p.key.toLowerCase() === main.toLowerCase()) : undefined;
-    // Ranked only once the ring is known: computed by the cron, or no other EarnKit person touched
-    // the work (fail strict on ring partners). v2.13 B5: on the Bench as soon as the one project is
-    // confirmed (a repo key: by its own repo proof).
-    const ranked = Boolean(mainRow?.bench_confirmed) && ringComputed;
+    // R4: ranked once the one project is confirmed (a repo key: by its own repo proof) and a repo of it
+    // has been read at least once. No commits ranks at 0, never hidden. People aren't scored, so the
+    // ring no longer gates the rank.
+    const ranked = Boolean(mainRow?.bench_confirmed && mainRow.repo_read);
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
-    const { before, reason } = await holdOf(tx, id, day, s, perSource);
-    const people = [...s.perProject.values()].filter((p) => p.people > 0).length;
+    const { before, reason } = await holdOf(tx, id, day, s.score);
+    const people = projects.filter((p) => p.people > 0).length;
     // `at` names this rescore: the owner's release applies it only while it is still the pending one.
     // A cron rescore at a newer row's time is a different rescore, so it carries the run's time too.
     const version = at === now ? now.toISOString() : `${at.toISOString()}~${now.toISOString()}`;
@@ -852,13 +844,14 @@ type LiveDue = { id: number; builder_id: number; kind: string; ref: string; stat
  * Blockscout walk per contract or coin since its last daily read, one request per site. Each answer
  * goes to source_live (never source_readings: the daily history stays the cron's); a failure is
  * `ok = false` and is not retried. A spent GitHub budget writes nothing; the deadline stops the reads.
+ * `only`: just these sources (the App connect reads the one repo it proved, R5).
  */
-export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps }): Promise<{ read: number; failed: number }> {
+export async function readPersonLive(id: number, now: Date, o: { deadline: number; reader: ReaderDeps; only?: number[] }): Promise<{ read: number; failed: number }> {
   const db = sql();
   const due = await db<LiveDue[]>`
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.state, b.last_read_day::text AS last_read_day
     FROM builder_sources b LEFT JOIN source_live l ON l.source_id = b.id
-    WHERE b.builder_id = ${id}
+    WHERE b.builder_id = ${id} ${o.only ? db`AND b.id IN ${db(o.only.length ? o.only : [-1])}` : db``}
       AND ((b.state = 'verified' AND b.kind <> 'merged_pr') OR (b.state = 'proposed' AND b.kind IN ('repo', 'site', 'package_npm', 'package_pypi')
           -- v2.13.1 O5 N4: a proposed repo is read only while it is the one project (never a replaced one).
           AND (b.kind <> 'repo' OR EXISTS (SELECT 1 FROM builder_profiles f WHERE f.builder_id = b.builder_id

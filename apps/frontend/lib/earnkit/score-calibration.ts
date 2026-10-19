@@ -41,7 +41,12 @@ export function calibration(id: string = LIVE_CALIBRATION): Calibration {
   return CALIBRATIONS[id];
 }
 
-/** v2.12.1: the bars of formula v2 (Shipped, Used, Earned, Consistency). Same rule: only bars loosen, an owner decision. */
+/**
+ * v2.12.1: the bars of formula v2. Same rule: only bars loosen, an owner decision. Scoring and clarity
+ * (owner ruling 2026-10-19, R1 to R3): 'v2-two-part' is the two-part score (Shipped and Consistency,
+ * score-v2.ts), whose points need no bars; it keeps the people bars for the stored project rows
+ * (score-v2.ts countUse). A history row of another calibration is never the review hold's baseline.
+ */
 export type CalibrationV2 = {
   id: string;
   /** Faded people (U) for the full 40 Used points. */
@@ -56,8 +61,9 @@ export type CalibrationV2 = {
 };
 export const V2_CALIBRATIONS: Record<string, CalibrationV2> = {
   'v2-launch': { id: 'v2-launch', users: 500, money_usd: 5_000, weeks: 13, package_users: 100, since: '2026-10-14' },
+  'v2-two-part': { id: 'v2-two-part', users: 500, money_usd: 5_000, weeks: 12, package_users: 100, since: '2026-10-19' },
 };
-export const LIVE_CALIBRATION_V2 = 'v2-launch';
+export const LIVE_CALIBRATION_V2 = 'v2-two-part';
 export function calibrationV2(id: string = LIVE_CALIBRATION_V2): CalibrationV2 {
   if (!Object.hasOwn(V2_CALIBRATIONS, id)) throw new Error(`unknown calibration ${id}`);
   return V2_CALIBRATIONS[id];
