@@ -13,7 +13,6 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { FILTER_RAISING } from '../../app/leaderboard/FilterChip';
 import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
@@ -419,7 +418,6 @@ test('A.2 through find (R8, R12): a project with a fit names it in Ways to get f
 
 test('B.1 "community round", never raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
-  assert.equal(FILTER_RAISING, 'Community round');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Community round \$RECIPE</);
   for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);

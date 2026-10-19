@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { pageWords } from './fixtures/page-words';
 import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
-import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY, benchLine } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY, benchLine } from '../../app/leaderboard/BenchView';
 import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
@@ -74,9 +74,9 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
     { people_week: 0, streak: 1, weeks_shipping: 9, shipped: true }, { people_week: 0, streak: 0, weeks_shipping: 0, shipped: true },
     { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
   ].map(bestFact);
-  for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_RAISING, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
-  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', raising: true, weekly: false }, raising: true }));
+  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false } }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });

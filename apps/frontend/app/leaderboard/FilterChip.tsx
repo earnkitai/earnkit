@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 
 /** v2.13 spec "The Bench": the filter chips' words and markup, shared by /bench (BenchView) and the landing's top 10 (BenchTop). */
-export const FILTER_RAISING = 'Community round';
 export const FILTER_WEEKLY = 'Shipping every week';
 
 const CHIP = 'inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft md:h-9';

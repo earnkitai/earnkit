@@ -56,7 +56,7 @@ test('hotfix 2026-10-19: a public rank shows only inside the leaderboard pool (h
     ['pending', sql()`UPDATE builder_live SET pending = '{}'::jsonb WHERE builder_id = ${b}`, sql()`UPDATE builder_live SET pending = NULL WHERE builder_id = ${b}`],
   ] as const) {
     await set;
-    const board = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+    const board = await benchRows({ chain: null, weekly: false }, { only });
     assert.deepEqual(board.rows.map((r) => r.rank), [1], `${what}: off the leaderboard`);
     assert.deepEqual(await rankLines(b, { only }), { bench: null, line: null, chains: [] }, `${what}: no rank on the profile`);
     assert.equal((await personFacts(b, { only }))?.rank, null, `${what}: no rank in the header or card`);

@@ -85,8 +85,8 @@ async function rankedBuilder(x: string, name: string, repo: string, gh: number) 
 
 test('R9: the page is "Leaderboard", its filters link /leaderboard, the sitemap lists /leaderboard (never /bench)', async () => {
   assert.equal(BENCH_TITLE, 'Leaderboard');
-  assert.equal(filterHref({ chain: null, raising: false, weekly: false }), '/leaderboard');
-  assert.equal(filterHref({ chain: 'arc', raising: false, weekly: true }), '/leaderboard?chain=arc&weekly=1');
+  assert.equal(filterHref({ chain: null, weekly: false }), '/leaderboard');
+  assert.equal(filterHref({ chain: 'arc', weekly: true }), '/leaderboard?chain=arc&weekly=1');
   const map = readFileSync(join(FRONTEND, 'app/sitemap.ts'), 'utf8');
   assert.match(map, /\/leaderboard`/);
   assert.doesNotMatch(map, /\/bench`/);
@@ -152,7 +152,7 @@ test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (th
 test('R17: benchRows gives each row its Shipping points (builder_live.score) and its rank line', db, async () => {
   const a = await rankedBuilder('pts', 'Points', 'points', 7101);
   await sql()`UPDATE builder_live SET score = 72 WHERE builder_id = ${a.id}`;
-  const { rows } = await benchRows({ chain: null, raising: false, weekly: false }, { only: [a.id] });
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].points, 72);
   assert.equal(rows[0].line, '#1 of 1 builder this week');
@@ -179,7 +179,7 @@ test('Final follow-ups 2: "#N of M" counts the leaderboard\'s own pool (a ranked
   await sql()`UPDATE builder_live SET score = 80 WHERE builder_id = ${b.id}`;
   await sql()`UPDATE builder_profiles SET main_project_key = ${`elsewhere${RUN}/nope`} WHERE builder_id = ${b.id}`;
   const only = [a.id, b.id];
-  const board = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const board = await benchRows({ chain: null, weekly: false }, { only });
   assert.deepEqual([board.count, board.rows.map((r) => r.handle)], [1, [`one${RUN}`.slice(0, 15)]]);
   const s = await standingOf(a.id, { only });
   assert.deepEqual([s.rank, s.total], [1, board.count], 'the profile and reply rank matches the leaderboard header');
@@ -253,7 +253,7 @@ test('R11: a long project name is whole in the reply and on the leaderboard', db
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
   assert.ok(s.includes(`${name}: Shipping`), s);
-  const { rows } = await benchRows({ chain: null, raising: false, weekly: false }, { only: [a.id] });
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });
 

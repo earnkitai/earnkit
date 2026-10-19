@@ -616,7 +616,7 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(base.rows.length >= 10 && base.rows.every((r) => r.chains.includes('base')), JSON.stringify(base.rows));
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
-  assert.match(html(React.createElement(BenchView, { ...base, filter, raising: true })), /alt="Base"/);
+  assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
   assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base this week/);
 });
 
@@ -636,7 +636,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
   assert.ok((await renderProfile('maya_makes', 'log')).includes(`Community round $${pill.symbol}`));
-  const row = (await benchRows(parseBenchFilter({ raising: '1' }))).rows.find((r) => r.handle === 'maya_makes');
+  const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.raising, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
   const [p] = await sql()<{ coin_tx: string; coin_chain_id: number }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${yes.project_id!}`;

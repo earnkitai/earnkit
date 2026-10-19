@@ -153,7 +153,7 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
     rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
-    count, chips: [], filter: { chain, raising: false, weekly: false }, raising: false,
+    count, chips: [], filter: { chain, weekly: false },
   })).replace(/&#x27;/g, "'");
 
 test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered view with no rows keeps "No one here yet."', () => {

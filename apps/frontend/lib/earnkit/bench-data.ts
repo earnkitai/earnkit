@@ -18,27 +18,27 @@ import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
 import { last52, streakOf, weekOfMonday } from './weeks';
 
-/** v2.13 spec "The Bench": its rows and its URL filters (R9). */
-export type BenchFilter = { chain: BenchChain | null; raising: boolean; weekly: boolean };
+/** v2.13 spec "The Bench": its rows and its URL filters (R9). Launch-ready L3: no community round filter. */
+export type BenchFilter = { chain: BenchChain | null; weekly: boolean };
 /** "Shipping every week": a streak (commit weeks in a row, builder_projects.streak) of at least this many weeks. */
 export const WEEKLY_STREAK = 4;
 export const BENCH_MAX = 100;
 
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : undefined);
 
-/** Pure but for EARNKIT_RAISING. Anything but one known value per key is ignored, so at most 4 x 2 x 2 = 16 variants exist. */
+/**
+ * Pure. Anything but one known value per key is ignored, so at most 4 x 2 = 8 variants exist. Launch-ready L3: an old
+ * link's ?raising=1 is ignored too (the unfiltered board).
+ */
 export function parseBenchFilter(q: Record<string, string | string[] | undefined>): BenchFilter {
   const c = one(q.chain)?.toLowerCase();
-  // EARNKIT_RAISING off: the raising filter doesn't exist (?raising=1 is ignored).
-  const raising = raisingEnabled() && one(q.raising) === '1';
-  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, raising, weekly: one(q.weekly) === '1' };
+  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, weekly: one(q.weekly) === '1' };
 }
 
 /** Pure. The one URL of a filter variant (also its cache key). */
 export function filterHref(f: BenchFilter): string {
   const p = new URLSearchParams();
   if (f.chain) p.set('chain', f.chain);
-  if (f.raising) p.set('raising', '1');
   if (f.weekly) p.set('weekly', '1');
   const s = p.toString();
   return s ? `/leaderboard?${s}` : '/leaderboard';
@@ -57,7 +57,7 @@ export type BenchRow = { rank: number; line: string | null; points: number; hand
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
  * benchPool: final fix M1, the gate is read here, not only at the last rescore), best score first,
- * filtered by chain, raising and the weekly streak. A rank is always the whole Bench's. The coin read
+ * filtered by chain and the weekly streak. A rank is always the whole Bench's. The coin read
  * mirrors raising.ts raisingCoin (the newest coin on the one project); the pill is pillOf's rule in
  * the same read (final fix M7: launched, raising, the one project confirmed, and EARNKIT_RAISING on).
  * The project's name is the shown one (final fix I1: never a private repo's).
@@ -65,7 +65,6 @@ export type BenchRow = { rank: number; line: string | null; points: number; hand
 export async function benchRows(f: BenchFilter, o: { limit?: number; only?: number[] } = {}): Promise<{ rows: BenchRow[]; count: number; chips: BenchChain[] }> {
   const db = sql();
   const raisingOn = raisingEnabled();
-  const byRaising = f.raising && raisingOn;
   const rows = await db<{ builder_id: number; rank: number; points: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
     streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
     WITH ranked AS (
@@ -80,7 +79,6 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
           OR lower(x.repo_url) IN (lower('https://github.com/' || p.main_project_key), lower('https://github.com/' || p.main_project_key || '/')))
       ORDER BY x.coin_launched_at DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
     WHERE (${f.chain}::text IS NULL OR ${f.chain}::text = ANY(b.chains))
-      AND (NOT ${byRaising}::boolean OR (c.token_status = 'launched' AND c.raising_at IS NOT NULL))
       AND (NOT ${f.weekly}::boolean OR b.streak >= ${WEEKLY_STREAK})
     ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${Math.min(BENCH_MAX, o.limit ?? BENCH_MAX)}`;
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
