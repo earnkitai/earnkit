@@ -1601,21 +1601,34 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS app_tried_at timestamptz;
 -- would otherwise become permanent (and be bound below). First, as answerNotice's detach did: the members of every
 -- page_joins row still attached with no answer from an installation that was on the page before it (`eligible`) go
 -- back to their own former group (from_root a root again, the others pointing to it), only while still on that
--- page and not bound to an X account; their updates since the join are hidden; the row is stamped detached. No
+-- page and not bound to an X account; the moved ones' updates since the join are hidden; the row is stamped detached. No
 -- deletes; a rerun finds no open row (a no-op). A real owner gets the agent back by signing in with X once.
 WITH open_join AS (
   SELECT j.id, j.from_root, j.members, j.joined_at, COALESCE(r.builder_id, r.id) AS page
   FROM page_joins j JOIN installations r ON r.id = j.root
   WHERE j.detached_at IS NULL AND NOT EXISTS (SELECT 1 FROM unnest(j.eligible) e WHERE j.answers ? e::text)
-), moved AS (
-  UPDATE installations i SET builder_id = CASE WHEN i.id = o.from_root THEN NULL ELSE o.from_root END
+), roots AS (
+  UPDATE installations i SET builder_id = NULL
   FROM open_join o
-  WHERE i.id = ANY(o.members) AND i.builder_id = o.page AND i.x_user_id IS NULL
+  WHERE i.id = o.from_root AND i.id = ANY(o.members) AND i.builder_id = o.page AND i.x_user_id IS NULL
   RETURNING i.id
+), others AS (
+  -- The other members go back under from_root only when it is a root again (moved above, or already one), so no
+  -- group nests under a non-root.
+  UPDATE installations i SET builder_id = o.from_root
+  FROM open_join o
+  WHERE i.id = ANY(o.members) AND i.id <> o.from_root AND i.builder_id = o.page AND i.x_user_id IS NULL
+    AND (o.from_root IN (SELECT id FROM roots)
+      OR EXISTS (SELECT 1 FROM installations f WHERE f.id = o.from_root AND f.builder_id IS NULL))
+  RETURNING i.id
+), moved AS (
+  SELECT id FROM roots UNION SELECT id FROM others
 ), hidden AS (
+  -- Only the updates of installations actually moved off the page.
   UPDATE project_updates u SET hidden = true
   FROM open_join o
-  WHERE u.builder_id = o.page AND u.posted_by = ANY(o.members) AND u.created_at >= o.joined_at
+  WHERE u.builder_id = o.page AND u.posted_by = ANY(o.members) AND u.posted_by IN (SELECT id FROM moved)
+    AND u.created_at >= o.joined_at
   RETURNING u.id
 )
 UPDATE page_joins j SET detached_at = now() FROM open_join o WHERE j.id = o.id;

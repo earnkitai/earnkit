@@ -62,6 +62,13 @@ test('7.3 tools: tell takes no pickup; find never carries pick_up; a second agen
   assert.doesNotMatch(String(r.reply?.show_to_builder), /new agent was added|remove it\?|Linked to your page/);
   const hide = await mcpCall({ installationId: second.id, ownInstallationId: second.own, sharedClient: false }, 'tell', { profile: 'hide' });
   assert.doesNotMatch(hide.text, /joined|probation|after a day/i, 'no probation');
+  // The writes land on the page at once (v2.13.4 probation refused both for a day).
+  const on = await mcpCall({ installationId: second.id, ownInstallationId: second.own, sharedClient: false }, 'tell', { updates: { on: true } });
+  assert.equal(on.isError, false, on.text);
+  assert.doesNotMatch(on.text, /joined|probation|after a day/i);
+  const [p] = await sql()<{ hidden: boolean; on: Date | null }[]>`SELECT hidden, updates_on_at AS on FROM builder_profiles WHERE builder_id = ${second.id}`;
+  assert.equal(p.hidden, true, 'the hide was written');
+  assert.ok(p.on, 'weekly posting is on');
 });
 
 test('7.4 bindX writes the X profile and never asks anyone (no join_pending, no held)', db, async () => {
@@ -76,7 +83,7 @@ test('7.4 bindX writes the X profile and never asks anyone (no join_pending, no 
   assert.deepEqual(other, { ok: false, reason: 'claimed_by_other' });
 });
 
-test('7.5 S4: the bind migration first detaches unanswered v2.13.4 joins (no deletes) and reruns as a no-op', db, async () => {
+test('7.5 S4: the bind migration first detaches unanswered v2.13.4 joins (no deletes), re-roots and hides only what it moved, and reruns as a no-op', db, async () => {
   const schema = readFileSync(join(FRONTEND, 'db/schema.sql'), 'utf8');
   const block = /-- v2\.14 bind:start\n([\s\S]*?)-- v2\.14 bind:end/.exec(schema)![1];
   const mk = async () => {
@@ -89,7 +96,12 @@ test('7.5 S4: the bind migration first detaches unanswered v2.13.4 joins (no del
   const old = await mk(); // on the page before the joins (eligible)
   const open = await mk(); // joined; nobody answered
   const kept = await mk(); // joined; the page's agent said no (keep it)
-  await sql()`UPDATE installations SET builder_id = ${page} WHERE id IN (${old}, ${open}, ${kept})`;
+  const boundRoot = await mk(); // a join's from_root, already bound to an X account (fix 1: never moved)
+  const underBound = await mk(); // that join's other member: its from_root is no root, so it stays (fix 1)
+  const lone = await mk(); // a join's from_root that is a root already (not a member)
+  const underLone = await mk(); // that join's member: goes back under it
+  await sql()`UPDATE installations SET builder_id = ${page} WHERE id IN (${old}, ${open}, ${kept}, ${boundRoot}, ${underBound}, ${underLone})`;
+  await sql()`UPDATE installations SET x_user_id = ${`96${RUN}9`} WHERE id = ${boundRoot}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, first_find_at, x_user_id, x_handle, claimed_at) VALUES (${page}, ${`sf${RUN}`}, now(), ${xid}, ${`sf${RUN}`}, now())`;
   const [{ j1 }] = await sql()<{ j1: number }[]>`
     INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at) VALUES (${page}, ${open}, ${[open]}::int[], ${[page, old]}::int[], ${xid}, now() - interval '3 days')
@@ -97,22 +109,33 @@ test('7.5 S4: the bind migration first detaches unanswered v2.13.4 joins (no del
   await sql()`
     INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at, answers) VALUES (${page}, ${kept}, ${[kept]}::int[], ${[page, old]}::int[], ${xid}, now() - interval '3 days',
       ${sql().json({ [String(old)]: 'no' })})`;
-  await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, posted_by) VALUES (${page}, ${`s4p${RUN}${open}`}, date_trunc('week', now())::date, 'from the joiner', ${open})`;
+  await sql()`
+    INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at) VALUES (${page}, ${boundRoot}, ${[boundRoot, underBound]}::int[], ${[page, old]}::int[], ${xid}, now() - interval '3 days')`;
+  await sql()`
+    INSERT INTO page_joins (root, from_root, members, eligible, x_user_id, joined_at) VALUES (${page}, ${lone}, ${[underLone]}::int[], ${[page, old]}::int[], ${xid}, now() - interval '3 days')`;
+  for (const by of [open, boundRoot, underBound, underLone])
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, posted_by) VALUES (${page}, ${`s4p${RUN}${by}`}, date_trunc('week', now())::date, 'from the joiner', ${by})`;
   const before = (await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins`)[0].n;
   await sql().unsafe(block);
   await sql().unsafe(block);
   const rows = await sql()<{ id: number; b: number | null; x: string | null }[]>`
-    SELECT id, builder_id AS b, x_user_id AS x FROM installations WHERE id IN (${page}, ${old}, ${open}, ${kept}) ORDER BY id`;
+    SELECT id, builder_id AS b, x_user_id AS x FROM installations WHERE id IN (${page}, ${old}, ${open}, ${kept}, ${boundRoot}, ${underBound}, ${lone}, ${underLone}) ORDER BY id`;
   const by = Object.fromEntries(rows.map((r) => [r.id, r]));
   assert.deepEqual(by[open], { id: open, b: null, x: null }, 'the unanswered join is detached and never bound');
   assert.deepEqual(by[kept], { id: kept, b: page, x: xid }, 'a join the page kept stays and is bound');
   assert.deepEqual(by[old], { id: old, b: page, x: xid });
   assert.equal(by[page].x, xid);
+  assert.deepEqual(by[boundRoot], { id: boundRoot, b: page, x: `96${RUN}9` }, 'a member bound to an X account is never moved');
+  assert.deepEqual(by[underBound], { id: underBound, b: page, x: xid }, 'no member nests under a from_root that is not a root');
+  assert.equal(by[underLone].b, lone, 'a member goes back under a from_root that is a root');
   const [j] = await sql()<{ detached: boolean }[]>`SELECT detached_at IS NOT NULL AS detached FROM page_joins WHERE id = ${j1}`;
   assert.ok(j.detached, 'the join row is stamped detached');
   assert.equal((await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM page_joins`)[0].n, before, 'no deletes');
-  const [u] = await sql()<{ hidden: boolean }[]>`SELECT hidden FROM project_updates WHERE posted_by = ${open}`;
-  assert.equal(u.hidden, true, "the detached agent's updates since the join are hidden (as answerNotice did)");
+  const hidden = async (id: number) => (await sql()<{ hidden: boolean }[]>`SELECT hidden FROM project_updates WHERE posted_by = ${id}`)[0].hidden;
+  assert.equal(await hidden(open), true, "the detached agent's updates since the join are hidden (as answerNotice did)");
+  assert.equal(await hidden(underLone), true);
+  assert.equal(await hidden(boundRoot), false, 'only the updates of installations actually moved are hidden');
+  assert.equal(await hidden(underBound), false);
 });
 
 // ---- (c) carried from T4: a refused re-authorization keeps the installation's existing token.
@@ -145,7 +168,11 @@ test('7.6 a re-authorization refused at the token exchange keeps the old token w
   const code = await codeFor(client, user);
   // The owner clears the X account before the re-authorization's token exchange: attachToX refuses.
   await sql()`INSERT INTO x_owner_clears (x_user_id, builder_id) VALUES (${user.id}, 0) ON CONFLICT DO NOTHING`;
-  const again = await exchange(client, code);
+  const warned: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void warned.push(a.map(String).join(' '));
+  const again = await exchange(client, code).finally(() => { console.warn = warn; });
+  assert.deepEqual(warned, ['[oauth] token refused: not bound to X (owner_cleared)']);
   assert.equal(again.status, 400);
   assert.equal(((await again.json()) as { error: string }).error, 'invalid_grant');
   const still = await connectInstallation(token);

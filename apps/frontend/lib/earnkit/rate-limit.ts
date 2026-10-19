@@ -71,7 +71,7 @@ export const LIMITS = {
    */
   pageRefresh: { limit: 200, windowSeconds: 3_600 },
   pageRefreshIp: { limit: 20, windowSeconds: 3_600 },
-  /** v2.12.1: POST /claim/<code> and /x/callback (Sign in with X), per client IP. */
+  /** v2.12.1: per client IP; since v2.14 T7 only POST /claim/wallet uses it (the claim page and its callback are gone). */
   xClaim: { limit: 30, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },
