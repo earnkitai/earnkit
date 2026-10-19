@@ -6022,3 +6022,54 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
   again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
   profile and reply lines. The test guard sets `EARNKIT_EMBED_OFF=1`, so no test spawns the model worker (O7d runs fake worker scripts). The one real-model
   test runs only with `EARNKIT_MODEL_TEST=1`, which also lifts the network guard for the download.
+
+## Scoring and clarity (Task 2b): Backfill on connect
+
+Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
+
+- **One per-week body.** `week-facts.ts writeWeek(project, monday, now, deps)` is what the weekly job did per project:
+  `weekFactsFor`, `weekTitles` for a week with shipped code, `upsertWeekFacts` with `facts.checked`, then one dated
+  event per fact (dedupe key `<type>:<project_key>:<week>`). `weeklyFactsStep` calls it with `{ ghFetch }` only, so
+  its rows are unchanged. The backfill passes three more options: `counted` (a week outside the reading's counted
+  commit weeks gets no `shipped_code`), `deadline` (titles only before it) and `mark` (a completed titles read is
+  stamped `facts.titles_read`).
+- **At connect.** `repo-proof.ts proveByApp` notes inside its transaction whether this is the builder's first App proof
+  of the source (its proof was not `github_app` before; a re-prove after a removal keeps `github_app`, so it doesn't
+  count). After the connect read and the rescore, a first proof calls `backfillOnConnect`, which acts only when the
+  repo is the confirmed one project (shared clients never). `backfillWeeks` writes the 3 most recent finished weeks
+  (`backfillMondays`: lastFinishedMonday and the 2 before it), newest first, from the reading just taken, with the same
+  deadline and `budgetedFetch` as the connect read. Facts are database work. Titles cost 2 GETs a week (commits and pulls), plus the
+  installation lookup and token mint, plus one GET /repos for a repo not read public lately. They are fetched only
+  while the budget lasts.
+- **Anti-backdating.** Facts come from the newest good repo reading (`weekFactsFor`'s). Nothing is written while that
+  reading is unverified (`pushes_checked: false`), or when there is no reading at all. A verified reading's weeks pass
+  through `person-score.ts countedCommitWeeks`, the same helper `personInputsV2` uses (creation floor; an unverified
+  reading's last 4 weeks), so a week before the repo existed gets a checked row with no commit fact.
+- **No commits, no card.** As in the weekly job, a finished week with no commits gets a `{ checked: true }` row and no
+  card (`bench-data.ts logCards` shows a week only with text, titles or facts). The Started card is a different week and
+  stays.
+- **Catch-up.** `backfillStep` is the cron step `backfill`, right after `weekly` (`builder-score.ts runScoreSteps`). It
+  picks Bench-confirmed one projects with an App-proven repo of the same key and a good verified reading, where one
+  of the backfill weeks has no row, or has a checked row with shipped code, no titles and no `titles_read`. A week
+  another builder's row holds is never due. The step takes at most `BACKFILL_PER_RUN` (20) projects a run, inside the
+  deadline. Each project is tried at most `BACKFILL_TRIES_A_DAY` (3) times a UTC day (`rate_windows` key
+  `backfill:<id>`), so a repo whose titles keep failing can't take every run's slots. On a Monday before
+  `WEEKLY_HOUR_UTC`, the newest week is left to the weekly job.
+- **Idempotent.** The guards are `UNIQUE(project_key, week)` (the upsert merges facts and keeps stored titles unless new
+  ones come), `facts.checked` and `titles_read` (a done week is skipped), and the event dedupe keys. Running the
+  connect or the catch-up again writes no new rows, events or titles.
+- **Private repos.** Titles follow `weekTitles`' existing rule. A private repo with titles off reads no commits or
+  pulls (one GET /repos check), so it gets facts only. That read counts as completed, so `titles_read` is set and the
+  catch-up doesn't come back.
+- **Tests.** `backfill.test.ts` covers these cases through the real App connect:
+  - 3 rows in the weekly job's format: the newest row equals `weeklyFactsStep`'s apart from `titles_read`.
+  - A re-prove, the backfill and the catch-up run again: no duplicates.
+  - A week without commits gets no card.
+  - A private repo gets facts only.
+  - Titles cut at connect: the catch-up fills them once.
+  - No budget at connect: the catch-up writes all 3 weeks.
+  - The creation floor holds, and an unverified reading waits until a read verifies it.
+
+  `v214-ship-log.test.ts provenPerson` drops the rows the connect backfilled, so those tests drive the weekly step
+  alone.
+

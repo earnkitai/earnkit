@@ -1363,7 +1363,8 @@ apps/frontend/
                                deploys, hosting); proveByApp (appSetup's last step: GitHub names this installation for
                                the repo, one read with its token, fork/template -> derived, then ONE transaction under
                                repo_hold:<key> and source_proof:<id> locks: heldByOther, verify github_app with gh ids,
-                               public_at from GitHub's private flag; then source_verified, rescore); installLink (the App
+                               public_at from GitHub's private flag; then source_verified, the connect read, rescore, and
+                               on the first proof R13's backfill within the connect budget); installLink (the App
                                link, null with the App off or no page); appClient (one token, GETs); appCheckStep (cron
                                step app_check: GitHub still names an installation this person proved, else proposed +
                                APP_REMOVED + rescore); moved here: heldByOther, ORG_PROOF_MAX_AGE_MS, ORG_PROOF_PER_RUN,
@@ -1384,7 +1385,12 @@ apps/frontend/
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
-                               week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles)
+                               week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles);
+                               scoring and clarity R13: writeWeek (the per-week body: facts, titles, row, events; shared
+                               by weeklyFactsStep and the backfill), BACKFILL_WEEKS 3, BACKFILL_PER_RUN 20,
+                               BACKFILL_TRIES_A_DAY 3, backfillMondays, backfillWeeks, backfillOnConnect (repo-proof.ts
+                               proveByApp, first proof only), backfillStep (cron step backfill, after weekly; facts
+                               titles_read marks a completed titles read); tests backfill.test.ts
     ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle (final fix 13: TITLE_MIN 3 by letter and digit
                                code points, a Han, kana or Hangul character counting 2), shipTitles (checkUpdate on each),
                                readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
