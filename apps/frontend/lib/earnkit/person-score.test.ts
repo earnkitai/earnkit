@@ -81,11 +81,11 @@ async function live(id: number, l: { score: number; ranked: boolean }) {
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
     VALUES (${id}, ${l.score}, '{"shipping":{"points":10,"raw":{"mask":0,"live_ships":1}}}'::jsonb, ${l.ranked}, ${l.ranked ? 1 : 0}, 0, 'v2', 'v2-shipping', ${new Date(NOW.getTime() - DAY)})`;
 }
-/** Yesterday's public history row (formula v2, the live calibration): the 30-point jump is measured against it. */
-async function history(id: number, score: number, day = new Date(NOW.getTime() - DAY), calibration = 'v2-shipping') {
+/** Yesterday's public history row (formula v2, the live calibration, ranked): the 30-point jump is measured against it. */
+async function history(id: number, score: number, day = new Date(NOW.getTime() - DAY), calibration = 'v2-shipping', ranked: boolean | null = true) {
   await sql()`
-    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
-    VALUES (${id}, ${day.toISOString().slice(0, 10)}, ${score}, 0, '{}', '{}', 'v2', ${calibration}, false)
+    INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${id}, ${day.toISOString().slice(0, 10)}, ${score}, 0, '{}', '{}', 'v2', ${calibration}, false, ${ranked})
     ON CONFLICT (builder_id, day) DO NOTHING`;
 }
 /**
@@ -323,7 +323,7 @@ test('4.12 the owner releasing a held day makes the pending live score public', 
   const review = (await heldForReview()).find((x) => x.builder_id === id)!;
   assert.deepEqual([review.score, review.formula, review.shown?.score], [target, 'v2', 10]);
   const lines = partLines(review.parts);
-  assert.deepEqual(lines, ['shipping: 100 (mask 4095, weeks 12, recent 4, live_ships 1)']);
+  assert.deepEqual(lines, ['shipping: 100 (mask 4095, weeks 12, monday 20738, recent 4, live_ships 1)']);
   assert.deepEqual(partLines('junk'), []);
   process.env.ADMIN_VETO_SECRET = 'k'.repeat(40);
   try {
@@ -377,6 +377,48 @@ test('4.15 scoring and clarity: a first score of 60+ with all its people from on
   assert.deepEqual([row.score, row.ranked, row.pending], [100, true, null]);
   const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${id}`;
   assert.equal(p.held, false);
+});
+
+test('4.15d fix round 1: found yesterday (a 0 history row, unranked), connects today with 3 active weeks: scored and ranked, never held', dbTest, async () => {
+  const id = T + 16;
+  await person(id, { ring: true });
+  const key = `lee/hold${id}`;
+  await sql()`UPDATE builder_profiles SET main_project_key = ${key} WHERE builder_id = ${id}`;
+  // Yesterday's cron row while only found: 0 and unranked (also an older row with ranked unknown).
+  await history(id, 0, new Date(NOW.getTime() - DAY), 'v2-shipping', false);
+  await history(id, 0, new Date(NOW.getTime() - 2 * DAY), 'v2-shipping', null);
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
+    VALUES (${id}, 0, '{}'::jsonb, false, 0, 0, 'v2', 'v2-shipping', ${new Date(NOW.getTime() - DAY)})`;
+  // Today the App proves the repo and its first reading has commits in this week and the two before.
+  await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'github_app', by: 'server' });
+  await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [0, 1, 2].map((i) => isoWeekOf(new Date(NOW.getTime() - i * 7 * DAY))) }, NOW);
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 38, ranked: true, held: false }, 'round(90 x 33 / 78) = 38');
+  // A later refresh the same day: the baseline is still an unranked day, so still no jump.
+  assert.deepEqual(await rescorePerson(id, new Date(NOW.getTime() + 3_600_000)), { score: 38, ranked: true, held: false });
+  const [l] = await sql()<{ pending: unknown; ranked: boolean }[]>`SELECT pending, ranked FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...l }, { pending: null, ranked: true });
+  // The cron's history row records the rank, so it can be tomorrow's baseline.
+  await scorePeopleV2(new Date(NOW.getTime() + 2 * 3_600_000), { deadline: Date.now() + 10_000, only: [id] });
+  const [h] = await sql()<{ ranked: boolean; score: number }[]>`SELECT ranked, score FROM builder_scores WHERE builder_id = ${id} AND day = ${NOW.toISOString().slice(0, 10)}`;
+  assert.deepEqual({ ...h }, { ranked: true, score: 38 });
+});
+
+test('4.15e fix round 1: a live row of an older calibration is unranked everywhere until rescored, and the cron rescores it first even when today is scored', dbTest, async () => {
+  const id = T + 16;
+  await person(id, { ring: true });
+  await sql()`UPDATE builder_profiles SET x_user_id = ${`x${id}`}, x_handle = ${`h${id}`} WHERE builder_id = ${id}`;
+  await fakeBigUse(id);
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at)
+    VALUES (${id}, 77, ${sql().json({ shipped: { points: 20 }, used: { points: 40 }, earned: { points: 17 } } as never)}, true, 1, 9, 'v2', 'v2-launch', ${new Date(NOW.getTime() - DAY)})`;
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
+    VALUES (${id}, ${NOW.toISOString().slice(0, 10)}, 77, 0, '{}', '{}', 'v2', 'v2-launch', false) ON CONFLICT DO NOTHING`;
+  const s = await standingOf(id, { only: [id] });
+  assert.deepEqual([s.ranked, s.rank, s.total], [false, 0, 0], 'the four-part 77 never ranks');
+  const r = await scorePeopleV2(NOW, { deadline: Date.now() + 10_000, only: [id] });
+  assert.equal(r.scored, 1, 'rescored although today already has a row');
+  const [l] = await sql()<{ calibration: string; score: number; ranked: boolean }[]>`SELECT calibration, score, ranked FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual({ ...l }, { calibration: 'v2-shipping', score: 100, ranked: true });
+  assert.deepEqual(await standingOf(id, { only: [id] }).then((x) => [x.ranked, x.rank, x.total]), [true, 1, 1]);
 });
 
 test('4.15c the review hold measures a jump only from a history row of the live calibration (the four-part score is never the baseline)', dbTest, async () => {
@@ -521,9 +563,9 @@ test('4.22 a refresh that holds after the cron wrote an unheld day still puts th
   const day = new Date(NOW.getTime() + 7 * DAY);
   await person(id, { ring: true });
   await history(id, 10, new Date(day.getTime() - DAY));
-  await hosted(id, { slug: `rv${id}`, repo_key: `lee/rv${id}`, status: 'live' });
+  await fakeBigUse(id, { active: 0 }); // the live bonus, a repo read with no commits: ranked at 10
   await scorePeopleV2(day, { deadline: Date.now() + 10_000, only: [id] }); // unheld (10, then 10)
-  await fakeBigUse(id);
+  await fakeBigUse(id, { seed: 1 }); // code every week: 100
   const r = await rescorePerson(id, new Date(day.getTime() + 3_600_000));
   assert.equal(r.held, true);
   const review = (await heldForReview()).find((x) => x.builder_id === id);

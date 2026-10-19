@@ -29,7 +29,8 @@ export type ScoreInput = { ships: Ship[]; commitWeeks: string[] };
 export type ScorePart = { points: number; raw: Record<string, number> };
 /**
  * `shipping.raw`: mask (bit i set: commits in the week i weeks before this one; bit 0 is this week),
- * weeks (of the last 12), recent (of the last 4), live_ships (distinct). scoreWhy reads them.
+ * monday (that week's Monday as whole days since the epoch, UTC), weeks (of the last 12), recent (of
+ * the last 4), live_ships (distinct). scoreWhy reads them.
  * `originality`: reserved for a later, separate value.
  */
 export type ScoreParts = { shipping: ScorePart; originality?: ScorePart };
@@ -58,11 +59,18 @@ export function shippingOf(mask: number, liveShips: number): number {
   return Math.min(SHIPPING_MAX, Math.round((CODE_MAX * w) / WEIGHT_SUM) + (liveShips > 0 ? LIVE_BONUS : 0));
 }
 
+/** The Monday of `now`'s ISO week, as whole days since the epoch (UTC). Pure. */
+export const mondayDay = (now: Date): number => {
+  const day = Math.floor(now.getTime() / DAY_MS);
+  return day - ((new Date(day * DAY_MS).getUTCDay() + 6) % 7);
+};
+
 export function computeScoreV2(i: ScoreInput, now: Date): V2Scored {
   const live = new Set(i.ships.map((s) => s.key)).size;
   const mask = weekMask(i.commitWeeks, now);
   const score = shippingOf(mask, live);
-  return { score, parts: { shipping: { points: score, raw: { mask, weeks: bits(mask), recent: bits(mask & LAST4), live_ships: live } } }, shipped: live };
+  const raw = { mask, monday: mondayDay(now), weeks: bits(mask), recent: bits(mask & LAST4), live_ships: live };
+  return { score, parts: { shipping: { points: score, raw } }, shipped: live };
 }
 
 /**
@@ -70,16 +78,18 @@ export function computeScoreV2(i: ScoreInput, now: Date): V2Scored {
  * placeholder, a malformed row, or one from an older formula: its shipped, used, earned and
  * consistency keys are ignored).
  */
-export function storedShipping(j: unknown): { points: number; mask: number; liveShips: number } | null {
+export function storedShipping(j: unknown): { points: number; mask: number; monday: number | null; liveShips: number } | null {
   if (!j || typeof j !== 'object') return null;
   const sh = (j as Record<string, unknown>).shipping as { points?: unknown; raw?: Record<string, unknown> } | undefined;
   const points = sh?.points;
   const mask = sh?.raw?.mask;
   if (typeof points !== 'number' || !Number.isFinite(points) || typeof mask !== 'number' || !Number.isInteger(mask) || mask < 0) return null;
   const live = sh?.raw?.live_ships;
+  const monday = sh?.raw?.monday;
   return {
     points: Math.max(0, Math.min(SHIPPING_MAX, Math.round(points))),
     mask: mask & LAST12,
+    monday: typeof monday === 'number' && Number.isInteger(monday) ? monday : null,
     liveShips: typeof live === 'number' && Number.isFinite(live) && live > 0 ? Math.floor(live) : 0,
   };
 }
@@ -88,12 +98,15 @@ export function storedShipping(j: unknown): { points: number; mask: number; live
  * One plain sentence on why Shipping is what it is, and what raises it: "Code in 7 of the last 12
  * weeks, 3 of the last 4. Ship code this week to add up to 14 points." The points are what an active
  * week adds by the formula: this week while it has no commits yet, else next week (over next week
- * without commits). Null for parts without Shipping's raw. Pure.
+ * without commits). A row scored in an earlier week is read as of `now`'s week (its mask shifted by the
+ * weeks since), so "this week" is never last week's. Null for parts without Shipping's raw. Pure.
  */
-export function scoreWhy(parts: unknown): string | null {
+export function scoreWhy(parts: unknown, now: Date): string | null {
   const p = storedShipping(parts);
   if (!p) return null;
-  const { mask, liveShips } = p;
+  const gone = p.monday === null ? 0 : Math.max(0, Math.round((mondayDay(now) - p.monday) / 7));
+  const mask = gone >= SHIPPING_WEEKS ? 0 : (p.mask << gone) & LAST12;
+  const { liveShips } = p;
   const w12 = bits(mask);
   const why = w12 === 0 ? 'No code in the last 12 weeks.' : `Code in ${w12} of the last 12 weeks, ${bits(mask & LAST4)} of the last 4.`;
   if ((mask & 1) === 0) return `${why} Ship code this week to add up to ${shippingOf(mask | 1, liveShips) - shippingOf(mask, liveShips)} points.`;

@@ -25,8 +25,12 @@ export const NOT_ON_BENCH = "You're not on the Bench yet.";
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** A13: the streak as the chips say it. */
 export const streakWords = (n: number) => `${n} weeks in a row`;
-/** R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week." */
-export const shippingStand = (name: string, score: number | null, rank: string | null) => `${name}: ${scoreLine(score ?? 0, rank)}.`;
+/**
+ * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week."
+ * Before its first Shipping score (no row yet, or one from an older formula): the project is counted.
+ */
+export const shippingStand = (name: string, score: number | null, rank: string | null) =>
+  score === null ? `${name} is counted. Its Shipping score comes with the next read.` : `${name}: ${scoreLine(score, rank)}.`;
 
 /** `when` as stand-view earnWhen gives it: "open all year" or "closes Oct 14". */
 export const fitsLine = (title: string, prize: string, name: string, when: string) =>

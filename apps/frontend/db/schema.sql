@@ -1221,6 +1221,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS agent_completable boolean NOT NULL
 -- written at scoring time so the public profile shows the scorer's own numbers without re-reading
 -- the whole system. Additive; NULL on rows scored before it.
 ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS projects jsonb;
+-- Scoring and clarity (fix round 1): whether the day's score was ranked, so the review hold never measures a
+-- jump from a day the builder was unranked (no confirmed project with a repo reading). Additive; NULL on older rows.
+ALTER TABLE builder_scores ADD COLUMN IF NOT EXISTS ranked boolean;
 
 -- v2.12 spec 9: sponsor campaigns archived (archive/sponsor-campaigns/). Kept, never dropped; no writes
 -- while EARNKIT_SPONSOR_CAMPAIGNS is off.

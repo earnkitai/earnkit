@@ -237,9 +237,9 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     bench: lines.bench,
     line: lines.line,
     chainLines: lines.chains,
-    // A row of an older formula shows its number until the next rescore, without a why.
-    score: scored ? (storedShipping(live.parts)?.points ?? Math.round(live.score)) : null,
-    why: scored ? scoreWhy(live.parts) : null,
+    // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).
+    score: scored ? (storedShipping(live.parts)?.points ?? null) : null,
+    why: scored ? scoreWhy(live.parts, now) : null,
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
   if (!p.main) return empty;

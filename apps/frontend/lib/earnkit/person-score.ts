@@ -574,17 +574,20 @@ export async function personInputsV2(
  * The review hold for a rescore `s` on `day`: the baseline is the newest public score before that
  * day, a public v2 history row or a released live score (a held day the owner never saw is neither).
  */
-async function holdOf(tx: Db, id: number, day: string, score: number) {
-  // Scoring and clarity: only a baseline of the live calibration counts (Shipping's first day is never
-  // a jump from the four-part score). No source shares: people and money aren't scored.
+async function holdOf(tx: Db, id: number, day: string, score: number, wasRanked: boolean) {
+  // Scoring and clarity: only a ranked baseline of the live calibration counts (Shipping's first day is never
+  // a jump from the four-part score, nor from a day the builder was unranked). The first rescore after the
+  // builder becomes ranked (`wasRanked` false: the App connect, the repo's first reading) is never held. No
+  // source shares: people and money aren't scored.
+  if (!wasRanked) return { before: undefined, reason: null };
   const cal = calibrationV2().id;
   const [before] = await tx<{ score: number }[]>`
     SELECT score FROM (
       SELECT s.day, 0 AS pri, s.score FROM builder_scores s
-      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.calibration = ${cal} AND s.day < ${day}::date AND ${publicRow()}
+      WHERE s.builder_id = ${id} AND s.formula = ${FORMULA_V2} AND s.calibration = ${cal} AND s.ranked AND s.day < ${day}::date AND ${publicRow()}
       UNION ALL
       SELECT x.day, 1, x.score FROM score_releases x WHERE x.builder_id = ${id} AND x.score IS NOT NULL AND x.day < ${day}::date
-        AND EXISTS (SELECT 1 FROM builder_scores h WHERE h.builder_id = x.builder_id AND h.day = x.day AND h.calibration = ${cal})
+        AND EXISTS (SELECT 1 FROM builder_scores h WHERE h.builder_id = x.builder_id AND h.day = x.day AND h.calibration = ${cal} AND h.ranked)
     ) b ORDER BY day DESC, pri DESC LIMIT 1`;
   return { before, reason: holdReason(before?.score ?? null, score, []) };
 }
@@ -606,7 +609,8 @@ export async function trackingHeld(id: number, ref: string, now: Date): Promise<
       const main = (await mainProjectOf(id, tx)) ?? (await pickMainProject(id, tx));
       const { input } = await personInputsV2(id, now, undefined, tx, { scope: main });
       const sc = computeScoreV2(input, now);
-      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score)).reason !== null;
+      const [cur] = await tx<{ ranked: boolean }[]>`SELECT ranked AND calibration = ${LIVE_CALIBRATION_V2} AS ranked FROM builder_live WHERE builder_id = ${id}`;
+      held = (await holdOf(tx, id, now.toISOString().slice(0, 10), sc.score, Boolean(cur?.ranked))).reason !== null;
       throw new DryRun();
     });
   } catch (err) {
@@ -646,8 +650,8 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
   // baseline, the stored ring) is read under it. A rescore older than the stored one writes nothing.
   const result = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
-    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
-      SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date; live_cal: boolean }[]>`
+      SELECT score, ranked, computed_at, calibration = ${LIVE_CALIBRATION_V2} AS live_cal FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
     // A newer rescore exists (a refresh during this cron run). Without a ring (an older refresh)
     // nothing is written. The cron's ring is the freshest, so the cron rescores at the newer row's
     // time: same readings, same computed_at (never moves back), the rank, cap and projects rebuilt
@@ -667,7 +671,7 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
     const prevTracked = new Set((await tx<{ project_key: string }[]>`
       SELECT project_key FROM builder_projects WHERE builder_id = ${id} AND tracked`).map((r) => r.project_key));
     const tracked = trackedKeys(projects, at, prevTracked);
-    const { before, reason } = await holdOf(tx, id, day, s.score);
+    const { before, reason } = await holdOf(tx, id, day, s.score, Boolean(cur?.ranked && cur.live_cal));
     const people = projects.filter((p) => p.people > 0).length;
     // `at` names this rescore: the owner's release applies it only while it is still the pending one.
     // A cron rescore at a newer row's time is a different rescore, so it carries the run's time too.
@@ -732,8 +736,9 @@ export async function rescorePerson(id: number, now: Date, ring?: PersonRing): P
  */
 export function listedRanked(db: Db, only?: number[]) {
   const among = only ? db`AND l.builder_id IN ${db(only.length ? only : [-1])}` : db``;
+  // Scoring and clarity: only rows of the live calibration (Shipping); an older row is unranked until rescored.
   return db`(SELECT l.builder_id, l.score FROM builder_live l JOIN builder_profiles p USING (builder_id)
-    WHERE l.ranked AND l.pending IS NULL AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held ${among})`;
+    WHERE l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AND l.pending IS NULL AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held ${among})`;
 }
 
 /**
@@ -745,10 +750,10 @@ export async function standingOf(id: number, o: { only?: number[] } = {}): Promi
   const db = sql();
   const listed = listedRanked(db, o.only);
   const [row] = await db<{ score: number; ranked: boolean; shipped: number; people: number; claimed: boolean; handle: string | null; total: number; rank: number }[]>`
-    SELECT l.score, l.ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
+    SELECT l.score, l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AS ranked, l.shipped, l.people, p.x_user_id IS NOT NULL AS claimed, p.x_handle AS handle,
       (SELECT count(*)::int FROM ${listed} x)
-        + CASE WHEN l.ranked AND NOT EXISTS (SELECT 1 FROM ${listed} y WHERE y.builder_id = l.builder_id) THEN 1 ELSE 0 END AS total,
-      CASE WHEN l.ranked THEN 1 + (SELECT count(*)::int FROM ${listed} z WHERE z.score > l.score AND z.builder_id <> l.builder_id) ELSE 0 END AS rank
+        + CASE WHEN l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} AND NOT EXISTS (SELECT 1 FROM ${listed} y WHERE y.builder_id = l.builder_id) THEN 1 ELSE 0 END AS total,
+      CASE WHEN l.ranked AND l.calibration = ${LIVE_CALIBRATION_V2} THEN 1 + (SELECT count(*)::int FROM ${listed} z WHERE z.score > l.score AND z.builder_id <> l.builder_id) ELSE 0 END AS rank
     FROM builder_live l JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id}`;
   if (row) return { ...row };
   const [p] = await db<{ claimed: boolean; handle: string | null }[]>`
@@ -1013,11 +1018,13 @@ export async function scorePeopleV2(now: Date, o: { deadline: number; only?: num
   const due = await db<{ builder_id: number }[]>`
     SELECT p.builder_id FROM builder_profiles p LEFT JOIN builder_live l USING (builder_id)
     WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
-      AND (NOT EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.day = ${day})
+      -- Scoring and clarity: a live row of an older calibration is rescored at once (the deploy's catch-up).
+      AND (l.calibration <> ${LIVE_CALIBRATION_V2}
+        OR NOT EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.day = ${day})
         OR EXISTS (SELECT 1 FROM builder_sources b JOIN source_readings r ON r.source_id = b.id
           WHERE b.builder_id = p.builder_id AND r.at > COALESCE(l.computed_at, '-infinity'::timestamptz)))
       ${o.only ? db`AND p.builder_id IN ${db(o.only.length ? o.only : [-1])}` : db``}
-    ORDER BY p.builder_id`;
+    ORDER BY (l.calibration IS DISTINCT FROM ${LIVE_CALIBRATION_V2} AND l.builder_id IS NOT NULL) DESC, p.builder_id`;
   if (due.length === 0) return { scored: 0, held: [] };
   // Everyone's accounts and ring edges, once a run: each person's ring is stored on their profile, so
   // the on-demand refresh reads only that row.
@@ -1030,11 +1037,12 @@ export async function scorePeopleV2(now: Date, o: { deadline: number; only?: num
     scored++;
     if (r.held) held.push(id);
     const [row] = await db<{ score: number }[]>`
-      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects)
+      INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, projects, ranked)
       SELECT builder_id, ${day},
         -- A held day keeps what the owner reviews: the pending score and its parts.
         COALESCE((pending->>'score')::smallint, score), 0, COALESCE(pending->'parts', parts), '{}'::jsonb,
-        COALESCE(pending->>'formula', formula), COALESCE(pending->>'calibration', calibration), pending IS NOT NULL, NULL
+        COALESCE(pending->>'formula', formula), COALESCE(pending->>'calibration', calibration), pending IS NOT NULL, NULL,
+        COALESCE((pending->>'ranked')::boolean, ranked)
       FROM builder_live
       WHERE builder_id = ${id} ON CONFLICT (builder_id, day) DO NOTHING RETURNING score`;
     if (row)
