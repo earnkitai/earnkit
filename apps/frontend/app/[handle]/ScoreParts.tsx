@@ -2,46 +2,47 @@ import type { ProfileData } from '../../lib/earnkit/bench-data';
 import ScoreRing from './ScoreRing';
 import { PART_COLORS, PART_WORDS } from './score-colors';
 
+/** profile-whoop v2: a dark card surface (hairline border, soft top-down gradient). */
+export const SURFACE =
+  'rounded-[24px] border border-white/[0.06] bg-gradient-to-b from-[#17191F] to-[#111318]';
+
 /**
- * profile-whoop: the score's parts, each its own ring in its own color with its points in the
- * middle, the label, "of N" and one sentence on what counts. Screen readers get the ring's one line
- * ("Shipped 15 of 20") and the sentence. Two columns on a phone, four from md, hairlines between. Pure.
+ * profile-whoop v2: the score's parts, each on its own card: its gradient ring with the points in the
+ * middle, the label in small uppercase in its hue, and one muted sentence on what counts. Screen
+ * readers get the ring's one line ("Shipped 15 of 20") and the sentence. Two columns on a phone,
+ * four from md. Pure.
  */
 export default function ScoreParts({ parts }: { parts: ProfileData['parts'] }) {
   return (
-    <ul className="grid grid-cols-2 gap-px overflow-hidden rounded-[28px] bg-ek-blue-soft/10 md:grid-cols-4">
+    <ul className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
       {parts.map((p) => {
-        const color = PART_COLORS[p.label];
+        const hue = PART_COLORS[p.label];
         return (
           <li
             key={p.label}
-            className="flex min-w-0 flex-col items-start gap-4 bg-ek-navy-deep p-5 md:p-6"
+            className={`flex min-w-0 flex-col items-start gap-4 p-5 md:p-6 ${SURFACE}`}
           >
+            <p
+              aria-hidden="true"
+              className="font-funnel-sans text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: hue.text }}
+            >
+              {p.label}
+            </p>
             <ScoreRing
               score={p.points}
               max={p.max}
-              color={color}
+              hue={hue}
               stroke={7}
+              track={3}
               label={`${p.label} ${p.points} of ${p.max}`}
               caption={`of ${p.max}`}
-              className="h-20 w-20 md:h-24 md:w-24"
-              numberClassName="text-[1.75rem] md:text-[2rem]"
+              className="h-[5.5rem] w-[5.5rem] md:h-28 md:w-28"
+              numberClassName="text-[1.9rem] md:text-[2.4rem]"
             />
-            <div className="min-w-0">
-              <p
-                aria-hidden="true"
-                className="flex items-center gap-2 font-funnel-sans text-[15px] font-medium text-ek-white"
-              >
-                <span
-                  className="inline-block h-2 w-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-                {p.label}
-              </p>
-              <p className="mt-1.5 font-funnel-sans text-sm font-light leading-snug text-ek-blue-soft">
-                {PART_WORDS[p.label]}
-              </p>
-            </div>
+            <p className="font-funnel-sans text-[13px] leading-snug text-[#9BA1AC] md:text-sm">
+              {PART_WORDS[p.label]}
+            </p>
           </li>
         );
       })}

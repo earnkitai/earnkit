@@ -10,8 +10,21 @@ export const shippedWords = (n: number, of = 52): string =>
   `Code in ${n} of the last ${of} weeks`;
 
 /**
+ * profile-whoop v2: a filled week in Consistency's hue, its intensity rising toward the newest week
+ * (older weeks fade, as the score fades them). Pure.
+ */
+const onStyle = (i: number, n: number) => {
+  const t = n > 1 ? i / (n - 1) : 1;
+  const c = PART_COLORS.Consistency;
+  return {
+    backgroundImage: `linear-gradient(180deg, ${c.to}, ${c.from})`,
+    opacity: 0.4 + 0.6 * t,
+  };
+};
+
+/**
  * v2.13 spec "Shipping grid": 52 squares, one per ISO week, oldest first; filled for a week that
- * shipped, in Consistency's color (profile-whoop). 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
+ * shipped, in Consistency's hue (profile-whoop v2: brighter toward the newest week). 13 by 4 on a phone, 26 by 2 from md. Each square's tooltip is its week ("Week of Oct 12":
  * the key goes through mondayOfWeek first, F21). Pure.
  */
 export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
@@ -23,7 +36,7 @@ export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
       className="w-full"
     >
       <div className="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-1.5 md:grid-cols-[repeat(26,minmax(0,1fr))] md:gap-[5px]">
-        {grid.map((g) => {
+        {grid.map((g, i) => {
           const monday = mondayOfWeek(g.week);
           return (
             <span
@@ -31,10 +44,8 @@ export default function ShipGrid({ grid }: { grid: ProfileData['grid'] }) {
               data-week={g.week}
               data-on={g.on}
               title={monday ? weekLabel(monday) : undefined}
-              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-ek-blue-soft/10'}`}
-              style={
-                g.on ? { backgroundColor: PART_COLORS.Consistency } : undefined
-              }
+              className={`block aspect-square rounded-[3px] ${g.on ? '' : 'bg-white/[0.05]'}`}
+              style={g.on ? onStyle(i, grid.length) : undefined}
             />
           );
         })}

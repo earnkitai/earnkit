@@ -229,3 +229,38 @@ html {
     animation: none;
   }
 }
+
+/* profile-whoop v2: the profile page (handle-view.tsx wraps it in data-ek-premium). A near-black
+   page; the site header gives way to the profile's own slim top bar; the footer and the Ship log
+   cards take the same dark surfaces. Scoped here so no other page changes. */
+body:has([data-ek-premium]) {
+  background: #0b0b0f;
+}
+body:has([data-ek-premium]) [data-ek-header] {
+  display: none;
+}
+.ek-premium {
+  min-height: 100dvh;
+  background: #0b0b0f;
+  color: #c9cdd4;
+}
+.ek-premium footer {
+  background: transparent;
+  padding-bottom: 2.5rem;
+}
+.ek-premium footer > div:first-child {
+  background: linear-gradient(180deg, #17191f, #111318);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+}
+.ek-premium article[data-shape] {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.ek-premium article[data-shape] ul.flex-wrap > li {
+  background: rgba(255, 255, 255, 0.05);
+  color: #c9cdd4;
+}
+.ek-premium footer > div:nth-child(2) {
+  color: rgba(255, 255, 255, 0.035);
+}

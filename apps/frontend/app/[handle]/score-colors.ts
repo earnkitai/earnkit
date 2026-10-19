@@ -1,22 +1,31 @@
 /**
- * profile-whoop: each score keeps one color everywhere it shows (its ring, its label mark, the
- * grid for Consistency). All are brand tokens (DESIGN.md) and read 4.5:1 or more on the panel.
- * The total is white: it is the sum, not a fifth score.
+ * profile-whoop v2: the profile's premium dark palette. Each score keeps one hue family everywhere it
+ * shows: its ring's gradient (`from` to `to`, along the stroke), its soft glow, and `text`, the one
+ * solid color its label is set in (4.5:1 or more on the page and the card surface, tested). The total
+ * is white to soft grey: it is the sum, not a fifth score.
  */
 export const PART_COLORS = {
-  Shipped: '#579DFF', // ek-blue-bright
-  Used: '#9B6BFF', // ek-score-purple
-  Earned: '#FC9E19', // ek-amber
-  Consistency: '#D76CEF', // ek-pink
+  Shipped: { from: '#2563EB', to: '#22D3EE', text: '#67E8F9' }, // deep blue to cyan
+  Used: { from: '#6366F1', to: '#A78BFA', text: '#C4B5FD' }, // indigo to violet
+  Earned: { from: '#F59E0B', to: '#FB923C', text: '#FCD34D' }, // amber to orange
+  Consistency: { from: '#C026D3', to: '#F472B6', text: '#F9A8D4' }, // magenta to pink
 } as const;
 export type PartLabel = keyof typeof PART_COLORS;
+export type Hue = { from: string; to: string; text?: string };
 
 export const SCORE_COLORS = {
-  total: '#F6F9FE', // ek-white
-  /** The ring's empty track: the panel lifted a little. */
-  track: 'rgba(163, 197, 254, 0.10)',
-  /** The profile panel (ek-navy-deep). */
-  panel: '#0F1839',
+  /** The hero ring: white to soft grey. */
+  total: { from: '#FFFFFF', to: '#9CA3AF' } as Hue,
+  /** A ring's empty track: thin and dim. */
+  track: 'rgba(255, 255, 255, 0.07)',
+  /** The page behind everything (near-black). */
+  page: '#0B0B0F',
+  /** A card surface: a soft top-down gradient between these two. */
+  surfaceTop: '#17191F',
+  surface: '#111318',
+  /** Text: primary, and the muted grey for secondary lines and labels. */
+  text: '#F5F6F8',
+  muted: '#9BA1AC',
 } as const;
 
 /**

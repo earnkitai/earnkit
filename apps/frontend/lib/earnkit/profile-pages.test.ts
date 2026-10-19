@@ -13,19 +13,31 @@ import { sql } from './db';
  */
 (globalThis as { React?: typeof React }).React = React;
 
-test('10.5 (profile-whoop) each score keeps one distinct color, 4.5:1 or more on the panel navy; the ring has no gradient', () => {
-  const ring = readFileSync(join(import.meta.dirname, '../../app/[handle]/ScoreRing.tsx'), 'utf8');
-  assert.doesNotMatch(ring, /Gradient|drop-shadow/);
+test('10.5 (profile-whoop v2) each score keeps one hue family; every text color is 4.5:1 or more on the page and the card surface; reduced motion is honored', () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   const ratio = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
-  const colors = [...Object.values(PART_COLORS), SCORE_COLORS.total];
-  assert.equal(new Set(colors).size, colors.length, 'distinct');
-  for (const c of colors) assert.ok(ratio(c, SCORE_COLORS.panel) >= 4.5, c);
-  const tw = readFileSync(join(import.meta.dirname, '../../tailwind.config.ts'), 'utf8');
-  for (const c of Object.values(PART_COLORS)) assert.ok(tw.toUpperCase().includes(`'${c.toUpperCase()}'`), `${c} is a brand token`);
+  const hues = Object.values(PART_COLORS);
+  const stops = hues.flatMap((h) => [h.from, h.to]);
+  assert.equal(new Set(stops).size, stops.length, 'distinct gradient stops');
+  // Text set in a hue (the part labels), the primary text and the muted grey: on the page and on both surface stops.
+  const texts = [...hues.map((h) => h.text), SCORE_COLORS.text, SCORE_COLORS.muted, SCORE_COLORS.total.from];
+  for (const bg of [SCORE_COLORS.page, SCORE_COLORS.surface, SCORE_COLORS.surfaceTop])
+    for (const t of texts) assert.ok(ratio(t, bg) >= 4.5, `${t} on ${bg}: ${ratio(t, bg).toFixed(2)}`);
+  // The rings are gradient strokes with a rounded cap; their draw-in stops under reduced motion.
+  const ring = readFileSync(join(import.meta.dirname, '../../app/[handle]/ScoreRing.tsx'), 'utf8');
+  assert.match(ring, /linearGradient/);
+  assert.match(ring, /strokeLinecap="round"/);
+  assert.match(ring, /role="img"/);
+  const css = readFileSync(join(import.meta.dirname, '../../app/globals.css'), 'utf8');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.ek-arc \{\s*animation: none;/);
+  // The site header gives way to the profile's slim top bar only on a page that carries data-ek-premium.
+  assert.match(css, /body:has\(\[data-ek-premium\]\) \[data-ek-header\] \{\s*display: none;/);
+  const view = readFileSync(join(import.meta.dirname, '../../app/[handle]/handle-view.tsx'), 'utf8');
+  assert.match(view, /data-ek-premium/);
+  assert.match(view, /<ProfileTopBar \/>/);
 });
 
 test('10.8 (v2.12.1 T6) the pages read live: /<handle> and /b/<name> are dynamic; hide and show expire the cache', () => {
