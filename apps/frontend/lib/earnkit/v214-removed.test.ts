@@ -200,3 +200,13 @@ test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.1
     assert.match(terms, must);
   assert.doesNotMatch(terms, /—|\braise\b|\braising\b/i);
 });
+
+test('7.8 final fix: the bonus round admin is gone; bonusLive reads only coins (fee claiming), never programs or rounds', () => {
+  const veto = readFileSync(join(FRONTEND, 'lib/earnkit/veto.ts'), 'utf8');
+  assert.doesNotMatch(veto, /bonusVetoKey|bonusReviewLink|vetoBonusEntry|form\.get\('round'\)|bonus_rounds|bonus_vetoes/);
+  assert.doesNotMatch(readFileSync(join(FRONTEND, 'scripts/campaign.mts'), 'utf8'), /bonus-link/);
+  const cron = readFileSync(join(FRONTEND, 'lib/earnkit/cron.ts'), 'utf8');
+  const live = cron.slice(cron.indexOf('export async function bonusLive'), cron.indexOf('/** A pay step that threw'));
+  assert.match(live, /coin_address IS NOT NULL/);
+  assert.doesNotMatch(live, /builder_bonus|bonus_rounds/);
+});

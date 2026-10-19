@@ -12,7 +12,7 @@ import { computeScore } from './score';
 import { calibration } from './score-calibration';
 import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
 import { CONTRACT_REFUSALS, claimContract, proposeSource, readSources, rejectSource, verifySource } from './sources';
-import { bonusVetoKey, vetoKey } from './veto';
+import { vetoKey } from './veto';
 
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -296,7 +296,7 @@ test('6.16 /admin/scores: a POST-only release with its own key; the page is rate
   assert.match(page, />Release</);
   const secret = 'k'.repeat(40);
   const key = scoresAdminKey(secret);
-  for (const other of [vetoKey('scores', secret), vetoKey('admin', secret), bonusVetoKey('admin:scores', secret)]) assert.notEqual(key, other);
+  for (const other of [vetoKey('scores', secret), vetoKey('admin', secret), vetoKey('bonus:admin:scores', secret)]) assert.notEqual(key, other);
   assert.equal(scoresAdminKey('short'), null);
 });
 

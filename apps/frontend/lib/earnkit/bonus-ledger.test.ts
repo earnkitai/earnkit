@@ -672,7 +672,7 @@ test('Rulings 19, 20: a missing or malformed payout key waits on the owner (503)
     const err = console.error;
     console.error = () => {};
     try {
-      // An active program with a builder bonus and an EarnKit coin exist; no round has ended.
+      // An EarnKit coin exists (v2.14: bonusLive reads coins only; programs and rounds no longer count).
       const missing = await run({ account: null });
       assert.equal(missing.status, 503);
       const body = (await missing.json()) as { needs_owner: string[]; bonus: { note?: string } };

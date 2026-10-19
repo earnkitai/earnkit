@@ -112,20 +112,18 @@ const openReview = (p: Program, now: Date) => sql()`
 export { PAY_FAILED, PAY_FAILED_RUNS, STEP_FAILED, TERMS_CHANGED };
 /**
  * needs_owner when the bonus ledger can't run (the payout key missing or malformed, or off Base
- * mainnet) while the builder bonus can earn (bonusLive).
+ * mainnet) while there are coin fees to claim (bonusLive).
  */
 export const BONUS_WALLET_UNSET = 'bonus-rounds: payout wallet not configured';
 
 /**
- * Whether the builder bonus can earn money now (Ruling 20; v2.6 Ruling 17 (plan)): an active,
- * non-campaign program (bonusOn's SQL twin: every program has the bonus unless it opted out or is
- * a campaign), an EarnKit coin (coin_address), or an ended round not paid or empty.
+ * Whether there are coin fees to index and claim (Ruling 20; v2.14: the builder bonus program and round
+ * clauses went with the rounds): an EarnKit coin exists (coin_address). bonus-ledger.ts still indexes,
+ * claims and sweeps those fees to the Safe, so a missing payout key with a coin waits on the owner.
  */
-export async function bonusLive(now: Date) {
+export async function bonusLive(_now: Date) {
   const [r] = await sql()<{ live: boolean }[]>`
-    SELECT EXISTS (SELECT 1 FROM programs WHERE status = 'active' AND builder_bonus AND campaign IS NULL)
-      OR EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL)
-      OR EXISTS (SELECT 1 FROM bonus_rounds WHERE state NOT IN ('paid', 'empty') AND ends_at <= ${now}) AS live`;
+    SELECT EXISTS (SELECT 1 FROM projects WHERE coin_address IS NOT NULL) AS live`;
   return r.live;
 }
 /** A pay step that threw, with how many have failed in a row (campaign_runs.pay_failures). */
@@ -382,8 +380,7 @@ export async function runCron(
   // v2.9 D17: so does a payout wallet low on ETH for gas, or a claim it couldn't pay gas for.
   if (bonusWaitsOnOwner(bonus)) needs_owner.push('bonus-ledger');
   // Rulings 19 and 20: the ledger was skipped for want of a usable payout key (missing or malformed)
-  // or of Base mainnet while there are fees to index (bonusLive: an EarnKit coin; the program and round
-  // clauses read v2.13 rows only). Nothing is indexed, claimed or swept to the Safe until the owner acts,
+  // or of Base mainnet while there are fees to index (bonusLive: an EarnKit coin). Nothing is indexed, claimed or swept to the Safe until the owner acts,
   // so it waits on the owner. A failed check counts as yes (never silent).
   const skipped = bonus?.skipped;
   if (skipped === NO_PAYOUT_KEY || skipped === NOT_MAINNET) {
