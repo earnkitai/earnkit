@@ -52,5 +52,3 @@ export function chipHue(chip: string): PartLabel | null {
   return null;
 }
 
-/** A card's one accent: the hue of its first chip that has one (none: neutral). Pure. */
-export const cardHue = (chips: string[]): PartLabel | null => chips.map(chipHue).find((h) => h !== null) ?? null;

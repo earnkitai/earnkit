@@ -253,87 +253,73 @@ body:has([data-ek-premium]) [data-ek-header] {
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 24px;
 }
-/* Update cards (feed, Ship log): a dark gradient surface, a faint border, and a 2px left accent in
-   the hue of the score the card speaks to (data-hue: UpdateCard + score-colors.ts chipHue). */
+/* Update cards (feed, Ship log), v3: the profile cards' surface exactly (ScoreParts SURFACE: 24px
+   radius, the dark gradient, a faint border) plus soft depth. Neutral throughout: soft grey chips,
+   a neutral avatar ring, white titles, muted meta. The one quiet accent is a small dot in the first
+   chip's score hue (data-hue: UpdateCard + score-colors.ts chipHue). */
 .ek-premium article[data-shape] {
-  position: relative;
-  overflow: hidden;
   background: linear-gradient(180deg, #17191f, #111318);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
-  --hue-from: #3a3f4b;
-  --hue-to: #2a2e37;
-  --hue-text: #9ba1ac;
-  --hue-tint: rgba(255, 255, 255, 0.05);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 16px 40px -24px rgba(0, 0, 0, 0.75);
 }
-.ek-premium article[data-shape]::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 18px;
-  bottom: 18px;
-  width: 2px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, var(--hue-to), var(--hue-from));
+.ek-premium article[data-shape='long'] {
+  padding: 24px;
 }
-.ek-premium :is(article, li)[data-hue='Shipped'] {
-  --hue-from: #2563eb;
-  --hue-to: #22d3ee;
-  --hue-text: #67e8f9;
-  --hue-tint: rgba(34, 211, 238, 0.1);
+@media (min-width: 768px) {
+  .ek-premium article[data-shape='long'] {
+    padding: 28px 32px;
+  }
 }
-.ek-premium :is(article, li)[data-hue='Used'] {
-  --hue-from: #6366f1;
-  --hue-to: #a78bfa;
-  --hue-text: #c4b5fd;
-  --hue-tint: rgba(167, 139, 250, 0.12);
-}
-.ek-premium :is(article, li)[data-hue='Earned'] {
-  --hue-from: #f59e0b;
-  --hue-to: #fb923c;
-  --hue-text: #fcd34d;
-  --hue-tint: rgba(251, 146, 60, 0.11);
-}
-.ek-premium :is(article, li)[data-hue='Consistency'] {
-  --hue-from: #c026d3;
-  --hue-to: #f472b6;
-  --hue-text: #f9a8d4;
-  --hue-tint: rgba(244, 114, 182, 0.11);
-}
-/* The week label in the card's hue; crisp white titles and text. */
 .ek-premium article[data-shape] [data-ek-week] {
-  color: var(--hue-text);
+  color: #9ba1ac;
   font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
 }
 .ek-premium article[data-shape] p,
 .ek-premium article[data-shape] ul:not(.flex-wrap) li {
+  color: #c9cdd4;
+}
+.ek-premium article[data-shape] [data-ek-name],
+.ek-premium article[data-shape] ul:not(.flex-wrap) li {
   color: #f5f6f8;
 }
-.ek-premium article[data-shape] [data-ek-week] ~ * a {
-  color: #f5f6f8;
+.ek-premium article[data-shape] a {
+  color: inherit;
 }
-.ek-premium article[data-shape] .truncate:not(:first-child) {
+.ek-premium article[data-shape] [data-ek-meta] {
   color: #9ba1ac;
 }
-/* Fact chips: a subtle tint of their own hue, the text in its light stop (4.5:1+). */
+.ek-premium article[data-shape] [data-ek-meta] a:hover {
+  color: #f5f6f8;
+}
 .ek-premium article[data-shape] ul.flex-wrap > li {
-  background: var(--hue-tint);
-  color: var(--hue-text);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c9cdd4;
+  border-radius: 9999px;
 }
-.ek-premium article[data-shape] ul.flex-wrap > li:not([data-hue]) {
-  --hue-tint: rgba(255, 255, 255, 0.05);
-  --hue-text: #c9cdd4;
+.ek-premium article[data-shape] ul.flex-wrap > li:first-child[data-hue]::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--dot, #9ba1ac);
 }
-/* The person's photo in a thin gradient ring of the card's hue. */
-.ek-premium article[data-shape] [data-ek-ring] {
-  padding: 2px;
-  background: linear-gradient(135deg, var(--hue-to), var(--hue-from));
+.ek-premium li[data-hue='Shipped'] { --dot: #22d3ee; }
+.ek-premium li[data-hue='Used'] { --dot: #a78bfa; }
+.ek-premium li[data-hue='Earned'] { --dot: #fb923c; }
+.ek-premium li[data-hue='Consistency'] { --dot: #f472b6; }
+/* A little more air under the person row. */
+.ek-premium article[data-shape='long'] div:has(> [data-ek-ring]) {
+  margin-bottom: 16px;
 }
+/* The person's photo: a thin neutral ring. */
 .ek-premium article[data-shape] [data-ek-ring] > * {
-  box-shadow: 0 0 0 2px #15171d;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
   background: #1c1f26;
   color: #c9cdd4;
 }
