@@ -6251,3 +6251,25 @@ ranking higher.
 
 - Every sign-in and verify response is `brand-page.ts brandShell` (dark page, slim top bar): the GitHub verify and App setup pages (their 404 is `notFoundPage`), `signinPage` (X sign-in, the `/x/callback` 404), the OAuth authorize 429 and 400 (status and Retry-After kept), and the wallet 405 (frame-ancestors CSP kept). Redirects and the wallet POST JSON are unchanged. `page-shells.test.ts` asserts text/html plus the top bar for each.
 - `pnpm lint` runs `eslint .` in `apps/frontend` (flat config, `eslint-config-next` 16.1.5; `.next/` and other build output ignored; `_`-prefixed unused names allowed). It exits 0.
+
+## Scoring and clarity (Task 5b): One design system, a simpler site (R18)
+
+- **One set of tokens.** `lib/earnkit/theme.ts THEME` is the source of truth for the page, the card
+  surface, hairlines and the three text roles. `app/globals.css` defines them as `--ek-p-*` (tested to
+  match) and sets the deep navy page with its top glow on `body`, so every page has it.
+  `tailwind.config.ts` reads them as `ek-page`, `ek-surface`, `ek-surface-top`, `ek-raised`, `ek-chip`,
+  `ek-line`, `ek-line-strong`, `ek-text`, `ek-body`, `ek-muted`, `ek-accent`. The brand palette (`ek-blue-*`,
+  `ek-navy`, ...) stays; `ek-blue-bright` is the one primary button color (React and `brand-page.ts`).
+  The `.ek-premium` / `data-ek-premium` scoping and `SlimTopBar` are gone.
+- **Shared parts.** `Panel.tsx`: `SURFACE` (24px radius, hairline border, the surface gradient), `COLUMN`
+  (max-w-6xl, 16px gutter, 32px from md), `H1`, `H2`, `LEDE`, `Panel`. `Button.tsx`: `BTN_PRIMARY`,
+  `BTN_SECONDARY`. `Header.tsx` is the one sticky header (layout.tsx); `Footer.tsx` is one quiet row.
+  `UpdateCard` draws its own surface and the hue dot on its first chip (no CSS overrides).
+- **Simpler pages.** Landing: hero (no coins, no community round), leaderboard top 10 (no chips), "Shipped
+  this week", "Money open now" (no button; each card opens its guide), Backed by. How it works removed.
+  Leaderboard: title, one line, chips, one card of rows. Feed: "What builders shipped". Profile: no
+  eyebrows; the Ship log cards sit on the page (no card in a card). Guide: one Ask your agent, the parts
+  on one card split by hairlines. Terms: the same column and surface. brandShell: no accent bar, header
+  as wide as the React one.
+- Dead code removed: Positioning, EcosystemHero, BuilderBanner, CampaignTypes, EcosystemValue, FinalCta,
+  CoinsField, ViewportHeightSetter, the unused globals.css classes.

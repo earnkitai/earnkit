@@ -76,18 +76,16 @@ apps/frontend/
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
                                and grid, Project tab shows name and what only
-  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow,BenchHowItWorks}.tsx  v2.13 T12: the landing's
-                               Bench top 10, update carousel, shared carousel row, three steps; HomeView, Hero,
-                               ProgramCards, Footer, Header, BackedBy branch under the flag (no bonus pill,
-                               sentence-case labels); v2.13.1 O3: with EARNKIT_RAISING off the hero and steps
-                               drop raising (BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_STEPS_NO_RAISE)
+  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow}.tsx  v2.13 T12: the landing's
+                               leaderboard top 10 (R18: no chips), "Shipped this week" carousel, shared carousel
+                               row. R18: BenchHowItWorks deleted; the hero has one subtitle (no raising variant)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
-                               ProgramCards (every open program, carousel), HowItWorks, BackedBy, Footer);
+                               BenchTop, UpdateCarousel, ProgramCards, BackedBy, Footer; R18: no coins, no steps);
                                landing null (failed read) → hero without stats line, no cards (Ruling 21)
   app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE (the Bench text only since v2.14 T3), the
                                install and demo buttons, statsLine; nothing else
@@ -130,10 +128,12 @@ apps/frontend/
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
                                the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
                                Footer only
-  app/components/common/Footer.tsx  v2.8 Ruling 22: one rounded card (wordmark, FOOTER_TAGLINE, a
-                               grid of FOOTER_COLUMNS), the faded wordmark (v2.8.1: the navbar's
-                               ui/Logo.tsx Wordmark SVG, mark and letters, full width at 10%, decorative), the copyright
+  app/components/common/Footer.tsx  R18: a quiet footer under a hairline (wordmark, FOOTER_TAGLINE, the
+                               FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
                                line; renders from lib/earnkit/footer-links.ts; real links only
+  app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
+                               Leaderboard, Feed and Docs (from sm), "Add to your agent"
+  app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -204,7 +204,8 @@ apps/frontend/
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
                                on a failed read
-  app/components/common/Panel.tsx  Panel (the rounded navy section) and Eyebrow
+  app/components/common/Panel.tsx  R18: SURFACE (the one card surface), COLUMN (the page column), H1, H2,
+                               LEDE (the type scale) and Panel (a section on the surface); Eyebrow removed
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
