@@ -22,7 +22,7 @@
   "starts_at": "2026-09-14T07:00:00Z",
   "ends_at": "2026-10-13T06:59:00Z",
   "verified_at": "2026-10-07",
-  "status": "active",
+  "status": "closed",
   "existing_work": "new_work_only",
   "needs_repo": true,
   "chains": [
