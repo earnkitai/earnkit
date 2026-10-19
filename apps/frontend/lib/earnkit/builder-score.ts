@@ -229,53 +229,6 @@ const releaseV2 = (tx: Db, id: number, day: string, score: number) => tx`
     scores = (SELECT COALESCE(array_agg(DISTINCT v), '{}') FROM unnest(score_releases.scores || score_releases.score || EXCLUDED.score) v WHERE v IS NOT NULL)
   RETURNING day`;
 
-/**
- * v2.12 spec 7, v2.12.1 T12: the confirmed people and money behind a repo's odds: the person's live
- * project (builder_projects) with this key (`owner/repo`, any case) when it is confirmed and the
- * person is not waiting for a review; else null (odds keep v2.10's traction).
- */
-export async function verifiedProject(builderId: number, repoKey: string): Promise<{ users: number; money_usd: number } | null> {
-  const [row] = await sql()<{ people: number; money_usd: number }[]>`
-    SELECT bp.people, bp.money_usd::float8 AS money_usd FROM builder_projects bp
-    JOIN builder_profiles p ON p.builder_id = bp.builder_id
-    LEFT JOIN builder_live l ON l.builder_id = bp.builder_id
-    WHERE bp.builder_id = ${builderId} AND lower(bp.project_key) = ${repoKey.toLowerCase()} AND bp.confirmed
-      AND NOT p.held AND l.pending IS NULL`;
-  if (!row) return null;
-  const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? x : 0);
-  return { users: n(row.people), money_usd: n(row.money_usd) };
-}
-
-/** Who owns which account (proven logins and every group wallet) and the ring edges: self-exclusion and rings (spec 5). */
-export type ScoreContext = { owners: { actor: string; builder_id: number }[]; owner: Map<string, number>; edges: [number, number][] };
-export async function scoreContext(): Promise<ScoreContext> {
-  const owners = await sql()<{ actor: string; builder_id: number }[]>`
-    SELECT 'gh:' || lower(github_login) AS actor, builder_id FROM builder_profiles WHERE github_login IS NOT NULL
-    UNION ALL
-    SELECT 'wallet:' || lower(w.wallet), COALESCE(i.builder_id, i.id) FROM installation_wallets w JOIN installations i ON i.id = w.installation_id`;
-  const owner = new Map(owners.map((r) => [r.actor, r.builder_id]));
-  return { owners, owner, edges: await ringEdges(owner) };
-}
-
-/** Person pairs where one's account is a counted touch of the other's verified sources (latest readings). */
-async function ringEdges(owner: Map<string, number>): Promise<[number, number][]> {
-  const rows = await sql()<{ builder_id: number; actor: string }[]>`
-    SELECT DISTINCT b.builder_id, lower(a.actor) AS actor FROM builder_sources b
-    JOIN LATERAL (SELECT signals FROM source_readings r WHERE r.source_id = b.id AND r.ok ORDER BY r.day DESC LIMIT 1) last ON true
-    CROSS JOIN LATERAL (
-      SELECT jsonb_array_elements(
-        CASE WHEN jsonb_typeof(last.signals->'stargazers') = 'array' THEN last.signals->'stargazers' ELSE '[]'::jsonb END ||
-        CASE WHEN jsonb_typeof(last.signals->'forkers') = 'array' THEN last.signals->'forkers' ELSE '[]'::jsonb END ||
-        CASE WHEN jsonb_typeof(last.signals->'callers') = 'array' THEN last.signals->'callers' ELSE '[]'::jsonb END)->>'id' AS actor) a
-    WHERE b.state = 'verified' AND a.actor IS NOT NULL`;
-  const out: [number, number][] = [];
-  for (const r of rows) {
-    const counter = owner.get(r.actor);
-    if (counter !== undefined && counter !== r.builder_id) out.push([counter, r.builder_id]);
-  }
-  return out;
-}
-
 type EmptyFacts = { builder_id: number; login: boolean; proposed: number; verified: number; ok_r: number; failed_r: number; filled: boolean };
 /** profileEmpty's per-person facts (`p` is builder_profiles). */
 const emptyFacts = () => sql()`

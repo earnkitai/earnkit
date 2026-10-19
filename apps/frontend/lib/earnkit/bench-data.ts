@@ -45,9 +45,8 @@ export function filterHref(f: BenchFilter): string {
   return s ? `/bench?${s}` : '/bench';
 }
 
-/** Pure. The project's one best fact in plain words: people this week, then the streak, then weeks shipping. */
-export function bestFact(p: { people_week: number; streak: number; weeks_shipping: number; shipped: boolean }): string {
-  if (p.people_week > 0) return `${p.people_week.toLocaleString('en-US')} ${p.people_week === 1 ? 'person' : 'people'} this week`;
+/** Pure. The project's one best fact in plain words: the streak, then weeks shipping (R16b: never people). */
+export function bestFact(p: { streak: number; weeks_shipping: number; shipped: boolean }): string {
   if (p.streak >= 2) return `${p.streak} weeks in a row`;
   if (p.weeks_shipping > 0) return `${p.weeks_shipping} ${p.weeks_shipping === 1 ? 'week' : 'weeks'} shipping`;
   return p.shipped ? 'Live' : 'Building';
@@ -68,10 +67,10 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
   const raisingOn = raisingEnabled();
   const byRaising = f.raising && raisingOn;
   const rows = await db<{ builder_id: number; rank: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
-    people_week: number; streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
+    streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
     WITH ranked AS (
       SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank FROM ${benchPool(o.only)} x)
-    SELECT r.builder_id, r.rank, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.people_week, b.streak, b.weeks_shipping, b.shipped,
+    SELECT r.builder_id, r.rank, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.streak, b.weeks_shipping, b.shipped,
       COALESCE(c.token_status = 'launched' AND c.raising_at IS NOT NULL, false) AS raising, c.token_symbol AS symbol, c.token_url AS url
     FROM ranked r JOIN builder_profiles p USING (builder_id)
     JOIN builder_projects b ON b.builder_id = r.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}

@@ -44,8 +44,8 @@ export function calibration(id: string = LIVE_CALIBRATION): Calibration {
 /**
  * v2.12.1: the bars of formula v2. Same rule: only bars loosen, an owner decision. Scoring and clarity
  * (owner ruling 2026-10-19): 'v2-shipping' is the one Shipping score (score-v2.ts), whose points
- * need no bars; it keeps the people bars for the stored project rows
- * (score-v2.ts countUse). A history row of another calibration is never the review hold's baseline.
+ * need no bars; its people and money bars are unused since R16b (kept so the ids and old rows read
+ * the same). A history row of another calibration is never the review hold's baseline.
  */
 export type CalibrationV2 = {
   id: string;

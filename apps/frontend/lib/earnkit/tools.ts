@@ -148,7 +148,6 @@ import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
-import { verifiedProject } from './builder-score';
 import { builtLiveAnswer, coinLine, coinNo, coinOpen, coinPitchAllowed, coinYes, showBuiltLive } from './coin-moments';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
@@ -1115,10 +1114,9 @@ export const handlers = {
         // this builder proved it there (G7, G10: on a shared client none, null: no verified caller).
         const appOn = githubAppEnabled();
         const appLogin = ctx.sharedClient ? null : undefined;
-        const matchDeps: Pick<MatchDeps, 'appToken' | 'verified'> = {
+        // R16b: odds no longer read the person's counted users and money (no longer counted); matching's own reads decide.
+        const matchDeps: Pick<MatchDeps, 'appToken'> = {
           ...(appOn ? { appToken: (n: string) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) } : {}),
-          // v2.12 spec 7: odds from the person's verified users and money, when their public score has them.
-          ...(profiled ? { verified: (k: string) => verifiedProject(ctx.installationId, k) } : {}),
         };
         const matching = (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({

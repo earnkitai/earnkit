@@ -1,4 +1,3 @@
-import type { CalibrationV2 } from './score-calibration';
 import { isoWeekOf } from './weeks';
 
 /**
@@ -8,8 +7,7 @@ import { isoWeekOf } from './weeks';
  * where i = 0..11 is a week's age (0 = this ISO week, Monday to Sunday UTC), active_i = 1 when the
  * repo has commits that week, and w_i = 12 - i (recent weeks weigh more; the weights sum to 78). The
  * live bonus is 10 when any live ship exists (a live site, a contract deploy, a published package).
- * Used and Earned are no longer scored; the people and money a project has are still counted for its
- * stored row (countUse). `parts` holds { shipping } and leaves room for a separate 0 to 100
+ * Used and Earned are no longer scored, and R16b stopped counting people and money at all. `parts` holds { shipping } and leaves room for a separate 0 to 100
  * { originality } a later change adds (never summed into Shipping). Pure.
  */
 export const FORMULA_V2 = 'v2';
@@ -18,8 +16,6 @@ export const CODE_MAX = 90;
 export const LIVE_BONUS = 10;
 export const SHIPPING_WEEKS = 12;
 const WEIGHT_SUM = (SHIPPING_WEEKS * (SHIPPING_WEEKS + 1)) / 2; // 78
-export const HALF_LIFE_DAYS = 90;
-export const STAR_FORK_CAP = 5;
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 
@@ -112,67 +108,4 @@ export function scoreWhy(parts: unknown, now: Date): string | null {
   if ((mask & 1) === 0) return `${why} Ship code this week to add up to ${shippingOf(mask | 1, liveShips) - shippingOf(mask, liveShips)} points.`;
   const next = (mask << 1) & LAST12;
   return `${why} Ship code next week to add up to ${shippingOf(next | 1, liveShips) - shippingOf(next, liveShips)} points.`;
-}
-
-// ---- People and money (not scored): the stored builder_projects.people and money_usd -------------
-
-export type UseTouch = { project: string; actor: string; at: Date; weight: number; kind: 'caller' | 'tagged' | 'trader' | 'star' | 'fork' };
-export type UseInput = {
-  touches: UseTouch[];
-  packages: { project: string; users: number; at: Date }[];
-  earned: { project: string; usd: number; kind: 'coin_fees' | 'contract_fees' | 'prize' }[];
-};
-export type UseCounted = { U: number; people: number; packages: number; star_fork: number; E: number; perProject: Map<string, { people: number; usd: number }> };
-
-const time = (d: Date | null | undefined): number => (d instanceof Date ? d.getTime() : NaN);
-/** 1 for now, 0.5 at the half-life; 0 for an invalid date (an unreadable date counts nothing). */
-export const fade = (at: Date, now: Date): number => {
-  const a = time(at);
-  const n = time(now);
-  if (!Number.isFinite(a) || !Number.isFinite(n)) return 0;
-  return 0.5 ** (Math.max(0, n - a) / DAY_MS / HALF_LIFE_DAYS);
-};
-const fin = (n: number) => (Number.isFinite(n) && n > 0 ? n : 0);
-
-/**
- * The people and money a project has, as the old Used and Earned parts counted them (kept for the
- * stored project rows, never in the score): each account once per project (its best weight, faded
- * by its newest touch with a 90-day half-life), a real use winning over a star or fork by the same
- * account, stars and forks capped at STAR_FORK_CAP; USD unfaded. Pure.
- */
-export function countUse(i: UseInput, cal: CalibrationV2, now: Date): UseCounted {
-  const best = new Map<string, { w: number; kind: UseTouch['kind']; project: string }>();
-  for (const t of i.touches) {
-    const k = `${t.project}\u0000${t.actor.toLowerCase()}`;
-    const w = fin(t.weight) * fade(t.at, now);
-    const cur = best.get(k);
-    const sf = t.kind === 'star' || t.kind === 'fork';
-    const curSf = cur !== undefined && (cur.kind === 'star' || cur.kind === 'fork');
-    if (!cur || (curSf && !sf) || (curSf === sf && cur.w < w)) best.set(k, { w, kind: t.kind, project: t.project });
-  }
-  let people = 0;
-  let starFork = 0;
-  const perProject = new Map<string, { people: number; usd: number }>();
-  const bump = (p: string, n: number, usd: number) => {
-    const x = perProject.get(p) ?? { people: 0, usd: 0 };
-    perProject.set(p, { people: x.people + n, usd: x.usd + usd });
-  };
-  for (const { w, kind, project } of best.values()) {
-    if (kind === 'star' || kind === 'fork') starFork += w;
-    else {
-      people += w;
-      if (w > 0) bump(project, 1, 0);
-    }
-  }
-  const pkg = i.packages.reduce((n, p) => {
-    const u = Math.min(cal.package_users, fin(p.users)) * fade(p.at, now);
-    if (u >= 1) bump(p.project, Math.floor(u), 0);
-    return n + u;
-  }, 0);
-  const capped = Math.min(STAR_FORK_CAP, starFork);
-  const E = i.earned.reduce((n, e) => {
-    bump(e.project, 0, fin(e.usd));
-    return n + fin(e.usd);
-  }, 0);
-  return { U: people + pkg + capped, people, packages: pkg, star_fork: capped, E, perProject };
 }

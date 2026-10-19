@@ -1,7 +1,7 @@
 import { sql } from './db';
 import { noteEvent } from './events';
 import { benchConfirmedSql } from './main-project';
-import { personInputsV2, weekCounts } from './person-score';
+import { weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
@@ -14,8 +14,10 @@ import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
  * that week's project_updates row (plan B6). The update's text never sets them.
  */
 export type WeekFacts = {
-  shipped_code?: { n: number }; went_live?: true; users_up?: { n: number }; earned?: { usd: number };
-  won?: { title: string }[]; streak?: { w: number }; started?: { live: boolean; weeks: number; people: number }; checked?: true;
+  shipped_code?: { n: number }; went_live?: true;
+  /** Old rows only: R16b stopped counting people and money, so no new row has users_up or earned. */
+  users_up?: { n: number }; earned?: { usd: number };
+  won?: { title: string }[]; streak?: { w: number }; started?: { live: boolean; weeks: number; people?: number }; checked?: true;
   /** R13: the week's titles read completed (the backfill and its catch-up; never read again). */
   titles_read?: true;
 };
@@ -79,24 +81,12 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
     ) AS first,
     EXISTS (SELECT 1 FROM builder_events e WHERE e.type = 'went_live' AND lower(e.repo_key) = lower(${p.key})) AS said`;
   if (live?.first && !live.said && live.first >= start && live.first < end) f.went_live = true;
-  // users_up: counted people whose first touch fell in the week (the one project's inputs).
-  const { newPeople } = await personInputsV2(builderId, now, undefined, db, { scope: p.key });
-  const up = newPeople.get(p.key)?.[week] ?? 0;
-  if (up > 0) f.users_up = { n: up };
-  // earned: creator fee claims in the week, priced at the wallet's own USD per WETH; prizes captured in the week.
-  const [fees] = await db<{ usd: string | null }[]>`
-    SELECT sum(c.weth / 1e18 * (t.usd / NULLIF(t.weth::numeric / 1e18, 0)))::text AS usd
-    FROM fee_claims c JOIN token_fees t ON lower(t.wallet) = lower(c.owner)
-    WHERE c.role = 'creator' AND c.at >= ${start} AND c.at < ${end} AND lower(c.owner) IN (
-      SELECT lower(x.creator_wallet) FROM projects x JOIN installations i ON i.id = x.installation_id
-      WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.token_status = 'launched' AND lower(COALESCE(x.token_repo_key, x.repo_key)) = lower(${p.key}))`;
-  const outcomes = await db<{ title: string; usd: string | null; result: string }[]>`
-    SELECT g.title, o.prize_usd::text AS usd, o.result FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN programs g ON g.id = o.program_id
+  // R16b: no users_up or earned facts (people and money are no longer counted); a program win stays a fact.
+  const outcomes = await db<{ title: string; result: string }[]>`
+    SELECT g.title, o.result FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN programs g ON g.id = o.program_id
     JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.basis = 'announcement' AND o.captured_at >= ${start} AND o.captured_at < ${end}
       AND x.program_id <> ${COIN_PROGRAM} AND lower(COALESCE(x.repo_key, x.token_repo_key)) = lower(${p.key}) ORDER BY o.captured_at`;
-  const usd = Number(fees?.usd ?? 0) + outcomes.filter((x) => ['won', 'placed', 'finalist'].includes(x.result)).reduce((a, x) => a + Number(x.usd ?? 0), 0);
-  if (usd >= 1) f.earned = { usd: Math.round(usd) };
   const won = outcomes.filter((x) => x.result === 'won' || x.result === 'placed').map((x) => ({ title: x.title }));
   if (won.length > 0) f.won = won;
   // streak: this week shipped, and the run ending here is 2 or more.
