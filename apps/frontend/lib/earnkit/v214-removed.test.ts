@@ -203,7 +203,7 @@ test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.1
     assert.match(terms, must);
   assert.doesNotMatch(terms, /\u2014|\braise\b|\braising\b/i);
   // Scoring and clarity: the page shows the Shipping score, rank and ship log; never people or money.
-  assert.ok(PROFILES_POINTS.includes('It shows your X name and picture, your project, your Shipping score and rank once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.'));
+  assert.ok(PROFILES_POINTS.includes('It shows your X name and picture, your project, your Shipping score, rank and Originality once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.'));
   assert.doesNotMatch(terms, /people use it|money it earned/);
 });
 

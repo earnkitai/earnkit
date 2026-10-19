@@ -52,21 +52,29 @@ export function cosine(a: readonly number[], b: readonly number[]): number {
   return na && nb ? dot / Math.sqrt(na * nb) : 0;
 }
 
-/** A README's words: code, HTML, images, badges, link targets, URLs and markdown marks removed, spaces squashed. Pure. */
-export function stripMarkdown(md: string): string {
-  return md
+/** At most this many bytes of a README are decoded (GitHub's README can be huge). */
+export const README_MAX_BYTES = 64 * 1024;
+
+/**
+ * A README's words: code, HTML, images, badges, link targets, URLs and markdown marks removed, spaces squashed. The
+ * input is cut to README_CHARS before any pattern runs, and no pattern nests a quantifier over overlapping characters
+ * (line patterns use [ \t], never \s, so they never backtrack across lines). Pure.
+ */
+export function stripMarkdown(raw: string): string {
+  return raw
+    .slice(0, README_CHARS)
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/~~~[\s\S]*?(~~~|$)/g, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, ' ')
+    .replace(/^[ \t]*\[[^\]\n]+\]:[ \t]*\S.*$/gm, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(/`([^`]*)`/g, '$1')
-    .replace(/^\s{0,3}(#{1,6}|>+|[-*+]|\d+[.)])\s+/gm, '')
-    .replace(/^\s*([-*_=|:]\s*){3,}$/gm, ' ')
+    .replace(/^[ \t]{0,3}(?:#{1,6}|>+|[-*+]|\d+[.)])[ \t]+/gm, '')
+    .replace(/^[ \t]*(?:[-*_=|:][ \t]*){3,}$/gm, ' ')
     .replace(/[*_~|#>]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -74,7 +82,7 @@ export function stripMarkdown(md: string): string {
 
 /** What is embedded: the description first (the model reads only the start), then the README's words. Pure. */
 export function originalityText(description: string, readme: string | null): string {
-  const words = readme ? stripMarkdown(readme).slice(0, README_CHARS).trim() : '';
+  const words = readme ? stripMarkdown(readme).trim() : '';
   return [description.trim(), words].filter(Boolean).join('\n');
 }
 
@@ -137,10 +145,12 @@ async function ideaVectors(embed: Embed): Promise<{ title: string; vec: number[]
 }
 
 /** The README's text through the App's client (base64 in the JSON answer), or null when there is none or it failed. */
-async function readReadme(get: <T>(path: string) => Promise<T | null>, key: string): Promise<string | null> {
+export async function readReadme(get: <T>(path: string) => Promise<T | null>, key: string): Promise<string | null> {
   const r = await get<{ content?: unknown; encoding?: unknown }>(`/repos/${key}/readme`);
   if (typeof r?.content !== 'string' || r.encoding !== 'base64') return null;
-  return Buffer.from(r.content, 'base64').toString('utf8').slice(0, 200_000);
+  // Only the first README_MAX_BYTES are decoded (4 base64 characters carry 3 bytes; GitHub wraps lines with \n).
+  const b64 = r.content.replace(/[^A-Za-z0-9+/=]/g, '').slice(0, Math.ceil(README_MAX_BYTES / 3) * 4);
+  return Buffer.from(b64, 'base64').subarray(0, README_MAX_BYTES).toString('utf8');
 }
 
 type Due = {

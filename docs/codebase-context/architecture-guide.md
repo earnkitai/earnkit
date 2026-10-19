@@ -5964,3 +5964,48 @@ Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to 
   (ranked rule) and 4.15c (hold baseline), `v214-app-proof.test.ts` 6.2b and 6.2c (scored at connect, fail soft).
   `fixtures/fake-github.ts` answers the reading's GraphQL query and an org repo's contributors.
 
+
+## Scoring and clarity (Task 2): Originality
+
+Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, as the Task 2 brief made it concrete.
+
+- **What it is.** A separate 0 to 100 value per main project (`originality.ts`), shown next to Shipping and never
+  ranked, summed or held. It is not stored in `builder_live.parts` (rescorePerson owns that); it lives in
+  `project_embeddings` and is read by `readOriginality(builderId, key)`.
+- **Text and model.** The text is the project's description (`builder_projects.what` plus GitHub's description from the
+  newest good repo reading, each once) followed by the README (GET /repos/{key}/readme with the App's installation
+  client, `repo-proof.ts appClient`; at most 64 KB decoded, cut to 4,000 characters before any pattern runs, then
+  markdown stripped with patterns that never backtrack across lines; a 200 KB pathological input strips in milliseconds). MiniLM reads about 512 tokens, so the
+  description goes first. The model is `Xenova/all-MiniLM-L6-v2`, quantized (q8), through `@huggingface/transformers`
+  (`localEmbed`): mean pooling, normalized, 384 numbers. It loads once per process on first use, after a one-time
+  download of about 23 MB from Hugging Face into `EARNKIT_MODEL_DIR` (default `<os tmpdir>/earnkit-models`). There is no
+  API key and no paid service. `next.config.ts serverExternalPackages` keeps it out of the bundle (native onnxruntime).
+- **When.** A step in the hourly cron (`builder-score.ts runScoreSteps`, `originality`, after `empty`), never in a
+  request. `originalityStep` only runs while the App is on. A project is due when its main project is Bench-confirmed
+  with an App-proven repo of the same key, and one of these holds: it has no row; its row belongs to another builder
+  (that row is dropped); its description hash changed; it has a vector but the README was not checked in 7 days; or it
+  has no vector and was last tried over 6 hours ago. At most 20 projects a run, inside the run's deadline. The text hash
+  (sha256 of the model name and the text) decides: the same text is never embedded again. A README read that fails
+  while the description stayed the same keeps the vector. So a new project gets Originality within an hour.
+- **Score.** maxSim is the highest cosine similarity against every other builder's stored project vector (the
+  builder's own projects are left out) and every known idea. Originality = clamp(round(100 x (0.9 - maxSim) / (0.9 -
+  0.35)), 0, 100): 0.35 or lower gives 100, 0.9 or higher gives 0. Known ideas are in `programs/ideas/known-ideas.json`
+  (62 generic public ideas). It sits in a subfolder because programs-sync treats every `programs/*.json` as a program.
+  The ideas are embedded once and cached in `known_idea_embeddings` (keyed by text hash). Cosine runs in JS, with no
+  pgvector. After the changed projects are written, any other project is recomputed in the same step when a changed
+  vector would enter its top 3, or when its nearest list named a changed project. So an earlier project drops when a
+  near copy arrives, and recovers when that copy moves away.
+- **Privacy.** The text is never stored. Only `text_hash`, `desc_hash`, the vector, the score and `nearest` (top 3) are
+  kept. `nearest` holds `{ kind: 'project', key, similarity }` (other projects by key, never a name or text) or
+  `{ kind: 'idea', title, similarity }`, and nothing renders it. `events-redact.mts` lists `project_embeddings.project_key`,
+  deletes the person's rows with `--apply`, and empties other rows' nearest lists that name the login's repos. The terms
+  (`policy.ts PROFILES_POINTS`) say so.
+- **Shown.** On the profile, one small line under the Shipping ring ("Originality 72"; `bench-data.ts profileData.originality`,
+  only while the score shows). In find and score replies, it is appended to the ranked stand line
+  (`bench-reply.ts originalityWords`: "... this week. Originality 72."), only once computed. It is not shown on the
+  feed, the leaderboard or the card.
+- **Tests.** `originality.test.ts` covers the pure formula, the text and the nearest list. It runs the step with a fake
+  embedder through the real App connect: a later near copy lowers the earlier project, the same text is not embedded
+  again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
+  profile and reply lines. The test guard sets `EARNKIT_EMBED_OFF=1`, so no test loads the model. The one real-model
+  test runs only with `EARNKIT_MODEL_TEST=1`, which also lifts the network guard for the download.

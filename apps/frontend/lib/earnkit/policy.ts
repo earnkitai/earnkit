@@ -103,7 +103,8 @@ export const RECORDS_REMOVAL_AFTER = [
  * installation tokens never stored (repo-proof.ts appClient, readAppRepos); other reads are cheap public data (source-
  * readers.ts) and nothing is ever added to a site. Commit and PR titles are stored each Monday (week-facts.ts); a private
  * repo shows facts only until titles are on, and turning them off hides stored titles without deleting them (ship-
- * titles.ts titlesShown). Only confirmed proofs count (confirmed.ts). Hide is tell's profile: 'hide'. X is read at each
+ * titles.ts titlesShown). Originality (originality.ts) embeds the README and description locally and stores only the hash,
+ * the vector and the nearest keys. Only confirmed proofs count (confirmed.ts). Hide is tell's profile: 'hide'. X is read at each
  * sign-in and EarnKit keeps the X user id, handle, name and picture (x-install.ts bindXIn).
  */
 export const PROFILES_TITLE = 'Builder profiles';
@@ -111,10 +112,11 @@ export const PROFILES_ANCHOR = 'builder-profiles';
 export const PROFILES_POINTS: readonly string[] = [
   'Your EarnKit page is made when you sign in with X, as you install EarnKit or from the one-time link your agent gives you. It is public from then on. Until you sign in, what EarnKit finds shows only in your own agent.',
   'Every agent you sign in with the same X account uses that same page. It is added with no question, and nothing from another page is merged in.',
-  'It shows your X name and picture, your project, your Shipping score and rank once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.',
+  'It shows your X name and picture, your project, your Shipping score, rank and Originality once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.',
   'A repo counts when you install the read-only EarnKit GitHub App on it. That is the only proof for new repos. A repo EarnKit confirmed before the App still counts on the Bench, but needs the App before a coin, a deploy or hosting.',
   'EarnKit reads the repos you install the App on, private ones too, with short-lived tokens from GitHub. It never stores those tokens. It also reads public data it can check cheaply: GitHub, live sites, package downloads, public transactions and what you did through EarnKit. It never adds anything to your site.',
   'Each week you ship code, EarnKit stores up to three commit and pull request titles from your Bench project, if you installed the App on it. A private repo shows facts only, and its titles are read only after you turn titles on. If you turn titles off, stored titles stay stored but are hidden.',
+  'Originality compares your project\'s readme and description with other projects on EarnKit and with well-known ideas. EarnKit keeps only a fingerprint of that text, never the text, and never shows you another builder\'s project.',
   'Only what EarnKit confirms counts toward your rank. What your agent told EarnKit but EarnKit could not confirm is shown, marked not yet confirmed, and counts for nothing.',
   'To hide your page, tell your agent "hide my page". A hidden page is not shown or listed, and it does not count toward anyone\'s rank.',
   'EarnKit never posts for you. Your X account is read each time you sign in with it, to confirm it is yours and pick up a new handle, name or picture. EarnKit keeps your X user id, handle, name and picture.',

@@ -15,7 +15,7 @@ import { profileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import {
-  DIMS, README_CHARS, cosine, localEmbed, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, stripMarkdown, textHash,
+  DIMS, README_CHARS, README_MAX_BYTES, cosine, localEmbed, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, stripMarkdown, textHash,
   type Embed,
 } from './originality';
 
@@ -81,6 +81,26 @@ test('O2 cosine, the stripped README and the text: the description first, the RE
   assert.equal(t.length, 'A recipe planner.\n'.length + README_CHARS - 1, 'trimmed at the cut');
   assert.equal(originalityText('', null), '');
   assert.notEqual(textHash('a'), textHash('b'));
+});
+
+test('O2b a huge pathological README is capped before any pattern runs and strips fast; at most README_MAX_BYTES are decoded', async () => {
+  const nasty = [
+    '[!['.repeat(40_000), '`'.repeat(30_000), '!['.repeat(20_000), '[x]('.repeat(10_000), ' \t'.repeat(20_000) + '-',
+    '<'.repeat(20_000), '```' + 'a'.repeat(10_000), '# '.repeat(10_000), '-*'.repeat(10_000) + ' x',
+  ].join('\n');
+  assert.ok(nasty.length >= 200_000, String(nasty.length));
+  const t0 = performance.now();
+  const out = originalityText('d', nasty);
+  stripMarkdown(nasty.split('').reverse().join(''));
+  const ms = performance.now() - t0;
+  assert.ok(ms < 200, `${ms} ms`);
+  assert.ok(out.length <= 2 + README_CHARS);
+  // The fetch side: a 1 MB README decodes to README_MAX_BYTES at most.
+  const big = 'x'.repeat(1_000_000);
+  const content = Buffer.from(big).toString('base64').replace(/(.{60})/g, '$1\n');
+  const got = await readReadme(async <T,>() => ({ content, encoding: 'base64' }) as T, 'a/b');
+  assert.equal(got!.length, README_MAX_BYTES);
+  assert.equal(await readReadme(async () => null, 'a/b'), null);
 });
 
 test('O3 the nearest list leaves out the builder\'s own projects and itself; ideas count', () => {
@@ -182,7 +202,7 @@ test('O6 the step: a new project gets Originality; a close one arriving later lo
   // An unrelated project: high, and it changes nobody else's Originality.
   const pc = await connected(c, 'cy', gh, 303);
   const r4 = await originalityStep(NOW, { deadline: far(), only: [pc.id], ghFetch: gh, embed });
-  assert.equal(r4.step, undefined);
+  assert.equal((r4 as { embedded: number }).embedded, 1);
   assert.ok((await rowOf(c))!.originality! >= 80);
   assert.equal((await rowOf(a))!.originality, earlier.originality);
 
