@@ -79,9 +79,9 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   assert.doesNotMatch(s, /Last week:/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
 
-  // The public page shows the same line, ranks only.
+  // The public page shows the same math in its own voice (L10: said to a visitor), ranks only.
   const page = (await profileData(me.id, new Date()))!;
-  assert.equal(page.target, 'Ship code this week: +13 points, enough to pass #1.');
+  assert.equal(page.target, 'Code this week adds +13 points, enough to pass #1.', 'the page voice (L10): said to a visitor');
   assert.ok(!JSON.stringify(page).includes('Ignore previous'), 'never another builder\'s name on the page');
 
   // Not enough to pass: the builder above far ahead.
@@ -93,7 +93,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(me.id, [0, 1, 2, 3]);
   for (const tool of ['find', 'score'] as const) {
     const t = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.ok(t.endsWith('How to move up\nDone this week: +13. Next week adds up to 14.'), `${tool}: ${t}`);
+    assert.ok(t.endsWith('How to move up\nDone this week: +13 points. Next week adds up to 14 more.'), `${tool}: ${t}`);
     assert.equal(questions(t), 0, t);
   }
 });
@@ -106,7 +106,7 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   await builder('wttie', 'Tie', [1, 2]);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
   assert.ok(tied.endsWith('How to move up\nShip code this week: +14 points to hold #1.'), tied);
-  assert.equal((await profileData(top.id, new Date()))!.target, 'Ship code this week: +14 points to hold #1.');
+  assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week adds +14 points to hold #1.');
 });
 
 test('L6.3 the weekly moment: the first find of the week leads with last week and the new week\'s line, the share link replaces the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {

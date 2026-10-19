@@ -118,7 +118,8 @@ test('L2.3 two picked repos: both proven, the most recently pushed is the one pr
   const { res, text } = await setup(link, p.login, inst, gh);
   assert.equal(res.status, 200, text);
   // Fix round 1 (I1, I2): the page names the ranked repo, the page it is on, and the way out.
-  assert.ok(text.includes(`Done. EarnKit now ranks github.com/${newer} on earnkit.com/${p.username}. Tell your agent if you want a different repo ranked.`), text);
+  assert.ok(text.includes(`Done. EarnKit now ranks github.com/${newer} on earnkit.com/${p.username}.`), text);
+  assert.ok(text.includes(PICK_PAGE.next), 'the one next step');
   assert.ok(text.includes(`${PICK_PAGE.remove(true)} <a href="${GITHUB_INSTALLATIONS_URL}"`), text);
   assert.equal(links(text.replace(/<[^>]+>/g, ' ')).length, 1, 'one link on the page');
   for (const key of [older, newer]) assert.deepEqual(await source(p.id, key), { state: 'verified', proof: 'github_app', reject_reason: null });

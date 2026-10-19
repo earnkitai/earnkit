@@ -23,7 +23,7 @@ import { wholeWords } from './untrusted-text';
 import { projectOf } from './identity-input';
 import { PROFILES_POINTS } from './policy';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
-import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import BenchProfileView, { confirmingCardLine } from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 
@@ -243,7 +243,7 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   assert.equal((await benchCardFacts(a.id))!.bench, null);
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: 'Top 4% of builders this week', line: 'Shipping 62 · Top 4% of builders this week' }, tab: 'log' }));
   assert.ok(d.project && !d.project.confirmed, 'confirming');
-  assert.ok(html.includes(`is getting ${d.project.name} on the leaderboard.`), html);
+  assert.ok(html.includes(confirmingCardLine(d.name, d.project.name)), html);
   assert.doesNotMatch(html, /Top 4%/, 'never a rank beside the confirming card, even from a stale line');
 });
 

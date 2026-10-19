@@ -294,8 +294,9 @@ const named = (key: string) => (/^[^/\s:]+\/[^/\s]+$/.test(key) ? `github.com/${
 /** Launch ready L2 (fix round 1, I1, I2): what the picker's setup page says. */
 export const PICK_PAGE = {
   /** Always names the one project after the setup and the page it is on. */
-  ranked: (key: string, handle: string | null) =>
-    `Done. EarnKit now ranks ${named(key)}${handle ? ` on ${pageUrl(handle)}` : ''}. Tell your agent if you want a different repo ranked.`,
+  ranked: (key: string, handle: string | null) => `Done. EarnKit now ranks ${named(key)}${handle ? ` on ${pageUrl(handle)}` : ''}.`,
+  /** Launch ready L10: the one next step (the reply asked "Want me to rank it once that's done?"), then the way to change it. */
+  next: 'Go back to your agent and say yes. To rank a different repo, tell your agent.',
   /** I2: every success page offers the way out for a forwarded link. */
   remove: (these: boolean) => `Not your page? Remove the EarnKit app from ${these ? 'these repos' : 'this repo'} in your GitHub settings:`,
   none: 'No repo was picked. Add one to the EarnKit app on GitHub, then ask your agent for a new link.',
@@ -356,7 +357,7 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
   const ranked = (await main.mainProjectOf(builderId)) ?? proven[0].key;
   await connectProven(builderId, proven, { ...deps, now }, { deadline })
     .catch((err: unknown) => console.error('[github-app] connect', err instanceof Error ? err.name : 'error'));
-  return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id))], true, clear);
+  return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id)), PICK_PAGE.next], true, clear);
 }
 
 /** GitHub's install page for the App, with the v2.9 nonce as `state` (R8). Pure. */

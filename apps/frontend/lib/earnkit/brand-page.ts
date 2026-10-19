@@ -46,6 +46,7 @@ body{min-height:100vh;min-height:100dvh;background:${T.page};background-image:ra
 .ek-nav{display:flex;gap:4px}
 .ek-nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 8px;color:${T.muted};font-size:.875rem;font-weight:500;text-decoration:none;border-radius:8px}
 .ek-nav a:hover{color:${T.text}}
+.ek-nav .ek-wide{display:none}
 .ek-wrap{width:100%;display:flex;justify-content:center;padding:32px 16px 56px}
 .ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid ${T.border};border-radius:24px;padding:32px 24px 28px;background:linear-gradient(180deg,${T.surfaceTop},${T.surface});box-shadow:inset 0 1px 0 rgba(163,197,254,.05),0 24px 64px -32px rgba(2,6,20,.85)}
 .ek-mark{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;margin-bottom:20px;background:${T.raised};border:1px solid ${T.borderStrong};color:${T.text}}
@@ -60,6 +61,7 @@ h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:7
 .ek-row{margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 .ek-k{min-width:3rem;font-size:.8125rem;color:${T.muted}}
 .ek-chip{display:inline-flex;align-items:center;gap:8px;max-width:100%;padding:6px 12px;border-radius:999px;background:${T.chip};border:1px solid ${T.border};color:${T.text};font:500 .875rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.ek-code{margin:12px 0 0;padding:14px 16px;border-radius:14px;background:${T.chip};border:1px solid ${T.borderStrong};color:${T.text};font:600 1.375rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;text-align:center;white-space:nowrap;user-select:all;-webkit-user-select:all}
 .ek-chip svg{flex:none;width:14px;height:14px;color:${T.muted}}
 .ek-note{margin:20px 0 0;padding:12px 14px;border-radius:14px;background:${T.chip};border:1px solid ${T.borderStrong};color:${T.accent};font-size:.9375rem;line-height:1.45}
 .ek-note strong{color:${T.text};font-weight:600}
@@ -75,7 +77,7 @@ form{margin:0}
 .ek-status{margin:16px 0 0;min-height:1.5em;font-size:.9375rem;color:${T.body}}
 .ek-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
-@media (min-width:640px){.ek-row{flex-direction:row;align-items:center;gap:12px}.ek-bar{padding:0 32px}.ek-wrap{padding-top:72px}.ek-panel{padding:40px 40px 36px}h1{font-size:2rem}}
+@media (min-width:640px){.ek-nav .ek-wide{display:inline-flex}.ek-row{flex-direction:row;align-items:center;gap:12px}.ek-bar{padding:0 32px}.ek-wrap{padding-top:72px}.ek-panel{padding:40px 40px 36px}h1{font-size:2rem}}
 @media (prefers-reduced-motion:reduce){.ek-btn{transition:none}}
 `;
 
@@ -97,7 +99,7 @@ export function brandShell(inner: string, o: { fonts?: boolean } = {}): string {
     `<meta name="theme-color" content="${T.page}"><meta name="robots" content="noindex"><title>EarnKit</title>` +
     `<style>${o.fonts === false ? '' : fontFaces()}${CSS}</style></head><body>` +
     `<header class="ek-top"><div class="ek-bar"><a class="ek-home" href="/"><svg viewBox="0 0 124 23" role="img" aria-label="EarnKit" fill="none"><path fill-rule="evenodd" clip-rule="evenodd" d="${WORDMARK_D}" fill="currentColor"/></svg></a>` +
-    `<nav class="ek-nav" aria-label="Site"><a href="/leaderboard">Leaderboard</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></div></header>` +
+    `<nav class="ek-nav" aria-label="Site"><a href="/leaderboard">Leaderboard</a><a class="ek-wide" href="/programs">Programs</a><a href="/feed">Feed</a><a href="${DOCS}">Docs</a></nav></div></header>` +
     `<div class="ek-wrap"><main class="ek-panel">${inner}</main></div></body></html>`
   );
 }

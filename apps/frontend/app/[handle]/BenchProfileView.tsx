@@ -4,7 +4,7 @@ import ChainLogo from '../components/ui/ChainLogo';
 import RaisingPill from '../components/ui/RaisingPill';
 import UpdateCard from '../components/ui/UpdateCard';
 import { streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
-import type { PageHead } from '../../lib/earnkit/page-data';
+import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
@@ -14,17 +14,25 @@ import ProjectTab from './ProjectTab';
 import ScoreRing from './ScoreRing';
 import { COLUMN, SURFACE } from '../components/common/Panel';
 import ShipGrid, { shippedWords } from './ShipGrid';
+import InstallButton from '../components/common/InstallButton';
+import { BTN_PRIMARY } from '../components/common/Button';
 
 export const TAB_LOG = 'Ship log';
 export const TAB_PROJECT = 'Project';
-export const BENCH_SOURCES_LINE = 'Every fact is checked from public data: GitHub, the live site, packages and transactions.';
+/** Launch ready L10: not "public data" (the App reads private repos too; a private repo shows facts only). */
+export const BENCH_SOURCES_LINE = 'Every fact is checked: GitHub, the live site, packages and transactions.';
 export const LOG_EMPTY = 'Updates show here every week.';
 /**
  * v2.13.1 O3: the one calm card while the one project is Confirming. Pages are public and the owner
  * can't be told from a visitor, so one neutral line for everyone.
  */
 export const confirmingCardLine = (name: string, project: string) =>
-  `${name} is getting ${project} on the leaderboard.`;
+  // Launch ready L10: a hidden repo's name is PRIVATE_NAME, never put in the sentence as a name.
+  `${name} is getting ${project === PRIVATE_NAME ? 'a private project' : project} on the leaderboard.`;
+/** Launch ready L10: a page with no project yet: one calm line in place of an empty score and a 0-week grid. */
+export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
+/** Launch ready L7: the visitor's call to action. */
+export const VISITOR_CTA = 'Want a page like this? Add EarnKit to your agent.';
 export { streakWords };
 
 
@@ -159,18 +167,20 @@ export function BenchProfileSkeleton({
  * v2.13.1 O3: while the one project is Confirming, this card stands in for the score ring and the
  * shipping grid (no "Shipped 0" before anything could count). A soft pulse says it is under way.
  */
-function ConfirmingCard({ line }: { line: string }) {
+function ConfirmingCard({ line, pulse = true }: { line: string; pulse?: boolean }) {
   return (
     <div
       className={`mt-3 flex items-start gap-4 px-6 py-5 md:mt-4 md:items-center md:px-8 md:py-6 ${SURFACE}`}
     >
-      <span
-        aria-hidden="true"
-        className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
-      >
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/40 motion-reduce:animate-none" />
-        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-text" />
-      </span>
+      {pulse ? (
+        <span
+          aria-hidden="true"
+          className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
+        >
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/40 motion-reduce:animate-none" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-text" />
+        </span>
+      ) : null}
       <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-ek-text md:text-2xl">
         {line}
       </p>
@@ -204,6 +214,8 @@ export default function BenchProfileView({
   const path = pagePath(d.handle);
   const streak = streakWords(d.streak);
   const confirming = d.project !== null && !d.project.confirmed;
+  // Launch ready L10: no project and no week with code: nothing to chart yet.
+  const empty = d.project === null && d.score === null && !d.grid.some((g) => g.on);
   const codeIn = shippedWords(d.grid.filter((g) => g.on).length, d.grid.length);
   return (
     <>
@@ -222,6 +234,8 @@ export default function BenchProfileView({
         {confirming ? (
           // R10: never a rank while the project isn't counted yet (rankLines is empty then too).
           <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
+        ) : empty ? (
+          <ConfirmingCard line={noProjectLine(d.name)} pulse={false} />
         ) : (
           <>
             {d.bench || d.score !== null ? (
@@ -303,10 +317,16 @@ export default function BenchProfileView({
             </ol>
           )}
         </div>
+        {/* Launch ready L7: a visitor's first call to action on a builder's page. */}
+        <div className={`mt-8 flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-center sm:justify-between md:p-8 ${SURFACE}`}>
+          <p className="font-funnel-display text-lg font-medium leading-snug text-ek-text md:text-xl">{VISITOR_CTA}</p>
+          <InstallButton className={BTN_PRIMARY} />
+        </div>
         <p className="mt-4 max-w-3xl font-funnel-sans text-xs leading-relaxed text-ek-muted md:text-sm">
           {BENCH_SOURCES_LINE}
         </p>
-        <BadgeCopy markdown={badgeMarkdown(d.handle)} />
+        {/* Launch ready L10: the badge only once there is a rank to show (else it reads "not ranked"). */}
+        {d.bench && !confirming ? <BadgeCopy markdown={badgeMarkdown(d.handle)} /> : null}
       </section>
     </div>
     <Footer />

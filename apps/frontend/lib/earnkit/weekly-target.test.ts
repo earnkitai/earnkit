@@ -12,7 +12,7 @@ const weeksAgo = (ages: number[]) => ages.map((i) => isoWeekOf(new Date(NOW.getT
 const parts = (ages: number[], ships: Ship[] = []) => computeScoreV2({ ships, commitWeeks: weeksAgo(ages) }, NOW).parts;
 const site: Ship = { key: 'site:kit.app', kind: 'site' };
 const G = { active: false, gain: 14, next: 13 };
-const t = (o: Partial<TargetIn>): string => weeklyTarget({ gains: G, score: 50, rank: 3, above: null, ...o });
+const t = (o: Partial<TargetIn>, voice: 'reply' | 'page' = 'reply'): string | null => weeklyTarget({ gains: G, score: 50, rank: 3, above: null, ...o }, voice);
 
 test('L5.1 weekGains: this week not yet active gains what shipping now adds; once active, what it added and what next week adds', () => {
   assert.deepEqual(weekGains(parts([1, 2, 3, 5, 7, 9, 11]), NOW), { active: false, gain: 14, next: 14 });
@@ -40,15 +40,24 @@ test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside t
   // Tied at the top: no one scores higher, so #1 holds too.
   assert.equal(t({ rank: 1, above: null, score: 80 }), 'Ship code this week: +14 points to hold #1.');
   // This week already has code: no question, whatever is above.
-  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99 } }), 'Done this week: +14. Next week adds up to 13.');
-  assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week. Next week adds up to 13.');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99 } }), 'Done this week: +14 points. Next week adds up to 13 more.');
+  assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week. Next week adds up to 13 more.');
   assert.equal(t({ gains: { active: true, gain: 0, next: 0 } }), 'Done this week.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }), 'Ship code this week to hold #1.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: null }), 'Ship code this week.');
   assert.equal(t({ rank: null, above: null }), 'Ship code this week: +14 points.');
   for (const s of [t({ rank: 1 }), t({ gains: { active: true, gain: 14, next: 13 } })]) {
-    assert.ok(!s.includes('?') && !s.includes('—') && !s.includes('–'), s);
+    assert.ok(s && !s.includes('?') && !s.includes('—') && !s.includes('–'), s ?? 'null');
   }
+});
+
+test('L10 the page voice (L7: the public profile is read by visitors): the same math, said as a fact, never "Ship code"', () => {
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }, 'page'), 'Code this week adds +14 points, enough to pass #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }, 'page'), 'Code this week adds +14 points, 20 behind #2.');
+  assert.equal(t({ rank: 1, above: null }, 'page'), 'Code this week adds +14 points to hold #1.');
+  assert.equal(t({ rank: null, above: null }, 'page'), 'Code this week adds +14 points.');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 } }, 'page'), 'Shipped this week: +14 points. Next week adds up to 13 more.');
+  assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }, 'page'), null, 'a week that adds nothing says nothing on the page');
 });
 
 test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line; the new week\'s line last', () => {

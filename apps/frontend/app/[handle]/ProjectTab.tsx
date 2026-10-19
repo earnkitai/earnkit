@@ -7,7 +7,7 @@ export const LIVE_LINK = 'Live site';
 export const CODE_LINK = 'Code';
 
 const LINK =
-  'group inline-flex h-10 items-center gap-1.5 rounded-full border border-ek-line-strong px-4 font-funnel-sans text-sm font-medium text-ek-body transition-colors hover:bg-ek-chip hover:text-ek-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft';
+  'group inline-flex h-11 items-center gap-1.5 rounded-full border border-ek-line-strong px-4 font-funnel-sans text-sm font-medium text-ek-body transition-colors hover:bg-ek-chip hover:text-ek-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft md:h-10';
 
 function Arrow() {
   return (

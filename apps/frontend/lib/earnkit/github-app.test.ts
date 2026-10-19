@@ -237,7 +237,7 @@ test('4.9c on a shared client the App page shows no paste code (v2.14 final fix)
     const fetch = fakeGitHub(appApi({ account: 'alice', repos: [f.repoKey] }));
     const res = await appSetup(setupAt(`installation_id=77&state=${encodeURIComponent(nonce)}`, `${csrfCookieName(nonce)}=K1`), { ...limit, fetch });
     const page = await res.text();
-    assert.match(page, /Done\. Go back to your agent and say go\./);
+    assert.match(page, /Done\. Go back to your agent and say yes\./);
     assert.doesNotMatch(page, /Paste this code/);
     // Launch ready fix round 1 (M2): a shared client proves nothing (A19), so no verification is written at all.
     assert.equal((await sql()`SELECT 1 FROM github_verifications WHERE installation_id = ${f.inst} AND via = 'app'`).length, 0);

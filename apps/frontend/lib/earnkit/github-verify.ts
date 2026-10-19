@@ -31,7 +31,7 @@ export const VERIFY_TTL_MS = 15 * 60_000;
 
 /** What the builder reads in the browser after the callback. */
 export const VERIFY_PAGE = {
-  done: 'Done. Go back to your agent and say go.',
+  done: 'Done. Go back to your agent and say yes.',
   expired: 'This link has expired. Ask your agent for a new one.',
   notYours: "This GitHub account can't push to that repo. Sign in with the account that owns it.",
   failed: "Sign-in didn't finish. Ask your agent for a new link.",

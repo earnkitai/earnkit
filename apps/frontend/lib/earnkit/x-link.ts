@@ -28,7 +28,8 @@ export const LINK_TEXT = {
     name ? `This link is for an agent that calls itself "${name}", connected ${ago}.` : `This link is for an agent connected ${ago}.`,
   warning: 'Only continue if your own agent gave you this link.',
   done: (handle: string) => `Signed in as @${handle}.`,
-  paste: (code: string) => `Paste this code to your agent: ${code}`,
+  /** Launch ready L10: the code sits on its own line (ek-code), never broken across lines at a dash. */
+  paste: 'Paste this code to your agent:',
   codeWarning: 'Anyone you give this code to can act as your EarnKit page. Paste it only into the agent you are using right now.',
   gone: 'This link is used or expired. Ask your agent for a new one.',
   busy: 'Too many sign-in links opened from here. Try again in an hour.',
@@ -120,7 +121,7 @@ export async function linkSignedIn(installationId: number, user: XUser, headers:
     RETURNING link_hash`;
   if (!row) return signinPage(LINK_TEXT.gone, 410, headers);
   const body = brandShell(
-    `<h1>${escapeHtml(LINK_TEXT.done(user.username))}</h1><p class="ek-line">${escapeHtml(LINK_TEXT.paste(formatPaste(code)))}</p>` +
+    `<h1>${escapeHtml(LINK_TEXT.done(user.username))}</h1><p class="ek-line">${escapeHtml(LINK_TEXT.paste)}</p><p class="ek-code">${escapeHtml(formatPaste(code))}</p>` +
       `<p class="ek-small">${escapeHtml(LINK_TEXT.codeWarning)}</p>`,
   );
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, ...headers } });

@@ -17,22 +17,31 @@ export type TargetIn = { gains: WeekGains; score: number; rank: number | null; a
 
 /**
  * The one line (pure):
- * - this week done: "Done this week: +14. Next week adds up to 13."
+ * - this week done: "Done this week: +14 points. Next week adds up to 13 more."
  * - #1 (no one scores higher): "Ship code this week: +14 points to hold #1."
  * - someone above, and this week's points pass them: "Ship code this week: +14 points, enough to pass #2."; not
  *   enough (a tie is not a pass): "Ship code this week: +14 points, 20 behind #2."
  * - outside the pool (no rank shown): "Ship code this week: +14 points."
  * A week that adds nothing (never under today's weights, kept total): "Ship code this week to hold #3." /
- * "Done this week. Next week adds up to 13."
+ * "Done this week. Next week adds up to 13 more."
+ * Launch ready L10 (L7): `voice: 'page'` is the public profile's line, read by visitors, so it states the math
+ * instead of telling the reader to ship: "Code this week adds +14 points, enough to pass #2." / "Shipped this week:
+ * +14 points. Next week adds up to 13 more."; null when the week adds nothing.
  */
-export function weeklyTarget(t: TargetIn): string {
+export function weeklyTarget(t: TargetIn, voice?: 'reply'): string;
+export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page'): string | null;
+export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page' = 'reply'): string | null {
   const { gain, next } = t.gains;
   if (t.gains.active) {
-    const done = gain > 0 ? `Done this week: +${gain}.` : 'Done this week.';
-    return next > 0 ? `${done} Next week adds up to ${next}.` : done;
+    const head = voice === 'page' ? 'Shipped this week' : 'Done this week';
+    const done = gain > 0 ? `${head}: +${gain} points.` : `${head}.`;
+    return next > 0 ? `${done} Next week adds up to ${next} more.` : done;
   }
-  if (gain <= 0) return t.rank ? `Ship code this week to hold #${t.rank}.` : 'Ship code this week.';
-  const lead = `Ship code this week: +${gain} points`;
+  if (gain <= 0) {
+    if (voice === 'page') return null;
+    return t.rank ? `Ship code this week to hold #${t.rank}.` : 'Ship code this week.';
+  }
+  const lead = voice === 'page' ? `Code this week adds +${gain} points` : `Ship code this week: +${gain} points`;
   if (t.rank === null) return `${lead}.`;
   if (!t.above) return `${lead} to hold #${t.rank}.`;
   const { above } = t;
@@ -88,10 +97,10 @@ export async function targetIn(builderId: number, parts: unknown, now: Date, o: 
 }
 
 /**
- * The weekly target line, or null (the caller keeps its plain step). The same line in replies and on the public
- * page. Never throws.
+ * The weekly target line, or null (the caller keeps its plain step). The same math in replies and on the public
+ * page (`voice: 'page'`, said to a visitor). Never throws.
  */
-export async function targetFor(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<string | null> {
+export async function targetFor(builderId: number, parts: unknown, now: Date, o: { only?: number[]; voice?: 'reply' | 'page' } = {}): Promise<string | null> {
   const t = await targetIn(builderId, parts, now, o);
-  return t ? weeklyTarget(t) : null;
+  return t ? weeklyTarget(t, o.voice ?? 'reply') : null;
 }
