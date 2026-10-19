@@ -339,8 +339,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
-  // Launch ready L5: the ranked state's one next step is the weekly target (the builder above named: a private reply).
-  const target = ranked ? await targetFor(id, read.parts, now, { names: true }) : null;
+  // Launch ready L5: the ranked state's one next step is the weekly target (ranks only, never another builder's name).
+  const target = ranked ? await targetFor(id, read.parts, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;

@@ -121,7 +121,7 @@ export type ProfileData = {
   chainLines: { chain: BenchChain; label: string; line: string }[];
   /** Shipping, 0 to 100 (null: no rank line, so no score shown), and why it is what it is (score-v2.ts scoreWhy). */
   score: number | null; why: string | null;
-  /** Launch ready L5: the weekly target under the why (weekly-target.ts, no other builder's name: "#2" only); null with no score. */
+  /** Launch ready L5: the weekly target under the why (weekly-target.ts: ranks only, never another builder's name); null with no score. */
   target: string | null;
   /** Scoring and clarity R3: Originality, 0 to 100, shown small beside Shipping (never ranked); null until computed or while no score shows. */
   originality: number | null;
@@ -246,7 +246,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).
     score: scored ? (storedShipping(live.parts)?.points ?? null) : null,
     why: scored ? scoreWhy(live.parts, now) : null,
-    target: scored ? await targetFor(builderId, live.parts, now, { names: false, only: o.only }) : null,
+    target: scored ? await targetFor(builderId, live.parts, now, { only: o.only }) : null,
     originality: scored ? await readOriginality(builderId, p.main) : null,
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };

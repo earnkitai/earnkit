@@ -1257,7 +1257,8 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
-                               launch-ready L9: activated, weekly_active (factWeek, notTest) and shared (0 until L6);
+                               launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
+                               (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
                                open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
@@ -1455,6 +1456,9 @@ apps/frontend/
                                other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
                                displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
                                the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
+                               Launch ready L5, L6: BenchView.target (the weekly target, STATE_COPY.ranked.ask(target), else
+                               SHIP_STEP) and BenchView.share (the weekly moment's X link: then the one link, and stateAsk
+                               gives kind share, shareAsk "Share your week on X: <link>" + "Does last week look right?").
                                tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
@@ -1475,16 +1479,21 @@ apps/frontend/
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
                                Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
                                main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
-                               RANK_SET_NOTE, RANK_INSTALL_NOTE.
+                               RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
+                               (weekly-target.ts targetFor, ranks only) and weeklyMoment (momentDue, lastWeekOf, takeMoment:
+                               the moment's lines lead find's and score's show_to_builder, after "Signed in as"; the share
+                               link is the ranked link; the stored ask keeps its week); benchMoveUp share yes approves
+                               (approveWeek, APPROVED_LINE), share is taken once; SHARE_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
-                               repo-picker.test.ts
+                               repo-picker.test.ts, weekly-moment.test.ts
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
                                launch-ready L3: BenchFilter is { chain, weekly } (no community round filter),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
                                tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
-                               v2.14 T8: profile log cards carry titles (titlesShown, S9)
+                               v2.14 T8: profile log cards carry titles (titlesShown, S9); launch ready L5: ProfileData.target
+                               (weekly-target.ts targetFor, ranks only), shown under the why by BenchProfileView
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
@@ -1530,7 +1539,17 @@ apps/frontend/
     score-v2.ts(+test)         scoring and clarity: computeScoreV2 (one Shipping score: round(90 x weighted active
                                weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
                                shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
-                               sentence); R16b removed countUse
+                               sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
+                               as of now's week); R16b removed countUse
+    weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
+                               done this week), poolPlace (benchPool: rank, and the score and rank just above), targetFor (never throws)
+    weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week: Shipping 72 (+6), #3 (up 2)." + up to 2 titles),
+                               shareText, shareLink (page-data shareIntentText), lastWeekOf (builder_scores' last ranked day
+                               of last week and the week before, rank among that day's listed rows; titlesShown, then checkUpdate again),
+                               momentDue / takeMoment (installations.moment_week, one UPDATE ... RETURNING), approveWeek
+                               (facts.approved, approved_at, approved_via 'share'; upsert), SHARE_NOTE, APPROVED_LINE;
+                               weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
+                               fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),

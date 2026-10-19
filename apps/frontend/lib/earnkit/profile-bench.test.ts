@@ -46,7 +46,7 @@ test('11.2 one Shipping ring (no per-part rings) with the why sentence and the w
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
   for (const s of ['aria-label="Shipping 62 of 100"', 'Code in 7 of the last 12 weeks, 3 of the last 4.', '6 weeks in a row']) assert.ok(h.includes(s), s);
   // Launch ready L5: the weekly target under the why, naming only the rank (never another builder).
-  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Ship code this week: +14 points, enough to reach #2.'), 'the target under the why');
+  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Ship code this week: +14 points, enough to pass #2.'), 'the target under the why');
   for (const re of [/Shipped \d+ of/, /Used \d+ of/, /Earned \d+ of/, /Consistency \d+ of/]) assert.doesNotMatch(h, re);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
   assert.equal((h.match(/data-week=/g) ?? []).length, 52);

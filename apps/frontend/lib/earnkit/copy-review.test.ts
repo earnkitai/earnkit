@@ -867,9 +867,8 @@ function weeklyCopy(): [string, string][] {
   const t = (o: Partial<Parameters<typeof weeklyTarget>[0]>) => weeklyTarget({ gains: g, score: 50, rank: 2, above: null, ...o });
   const w = { score: 72, rank: 3, total: 40 };
   return [
-    ['target pass', t({ above: { rank: 1, score: 60, name: 'Ana' } })],
-    ['target reach', t({ above: { rank: 1, score: 60, name: null } })],
-    ['target behind', t({ above: { rank: 1, score: 90, name: null } })],
+    ['target pass', t({ above: { rank: 1, score: 60 } })],
+    ['target behind', t({ above: { rank: 1, score: 90 } })],
     ['target hold', t({ rank: 1 })],
     ['target unranked', t({ rank: null })],
     ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],

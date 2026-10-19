@@ -2,11 +2,13 @@ import { sql } from './db';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { norm, shareIntentText, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
+import { checkUpdate } from './update-text';
 import { rankLine, scoreLine } from './rank';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 
 /**
- * Launch ready L6: one weekly moment. The first find or score of a new ISO week (per installation) leads with last
+ * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
+ * another builder's name or handle, which is text they control). The first find or score of a new ISO week (per installation) leads with last
  * week's Shipping and rank, and one line of last week's ship log, then offers a free share link (an X intent URL:
  * no X API, no new scopes) in place of the usual next step. A yes marks last week approved
  * (project_updates.facts.approved), which /api/stats counts (L9).
@@ -85,7 +87,16 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (u && u.titles.length > 0) {
     const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
     const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
-    titles = titlesShown(u.titles, { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key });
+    // The titles are the builder's own commit text: checked again here as when stored (update-text.ts checkUpdate),
+    // so a reply never carries one the filter refuses.
+    const own = titlesShown(u.titles, { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key });
+    if (own.length > 0) {
+      const links = await (await import('./updates')).ownLinks(builderId);
+      titles = own.flatMap((t) => {
+        const c = checkUpdate(t, links);
+        return c.ok ? [c.text] : [];
+      });
+    }
   }
   return { monday, now: cur, before, titles };
 }

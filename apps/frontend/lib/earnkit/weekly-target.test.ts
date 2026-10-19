@@ -27,15 +27,12 @@ test('L5.1 weekGains: this week not yet active gains what shipping now adds; onc
   assert.equal(weekGains({}, NOW), null);
 });
 
-test('L5.2 the target: pass the builder above when this week\'s points beat their score, else how far behind', () => {
-  assert.equal(t({ score: 50, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, enough to pass Ana for #2.');
-  assert.equal(t({ score: 40, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, 20 behind #2.');
+test('L5.2 the target: pass the rank above when this week\'s points beat its score, else how far behind (ranks only, never a name)', () => {
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, enough to pass #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, 20 behind #2.');
   // A tie is not a pass.
-  assert.equal(t({ score: 46, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, 14 behind #2.');
-  assert.equal(t({ score: 47, above: { rank: 2, score: 60, name: 'Ana' } }), 'Ship code this week: +14 points, enough to pass Ana for #2.');
-  // The public page names only the rank.
-  assert.equal(t({ score: 50, above: { rank: 2, score: 60, name: null } }), 'Ship code this week: +14 points, enough to reach #2.');
-  assert.equal(t({ score: 40, above: { rank: 2, score: 60, name: null } }), 'Ship code this week: +14 points, 20 behind #2.');
+  assert.equal(t({ score: 46, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, 14 behind #2.');
+  assert.equal(t({ score: 47, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, enough to pass #2.');
 });
 
 test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside the pool', () => {
@@ -43,7 +40,7 @@ test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside t
   // Tied at the top: no one scores higher, so #1 holds too.
   assert.equal(t({ rank: 1, above: null, score: 80 }), 'Ship code this week: +14 points to hold #1.');
   // This week already has code: no question, whatever is above.
-  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99, name: 'Ana' } }), 'Done this week: +14. Next week adds up to 13.');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99 } }), 'Done this week: +14. Next week adds up to 13.');
   assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week. Next week adds up to 13.');
   assert.equal(t({ gains: { active: true, gain: 0, next: 0 } }), 'Done this week.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }), 'Ship code this week to hold #1.');

@@ -13,9 +13,9 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, 
   const v: BenchView = {
     state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders this week', handle: 'maya_makes', link: null,
     score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: null,
-    target: 'Ship code this week: +14 points, enough to pass Ana for #2.', share: null,
+    target: 'Ship code this week: +14 points, enough to pass #2.', share: null,
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'rolling', why: 'You build on Avalanche.' }], due: [],
-    ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship code this week: +14 points, enough to pass Ana for #2.' }, held: null,
+    ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship code this week: +14 points, enough to pass #2.' }, held: null,
   };
   assert.equal(benchReply(v), [
     'Where you stand',
@@ -27,7 +27,7 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, 
     'Avalanche Team1 Mini Grants: up to $10K, rolling. You build on Avalanche.',
     '',
     'How to move up',
-    'Ship code this week: +14 points, enough to pass Ana for #2.',
+    'Ship code this week: +14 points, enough to pass #2.',
   ].join('\n'));
 });
 

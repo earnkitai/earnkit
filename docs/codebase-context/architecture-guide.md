@@ -5774,7 +5774,7 @@ v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one t
 | `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
 | `no_project` | signed in, no one project | the same + "Your page: earnkit.com/..." | the repo picker's install link (launch ready L2) | "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" + "Want me to rank it once that's done?" (App off: "What's your GitHub, or a link to something you've made?", the page the link) |
 | `not_counted` | a project not confirmed | "<Project> isn't counted yet." | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
-| `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page | the statement "Ship this week to climb." (R8; never an entry, coin, community round or going live) |
+| `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page (the weekly moment: the X share link) | the weekly target (launch ready L5, e.g. "Ship code this week: +14 points, enough to pass #2."; "Ship this week to climb." only without a Shipping row), or once a week the share ask (L6); never an entry, coin, community round or going live |
 
 - **Variants (A15).** `taken`, `copy`: "Want to use a different project?"; `no_repo`: "Where does <Project> live on
   GitHub?"; `app_off`: one small thing to ship. A taken project still names the open programs (D6).
@@ -6426,3 +6426,59 @@ Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling 
   (and any past the deadline) are not proven at that setup (owner question: raise the caps if builders pick more).
   GitHub's "Redirect on update" must stay on, so an installation that already exists (the builder adds repos to it)
   reaches the setup URL too.
+
+## Launch ready (Task 3): one weekly target and one weekly moment (L5, L6, L9)
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (L5, L6, L9). Owner: WHOOP-style and very
+simple: one number (Shipping), one target this week, one weekly moment.
+
+- **The weekly target (L5).** `score-v2.ts weekGains(parts, now)` reads the stored mask as of now's week (shifted like
+  the why) and returns `{ active, gain, next }`: what this week adds (or added, once it has commits) and what next week
+  adds. `weekly-target.ts poolPlace` reads the leaderboard's own pool (`benchPool`): the person's rank (1 + those
+  scoring higher) and the score and rank just above (the lowest higher score). Never a name or handle: another
+  builder's X name is text they control, and putting it in an MCP reply is a prompt-injection path (security ruling
+  during Task 3; `weekly-moment.test.ts` L5.6 checks a hostile name never reaches find, score, the moment or the share
+  link). `weeklyTarget` (pure):
+  - not active, someone above, score + gain > theirs: "Ship code this week: +14 points, enough to pass #2."
+    (not enough, and a tie is not a pass: "Ship code this week: +14 points, 20 behind #2.", the points between them);
+  - #1 (no one higher, ties included): "Ship code this week: +14 points to hold #1.";
+  - this week done: "Done this week: +14. Next week adds up to 13." (no question);
+  - outside the pool (held, hidden): "Ship code this week: +14 points."; a week worth 0 points (impossible with
+    today's weights: a week adds at least 13) reads "Ship code this week to hold #k." / "Done this week.".
+  `targetFor` never throws (null: the caller keeps `SHIP_STEP`). Replies (`benchView`, find and score) put it as the
+  ranked state's one next step (kind `ship`, the yes still `SHIP_NOTE`). The profile (`bench-data.ts
+  profileData.target`) shows the same line under the why.
+  The why sentence (`scoreWhy`) now holds only the weeks with code ("Code in 7 of the last 12 weeks, 3 of the last
+  4."), so the step is never said twice. L5 said "owner view only" on the profile, but L7 rules the owner can't be
+  told from a visitor on the web; the brief shows it to everyone with the rank only.
+- **The weekly moment (L6).** In `benchView`, ranked, with a page and no held question, `weeklyMoment`: `momentDue`
+  (the caller's own installation's `installations.moment_week` is not this ISO week), then `lastWeekOf` (the
+  builder's last ranked, unheld `builder_scores` row of last week, its rank among that day's other ranked, unheld rows
+  whose page is listed now; the same for the week before for the deltas; last week's `project_updates.titles` through
+  `titlesShown`, so a private repo's titles only with titles on), then `takeMoment` (`UPDATE installations SET
+  moment_week = <week> WHERE moment_week IS DISTINCT FROM <week> RETURNING 1`: two replies at once show it once). No
+  ranked day last week: no moment and the week stays unclaimed. The lines lead show_to_builder (after "Signed in as"):
+  "Last week: Shipping 50 (+6), #2 (up 1)." ("Shipping 30, #1." with no week before; "(same)" for no change) and up to
+  2 titles joined by " · " (the builder's own commit titles, checked again with `update-text.ts checkUpdate` at read,
+  as when stored). Only the builder's own data is in the moment and the share text. The share link (`shareLink`: `page-data.ts shareIntentText`, `https://x.com/intent/post`
+  with `text` "Shipped this week on EarnKit: Shipping 50 · #2 of 3 builders this week" and `url` the profile; no X
+  API, no scope) becomes the ranked reply's one link (the page is then named without https) and its step: "Share your
+  week on X: <link>" + "Does last week look right?" (kind `share`, `SHARE_NOTE`). The stored ask carries the week's
+  Monday (`bench_ask.week`). Per installation: another agent of the same person sees its own moment once.
+- **The yes (L6, L9).** `benchMoveUp` share (taken once): `approveWeek` upserts last week's ship-log row of the one
+  project with `facts.approved = true`, `approved_at`, `approved_via = 'share'` (merged into an existing row; the
+  weekly job's later upsert merges too, so nothing is lost). A row holding only the approval shows nowhere (no facts,
+  text or titles: `logCards`, the feed's `hasFacts`). "Thanks. Last week is confirmed." A no is the usual decline.
+- **Funnel numbers (L9).** `stats.ts approvedWeek`: activated = claimed + App-proven repo + an approved week;
+  weekly_active = the same people with `approved_at` in the last 7 days; shared = approved weeks with
+  `approved_via = 'share'` (weeks, not people). Test installations' groups never count. The old fact-week stand-in
+  (`factWeek`) is gone.
+- **Schema.** `installations.moment_week text` (additive, idempotent).
+- **Tests.** `weekly-target.test.ts` (pure: gains, every target shape and boundary, moment lines, share link encoding),
+  `weekly-moment.test.ts` (mcpCall: the target through find and score, the public profile target, #1 and ties, the
+  moment once per installation, deltas, titles public and private, the share link, the yes and its row, two replies at
+  once, the stats deltas), `stats.test.ts` (approvals), and the ranked-step tests now use `fixtures/ranked-step.ts`.
+- **Accepted limits.** Last week's rank is read from the daily history (the cron's first run each day); a builder whose
+  row is missing that day is left out of that day's count. A find on Monday before the weekly job (15:00 UTC) has no
+  titles yet, and the moment is not shown again that week. Only the last reply's ask is answerable, so a yes after a
+  later find or score is "Okay." (the next week's moment asks again).
