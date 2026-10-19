@@ -6078,3 +6078,51 @@ Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
   `v214-ship-log.test.ts provenPerson` drops the rows the connect backfilled, so those tests drive the weekly step
   alone.
 
+
+## Scoring and clarity (Task 2c): Stop the unused reads
+
+Spec: R16b of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`. No score uses stars, forks, users,
+traction or money any more, so EarnKit stops reading and counting them. Program wins stay as facts.
+
+- **GitHub.** `person-github.ts REPO_FIELDS` no longer asks for `stargazerCount forkCount stargazers(last: 10) forks(first: 10)`.
+  The same one call per 25 repos remains, but each repo no longer pulls up to 20 star and fork nodes and their account
+  ages. `repoFrom` writes `stargazers: [], forkers: [], partial: false` (old readings keep theirs, unread). An
+  organization's repo no longer reads `/contributors` (one REST call each, daily and in `readAppRepos`; it fed only the
+  org-member rule of people counting).
+- **Sources not read.** `sources.ts dueSources` and `person-score.ts readPersonLive` skip `contract`, `coin` and
+  `merged_pr` sources. Those reads (Blockscout pages of a contract's callers and a coin's transfers, the native price,
+  Arc logs and senders, a merged PR's target stars and the PR) fed only Used and Earned. The refresh no longer reads
+  proposed contracts for "past users" (it fed `untracked_contract`, now always NULL, so stand-view's "count past users"
+  step never fires). A confirmed contract is still a live ship without a reading. Sites, packages and repos are read as
+  before; the push check (anti-backdating), originality, titles and matching keep their own reads.
+- **Code removed.** `source-readers.ts readRepo`, `knownAges`, `readContract`, `readCoin`, `readMergedPrs`, the
+  `ReaderDeps` fields `baseTxs`, `tokenTransfers`, `arcLogs`, `arcHead`, `arcSender`, `usdPerNative`; `sources.ts readPr`
+  and `prRef`; `score-v2.ts countUse` (and `fade`); `builder-score.ts scoreContext`, `ringEdges`, `verifiedProject`;
+  `person-score.ts` ring storage (`storedRing`, `ringToJson`, `ownersOf`). `traction.ts` (the token builder bonus) and the
+  fee and token code are untouched.
+- **No counting.** `personInputsV2(id, now, db, { scope })` returns `{ input: { ships, commitWeeks }, projects, shipWeeks,
+  chains }`: no touches, people, money, ring, `perSource` or `newPeople`, and it no longer queries token fees, prizes or
+  wallets. `rescorePerson(id, now, { cron })` takes the cron flag instead of a ring (the cron still rescores a newer row
+  at its own time); `scorePeopleV2` no longer loads everyone's accounts and edges. Columns stay (nothing destructive):
+  `builder_projects.people`, `people_week`, `money_usd` are written 0, `tagged` false, `untracked_contract` NULL,
+  `builder_live.people` 0, and `builder_profiles.ring` is no longer written (old values stay, unread).
+- **Ship log and feed.** `week-facts.ts weekFactsFor` no longer writes `users_up` or `earned` (and no longer runs a whole
+  `personInputsV2` per project and week); `won` stays. `feed.ts pointsOf` counts went live 40, a win 40, commits 10,
+  the streak up to 10; an old row's people and money count nothing; ties go to the builder's Shipping score (the
+  existing `l.score DESC`). `bench-data.ts bestFact` never says "N people this week".
+- **Matching.** `prepare` no longer passes `verified` (counted users and money) to matching, so odds use matching's own
+  facts (tx count, live, commits). `MatchDeps.verified` stays in the matching API, unused by EarnKit's own calls.
+- **Calls saved (read-cost.test.ts).** One person with a repo, an organization's repo, a site, an npm package, a
+  verified Base contract, a coin, a merged PR and a proposed contract, each read answering one page:
+
+  | | before | after |
+  |---|---|---|
+  | daily read: GitHub | 6 (1 GraphQL, 2 push checks, 1 contributors, 2 PR) | 3 (1 GraphQL, 2 push checks) |
+  | daily read: Blockscout and price | 3 | 0 |
+  | daily read: total | 11 | 5 |
+  | refresh: GitHub | 3 | 3 |
+  | refresh: Blockscout and price | 6 | 0 |
+  | refresh: total | 11 | 5 |
+
+  These are floors: a busy contract or coin read up to 20 Blockscout pages a day, and an Arc contract up to 200
+  senders (two RPC calls each). The push checks happen only until a repo's reading is verified.

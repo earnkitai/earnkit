@@ -1338,9 +1338,9 @@ apps/frontend/
                                v2.12.2: REPORTED_REPOS_MAX (a reported login's own repos proposed, not
                                confirmed), proofLineCheck skipShort/onSkip (discoverPerson, the refresh;
                                a skipped check re-queues 'proof_line' for the cron)
-    source-readers.ts(+test)   v2.12 T5: ReaderDeps, readRepo, readSite, probeSite, readNpm, readPypi,
-                               readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs (never
-                               into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
+    source-readers.ts(+test)   v2.12 T5: ReaderDeps, readSite, probeSite, readNpm, readPypi, readContractOrigin,
+                               walletCreationsFrom (R16b removed readRepo, readContract, readCoin, readMergedPrs and
+                               the Blockscout/Arc/price deps), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
                                GitHubBudgetStop, soft, READ_CAPS,
                                defaultReaderDeps (one per run; v2.14 final fix 8: ghFetch skips the run cap and the rate watch
                                for appCredential requests, an installation token or the App JWT)
@@ -1383,7 +1383,7 @@ apps/frontend/
                                v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
-    week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
+    week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor (R16b: no users_up or earned), factChips, startedLine, upsertWeekFacts,
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles);
                                scoring and clarity R13: writeWeek (the per-week body: facts, titles, row, events; shared
@@ -1405,7 +1405,7 @@ apps/frontend/
                                (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
                                option (posted_by still written)
-    feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
+    feed.ts(+test)             v2.13 T6: pointsOf (R16b: went live, win, commits, streak only), feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
                                carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
     bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines ({ bench: rank line,
                                line: score line, chains }; chain lines from one ranked project, R16e)
@@ -1446,12 +1446,13 @@ apps/frontend/
                                fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
     sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
-                               rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
+                               rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
+                               readSources (READS_PER_RUN 200; no org contributors call)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
                                buildInputs (v1 rules, kept as history with its tests), holdReason, sourceShares,
                                profileEmpty, heldPeople, runScoreSteps (discover, read, score = person-score.ts
-                               scorePeopleV2, empty), publicRow, verifiedProject (odds: the person's confirmed
-                               builder_projects row; v2.12.1 T12), scoreContext, heldForReview,
+                               scorePeopleV2, empty), publicRow, heldForReview (R16b removed verifiedProject,
+                               scoreContext, ringEdges),
                                (T12 removed scoreBuilders, percentiles, publicScore, emptyReasonOf)
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
@@ -1480,7 +1481,7 @@ apps/frontend/
     score-v2.ts(+test)         scoring and clarity: computeScoreV2 (one Shipping score: round(90 x weighted active
                                weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
                                shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
-                               sentence), countUse (people and money for builder_projects, not scored; fade, STAR_FORK_CAP)
+                               sentence); R16b removed countUse
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
@@ -1499,14 +1500,17 @@ apps/frontend/
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
+                               R16b: REPO_FIELDS has no stars or forks; no org contributors call.
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
                                standingOf, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
                                pageViewRefresh (page views: PAGE_REFRESH_MS a day, LIMITS.pageRefresh
                                200/h global, pageRefreshIp 20/h per IP),
-                               readPersonLive (source_live), scorePeopleV2 (cron; v2 history rows),
-                               trackingHeld, ring storage
+                               readPersonLive (source_live; R16b: repos, sites, packages only), scorePeopleV2
+                               (cron; v2 history rows), trackingHeld; R16b: no people, money or ring
+                               (rescorePerson(id, now, { cron }))
+    read-cost.test.ts          R16b: the outside calls of one daily read and one refresh, by kind (before/after in the guide)
     confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
     identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), mergeIdentity (reports
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
