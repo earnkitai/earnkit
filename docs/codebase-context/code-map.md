@@ -1360,6 +1360,11 @@ apps/frontend/
                                step app_check: GitHub still names an installation this person proved, else proposed +
                                APP_REMOVED + rescore); moved here: heldByOther, ORG_PROOF_MAX_AGE_MS, ORG_PROOF_PER_RUN,
                                STALE, STALE_RETRY, expireOrgProofs, orgProofExpiryStep (re-proof is the App);
+                               Fix round 1: appProofLive (an installation this person proved; an org's prover still admin;
+                               held / gone / unknown), recheckAppSource (applies it; appCheckStep and repoProof forAction on
+                               a proof older than APP_PROOF_FRESH_MS use it), sharedAppProven (the shared-client coin gate,
+                               fails closed), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
+                               heldByOther counts App holds only).
                                tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
                                v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.

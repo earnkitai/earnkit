@@ -5733,3 +5733,15 @@ links). Existing verified sources stay verified and keep counting on the Bench.
 - **Kept on purpose.** `verifiedEntryIds` (a shared client's pre-v2.14 entries stay scoped to the caller's login) and
   `loginBasisFor` (events keep a login), both reading verifications only; the confirm decision's `signIn` now means
   "the App is on" (an agent that can't push still gets the coin offer).
+
+### Task 6 fix round 1: the App proof is checked live
+- `appProofLive` decides whether a person's App proof holds now. GitHub must name an installation for the repo; it must be
+  one this person proved through the setup URL; and for an org's repo (or an owner other than the prover) the prover must
+  still be its admin (per-call token, `collaborators/{login}/permission`). The result is held, gone or unknown.
+  `recheckAppSource` applies it: held refreshes `app_checked_at`; gone demotes (`app_removed`) and rescores; unknown
+  changes nothing.
+- The daily `app_check` uses it. An action (coin, deploy, host) on a proof older than `APP_PROOF_FRESH_MS` checks live:
+  held passes, gone or unknown refuses. The shared-client coin gate uses `sharedAppProven` (the caller's login, live,
+  fail closed).
+- Ruling: an App proof replaces another person's non-App hold (that row goes to proposed, `replaced_by_app`); only an App
+  hold gives `taken`.
