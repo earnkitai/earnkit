@@ -289,3 +289,18 @@ test('6.19 fix round 1: the shared-client coin gate checks the caller\'s App pro
     console.error = err;
   }
 });
+
+test('6.20 fix round 1 (ruling): an App proof replaces another person\'s discovery-derived hold; another person\'s App hold still gives taken', db, async () => {
+  const key = `hal${RUN}/held`;
+  const holder = await personWith(key, 'hal');
+  await sql()`UPDATE builder_sources SET state = 'verified', proof = 'x_match', verified_at = now() WHERE builder_id = ${holder.id} AND kind = 'repo' AND lower(ref) = ${key}`;
+  const prover = await personWith(key, 'ivy');
+  const gh = fakeGitHub({ [key]: { id: 9050, owner: `hal${RUN}`, installation: 94, admins: [`ivy${RUN}`] } });
+  assert.equal(((await installApp({ builderId: prover.id, repoKey: key, login: `ivy${RUN}`, gh })) as { ok: boolean }).ok, true);
+  const [old] = await sql()<{ state: string; reject_reason: string }[]>`SELECT state, reject_reason FROM builder_sources WHERE builder_id = ${holder.id} AND lower(ref) = ${key}`;
+  assert.deepEqual(old, { state: 'proposed', reject_reason: 'replaced_by_app' });
+  assert.equal((await repoProof(prover.id, key)).ok, true);
+  assert.deepEqual(await repoProof(holder.id, key), { ok: false, why: 'taken' });
+  // The first holder installing the App now: the App hold stays the prover's.
+  assert.deepEqual(await installApp({ builderId: holder.id, repoKey: key, login: `hal${RUN}`, gh }), { ok: false, why: 'taken' });
+});

@@ -17,6 +17,8 @@ import { proposeSource, rejectSource } from './sources';
  */
 export const APP_PROOF = 'github_app';
 export const APP_REMOVED = 'app_removed';
+/** Fix round 1 (ruling): the note on another person's non-App hold that an App proof replaced (state 'proposed'). */
+export const REPLACED_BY_APP = 'replaced_by_app';
 export const APP_CHECK_PER_RUN = 50;
 export const APP_CHECK_EVERY_MS = 24 * 60 * 60_000;
 /**
@@ -50,13 +52,15 @@ const refKey = (db: Db) => db`regexp_replace(lower(trim(ref)), '^(https?://)?(ww
 const rootSql = (db: Db, id: number) => db`COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = ${id}), ${id})`;
 
 /**
- * Whether another person (another group root: never the person's own linked installation) already holds a
- * confirmed repo source for `key` (the first holder keeps a repo). Moved from the v2.13.1 proof-branch module.
+ * Whether another person (another group root: never the person's own linked installation) already holds `key`
+ * with the App (the first App holder keeps a repo; fix round 1 ruling: a non-App hold is replaced by an App proof,
+ * proveByApp). Moved from the v2.13.1 proof-branch module.
  */
 export async function heldByOther(builderId: number, key: string, db: Db = sql()): Promise<boolean> {
+  // Fix round 1 (ruling): only another person's App hold keeps a repo; a non-App hold is replaced by an App proof.
   const [r] = await db`
     SELECT 1 FROM builder_sources s WHERE s.kind = 'repo' AND s.state = 'verified'
-      AND s.proof = ANY(${[...CONFIRMED_PROOFS]}::text[]) AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key.toLowerCase()}
+      AND s.proof = ${APP_PROOF} AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key.toLowerCase()}
       AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) <> ${rootSql(db, builderId)}
     LIMIT 1`;
   return Boolean(r);
@@ -96,7 +100,8 @@ type RepoMeta = { id?: unknown; full_name?: unknown; private?: unknown; fork?: u
 
 /**
  * appSetup's last step: the person's repo source verified by the App (A8), then a rescore, so the next reply
- * ranks it. A fork or template is refused (`derived`); a repo another person holds stays theirs (`taken`).
+ * ranks it. A fork or template is refused (`derived`); a repo another person holds with the App stays theirs
+ * (`taken`); another person's non-App hold is replaced (REPLACED_BY_APP, rescored).
  * Preflight S8: the hold check and the write run in ONE transaction under the repo's advisory lock
  * (`repo_hold:<key>`), so two people completing the App on one repo at once can't both hold it. The person's
  * own `source_proof:<id>` lock (page-joins.ts attachFresh takes it too) keeps an R1 join's emptiness check
@@ -136,13 +141,29 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
   // appProof checked the installation lists it and the installer owns or administers it).
   if ((await repoInstallation(key, deps).catch(() => null)) !== a.githubInstallationId) return { ok: false, why: 'none' };
   const isPrivate = meta.private !== false;
+  const replaced: number[] = [];
   const out = await sql().begin(async (tx): Promise<RepoProof> => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`repo_hold:${key}`}))`;
+    // Fix round 1: the person's page lock before the source lock, the order page-joins.ts attachFresh takes them in.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`page_join:${a.builderId}`}))`;
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`source_proof:${a.builderId}`}))`;
     // Only while the builder id is still a person's root (an installation attached to a page meanwhile writes nothing).
     const [r] = await tx<{ root: number }[]>`SELECT COALESCE(builder_id, id) AS root FROM installations WHERE id = ${a.builderId}`;
     if (r && r.root !== a.builderId) return { ok: false, why: 'none' };
-    if (await heldByOther(a.builderId, key, tx)) return { ok: false, why: 'taken' };
+    // Fix round 1 (controller ruling): another person's App hold keeps the repo (taken); another person's
+    // discovery-derived or other non-App hold (x_match, repo_owner, a proof line or branch, a sign-in) is replaced:
+    // that row goes back to proposed ('replaced_by_app') and this person proves it.
+    const others = await tx<{ id: number; builder_id: number; proof: string }[]>`
+      SELECT s.id::int AS id, s.builder_id, s.proof FROM builder_sources s
+      WHERE s.kind = 'repo' AND s.state = 'verified' AND s.proof = ANY(${[...CONFIRMED_PROOFS]}::text[])
+        AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${key}
+        AND COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = s.builder_id), s.builder_id) <> ${a.builderId}
+      FOR UPDATE`;
+    if (others.some((o) => o.proof === APP_PROOF)) return { ok: false, why: 'taken' };
+    for (const o of others) {
+      await tx`UPDATE builder_sources SET state = 'proposed', reject_reason = ${REPLACED_BY_APP} WHERE id = ${o.id} AND state = 'verified'`;
+      replaced.push(o.builder_id);
+    }
     // The App is the strongest proof: it verifies a proposed, rejected or stale row alike.
     await tx`
       UPDATE builder_sources SET state = 'verified', proof = ${APP_PROOF}, verified_at = ${now}, reject_reason = NULL, app_checked_at = ${now},
@@ -151,6 +172,8 @@ export async function proveByApp(a: { builderId: number; repoKey: string; github
     return { ok: true, via: 'app', owner, private: isPrivate };
   });
   if (!out.ok) return out;
+  for (const other of new Set(replaced))
+    await (await import('./person-score')).rescorePerson(other, now).catch((err: unknown) => console.error('[repo-proof] rescore', err instanceof Error ? err.name : 'error'));
   await (await import('./events')).noteEvent('source_verified', () => ({
     type: 'source_verified', dedupe_key: `source_verified:${row.id}:${now.toISOString()}`, installation_id: a.builderId, detail: { source_id: row.id, kind: 'repo', proof: APP_PROOF },
   }));

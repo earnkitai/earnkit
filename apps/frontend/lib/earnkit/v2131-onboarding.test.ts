@@ -152,7 +152,9 @@ test('O2 fix round 1 (ruling 3): every state ends on one question with a yes rou
     // Taken, with a program that fits the held repo: never an entry, never its program, a different project.
     const ava = await avalanche();
     const held = `${uniq('tk')}/recipes`;
-    await person({ main: held, claimed: uniq('t1'), projects: [{ key: held, name: 'Recipe planner', confirmed: true }] });
+    const h1 = await person({ main: held, claimed: uniq('t1'), projects: [{ key: held, name: 'Recipe planner', confirmed: true }] });
+    // v2.14 T6 fix round 1: only an App hold keeps a repo from another person.
+    await sql()`UPDATE builder_sources SET proof = 'github_app', app_checked_at = now() WHERE builder_id = ${h1} AND kind = 'repo'`;
     const t = await install();
     await claimX(t);
     const tr = await find(t, named(held), { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(ava.id, held) }) });
