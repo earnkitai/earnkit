@@ -103,8 +103,8 @@ export type LoginOf = (builderId: number) => Promise<LoginProof | null>;
 
 /** T7: how many of a person's signed wallets have their created contracts read per discovery. */
 export const WALLET_READS = 3;
-/** Per person and run: repos scanned for clue files, files per repo, contracts, sites (orgs, orgRepos, remotes: unused since v2.14). */
-export const DISCOVER_CAPS = { orgs: 3, orgRepos: 10, remotes: 5, clueRepos: 10, clueFiles: 10, contracts: 20, sites: 5 } as const;
+/** Per person and run: App-proven repos scanned for clue files, files per repo, contracts, sites. */
+export const DISCOVER_CAPS = { clueRepos: 10, clueFiles: 10, contracts: 20, sites: 5 } as const;
 /** A person whose discovery threw this many times is marked done until the next clue queues them. */
 export const DISCOVER_MAX_ATTEMPTS = 5;
 
