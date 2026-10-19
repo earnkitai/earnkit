@@ -245,7 +245,7 @@ test('v2.7 §1: the full home view', () => {
   assert.ok(t.indexOf('Open programs') < t.indexOf(HOW_TITLE) && t.indexOf(HOW_TITLE) < t.indexOf('Add EarnKit'));
   // Footer (Ruling 22, plan): the real links only, the tagline, and the faded wordmark.
   for (const href of [...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href)), '/'])
-    assert.match(h, new RegExp(`href="${href.replace(/[.+]/g, '\\$&')}"`), href);
+    assert.match(h, new RegExp(`href="${href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`), href);
   assert.ok(t.includes(FOOTER_TAGLINE));
   // v2.8.1 (owner): the faded wordmark is the navbar's logo SVG, not text.
   assert.match(h, /<div aria-hidden="true" data-footer-wordmark=""[^>]*><svg[^>]*viewBox="0 0 124 23"/);
@@ -349,7 +349,7 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
 test('v2.7.1: the header is Docs and the install, desktop and mobile; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 2); // desktop and mobile
-  assert.equal((h.match(/<a[^>]*href="https:\/\/docs\.earnkit\.com"[^>]*>Docs<\/a>/g) ?? []).length, 2);
+  assert.equal((h.match(/<a[^>]*href="https:\/\/github\.com\/earnkitai\/earnkit#connect-an-agent"[^>]*>Docs<\/a>/g) ?? []).length, 2);
   assert.doesNotMatch(h, /x\.com\/jenilt/);
   assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
 });
