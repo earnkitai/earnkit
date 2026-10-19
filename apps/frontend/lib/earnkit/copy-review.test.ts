@@ -102,7 +102,6 @@ import {
   reviewUntilText,
   sponsorDisclosureParts,
 } from './campaign-page-text';
-import type { FetchResult } from './ownership';
 import { NEEDS_USERS, NO_USERS_YET, BELOW_FLOOR_NOTE, INVESTMENT_NOTE, SIGNAL_WORDS, UNCHECKED_NOTE, matchRepo, productScore, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { CHAINS } from './chains';
 import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUncheckedLine } from './placeholder';

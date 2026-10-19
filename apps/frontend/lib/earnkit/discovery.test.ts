@@ -100,10 +100,6 @@ function fakeReader(): ReaderDeps {
     arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
   };
 }
-/** The person query's answer: this login, its X field and these repos, bare. */
-const personBody = (login: string, twitter: string | null, keys: string[]) => ({
-  data: { user: { login, twitterUsername: twitter, websiteUrl: null, repositories: { nodes: keys.map((k) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null })) } } },
-});
 const randomAddress = () => '0x' + randomBytes(20).toString('hex');
 /** A fresh installation with a profile, claimed with a fresh X id as `handle` (bindX clears it from any other profile). */
 async function claimed(handle: string): Promise<number> {

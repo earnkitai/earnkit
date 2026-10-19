@@ -10,13 +10,12 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import {
-  GRANTS_LATER_ASK, OTHER_PROJECT_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, benchBuildAsk, benchReply, copyLine, grantsAsk, privateLine, shipAsk, type BenchView,
+  GRANTS_LATER_ASK, claimQuestion, START_ASK, UPDATES_ASK_JOINING, grantsAsk, privateLine, shipAsk,
 } from './bench-reply';
 import { GRANTS_QUIET_MS, noGrantLine } from './bench-find';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { mondayOf } from './weeks';
-import { takeNews } from './stand-view';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
 import { STARTERS } from './starters';
 import { readPersonLive, rescorePerson } from './person-score';
@@ -56,7 +55,6 @@ const named = (repo: string, login = repo.split('/')[0]) => ({ agent_can_build: 
 const links = (t: string) => t.match(/https?:\/\/\S+/g) ?? [];
 const questions = (t: string) => (t.match(/\?/g) ?? []).length;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const codes = (id: number) => sql()<{ repo_key: string }[]>`SELECT repo_key FROM proof_branches WHERE builder_id = ${id}`;
 type R = { show_to_builder: string; agent_note?: string; proof?: unknown; move_up?: { kind: string }; note?: string; kit?: unknown };
 
 /**

@@ -1,5 +1,4 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { githubRepo } from './campaigns';
 import { sql } from './db';
 import { sharedGroup } from './installations';
 import { siteUrl } from './entry-text';

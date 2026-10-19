@@ -18,7 +18,7 @@ import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
-  BENCH_HEADS, NO_PROJECT_LINE, OTHER_PROJECT_ASK, START_ASK, privateLine, benchReply,
+  BENCH_HEADS, NO_PROJECT_LINE, START_ASK, privateLine, benchReply,
   benchStepKey, chooseAsk, claimAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
 } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, coinAskBench, fundNeeds, needsPicks } from './bench-find';
@@ -479,12 +479,6 @@ test('R2 (I1) no community round for a repo not read public; once public it is o
 test('R4 (M1) a slow App token mint never holds the reply: find answers in time and the install ask stands', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
     const key = `${uniq('earnkitai')}/slow`;
-    const gh = privateGitHub(key);
-    const slow = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname.startsWith('/app/') || new URL(String(input)).pathname.endsWith('/installation'))
-        await new Promise<void>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
-      return gh.f(input, init);
-    }) as typeof fetch;
     const id = await install();
     await find(id, named(key, uniq('jenil')), NO_MATCH);
     await installApp(id, key, uniq('jenil').toLowerCase());

@@ -5,12 +5,12 @@ import { sql } from './db';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { JOIN_QUESTIONS, JOIN_QUESTIONS_JOINER, answerJoin, joinOnProvenTie, linkInstallations, pendingJoinOf, rootOf } from './identity';
 import { dueSources } from './sources';
-import { loginContests, loginStands, ruleContest } from './login-contests';
+import { loginContests, loginStands } from './login-contests';
 import { identityInput, noteIdentity } from './identity-input';
 import { ensureProfile } from './profiles';
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { readBank } from './answer-bank';
-import { PICKUP_TEXT, yesNo, handlers, tools } from './tools';
+import { PICKUP_TEXT, yesNo, handlers } from './tools';
 import { TECHNICAL_TERMS } from './token-launch';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'identity-test-secret';
@@ -425,29 +425,6 @@ test('5.11 a deploy wallet the agent typed joins no one (held for the owner\'s r
   }));
 
 // ---- Fix round 2: contested GitHub logins, and every merge path needs both yeses
-
-/** A ReaderDeps whose GitHub answers come from `gh`; any other read throws. */
-function ghReader(gh: Record<string, unknown>): never {
-  const no = async () => {
-    throw new Error('unexpected read');
-  };
-  return {
-    gh: async (path: string) => {
-      if (!(path in gh)) throw new Error(`no fake for ${path}`);
-      return gh[path];
-    },
-    probe: no, fetchText: no, json: no, baseTxs: no, ghGraphql: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
-  } as never;
-}
-const discoverAs = async (root: number, login: string, twitter: string | null) => {
-  const { discover } = await import('./discovery');
-  await sql()`INSERT INTO discovery_queue (builder_id, reason) VALUES (${root}, 'signin') ON CONFLICT (builder_id) DO UPDATE SET done_at = NULL`;
-  await discover(NOW, {
-    deadline: Date.now() + 30_000, only: [root], login: async () => ({ login, basis: 'signin' }),
-    reader: ghReader({ [`/users/${login}`]: { twitter_username: twitter }, [`/users/${login}/repos?type=owner&per_page=100`]: [], [`/users/${login}/orgs`]: [] }),
-  });
-};
 
 test('5.19 the admin page lists contested logins with a confirm button per group (POST rule_login)', async () => {
   const { readFile } = await import('node:fs/promises');
