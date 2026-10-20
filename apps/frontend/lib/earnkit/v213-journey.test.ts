@@ -1,5 +1,5 @@
 import './fixtures/no-network-checks';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -597,12 +597,16 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   const log = await renderProfile('maya_makes', 'log');
   assert.match(log, /data-shape="long"[\s\S]*Added fridge photo import[\s\S]*commit/, log);
   assert.doesNotMatch(log, /written by an agent/i);
-  // Not in /feed at once: only finished, ranked weeks.
+  // The current (unfinished) week is not in /feed.
   assert.deepEqual(await feedWeeks(new Date(), { only: [id] }), []);
   // The week finishes: the Monday step (from 15:00 UTC) and the daily rank, then the feed.
   const monday = nextMonday15(NOW);
   assert.deepEqual(await weeklyFactsStep(monday, { deadline: Date.now() + 20_000, only: [id] }), { people: 1, rows: 1 });
-  assert.deepEqual(await feedWeeks(monday, { only: [id] }), [], 'finished but not ranked yet');
+  // v3: upsertWeekFacts writes the points with the facts, so the week is on the feed as soon as it is written.
+  const written = await feedWeeks(monday, { only: [id] });
+  assert.equal(written.length, 1, JSON.stringify(written));
+  assert.equal(written[0].label, weekLabel(lastFinishedMonday(monday)));
+  // The daily rank is only a catch-up now.
   assert.ok('rows' in (await feedRankStep(monday)));
   const feed = await feedWeeks(monday, { only: [id] });
   assert.ok(feed[0]?.cards.some((c) => c.text?.startsWith('Added fridge photo import') && c.chips.some((x) => /commit/.test(x))), JSON.stringify(feed));
