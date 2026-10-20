@@ -56,7 +56,7 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
 test('v2.7.1, R18: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
-  assert.equal((h.match(/<a[^>]*href="https:\/\/github\.com\/earnkitai\/earnkit#connect-an-agent"[^>]*>Docs<\/a>/g) ?? []).length, 1);
+  assert.equal((h.match(/<a[^>]*href="\/docs"[^>]*>Docs<\/a>/g) ?? []).length, 1);
   assert.match(h, /href="\/leaderboard"/);
   assert.match(h, /href="\/feed"/);
   assert.match(h, /<header[^>]*class="[^"]*\bsticky\b/);

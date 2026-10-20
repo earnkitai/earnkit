@@ -8,7 +8,7 @@ const LINK = 'inline-flex min-h-11 items-center px-2 font-funnel-sans text-sm fo
 
 /**
  * R18, v3 Stage 3 (spec 5.6): the one site header on every page: the wordmark, Leaderboard, Feed, Programs, Docs
- * (the GitHub README until Task 5's /docs), and the one primary action, "Add to your agent" (the install sheet).
+ * (/docs), and the one primary action, "Add to your agent" (the install sheet).
  * Sticky on the page's glass with a hairline under it, in the page column. On a phone: the wordmark, Leaderboard and
  * the button; Feed, Programs and Docs from sm (and in the footer).
  */
@@ -28,9 +28,9 @@ export default function Header() {
         <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
           Programs
         </Link>
-        <a href={DOCS} target="_blank" rel="noopener noreferrer" className={`${LINK} hidden sm:inline-flex`}>
+        <Link href={DOCS} className={`${LINK} hidden sm:inline-flex`}>
           Docs
-        </a>
+        </Link>
         <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-brand px-4 font-funnel-sans text-sm font-medium text-ek-text transition-colors hover:bg-ek-accent md:ml-3 md:px-5" />
       </nav>
     </header>

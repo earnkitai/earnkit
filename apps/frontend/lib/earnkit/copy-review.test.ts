@@ -121,6 +121,7 @@ import { NOTHING_YET } from './page-data';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import HomeView from '../../app/HomeView';
 import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
+import DocsView from '../../app/docs/DocsView';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures/guide';
 import { homeFixture } from './fixtures/landing';
@@ -444,6 +445,7 @@ const guideTexts: [string, string][] = [
   ['guide page (closed)', pageText(React.createElement(GuideView, { page: closedGuide }))],
   ['guide page (unavailable)', pageText(React.createElement(Unavailable, { text: 'This guide is unavailable right now. Try again in a few minutes.' }))],
   ['/programs', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }))],
+  ['/docs', pageText(React.createElement(DocsView))],
   ['/programs (unavailable)', pageText(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' }))],
 ];
 
