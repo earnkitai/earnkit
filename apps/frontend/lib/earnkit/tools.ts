@@ -38,7 +38,8 @@ import {
 } from './installations';
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
-import { outcomeQuestion, outcomeToAsk } from './outcomes';
+import { outcomeLine, outcomeToAsk, type OutcomeAsk } from './outcomes';
+import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts } from './ship-log-facts';
 import { wonSource } from './stats';
 import { WHICH_EMAIL, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
@@ -138,7 +139,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -791,6 +792,19 @@ export const ASK_OUTCOME_NOTE =
   'Then call tell with program_status: this program_id and project_id, their result (won, placed or lost), ' +
   "and prize_usd if they won money. If they don't know yet, call nothing.";
 
+/** v3 Stage 2: ask_outcome's note for an application (no entry) on the short reply. */
+export const APPLY_ASK_OUTCOME_NOTE =
+  "An application's deadline passed 14 days ago. After showing show_to_builder, ask the builder this question once, as written. " +
+  "Then call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing.";
+
+/** v3 Stage 2: ask_outcome's fields; an application's question names no entry (no project_id). Pure. */
+const askOutcome = (ask: OutcomeAsk, agent_note: string) => ({
+  ...(ask.project_id !== null && { project_id: ask.project_id }),
+  program_id: ask.program_id,
+  question: outcomeLine(ask),
+  agent_note,
+});
+
 /** v2.8 Ruling C21: the note when the builder's own outcome was saved. */
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
 /** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
@@ -1236,7 +1250,7 @@ export const handlers = {
         ...r,
         ...(walletNote && { wallet_note: walletNote }),
         // v2.14 A17: the question is show_to_builder's last line, so the note only routes the answer.
-        ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: BENCH_OUTCOME_NOTE } }),
+        ...(ask && { ask_outcome: askOutcome(ask, ask.kind === 'apply' ? APPLY_OUTCOME_NOTE : BENCH_OUTCOME_NOTE) }),
         matches:
           yourRepos && 'fits' in yourRepos
             ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id))).filter((x) => !hide.has(x.program_id))
@@ -1302,14 +1316,7 @@ export const handlers = {
       }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
-      ...(ask && {
-        ask_outcome: {
-          project_id: ask.project_id,
-          program_id: ask.program_id,
-          question: outcomeQuestion(ask.name, ask.program_title),
-          agent_note: ASK_OUTCOME_NOTE,
-        },
-      }),
+      ...(ask && { ask_outcome: askOutcome(ask, ask.kind === 'apply' ? APPLY_ASK_OUTCOME_NOTE : ASK_OUTCOME_NOTE) }),
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
@@ -1588,12 +1595,21 @@ export const handlers = {
       : [];
     const fixes = [...(failedCheck ? [failedCheck] : []), ...checked.filter((f) => f.for === 'builder')];
     const agent_fixes = checked.filter((f) => f.for === 'agent');
+    // v3 Stage 2 (spec 5.3): the ready draft opens with the builder's ship log facts (statements, never a question). Off a
+    // shared client only (its installation serves many builders); a failed read is no block.
+    const shipLog = prep.ready && !lead && !ctx.sharedClient
+      ? await shipLogFacts(ctx.installationId, new Date()).catch((err: unknown) => {
+          console.error('[prepare_submission] ship log', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
     const show_to_builder = lead && prep.ready
       ? [lead, fixesLine(fixes), pitch].filter((x): x is string => Boolean(x)).join('\n')
       : lead
         ? `${lead}\n\n${table}`
         : prep.ready
       ? [
+          shipLog ? shipLogBlock(shipLog).join('\n') : null,
           draftTable(program.submission_requirements, values),
           fixesLine(fixes),
           offer ? (offer.endsWith(READY_TO_SUBMIT) ? offer : `Ready. ${offer}`) : null,
@@ -1631,7 +1647,8 @@ export const handlers = {
       // Ruling 30: the wallet the builder sees on the offer's wallet line, to echo as confirm_entry's
       // wallet once they say yes. confirm_entry never reads the remembered wallet itself.
       ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
-      ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+      ...(notes.length > 0 && { agent_note: `${notes.join(' ')}${shipLog ? SHIP_LOG_NOTE : ''}` }),
+      ...(shipLog && { ship_log: shipLog }),
       ...(join && { entry: { project: known.project ?? {}, answers: known.answers ?? {} } }),
       ...(hosting && { host: hosting }),
     }));

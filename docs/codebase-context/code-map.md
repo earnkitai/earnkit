@@ -1920,3 +1920,15 @@ check, two columns), `programs.ts` (`listPrograms` lists upcoming; `programCard`
 `bench-reply.ts` (`FundLine` `upcoming`, `upcomingLine`), `tools.ts`, `submit-kit.ts` (`continuesLine` null without
 steps), `ProgramCard.tsx`, `ProgramCards.tsx` (`more`), `GuideView.tsx`. Programs: `alliance-all19`,
 `ethglobal-mumbai`, `monad-nitro`, `base-batches-005`. New test: `v3-programs.test.ts`.
+
+v3 Stage 2 Task 2 (the drafted application and the outcome loop; see the architecture guide's "v3 Stage 2 (Task 2)"
+section): new `ship-log-facts.ts` (`ShipLogFacts`, `shipLogFacts`, `shipLogBlock`, `SHIP_LOG_NOTE`). Changed:
+`bench-reply.ts` (`BenchAskKind` `apply`, `BenchAsk.program_id`, `APPLY_WINDOW_DAYS`, `applyAsk`, `ApplyPick`;
+`stateAsk` order connect > [backing slot] > apply > share > ship), `bench-find.ts` (`Fit.ends_at`, `applyPick`,
+`APPLY_NOTE`, `APPLY_YES_NOTE`, `APPLY_OUTCOME_NOTE`, `DECLINE_MS`; benchMoveUp `apply`), `stand-view.ts` (keeps
+`apply_asked`), `tools.ts` (prepare's ready draft opens with the ship log block, `ship_log`; `askOutcome`,
+`APPLY_ASK_OUTCOME_NOTE`), `mcp.ts` and `builder-memory.ts` (`PROGRAM_STATUSES`, `MEMORY_STATUSES`: accepted, funded,
+rejected), `outcomes.ts` (`OutcomeAsk`, `outcomeLine`, `applyAsk`, `APPLY_OUTCOME_DAYS`; outcomeToAsk falls back to an
+application), `page-data.ts` (`ProgramLabel`, `programLabel`), `bench-data.ts` (`liveSite` exported),
+`app/[handle]/ProjectTab.tsx` ("Won X" / "Applied to X"), `stats.ts` (`applications`, `accepted`), `db/schema.sql`
+(widened `builder_program_status` CHECK, `asked_at`). New test: `v3-apply.test.ts`.

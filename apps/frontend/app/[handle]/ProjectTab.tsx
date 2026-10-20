@@ -1,6 +1,6 @@
 import ChainLogo from '../components/ui/ChainLogo';
 import type { ProjectTabData } from '../../lib/earnkit/bench-data';
-import { NOTHING_YET } from '../../lib/earnkit/page-data';
+import { NOTHING_YET, programLabel } from '../../lib/earnkit/page-data';
 
 export const FUNDS_TITLE = 'Ways to get funded';
 export const LIVE_LINK = 'Live site';
@@ -116,14 +116,18 @@ export default function ProjectTab({
 
       {p.programs.length > 0 ? (
         <ul className="mt-6 space-y-1.5 font-funnel-sans text-[15px]">
-          {p.programs.map((g) => (
-            <li
-              key={g.title}
-              className={`break-words ${g.won ? 'font-medium text-ek-score-orange' : 'text-ek-body'}`}
-            >
-              {`${g.won ? 'Won' : 'Entered'} ${g.title}`}
-            </li>
-          ))}
+          {p.programs.map((g) => {
+            // v3 Stage 2: "Won X" (announced), else "Applied to X"; a self-reported acceptance never changes it.
+            const label = programLabel(g);
+            return label ? (
+              <li
+                key={g.title}
+                className={`break-words ${g.won ? 'font-medium text-ek-score-orange' : 'text-ek-body'}`}
+              >
+                {label}
+              </li>
+            ) : null;
+          })}
         </ul>
       ) : null}
 

@@ -30,6 +30,8 @@ export const STATS_KEYS = [
   'entries_won',
   'builders_won_usd',
   'points_total',
+  'applications',
+  'accepted',
 ] as const;
 
 /**
@@ -80,6 +82,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
   points_total: 'points awarded for approved weeks',
+  applications: 'applications the builder told EarnKit about',
+  accepted: 'of which accepted or funded (self-reported)',
 };
 
 /** v2.9 E20: the won line lives in pool.ts (no imports, so present.ts can use it without a cycle). */
@@ -131,6 +135,10 @@ type Row = {
   builders_won_usd: string | null;
   /** v3 Stage 1: points awarded to non-test people (builder_points). */
   points_total?: string | number | null;
+  /** v3 Stage 2: distinct (person, program) applications the builder told EarnKit about (builder_program_status). */
+  applications?: number;
+  /** v3 Stage 2: of those, accepted or funded (self-reported). */
+  accepted?: number;
 };
 
 /**
@@ -179,6 +187,8 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
     points_total: Number(r.points_total ?? 0),
+    applications: Number(r.applications ?? 0),
+    accepted: Number(r.accepted ?? 0),
   };
 }
 
@@ -285,10 +295,18 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (${wonUsdSql(db, ids)})::text AS builders_won_usd,
       -- v3 Stage 1: points awarded for approved weeks, people only (never a test installation's group).
       (SELECT COALESCE(sum(bp.points), 0) FROM builder_points bp JOIN builder_profiles p ON p.builder_id = bp.builder_id
-        WHERE ${notTest(db, ids)})::text AS points_total`;
+        WHERE ${notTest(db, ids)})::text AS points_total,
+      -- v3 Stage 2 (spec 5.3): applications the builder told EarnKit about, one per person and program (a person: the
+      -- installation's group), never a test installation's; accepted: of those, accepted or funded (self-reported).
+      (${applicationsSql(db, ids, ['applied', 'accepted', 'funded', 'rejected'])})::int AS applications,
+      (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted`;
   return statsFrom(r, now);
 }
 
+/** v3 Stage 2: distinct (person, program) rows of builder_program_status with one of `statuses`, no test installation's. */
+const applicationsSql = (db: Db, ids: number[], statuses: string[]) => db`
+  SELECT count(DISTINCT (COALESCE(i.builder_id, i.id), s.program_id)) FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+  WHERE s.status = ANY(${statuses}::text[]) AND NOT (i.id = ANY(${ids}::int[])) AND NOT (COALESCE(i.builder_id, i.id) = ANY(${ids}::int[]))`;
 /** Launch-ready L9: `p` (a builder_profiles row) is no owner test installation's group. */
 const notTest = (db: Db, ids: number[]) => db`NOT (p.builder_id = ANY(${ids}::int[]))
   AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.id = ANY(${ids}::int[]))`;

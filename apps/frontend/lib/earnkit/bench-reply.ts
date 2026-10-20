@@ -18,8 +18,10 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
 /** Launch ready L6: `share`, the weekly moment's share link and question (ranked, once a week). */
 /** v3 Stage 1: `connect`, the backfilled weeks' one yes after the App connects a repo (ranked, once a person). */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect';
-export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string };
+/** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS (ranked, once a program). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'apply';
+/** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
+export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   /** R12: a program that fits: its award, its deadline ("closes Oct 30" or "rolling") and why it fits. */
   | { kind: 'fits'; title: string; prize: string; when: string; why: string }
@@ -42,6 +44,10 @@ export const noFitLine = (name: string) => `No open program fits ${name} yet. I'
 export const SHIP_STEP = 'Ship this week to climb.';
 /** v3 Stage 1 (spec 5.1): the connect weeks' one question (ranked, once a person); the page stays the link. */
 export const CONNECT_ASK = 'Does this look right? Yes posts them.';
+/** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
+export const APPLY_WINDOW_DAYS = 30;
+/** v3 Stage 2: the apply step's one question; `when` is the deadline's day as fundWhen gives it, without "closes" ("Nov 18"). */
+export const applyAsk = (title: string, when: string) => `${title} closes ${when}. Want me to draft your application from your ship log?`;
 /** Launch ready L6: the weekly moment's one next step, in place of the target (one link, one question). */
 export const shareAsk = (link: string) => `Share your week on X: ${link}\nDoes last week look right?`;
 /**
@@ -131,18 +137,22 @@ export type BenchView = {
   held: string | null;
 };
 
+/** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"). */
+export type ApplyPick = { program_id: string; title: string; when: string };
 /**
- * Each state's one next step (A16; signed out with no link: the retry). Ranked: the weekly moment's share ask once a
- * week (L6), else the weekly target (L5), else "Ship this week to climb.". v3: the connect weeks' question (`connect`)
- * comes before all of them. Pure.
+ * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
+ * (`connect`), [Stage 2 Task 3: `backing` goes here], the drafted application (`apply`), the weekly moment's share ask
+ * once a week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
  */
-export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { connect?: boolean }): BenchAsk {
+export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { connect?: boolean; apply?: ApplyPick | null }): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   if (v.state === 'ranked' && v.connect) return { kind: 'connect', project_key: key, line: CONNECT_ASK };
+  // ---- Stage 2 Task 3 slot: the `backing` ask goes here (after connect, before apply). ----
+  if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.when) };
   if (v.state === 'ranked')
     return v.share ? { kind: 'share', project_key: key, line: shareAsk(v.share) } : { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask(v.target ?? null) };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };

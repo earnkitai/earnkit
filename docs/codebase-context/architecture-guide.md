@@ -6653,3 +6653,31 @@ say yes, earn points, get the Monday email.
 - **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, up to $15K per partner prize),
   `monad-nitro` and `base-batches-005` (both upcoming). `landing.ts byPool` was removed (no caller). Test:
   `v3-programs.test.ts`.
+
+## v3 Stage 2 (Task 2): the drafted application and the outcome loop (spec 5.3 Route 1)
+
+- **The apply step (`bench-find.ts applyPick`, `bench-reply.ts applyAsk`).** In the ranked reply, a fit (deadline
+  order) closing within `APPLY_WINDOW_DAYS` (30) becomes the one step: "<title> closes <day>. Want me to draft your
+  application from your ship log?" (kind `apply`, `project_key`, `program_id`). Skipped when the program is entered or
+  hidden, when `builder_program_status` holds any row for it (any status, any round), when the builder said no to it in
+  the last 30 days (`standing_seen.declined['apply:<program_id>']`), and once shown (`standing_seen.apply_asked`, one
+  guarded UPDATE; `takeNews` keeps the key). Order: connect > (Task 3's `backing` slot, marked in `stateAsk` and
+  `benchView`) > apply > the weekly moment's share > the weekly target. A shown apply step holds the weekly moment for
+  a later reply. The stored `bench_ask` carries `program_id` and the fit's `repo`.
+- **The yes (`benchMoveUp` kind `apply`).** Taken once; returns `agent_note: APPLY_YES_NOTE(program_id)` and
+  `lead: { program_id, repo }`. A no is declined under the program id.
+- **The ship log in the draft (`ship-log-facts.ts`).** `shipLogFacts` reads what `profileData` reads (no log): score and
+  rank (with a rank line), why, streak (grid weeks, confirmed only), the live site, the page (`earnkit.com/<handle>`).
+  prepare's ready draft (not the build path, not a shared client) puts `shipLogBlock` above `draftTable`, adds
+  `ship_log` and the `SHIP_LOG_NOTE` suffix to `agent_note`. Statements only.
+- **Outcomes.** `program_status` takes `accepted`, `funded` and `rejected` (an application's outcome): stored in
+  `builder_program_status` as `applied` is (its round, hidden the same way); a self-report, never public. The schema
+  widens the CHECK and adds `asked_at`. `outcomeToAsk` keeps the `results.expected` entry ask first; else it picks an
+  `applied` row whose program closed more than 14 days ago, never asked, and sets `asked_at` in the same statement.
+  The question: "Did <program> come back on <project>? applied / accepted / funded / rejected." (`outcomeLine`);
+  `ask_outcome` then has no `project_id`.
+- **The page.** `projectPrograms` returns `{ title, won, applied }`; `ProjectTab` shows "Won X" (announced), else
+  "Applied to X" (a submitted entry, or a told application of any of the four statuses), else nothing. A self-reported
+  accepted or funded never changes the label.
+- **Stats.** `applications` (distinct person and program rows with applied, accepted, funded or rejected, no test
+  installation) and `accepted` (of those, accepted or funded). Test: `v3-apply.test.ts`.

@@ -1697,3 +1697,9 @@ ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
 ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming'));
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS opens_note text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS in_person boolean NOT NULL DEFAULT false;
+
+-- v3 Stage 2 (spec 5.3): an application's outcome, as the builder tells it (self-reported, never public), and when its
+-- one outcome question was asked (14 days after the program's deadline).
+ALTER TABLE builder_program_status DROP CONSTRAINT IF EXISTS builder_program_status_status_check;
+ALTER TABLE builder_program_status ADD CONSTRAINT builder_program_status_status_check CHECK (status IN ('applied','not_interested','accepted','funded','rejected'));
+ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS asked_at timestamptz;

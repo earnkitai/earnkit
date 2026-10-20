@@ -25,7 +25,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -222,7 +222,7 @@ test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): outcomes in public stats.
 test('v2.8 Ruling 30 (plan): labelled_entries and entries_won keys and labels; the win-rate floor is documented', () => {
-  assert.deepEqual(STATS_KEYS.slice(-4, -2), ['labelled_entries', 'entries_won']);
+  assert.deepEqual(STATS_KEYS.slice(-6, -4), ['labelled_entries', 'entries_won']);
   assert.equal(STATS_LABELS.labelled_entries, 'entries with a published result');
   assert.equal(STATS_LABELS.entries_won, 'entries that won');
   assert.equal(WIN_RATE_MIN_LABELLED, 30);
@@ -300,7 +300,7 @@ test('10.10 builders_won_usd: announced won or placed prizes only; a self-report
   const tag = `stats-won-${process.pid}-${Date.now()}`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   const Rollback = new Error('rollback');
-  assert.equal(STATS_KEYS.at(-2), 'builders_won_usd');
+  assert.equal(STATS_KEYS.at(-4), 'builders_won_usd');
   assert.equal(STATS_LABELS.builders_won_usd, 'won by EarnKit builders (announced, USD)');
   try {
     await sql().begin('isolation level repeatable read', async (tx) => {

@@ -6,7 +6,7 @@ import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
 import { pointsTotal } from './points';
-import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects } from './page-data';
+import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
@@ -114,7 +114,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean };
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
-  coin: { symbol: string; url: string } | null; programs: { title: string; won: boolean }[]; funds: string[]; confirmed: boolean;
+  coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
 };
 export type ProfileData = {
   handle: string; name: string; avatar: string | null; initials: string; raising: { symbol: string; url: string } | null; bench: string | null;
@@ -138,7 +138,7 @@ const LOG_MAX = 60;
 const FUNDS_MAX = 3;
 
 /** The project's live site: its link, never its GitHub page (that is the code link). Pure. */
-const liveSite = (link: string | null) => {
+export const liveSite = (link: string | null) => {
   const u = shownUrl(link);
   return u && !/(^|\.)github\.com$/i.test(new URL(u).hostname) ? u : null;
 };

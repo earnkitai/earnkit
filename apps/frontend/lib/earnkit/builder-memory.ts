@@ -22,10 +22,21 @@ const Chains = z
   .max(ITEMS)
   .transform((items) => reportedChains(items));
 
+/**
+ * What the builder says about a program. v3 Stage 2: `accepted`, `funded` and `rejected` are an application's outcome,
+ * stored as `applied` is (builder_program_status, hidden as applied is); a self-report, never public, never on a page.
+ * `won`, `placed` and `lost` are an entry's outcome (entry_outcomes).
+ */
+export const PROGRAM_STATUSES = ['applied', 'not_interested', 'accepted', 'funded', 'rejected', 'won', 'placed', 'lost'] as const;
+/** The statuses kept in builder_program_status (the builder's memory), as its CHECK allows. */
+export const MEMORY_STATUSES = ['applied', 'not_interested', 'accepted', 'funded', 'rejected'] as const;
+export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
+const isMemory = (s: string): s is MemoryStatus => (MEMORY_STATUSES as readonly string[]).includes(s);
+
 const ProgramStatus = z
   .object({
     program_id: z.string().trim().min(1).max(100),
-    status: z.enum(['applied', 'not_interested', 'won', 'placed', 'lost']),
+    status: z.enum(PROGRAM_STATUSES),
     /** For won, placed and lost: the entry; else the installation's newest entry in the program. */
     project_id: z.number().int().positive().optional(),
     prize_usd: z.number().nonnegative().optional(),
@@ -73,7 +84,7 @@ export type TellInput = z.input<typeof TellInput>;
 export type SaidRepo = { mainnet: Chain[]; testnet: Chain[]; live_url: string | null; has_users: boolean | null; not_mine: boolean };
 
 export type BuilderMemory = {
-  programs: Map<string, { status: 'applied' | 'not_interested'; round_label: string | null; at: Date }>;
+  programs: Map<string, { status: MemoryStatus; round_label: string | null; at: Date }>;
   /** By repo key (answer-bank.ts repoKey: owner/repo or name:<name>). */
   repos: Map<string, SaidRepo>;
 };
@@ -109,7 +120,7 @@ export function roundLabel(p: { starts_at: Date | null; ends_at: Date | null }):
 
 /**
  * The programs to leave out of everything the builder is shown: not interested, for good; applied
- * outside EarnKit, until the program's round changes (its window moves, or it opened again after the
+ * outside EarnKit (v3 Stage 2: or accepted, funded or rejected), until the program's round changes (its window moves, or it opened again after the
  * statement). Pure.
  */
 export function hiddenPrograms(
@@ -144,7 +155,7 @@ export async function readMemory(key: number | MemoryKey): Promise<BuilderMemory
   const { installationId, login } = keyOf(key);
   const db = sql();
   const [programs, repos] = await Promise.all([
-    db<{ program_id: string; status: 'applied' | 'not_interested'; round_label: string | null; at: Date }[]>`
+    db<{ program_id: string; status: MemoryStatus; round_label: string | null; at: Date }[]>`
       SELECT program_id, status, round_label, at FROM builder_program_status WHERE installation_id = ${installationId} AND login = ${login}`,
     db<{ repo_key: string; mainnet_chains: string[]; testnet_chains: string[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
       SELECT repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine
@@ -233,7 +244,7 @@ export async function tell(
   const outcomes: { program_id: string; project_id: number; status: keyof typeof RESULT; prize_usd?: number }[] = [];
   for (const s of statuses) {
     if (!byId.has(s.program_id)) throw new NotFoundError(`No program with id "${s.program_id}". Call find for current ids.`);
-    if (s.status === 'applied' || s.status === 'not_interested') continue;
+    if (isMemory(s.status)) continue;
     // A shared client (no key, or a verified login's key) names the entry: the newest may be another builder's.
     if ((memory === null || memory.login !== '') && !s.project_id) throw new NotFoundError(OUTCOME_NEEDS_ENTRY);
     const [entry] = s.project_id
@@ -254,14 +265,14 @@ export async function tell(
   const events: OutcomeEventInput[] = [];
   await db.begin(async (tx: Db) => {
     for (const s of memory === null ? [] : statuses) {
-      if (s.status !== 'applied' && s.status !== 'not_interested') continue;
-      const label = s.status === 'applied' ? roundLabel(byId.get(s.program_id)!) : null;
+      if (!isMemory(s.status)) continue;
+      const label = s.status === 'not_interested' ? null : roundLabel(byId.get(s.program_id)!);
       await tx`
         INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label, at)
         VALUES (${memory!.installationId}, ${memory!.login}, ${s.program_id}, ${s.status}, ${label}, ${now})
         ON CONFLICT (installation_id, login, program_id) DO UPDATE SET
           status = EXCLUDED.status, round_label = EXCLUDED.round_label, at = EXCLUDED.at`;
-      saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : 'not interested'}`);
+      saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : s.status === 'not_interested' ? 'not interested' : `${s.status} (their own report)`}`);
     }
     for (const o of outcomes) {
       events.push(await saveSelfReport(installationId, { project_id: o.project_id, result: RESULT[o.status], prize_usd: o.prize_usd }, tx));

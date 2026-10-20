@@ -147,13 +147,13 @@ const confirmDescription = (campaignOpen: boolean) =>
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program's site; a shared agent adds project_id. " +
-  'update: { text } adds the builder\'s line to their update; { hide: "YYYY-MM-DD" } hides that week. ' +
+  'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
   'main_project: owner/repo to rank instead. ' +
   'coin: their coin answer, or { raising } to open or close a community round. ' +
   "token: 'ask' only when they ask about a token. " +
   'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
-  'program_status (applied, not_interested, won, placed or lost), repo_facts, weekly_email: what they said; results stay private.';
+  'program_status (applied, accepted, funded, rejected, won, placed, lost, not_interested), repo_facts, weekly_email: what they said; private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
@@ -516,8 +516,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
               z
                 .object({
                   program_id: z.string(),
-                  status: z.enum(['applied', 'not_interested', 'won', 'placed', 'lost']),
-                  project_id: z.number().int().positive().optional().describe("For won, placed or lost: ask_outcome's project_id"),
+                  status: z.enum(['applied', 'not_interested', 'accepted', 'funded', 'rejected', 'won', 'placed', 'lost']),
+                  project_id: z.number().int().positive().optional().describe("For won, placed or lost: ask_outcome's project_id (an application's accepted, funded or rejected needs none)"),
                   prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
                 })
                 .strict(),
