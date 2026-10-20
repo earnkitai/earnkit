@@ -1437,6 +1437,8 @@ apps/frontend/
                                readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
                                while builder_profiles.ship_titles_at is set, never naming the repo); week-facts.ts
                                weekTitles calls readWeekTitles; tests ship-titles.test.ts, v214-ship-log.test.ts
+    week-summary.ts(+test)     weekly updates: weekSummary (Haiku aiSummary when ANTHROPIC_API_KEY, else ruleSummary; checkUpdate),
+                               summaryShown (read-time privacy rule), tidySummary, clauseOf
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
@@ -1747,7 +1749,7 @@ apps/frontend/
                                v28-complete-at-window.mts: the Ruling C7 ship step (dry run by default)
                                events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
-                               scripts/feed.mts: v2.13 T6, pnpm feed:pin|feed:hide <update-id> [--off] (owner-run)
+                               scripts/feed.mts: v2.13 T6, pnpm feed:pin|feed:hide <update-id> [--off] (owner-run); scripts/feed-summaries.mts: pnpm feed:summaries [--dry] [--redo]
                                v211-metric.mts: v2.11 T13, the success metric, shown, never a target
                                (owner-run, read-only; never predeploy or cron): of no-repo builders who said
                                yes to the build (fresh_offer_at, not shared, installations.build set), the

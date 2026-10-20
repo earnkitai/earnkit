@@ -186,7 +186,10 @@ test('12.5 acceptance 4: the next Monday the profile shows the week from its tit
   assert.ok(r && !('redirect' in r), 'the handle is the page');
   const data = await profileData(r.builderId, new Date('2026-10-26T16:00:00Z'));
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: data!, tab: 'log' }));
-  assert.ok(html.includes('Fix the reply copy') && html.includes('Sign in with X at install'), 'the week from its titles');
+  // Weekly updates: one summary of the week's titles, never the raw titles.
+  // Weekly updates: one summary of the week's titles (the free rule summary: no ANTHROPIC_API_KEY in tests).
+  assert.deepEqual(data!.log.map((c) => c.summary), ['Fixed the reply copy. Shipped sign in with X at install.']);
+  assert.ok(html.includes('Fixed the reply copy. Shipped sign in with X at install.'), 'the week from its titles');
   assert.ok(!html.includes('bump next'), 'a bot is never in the log');
   const [p] = await sql()<{ sched: Date | null }[]>`SELECT updates_scheduled_at AS sched FROM builder_profiles WHERE builder_id = ${first.id}`;
   assert.equal(p.sched, null);

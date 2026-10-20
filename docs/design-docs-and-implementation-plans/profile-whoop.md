@@ -36,7 +36,7 @@ Open product gap (not changed here): the one-pager wants 3 scores (Consistency, 
 Originality) plus a percentile. Momentum and Originality don't exist in the data, and Used and
 Earned are raw-traction parts.
 
-Screenshots: `docs/screenshots/profile-whoop/`, headless Chrome against `next dev` with the fixture
+Screenshots (removed 2026-10-20): `docs/screenshots/profile-whoop/`, headless Chrome against `next dev` with the fixture
 `lib/earnkit/fixtures/profile-data.ts` (avatar and Raising pill off) and reduced motion.
 
 ## v2.1: feed and sign-in pages

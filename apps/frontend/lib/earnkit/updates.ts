@@ -10,7 +10,7 @@ import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { checkUpdate, type OwnLinks } from './update-text';
 import { backfillMondays, weekFactsFor } from './week-facts';
-import { mondayOf, weekOfMonday } from './weeks';
+import { lastFinishedMonday, mondayOf, weekOfMonday } from './weeks';
 
 /**
  * v2.13 spec "3. Every week: the ship log", v2.14 spec 3: the log writes itself (week-facts.ts weeklyFactsStep,
@@ -30,6 +30,9 @@ export const UPDATE_LINES = {
   /** v2.13.1 O5 (P4): a change says so with the page, as a first post does. */
   changedAt: (link: string) => `Updated this week's post: ${link}`,
   hidden: 'Hidden from your page.',
+  /** Weekly updates: a note that went under last week's update (noteMonday). */
+  lastWeek: "Added to last week's update.",
+  lastWeekAt: (link: string) => `Added to last week's update: ${link}`,
   /** v2.14 spec 3: an older agent's updates { on }: nothing to turn on. */
   auto: 'Your ship log writes itself every Monday from what you ship.',
   titlesOn: 'Done. Your weekly log will show the titles of what you shipped.',
@@ -71,6 +74,19 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
   return { sites: [...new Set(origins)], repo };
 }
 
+/**
+ * Weekly updates: the week a builder's note goes under. On Monday and Tuesday (UTC) the finished week's update is the
+ * one the weekly moment just showed, so a note goes under it while that week has a written row and no note yet;
+ * otherwise this week's. Reads one row.
+ */
+export async function noteMonday(builderId: number, key: string, now: Date): Promise<string> {
+  if (![1, 2].includes(now.getUTCDay())) return mondayOf(now);
+  const last = lastFinishedMonday(now);
+  const [r] = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${last}
+    AND facts ? 'checked' AND text IS NULL AND NOT hidden`;
+  return r ? last : mondayOf(now);
+}
+
 /** v2.13.4 R6: `own`, the installation posting (posted_by): which of the person's agents wrote it. */
 export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null): Promise<Reply> {
   if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
@@ -78,7 +94,8 @@ export async function postUpdate(builderId: number, text: unknown, now: Date, ow
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
   const checked = checkUpdate(text, await ownLinks(builderId));
   if (!checked.ok) return { show_to_builder: '', agent_note: checked.note };
-  const monday = mondayOf(now);
+  const monday = await noteMonday(builderId, key, now);
+  const lastWeek = monday !== mondayOf(now);
   const week = weekOfMonday(monday)!;
   // The text still posts when the facts can't be read; the Monday cron fills them in.
   const facts = await weekFactsFor(builderId, monday, now).catch((err: unknown) => {
@@ -98,6 +115,7 @@ export async function postUpdate(builderId: number, text: unknown, now: Date, ow
     type: 'update_posted', dedupe_key: `update_posted:${key.toLowerCase()}:${week}`, installation_id: builderId, repo_key: key.toLowerCase(), detail: { week },
   }));
   const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId} AND x_user_id IS NOT NULL`;
+  if (lastWeek) return { show_to_builder: p?.handle ? UPDATE_LINES.lastWeekAt(pageLink(p.handle)) : UPDATE_LINES.lastWeek };
   if (r.was !== null) return { show_to_builder: p?.handle ? UPDATE_LINES.changedAt(pageLink(p.handle)) : UPDATE_LINES.changed };
   return { show_to_builder: p?.handle ? UPDATE_LINES.postedAt(pageLink(p.handle)) : UPDATE_LINES.posted };
 }

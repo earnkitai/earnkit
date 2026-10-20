@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computeScoreV2, weekGains, type Ship } from './score-v2';
 import { weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
-import { momentLines, momentReady, shareLink, shareText, titleHasLink, type LastWeek } from './weekly-moment';
+import { NOTE_LINE, momentLines, momentReady, shareLink, shareText, titleHasLink, type LastWeek } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 
 /** Launch ready L5 (the weekly target) and L6 (the weekly moment's lines and share link): the pure parts. */
@@ -64,9 +64,9 @@ test('L6.1 the moment lines: deltas up, down and same; no week before; titles at
   const w = (score: number, rank: number) => ({ score, rank, total: 40 });
   const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, ...o });
   assert.deepEqual(momentLines(lw({ titles: ['Add dark mode', 'Fix the login loop', 'Third'] }), 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.'),
-    ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.']);
+    ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', NOTE_LINE, 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.']);
   assert.deepEqual(momentLines(lw({ now: w(60, 7) })), ['Last week you finished at Shipping 60 (-6), #7 (down 2).']);
-  assert.deepEqual(momentLines(lw({ now: w(66, 5), titles: ['One'] })), ['Last week you finished at Shipping 66 (same), #5 (same).', 'One']);
+  assert.deepEqual(momentLines(lw({ now: w(66, 5), titles: ['One'] })), ['Last week you finished at Shipping 66 (same), #5 (same).', 'One', NOTE_LINE]);
   assert.deepEqual(momentLines(lw({ now: w(14, 1), before: null })), ['Last week you finished at Shipping 14, #1.']);
 });
 

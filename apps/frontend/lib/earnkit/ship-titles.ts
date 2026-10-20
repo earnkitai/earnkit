@@ -49,7 +49,7 @@ export function cleanTitle(raw: string): string | null {
   return cap(t);
 }
 
-export function shipTitles(items: RawTitle[], own: OwnLinks): string[] {
+export function shipTitles(items: RawTitle[], own: OwnLinks, max = TITLES_MAX): string[] {
   const newest = (a: RawTitle, b: RawTitle) => b.at.localeCompare(a.at);
   const ordered = [...items.filter((i) => i.source === 'pr').sort(newest), ...items.filter((i) => i.source === 'commit').sort(newest)];
   const out: string[] = [];
@@ -71,7 +71,7 @@ export function shipTitles(items: RawTitle[], own: OwnLinks): string[] {
     }
     seen.add(k);
     out.push(text);
-    if (out.length === TITLES_MAX) break;
+    if (out.length === max) break;
   }
   return out;
 }

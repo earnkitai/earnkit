@@ -27,6 +27,8 @@ const CLEARED = [
   'GITHUB_APP_PRIVATE_KEY',
   // v2.10 item 13: EarnKit's contract deployer (a test that needs it on sets an anvil dev key).
   'DEPLOYER_PRIVATE_KEY',
+  // Weekly updates: the Haiku summary (a test passes its own fake create).
+  'ANTHROPIC_API_KEY',
   // v2.10.3: the deploy chains (unset is both; a test that narrows them sets its own).
   'DEPLOY_CHAINS',
   // v2.11 Task 2: the builder event log (a test that needs it on sets it).

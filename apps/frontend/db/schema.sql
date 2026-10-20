@@ -1676,3 +1676,6 @@ CREATE TABLE IF NOT EXISTS known_idea_embeddings (
 -- Launch ready L6: the ISO week ('2026-W43') whose weekly moment this installation was shown (the first find or
 -- score of a new week leads with last week's Shipping and rank). Claimed once per week by one UPDATE ... RETURNING.
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS moment_week text;
+-- Weekly updates: the week's work in one short paragraph (week-summary.ts), written by the weekly job from the week's
+-- PR and commit titles. The builder's own note stays in `text`. Additive.
+ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS summary text;

@@ -101,8 +101,8 @@ async function onFeed(id: number) {
     VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now()) ON CONFLICT (builder_id) DO UPDATE SET ranked = true`;
   await sql()`UPDATE project_updates SET points = 10 WHERE builder_id = ${id} AND week = ${WEEK}`;
 }
-const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [id] })).flatMap((w) => w.cards).find((c) => c.week === WEEK)?.titles;
-const profileTitles = async (id: number) => (await profileData(id, MONDAY_RUN, { only: [id] }))?.log.find((c) => c.week === WEEK)?.titles;
+const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [id] })).flatMap((w) => w.cards).find((c) => c.week === WEEK)?.summary ?? null;
+const profileTitles = async (id: number) => (await profileData(id, MONDAY_RUN, { only: [id] }))?.log.find((c) => c.week === WEEK)?.summary ?? null;
 
 test('8.9 S9: a private repo\'s titles show while titles are on (never one naming the repo); off hides stored ones at once, nothing deleted', db, async () => {
   const key = `rosa${RUN}/hushproj`;
@@ -111,14 +111,15 @@ test('8.9 S9: a private repo\'s titles show while titles are on (never one namin
   await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
   assert.deepEqual((await row(p.id)).titles, ['Ship hushproj dark mode', 'Fix the timer', 'Add the shopping list'], 'stored as read');
   await onFeed(p.id);
-  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list'], 'the feed never names the private repo');
-  assert.deepEqual(await profileTitles(p.id), ['Fix the timer', 'Add the shopping list'], 'nor the profile');
+  // Weekly updates: the stored summary names the repo, so the card's is written from the titles it may show.
+  assert.equal(await feedTitles(p.id), 'Fixed the timer and added the shopping list.', 'the feed never names the private repo');
+  assert.equal(await profileTitles(p.id), 'Fixed the timer and added the shopping list.', 'nor the profile');
   const cards = JSON.stringify([await feedWeeks(MONDAY_RUN, { only: [p.id] }), await profileData(p.id, MONDAY_RUN, { only: [p.id] })]);
   assert.ok(!/hushproj/i.test(cards), 'no card names it');
   const off = await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
   assert.match(String(off.reply?.show_to_builder), /only the facts/);
-  assert.deepEqual(await feedTitles(p.id), [], 'off: hidden from the feed');
-  assert.deepEqual((await profileTitles(p.id)) ?? [], [], 'off: hidden from the profile');
+  assert.equal(await feedTitles(p.id), null, 'off: hidden from the feed');
+  assert.equal(await profileTitles(p.id), null, 'off: hidden from the profile');
   assert.equal((await row(p.id)).titles.length, 3, 'nothing deleted');
 });
 
@@ -126,10 +127,10 @@ test('8.10 S9: a public repo\'s titles always show, titles on or not', db, async
   const p = await provenPerson('pete', `pete${RUN}/garden`, false);
   await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
   await onFeed(p.id);
-  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list']);
-  assert.deepEqual(await profileTitles(p.id), ['Fix the timer', 'Add the shopping list']);
+  assert.equal(await feedTitles(p.id), 'Fixed the timer and added the shopping list.');
+  assert.equal(await profileTitles(p.id), 'Fixed the timer and added the shopping list.');
   await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
-  assert.deepEqual(await feedTitles(p.id), ['Fix the timer', 'Add the shopping list']);
+  assert.equal(await feedTitles(p.id), 'Fixed the timer and added the shopping list.');
 });
 
 const facts = async (id: number) => (await row(id))?.facts ?? null;

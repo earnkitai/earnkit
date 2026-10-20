@@ -8,6 +8,7 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
 import { readStats } from './stats';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
+import { NOTE_LINE } from './weekly-moment';
 
 /**
  * Launch ready L5 (one weekly target) and L6 (one weekly moment), with L9's approvals, through the real MCP layer
@@ -133,9 +134,11 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
 
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  const [lead, titles, week] = s.split('\n');
+  const [lead, titles, note, week] = s.split('\n');
   assert.equal(lead, 'Last week you finished at Shipping 50 (+6), #2 (up 1).', s);
-  assert.equal(titles, 'Add dark mode · Fix the login loop', 'no title with a host');
+  // Weekly updates: the week's summary, written from the titles without the one naming a host; then the note line.
+  assert.equal(titles, 'Added dark mode and fixed the login loop.', 'no title with a host');
+  assert.equal(note, NOTE_LINE);
   assert.equal(week, 'This week starts at Shipping 35: ship code to add +13 points, 5 short of #1.');
   assert.ok(s.split('\n\n')[1].startsWith('Where you stand'), 'the moment leads, then the usual reply');
   const share = links(s);
