@@ -7,7 +7,7 @@ import { periodKey } from './free-tier';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { openShare } from './weekly-moment';
 import { pointsTotal } from './points';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday } from './weeks';
 import {
   DIGEST_HOUR_UTC,
   EMAIL_NOTE,
@@ -33,8 +33,10 @@ import { WEEKLY_HOUR_UTC } from './week-facts';
 process.env.EARNKIT_URL = 'https://earnkit.com';
 process.env.EARNKIT_AUTH_SECRET ??= 'monday-email-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-// Monday Oct 12, 16:15 UTC: after the weekly job's hour and the email's. Last finished week: Oct 5.
-const MONDAY = Date.parse('2026-10-12T16:15:00Z');
+// A fixed clock (mock.timers: every new Date() in this file and the code under test is MONDAY, whatever the real
+// date): Monday Oct 12, 16:15 UTC, after the weekly job's hour and the email's. Every week below is derived from it;
+// MONDAY_EMAIL_NOW (a Monday after 16:00 UTC) runs the file at another date.
+const MONDAY = Date.parse(process.env.MONDAY_EMAIL_NOW || '2026-10-12T16:15:00Z');
 mock.timers.enable({ apis: ['Date'], now: MONDAY });
 after(async () => {
   mock.timers.reset();
@@ -46,7 +48,15 @@ const ctx = (id: number) => ({ installationId: id, ownInstallationId: id, shared
 const show = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.show_to_builder ?? '');
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
 const freshBoard = () => sql()`UPDATE builder_profiles SET hidden = true`;
-const LAST = '2026-10-05';
+const DAY_MS = 86_400_000;
+const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
+/** The last finished week, the one before (still live) and the one before that (expired); the running week. */
+const LAST = lastFinishedMonday(new Date(MONDAY));
+const BEFORE = ymd(Date.parse(`${LAST}T00:00:00Z`) - 7 * DAY_MS);
+const EXPIRED = ymd(Date.parse(`${LAST}T00:00:00Z`) - 14 * DAY_MS);
+const RUNNING = ymd(Date.parse(`${LAST}T00:00:00Z`) + 7 * DAY_MS);
+/** Last week's Sunday: its ranked day. */
+const LAST_SUNDAY = ymd(Date.parse(`${LAST}T00:00:00Z`) + 6 * DAY_MS);
 const ON = { RESEND_API_KEY: 're_test_never_used' };
 
 /** A ranked person with a ranked day last week and, unless `checked: false`, the weekly job's row for it. */
@@ -55,7 +65,7 @@ async function builder(tag: string, o: { checked?: boolean } = {}) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   const id = await person({ main: key, claimed: handle, ranked: true, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
-    VALUES (${id}, '2026-10-11', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+    VALUES (${id}, ${LAST_SUNDAY}, 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
   const facts = o.checked === false ? { shipped_code: { n: 3 } } : { checked: true, shipped_code: { n: 3 } };
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, text)
     VALUES (${id}, ${key}, ${LAST}, ${sql().json(facts as never)}, 'Shipped the login fix.')`;
@@ -81,24 +91,26 @@ const req = (url: string, method = 'GET') => new Request(url, { method });
 const html = (r: Response) => r.text();
 
 test('(a) weekToken round trip and a tampered token', () => {
+  assert.equal(Date.now(), MONDAY, 'the clock is fixed');
+  assert.equal(new Date(MONDAY).getUTCDay(), 1);
   const secret = 's3cret';
   const t = weekToken({ builderId: 42, key: 'Lee/TipJar', monday: LAST, action: 'approve' }, secret);
   assert.doesNotMatch(t, /tipjar|lee/i, 'the token never names the repo');
-  assert.match(t, /^42\.2026-10-05\.approve\.[A-Za-z0-9_-]{43}$/);
+  assert.match(t, new RegExp(`^42\\.${LAST}\\.approve\\.[A-Za-z0-9_-]{43}$`));
   const parts = weekTarget(t, secret)!;
   assert.deepEqual({ ...parts, mac: undefined }, { builderId: 42, monday: LAST, action: 'approve', mac: undefined });
   assert.equal(weekVerify(parts, 'lee/tipjar', secret), true, 'the key is matched case-insensitively');
   assert.equal(weekVerify(parts, 'lee/other', secret), false, 'another repo');
   assert.equal(weekVerify(parts, 'lee/tipjar', 'other'), false, 'another secret');
   // Changing the id, the week or the action, or one character of the mac, breaks it.
-  for (const bad of [t.replace(/^42/, '43'), t.replace('2026-10-05', '2026-09-28'), t.replace('approve', 'hide'), `${t.slice(0, -1)}${t.endsWith('A') ? 'B' : 'A'}`]) {
+  for (const bad of [t.replace(/^42/, '43'), t.replace(LAST, BEFORE), t.replace('approve', 'hide'), `${t.slice(0, -1)}${t.endsWith('A') ? 'B' : 'A'}`]) {
     const p = weekTarget(bad, secret);
     assert.ok(p === null || !weekVerify(p, 'lee/tipjar', secret), bad);
   }
-  for (const junk of ['', 'x', '42.2026-10-06.approve.' + 'a'.repeat(43), '42.2026-10-05.delete.' + 'a'.repeat(43), `0.${LAST}.hide.${'a'.repeat(43)}`])
+  for (const junk of ['', 'x', '42.2026-10-06.approve.' + 'a'.repeat(43), `42.${LAST}.delete.` + 'a'.repeat(43), `0.${LAST}.hide.${'a'.repeat(43)}`])
     assert.equal(weekTarget(junk, secret), null, junk);
   assert.equal(weekTarget(t, ''), null, 'no secret');
-  assert.match(weekUrl({ builderId: 42, key: 'lee/tipjar', monday: LAST, action: 'hide' }), /^https:\/\/earnkit\.com\/api\/week\?t=42\.2026-10-05\.hide\./);
+  assert.match(weekUrl({ builderId: 42, key: 'lee/tipjar', monday: LAST, action: 'hide' }), new RegExp(`^https://earnkit\\.com/api/week\\?t=42\\.${LAST}\\.hide\\.`));
   assert.equal(DIGEST_HOUR_UTC, 16);
   assert.ok(DIGEST_HOUR_UTC > WEEKLY_HOUR_UTC, 'the email goes after the weekly job');
   assert.equal(weekStart(new Date('2026-10-12T15:59:00Z')).toISOString(), '2026-10-05T16:00:00.000Z');
@@ -232,7 +244,7 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     const me = await builder('mef');
     // Backfill-style weeks to confirm at connect.
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES
-      (${me.id}, ${me.key}, '2026-09-28', ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
+      (${me.id}, ${me.key}, ${BEFORE}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
     await mcpCall(ctx(me.id), 'find', {});
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
@@ -304,12 +316,12 @@ test('(j) fix round 1: a link older than the week before last has expired; nothi
   withEnv(ON, async () => {
     const now = new Date();
     assert.equal(weekLinkLive(LAST, now), true);
-    assert.equal(weekLinkLive('2026-09-28', now), true, 'the week before');
-    assert.equal(weekLinkLive('2026-09-21', now), false);
-    assert.equal(weekLinkLive('2026-10-12', now), false, 'the running week');
+    assert.equal(weekLinkLive(BEFORE, now), true, 'the week before');
+    assert.equal(weekLinkLive(EXPIRED, now), false);
+    assert.equal(weekLinkLive(RUNNING, now), false, 'the running week');
     await freshBoard();
     const me = await builder('mej');
-    const OLD = '2026-09-21';
+    const OLD = EXPIRED;
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${OLD}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     for (const action of ['approve', 'hide'] as const) {
       const url = weekUrl({ builderId: me.id, key: me.key, monday: OLD, action });
