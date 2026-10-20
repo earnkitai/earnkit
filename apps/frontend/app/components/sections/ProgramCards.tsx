@@ -6,7 +6,7 @@ import { H1, H2, LEDE } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
 /**
- * v2.8 Rulings 20, 21 (plan), R18: the title, the money line ("$115K in grants open", v3 Stage 2) and what it leaves out,
+ * v2.8 Rulings 20, 21 (plan), R18: the title, the money line ("$115K in grants and prizes open", v3 Stage 2) and what it leaves out,
  * then every open curated program as a slim card (ProgramCard; each opens its guide, where the agent
  * is one tap away), Base first (landing.ts byRelevance). Home: one carousel row (CarouselRow).
  * /programs: the same cards in a grid (`layout="grid"`, heading h1).
@@ -21,7 +21,7 @@ export default function ProgramCards({
   bench = false,
 }: {
   tiles: Tile[];
-  /** The money line ("$115K in grants open", landing.open_text), shown under the title; null hides the line. */
+  /** The money line ("$115K in grants and prizes open", landing.open_text), shown under the title; null hides the line. */
   figure?: string | null;
   /** v3 Stage 2: what the total leaves out ("Plus 2 accelerators and 1 hackathon.", landing.open_more), a second muted line. */
   more?: string | null;

@@ -323,9 +323,9 @@ test('12.9 one money figure: the landing, /api/stats and the first reply say the
   const figure = moneyText(openMoneyUsd(await listPrograms()));
   assert.ok(figure, 'there is open money');
   const [stats, landing] = await Promise.all([readStats(), readLanding()]);
-  // v3 Stage 2: the landing and /api/stats read the same figure as "<figure> in grants open".
-  assert.equal(stats.open_money_text, `${figure} in grants open`);
-  assert.equal(landing.open_text, `${figure} in grants open`);
+  // v3 Stage 2: the landing and /api/stats read the same figure as "<figure> in grants and prizes open".
+  assert.equal(stats.open_money_text, `${figure} in grants and prizes open`);
+  assert.equal(landing.open_text, `${figure} in grants and prizes open`);
   const first = await call(J, 'list (no repo)', 'list_programs', { agent_can_build: true }, ctxFor(await newInstallation()));
   // v3 Stage 2: with investments out of the total, the rounding no longer hides that the first reply sums only the
   // programs an agent can complete (v2.12 spec 9: Colosseum is left out of find), so its figure is over those.

@@ -534,7 +534,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // R12 (fix round 1): one fit order with score (present.ts byDeadline); lead and recordShown use these same 3.
   const rows = main
     ? layout(m, entered).rows
-        .filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
+        // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
+        .filter((r) => qualifies(r) && !r.card.sponsored && !r.card.in_person && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
         .sort((a, b) => byDeadline(a.card, b.card))
         .slice(0, 3)
     : [];

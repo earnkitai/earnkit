@@ -33,8 +33,8 @@ export type FundLine =
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
-/** v3 Stage 2: "Base Batches 005: up to $100K, opens soon. <note>" (a statement, never a link or a question). Pure. */
-export const upcomingLine = (title: string, prize: string, note: string) => `${title}: ${prize}, opens soon. ${note}`;
+/** v3 Stage 2: "Base Batches 005: up to $100K, not open yet. <note>" (a statement, never a link or a question). Pure. */
+export const upcomingLine = (title: string, prize: string, note: string) => `${title}: ${prize}, not open yet. ${note}`;
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** R12: a ranked project no open program fits (only fits are named for it). */
 export const noFitLine = (name: string) => `No open program fits ${name} yet. I'll look again next week.`;

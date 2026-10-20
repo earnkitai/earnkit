@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -119,7 +119,7 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
   assert.equal(a.difficulty, 'Medium'); // v2.8 Ruling 21: the level word only; the guide keeps "(estimate)" // no pool read yet: the pill still shows // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
-  assert.equal(l.open_text, '$30.5K in grants open'); // v2.9 F21, v3 Stage 2: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
+  assert.equal(l.open_text, '$30.5K in grants and prizes open'); // v2.9 F21, v3 Stage 2: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
 });
 
 test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); the difficulty is the level word only', () => {
@@ -145,8 +145,8 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per grant', null]);
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
   // v2.9 F21: the top prizes, never the pools; the sponsor and EarnKit campaigns never count.
-  assert.equal(l.open_text, '$30.5K in grants open');
-  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500 in grants open');
+  assert.equal(l.open_text, '$30.5K in grants and prizes open');
+  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500 in grants and prizes open');
 });
 
 test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open right now"', () => {
@@ -156,7 +156,7 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
     return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
   const l = landingFrom(cards, stats(), now);
-  assert.equal(l.open_text, '$160.5K in grants open');
+  assert.equal(l.open_text, '$160.5K in grants and prizes open');
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
   assert.equal(t('colosseum-worlds-fair').prize_note, 'up to $30,000 per winner');
@@ -172,21 +172,6 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
   assert.deepEqual(l.tiles.map((x) => x.id), ['circle-developer-grants', 'colosseum-worlds-fair', 'monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
   assert.equal(t('base-builder-grants').prize, 'up to $5,000 per grant');
   assert.equal(t('base-builder-grants').pool_usd, null);
-});
-
-test('v2.7.1 fix: byPool orders pools first by size, then the rest by per-winner amount, then the sooner deadline', () => {
-  const c = (id: string, pool_usd: number | null, max_award_usd: number | null, ends: string | null): Card =>
-    ({ ...arc, id, pool_usd, max_award_usd, ends_at: ends ? new Date(ends) : null });
-  const sorted = [
-    c('small-pool', 10000, 500, null),
-    c('no-pool-big-award', null, 50000, null),
-    c('big-pool', 840000, 30000, null),
-    c('nothing', null, null, null),
-    c('same-pool-later', 10000, 500, '2026-10-30T00:00:00Z'),
-    c('same-pool-sooner', 10000, 500, '2026-10-10T00:00:00Z'),
-  ].sort(byPool).map((x) => x.id);
-  // Review #10: every program with a pool before any without (never a pool against a per-winner amount).
-  assert.deepEqual(sorted, ['big-pool', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'no-pool-big-award', 'nothing']);
 });
 
 test('v2.7.1: the stats line shows only from 100 installs (v2.14: never the builder bonus)', () => {
@@ -321,9 +306,9 @@ test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards,
   const pooledArc = { ...arc, pool_usd: 10000 };
   const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
   const l = landingFrom(cards, stats(), now);
-  // v3 Stage 2: the same figure, as the landing's line ("$30.5K in grants open").
-  assert.equal(l.open_text, `${moneyText(openMoneyUsd(cards, now))} in grants open`);
-  assert.equal(l.open_text, '$30.5K in grants open');
+  // v3 Stage 2: the same figure, as the landing's line ("$30.5K in grants and prizes open").
+  assert.equal(l.open_text, `${moneyText(openMoneyUsd(cards, now))} in grants and prizes open`);
+  assert.equal(l.open_text, '$30.5K in grants and prizes open');
   const first = presentFirstMessage({
     more: true, // v2.10 item 2: the v2.9 headline is behind "show more"
     alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now,

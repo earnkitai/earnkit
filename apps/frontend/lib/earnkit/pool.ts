@@ -165,10 +165,10 @@ export function openMoneyWords(programs: OpenMoneyRow[], now = new Date()): stri
 }
 
 /**
- * v3 Stage 2: the landing's and /api/stats' money line, "$115K in grants open" (moneyText's
- * figure; "$0 in grants open" at 0). The caller hides it when nothing is open. Pure.
+ * v3 Stage 2: the landing's and /api/stats' money line, "$115K in grants and prizes open" (moneyText's
+ * figure; "$0 in grants and prizes open" at 0). The caller hides it when nothing is open. Pure.
  */
-export const openGrantsText = (usd: number): string => `${moneyText(usd) ?? '$0'} in grants open`;
+export const openGrantsText = (usd: number): string => `${moneyText(usd) ?? '$0'} in grants and prizes open`;
 
 /**
  * v2.9 F21: the programs openMoneyUsd sums: open (active, started, not ended) and curated (never an

@@ -19,7 +19,9 @@ import { listPrograms, openProgramFacts, upsertProgram } from './programs';
 import { byRelevance, landingFrom, readGuidePage } from './landing';
 import { openMoneyUsd, openMoneyWords, openGrantsText } from './pool';
 import { guideText } from './guide';
-import type { Card } from './present';
+import type { Card, RepoFit } from './present';
+import { productOdds, productScore, traction, type Detection } from './match';
+import { fileCards } from './fixtures/fresh-build';
 import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
@@ -40,7 +42,7 @@ after(async () => {
   await sql().end();
 });
 const RUN = String(process.pid % 100000);
-const NOTE = 'Cohort 9 opens soon. Four weekly ship logs in a row get you the interview.';
+const NOTE = 'Cohort 9 is not announced yet. Four weekly ship logs in a row come before an interview.';
 
 /** An upcoming program, cloned from a committed file under a test id. */
 function upcomingFile(id: string, o: Record<string, unknown> = {}) {
@@ -62,7 +64,7 @@ const stats = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, ope
 const now = new Date('2026-10-20T12:00:00Z');
 const card = (id: string, o: Partial<Card> = {}): Card => ({ id, title: id, summary: 'up to $5,000 · rolling', tag: null, each_time: [], ends_at: null, max_award_usd: 5000, reward: 'Up to $5,000', status: 'active', chains: ['arc'], ...o });
 
-test('(a) an upcoming program is listed with "opens soon", never a fit, never in the total', db, async () => {
+test('(a) an upcoming program is listed with "not open yet", never a fit, never in the total', db, async () => {
   const id = `v3-upcoming-${RUN}`;
   // The schema: upcoming needs its note, allows no requirements and the source as the submission link.
   assert.equal(ProgramFile.safeParse({ ...upcomingFile(id), opens_note: undefined }).success, false);
@@ -76,14 +78,14 @@ test('(a) an upcoming program is listed with "opens soon", never a fit, never in
   assert.equal(c.status, 'upcoming');
   assert.equal(c.opens_note, NOTE);
   const tile = landingFrom(cards, stats, new Date()).tiles.find((t) => t.id === id);
-  assert.equal(tile?.days_left, 'opens soon');
+  assert.equal(tile?.days_left, 'not open yet');
   assert.equal(tile?.status, 'upcoming');
   assert.ok(!(await openProgramFacts()).some((p) => p.id === id), 'never a fit');
   assert.equal(openMoneyUsd([c]), 0, 'never in the total');
-  // The card chip reads "Opens soon"; an in-person program adds "In person".
+  // The card chip reads "Not open yet"; an in-person program adds "In person".
   const h = renderToStaticMarkup(React.createElement(ProgramCard, { tile: { ...tile!, in_person: true } }));
   const chips = [...h.matchAll(/<span class="ek-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(chips.slice(0, 2), ['Opens soon', 'In person']);
+  assert.deepEqual(chips.slice(0, 2), ['Not open yet', 'In person']);
 });
 
 test('(b) tile order: active Base first, dated before rolling, upcoming last', () => {
@@ -111,16 +113,22 @@ test('(c) the money total excludes investments and pool-only programs; words nam
   assert.equal(openMoneyWords([a16z, circle, eth], now), 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(openMoneyWords([a16z, { ...a16z, id: 'b' }, circle], now), 'Plus 2 accelerators.');
   assert.equal(openMoneyWords([circle], now), null);
-  assert.equal(openGrantsText(openMoneyUsd([a16z], now)), '$0 in grants open');
-  assert.equal(openGrantsText(115000), '$115K in grants open');
+  assert.equal(openGrantsText(openMoneyUsd([a16z], now)), '$0 in grants and prizes open');
+  assert.equal(openGrantsText(115000), '$115K in grants and prizes open');
+  // The committed files on Oct 20: Avalanche, Base, Circle and ETHGlobal Mumbai ($15K per partner prize) count;
+  // a16z speedrun and Alliance are named, not counted.
+  const files = fileCards();
+  assert.equal(openMoneyUsd(files, now), 130000);
+  assert.equal(openMoneyWords(files, now), 'Plus 2 accelerators.');
+  assert.equal(landingFrom(files, stats, now).open_text, '$130K in grants and prizes open');
   const landing = landingFrom([a16z, circle, eth], stats, now);
-  assert.equal(landing.open_text, '$100K in grants open');
+  assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
   // The two lines, in order, the second muted.
   const h = renderToStaticMarkup(React.createElement(ProgramCards, { tiles: landing.tiles, figure: landing.open_text, more: landing.open_more }));
   const t = h.replace(/<[^>]+>/g, ' ');
-  assert.ok(t.indexOf('$100K in grants open') >= 0 && t.indexOf('$100K in grants open') < t.indexOf('Plus 1 accelerator and 1 hackathon.'), t);
+  assert.ok(t.indexOf('$100K in grants and prizes open') >= 0 && t.indexOf('$100K in grants and prizes open') < t.indexOf('Plus 1 accelerator and 1 hackathon.'), t);
   assert.doesNotMatch(t, /open right now/);
 });
 
@@ -149,11 +157,11 @@ test('(e) a ranked builder with a 4-week streak sees one upcoming line after the
   await streak(4);
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   const lines = s.split('\n');
-  const upc = lines.filter((l) => / opens soon\. /.test(l));
+  const upc = lines.filter((l) => / not open yet\. /.test(l));
   assert.equal(upc.length, 1, s);
   // The first upcoming program by the tile order, with its prize and note.
   const first = (await listPrograms()).filter((p) => p.status === 'upcoming').sort(byRelevance)[0];
-  assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, opens soon. ${first.opens_note}`), upc[0]);
+  assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, not open yet. ${first.opens_note}`), upc[0]);
   // Under Ways to get funded, after the fits (or the no-fit line), before How to move up; a statement, no link.
   const at = lines.indexOf(upc[0]);
   assert.ok(lines.indexOf('Ways to get funded') < at && at < lines.indexOf('How to move up'), s);
@@ -161,20 +169,20 @@ test('(e) a ranked builder with a 4-week streak sees one upcoming line after the
   // A streak under 4: no upcoming line.
   await streak(3);
   const s3 = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
-  assert.doesNotMatch(s3, / opens soon\. /, s3);
+  assert.doesNotMatch(s3, / not open yet\. /, s3);
 });
 
-test('(f) the guide page for an upcoming program shows opens soon, the note and no Ask button', db, async () => {
+test('(f) the guide page for an upcoming program shows not open yet, the note and no Ask button', db, async () => {
   const id = `v3-upc-f-${RUN}`;
   await upsertProgram(upcomingFile(id));
   const page = (await readGuidePage(id))!;
   assert.equal(page.upcoming, true);
   assert.equal(page.open, false);
-  assert.match(page.guide.header, / · opens soon$/);
+  assert.match(page.guide.header, / · not open yet$/);
   assert.equal(page.guide.opens_note, NOTE);
   const h = renderToStaticMarkup(React.createElement(GuideView, { page }));
   assert.ok(h.includes(NOTE), 'the note under the header');
-  assert.match(h.replace(/<[^>]+>/g, ''), /opens soon/);
+  assert.match(h.replace(/<[^>]+>/g, ''), /not open yet/);
   const all: React.ReactElement[] = [];
   const walk = (n: unknown) => {
     if (Array.isArray(n)) n.forEach(walk);
@@ -187,4 +195,33 @@ test('(f) the guide page for an upcoming program shows opens soon, the note and 
   assert.equal(all.filter((e) => e.type === AskAgent).length, 0, 'no Ask your agent');
   // The reply voice carries the same line.
   assert.ok(guideText(page.guide).split('\n').includes(NOTE));
+});
+
+test('(g) an in-person program is never a fit in a ranked reply; it stays on the program list', db, async () => {
+  const t = `ek_v3g_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const own = (await connectInstallation(t))!.own;
+  assert.ok((await attachToX(own, { id: `96${RUN}7`, username: `vg${RUN}`.slice(0, 15), name: 'vg', avatar: null }, new Date())).ok);
+  const c = (await connectInstallation(t))!;
+  const key = `vg${RUN}/kit`;
+  // A product repo the matcher calls likely for ETHGlobal Mumbai (in person) and Base Builder Grants.
+  const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
+  const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
+  const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
+  const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
+  const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
+  const fits: RepoFit[] = [{
+    repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true,
+    verdicts: ['ethglobal-mumbai', 'base-builder-grants'].map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
+  }];
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
+  await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
+  await installApp({ builderId: c.id, repoKey: key, login: `vg${RUN}`, gh: fakeGitHub({ [key]: { id: 5092, owner: `vg${RUN}`, installation: 592 } }) });
+  for (const tool of ['find', 'score'] as const) {
+    const s = String((await mcpCall(ctx, tool, {})).reply?.show_to_builder ?? '');
+    assert.match(s, /Base Builder Grant Program: /, `${tool}: ${s}`);
+    assert.doesNotMatch(s, /ETHGlobal Mumbai/, `${tool}: ${s}`);
+  }
+  const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === 'ethglobal-mumbai');
+  assert.equal(tile?.in_person, true, 'still listed');
 });

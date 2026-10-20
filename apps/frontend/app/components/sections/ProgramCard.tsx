@@ -4,7 +4,7 @@ import { SURFACE } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 import { NO_CELL } from '../../../lib/earnkit/no-cell';
 
-/** `ek-chip` marks the card's chips (days left or "Opens soon", "In person", difficulty). */
+/** `ek-chip` marks the card's chips (days left or "Not open yet", "In person", difficulty). */
 const CHIP = 'ek-chip inline-flex h-7 items-center rounded-full bg-ek-chip px-3 font-funnel-sans text-xs font-medium text-ek-body';
 
 /**

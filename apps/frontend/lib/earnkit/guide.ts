@@ -188,7 +188,7 @@ export const difficultyBasis = (d: Difficulty) => {
 export const difficultyText = (d: Difficulty) => (d.rated ? difficultyLabel(d) : `${difficultyLabel(d)}. ${difficultyBasis(d)}`);
 
 export type Guide = {
-  /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14" ("· opens soon" for an upcoming program). */
+  /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14" ("· not open yet" for an upcoming program). */
   header: string;
   /** v3 Stage 2: an upcoming program's one line under the header (program file opens_note), else null. */
   opens_note: string | null;
@@ -238,11 +238,11 @@ export function programGuide(
   now = new Date(),
 ): Guide {
   const past = p.ends_at !== null && p.ends_at <= now;
-  // v3 Stage 2: an upcoming program isn't open yet: "opens soon" and its note.
+  // v3 Stage 2: an upcoming program isn't open yet: "not open yet" and its note.
   const upcoming = p.status === 'upcoming' && !past;
   const closed = !upcoming && (p.status !== 'active' || past);
   const ends = endsOf(p);
-  const end = upcoming ? 'opens soon' : closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
+  const end = upcoming ? 'not open yet' : closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
   const won = wonRound(p);
   return {
     header: `${p.title} · ${prizeOf(p)} · ${end}`,

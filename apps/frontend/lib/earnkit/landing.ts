@@ -5,13 +5,14 @@ import { byRelevance, daysLeftText, NO_CELL, type Card } from './present';
 import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
-
-export { byRelevance };
 import { sql } from './db';
 import { benchRows, type BenchRow } from './bench-data';
 import { raisingEnabled } from './builder-score-flag';
 import { carouselCards, type FeedCard } from './feed';
 import type { BenchChain } from './rank';
+
+/** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
+export { byRelevance };
 
 /**
  * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
@@ -42,7 +43,7 @@ export type Tile = {
   pool_usd: number | null;
   /** v2.8 Ruling 21 (plan): the level word only ("Hard", never "(estimate)"; the guide keeps the full label), or NO_CELL without one (then no chip). */
   difficulty: string;
-  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`); v3 Stage 2: "opens soon" for an upcoming program. */
+  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`); v3 Stage 2: "not open yet" for an upcoming program. */
   days_left: string;
   /** v3 Stage 2: an upcoming program is listed, never open (its guide has no Ask button). */
   status: 'active' | 'upcoming';
@@ -54,7 +55,7 @@ export type Tile = {
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
   /**
-   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants open" (openGrantsText(openMoneyUsd) of the
+   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants and prizes open" (openGrantsText(openMoneyUsd) of the
    * tiles' programs, never an investment), or null when no program is open.
    */
   open_text: string | null;
@@ -77,18 +78,7 @@ export function statsLine(s: PublicStats): string | null {
 }
 
 /**
- * v2.7.1: the cards' order (landing and /programs): programs with a source-stated pool first,
- * highest pool first; then the rest by their per-winner amount; then the sooner deadline. The first message keeps
- * `byPrize`. Pure.
- */
-export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>) =>
-  // Review #10: programs with a pool first (never a pool against a per-winner amount).
-  Number(b.pool_usd != null) - Number(a.pool_usd != null) ||
-  (b.pool_usd ?? b.max_award_usd ?? -1) - (a.pool_usd ?? a.max_award_usd ?? -1) ||
-  (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
-
-/**
- * The landing data from open program cards, Base first (`byRelevance`, v3 Stage 2; was `byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
+ * The landing data from open program cards, Base first (`byRelevance`, v3 Stage 2), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
  * EarnKit or sponsor campaign) and the public stats. v2.9 F21: the hero
  * figure is moneyText(openMoneyUsd) of the same cards (/programs, the first reply and /api/stats show the same). Pure.
  */
@@ -110,7 +100,7 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       prize_usd: perWinner,
       pool_usd: c.pool_usd ?? null,
       difficulty: c.difficulty ? c.difficulty.level : NO_CELL,
-      days_left: c.status === 'upcoming' ? 'opens soon' : c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
+      days_left: c.status === 'upcoming' ? 'not open yet' : c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
       logo: c.logo ? `/${c.logo}` : null,
       status: c.status === 'upcoming' ? 'upcoming' : 'active',
       in_person: c.in_person === true,
@@ -154,7 +144,7 @@ export type GuidePage = {
   logo: string | null;
   /** Ruling 22 (plan): a closed or past-deadline program still renders, without "Ask your agent". */
   open: boolean;
-  /** v3 Stage 2: not open yet: the header reads "opens soon", the note shows under it, no "Ask your agent". */
+  /** v3 Stage 2: not open yet: the header reads "not open yet", the note shows under it, no "Ask your agent". */
   upcoming: boolean;
   /** v2.8 Ruling 13 (plan), Task 3 carry: the program fits any chain; the page says "Any chain". */
   any_chain: boolean;

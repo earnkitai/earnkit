@@ -24,7 +24,7 @@ export { endsOf } from './entry-text';
  */
 export type Card = {
   id: string;
-  /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Opens soon), never open. Absent: active. */
+  /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Not open yet), never open. Absent: active. */
   status?: 'active' | 'closed' | 'upcoming';
   /** v3 Stage 2: when and how an upcoming program opens, or null. */
   opens_note?: string | null;
@@ -387,7 +387,7 @@ export const byRelevance = (
 
 /**
  * v2.8 Ruling C4: Easy programs first (the lazy builder wants the easiest money), for the agent's
- * tables only; the landing carousel keeps byPool. Pure.
+ * tables only; the landing and /programs use byRelevance. Pure.
  */
 export const byEase = (a: Pick<Card, 'difficulty'>, b: Pick<Card, 'difficulty'>) =>
   Number(b.difficulty?.level === 'Easy') - Number(a.difficulty?.level === 'Easy');

@@ -1240,21 +1240,21 @@ apps/frontend/
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
-                               open_text = openGrantsText(openMoneyUsd(kept)) (v3 Stage 2: "$115K in grants open", null when
+                               open_text = openGrantsText(openMoneyUsd(kept)) (v3 Stage 2: "$115K in grants and prizes open", null when
                                nothing is open) and open_more = openMoneyWords; tiles sorted by byRelevance (open first, Base
-                               and any chain first, then deadline, then award), carry status / in_person, days_left "opens soon"
+                               and any chain first, then deadline, then award), carry status / in_person, days_left "not open yet"
                                for upcoming; GuidePage.upcoming; v2.9 E20 won_line = wonLine
                                (Hero shows it under the stats line); stats_line = statsLine
                                (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
-                               bonusPoolsText (Win twice removed); cards sorted by byPool: pools first by size, then the rest by
-                               max_award_usd, then deadline); readGuidePage adds the "prize pool" source
+                               bonusPoolsText (Win twice removed); v3 Stage 2: byPool removed (byRelevance orders the tiles));
+                               readGuidePage adds the "prize pool" source
                                and readLanding (listPrograms, roundPoolsWei, readStats; rejects when
                                the DB is unreachable); GuidePage.has_bonus / bonus_amount;
                                v2.7 §2: readGuidePage(id) → GuidePage (curated only, else null; rejects
                                on a DB failure, never null)
     pool.ts(+test)             v2.11 T7: openCurated (the filter openMoneyUsd sums; the context line counts it).
                                v3 Stage 2: openMoneyUsd skips investments; openMoneyWords ("Plus 1 accelerator and 1
-                               hackathon."); openGrantsText ("$115K in grants open").
+                               hackathon."); openGrantsText ("$115K in grants and prizes open").
                                v2.9 F21 (P18): openMoneyUsd (the top prize of every open curated program,
                                summed; never an EarnKit campaign (campaign / earnkit_campaign), a sponsor's
                                (sponsored / source 'sponsor'), closed, not started or ended) and moneyText

@@ -381,7 +381,7 @@ export const ProgramFile = z
     /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
     ends_at: z.string().datetime({ offset: true }).nullable(),
     /**
-     * v3 Stage 2: `upcoming` is listed (the card reads "Opens soon") but never a fit, an entry or
+     * v3 Stage 2: `upcoming` is listed (the card reads "Not open yet") but never a fit, an entry or
      * counted in the money total; it needs `opens_note`.
      */
     status: z.enum(['active', 'closed', 'upcoming']),

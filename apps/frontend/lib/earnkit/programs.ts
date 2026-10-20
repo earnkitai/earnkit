@@ -125,7 +125,7 @@ export type ProgramRow = {
   reward: string;
   starts_at: Date | null;
   ends_at: Date | null;
-  /** v3 Stage 2: `upcoming` is listed (Opens soon), never a fit, an entry or in the money total. */
+  /** v3 Stage 2: `upcoming` is listed (Not open yet), never a fit, an entry or in the money total. */
   status: 'active' | 'closed' | 'upcoming';
   /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
   opens_note?: string | null;

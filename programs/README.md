@@ -41,7 +41,7 @@ program is never closed under it either.
      a pool word (`$840,000 in prizes`, `$250,000+ prize pool`, `10,000 USDC pool`, `$200K
      available`; `programs:check` refuses it otherwise), and a `+`
      right after it there ("$250,000+") shows on the page. The landing page's money line, "$X in
-     grants open", sums the open programs' `max_award_usd`, never an investment; a second line names
+     grants and prizes open", sums the open programs' `max_award_usd`, never an investment; a second line names
      the open accelerators (`investment`) and hackathons (a pool and no `max_award_usd`) it leaves out.
      The landing and /programs list open programs first, then upcoming ones; Base and any-chain
      programs first, then the sooner deadline, then the bigger `max_award_usd`.
@@ -59,14 +59,15 @@ program is never closed under it either.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
    - `status`: `active` (open now), `closed`, or `upcoming`: a program a builder should know about
      that isn't open yet (a next cohort or batch not announced). An upcoming program is listed on the
-     landing and /programs with an "Opens soon" chip and its guide page shows its note, but it is
+     landing and /programs with a "Not open yet" chip and its guide page shows its note, but it is
      never a fit, never offered, never entered and never counted in the money total. It needs
      `opens_note`; it may have `submission_requirements: []` (no form yet) and `submission_url` equal
      to `source_url`. When it opens, set `active` and mirror the real form as usual.
    - `opens_note` (only with `upcoming`): one line, at most 140 characters, no links, on when and how
      it opens, from the source (e.g. `"Batch 005 is not announced yet."`). Never invent an opening date.
    - `in_person` (optional): `true` when the program must be attended in person (an ETHGlobal
-     hackathon); the card adds an "In person" chip.
+     hackathon); the card adds an "In person" chip. An in-person program is never named as a fit in
+     a ranked builder's reply; it stays on the landing and /programs.
    - `builder_bonus` (optional): leave it out for the default (`true`, on). Set `false` only when
      EarnKit should never book entries of this program's coins to a builder bonus round.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and

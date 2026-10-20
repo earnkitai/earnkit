@@ -6638,15 +6638,18 @@ say yes, earn points, get the Monday email.
   (find's `programs`, `needsRepoLine`, `buildPick`) and `present.ts presentFirstMessage` drop upcoming cards.
 - **Base first (`present.ts byRelevance`, re-exported by `landing.ts`).** The tiles' order: open before upcoming, then
   Base and any-chain programs, then the sooner deadline (rolling last), then the bigger `max_award_usd`. An upcoming
-  tile's `days_left` is `'opens soon'`; `ProgramCard` shows "Opens soon" and, when `in_person`, an "In person" chip.
+  tile's `days_left` is `'not open yet'`; `ProgramCard` shows "Not open yet" and, when `in_person`, an "In person" chip.
 - **The honest total (`pool.ts`).** `openMoneyUsd` never counts an investment. `openMoneyWords` names what it leaves
   out ("Plus 2 accelerators and 1 hackathon.": investments, and pools with no per-winner amount). `openGrantsText`
-  renders "$115K in grants open". `Landing.open_text` is that line (null when nothing is open) and `open_more` the
+  renders "$115K in grants and prizes open". `Landing.open_text` is that line (null when nothing is open) and `open_more` the
   words; `ProgramCards` shows both (`figure`, `more`). `/api/stats` `open_money_usd` excludes investments and
   `open_money_text` is the same line. The first reply's headline keeps `moneyText` ("$X in prizes open right now.").
-- **Guide and reply.** `GuidePage.upcoming`; `programGuide` ends the header with "opens soon" and sets
+- **Guide and reply.** `GuidePage.upcoming`; `programGuide` ends the header with "not open yet" and sets
   `Guide.opens_note`, shown under the header (and in `guideText`); no "Ask your agent". In the Bench reply a ranked
-  builder on a 4-week streak (`UPCOMING_STREAK`) gets one `FundLine` `upcoming` ("<title>: <prize>, opens soon.
+  builder on a 4-week streak (`UPCOMING_STREAK`) gets one `FundLine` `upcoming` ("<title>: <prize>, not open yet.
   <note>"), the first upcoming program by `byRelevance`, after the fits (or the no-fit line) and before the points.
-- **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, pool only), `monad-nitro` and
-  `base-batches-005` (both upcoming). Test: `v3-programs.test.ts`.
+- **In person.** An `in_person` program is never a fit in the ranked reply (`benchFind` rows and
+  `stand-view.ts scoreFits` skip it); it stays on the landing and /programs.
+- **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, up to $15K per partner prize),
+  `monad-nitro` and `base-batches-005` (both upcoming). `landing.ts byPool` was removed (no caller). Test:
+  `v3-programs.test.ts`.

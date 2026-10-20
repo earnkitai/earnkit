@@ -357,7 +357,8 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   const rows = catalogueRows();
   // Campaign #1 is closed; scoring and clarity R12 closed Arc Microgrants, Colosseum and Monad Metropolis too.
   // v3 Stage 2 (the honest total): a16z speedrun and Alliance are investments, never counted; upcoming programs neither.
-  assert.equal(openMoneyUsd(rows, now), 115000);
+  // Avalanche $10K, Base $5K, Circle $100K and ETHGlobal Mumbai $15K per partner prize.
+  assert.equal(openMoneyUsd(rows, now), 130000);
   assert.equal(moneyText(1115000), '$1.1M+');
   assert.equal(moneyText(1_000_000), '$1M');
   assert.equal(moneyText(0), null);
@@ -372,7 +373,7 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P19: an open EarnKit campaign never counts, as a DB row (campaign) or a card (earnkit_campaign).
   assert.equal(openMoneyUsd([{ ...open, campaign: { prize_usd: 100 } }], now), 0);
   assert.equal(openMoneyUsd([{ ...open, earnkit_campaign: { slug: 'c1' } }], now), 0);
-  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 115000);
+  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 130000);
   // v3 Stage 2: an investment and an upcoming program count 0.
   assert.equal(openMoneyUsd([{ ...open, investment: true }], now), 0);
   assert.equal(openMoneyUsd([{ ...open, status: 'upcoming' }], now), 0);
@@ -388,7 +389,7 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.equal(s.open_money_usd, 115000);
-  assert.equal(s.open_money_text, '$115K in grants open');
+  assert.equal(s.open_money_usd, 130000);
+  assert.equal(s.open_money_text, '$130K in grants and prizes open');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });

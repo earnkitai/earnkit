@@ -45,10 +45,6 @@ const FIT_LINE = /^[^:\n]+: [^,\n]+, (closes [A-Z][a-z]{2} \d{1,2}|rolling)\. [A
 /** The program files as committed: R12 closes three, synced into this file's database. */
 async function syncPrograms() {
   for (const id of [...CLOSED, ...OPEN]) await upsertProgram(ProgramFile.parse(committedProgram(id)));
-  // v3 Stage 2: the catalogue grew (ETHGlobal Mumbai, any chain, dated); these tests pin the R12 set only,
-  // so any other open curated program that could fit is closed in this file's database (investments never fit).
-  await sql()`UPDATE programs SET status = 'closed' WHERE source = 'file' AND campaign IS NULL AND status = 'active'
-    AND NOT investment AND id NOT IN ${sql()([...CLOSED, ...OPEN])} AND id NOT LIKE ${`%${RUN}%`}`;
 }
 
 async function agent(x?: string) {

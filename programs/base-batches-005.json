@@ -13,7 +13,7 @@
   "ends_at": null,
   "verified_at": "2026-10-20",
   "status": "upcoming",
-  "opens_note": "Batch 005 is not announced yet. If 004 said no, your ship log is the re-application.",
+  "opens_note": "Batch 005 is not announced yet. Base Batches runs twice a year.",
   "existing_work": "unknown",
   "needs_repo": false,
   "chains": [
@@ -23,7 +23,7 @@
   "setup": [],
   "each_time": [],
   "rules": [
-    "Batch 004 (applications Aug 19 to Sep 10, program Sep 29 to Nov 15, Demo Day Nov 17 in New York) is closed; Batch 005 is not announced yet.",
+    "Batch 004 (applications Aug 19 to Sep 10, program Sep 29 to Nov 15, Demo Day Nov 17 in New York) is closed; Batch 005 is not announced yet. The program runs twice a year.",
     "Early stage: pre-product to post-MVP teams that have not yet raised a formal Seed round.",
     "Base first: teams committed to Base as their default implementation and network of choice.",
     "Focus areas: trading, payments, agents, financing, and asset issuance."

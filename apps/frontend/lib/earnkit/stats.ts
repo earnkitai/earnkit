@@ -44,7 +44,7 @@ export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_pl
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
  * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
- * shows for it ("$115K in grants open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
+ * shows for it ("$115K in grants and prizes open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
  * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
 export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
@@ -158,7 +158,7 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
   const openUsd = Math.round(openMoneyUsd(openRows, now));
   return {
     open_money_usd: openUsd,
-    // v3 Stage 2: the landing's line ("$115K in grants open"), null when no curated program is open.
+    // v3 Stage 2: the landing's line ("$115K in grants and prizes open"), null when no curated program is open.
     open_money_text: openRows.some((p) => openCurated(p, now)) ? openGrantsText(openUsd) : null,
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
