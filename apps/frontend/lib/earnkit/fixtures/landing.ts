@@ -37,6 +37,7 @@ export const homeFixture: Landing = {
   ],
   stats_line: '120 agents earning',
   won_line: null,
-  // landingFrom alone has no Bench parts; landing.test.ts 12.x passes its own.
+  // landingFrom alone has no Bench parts nor a featured builder; landing.test.ts 12.x and v3-landing.test.ts pass their own.
   bench: null,
+  featured: null,
 };

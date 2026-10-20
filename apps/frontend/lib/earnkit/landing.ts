@@ -6,9 +6,10 @@ import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
-import { benchRows, type BenchRow } from './bench-data';
+import { benchCardFacts, benchRows, profileData, type BenchCardFacts, type BenchRow } from './bench-data';
 import { raisingEnabled } from './builder-score-flag';
-import { carouselCards, type FeedCard } from './feed';
+import { feedWeeks, type FeedCard } from './feed';
+import { resolveHandle } from './profiles';
 import type { BenchChain } from './rank';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
@@ -66,11 +67,29 @@ export type Landing = {
   stats_line: string | null;
   /** v2.9 E20: "Builders using EarnKit won $12,500" under the stats line, or null (no announced win with a prize). */
   won_line: string | null;
-  /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and this week's square cards (null from landingFrom alone). */
+  /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and the Feed section's rows (v3 Stage 3: the last finished week's, at most FEED_ROWS; null from landingFrom alone). */
   /** `raising`: EARNKIT_RAISING was on for this read (the Raising chip shows only then). */
   /** `count`: every ranked builder (R18 fix 1: the header count line), not only the 10 rows. */
   bench: { rows: BenchRow[]; count: number; chips: BenchChain[]; cards: FeedCard[]; raising: boolean } | null;
+  /** v3 Stage 3 (spec 5.8): the hero's one real artifact, the featured builder's live profile preview; null from landingFrom alone or when nobody qualifies. */
+  featured: FeaturedData | null;
 };
+
+/**
+ * v3 Stage 3: what the landing's FeaturedCard shows (plain JSON): the share card's facts (the name, @handle, the score
+ * line, the project, the streak), the two latest log lines, `points` (the Shipping number, as BenchRow.points) and
+ * `earned` (profileData.earned.paid_usd, whole dollars; null when the Stage 2 field is missing, so the card omits it).
+ */
+export type FeaturedData = { f: BenchCardFacts; log: { week: string; summary: string | null }[]; points: number; earned: number | null };
+
+/** The landing's Feed section shows at most this many rows of the last finished week. */
+export const FEED_ROWS = 6;
+/** The FeaturedCard shows the two latest log lines. */
+export const FEATURED_LOG = 2;
+/** The featured builder when LANDING_FEATURED_HANDLE is unset: the founder's own page. */
+export const FEATURED_HANDLE_DEFAULT = 'jenilt';
+/** LANDING_FEATURED_HANDLE (trimmed), else FEATURED_HANDLE_DEFAULT. Pure over the env. */
+export const featuredHandle = (): string => process.env.LANDING_FEATURED_HANDLE?.trim() || FEATURED_HANDLE_DEFAULT;
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
 export function statsLine(s: PublicStats): string | null {
@@ -113,13 +132,39 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),
     bench: null,
+    featured: null,
   };
 }
 
-/** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows). Plain JSON. */
+/** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows); v3 Stage 3: the last finished week's feed rows. Plain JSON. */
 async function readBench(now: Date): Promise<Landing['bench']> {
   const { rows, count, chips } = await benchRows({ chain: null, weekly: false }, { limit: 10 });
-  return { rows, count, chips, cards: await carouselCards(now), raising: raisingEnabled() };
+  const [week] = await feedWeeks(now);
+  return { rows, count, chips, cards: (week?.cards ?? []).slice(0, FEED_ROWS), raising: raisingEnabled() };
+}
+
+/**
+ * v3 Stage 3 (spec 5.8, Review Focus 3): the featured builder's preview, or null. The handle (featuredHandle) goes
+ * through resolveHandle (a malformed or unknown handle, or a hidden profile, is null; a case redirect is followed once),
+ * then benchCardFacts and profileData. No score line (unranked, or held: rankLines gives none outside the pool) is null:
+ * the hero never shows a page that cannot show its rank. A missing handle falls back silently; a database failure
+ * rejects like the rest of readLanding.
+ */
+async function readFeatured(now: Date): Promise<FeaturedData | null> {
+  let r = await resolveHandle(featuredHandle(), now);
+  if (r && 'redirect' in r) r = await resolveHandle(r.redirect.replace(/^\/(b\/)?/, ''), now);
+  if (!r || 'redirect' in r) return null;
+  const f = await benchCardFacts(r.builderId);
+  if (!f?.bench) return null;
+  const d = await profileData(r.builderId, now);
+  if (!d || d.score === null) return null;
+  return {
+    f,
+    // The two latest weeks with a line (the summary, else the builder's note); a chips-only week shows nothing worth a row.
+    log: d.log.filter((c) => !c.started && (c.summary || c.text)).slice(0, FEATURED_LOG).map((c) => ({ week: c.week, summary: c.summary ?? c.text ?? null })),
+    points: d.score,
+    earned: Math.round(d.earned.paid_usd),
+  };
 }
 
 /**
@@ -130,7 +175,7 @@ async function readBench(now: Date): Promise<Landing['bench']> {
 export async function readLanding(now = new Date()): Promise<Landing> {
   const cards: Card[] = await listPrograms();
   const stats = await readStats(now);
-  return { ...landingFrom(cards, stats, now), bench: await readBench(now) };
+  return { ...landingFrom(cards, stats, now), bench: await readBench(now), featured: await readFeatured(now) };
 }
 
 /**

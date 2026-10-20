@@ -6831,3 +6831,36 @@ in-between until its task lands. The build and the suite stay green throughout.
 
 Test: `v3-tokens.test.ts` (T1.1 to T1.8: the values and the mirror, contrast, globals.css rules, no raw hex in
 Tailwind, no removed token in `app/`, the primitive strings, SCORE_COLORS from THEME, DESIGN.md's scope).
+
+## v3 Stage 3: the landing (Task 2: a statement, a live card, rows and one action; spec 5.6, 5.8)
+
+- **Composition (`HomeView`).** Hero; Leaderboard (top 10); Feed (the last finished week, at most
+  `FEED_ROWS` = 6); Money open now; Backed by; Footer. A failed read (`landing = null`) renders the hero and
+  Backed by only, claiming nothing about the live parts; an empty bench shows `BENCH_TOP_EMPTY` and no
+  rows, no tiles shows `PROGRAMS_EMPTY`. Every section is `H2` with an optional text link on the same
+  baseline (`TEXT_LINK`), a muted `SUB` line, then a `ROWS` list.
+- **Hero (`Hero.tsx`, `FeaturedCard.tsx`).** `H1` at a 16ch measure, `LEDE`, one `InstallButton`
+  (`BTN_PRIMARY`); the header holds the only other "Add to your agent". Right of the words from md (under
+  them on a phone) sits the featured builder's live preview: avatar, name, @handle, the streak words, the
+  three numbers (Shipping = `points`, Rank = the lead of the score line's rank part via `rankSplit`, Earned
+  when `earned` is not null), the two latest ship log lines; the whole card is one `<a>` to the page. No
+  video, no second button, no stats or won line (`stats_line`/`won_line` stay in `Landing` for `/api/stats`).
+- **Data (`landing.ts`).** `Landing.featured: FeaturedData | null` from `readFeatured`: `featuredHandle()`
+  (`LANDING_FEATURED_HANDLE`, default `FEATURED_HANDLE_DEFAULT = 'jenilt'`) through `resolveHandle` (a case
+  redirect is followed once), `benchCardFacts` (null without a score line: unranked, held or unlisted) and
+  `profileData` (the log minus Started cards, `score` as the Shipping number, `earned.paid_usd` rounded).
+  Hidden, held, unranked and missing handles are null; a database failure rejects like the rest.
+  `readBench` now takes `feedWeeks(now)[0]` sliced to `FEED_ROWS`. The cache key is `landing-v3`.
+- **Rows.** `ProgramRow` (was `ProgramCard`): logo, title with the chips under it, the award on the right
+  from md; `ProgramCards` lists them in one `ROWS` list on the landing and `/programs` alike (the `layout`
+  prop is gone). `FeedRows` wraps the long `UpdateCard` (Task 3 restyles it). `BenchRowItem` lost its md
+  radius, inset and hover tint so it reads as a row (Task 4 restyles it fully). `BackedBy` is a static
+  wrapping row at 40% opacity; `Header` sits in `COLUMN` with a 44px button; `AddToAgent` is a flat sheet on
+  `ek-surface` with wrapping hairline tabs, a `fixed inset-x-0 bottom-0` bottom sheet on phones and a
+  centred sheet from sm.
+- **Deleted.** `public/videos/earnkit-launch.mp4`, `public/images/graphics/*`,
+  `public/images/landing/FINAL_CTA.png`, `public/favicon-16x16.png` (and its reserved name),
+  `CarouselRow.tsx`; `UpdateCarousel.tsx` became `FeedRows.tsx`. `carousel.ts` stays (pure, tested).
+
+Test: `v3-landing.test.ts` ((a) order, (b) two buttons, (c) no old kit, (d) featured against the database,
+(e) null and empty renders, (f) FeaturedCard, (g) the env default, (h) the deletions, (i) the sheet, (j) ProgramRow).

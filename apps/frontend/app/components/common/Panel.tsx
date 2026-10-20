@@ -17,6 +17,8 @@ export const H1 = 'font-funnel-display text-[2.25rem] font-medium leading-[1.05]
 export const H2 = 'font-funnel-display text-2xl font-medium tracking-[-0.02em] text-ek-text md:text-[2rem]';
 /** The one line under a page's title: body colour, a 36rem measure. */
 export const LEDE = 'mt-4 max-w-[36rem] font-funnel-sans text-base text-ek-body md:text-lg';
+/** The one line under a section's title: muted, 16 to 18px. */
+export const SUB = 'mt-2 max-w-[36rem] font-funnel-sans text-base text-ek-muted md:text-lg';
 
 /** A number: Funnel Display, tabular so columns line up. */
 export const NUM = 'font-funnel-display tabular-nums tracking-[-0.02em]';

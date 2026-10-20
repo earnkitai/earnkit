@@ -102,7 +102,7 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "#N" on the right (R18 fix 1; the rank line to screen readers); the header count line', () => {
   const row = { rank: 2, line: 'Top 4% of builders this week', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, weekly: false } }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders this week. Ranked by Shipping points.', FILTER_WEEKLY])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders. Ranked by Shipping.', FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
   assert.match(html, /href="\/leaderboard\?chain=base"/);

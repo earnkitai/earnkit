@@ -41,6 +41,8 @@ export const BENCH_ALLOWED: RegExp[] = [
   // Scoring and clarity: the chain's rank line ("Top 1% of builders on Base this week", "#2 of 12 builders on Arc this week").
   /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain) this week\b/g,
   /\b\d[\d,]* commits?\b/g,
+  // v3 Stage 3 (spec 5.6): the landing's one line says where the ship log comes from.
+  /\bfrom real commits\b/g,
   ...BENCH_PITCH_ALLOWED,
 ];
 /** v3 Stage 2 (spec 5.3 Route 2): "Backing", never "community round", raise, raising or fundraise, in builder text under the Bench. */

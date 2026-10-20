@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { H2 } from '../common/Panel';
 
 const investorLogos = [
   { src: '/images/investors/THE_LAO.png', alt: 'The LAO' },
@@ -13,34 +14,18 @@ const investorLogos = [
   { src: '/images/investors/COOPER_TURLEY.png', alt: 'Cooper Turley' },
 ];
 
-/** v2.13: the label is sentence case (no all-caps labels). v3 Task 1: the marquee keyframes are gone; Task 2 makes this a static row. */
+/** v3 Stage 3 (spec 5.6): the title and the ten logos in one static wrapping row at 40%, white on black. No motion, no fade edges. */
 export default function BackedBy() {
   return (
-    <section aria-label="Backed by" className="flex w-full flex-col items-center gap-8">
-      <p className="font-funnel-sans text-sm text-ek-muted">
-        Backed by
-      </p>
-
-      <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-page before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-page after:to-transparent">
-        <ul className="flex w-fit items-center gap-16 px-8 md:gap-24">
-          {/* Doubled for the seamless loop; the copies are decorative */}
-          {[...investorLogos, ...investorLogos].map((logo, index) => (
-            <li
-              key={`${logo.alt}-${index}`}
-              className="relative h-8 w-28 flex-shrink-0 md:h-10 md:w-36"
-              aria-hidden={index >= investorLogos.length || undefined}
-            >
-              <Image
-                src={logo.src}
-                alt={index < investorLogos.length ? logo.alt : ''}
-                fill
-                className="object-contain opacity-70 brightness-0 invert"
-                sizes="(max-width: 768px) 112px, 144px"
-              />
-            </li>
-          ))}
-        </ul>
-      </div>
+    <section aria-label="Backed by">
+      <h2 className={H2}>Backed by</h2>
+      <ul className="mt-6 flex flex-wrap items-center gap-x-10 gap-y-6 md:mt-8 md:gap-x-14">
+        {investorLogos.map((logo) => (
+          <li key={logo.alt} className="relative h-7 w-24 opacity-40 md:h-8 md:w-32">
+            <Image src={logo.src} alt={logo.alt} fill className="object-contain object-left brightness-0 invert" sizes="(max-width: 768px) 96px, 128px" />
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

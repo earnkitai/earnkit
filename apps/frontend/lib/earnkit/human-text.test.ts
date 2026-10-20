@@ -83,9 +83,9 @@ test('final review M1: humanTextFiles never enters a fixtures directory', () => 
   }
 });
 
-test('final review M1: the client card shares NO_CELL with the agent tables (one empty-cell sentinel)', () => {
+test('final review M1: the client row shares NO_CELL with the agent tables (one empty-cell sentinel)', () => {
   assert.equal(PRESENT_NO_CELL, NO_CELL);
-  const card = readFileSync(join(ROOT, 'apps/frontend/app/components/sections/ProgramCard.tsx'), 'utf8');
+  const card = readFileSync(join(ROOT, 'apps/frontend/app/components/sections/ProgramRow.tsx'), 'utf8');
   assert.match(card, /import \{ NO_CELL \} from '..\/..\/..\/lib\/earnkit\/no-cell';/);
   assert.match(card, /t\.difficulty !== NO_CELL/);
   assert.doesNotMatch(card, /!== ''/);

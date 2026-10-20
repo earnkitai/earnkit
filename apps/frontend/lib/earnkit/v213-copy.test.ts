@@ -114,9 +114,9 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const { homeFixture } = await import('./fixtures/landing');
   const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
   const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
-  const { CAROUSEL_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/UpdateCarousel');
+  const { FEED_SECTION_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/FeedRows');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
+  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, FEED_SECTION_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false };
@@ -144,7 +144,7 @@ test('13.8 no builder-visible bonus text: replies, landing, program pages, guide
     renderToStaticMarkup(React.createElement(TermsPage)),
     renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),
     renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })),
-    renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' })),
+    renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' })),
     ...Object.values(toolDescriptions(true, true)), serverInstructions(),
   ];
   for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));

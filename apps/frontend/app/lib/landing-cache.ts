@@ -10,9 +10,9 @@ import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type GuidePag
  * v2.8: the key moved with the Tile shape (days_left), so a kept cache never serves old tiles. v2.13:
  * the key moved with `bench`. Final fix M4: it names EARNKIT_RAISING, so a flag flip never serves the
  * other variant (landingCacheKey). v2.14: the Tile lost its bonus fields, so the key moved again. R18 fix 1:
- * `bench` gained `count`, so it moved again.
+ * `bench` gained `count`, so it moved again. v3 Stage 3: `featured` joined and the feed rows changed, so it moved again.
  */
-export const landingCacheKey = () => `landing-r18${raisingEnabled() ? '-raising' : ''}`;
+export const landingCacheKey = () => `landing-v3${raisingEnabled() ? '-raising' : ''}`;
 const byKey = new Map<string, () => Promise<Landing>>();
 const cached = () => {
   const key = landingCacheKey();

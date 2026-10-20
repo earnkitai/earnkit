@@ -80,26 +80,29 @@ apps/frontend/
                                and grid, Project tab shows name and what only; launch ready L10: "a private project" in
                                the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
                                line only with a rank, BENCH_SOURCES_LINE without "public data"
-  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow}.tsx  v2.13 T12: the landing's
-                               leaderboard top 10 (R18: no chips), "Shipped this week" carousel, shared carousel
-                               row. R18: BenchHowItWorks deleted; the hero has one subtitle (no raising variant)
+  app/components/sections/{BenchTop,FeedRows,FeaturedCard}.tsx  v2.13 T12, v3 Stage 3 T2: the landing's
+                               Leaderboard top 10 as hairline rows (benchLine "N builders. Ranked by Shipping.",
+                               BENCH_TOP_EMPTY), the Feed section (FEED_SECTION_TITLE, the last finished week's rows as
+                               long UpdateCards, "See all"), and FeaturedCard (the hero's live profile preview: name,
+                               @handle, streak, Shipping / Rank / Earned, two log lines; one link to the page).
+                               UpdateCarousel and CarouselRow are gone (carousel.ts stays, tested, unused)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
-                               BenchTop, UpdateCarousel, ProgramCards, BackedBy, Footer; R18: no coins, no steps);
-                               landing null (failed read) → hero without stats line, no cards (Ruling 21)
-  app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE (the Bench text only since v2.14 T3), the
-                               install and demo buttons, statsLine; nothing else
+  app/HomeView.tsx             v2.7 §1, v3 Stage 3 T2: the pure home render (Hero, BenchTop, FeedRows,
+                               ProgramCards "Money open now", BackedBy, Footer); landing null (failed read) → hero and
+                               Backed by only (no empty lines); empty bench / no tiles → the one empty line each
+  app/components/sections/Hero.tsx  v3 Stage 3: BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, one InstallButton
+                               (BTN_PRIMARY) and the FeaturedCard on the right from md; no video, no stats line
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
-                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v28'), else null with no per-id read;
+                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards
-                               (layout="grid", heading h1, v2.7.1 figure = landing.open_text, the landing's pool
+  app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards rows
+                               (heading h1, v2.7.1 figure = landing.open_text, the landing's pool
                                total); getLanding() null → "Programs are unavailable…"
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
@@ -117,12 +120,11 @@ apps/frontend/
                                `after` approve lines
   app/components/sections/{ProgramCards,ProgramLogo}.tsx  v2.7 §1 landing sections (HowItWorks.tsx deleted in v2.14 T3);
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
-                               v2.8 ProgramCards: h2/h1, `figure` "open right now", one "Ask your agent",
-                               then every tile as a ProgramCard: layout "carousel" (home: scroll-snap row,
-                               md+ Previous/Next arrows) or "grid" (/programs); no eyebrow, no "See all";
-  app/components/sections/ProgramCard.tsx  v2.8 Ruling 21: one slim card, a whole-card link to
-                               /programs/<id> (aria-label "<title>, <prize>"): logo, title, big line,
-                               per-winner line, days-left and difficulty-word chips; no buttons (BonusPill gone in v2.14 T3)
+                               v2.8 ProgramCards, v3 Stage 3: h2/h1, `figure` and `more` lines, then every tile as a
+                               ProgramRow in one hairline list (ROWS); no carousel, no grid; PROGRAMS_EMPTY with no tiles
+  app/components/sections/ProgramRow.tsx  v2.8 Ruling 21, v3 Stage 3 (was ProgramCard): one hairline row, a whole-row link to
+                               /programs/<id> (aria-label "<title>, <prize>"): logo, title with the days-left / In person /
+                               difficulty chips under it, the award (and per-winner line) on the right from md; no buttons
   app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
                                arrowState (prev/next enabled; both off when nothing overflows);
                                HowItWorks exports HOW_TITLE "How you earn" and STEPS, a Panel with a

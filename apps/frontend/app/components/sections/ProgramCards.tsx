@@ -1,23 +1,21 @@
-'use client';
-
-import CarouselRow from './CarouselRow';
-import ProgramCard from './ProgramCard';
-import { H1, H2, LEDE } from '../common/Panel';
+import ProgramRow from './ProgramRow';
+import { H1, H2, LEDE, ROWS, SUB } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
+/** v3 Stage 3: the Money section with no open program. */
+export const PROGRAMS_EMPTY = 'No programs are open right now.';
+
 /**
- * v2.8 Rulings 20, 21 (plan), R18: the title, the money line ("$115K in grants and prizes open", v3 Stage 2) and what it leaves out,
- * then every open curated program as a slim card (ProgramCard; each opens its guide, where the agent
- * is one tap away), Base first (landing.ts byRelevance). Home: one carousel row (CarouselRow).
- * /programs: the same cards in a grid (`layout="grid"`, heading h1).
- * v2.13 (`bench`, the landing): the title is "Money open now" (O5 P10).
+ * v2.8 Rulings 20, 21 (plan), R18, v3 Stage 3 (spec 5.6): the title, the money line ("$115K in grants and prizes
+ * open", v3 Stage 2) and what it leaves out, then every open curated program as a hairline row (ProgramRow; each
+ * opens its guide, where the agent is one tap away), Base first (landing.ts byRelevance). The landing (`bench`)
+ * titles it "Money open now" (O5 P10); /programs keeps "Open programs" as its h1 until Task 4. No carousel, no grid.
  */
 export default function ProgramCards({
   tiles,
   figure = null,
   more = null,
   heading = 'h2',
-  layout = 'carousel',
   bench = false,
 }: {
   tiles: Tile[];
@@ -25,45 +23,29 @@ export default function ProgramCards({
   figure?: string | null;
   /** v3 Stage 2: what the total leaves out ("Plus 2 accelerators and 1 hackathon.", landing.open_more), a second muted line. */
   more?: string | null;
-  /** v2.7 /programs: the cards are the page, so their heading is its h1. */
+  /** v2.7 /programs: the rows are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
-  layout?: 'carousel' | 'grid';
   /** v2.13: the landing (its title). */
   bench?: boolean;
 }) {
   const Heading = heading;
   // v2.13.1 O5 (P10): the list includes investments (a16z speedrun), so "Money", not "Grants".
   const title = bench ? 'Money open now' : 'Open programs';
-
-  const head = (
-    <div>
-      <Heading className={heading === 'h1' ? H1 : H2}>{title}</Heading>
-      {figure && <p className={heading === 'h1' ? LEDE : 'mt-2 font-funnel-sans text-base text-ek-muted md:text-lg'}>{figure}</p>}
-      {figure && more && <p className="mt-1 font-funnel-sans text-sm text-ek-muted">{more}</p>}
-    </div>
-  );
-
   return (
     <section id="open-programs" aria-label={title}>
-      {layout === 'carousel' ? (
-        <CarouselRow label={title} arrows="programs" head={head} count={tiles.length}>
+      <Heading className={heading === 'h1' ? H1 : H2}>{title}</Heading>
+      {figure ? <p className={heading === 'h1' ? LEDE : SUB}>{figure}</p> : null}
+      {figure && more ? <p className="mt-1 font-funnel-sans text-sm text-ek-muted">{more}</p> : null}
+      {tiles.length > 0 ? (
+        <ul aria-label={title} className={`${ROWS} mt-6 md:mt-8`}>
           {tiles.map((t) => (
-            <li key={t.id} className="w-[85%] flex-shrink-0 snap-start sm:w-[48%] lg:w-[31.5%]">
-              <ProgramCard tile={t} />
+            <li key={t.id}>
+              <ProgramRow tile={t} />
             </li>
           ))}
-        </CarouselRow>
+        </ul>
       ) : (
-        <>
-          {head}
-          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 md:mt-10">
-            {tiles.map((t) => (
-              <li key={t.id}>
-                <ProgramCard tile={t} />
-              </li>
-            ))}
-          </ul>
-        </>
+        <p className={SUB}>{PROGRAMS_EMPTY}</p>
       )}
     </section>
   );

@@ -8,14 +8,15 @@ import { COLUMN } from './Panel';
 const LINK = 'inline-flex min-h-11 items-center text-ek-muted transition-colors hover:text-ek-text';
 
 /**
- * R18: a quiet footer under a hairline: the wordmark and tagline, the links in one row, the
- * company line. No columns, no titles, no large faded logo.
+ * R18, v3 Stage 3 (spec 5.6): a quiet footer under a hairline: the wordmark and tagline, the links of
+ * FOOTER_COLUMNS in one wrapping row (the column titles group them in code only), the company line.
+ * Nothing uppercase, no large faded logo.
  */
 export default function Footer() {
   const links = FOOTER_COLUMNS.flatMap((c) => c.links);
   return (
-    <footer className={`${COLUMN} mt-16 pb-10 md:mt-24`}>
-      <div className="flex flex-col gap-6 border-t border-ek-line pt-8 md:flex-row md:items-start md:justify-between">
+    <footer className={`${COLUMN} mt-14 pb-10 md:mt-24 md:pb-14`}>
+      <div className="flex flex-col gap-6 border-t border-ek-line pt-8 md:flex-row md:items-start md:justify-between md:pt-10">
         <div className="flex flex-col items-start gap-1">
           <Link href="/" className="inline-flex min-h-11 items-center text-ek-text">
             <Wordmark className="h-5 w-auto" />

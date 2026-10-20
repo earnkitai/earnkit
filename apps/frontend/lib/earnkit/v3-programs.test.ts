@@ -27,7 +27,7 @@ import { fileCards } from './fixtures/fresh-build';
 import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import ProgramCard from '../../app/components/sections/ProgramCard';
+import ProgramRow from '../../app/components/sections/ProgramRow';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 
 (globalThis as { React?: typeof React }).React = React;
@@ -84,8 +84,8 @@ test('(a) an upcoming program is listed with "not open yet", never a fit, never 
   assert.equal(tile?.status, 'upcoming');
   assert.ok(!(await openProgramFacts()).some((p) => p.id === id), 'never a fit');
   assert.equal(openMoneyUsd([c]), 0, 'never in the total');
-  // The card chip reads "Not open yet"; an in-person program adds "In person".
-  const h = renderToStaticMarkup(React.createElement(ProgramCard, { tile: { ...tile!, in_person: true } }));
+  // The row's chip reads "Not open yet"; an in-person program adds "In person".
+  const h = renderToStaticMarkup(React.createElement(ProgramRow, { tile: { ...tile!, in_person: true } }));
   const chips = [...h.matchAll(/<span class="ek-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(chips.slice(0, 2), ['Not open yet', 'In person']);
 });

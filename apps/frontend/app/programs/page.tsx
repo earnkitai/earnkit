@@ -15,7 +15,7 @@ export function generateMetadata() {
   };
 }
 
-/** Ruling 22 (plan), v2.8 Ruling 20: every open curated program as a slim card, in a grid. */
+/** Ruling 22 (plan), v2.8 Ruling 20, v3 Stage 3: every open curated program as a row (ProgramRow). */
 export default async function ProgramsPage() {
   const landing = await getLanding();
   if (!landing) return <Unavailable text="Programs are unavailable right now. Try again in a few minutes." />;
@@ -23,7 +23,7 @@ export default async function ProgramsPage() {
     <>
       <div className={`${COLUMN} pt-8 md:pt-12`}>
         {landing.tiles.length > 0 ? (
-          <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} more={landing.open_more} layout="grid" />
+          <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} more={landing.open_more} />
         ) : (
           <section aria-label="Open programs">
             <h1 className={H1}>Open programs</h1>
