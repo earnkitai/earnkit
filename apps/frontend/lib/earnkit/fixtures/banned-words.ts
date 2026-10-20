@@ -12,7 +12,7 @@ export function bannedIn(text: string, exempt: string[]): string[] {
 }
 
 /**
- * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc", now "Top 1% of builders on Base this week") may name a chain, and a fact
+ * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc", now "Top 1% of builders on Base") may name a chain, and a fact
  * chip may count commits ("12 commits"); both are stripped before the check. BENCH_PITCH_ALLOWED
  * (F10): the program pitch "who" names ("Arc pays up to $10K for payment apps.") and the starter
  * offer ("a tip jar on Arc"); Task 8 extends this list. BENCH_EXTRA: words the v2.13 surfaces
@@ -38,8 +38,8 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,
-  // Scoring and clarity: the chain's rank line ("Top 1% of builders on Base this week", "#2 of 12 builders on Arc this week").
-  /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain) this week\b/g,
+  // Scoring and clarity, v3 Stage 3 (never "this week"): the chain's rank line ("Top 1% of builders on Base", "#2 of 12 builders on Arc").
+  /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain)\b/g,
   /\b\d[\d,]* commits?\b/g,
   // v3 Stage 3 (spec 5.6): the landing's one line says where the ship log comes from.
   /\bfrom real commits\b/g,

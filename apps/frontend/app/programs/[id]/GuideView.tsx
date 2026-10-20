@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import Footer from '../../components/common/Footer';
-import { COLUMN, Panel } from '../../components/common/Panel';
-import { BTN_SECONDARY } from '../../components/common/Button';
+import { COLUMN, H1, H2, ROWS } from '../../components/common/Panel';
+import { TEXT_LINK } from '../../components/common/Button';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
 import { difficultyBasis, difficultyLabel, wonHeading, type GuideSource } from '../../../lib/earnkit/guide';
@@ -17,11 +17,11 @@ export const askPrompt = (title: string) => `What can I earn on ${title}?`;
 
 const LINK = 'text-ek-body underline underline-offset-4 transition-colors hover:text-ek-text';
 
-/** One guide part: the heading left, its one-line items right (stacked on mobile); hairlines between parts. */
+/** One guide part, a hairline row: the heading left, its items right (stacked on a phone). */
 function Part({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="grid gap-4 border-t border-ek-line py-8 first:border-t-0 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-10">
-      <h2 className="font-funnel-display text-xl font-medium text-ek-text md:text-2xl">{title}</h2>
+    <section aria-label={title} className="grid gap-4 border-t border-ek-line py-8 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-10">
+      <h2 className={H2}>{title}</h2>
       {children}
     </section>
   );
@@ -39,7 +39,7 @@ function WonLine({ line }: { line: string }) {
   );
 }
 
-/** "Sources:" links, each the canonical https form (shownUrl), labelled by what it backs. */
+/** "Sources:" links, each the canonical https form (shownUrl), labelled by what it backs, spaced apart. */
 function Sources({ sources }: { sources: GuideSource[] }) {
   const links = sources.flatMap((s) => {
     const url = shownUrl(s.url);
@@ -47,52 +47,48 @@ function Sources({ sources }: { sources: GuideSource[] }) {
   });
   if (links.length === 0) return null;
   return (
-    <p className="font-funnel-sans text-sm leading-relaxed text-ek-muted">
-      Sources:{' '}
-      {links.map((l, i) => (
-        <span key={l.url}>
-          {i > 0 && ' · '}
-          <a
-            href={l.url}
-            title={new URL(l.url).hostname}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`${LINK} inline-block py-1.5`}
-          >
-            {l.label}
-          </a>
-        </span>
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 font-funnel-sans text-sm text-ek-muted">
+      <span>Sources:</span>
+      {links.map((l) => (
+        <a key={l.url} href={l.url} title={new URL(l.url).hostname} target="_blank" rel="noopener noreferrer" className={`${LINK} inline-flex min-h-11 items-center`}>
+          {l.label}
+        </a>
       ))}
     </p>
   );
 }
 
 /**
- * v2.7 §2, Ruling 22 (plan): one curated program's guide (/programs/<id>). Pure: the header (logo,
- * title, prize and end, difficulty with its basis), then one panel per guide part that has data
- * (what won, what the ecosystem wants, the best bet), then "Ask your agent" (not on a closed
- * program), the sources and the footer. Same text as get_program (guide.ts).
+ * v2.7 §2, Ruling 22 (plan), v3 Stage 3 (spec 5.8): one curated program's guide (/programs/<id>). Pure: the logo
+ * beside the title, the facts as separate muted spans (the award, when it closes or "rolling" or "not open yet",
+ * the chain), an upcoming program's opens_note, the Difficulty line with its basis, "Ask your agent" (open programs
+ * only), then one hairline row per guide part that has data (what won, what the ecosystem wants, the best bet),
+ * "All programs" and the sources. Same text as get_program (guide.ts).
  */
 export default function GuideView({ page }: { page: GuidePage }) {
   const g = page.guide;
-  const facts = g.header.startsWith(`${page.title} · `) ? g.header.slice(page.title.length + 3) : g.header;
+  const facts = (g.header.startsWith(`${page.title} · `) ? g.header.slice(page.title.length + 3) : g.header).split(' · ');
+  const chain = page.any_chain ? ANY_CHAIN : page.chain ?? null;
+  if (chain) facts.push(chain);
   const parts = Boolean(g.won || g.wants || g.best_bet);
   return (
     <>
       <div className={`${COLUMN} pt-8 md:pt-12`}>
         <section aria-label={page.title}>
           <div className="flex items-center gap-4 md:gap-5">
-            <ProgramLogo logo={page.logo} title={page.title} size={48} />
-            <h1 className="min-w-0 font-funnel-display text-3xl font-medium leading-tight tracking-[-0.02em] text-ek-text md:text-5xl">
-              {page.title}
-            </h1>
+            <ProgramLogo logo={page.logo} title={page.title} size={56} />
+            <h1 className={`${H1} min-w-0 [overflow-wrap:break-word]`}>{page.title}</h1>
           </div>
-          <p className="mt-5 font-funnel-display text-xl font-medium text-ek-text md:text-2xl">
-            {page.any_chain ? `${facts} · ${ANY_CHAIN}` : facts}
+          <p className="mt-5 flex flex-col gap-y-1 font-funnel-sans text-base text-ek-muted md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:text-lg">
+            {facts.map((f, i) => (
+              <span key={f} className={i > 0 ? 'md:border-l md:border-ek-line md:pl-4' : ''}>
+                {f}
+              </span>
+            ))}
           </p>
-          {/* v3 Stage 2: an upcoming program's one line (opens_note) under the header; it has no Ask button (page.open is false). */}
-          {page.upcoming && g.opens_note && <p className="mt-2 font-funnel-sans text-base text-ek-body">{g.opens_note}</p>}
-          <dl className="mt-2 font-funnel-sans text-base text-ek-muted">
+          {/* v3 Stage 2: an upcoming program's one line (opens_note) under the facts; it has no Ask button (page.open is false). */}
+          {page.upcoming && g.opens_note && <p className="mt-3 max-w-[36rem] font-funnel-sans text-base text-ek-body md:text-lg">{g.opens_note}</p>}
+          <dl className="mt-3 font-funnel-sans text-base text-ek-muted">
             <dt className="inline">Difficulty:</dt>{' '}
             <dd className="inline">
               {/* v2.8 Ruling 12 (plan): an EarnKit rating is the level alone, no basis. */}
@@ -106,20 +102,20 @@ export default function GuideView({ page }: { page: GuidePage }) {
             </dd>
           </dl>
           {page.open && (
-            <div className="mt-6">
+            <div className="mt-8">
               <AskAgent prompt={askPrompt(page.title)} />
             </div>
           )}
         </section>
 
         {parts && (
-          <Panel className="mt-8 py-2 md:mt-10">
+          <div className={`${ROWS} mt-10 md:mt-14`}>
             {g.won && (
               <Part title={wonHeading(g.won)}>
                 <div>
                   {/* Ruling C12: the event behind a round that isn't this program's own. */}
                   {g.won.event && <p className="mb-3 font-funnel-sans text-sm text-ek-muted">{g.won.event}</p>}
-                  <ul className="space-y-2 font-funnel-sans text-base text-ek-body">
+                  <ul className="space-y-2 font-funnel-sans text-base text-ek-body md:text-lg">
                     {g.won.lines.map((l) => (
                       <li key={l}>
                         <WonLine line={l} />
@@ -132,7 +128,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
 
             {g.wants && (
               <Part title={`What ${g.wants.ecosystem} wants now`}>
-                <ul className="flex flex-wrap gap-2 font-funnel-sans text-base text-ek-body">
+                <ul className="flex flex-wrap gap-2 self-center font-funnel-sans text-base text-ek-body">
                   {g.wants.areas.map((a) => (
                     <li key={a} className="rounded-full bg-ek-chip px-4 py-2">
                       {a}
@@ -144,16 +140,16 @@ export default function GuideView({ page }: { page: GuidePage }) {
 
             {g.best_bet && (
               <Part title="Your best bet">
-                <ul>
-                  <li className="font-funnel-display text-xl font-medium text-ek-text">{g.best_bet}</li>
+                <ul className="self-center">
+                  <li className="font-funnel-display text-xl font-medium text-ek-text md:text-2xl">{g.best_bet}</li>
                 </ul>
               </Part>
             )}
-          </Panel>
+          </div>
         )}
 
-        <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <Link href="/programs" className={`${BTN_SECONDARY} self-start`}>
+        <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between md:mt-10">
+          <Link href="/programs" className={TEXT_LINK}>
             All programs
           </Link>
           <Sources sources={page.sources} />

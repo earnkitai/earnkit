@@ -36,7 +36,7 @@ export async function rankLines(builderId: number, o: { only?: number[] } = {}):
       AND ${benchConfirmedSql(sql())}
     JOIN builder_live l ON l.builder_id = p.builder_id WHERE p.builder_id = ${builderId}`;
   if (!me) return unranked();
-  // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder this week").
+  // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder").
   const bench = rankLine(s);
   const out: RankLines = { bench, line: bench ? scoreLine(s.score, bench) : null, chains: [] };
   for (const chain of BENCH_CHAINS) {

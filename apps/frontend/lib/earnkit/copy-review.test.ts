@@ -1215,6 +1215,12 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
   for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
 });
 
+test('v3 Stage 3 (spec 5.2): never "this week" within 20 characters after "builders" (the rank line is "of N builders")', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
+  for (const [label, text] of all) assert.doesNotMatch(text, /builders.{0,20}this week/, label);
+  assert.ok(builderFacing.some(([, text]) => /of \d+ builders/.test(text)), 'the scan sees a rank line');
+});
+
 test('v2.9 Task 12: never an em dash in builder-facing text', async () => {
   for (const [label, text] of [...builderFacing, ...(await gatherGateReasons())]) assert.doesNotMatch(text, /\u2014/, label);
 });

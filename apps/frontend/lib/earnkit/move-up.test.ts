@@ -110,7 +110,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const [stand, , up] = s.split('\n\n');
   const lines = stand.split('\n');
   assert.equal(lines[0], 'Where you stand');
-  assert.match(lines[1], /^Kit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/, s);
+  assert.match(lines[1], /^Kit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/, s);
   assert.match(lines[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks)/, 'the why sentence');
   const fund = fundPart(s);
   assert.ok(fund.length >= 1 && fund.length <= 3, s);
@@ -172,7 +172,7 @@ test('R16a: the four states\' copy, one table (signed_out, no_project, not_count
   assert.equal(STATE_COPY.signed_out.stand(), NOT_ON_BENCH);
   assert.equal(STATE_COPY.no_project.stand(), NOT_ON_BENCH);
   assert.equal(STATE_COPY.not_counted.stand('Kit'), "Kit isn't counted yet.");
-  assert.equal(STATE_COPY.ranked.stand('Kit', 72, '#3 of 40 builders this week'), 'Kit: Shipping 72 · #3 of 40 builders this week.');
+  assert.equal(STATE_COPY.ranked.stand('Kit', 72, '#3 of 40 builders'), 'Kit: Shipping 72 · #3 of 40 builders.');
   assert.equal(STATE_COPY.ranked.ask(), 'Ship this week to climb.');
   // The other states keep their next steps: sign in, name a repo, install the App.
   assert.match(STATE_COPY.signed_out.ask('https://x'), /^Sign in with X/);

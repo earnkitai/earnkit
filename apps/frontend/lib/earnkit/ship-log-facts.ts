@@ -57,7 +57,7 @@ export async function shipLogFacts(builderId: number, now: Date): Promise<ShipLo
 }
 
 /**
- * The block's lines: "From your ship log:", the score line ("Shipping 72 · #3 of 40 builders this week"), the why
+ * The block's lines: "From your ship log:", the score line ("Shipping 72 · #3 of 40 builders"), the why
  * sentence, "3 weeks in a row" (2 or more), "Live: <site>", "Page: earnkit.com/<handle>". Statements only. Pure.
  */
 export function shipLogBlock(f: ShipLogFacts): string[] {

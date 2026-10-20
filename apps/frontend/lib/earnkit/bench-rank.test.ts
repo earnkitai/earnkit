@@ -31,14 +31,14 @@ test('7.4 R16e a chain\'s line shows from one ranked project on it, in the main 
   assert.equal(pools.arc, 9);
   assert.equal(pools.robinhood, 0);
   const lines = await rankLines(me, { only });
-  assert.equal(lines.bench, '#1 of 19 builders this week');
-  assert.equal(lines.line, 'Shipping 59 · #1 of 19 builders this week');
-  assert.deepEqual(lines.chains, [{ chain: 'base', label: 'Base', line: '#1 of 10 builders on Base this week' }]);
+  assert.equal(lines.bench, '#1 of 19 builders');
+  assert.equal(lines.line, 'Shipping 59 · #1 of 19 builders');
+  assert.deepEqual(lines.chains, [{ chain: 'base', label: 'Base', line: '#1 of 10 builders on Base' }]);
   const arcTop = arc[8];
-  assert.deepEqual((await rankLines(arcTop, { only })).chains, [{ chain: 'arc', label: 'Arc', line: '#1 of 9 builders on Arc this week' }], 'no 10-builder minimum');
+  assert.deepEqual((await rankLines(arcTop, { only })).chains, [{ chain: 'arc', label: 'Arc', line: '#1 of 9 builders on Arc' }], 'no 10-builder minimum');
   const low = base[0]; // score 50: behind the 9 higher Base scores, ahead of all 9 Arc scores
-  assert.equal((await rankLines(low, { only })).bench, '#10 of 19 builders this week');
-  assert.deepEqual((await rankLines(low, { only })).chains, [{ chain: 'base', label: 'Base', line: '#10 of 10 builders on Base this week' }], 'every ranked builder sees a rank');
+  assert.equal((await rankLines(low, { only })).bench, '#10 of 19 builders');
+  assert.deepEqual((await rankLines(low, { only })).chains, [{ chain: 'base', label: 'Base', line: '#10 of 10 builders on Base' }], 'every ranked builder sees a rank');
 });
 
 test('hotfix 2026-10-19: a public rank shows only inside the leaderboard pool (held, hidden or unlisted: none); the reply keeps its place', dbTest, async () => {
@@ -48,8 +48,8 @@ test('hotfix 2026-10-19: a public rank shows only inside the leaderboard pool (h
   const a = await listed(30, []);
   const b = await listed(20, []);
   const only = [a, b];
-  assert.equal((await rankLines(b, { only })).bench, '#2 of 2 builders this week');
-  assert.equal((await personFacts(b, { only }))?.rank, '#2 of 2 builders this week');
+  assert.equal((await rankLines(b, { only })).bench, '#2 of 2 builders');
+  assert.equal((await personFacts(b, { only }))?.rank, '#2 of 2 builders');
   for (const [what, set, unset] of [
     ['held', sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${b}`, sql()`UPDATE builder_profiles SET held = false WHERE builder_id = ${b}`],
     ['hidden', sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${b}`, sql()`UPDATE builder_profiles SET hidden = false WHERE builder_id = ${b}`],
@@ -64,5 +64,5 @@ test('hotfix 2026-10-19: a public rank shows only inside the leaderboard pool (h
     assert.deepEqual([s.ranked, s.listed, s.rank], [true, false, 2], `${what}: the private reply still has a place`);
     await unset;
   }
-  assert.equal((await rankLines(b, { only })).bench, '#2 of 2 builders this week');
+  assert.equal((await rankLines(b, { only })).bench, '#2 of 2 builders');
 });

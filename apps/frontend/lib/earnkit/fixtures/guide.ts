@@ -36,6 +36,7 @@ const page = (facts: Facts, o: Partial<GuidePage> = {}): GuidePage => {
     open: facts.status === 'active',
     upcoming: false,
     any_chain: false,
+    chain: 'Arc',
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),
     ecosystem: guide.wants?.ecosystem ?? 'Arc',
@@ -56,6 +57,11 @@ export const emptyGuide = page(
 );
 /** Ruling 22 (plan): a closed program still renders, header "· closed", no "Ask your agent". */
 export const closedGuide = page({ ...arcFacts, status: 'closed' });
+/** v3 Stage 2, Stage 3 Task 4: an upcoming program: "not open yet", its opens_note under the facts, no "Ask your agent". */
+export const upcomingGuide = page(
+  { ...arcFacts, title: 'Base Batches 005', summary: '$50K in prizes · opens soon', ends_at: null, status: 'upcoming', opens_note: 'Applications open in November. Build on Base now.', past_rounds: [], focus: null, best_bet: null },
+  { open: false, upcoming: true, chain: 'Base' },
+);
 /**
  * Ruling C2/C3: what every real program shows after Task 8: a predecessor round (not own), so
  * "What won before" and a basis naming the round.

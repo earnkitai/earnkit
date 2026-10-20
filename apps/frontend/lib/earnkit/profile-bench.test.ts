@@ -38,7 +38,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27
 
 test('11.1 the header: photo, name, @handle, the score line (R16c) then each chain line with its logo; the pill on the Money tab (v3 Stage 3)', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
+  for (const s of ['Maya Chen', '@maya_makes', 'Shipping 62 · Top 4% of builders', 'Top 4%', 'of builders', 'Top 1% of builders on Base']) assert.ok(h.includes(s), s);
   assert.ok(h.indexOf('Top 4%') < h.indexOf('Top 1% of builders on Base'));
   assert.match(h, /alt="Base"/);
   // v3 Stage 3 (spec 5.6): the header carries Share and the Back button; the coin's pill sits in the Money tab's Backing group.
@@ -126,7 +126,7 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
   // Launch ready L5: the weekly target (alone in the pool: hold #1).
   assert.equal(d.target, 'Code this week adds +14 points to hold #1.');
-  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder this week');
+  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder');
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
   assert.equal(d.grid.filter((g) => g.on).length, 2);
@@ -215,7 +215,7 @@ test('11.12 scoring and clarity: no Community round chip on any card (the header
 
 test('11.14 (fix round 1) the share post\'s words: the Bench line, else the confirmed project and streak, else the page', async () => {
   const { benchShareText } = await import('./bench-data');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders this week', project: 'Recipe planner', streak: 6 }), 'Shipping 62 · Top 4% of builders this week at EarnKit.');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: 'Recipe planner', streak: 6 }), 'Shipping 62 · Top 4% of builders at EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), 'Shipping Recipe planner, 6 weeks in a row, on EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 0 }), 'Shipping Recipe planner on EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');

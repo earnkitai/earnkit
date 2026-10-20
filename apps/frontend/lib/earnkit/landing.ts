@@ -204,6 +204,8 @@ export type GuidePage = {
   upcoming: boolean;
   /** v2.8 Ruling 13 (plan), Task 3 carry: the program fits any chain; the page says "Any chain". */
   any_chain: boolean;
+  /** v3 Stage 3 Task 4: the chains as one fact ("Base", "Base, Tempo, Robinhood Chain"), null for any chain or none. */
+  chain: string | null;
   /** The program's own page. */
   source_url: string;
   /** The program's own page, then every source the guide's facts rest on, labelled by role. */
@@ -234,6 +236,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
     upcoming: row.status === 'upcoming' && (row.ends_at === null || row.ends_at > now),
     any_chain: row.any_chain === true,
+    chain: row.any_chain ? null : (row.chains ?? []).map((ch) => CHAIN_NAMES[ch]).filter(Boolean).join(', ') || null,
     source_url: row.source_url,
     // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).
     sources: guideSourceList(row, [

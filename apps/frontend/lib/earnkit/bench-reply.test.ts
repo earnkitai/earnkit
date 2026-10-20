@@ -11,7 +11,7 @@ const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, l
 
 test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, fits with deadline and why; L5: the weekly target)', () => {
   const v: BenchView = {
-    state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders this week', handle: 'maya_makes', link: null,
+    state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders', handle: 'maya_makes', link: null,
     score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: null,
     target: 'Ship code this week: +14 points, enough to pass #2.', share: null,
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'rolling', why: 'You build on Avalanche.' }], due: [],
@@ -19,7 +19,7 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, 
   };
   assert.equal(benchReply(v), [
     'Where you stand',
-    'Recipe planner: Shipping 62 · Top 18% of builders this week.',
+    'Recipe planner: Shipping 62 · Top 18% of builders.',
     'Code in 7 of the last 12 weeks, 3 of the last 4.',
     'Your page: https://earnkit.com/maya_makes',
     '',
@@ -33,7 +33,7 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, 
 
 test('8.4 the stand line is the score line (R16c), with and without a rank; no streak words (R16a: it lives in the score)', () => {
   assert.equal(STATE_COPY.ranked.stand('A', 0, null), 'A: Shipping 0.');
-  assert.equal(STATE_COPY.ranked.stand('A', 40, '#3 of 12 builders this week'), 'A: Shipping 40 · #3 of 12 builders this week.');
+  assert.equal(STATE_COPY.ranked.stand('A', 40, '#3 of 12 builders'), 'A: Shipping 40 · #3 of 12 builders.');
   assert.equal(STATE_COPY.ranked.stand('A', null, null), 'A is counted. Its Shipping score comes with the next read.');
 });
 

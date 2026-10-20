@@ -152,7 +152,7 @@ export type ProfileData = {
    */
   earned: { paid_usd: number; waiting_usd: number };
   bench: string | null;
-  /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders this week"), null while unranked. */
+  /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders"), null while unranked. */
   line: string | null;
   chainLines: { chain: BenchChain; label: string; line: string }[];
   /** Shipping, 0 to 100 (null: no rank line, so no score shown), and why it is what it is (score-v2.ts scoreWhy). */

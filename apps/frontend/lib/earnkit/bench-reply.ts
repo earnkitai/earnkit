@@ -60,7 +60,7 @@ export const applyAsk = (title: string, when: string) => `${title} closes ${when
 /** Launch ready L6: the weekly moment's one next step, in place of the target (one link, one question). */
 export const shareAsk = (link: string) => `Share your week on X: ${link}\nDoes last week look right?`;
 /**
- * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week."
+ * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders."
  * Before its first Shipping score (no row yet, or one from an older formula): the project is counted.
  */
 export const shippingStand = (name: string, score: number | null, rank: string | null) =>

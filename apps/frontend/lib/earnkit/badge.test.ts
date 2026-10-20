@@ -45,8 +45,8 @@ async function listed(score: number): Promise<{ id: number; handle: string }> {
 }
 
 test('L8 the value: the score and the rank\'s lead inside the pool, else "not ranked" (never a bare score)', () => {
-  assert.equal(badgeValue({ rank: '#3 of 40 builders this week', score: 72 }), 'Shipping 72 · #3');
-  assert.equal(badgeValue({ rank: 'Top 4% of builders this week', score: 88 }), 'Shipping 88 · Top 4%');
+  assert.equal(badgeValue({ rank: '#3 of 40 builders', score: 72 }), 'Shipping 72 · #3');
+  assert.equal(badgeValue({ rank: 'Top 4% of builders', score: 88 }), 'Shipping 88 · Top 4%');
   assert.equal(badgeValue({ rank: null, score: 72 }), 'not ranked');
 });
 
@@ -77,7 +77,8 @@ test('L8 the profile offers the markdown, quietly, under the sources line', () =
   assert.ok(h.includes(BADGE_COPY_LINE));
   assert.ok(h.includes(badgeMarkdown(DATA.handle).replace(/&/g, '&amp;')), 'the markdown is shown');
   assert.match(h, /aria-label="Copy the badge markdown"/);
-  assert.equal(BADGE_COPY_LINE, 'Add the badge to your README');
+  // v3 Stage 3 (the profile): one quiet line, the image always shown, the markdown behind it.
+  assert.equal(BADGE_COPY_LINE, 'Badge for your README');
 });
 
 test('L8 a listed builder\'s badge has their score and rank; unlisted (held or hidden) shows no rank or not found; unknown is the not-found badge', dbTest, async () => {

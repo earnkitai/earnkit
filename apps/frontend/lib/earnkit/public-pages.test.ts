@@ -129,7 +129,10 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
   const h = guideHtml(emptyGuide);
   const t = text(h);
   assert.match(h, /<h1[^>]*>Circle Developer Grants<\/h1>/);
-  assert.ok(t.includes('milestone-based USDC grants · rolling'));
+  // v3 Stage 3 Task 4: the facts are separate spans (the award, "rolling"), not one dotted string.
+  assert.match(h, /<span[^>]*>milestone-based USDC grants<\/span>/);
+  assert.match(h, /<span[^>]*>rolling<\/span>/);
+  assert.ok(!t.includes('grants · rolling'));
   assert.ok(t.includes('Difficulty: Medium (estimate). No past results yet.'));
   assert.doesNotMatch(h, /<h2/);
   assert.doesNotMatch(t, /Builder bonus/);
@@ -142,7 +145,9 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
 test('Ruling 22 (plan): a closed program still renders, "· closed", with no "Ask your agent"', () => {
   const h = guideHtml(closedGuide);
   const t = text(h);
-  assert.ok(t.includes('500 USDC × 20 grants · closed'));
+  assert.match(h, /<span[^>]*>500 USDC × 20 grants<\/span>/);
+  assert.match(h, /<span[^>]*>closed<\/span>/);
+  assert.ok(!t.includes('grants · closed'));
   assert.doesNotMatch(t, /Ask your agent/);
   assert.deepEqual(asks(closedGuide), []);
   assert.match(h, /href="\/programs"/);
@@ -182,14 +187,14 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
 
 test('/programs: every open program as rows under an h1, or the unavailable line', async () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
-  assert.match(h, /<h1[^>]*>Open programs<\/h1>/);
+  assert.match(h, /<h1[^>]*>Money open now<\/h1>/); // v3 Stage 3 Task 4: the landing's heading, on the page too
   assert.ok(!text(h).includes('By pool')); // v2.8: no eyebrow
   assert.doesNotMatch(text(h), /Open now/);
   assert.equal(cardsOf(h).length, homeFixture.tiles.length, 'no limit');
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} CW Crypto World`) && !fig.includes('By pool'), fig);
+  assert.ok(fig.includes(` Money open now ${homeFixture.open_text} CW Crypto World`) && !fig.includes('By pool'), fig);
   const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
   assert.match(page, /figure=\{landing\.open_text\}/);
   assert.doesNotMatch(page, /layout=/, 'v3 Stage 3: rows everywhere, no grid or carousel');
@@ -216,8 +221,8 @@ test('3.1 v2.8, R18: the section is the h2, the figure, then a list of whole-row
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, figure: homeFixture.open_text }));
   const sec = programsSection(h);
   const t = text(sec);
-  assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
-  const order = ['>Open programs</h2>', `${homeFixture.open_text}</p>`, '<ul'].map((s) => sec.indexOf(s));
+  assert.match(sec, /<h2[^>]*>Money open now<\/h2>/);
+  const order = ['>Money open now</h2>', `${homeFixture.open_text}</p>`, '<ul'].map((s) => sec.indexOf(s));
   assert.ok(order.every((n) => n >= 0), String(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(!t.includes('Ask your agent') && !h.includes('Ask your agent'), 'R18: no repeated button');

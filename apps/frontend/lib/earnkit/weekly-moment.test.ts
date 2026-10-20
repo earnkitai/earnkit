@@ -71,7 +71,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await builder('wtbo', 'Bo', [3]);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.match(s, /^App: Shipping 35 · #2 of 3 builders this week\.$/m, s);
+  assert.match(s, /^App: Shipping 35 · #2 of 3 builders\.$/m, s);
   assert.match(s, /^Code in 3 of the last 12 weeks, 3 of the last 4\.$/m, 'the why: the weeks with code, no step of its own');
   assert.ok(s.endsWith('How to move up\nShip code this week: +13 points, enough to pass #1.'), s);
   assert.equal(links(s).length, 1, s);

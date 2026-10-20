@@ -6917,3 +6917,53 @@ Test: `v3-landing.test.ts` ((a) order, (b) two buttons, (c) no old kit, (d) feat
 Test: `v3-profile.test.ts` ((a) the numbers row, (b) the Money tab, (c) share and one primary action, (d) the
 confirming and no-project rows with dashes, (e) no "this week" added by the page, (f) the flat rules and the
 grid, (g) tabs, rows and the visitor row, (h) the badge).
+
+## v3 Stage 3: leaderboard, feed, programs and the guide; "of N builders" (Task 4; spec 5.2, 5.6, 5.8)
+
+- **Leaderboard (`app/leaderboard/BenchView.tsx`, `BenchRowItem.tsx`, `FilterChip.tsx`).** H1 "Leaderboard",
+  `benchLine(count)` as the LEDE, the filters as hairline pills (`Chip`: a link with `aria-pressed`, 44px on a
+  phone and 36px from md; on, it inverts to `ek-text` with `ek-page` text; never a brand fill), then one `ROWS`
+  list (no Panel). A row is `grid-cols-[2.5rem_minmax(0,1fr)_auto]` on a phone and
+  `md:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5rem]`: "#N" in Display 24px (`data-rank`; the rank line
+  stays `sr-only`), the 44px photo with the name (its link's `after:` box is the whole row's hit area) and a
+  muted line of `@handle`, chain logos and the small Backing pill, the project in body over its best fact in
+  muted (two lines, never "project · fact"), and the Shipping number in `NUM` 24px (`data-points`, "Shipping"
+  `sr-only`). On a phone the project drops to a second line under the name; the rank and the number stay level
+  with the photo. Nothing in a row is `nowrap`, clamped or `max-w`. `RaisingPill` `sm` and `md` reach 44px of hit
+  area through an `after:` box (the look is unchanged).
+- **Feed (`app/feed/FeedView.tsx`).** `FEED_TITLE = 'Feed'`, `FEED_LINE = 'What builders on the leaderboard
+  shipped, week by week. Every fact is checked.'`; each week is an H2 ("Week of Oct 12") over a `ROWS` list of
+  long `UpdateCard`s with `showWeek` off (the landing's `FeedRows` shape); `FEED_EMPTY` sits between two
+  hairlines with the secondary link to the leaderboard. The old gapped flex column is gone.
+- **Programs (`app/programs/page.tsx`, `ProgramCards.tsx`, `ProgramLogo.tsx`).** The landing's Money section
+  is the page: `PROGRAMS_TITLE = 'Money open now'` (h2 on the landing, h1 on /programs; the `bench` prop is
+  accepted and ignored), `open_text` as the LEDE, `open_more` as a muted line, every tile as a `ProgramRow`
+  in one `ROWS` list; `PROGRAMS_EMPTY` with none. Every logo sits on a white disc (`ek-text`, `rounded-full`,
+  `overflow-hidden`) with the mark at 70%, so a dark mark (Arc's navy SVG, Colosseum's black SVG, a16z's black
+  on an opaque white PNG) reads on the black page and every row shows the same round shape; the monogram keeps
+  its raised disc.
+- **Guide (`app/programs/[id]/GuideView.tsx`, `lib/earnkit/landing.ts GuidePage.chain`).** The 56px logo
+  beside the H1 title; the facts as separate muted spans from `guide.header` split on " · " (the award; "ends
+  <date>", "rolling", "closed" or "not open yet") plus the chain (`GuidePage.chain`, the program's chains joined
+  by ", "; `ANY_CHAIN` when `any_chain`): stacked on a phone, in a row with hairline dividers from md; an
+  upcoming program's `opens_note` under them in body colour; the Difficulty line; `AskAgent` only when open.
+  The parts are one `ROWS` list of hairline rows (H2 left, content right from md): What won, What X wants now
+  as `ek-chip` pills, Your best bet. Then "All programs" as a `TEXT_LINK` and the Sources links spaced by a gap
+  (no middle dots). `Unavailable` is unchanged.
+- **Wording (spec 5.2).** `rank.ts rankLine` is "#3 of 19 builders", "Top 8% of builders", "#2 of 12 builders on
+  Arc" (the percent rule from 20 ranked is unchanged); `scoreLine` therefore "Shipping 72 · #3 of 19 builders";
+  `rankSplit` splits the same; `weekly-moment.ts shareText` and `badge.ts badgeValue` follow by construction.
+  `banned-words.ts BENCH_ALLOWED` strips the chain rank line without "this week". `copy-review.test.ts` has the
+  rule: no "this week" within 20 characters after "builders" in any builder-facing, agent-facing or gate
+  string. `v3-pages.test.ts (e)` scans `app/` and `lib/` source (comments aside) for `builders?.{0,20}this week`.
+- **Pins moved, not removed.** Every test string "… builders this week" / "builder this week" / "on <chain> this
+  week" lost "this week" (`rank`, `bench-rank`, `bench-page`, `bench-reply`, `badge`, `move-up`, `page-data`,
+  `profile-bench`, `reply-states`, `v213-copy`, `v2131-o5`, `v3-apply`, `v3-landing`, `weekly-moment`,
+  `leaderboard-clarity`, `v213-journey`, `repo-picker`, `v214-app-proof`, `v214-journey`, `v214-replies`,
+  `v213-find`, `v2133-owner-test`, `originality`); `leaderboard-clarity` pins the new md grid;
+  `public-pages` pins "Money open now" and the guide facts as spans ("500 USDC × 20 grants" and "closed" each
+  in their own span); `badge.test` pins Task 3's "Badge for your README".
+
+Test: `v3-pages.test.ts` ((a) the leaderboard and its chips, (b) the feed, (c) /programs and the logo disc,
+(d) the upcoming and open guides, 404, (e) the rank wording and the source scan, (f) nothing wider than a
+phone column).

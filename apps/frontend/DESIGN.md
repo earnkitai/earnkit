@@ -86,6 +86,8 @@ The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the 
 | `COLUMN` | The column: 1120px, 16px gutters, 32px from md. Header, footer and every page use it |
 | `SECTION` | A section's vertical rhythm (56px, 96px from md) |
 | `ROWS`, `ROW` | A list: each row opens with a hairline, the list closes with one; 16 to 20px of padding |
+| `FilterChip.tsx Chip` | A filter: a hairline pill, 44px on a phone (36px from md), `aria-pressed`; on, it inverts to white with black text |
+| `ProgramLogo` | A program's mark at 70% on a white disc (`ek-text`), so dark marks read on the page; the monogram on the raised disc |
 | `SURFACE` | A flat block that opens with a hairline. Kept for callers; no radius, no gradient |
 
 ## Buttons (`Button.tsx`)

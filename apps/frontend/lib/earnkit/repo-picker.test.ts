@@ -136,7 +136,7 @@ test('L2.3 two picked repos: both proven, the most recently pushed is the one pr
   const weeks = await sql()<{ week: string }[]>`SELECT week::text AS week FROM project_updates WHERE builder_id = ${p.id} AND lower(project_key) = ${newer} AND week IN ${sql()(MONDAYS)}`;
   assert.equal(weeks.length, 3);
   const s = String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder);
-  assert.match(s, /^Newer: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\./m, s);
+  assert.match(s, /^Newer: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\./m, s);
   assert.ok(gh.calls.every((c) => c.routed), 'every GitHub call was one the fake answers');
 });
 

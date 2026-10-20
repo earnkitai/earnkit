@@ -62,17 +62,20 @@ apps/frontend/
                                earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
                                (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The leaderboard" section, earnkit.com/leaderboard);
                                v2.14 T3 deleted v212.txt with the Bench switch
-  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9):
-                               /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept): top 100, chain/raising/weekly
-                               filters as URL links (filterHref: /leaderboard?...), 16 cached variants (unstable_cache, 60 s,
-                               PROFILE_TAG). BenchRowItem: name and project wrap (R11, no truncate), the Shipping points column
-                               (R17, BenchRow.points) and the rank line split by rank.ts rankSplit (number large, words small);
-                               v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
-                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows);
-                               launch ready L10: BENCH_EMPTY "No builder matches this filter yet." + BENCH_SHOW_ALL link;
-                               a phone row is three lines (handle with chain logos, project with its fact)
-  app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
-                               long cards
+  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9),
+                               v3 Stage 3 T4 (spec 5.8): /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept):
+                               H1, benchLine ("N builders. Ranked by Shipping."; BENCH_TOP_EMPTY at 0), the filters as hairline
+                               pills (FilterChip: links with aria-pressed, 44px on a phone, on = white fill with black text;
+                               chain/weekly/Backed under EARNKIT_RAISING; filterHref: /leaderboard?...), 16 cached variants
+                               (unstable_cache, 60 s, PROFILE_TAG), then one ROWS list. BenchRowItem: a hairline row,
+                               `[2.5rem_1fr_auto]` on a phone (project and fact on a second line), `md:[3rem_1fr_1fr_5rem]`:
+                               "#N" in Display 24px (the rank line sr-only), photo + name (the link is the whole row) with
+                               @handle, chain logos and the Backing pill under it, the project over its best fact (two lines,
+                               no middle dot), the Shipping number in NUM 24px; names and projects wrap (R11, no truncate,
+                               no nowrap); BENCH_EMPTY + BENCH_SHOW_ALL only for a filtered view with no rows
+  app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12, v3 Stage 3 T4: /feed (404 flag off): H1 FEED_TITLE "Feed", FEED_LINE,
+                               each finished week an H2 ("Week of Oct 12") over a ROWS list of long UpdateCards (showWeek off);
+                               FEED_EMPTY between two hairlines with a secondary link to the leaderboard
   app/[handle]/{BenchProfileView,ProjectTab,ShipGrid,MoneyTab,ShareButton}.tsx  v2.13 T11, v3 Stage 3 (spec 5.6): the profile on the
                                flat system: header row (56px photo, name, @handle, Share, Back button), the three
                                numbers row `data-ek-numbers` (96px Shipping ring, rank lead and words, Earned; dashes
@@ -106,14 +109,18 @@ apps/frontend/
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards rows
-                               (heading h1, v2.7.1 figure = landing.open_text, the landing's pool
-                               total); getLanding() null → "Programs are unavailable…"
+  app/programs/page.tsx        v2.7 Ruling 22, v3 Stage 3 T4: /programs is the landing's Money section as a page:
+                               ProgramCards with heading h1 (PROGRAMS_TITLE "Money open now", figure = landing.open_text,
+                               more = landing.open_more); getLanding() null → "Programs are unavailable…"
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
-  app/programs/[id]/GuideView.tsx  pure guide render (header, Difficulty with the v2.7.1 builder bonus
-                               pill (page.bonus_pill → the leaderboard), one Panel per part, AskAgent (open programs only), All programs,
-                               Sources via shownUrl, Footer); exports askPrompt and Unavailable
+  app/programs/[id]/GuideView.tsx  pure guide render, v3 Stage 3 T4: the 56px ProgramLogo beside the H1, the facts as
+                               separate muted spans (guide.header split on " · ": the award, "ends <date>" / "rolling" /
+                               "closed" / "not open yet", then GuidePage.chain or ANY_CHAIN; stacked on a phone, hairline
+                               dividers from md), an upcoming program's opens_note, the Difficulty line, AskAgent (open
+                               programs only), the parts as one ROWS list (What won, What X wants now chips, Your best bet;
+                               H2 left, content right from md), "All programs" as a TEXT_LINK and the Sources links spaced
+                               apart (shownUrl); exports askPrompt, ANY_CHAIN and Unavailable
   app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
   app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, the Open programs
                                "Ask your agent", the guide's AskAgent with "What can I earn on <program>?"); START_PROMPT;
@@ -124,7 +131,9 @@ apps/frontend/
                                take the tab's one color),
                                `after` approve lines
   app/components/sections/{ProgramCards,ProgramLogo}.tsx  v2.7 §1 landing sections (HowItWorks.tsx deleted in v2.14 T3);
-                               ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
+                               ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked) at 70% on a white disc
+                               (ek-text, so Arc's navy and a16z's black read on the page), or the Ruling 1 monogram on
+                               the raised disc; PROGRAMS_TITLE "Money open now" is the one title (landing h2, /programs h1);
                                v2.8 ProgramCards, v3 Stage 3: h2/h1, `figure` and `more` lines, then every tile as a
                                ProgramRow in one hairline list (ROWS); no carousel, no grid; PROGRAMS_EMPTY with no tiles
   app/components/sections/ProgramRow.tsx  v2.8 Ruling 21, v3 Stage 3 (was ProgramCard): one hairline row, a whole-row link to

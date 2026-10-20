@@ -69,7 +69,7 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
-  assert.match(String(r.reply?.show_to_builder), /^Notes: Shipping 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m);
+  assert.match(String(r.reply?.show_to_builder), /^Notes: Shipping 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
 });
 
 /** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */
@@ -104,7 +104,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
   // R16a: one ranked state; the streak lives in the Shipping score (the stand line is the score line alone).
-  assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m, text);
+  assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
   // Next week drops week 5's weight: shipping then is 55, not shipping 42.
   assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4.\n'), text);

@@ -135,19 +135,19 @@ test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (th
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
-    r: { rank: 3, line: '#3 of 12 builders this week', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row' },
+    r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row' },
   }));
   assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*>Shipping<\/span>/);
   // R18 fix 1 (supersedes R6 for rows): "#3" alone on screen; the whole rank line only for screen readers.
-  assert.match(html, /aria-hidden="true"[^>]*>#3<\/span><span class="sr-only">#3 of 12 builders this week<\/span>/);
-  assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('builders this week'), false, 'no rank words on screen');
+  assert.match(html, /aria-hidden="true"[^>]*>#3<\/span><span class="sr-only">#3 of 12 builders<\/span>/);
+  assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('of 12 builders'), false, 'no rank words on screen');
   assert.doesNotMatch(html, /max-w-\[/, 'the rank column is never squeezed');
-  // Final follow-ups 4: fixed-width points and rank columns (not auto), so every row lines up at #1 and #100.
-  assert.match(html, /grid-cols-\[auto_minmax\(0,1fr\)_[\d.]+rem_[\d.]+rem\]/);
+  // Final follow-ups 4, v3 Stage 3 Task 4: fixed-width rank and points columns (not auto), so every row lines up at #1 and #100.
+  assert.match(html, /md:grid-cols-\[3rem_minmax\(0,1fr\)_minmax\(0,1fr\)_5rem\]/);
   assert.ok(html.includes(name) && html.includes(project), 'names whole');
   assert.doesNotMatch(html, /\btruncate\b|text-ellipsis|line-clamp/, 'never cut: long names wrap');
-  assert.deepEqual(rankSplit('#1,204 of 3,500 builders this week'), { lead: '#1,204', rest: 'of 3,500 builders this week' });
-  assert.deepEqual(rankSplit('Top 4% of builders this week'), { lead: 'Top 4%', rest: 'of builders this week' });
+  assert.deepEqual(rankSplit('#1,204 of 3,500 builders'), { lead: '#1,204', rest: 'of 3,500 builders' });
+  assert.deepEqual(rankSplit('Top 4% of builders'), { lead: 'Top 4%', rest: 'of builders' });
 });
 
 test('R17: benchRows gives each row its Shipping points (builder_live.score) and its rank line', db, async () => {
@@ -156,7 +156,7 @@ test('R17: benchRows gives each row its Shipping points (builder_live.score) and
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].points, 72);
-  assert.equal(rows[0].line, '#1 of 1 builder this week');
+  assert.equal(rows[0].line, '#1 of 1 builder');
 });
 
 // ---- Final follow-ups 1 and 2: the streak is the grid's, and one rank pool ----------------------
@@ -184,7 +184,7 @@ test('Final follow-ups 2: "#N of M" counts the leaderboard\'s own pool (a ranked
   assert.deepEqual([board.count, board.rows.map((r) => r.handle)], [1, [`one${RUN}`.slice(0, 15)]]);
   const s = await standingOf(a.id, { only });
   assert.deepEqual([s.rank, s.total], [1, board.count], 'the profile and reply rank matches the leaderboard header');
-  assert.equal((await rankLines(a.id, { only })).bench, '#1 of 1 builder this week');
+  assert.equal((await rankLines(a.id, { only })).bench, '#1 of 1 builder');
 });
 
 // ---- R10: one status line, one next step, never a rank beside "not counted" ----------------------
@@ -214,8 +214,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   await seen(5);
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
-  assert.match(r1, /Since you last checked: You moved up to #[1-4] of \d+ builders? this week\./, r1);
-  assert.match(r1, /Newsy: Shipping \d+ · #[1-4] of \d+ builders? this week\./);
+  assert.match(r1, /Since you last checked: You moved up to #[1-4] of \d+ builders?\./, r1);
+  assert.match(r1, /Newsy: Shipping \d+ · #[1-4] of \d+ builders?\./);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).
@@ -241,7 +241,7 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   assert.deepEqual(d.chainLines, []);
   assert.equal(d.score, null);
   assert.equal((await benchCardFacts(a.id))!.bench, null);
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: 'Top 4% of builders this week', line: 'Shipping 62 · Top 4% of builders this week' }, tab: 'log' }));
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: 'Top 4% of builders', line: 'Shipping 62 · Top 4% of builders' }, tab: 'log' }));
   assert.ok(d.project && !d.project.confirmed, 'confirming');
   assert.ok(html.includes(confirmingCardLine(d.name, d.project.name)), html);
   assert.doesNotMatch(html, /Top 4%/, 'never a rank beside the confirming card, even from a stale line');

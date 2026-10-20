@@ -2,21 +2,21 @@ import ProgramRow from './ProgramRow';
 import { H1, H2, LEDE, ROWS, SUB } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
+/** v2.13.1 O5 (P10), v3 Stage 3 Task 4: the one title, on the landing (h2) and /programs (h1): the list includes investments, so "Money". */
+export const PROGRAMS_TITLE = 'Money open now';
 /** v3 Stage 3: the Money section with no open program. */
 export const PROGRAMS_EMPTY = 'No programs are open right now.';
 
 /**
  * v2.8 Rulings 20, 21 (plan), R18, v3 Stage 3 (spec 5.6): the title, the money line ("$115K in grants and prizes
  * open", v3 Stage 2) and what it leaves out, then every open curated program as a hairline row (ProgramRow; each
- * opens its guide, where the agent is one tap away), Base first (landing.ts byRelevance). The landing (`bench`)
- * titles it "Money open now" (O5 P10); /programs keeps "Open programs" as its h1 until Task 4. No carousel, no grid.
+ * opens its guide, where the agent is one tap away), Base first (landing.ts byRelevance). No carousel, no grid.
  */
 export default function ProgramCards({
   tiles,
   figure = null,
   more = null,
   heading = 'h2',
-  bench = false,
 }: {
   tiles: Tile[];
   /** The money line ("$115K in grants and prizes open", landing.open_text), shown under the title; null hides the line. */
@@ -25,12 +25,11 @@ export default function ProgramCards({
   more?: string | null;
   /** v2.7 /programs: the rows are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
-  /** v2.13: the landing (its title). */
+  /** Kept for callers: the landing and /programs now share PROGRAMS_TITLE, so this changes nothing. */
   bench?: boolean;
 }) {
   const Heading = heading;
-  // v2.13.1 O5 (P10): the list includes investments (a16z speedrun), so "Money", not "Grants".
-  const title = bench ? 'Money open now' : 'Open programs';
+  const title = PROGRAMS_TITLE;
   return (
     <section id="open-programs" aria-label={title}>
       <Heading className={heading === 'h1' ? H1 : H2}>{title}</Heading>

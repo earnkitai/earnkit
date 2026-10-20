@@ -80,8 +80,8 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
   assert.equal(all.count, 11);
   assert.deepEqual(all.chips, ['base', 'arc'], 'arc has 1: its chip shows (R16e)');
   assert.deepEqual(all.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-  assert.equal(all.rows[0].line, '#1 of 11 builders this week');
-  assert.equal(all.rows[10].line, '#11 of 11 builders this week', 'every ranked builder sees a rank');
+  assert.equal(all.rows[0].line, '#1 of 11 builders');
+  assert.equal(all.rows[10].line, '#11 of 11 builders', 'every ranked builder sees a rank');
   // The pill only through pillOf's result.
   for (const [i, id] of ids.entries()) {
     const row = all.rows.find((r) => r.handle === `bn${RUN}${id}`)!;
@@ -100,9 +100,9 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
 });
 
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "#N" on the right (R18 fix 1; the rank line to screen readers); the header count line', () => {
-  const row = { rank: 2, line: 'Top 4% of builders this week', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 2, line: 'Top 4% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, weekly: false } }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders. Ranked by Shipping.', FILTER_WEEKLY])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders', '25 builders. Ranked by Shipping.', FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
   assert.match(html, /href="\/leaderboard\?chain=base"/);

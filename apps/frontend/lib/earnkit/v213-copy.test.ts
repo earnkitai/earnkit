@@ -26,7 +26,7 @@ export const TEXTS: string[] = [
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [rankLine(s(1, 100), { chain })!, rankLine(s(2, 12), { chain })!]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
   // v2.14 T9, R16a: the four states' copy (STATE_COPY, VARIANT_COPY). R12: a fit line with its deadline and why, each why the matcher can give.
-  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.ranked.stand('Recipe planner', 62, 'Top 18% of builders this week'), STATE_COPY.ranked.ask(),
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.ranked.stand('Recipe planner', 62, 'Top 18% of builders'), STATE_COPY.ranked.ask(),
   noFitLine('Recipe planner'),
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
@@ -89,7 +89,7 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   const { benchShareText } = await import('./bench-data');
   const texts = [
     TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, confirmingCardLine('Maya Chen', 'Recipe planner'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
-    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders this week', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders this week', project: null, streak: 0 }),
+    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders', project: null, streak: 0 }),
     benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }),

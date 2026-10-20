@@ -28,7 +28,7 @@ const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 /** D12: the rank phrase as 12.3 reads it: "#N of M builders" or a top percent. */
 /** Scoring and clarity (R16c): the ranked stand line is the score line. */
-const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders) this week';
+const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)';
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
