@@ -195,8 +195,8 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       for (const r of [...new Set([pre.mine, pre.held ?? pre.mine])].sort((a, b) => a - b))
         await lockPerson(tx, r);
       await tx`SELECT id FROM installations WHERE id = ${own} OR builder_id = ${own} ORDER BY id FOR UPDATE`;
-      const [me] = await tx<{ builder_id: number | null; shared: boolean; x: string | null }[]>`
-        SELECT builder_id, shared_client AS shared, x_user_id AS x FROM installations WHERE id = ${own}`;
+      const [me] = await tx<{ builder_id: number | null; x: string | null }[]>`
+        SELECT builder_id, x_user_id AS x FROM installations WHERE id = ${own}`;
       if (!me) throw new Error('no installation');
       if (me.x && me.x !== user.id) throw new AttachRefused('other_x');
       const mine = me.builder_id ?? own;

@@ -149,6 +149,7 @@ import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
 import { coinNo, coinOpen, coinPitchAllowed, coinYes } from './coin-moments';
+import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
@@ -1240,7 +1241,9 @@ export const handlers = {
     // marks it asked) until the first reply after the bind.
     // v3 Stage 1: an anonymous hosted installation (no page, no X) always reads as signed out: the Bench's
     // signed-out reply is the only reply (the sign-in link and its one question).
-    const hostedAnon = Boolean(ctx.sharedClient) && !more;
+    // Only with X sign-in on (as signedOutNow), and only when the caller's own installation is unbound.
+    const hostedAnon = Boolean(ctx.sharedClient) && !more && xSignInEnabled() && Boolean(process.env.EARNKIT_AUTH_SECRET)
+      && (await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM installations WHERE id = ${ctx.ownInstallationId ?? ctx.installationId}`)[0]?.x == null;
     const signedOut = hostedAnon ? true : scoring && profiled && !more
       ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => true)
       : false;
@@ -3107,14 +3110,14 @@ export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
   find: async (input: unknown, ctx0: ToolContext) => {
     // v2.14 T5 (A6): the fallback link's paste code binds this installation first, so this reply is already the
-    // person's. v3 Stage 1: a hosted client's too (its token is one builder's).
+    // person's. v3 Stage 1: this holds for a hosted client too (its token is one builder's), so the code is read.
     const { sign_in_code, ...unsigned } = (input ?? {}) as Record<string, unknown>;
     input = unsigned;
     let signInNote: string | null = null;
     if (sign_in_code !== undefined) {
       const own = ctx0.ownInstallationId ?? ctx0.installationId;
       const b = await bindFromPaste(own, sign_in_code, new Date());
-      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own };
+      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own, sharedClient: false };
       signInNote = b.ok ? SIGN_IN_NOTES.bound : SIGN_IN_NOTES.bad;
     }
     const reply = await findReply(input, ctx0);
