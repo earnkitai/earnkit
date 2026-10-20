@@ -12,7 +12,7 @@ export const DOCS_INSTALL_SUB = 'Free. Sign in with X once. Then ask your agent:
 export const DOCS_DO_TITLE = 'What your agent can do';
 export const DOCS_DO_SUB = 'Five tools: find, prepare, confirm, tell, score.';
 export const DOCS_DO: { label: string; text: string }[] = [
-  { label: 'Where you stand', text: 'Your three numbers and your rank, any time you ask. (score)' },
+  { label: 'Where you stand', text: 'Your three numbers, any time you ask. (score)' },
   { label: 'Your ship log', text: 'Written from your commits. You never type it. (tell)' },
   { label: 'Programs that fit', text: 'The open ones that match what you build, and a drafted application for each. (find, prepare)' },
   { label: 'Backing', text: 'Offered once, after your first confirmed week. It never changes your rank. (confirm)' },
@@ -23,7 +23,7 @@ export const DOCS_NUMBERS_TITLE = 'The three numbers';
 export const DOCS_NUMBERS: { label: string; text: string }[] = [
   { label: 'Shipping', text: 'How much you shipped, counted from your commits.' },
   { label: 'Rank', text: 'Where that puts you among builders.' },
-  { label: 'Earned', text: 'The money you won, in dollars.' },
+  { label: 'Earned', text: 'Money that reached you through EarnKit: backing fees paid and program prizes.' },
 ];
 export const DOCS_ORIGINALITY = 'Originality is a check that the work is yours.';
 
@@ -36,7 +36,7 @@ export const DOCS_WEEK: { label: string; text: string }[] = [
 ];
 
 export const DOCS_SELECTORS_TITLE = 'For program selectors';
-export const DOCS_SELECTORS_SUB = 'A builder page proves what shipped: commits, weeks and money won, each linked to its source.';
+export const DOCS_SELECTORS_SUB = 'A builder page proves what shipped: commits, weeks and money that reached you, each linked to its source.';
 export const DOCS_SELECTORS: { label: string; text: string }[] = [
   { label: 'The page', text: 'earnkit.com/<handle>' },
   { label: 'The JSON', text: '/api/builders/<handle>.json' },

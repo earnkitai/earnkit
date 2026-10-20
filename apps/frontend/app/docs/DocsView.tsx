@@ -1,10 +1,8 @@
-'use client';
-
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { COLUMN, H1, H2, LEDE, ROW, ROWS, SUB } from '../components/common/Panel';
 import { TEXT_LINK } from '../components/common/Button';
-import { AGENTS, Command } from '../components/sections/AddToAgent';
+import { AGENTS, Command, MCP_URL } from '../components/sections/agents';
 import {
   DOCS_CONTACT, DOCS_CONTACT_LEAD, DOCS_DO, DOCS_DO_SUB, DOCS_DO_TITLE, DOCS_INSTALL_SUB, DOCS_INSTALL_TITLE, DOCS_LEDE,
   DOCS_NUMBERS, DOCS_NUMBERS_TITLE, DOCS_ORIGINALITY, DOCS_SELECTORS, DOCS_SELECTORS_SUB, DOCS_SELECTORS_TITLE, DOCS_TERMS_LINK,
@@ -14,9 +12,9 @@ import {
 /** A section: the title left, its content right from md (as the program guide does), stacked on a phone. */
 function Part({ title, id, sub, children }: { title: string; id?: string; sub?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-label={title} className="grid scroll-mt-20 gap-6 border-t border-ek-line py-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
+    <section id={id} aria-labelledby={`${id ?? title.toLowerCase().replace(/[^a-z]+/g, '-')}-title`} className="grid scroll-mt-20 gap-6 border-t border-ek-line py-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
       <div>
-        <h2 className={H2}>{title}</h2>
+        <h2 id={`${id ?? title.toLowerCase().replace(/[^a-z]+/g, '-')}-title`} className={H2}>{title}</h2>
         {sub && <p className={SUB}>{sub}</p>}
       </div>
       <div className="min-w-0">{children}</div>
@@ -40,7 +38,7 @@ function Pairs({ items }: { items: { label: string; text: string }[] }) {
 
 function Code({ text }: { text: string }) {
   return (
-    <pre className="mt-2 overflow-x-auto whitespace-pre-wrap border border-ek-line bg-ek-page px-4 py-3 font-mono text-sm text-ek-text">
+    <pre className="my-2 overflow-x-auto whitespace-pre-wrap border border-ek-line bg-ek-page px-4 py-3 font-mono text-sm text-ek-text">
       <code>
         <Command text={text} />
       </code>
@@ -57,13 +55,14 @@ export default function DocsView() {
 
       <div className="mt-10 md:mt-14">
         <Part title={DOCS_INSTALL_TITLE} sub={DOCS_INSTALL_SUB}>
+          <Code text={MCP_URL} />
           <div className={ROWS}>
             {AGENTS.map((a) => (
               <div key={a.name} className={`${ROW} items-start`}>
                 <h3 className="font-funnel-sans text-base font-medium text-ek-text">{a.name}</h3>
                 <div className="min-w-0 font-funnel-sans text-base text-ek-body">
                   {a.steps.map((s) => (
-                    <p key={s}>{s}</p>
+                    <p key={s}>{s.replace(/^Or add/, 'Add')}</p>
                   ))}
                   {a.code && <Code text={a.code} />}
                   {a.after && <p className="mt-3">{a.after}</p>}
