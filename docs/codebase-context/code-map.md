@@ -73,8 +73,13 @@ apps/frontend/
                                a phone row is three lines (handle with chain logos, project with its fact)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
-  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid}.tsx  v2.13 T11: the Bench profile (scoring and clarity: one Shipping ring; photo,
-                               rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
+  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid,MoneyTab,ShareButton}.tsx  v2.13 T11, v3 Stage 3 (spec 5.6): the profile on the
+                               flat system: header row (56px photo, name, @handle, Share, Back button), the three
+                               numbers row `data-ek-numbers` (96px Shipping ring, rank lead and words, Earned; dashes
+                               while confirming, no project or unranked), why + target, chain lines, Originality,
+                               points; hairline 52-week grid filled ek-brand; tabs Ship log / Project / Money
+                               (?tab=money: MoneyTab, FITS_TITLE/APPLIED_TITLE/BACKING_TITLE, the pill, points line);
+                               visitor row, sources line, badge. Avatar falls
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
                                and grid, Project tab shows name and what only; launch ready L10: "a private project" in
@@ -186,15 +191,16 @@ apps/frontend/
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
                                pagePath) renders BenchProfileView (v2.14 T3: ProfileView and ProjectCards deleted);
                                handleMetadata (title, og card)
-  app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the orange-to-purple ring, SCORE_COLORS
-                               (#FF7A1A, #9B6BFF, both 4.5:1+ on the navy panel), "N of 100" in words
+  app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the ring: SCORE_COLORS.total gradient stroke (white to
+                               ek-accent, the site's one gradient), THEME track, no glow (v3 Stage 3); "N of 100" in words
   app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
                                picture with a 3 s timeout, headline of card_moments.latest, CARD_CACHE) and
                                shareResponse (card_shared once a day, 302 to the X intent); both check the live
                                row (no-store 404, 308 to pagePath)
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
-  app/[handle]/BadgeCopy.tsx   launch-ready L8: "Add the badge to your README", the markdown and a Copy button (client)
+  app/[handle]/BadgeCopy.tsx   launch-ready L8, v3 Stage 3: the badge image, then "Badge for your README" as a details/summary
+                               that opens to the markdown and a Copy button (client)
   app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
                                cachedBadge (unstable_cache per file, 1 h, PROFILE_TAG)
   app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's

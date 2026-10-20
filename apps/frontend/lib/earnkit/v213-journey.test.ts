@@ -647,7 +647,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Backing · $${pill.symbol}`));
+  // v3 Stage 3 (spec 5.6): the pill sits in the Money tab's Backing group; the header carries the Back button.
+  assert.ok((await renderProfile('maya_makes', 'money')).includes(`Backing · $${pill.symbol}`));
+  assert.match(await renderProfile('maya_makes', 'log'), /data-ek-back/);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');

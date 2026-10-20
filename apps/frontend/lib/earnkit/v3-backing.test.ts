@@ -216,9 +216,12 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.deepEqual(d.backing, { symbol: sym, url, backers: 0, earned_usd: 0 });
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
   assert.match(html, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*data-ek-back[^>]*>Back ${d.project!.name}</a>`), html);
-  assert.match(html, /data-pill="backing"/);
-  assert.ok(html.includes(`Backing · $${sym}`), html);
   assert.doesNotMatch(html, /Community round/);
+  // v3 Stage 3 (spec 5.6): the coin's pill sits in the Money tab's Backing group (the header carries the Back button).
+  const money = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'money' }));
+  assert.match(money, /data-pill="backing"/);
+  assert.ok(money.includes(`Backing · $${sym}`), money);
+  assert.doesNotMatch(money, /Community round/);
   assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'KIT', url })).trim(), 'Backing · $KIT');
   // The project tab's coin line shows with the flag on.
   assert.match(renderToStaticMarkup(React.createElement(ProjectTab, { project: d.project })), new RegExp(`\\$${sym} on tokens\\.fun`));

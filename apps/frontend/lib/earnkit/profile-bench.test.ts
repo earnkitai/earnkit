@@ -36,11 +36,13 @@ after(async () => {
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
 
-test('11.1 the header: photo, name, @handle, pill, the score line (R16c) then each chain line with its logo', () => {
+test('11.1 the header: photo, name, @handle, the score line (R16c) then each chain line with its logo; the pill on the Money tab (v3 Stage 3)', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
+  for (const s of ['Maya Chen', '@maya_makes', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
   assert.ok(h.indexOf('Top 4%') < h.indexOf('Top 1% of builders on Base'));
   assert.match(h, /alt="Base"/);
+  // v3 Stage 3 (spec 5.6): the header carries Share and the Back button; the coin's pill sits in the Money tab's Backing group.
+  assert.ok(html(React.createElement(BenchProfileView, { data: DATA, tab: 'money' })).includes('Backing · $RECIPE'));
 });
 
 test('11.2 one Shipping ring (no per-part rings) with the why sentence and the weekly target; the grid has 52 squares and the streak beside it', () => {
@@ -295,7 +297,8 @@ test('L10 the UX pass on the page: a private repo is never named in the sentence
   assert.doesNotMatch(BENCH_SOURCES_LINE, /public data/, 'the App reads private repos too');
   const ranked = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
   assert.ok(ranked.includes(VISITOR_CTA) && ranked.includes('Add to your agent'), 'the visitor CTA');
-  assert.ok(ranked.includes('Add the badge to your README'), 'a ranked page offers the badge');
+  // v3 Stage 3: one collapsed line, the badge image always shown.
+  assert.ok(ranked.includes('Badge for your README') && ranked.includes('src="/badge/maya_makes.svg"'), 'a ranked page offers the badge');
   const none: ProfileData = { ...DATA, bench: null, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0, grid: DATA.grid.map((g) => ({ ...g, on: false })) };
   const h = html(React.createElement(BenchProfileView, { data: none, tab: 'log' }));
   assert.ok(h.includes(noProjectLine(DATA.name)), h);

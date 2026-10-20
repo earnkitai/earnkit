@@ -17,6 +17,7 @@ import { BENCH_CHAINS, rankLine, type BenchChain } from './rank';
 import { scoreWhy, storedShipping } from './score-v2';
 import { targetFor } from './weekly-target';
 import { earnPrize, earnWhen, showable } from './stand-view';
+import { fitWhy, whyFacts } from './bench-find';
 import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { shownUrl } from './untrusted-text';
@@ -123,6 +124,21 @@ export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
   coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
 };
+/** v3 Stage 3 (spec 5.6): one open program the project can win now (fundFits): its guide's path in `href`. */
+export type MoneyFit = { title: string; prize: string; when: string; why: string; href: string };
+/**
+ * v3 Stage 3 (spec 5.6): the Money tab. `fits`: the open programs the project can win now; `applied`: the programs
+ * it applied to or won (page-data projectPrograms, confirmed only); `backing`: as ProfileData.backing (null while
+ * closed or EARNKIT_RAISING is off); `points`: as ProfileData.points.
+ */
+export type MoneyTabData = {
+  fits: MoneyFit[];
+  applied: { title: string; status: 'applied' | 'won' }[];
+  backing: ProfileData['backing'];
+  points: number;
+};
+/** Whole dollars, "$1,240". Pure. */
+export const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
 export type ProfileData = {
   handle: string; name: string; avatar: string | null; initials: string;
   /**
@@ -148,6 +164,8 @@ export type ProfileData = {
   /** v3 Stage 1: points awarded for approved weeks (points.ts); shown under Originality when above 0. */
   points: number;
   grid: { week: string; on: boolean }[]; streak: number; log: ProfileCard[]; project: ProjectTabData | null;
+  /** v3 Stage 3 (spec 5.6): the Money tab's groups. */
+  money: MoneyTabData;
 };
 
 /** The Ship log reads at most this many weeks. */
@@ -210,12 +228,16 @@ export function gridWeeks(commitWeeks: string[], rows: { week: string; facts: We
   return weeks;
 }
 
+/** A fit as the Project tab's "Ways to get funded" line: "X pays up to $10K; it's open all year.". Pure. */
+export const fundLine = (f: MoneyFit) => `${f.title} pays ${f.prize}; ${f.when === 'open all year' ? "it's open all year" : `it ${f.when}`}.`;
+
 /**
- * "Ways to get funded": the open curated programs the project `key` can win now, by find's rules
- * without a GitHub read (stand-view.ts scoreEarn: alerts.ts repoCanWin over the fits find last saw),
- * biggest prize first, entered ones left out. Never throws (no lines on an error).
+ * "Ways to get funded" and the Money tab's "Programs that fit": the open curated programs the project `key` can
+ * win now, by find's rules without a GitHub read (stand-view.ts scoreEarn: alerts.ts repoCanWin over the fits find
+ * last saw), biggest prize first, entered ones left out; why each fits in bench-find's words (fitWhy) and its guide's
+ * path. Never throws (none on an error).
  */
-async function fundLines(builderId: number, key: string, now: Date): Promise<string[]> {
+async function fundFits(builderId: number, key: string, now: Date): Promise<MoneyFit[]> {
   try {
     const [programs, fits, rows, entered] = await Promise.all([
       listPrograms(),
@@ -228,13 +250,13 @@ async function fundLines(builderId: number, key: string, now: Date): Promise<str
     if (mine.length === 0) return [];
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
     const skip = new Set(entered.map((e) => e.program_id));
-    const out: string[] = [];
+    const out: MoneyFit[] = [];
     for (const c of (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean })[]).filter((x) => showable(x, now, skip) && !x.in_person).sort(byPrize)) {
       // v3 Stage 2 final review: an in-person program is never a way to get funded (it stays on /programs).
       const np = byId.get(c.id);
-      if (!np || !mine.some((f) => repoCanWin(np, f))) continue;
-      const when = earnWhen(c);
-      out.push(`${c.title} pays ${earnPrize(c)}; ${when === 'open all year' ? "it's open all year" : `it ${when}`}.`);
+      const repo = np ? mine.find((f) => repoCanWin(np, f)) : undefined;
+      if (!repo) continue;
+      out.push({ title: c.title, prize: earnPrize(c), when: earnWhen(c), why: fitWhy(c, whyFacts(repo)), href: `/programs/${c.id}` });
       if (out.length >= FUNDS_MAX) break;
     }
     return out;
@@ -285,7 +307,13 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     originality: scored ? await readOriginality(builderId, p.main) : null,
     points: await pointsTotal(builderId),
   };
-  const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
+  const money = (fits: MoneyFit[], programs: ProgramLabel[]): MoneyTabData => ({
+    fits,
+    applied: programs.map((g) => ({ title: g.title, status: g.won ? 'won' : 'applied' })),
+    backing: base.backing,
+    points: base.points,
+  });
+  const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null, money: money([], []) };
   if (!p.main) return empty;
   const [b] = await db<{ chains: string[]; commit_weeks: string[]; confirmed: boolean }[]>`
     SELECT b.chains, b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
@@ -305,9 +333,12 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const weeks = confirmed ? gridWeeks(b.commit_weeks, updates) : new Set<string>();
   const coin = confirmed ? await raisingCoin(builderId) : null;
   const repoKey = norm(p.main);
-  const [programs, funds] = await Promise.all([projectPrograms(builderId, p.main), confirmed ? fundLines(builderId, p.main, now) : Promise.resolve([])]);
+  const [programs, fits] = await Promise.all([projectPrograms(builderId, p.main), confirmed ? fundFits(builderId, p.main, now) : Promise.resolve([])]);
+  const funds = fits.map(fundLine);
   return {
     ...base,
+    // Fix round 1 (the Project tab's rule): until the project is confirmed, no programs on the Money tab either.
+    money: money(fits, confirmed ? programs : []),
     grid: last52(now).map((week) => ({ week, on: weeks.has(week) })),
     // Final follow-ups 1: the streak is read off the grid's own weeks, so the header never contradicts it.
     streak: confirmed ? streakOf(weeks, now) : 0,

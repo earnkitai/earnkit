@@ -99,8 +99,9 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
   assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
   // Launch-ready L8: README is a file's name (the badge line), not shouting.
-  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', 'README', ...Object.values(CHAIN_LABEL)];
-  for (const tab of ['log', 'project'] as const) {
+  // v3 Stage 3: the Money tab too; $EARN is the token's name (the points line).
+  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', '$EARN', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', 'README', ...Object.values(CHAIN_LABEL)];
+  for (const tab of ['log', 'project', 'money'] as const) {
     const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
     assert.deepEqual(bannedInBench(page, exempt), [], page);
     // v2.13.1 O3: the Confirming page too.

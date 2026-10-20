@@ -14,4 +14,11 @@ export const DATA: ProfileData = {
   ],
   project: { name: 'Recipe planner', what: 'a recipe planner', live: 'https://recipes.app', repo: 'https://github.com/maya/recipes', chains: ['base'],
     coin: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, programs: [{ title: 'Base Builder Grants', won: true, applied: true }], funds: ["Avalanche Team1 Mini Grants pays up to $10K; it's open all year."], confirmed: true },
+  // v3 Stage 3: the Money tab's groups (the same facts the Project tab shows, structured).
+  money: {
+    fits: [{ title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'open all year', why: 'It fits your project.', href: '/programs/avalanche-team1-mini-grants' }],
+    applied: [{ title: 'Base Builder Grants', status: 'won' }],
+    backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1', backers: 0, earned_usd: 0 },
+    points: 0,
+  },
 };

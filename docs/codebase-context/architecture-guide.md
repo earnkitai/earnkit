@@ -6872,3 +6872,48 @@ Tailwind, no removed token in `app/`, the primitive strings, SCORE_COLORS from T
 
 Test: `v3-landing.test.ts` ((a) order, (b) two buttons, (c) no old kit, (d) featured against the database,
 (e) null and empty renders, (f) FeaturedCard, (g) the env default, (h) the deletions, (i) the sheet, (j) ProgramRow).
+
+## v3 Stage 3: the profile (Task 3: three numbers, a grid and a dated log; Money tab; share; spec 5.6, 5.8)
+
+- **The page (`app/[handle]/BenchProfileView.tsx`).** One column on the black page. The header row: a 56px
+  photo, the name at the H1 shape in 40px (32px on a phone), `@handle`, then `ShareButton` (secondary,
+  `/<handle>/share`) and, while backing is open, the `Back <project>` button (`data-ek-back`) beside it. The
+  three numbers (`<ul data-ek-numbers>`, three `<li>` between two hairlines): the Shipping ring (96px, the
+  number inside, caption "Shipping"), the rank (`rankSplit` lead large, its words as the caption; the score
+  line stays `sr-only` for screen readers) and Earned (`data-ek-earned`, "$0" when ranked with nothing, "and
+  $X waiting" under it). A number not there yet is an en dash in muted (`DASH`): unranked pages show dashes
+  for Rank and Earned; Confirming and no-project pages show the calm line as a `LEDE` and three dashes, no
+  grid, an empty Ship log (never a stale rank: `Numbers` gets `bench: null`). Under the row, quiet: the why and
+  the target as one muted line, the chain lines with logos, Originality, the points line (hidden on the Money
+  tab, which carries it). The grid is `ShipGrid` with hairline cells filled `ek-brand` (no opacity ramp, no
+  radius), the streak and "Code in N of the last 52 weeks" under it. Tabs are three links on a hairline rail
+  (the active one underlined 2px white); the Ship log's rows hang off the rail (`ROWS`, the first row without
+  its top line); the Project and Money tabs open with a title. The visitor row (`VISITOR_CTA` + the one
+  primary button), the sources line and the badge close the page. Motion: the ring draw only; the skeleton is
+  static flat blocks.
+- **Money tab (`MoneyTab.tsx`, `bench-data.ts MoneyTabData`).** `ProfileData.money = { fits, applied,
+  backing, points }`. `fits` come from `fundFits` (the old `fundLines`, now structured: title, `earnPrize`,
+  `earnWhen`, `fitWhy(c, whyFacts(repo))` from bench-find, `href: /programs/<id>`); the Project tab's
+  "Ways to get funded" strings are `fits.map(fundLine)`. `applied` is `projectPrograms` as `{ title, status:
+  'won' | 'applied' }` (empty until the project is confirmed, the Project tab's rule). Groups: "Programs that
+  fit" (rows linking to the guide: title and why left, prize and when right), "Applications" (title, Won in
+  accent or Applied muted), "Backing" only when `backing` is set (EARNKIT_RAISING on and open): the
+  `RaisingPill` at its new `lg` 44px size (the coin's one link here; the pill left the header) with "N
+  backers, $X earned"; then `pointsLine(points)` + `POINTS_PAGE_LINE`. Empty groups invite (`FITS_EMPTY`,
+  `APPLIED_EMPTY`).
+- **Rows and parts.** `UpdateCard` long shape is a row: a hairline on top, the week (and the person in the
+  feed) in a left column from sm (`9rem`, `11rem` from md), the summary (18px from md), the note as a
+  `<blockquote data-ek-note>` on a strong hairline, chips under; the "Not yet confirmed" label sits on its own
+  line under the week (no middle dot). The square shape is unchanged. `ProjectTab` is rows: H2 name with
+  chain logos, the what, `TEXT_LINK`s (Live site, Code, the coin), programs as `ROWS`, "Ways to get funded" as
+  an H2 and `ROWS`. `ScoreRing` lost its glow prop (no drop-shadow); gradient stroke and round cap stay.
+  `BadgeCopy` shows the badge image always (ranked pages) and a `<details>` whose summary is "Badge for your
+  README" in the text link look; inside, the markdown and a `BTN_SECONDARY` Copy. `dollars` moved to
+  `bench-data.ts` (re-exported by `BenchProfileView`; `FeaturedCard` imports it). `tabOf` knows `money`.
+- **Pins moved, not removed.** The Backing pill is asserted on the Money tab (`profile-bench 11.1`,
+  `v3-backing (d)`, `v213-journey 16.5`); the badge line is "Badge for your README" (`profile-bench L10`);
+  `v213-copy 11.11` checks the Money tab too with `$EARN` exempt.
+
+Test: `v3-profile.test.ts` ((a) the numbers row, (b) the Money tab, (c) share and one primary action, (d) the
+confirming and no-project rows with dashes, (e) no "this week" added by the page, (f) the flat rules and the
+grid, (g) tabs, rows and the visitor row, (h) the badge).

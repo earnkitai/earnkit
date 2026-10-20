@@ -1,12 +1,9 @@
 import Avatar from '../../[handle]/Avatar';
 import { NUM } from '../common/Panel';
 import type { FeaturedData } from '../../../lib/earnkit/landing';
-import { streakWords } from '../../../lib/earnkit/bench-data';
+import { dollars, streakWords } from '../../../lib/earnkit/bench-data';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { weekLabel } from '../../../lib/earnkit/weeks';
-
-/** Whole dollars, "$1,240". Pure. */
-const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
 
 /** One, two or three numbers: a literal class per count, so Tailwind emits it. */
 const COLS = ['grid-cols-1', 'grid-cols-1', 'grid-cols-2', 'grid-cols-3'];

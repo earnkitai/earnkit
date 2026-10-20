@@ -74,7 +74,7 @@ it to make the profile fun and encouraging; do not recolour it to brand blue. Th
 | `PART_COLORS` | Stops | Used for |
 |---|---|---|
 | `ship` | `#3B82F6` to `#22D3EE` | Going live, commits |
-| `weeks` | `#D946EF` to `#F472B6` | The shipping grid, streaks |
+| `weeks` | `#D946EF` to `#F472B6` | Streak and weeks chips (the shipping grid itself is hairline cells filled `ek-brand`) |
 | `wins` | `#F59E0B` to `#FB923C` | Program wins |
 
 The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the one gradient on the site.

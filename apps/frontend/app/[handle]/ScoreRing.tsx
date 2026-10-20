@@ -4,11 +4,11 @@ import { SCORE_COLORS, type Hue } from './score-colors';
 const VIEW = 120;
 
 /**
- * profile-whoop v2: a numeric ring. The arc (value / max of the circle, from 12 o'clock) is a smooth
- * gradient stroke in the score's hue family with a rounded cap over a thin dim track, and a very soft
- * glow in its own color. The number sits in the middle in tabular figures. The arc draws in once
- * (globals.css .ek-arc; none under prefers-reduced-motion). The whole ring is one image with a text
- * equivalent (`label`, default "Score 41 of 100"). `className` sets the size.
+ * profile-whoop v2, v3 Stage 3 (spec 5.8): a numeric ring. The arc (value / max of the circle, from 12 o'clock) is
+ * a gradient stroke in the score's hue (the site's one gradient) with a rounded cap over a thin track from THEME.
+ * No glow. The number sits in the middle in tabular figures. The arc draws in once (globals.css .ek-arc; none under
+ * prefers-reduced-motion). The whole ring is one image with a text equivalent (`label`, default "Score 41 of 100").
+ * `className` sets the size.
  */
 export default function ScoreRing({
   score,
@@ -17,7 +17,6 @@ export default function ScoreRing({
   label,
   stroke = 8,
   track = 3,
-  glow = true,
   className = 'h-44 w-44',
   numberClassName = 'text-[3.25rem] md:text-[4rem]',
   caption = 'of 100',
@@ -29,7 +28,6 @@ export default function ScoreRing({
   stroke?: number;
   /** The track's width (thinner than the arc). */
   track?: number;
-  glow?: boolean;
   className?: string;
   numberClassName?: string;
   /** The small line under the number; null for none. */
@@ -88,9 +86,6 @@ export default function ScoreRing({
             pathLength={100}
             strokeDasharray="100 100"
             strokeDashoffset={100 - share}
-            style={
-              glow ? { filter: `drop-shadow(0 0 6px ${hue.to}40)` } : undefined
-            }
           />
         ) : null}
       </svg>

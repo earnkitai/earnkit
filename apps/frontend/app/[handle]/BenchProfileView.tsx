@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import Footer from '../components/common/Footer';
 import ChainLogo from '../components/ui/ChainLogo';
-import RaisingPill from '../components/ui/RaisingPill';
 import UpdateCard from '../components/ui/UpdateCard';
-import { streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
+import { dollars, streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
 import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { POINTS_PAGE_LINE } from '../../lib/earnkit/points';
@@ -11,20 +10,25 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
 import BadgeCopy from './BadgeCopy';
 import { badgeMarkdown } from '../../lib/earnkit/badge';
+import MoneyTab from './MoneyTab';
 import ProjectTab from './ProjectTab';
 import ScoreRing from './ScoreRing';
-import { COLUMN, SURFACE } from '../components/common/Panel';
+import ShareButton from './ShareButton';
+import { COLUMN, LEDE, NUM, ROWS } from '../components/common/Panel';
 import ShipGrid, { shippedWords } from './ShipGrid';
 import InstallButton from '../components/common/InstallButton';
 import { BTN_PRIMARY, BTN_SECONDARY } from '../components/common/Button';
 
 export const TAB_LOG = 'Ship log';
 export const TAB_PROJECT = 'Project';
+/** v3 Stage 3 (spec 5.6): the Money tab, at ?tab=money. */
+export const TAB_MONEY = 'Money';
+export type ProfileTab = 'log' | 'project' | 'money';
 /** Launch ready L10: not "public data" (the App reads private repos too; a private repo shows facts only). */
 export const BENCH_SOURCES_LINE = 'Every fact is checked: GitHub, the live site, packages and transactions.';
 export const LOG_EMPTY = 'Updates show here every week.';
 /**
- * v2.13.1 O3: the one calm card while the one project is Confirming. Pages are public and the owner
+ * v2.13.1 O3: the one calm line while the one project is Confirming. Pages are public and the owner
  * can't be told from a visitor, so one neutral line for everyone.
  */
 export const confirmingCardLine = (name: string, project: string) =>
@@ -34,86 +38,116 @@ export const confirmingCardLine = (name: string, project: string) =>
 export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
 /** Launch ready L7: the visitor's call to action. */
 export const VISITOR_CTA = 'Want your own page? It is free.';
-export { streakWords };
+/** The three captions; the rank's is its own words ("of 40 builders") when it has them. */
+export const CAPTION_SHIPPING = 'Shipping';
+export const CAPTION_RANK = 'Rank';
+export const CAPTION_EARNED = 'Earned';
+/** A number not there yet (confirming, no project, unranked). */
+export const DASH = '–';
+export { streakWords, rankSplit, dollars };
 
+/** v3 Stage 2: the small line under Earned, the fees still in the FeeLocker (never summed into Earned). Pure. */
+export const waitingLine = (usd: number) => `and ${dollars(usd)} waiting`;
 
-/** The photo, plain: a hairline ring, nothing else. */
+/** The name: the H1 shape at 40px (32px on a phone), so it sits with a 56px photo. */
+const NAME = 'min-w-0 break-words font-funnel-display text-[2rem] font-medium leading-[1.05] tracking-[-0.03em] text-ek-text md:text-[2.5rem]';
+/** A big number in the row: 32px on a phone (three in a 390px column), 48px from md. */
+const BIG = `${NUM} whitespace-nowrap text-[2rem] font-medium leading-none text-ek-text md:text-[3rem]`;
+const BIG_MUTED = `${NUM} text-[2rem] font-medium leading-none text-ek-muted md:text-[3rem]`;
+const CAPTION = 'mt-2 font-funnel-sans text-sm text-ek-muted md:text-base';
+const CELL = 'flex min-w-0 flex-col justify-end';
+const NUMBERS = 'mt-8 grid grid-cols-3 gap-4 border-b border-t border-ek-line py-6 md:mt-10 md:gap-8 md:py-8';
+const QUIET = 'font-funnel-sans text-sm text-ek-muted md:text-base';
+
+/** The photo: 56px, a hairline ring, nothing else. */
 function Photo({ src, handle }: { src: string | null; handle: string }) {
-  return (
-    <Avatar
-      src={src}
-      handle={handle}
-      className="h-11 w-11 text-base md:h-12 md:w-12 md:text-lg"
-    />
-  );
+  return <Avatar src={src} handle={handle} className="h-14 w-14 text-xl" />;
 }
 
 /** Name and @handle (the handle alone when there is no X name). */
 function Who({ name, handle }: { name: string; handle: string }) {
   return (
     <div className="min-w-0 flex-1">
-      <h1 className="break-words font-funnel-display text-xl font-medium leading-tight tracking-tight text-ek-text md:text-2xl">
-        {name}
-      </h1>
+      <h1 className={NAME}>{name}</h1>
       {name !== `@${handle}` ? (
-        <p className="mt-0.5 break-words font-funnel-sans text-sm text-ek-muted md:text-base">
-          @{handle}
-        </p>
+        <p className="mt-1 break-words font-funnel-sans text-base text-ek-muted md:text-lg">@{handle}</p>
       ) : null}
     </div>
   );
 }
 
-export { rankSplit };
+/** A cell of the row whose number is not there yet: a muted dash and its caption. */
+function Dash({ caption }: { caption: string }) {
+  return (
+    <li className={CELL}>
+      <p aria-hidden="true" className={BIG_MUTED}>{DASH}</p>
+      <p className={CAPTION}>{caption}</p>
+    </li>
+  );
+}
 
 /**
- * The rank, large: the percentile (or "#3") as the number, then its words, the why sentence, the weekly
- * target (launch ready L5) and each chain's line. Screen readers get the one score line (R16c) and the why.
+ * v3 Stage 3 (spec 5.6, 5.8): the three numbers: the Shipping ring (96px, the number inside), the rank (R16c: the
+ * score line to screen readers; "#3" or "Top 4%" large, its words under) and Earned (v3 Stage 2: money that reached
+ * the builder, "$0" when nothing yet, "and $X waiting" under it). A number not there yet is a dash; Earned's figure
+ * only while ranked.
  */
-function Rank({
-  line,
-  scoreLine,
-  why,
-  target,
-  chains,
-}: {
-  line: string;
-  scoreLine: string | null;
-  why: string | null;
-  target: string | null;
-  chains: ProfileData['chainLines'];
-}) {
-  const { lead, rest } = rankSplit(line);
+function Numbers({ d }: { d: ProfileData }) {
+  const ranked = d.bench !== null;
+  const rank = d.bench ? rankSplit(d.bench) : null;
   return (
-    <div className="min-w-0">
-      <p className="sr-only">{scoreLine ?? line}</p>
-      <p
-        aria-hidden="true"
-        className="whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-ek-text tabular-nums md:text-[5.5rem]"
-      >
-        {lead}
-      </p>
-      {rest ? (
-        <p
-          aria-hidden="true"
-          className="mt-2 font-funnel-sans text-sm text-ek-muted md:mt-3 md:text-base"
-        >
-          {rest}
-        </p>
-      ) : null}
-      {why ? (
-        <p className="mt-4 max-w-md font-funnel-sans text-sm leading-relaxed text-ek-body md:mt-5 md:text-base">
-          {why}
-        </p>
-      ) : null}
-      {target ? (
-        <p className="mt-2 max-w-md font-funnel-sans text-sm font-medium leading-relaxed text-ek-text md:text-base">
-          {target}
-        </p>
-      ) : null}
-      {chains.length > 0 ? (
-        <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-ek-body md:mt-6">
-          {chains.map((c) => (
+    <ul data-ek-numbers="" className={NUMBERS}>
+      {d.score !== null ? (
+        <li className={CELL}>
+          <ScoreRing
+            score={d.score}
+            label={`Shipping ${d.score} of 100`}
+            caption={null}
+            stroke={10}
+            track={4}
+            className="h-24 w-24"
+            numberClassName="text-[1.75rem] md:text-[2rem]"
+          />
+          <p className={CAPTION}>{CAPTION_SHIPPING}</p>
+        </li>
+      ) : (
+        <Dash caption={CAPTION_SHIPPING} />
+      )}
+      {rank ? (
+        <li className={CELL}>
+          <p className="sr-only">{d.line ?? d.bench}</p>
+          <p aria-hidden="true" className={BIG}>{rank.lead}</p>
+          <p aria-hidden="true" className={CAPTION}>{rank.rest ?? CAPTION_RANK}</p>
+        </li>
+      ) : (
+        <Dash caption={CAPTION_RANK} />
+      )}
+      {ranked ? (
+        <li className={CELL}>
+          <p data-ek-earned="" className={BIG}>{dollars(d.earned.paid_usd)}</p>
+          <p className={CAPTION}>{CAPTION_EARNED}</p>
+          {d.earned.waiting_usd >= 1 ? <p className="mt-1 font-funnel-sans text-xs text-ek-muted md:text-sm">{waitingLine(d.earned.waiting_usd)}</p> : null}
+        </li>
+      ) : (
+        <Dash caption={CAPTION_EARNED} />
+      )}
+    </ul>
+  );
+}
+
+/**
+ * Under the numbers, quiet: the why sentence and the weekly target (launch ready L5, in the page's voice) as one
+ * line, each chain's line with its logo, Originality (scoring and clarity R3: never a ring, never ranked) and the
+ * points with what they are (v3 Stage 1).
+ */
+function Under({ d, points }: { d: ProfileData; points: boolean }) {
+  const line = [d.why, d.target].filter((x): x is string => Boolean(x)).join(' ');
+  return (
+    <div className="mt-5 md:mt-6">
+      {line ? <p className="max-w-[36rem] font-funnel-sans text-base text-ek-muted md:text-lg">{line}</p> : null}
+      {d.chainLines.length > 0 ? (
+        <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-funnel-sans text-sm text-ek-body md:text-base">
+          {d.chainLines.map((c) => (
             <li key={c.chain} className="inline-flex items-center gap-2">
               <ChainLogo chain={c.chain} size={18} />
               <span>{c.line}</span>
@@ -121,130 +155,70 @@ function Rank({
           ))}
         </ul>
       ) : null}
+      {d.originality !== null ? (
+        <p className={`mt-3 ${QUIET}`}>
+          Originality <span className="font-medium tabular-nums text-ek-text">{d.originality}</span>
+        </p>
+      ) : null}
+      {points && d.points > 0 ? (
+        <p className={`mt-1 max-w-[36rem] ${QUIET}`}>
+          <span className="font-medium tabular-nums text-ek-text">{d.points.toLocaleString('en-US')} points.</span> {POINTS_PAGE_LINE}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-/** v3 Stage 2 (spec 5.2): whole dollars, "$1,240". Pure. */
-export const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
-/** v3 Stage 2: the small line under Earned, the fees still in the FeeLocker (never summed into Earned). Pure. */
-export const waitingLine = (usd: number) => `and ${dollars(usd)} waiting`;
-
-/**
- * v3 Stage 2 (spec 5.2): Earned, the third number (after the Shipping ring and the rank): money that reached the
- * builder (fees claimed plus announced prizes), "$0" when nothing yet; under it "and $X waiting" from $1 waiting.
- */
-function Earned({ paid, waiting }: { paid: number; waiting: number }) {
-  return (
-    <div className="min-w-0">
-      <p
-        data-ek-earned=""
-        className="whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-ek-text tabular-nums md:text-[3.5rem]"
-      >{dollars(paid)}</p>
-      <p className="mt-2 font-funnel-sans text-sm text-ek-muted md:mt-3 md:text-base">Earned</p>
-      {waiting >= 1 ? <p className="mt-1 font-funnel-sans text-xs text-ek-muted md:text-sm">{waitingLine(waiting)}</p> : null}
-    </div>
-  );
-}
-
-/** Scoring and clarity R3: Originality, one small line under the Shipping ring (never a second ring, never ranked). */
-function Originality({ value }: { value: number }) {
-  return (
-    <p className="whitespace-nowrap font-funnel-sans text-sm text-ek-muted md:text-base">
-      Originality <span className="font-medium tabular-nums text-ek-text">{value}</span>
-    </p>
-  );
-}
-
-/** v3 Stage 1: points under Originality, with what they are as small text (never ranked, never a ring). */
-function Points({ value }: { value: number }) {
-  return (
-    <div className="max-w-xs text-center">
-      <p className="whitespace-nowrap font-funnel-sans text-sm text-ek-muted md:text-base">
-        <span className="font-medium tabular-nums text-ek-text">{value.toLocaleString('en-US')}</span> points
-      </p>
-      <p className="font-funnel-sans text-xs text-ek-muted">{POINTS_PAGE_LINE}</p>
-    </div>
-  );
-}
-
-/** While the page's sources refresh: the photo, name and @handle at once, the rest as quiet shapes. */
+/** While the page's sources refresh: the photo, name and @handle at once, the rest as quiet flat shapes. */
 export function BenchProfileSkeleton({
   head,
 }: {
   head: Pick<PageHead, 'name' | 'handle' | 'avatar'>;
 }) {
-  const bar =
-    'block rounded-full bg-ek-chip animate-pulse motion-reduce:animate-none';
+  const bar = 'block bg-ek-chip';
   return (
-    <div className={`${COLUMN} pt-5 md:pt-8`} aria-busy="true">
+    <div className={`${COLUMN} pt-6 md:pt-10`} aria-busy="true">
       <section aria-label="Profile">
-        <div className="flex min-w-0 items-center gap-x-3">
+        <div className="flex min-w-0 items-center gap-x-4">
           <Photo src={head.avatar} handle={head.handle} />
           <Who name={head.name} handle={head.handle} />
         </div>
-        <div
-          className={`mt-5 flex items-center gap-8 p-6 md:mt-6 md:gap-14 md:p-10 ${SURFACE}`}
-        >
-          <span className={`${bar} h-36 w-36 shrink-0 md:h-56 md:w-56`} />
-          <span className={`${bar} h-16 w-48`} />
-        </div>
-        <span className={`${bar} mt-3 h-44 w-full !rounded-[24px] md:mt-4`} />
+        <ul aria-hidden="true" className={NUMBERS}>
+          <li><span className={`${bar} h-24 w-24 rounded-full`} /></li>
+          <li className={CELL}><span className={`${bar} h-10 w-20`} /></li>
+          <li className={CELL}><span className={`${bar} h-10 w-24`} /></li>
+        </ul>
+        <span className={`${bar} mt-8 h-24 w-full md:mt-10 md:h-20`} />
       </section>
-      <section aria-label={TAB_LOG} className="mt-3 md:mt-4">
-        <span className={`${bar} h-28 w-full !rounded-[24px]`} />
+      <section aria-label={TAB_LOG} className="mt-10 md:mt-12">
+        <span className={`${bar} h-28 w-full`} />
       </section>
-    </div>
-  );
-}
-
-/**
- * v2.13.1 O3: while the one project is Confirming, this card stands in for the score ring and the
- * shipping grid (no "Shipped 0" before anything could count). A soft pulse says it is under way.
- */
-function ConfirmingCard({ line, pulse = true }: { line: string; pulse?: boolean }) {
-  return (
-    <div
-      className={`mt-3 flex items-start gap-4 px-6 py-5 md:mt-4 md:items-center md:px-8 md:py-6 ${SURFACE}`}
-    >
-      {pulse ? (
-        <span
-          aria-hidden="true"
-          className="relative mt-2 flex h-2.5 w-2.5 shrink-0 md:mt-0"
-        >
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/40 motion-reduce:animate-none" />
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ek-text" />
-        </span>
-      ) : null}
-      <p className="min-w-0 break-words font-funnel-display text-lg font-medium leading-snug text-ek-text md:text-2xl">
-        {line}
-      </p>
     </div>
   );
 }
 
 const TAB =
-  'inline-flex h-11 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent md:h-9';
-const TAB_ON = 'bg-ek-chip-hover text-ek-text';
-const TAB_OFF = 'text-ek-muted hover:bg-ek-chip hover:text-ek-text';
+  '-mb-px inline-flex min-h-11 items-center border-b-2 px-0.5 font-funnel-sans text-base font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent';
+const TAB_ON = 'border-ek-text text-ek-text';
+const TAB_OFF = 'border-transparent text-ek-muted hover:text-ek-text';
+/** The Ship log with no row yet: one line as a row under the tab rail (the rail is its top hairline). */
+const EMPTY_ROW = 'border-b border-ek-line py-4 font-funnel-sans text-base text-ek-body md:py-5';
 
 /**
- * v2.13 spec "Profile" (R10, R11, R12), profile-whoop v2 layout on the near-black page: the header
- * (photo, name, @handle, the Backing pill); the hero card, the one Shipping ring (0 to 100) beside
- * the rank (the percentile or "#N" large, its words, the why sentence, then each chain's line with
- * its logo; scoring and clarity: no per-part rings, one score), then (v3 Stage 2) Earned, the third number, with
- * "and $X waiting" under it; the 52-week shipping grid with the streak;
- * then two tabs as plain links: the Ship log (default; long cards, newest first, the Started card
- * last) and the Project. A quiet sources line at the end.
- * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
- * and an empty Ship log. Pure.
+ * v2.13 spec "Profile" (R10, R11, R12), v3 Stage 3 (spec 5.6, 5.8) on the flat black page: the header row (photo,
+ * name, @handle, Share, and the Back button while backing is open); the three numbers (Shipping ring, rank, Earned)
+ * between two hairlines; the why and target, chain lines, Originality and points as quiet lines; the 52-week grid
+ * with the streak and "Code in N of the last 52 weeks" under it; then three tabs as plain links: the Ship log
+ * (default; rows newest first, the Started row last), the Project and Money. The visitor's one action, the sources
+ * line and the badge close the page. v2.13.1 O3: while the one project is Confirming (or there is no project), one
+ * calm line, the numbers as dashes, no grid, an empty Ship log. Pure.
  */
 export default function BenchProfileView({
   data,
   tab,
 }: {
   data: ProfileData;
-  tab: 'log' | 'project';
+  tab: ProfileTab;
 }) {
   const d = data;
   const path = pagePath(d.handle);
@@ -253,73 +227,46 @@ export default function BenchProfileView({
   // Launch ready L10: no project and no week with code: nothing to chart yet.
   const empty = d.project === null && d.score === null && !d.grid.some((g) => g.on);
   const codeIn = shippedWords(d.grid.filter((g) => g.on).length, d.grid.length);
-  // v3 Stage 2 (spec 5.2): Earned only while ranked ("$0" with nothing yet); omitted while unranked.
-  const earnedShown = d.bench !== null;
+  const quiet = confirming || empty;
+  const tabs: [ProfileTab, string, string][] = [
+    ['log', TAB_LOG, path],
+    ['project', TAB_PROJECT, `${path}?tab=project`],
+    ['money', TAB_MONEY, `${path}?tab=money`],
+  ];
   return (
     <>
-    <div className={`${COLUMN} pt-5 md:pt-8`}>
+    <div className={`${COLUMN} pt-6 md:pt-10`}>
       <section aria-label="Profile">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-4">
           <Photo src={d.avatar} handle={d.handle} />
           <Who name={d.name} handle={d.handle} />
-          {d.backing ? (
-            <div className="w-full sm:ml-auto sm:w-auto">
-              <RaisingPill symbol={d.backing.symbol} url={d.backing.url} />
-            </div>
-          ) : null}
+          <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
+            <ShareButton handle={d.handle} />
+            {/* v3 Stage 2 (spec 5.3 Route 2): backing open: the one secondary action beside Share, to the coin's tokens.fun page. */}
+            {d.backing && d.project ? (
+              <a href={d.backing.url} target="_blank" rel="noopener noreferrer" data-ek-back="" className={`${BTN_SECONDARY} !whitespace-normal text-left`}>
+                {`Back ${d.project.name}`}
+              </a>
+            ) : null}
+          </div>
         </div>
 
-        {confirming ? (
-          // R10: never a rank while the project isn't counted yet (rankLines is empty then too).
-          <ConfirmingCard line={confirmingCardLine(d.name, d.project!.name)} />
-        ) : empty ? (
-          <ConfirmingCard line={noProjectLine(d.name)} pulse={false} />
+        {quiet ? (
+          // R10: never a rank while the project isn't counted yet (rankLines is empty then too); nor a stale line.
+          <>
+            <p className={LEDE}>{confirming ? confirmingCardLine(d.name, d.project!.name) : noProjectLine(d.name)}</p>
+            <Numbers d={{ ...d, bench: null, line: null, score: null, chainLines: [] }} />
+          </>
         ) : (
           <>
-            {d.bench || d.score !== null ? (
-              <div
-                className={`mt-5 flex flex-wrap items-center gap-6 p-6 md:mt-6 md:flex-nowrap md:gap-14 md:p-10 ${SURFACE}`}
-              >
-                {d.score !== null ? (
-                  <div className="flex shrink-0 flex-col items-center gap-3 md:gap-4">
-                    <ScoreRing
-                      score={d.score}
-                      label={`Shipping ${d.score} of 100`}
-                      caption="Shipping"
-                      stroke={10}
-                      track={4}
-                      className="h-32 w-32 md:h-56 md:w-56"
-                      numberClassName="text-[2.75rem] md:text-[5rem]"
-                    />
-                    {d.originality !== null ? <Originality value={d.originality} /> : null}
-                    {d.points > 0 ? <Points value={d.points} /> : null}
-                  </div>
-                ) : null}
-                {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} target={d.target} chains={d.chainLines} /> : null}
-                {earnedShown ? <Earned paid={d.earned.paid_usd} waiting={d.earned.waiting_usd} /> : null}
-              </div>
-            ) : null}
-            {/* v3 Stage 2 (spec 5.3 Route 2): backing open: one secondary button under the three numbers, to the coin's tokens.fun page. */}
-            {d.backing && d.project ? (
-              <div className="mt-3 md:mt-4">
-                <a href={d.backing.url} target="_blank" rel="noopener noreferrer" data-ek-back="" className={BTN_SECONDARY}>
-                  {`Back ${d.project.name}`}
-                </a>
-              </div>
-            ) : null}
-            <div className={`mt-3 p-6 md:mt-4 md:p-8 ${SURFACE}`}>
-              <div className="mb-5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <p className="font-funnel-display text-2xl font-medium tracking-[-0.02em] text-ek-text md:text-3xl">
-                  {streak ?? codeIn}
-                </p>
-                {streak ? (
-                  <p className="font-funnel-sans text-sm text-ek-muted">
-                    {codeIn}
-                  </p>
-                ) : null}
-              </div>
-              <div className="max-w-3xl">
-                <ShipGrid grid={d.grid} />
+            <Numbers d={d} />
+            {/* The Money tab carries the points line itself, so the page says it once per view. */}
+            <Under d={d} points={tab !== 'money'} />
+            <div className="mt-8 md:mt-10">
+              <ShipGrid grid={d.grid} />
+              <div className={`mt-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ${QUIET}`}>
+                {streak ? <p className="font-medium text-ek-text">{streak}</p> : null}
+                <p>{codeIn}</p>
               </div>
             </div>
           </>
@@ -327,36 +274,31 @@ export default function BenchProfileView({
       </section>
 
       <section
-        aria-label={tab === 'project' ? TAB_PROJECT : TAB_LOG}
-        className="mt-8 md:mt-10"
+        aria-label={tabs.find(([t]) => t === tab)?.[1] ?? TAB_LOG}
+        className="mt-10 md:mt-12"
       >
-        <nav aria-label="Tabs" className="-mx-1 flex gap-1">
-          <Link
-            href={path}
-            aria-current={tab === 'log' ? 'page' : undefined}
-            className={`${TAB} ${tab === 'log' ? TAB_ON : TAB_OFF}`}
-          >
-            {TAB_LOG}
-          </Link>
-          <Link
-            href={`${path}?tab=project`}
-            aria-current={tab === 'project' ? 'page' : undefined}
-            className={`${TAB} ${tab === 'project' ? TAB_ON : TAB_OFF}`}
-          >
-            {TAB_PROJECT}
-          </Link>
+        <nav aria-label="Tabs" className="flex gap-6 border-b border-ek-line">
+          {tabs.map(([t, label, href]) => (
+            <Link
+              key={t}
+              href={href}
+              aria-current={tab === t ? 'page' : undefined}
+              className={`${TAB} ${tab === t ? TAB_ON : TAB_OFF}`}
+            >
+              {label}
+            </Link>
+          ))}
         </nav>
-        <div className="mt-4">
+        {/* The log's rows hang off the tab rail (the rail is their first hairline); the other tabs open with a title. */}
+        <div className={tab === 'log' ? '' : 'mt-6 md:mt-8'}>
           {tab === 'project' ? (
-            <div className={`p-5 md:p-8 ${SURFACE}`}>
-              <ProjectTab project={d.project} />
-            </div>
+            <ProjectTab project={d.project} />
+          ) : tab === 'money' ? (
+            <MoneyTab money={d.money} />
           ) : confirming || d.log.length === 0 ? (
-            <p className={`p-5 font-funnel-sans text-base text-ek-body md:p-8 ${SURFACE}`}>
-              {LOG_EMPTY}
-            </p>
+            <p className={EMPTY_ROW}>{LOG_EMPTY}</p>
           ) : (
-            <ol className="space-y-3">
+            <ol className={`${ROWS} [&>li:first-child>article]:border-t-0`}>
               {d.log.map((c) => (
                 <li key={`${c.week}-${c.started ? 's' : 'u'}`}>
                   <UpdateCard card={c} shape="long" showPerson={false} />
@@ -365,16 +307,16 @@ export default function BenchProfileView({
             </ol>
           )}
         </div>
-        {/* Launch ready L7: a visitor's first call to action on a builder's page. */}
-        <div className={`mt-8 flex flex-col items-start gap-4 p-6 sm:flex-row sm:items-center sm:justify-between md:p-8 ${SURFACE}`}>
-          <p className="font-funnel-display text-lg font-medium leading-snug text-ek-text md:text-xl">{VISITOR_CTA}</p>
+        {/* Launch ready L7: a visitor's one action on a builder's page, as a row near the end (a section's distance after the tab). */}
+        <div className="mt-14 flex flex-col items-start gap-4 border-b border-t border-ek-line py-6 sm:flex-row sm:items-center sm:justify-between md:mt-20 md:py-8">
+          <p className="font-funnel-display text-xl font-medium leading-snug text-ek-text md:text-2xl">{VISITOR_CTA}</p>
           <InstallButton className={BTN_PRIMARY} />
         </div>
-        <p className="mt-4 max-w-3xl font-funnel-sans text-xs leading-relaxed text-ek-muted md:text-sm">
+        <p className="mt-4 max-w-[36rem] font-funnel-sans text-xs leading-relaxed text-ek-muted md:text-sm">
           {BENCH_SOURCES_LINE}
         </p>
         {/* Launch ready L10: the badge only once there is a rank to show (else it reads "not ranked"). */}
-        {d.bench && !confirming ? <BadgeCopy markdown={badgeMarkdown(d.handle)} /> : null}
+        {d.bench && !confirming ? <BadgeCopy markdown={badgeMarkdown(d.handle)} handle={d.handle} /> : null}
       </section>
     </div>
     <Footer />
