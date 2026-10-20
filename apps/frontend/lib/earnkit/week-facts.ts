@@ -32,8 +32,8 @@ export type WeekFacts = {
   /** The builder's yes at the weekly moment (weekly-moment.ts approveWeek); a week without it reads UNCONFIRMED_LABEL. */
   approved?: boolean; approved_at?: string; approved_via?: string;
 };
-/** The terms' promise: an unconfirmed week is shown, marked this. */
-export const UNCONFIRMED_LABEL = 'Not yet confirmed';
+/** The terms' promise: an unconfirmed week is shown, marked this. Lives in update-links.ts so the card (a client component) never imports this server module. */
+export { UNCONFIRMED_LABEL } from './update-links';
 export const WEEKLY_HOUR_UTC = 15;
 export const WEEKLY_PER_RUN = 200;
 const DAY = 86_400_000;

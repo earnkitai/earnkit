@@ -1897,3 +1897,12 @@ weeks_shipping`, `projects.raising_at/coin_tx/coin_chain_id`, `programs.pitch` a
 v2.14 T10: `app/layout.tsx` loads Funnel Display and Funnel Sans through `next/font/local` from `app/fonts/*.woff2`
 (SIL OFL 1.1, `app/fonts/OFL.txt`), same `--font-funnel-display`/`--font-funnel-sans` variables; no Google fetch at
 build. `fonts` is in `reserved-routes.ts` (the folder has no page).
+
+v3 Stage 1 (the founder's loop; see the architecture guide's "v3 Stage 1" section): `points.ts` (the `builder_points`
+ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`, `POINTS_PAGE_LINE`),
+`connect-moment.ts` (the last backfilled weeks in the first ranked reply and the one yes), `week-links.ts` (signed
+"Looks right" and "Hide this week" links), `app/api/week/route.ts` (GET shows the button, POST acts). Changed:
+`week-facts.ts` (`pointsOf`, `UNCONFIRMED_LABEL`, `approveWeek` via), `digest.ts` (Monday email, `EMAIL_QUESTION`),
+`oauth.ts`/`x-install.ts` (hosted clients), `scripts/feed.mts` (`rank`). New tests: `v3-hosted-client.test.ts`,
+`v3-week-points.test.ts`, `v3-unconfirmed.test.ts`, `v3-points.test.ts`, `v3-connect.test.ts`,
+`v3-monday-email.test.ts`.

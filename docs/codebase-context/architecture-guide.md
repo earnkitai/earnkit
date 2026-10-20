@@ -6585,3 +6585,37 @@ quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows th
   streamable-http`, then `openclaw mcp login`), Claude Code, Cursor, Codex. Instinct documents no way to add an MCP
   server, so it has no tab.
 - Tests: `week-summary.test.ts` (W1-W8); `feed.test.ts` 6.6/6.7b and `v214-ship-log.test.ts` 8.9/8.10 read summaries.
+
+## v3 Stage 1: the founder's loop
+
+Design: `docs/design-docs-and-implementation-plans/v3-power-user.md`; plan: `v3-power-user-plan-stage1.md`; owner steps:
+`v3-stage1-runbook.md`. Stage 1 makes the owner's own path work end to end through Grok Bot: connect, see the weeks,
+say yes, earn points, get the Monday email.
+
+- **Hosted clients sign in with X (`oauth.ts`, `oauth-routes.ts`, `x-install.ts`, `x-link.ts`, `installations.ts`,
+  `discovery.ts`, `tools.ts`).** Grok Bot and Muse (hosted, shared registrations) go through X sign-in at the OAuth
+  authorize. An installation bound to an X account is never "shared": the rule is `shared_client AND x_user_id IS NULL`
+  everywhere. `exchangeCode` gives a shared registration no client key, so each token is its own installation. An
+  anonymous hosted token gets the paste-code sign-in link and the Bench `signed_out` reply (`hostedAnon` in the find
+  branch of `tools.ts`); a bound one gets discovery, scoring and weekly facts like any other client.
+- **Points at write time (`week-facts.ts`, `feed.ts`, `scripts/feed.mts`).** `upsertWeekFacts` writes
+  `project_updates.points` together with the facts; `pointsOf` lives in `week-facts.ts` (`feed.ts` re-exports it).
+  `rankFeed` covers 12 weeks. `pnpm feed:rank` (`feed.mts rank`) rewrites the points of older rows.
+- **"Not yet confirmed" (`week-facts.ts`, `feed.ts`, `UpdateCard.tsx`, `BenchProfileView.tsx`).** Weeks that are not
+  approved carry `confirmed: false`; the card shows `UNCONFIRMED_LABEL` ("Not yet confirmed") until the builder's yes.
+  Weeks post on Monday.
+- **The points ledger (`points.ts`, `week-facts.ts approveWeek`, `stats.ts`, `bench-reply.ts`).** `builder_points`
+  holds one row per award. `awardWeekPoints` writes it, `pointsForRank` gives 100/90/70/50/30 for ranks 1-5,
+  `CONNECT_POINTS` is 30, `pointsTotal` sums. `approveWeek(..., via)` awards points when a week is approved. The profile
+  shows `POINTS_PAGE_LINE`, the reply `POINTS_LINE`, and `/api/stats` returns `points_total`.
+- **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
+  ranked reply after connect shows the last backfilled weeks (`CONNECT_HEAD`) and asks `CONNECT_ASK` ("Does this look
+  right? Yes posts them."). `tell move_up { kind: 'connect' }` approves them (via `'connect'`) and counts as
+  activation. `standing_seen.connect_open/connect_done` track it. The weekly moment skips a week already approved.
+- **The Monday email (`week-links.ts`, `app/api/week/route.ts`, `digest.ts`, `cron.ts`).** At `DIGEST_HOUR_UTC` (16),
+  after the weekly facts, the digest carries last week's lines with signed "Looks right" and "Hide this week" links
+  (`week-links.ts`). GET shows one button, POST acts; links last 14 days; hiding a week works on any row and
+  approving un-hides it. `pending` weeks wait. The address is asked once, after the connect yes or a share yes
+  (`EMAIL_QUESTION`). Needs `RESEND_API_KEY` and `EARNKIT_AUTH_SECRET`; unset, the feature is off.
+- Tests: `v3-hosted-client`, `v3-week-points`, `v3-unconfirmed`, `v3-points`, `v3-connect`, `v3-monday-email`
+  (`.test.ts`); `digest.test.ts` and `oauth.test.ts` updated.

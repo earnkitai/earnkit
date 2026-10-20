@@ -212,7 +212,6 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       if (mine !== pre.mine || (held?.root ?? null) !== pre.held) throw new StaleRead();
       const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
       if (cleared) throw new AttachRefused('owner_cleared');
-      const groups = held ? [mine, held.root] : [mine];
       let root: number;
       let created = false;
       // Read before the members are detached below: an installation that had members is never fresh.

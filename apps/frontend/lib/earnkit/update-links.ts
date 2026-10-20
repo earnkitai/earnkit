@@ -6,3 +6,6 @@
  */
 export const RENDERED_LINK = /https:\/\/[A-Za-z0-9.-]+(?:\/[A-Za-z0-9._~\-/?=&#+]*)?/g;
 export const RENDERED_TRAILING = /[.,;:!?]+$/;
+
+/** The terms' promise: an unconfirmed week is shown, marked this (week-facts.ts re-exports it). */
+export const UNCONFIRMED_LABEL = 'Not yet confirmed';

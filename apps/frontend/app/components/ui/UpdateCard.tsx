@@ -2,8 +2,7 @@ import Avatar from '../../[handle]/Avatar';
 import { PART_COLORS, chipHue } from '../../[handle]/score-colors';
 import { SURFACE } from '../common/Panel';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
-import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
-import { UNCONFIRMED_LABEL } from '../../../lib/earnkit/week-facts';
+import { RENDERED_LINK, RENDERED_TRAILING, UNCONFIRMED_LABEL } from '../../../lib/earnkit/update-links';
 import { weekLabel } from '../../../lib/earnkit/weeks';
 
 /** What a card needs. The person's handle, name, avatar and project are only for showPerson (the profile omits them). */
