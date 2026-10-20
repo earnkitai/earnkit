@@ -34,6 +34,7 @@ export const digestEnabled = (env: Record<string, string | undefined> = process.
 const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
 export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the address.';
+/** The question for an address EarnKit already holds. Kept as pinned copy: no caller names an address since the entry ask moved (v3 Stage 1). */
 export const emailQuestionFor = (email: string) => `Want the Monday summary by email at ${email}?`;
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
@@ -249,54 +250,27 @@ export function cleanEmail(v: unknown): string | null {
 }
 
 /**
- * The entry's email answer: the first field of type email, or contact field whose label says email
- * (coach.ts's email slot), holding a plain address. Pure.
- */
-export function entryEmail(reqs: { key: string; label: string; kind?: string; type?: string }[], values: Record<string, string>): string | null {
-  for (const r of reqs) {
-    if (r.type !== 'email' && (r.kind !== 'contact' || !/e-?mail/i.test(r.label))) continue;
-    const e = cleanEmail(values[r.key]);
-    if (e) return e;
-  }
-  return null;
-}
-
-/**
- * Ruling 13: the question, once per subscription key, only while the email is on: an installation
- * (installations.digest_asked_at), or on a shared client (Ruling G21) a verified login (its row's
- * asked_at); a shared client without a login is never asked. `email`: the address the question may
- * use (P16: on a shared client, only the one this builder typed in this entry; never one remembered).
- * It is kept, not opted in, until a yes. Returns what the reply adds, or null (off, no login, or asked
- * before). Never fails the tool.
+ * Ruling 13: the question, once per installation (installations.digest_asked_at), only while the email is on.
+ * v3 Stage 1: asked in the first yes after activation (bench-find.ts benchMoveUp). Ruling G21 (v2.14 final fix):
+ * never on a shared client (`shared`), which has no verified caller. `email`: an address to keep with the
+ * question (unopted until a yes; the question never names it). Returns what the reply adds, or null (off,
+ * shared, or asked before). Never fails the tool.
  */
 export async function askWeeklyEmail(
   installationId: number,
-  opts: { shared: boolean; email: string | null; login?: string | null },
+  opts: { shared: boolean; email: string | null },
 ): Promise<{ question: string; agent_note: string } | null> {
-  if (!digestEnabled()) return null;
-  const login = opts.shared ? opts.login?.toLowerCase() : '';
-  if (!login && opts.shared) return null;
+  if (!digestEnabled() || opts.shared) return null;
   try {
     return await sql().begin(async (tx) => {
-      if (opts.shared) {
-        const [asked] = await tx<{ id: number }[]>`
-          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, ${login!}, ${opts.email}, now())
-          ON CONFLICT (installation_id, login) DO NOTHING RETURNING installation_id AS id`;
-        if (!asked) return null;
-      } else {
-        const [asked] = await tx<{ id: number }[]>`
-          UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
-        if (!asked) return null;
-        await tx`
-          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())
-          ON CONFLICT (installation_id, login) DO UPDATE SET email = COALESCE(EXCLUDED.email, digest_subscriptions.email), asked_at = now()
-          WHERE digest_subscriptions.opted_in_at IS NULL`;
-      }
-      return {
-        // Non-shared clients: the entry's email is reused only after the yes, so the question names none.
-        question: opts.shared && opts.email ? emailQuestionFor(opts.email) : EMAIL_QUESTION,
-        agent_note: EMAIL_NOTE,
-      };
+      const [asked] = await tx<{ id: number }[]>`
+        UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
+      if (!asked) return null;
+      await tx`
+        INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())
+        ON CONFLICT (installation_id, login) DO UPDATE SET email = COALESCE(EXCLUDED.email, digest_subscriptions.email), asked_at = now()
+        WHERE digest_subscriptions.opted_in_at IS NULL`;
+      return { question: EMAIL_QUESTION, agent_note: EMAIL_NOTE };
     });
   } catch (err) {
     console.error('[digest] ask', err instanceof Error ? err.name : 'error');

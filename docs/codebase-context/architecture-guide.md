@@ -3245,8 +3245,10 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   `<builder>.<monday>.<approve|hide>.<HMAC-SHA256("week:v1:<builder>:<key>:<monday>:<action>")>`, the key only inside
   the mac (checked against `main_project_key`, so a changed main project voids old links). `/api/week` GET shows the
   week and one POST button (changes nothing); POST approves (`approveWeek(..., 'email')`, points once; an approved
-  week keeps its first approval) or hides (`hideUpdate`), then links the page. A bad token is a 400 "This link is
-  not valid.". None on a shared client or a per-login subscription.
+  week keeps its first approval; approving un-hides the row) or hides the week's row itself (any row, with or
+  without a note), then links the page. A bad token is a 400 "This link is not valid."; a link for a week older
+  than the one before last finished is a 400 "This link has expired." (`weekLinkLive`). `askWeeklyEmail` no longer
+  has a shared-client branch (never asked there) and `entryEmail` is gone. None on a shared client or a per-login subscription.
 - **Who is due (P17).** Opted in before this week's start (`weekStart`: Monday 16:00 UTC), not
   unsubscribed, nothing sent and nothing considered since that start. So emails start on Mondays, a
   spillover past the daily cap goes out on later runs that week, and a new opt-in waits for Monday.

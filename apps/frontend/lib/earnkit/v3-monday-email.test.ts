@@ -20,7 +20,9 @@ import {
   type DigestFacts,
   type Mailer,
 } from './digest';
-import { WEEK_TEXT, weekGet, weekPost, weekTarget, weekToken, weekUrl, weekVerify } from './week-links';
+import { WEEK_TEXT, weekGet, weekLinkLive, weekPost, weekTarget, weekToken, weekUrl, weekVerify } from './week-links';
+import { profileData } from './bench-data';
+import { feedWeeks, rankFeed } from './feed';
 import { WEEKLY_HOUR_UTC } from './week-facts';
 
 /**
@@ -265,5 +267,59 @@ test('(g) the first share yes asks for the address when it was never asked', db,
       await openShare(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
       assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
     });
+  }),
+);
+
+test('(h) fix round 1: Hide hides a facts-only week (no text): it leaves the profile log and the feed', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    const me = await builder('meh');
+    await sql()`UPDATE project_updates SET text = NULL, summary = 'Fixed the login loop' WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    await rankFeed(new Date());
+    const inLog = async () => (await profileData(me.id, new Date()))!.log.some((c) => c.week === LAST);
+    const inFeed = async () => (await feedWeeks(new Date(), { only: [me.id] })).some((w) => w.monday === LAST && w.cards.length > 0);
+    assert.equal(await inLog(), true, 'shown before');
+    assert.equal(await inFeed(), true, 'in the feed before');
+    const hide = weekUrl({ builderId: me.id, key: me.key.toUpperCase(), monday: LAST, action: 'hide' });
+    assert.match(await html(await weekPost(req(hide, 'POST'))), /Hidden\. Your page no longer shows this week\./);
+    assert.equal((await row(me.id)).hidden, true);
+    assert.equal(await inLog(), false);
+    assert.equal(await inFeed(), false);
+  }),
+);
+
+test('(i) fix round 1: Looks right after Hide shows the week again', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    const me = await builder('mei');
+    await weekPost(req(weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'hide' }), 'POST'));
+    assert.equal((await row(me.id)).hidden, true);
+    assert.match(await html(await weekPost(req(weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' }), 'POST'))), /Confirmed\./);
+    const r = await row(me.id);
+    assert.deepEqual([r.hidden, r.facts.approved, r.facts.approved_via], [false, true, 'email']);
+  }),
+);
+
+test('(j) fix round 1: a link older than the week before last has expired; nothing changes', db, () =>
+  withEnv(ON, async () => {
+    const now = new Date();
+    assert.equal(weekLinkLive(LAST, now), true);
+    assert.equal(weekLinkLive('2026-09-28', now), true, 'the week before');
+    assert.equal(weekLinkLive('2026-09-21', now), false);
+    assert.equal(weekLinkLive('2026-10-12', now), false, 'the running week');
+    await freshBoard();
+    const me = await builder('mej');
+    const OLD = '2026-09-21';
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${OLD}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
+    for (const action of ['approve', 'hide'] as const) {
+      const url = weekUrl({ builderId: me.id, key: me.key, monday: OLD, action });
+      for (const r of [await weekGet(req(url)), await weekPost(req(url, 'POST'))]) {
+        assert.equal(r.status, 400);
+        assert.match(await html(r), /This link has expired\./);
+      }
+    }
+    const [old] = await sql()<{ facts: Record<string, unknown>; hidden: boolean }[]>`SELECT facts, hidden FROM project_updates WHERE builder_id = ${me.id} AND week = ${OLD}`;
+    assert.deepEqual([old.facts.approved, old.hidden], [undefined, false]);
+    assert.equal(await pointsTotal(me.id), 0);
   }),
 );

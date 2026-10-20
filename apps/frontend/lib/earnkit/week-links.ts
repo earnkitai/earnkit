@@ -4,15 +4,17 @@ import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { mainProjectOf } from './main-project';
 import { pagePath } from './reserved-routes';
-import { UPDATE_LINES, hideUpdate } from './updates';
+import { noteEvent } from './events';
 import { approveWeek, lastWeekOf, momentLines } from './weekly-moment';
+import { lastFinishedMonday, weekOfMonday } from './weeks';
 
 /**
  * v3 Stage 1 Task 6 (spec 5.4): the Monday email's two links, Looks right and Hide this week, which work without the
  * agent. The token is `<builder id>.<monday>.<action>.<base64url HMAC-SHA256(EARNKIT_AUTH_SECRET,
  * "week:v1:<builder id>:<key>:<monday>:<action>")>`: the project key rides only inside the mac, so the URL never names
  * the repo, and a link stops working when the person's main project changes. GET (/api/week) shows the week and one
- * button and changes nothing (mail scanners open links); only the button's POST approves (via 'email') or hides.
+ * button and changes nothing (mail scanners open links); only the button's POST approves (via 'email') or hides
+ * the week's row (fix round 1: any row, text or not; approving un-hides). Only the last two finished weeks.
  */
 export type WeekAction = 'approve' | 'hide';
 export type WeekLink = { builderId: number; key: string; monday: string; action: WeekAction };
@@ -61,6 +63,7 @@ export const WEEK_TEXT = {
   hidden: 'Hidden. Your page no longer shows this week.',
   none: 'There is no update that week.',
   bad: 'This link is not valid.',
+  expired: 'This link has expired.',
   page: 'See your page',
 } as const;
 
@@ -74,6 +77,17 @@ const PAGE_HEADERS = {
 };
 const page = (inner: string, status = 200) => new Response(brandShell(inner), { status, headers: PAGE_HEADERS });
 const bad = () => page(`<h1>${escapeHtml(WEEK_TEXT.bad)}</h1>`, 400);
+const expired = () => page(`<h1>${escapeHtml(WEEK_TEXT.expired)}</h1>`, 400);
+const DAY_MS = 86_400_000;
+/**
+ * Fix round 1: a link acts only on the last finished week or the one before (an older approval would be scored at
+ * today's standing). Pure.
+ */
+export function weekLinkLive(monday: string, now: Date): boolean {
+  const last = Date.parse(`${lastFinishedMonday(now)}T00:00:00Z`);
+  const t = Date.parse(`${monday}T00:00:00Z`);
+  return t <= last && t >= last - 7 * DAY_MS;
+}
 
 /** The token's target and the main project key it was signed for, or null (any mismatch). */
 async function resolve(request: Request): Promise<{ t: WeekTarget; key: string; token: string } | null> {
@@ -91,6 +105,7 @@ const handleOf = async (builderId: number) =>
 export async function weekGet(request: Request): Promise<Response> {
   const r = await resolve(request);
   if (!r) return bad();
+  if (!weekLinkLive(r.t.monday, new Date())) return expired();
   const last = await lastWeekOf(r.t.builderId, r.key, new Date()).catch(() => null);
   const lines = last && last.monday === r.t.monday ? momentLines(last) : [];
   const label = r.t.action === 'approve' ? WEEK_TEXT.approve : WEEK_TEXT.hide;
@@ -106,17 +121,31 @@ export async function weekGet(request: Request): Promise<Response> {
 export async function weekPost(request: Request): Promise<Response> {
   const r = await resolve(request);
   if (!r) return bad();
+  const now = new Date();
+  if (!weekLinkLive(r.t.monday, now)) return expired();
   const { builderId, monday, action } = r.t;
   let done: string;
   if (action === 'approve') {
     const [had] = await sql()<{ approved: boolean }[]>`
       SELECT COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates
       WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday}`;
-    if (!had?.approved && !(await approveWeek(builderId, r.key, monday, new Date(), 'email'))) return bad();
+    if (!had?.approved && !(await approveWeek(builderId, r.key, monday, now, 'email'))) return bad();
+    // Fix round 1: Looks right after Hide shows the week again (the page says it does).
+    await sql()`UPDATE project_updates SET hidden = false
+      WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday} AND hidden`;
     done = WEEK_TEXT.approved;
   } else {
-    const h = await hideUpdate(builderId, monday);
-    done = h.show_to_builder === UPDATE_LINES.hidden ? WEEK_TEXT.hidden : WEEK_TEXT.none;
+    // Fix round 1: the week's row itself (the weekly job's rows carry facts and a summary, no text), whatever it holds.
+    const [h] = await sql()<{ key: string }[]>`
+      UPDATE project_updates SET hidden = true
+      WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday} RETURNING project_key AS key`;
+    if (h) {
+      const week = weekOfMonday(monday)!;
+      await noteEvent('update_hidden', () => ({
+        type: 'update_hidden', dedupe_key: `update_hidden:${h.key.toLowerCase()}:${week}`, installation_id: builderId, repo_key: h.key.toLowerCase(), detail: { week },
+      }));
+    }
+    done = h ? WEEK_TEXT.hidden : WEEK_TEXT.none;
   }
   const handle = await handleOf(builderId);
   const link = handle ? `<p class="ek-line"><a class="ek-link" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(WEEK_TEXT.page)}</a></p>` : '';

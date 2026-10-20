@@ -16,7 +16,6 @@ import {
   digestUnsubscribeGet,
   digestUnsubscribePost,
   emailQuestionFor,
-  entryEmail,
   MailError,
   sendDigests,
   unsubTarget,
@@ -173,14 +172,9 @@ test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
   assert.equal(emailQuestionFor('a@b.co'), 'Want the Monday summary by email at a@b.co?');
 });
 
-test('entryEmail: the first contact field labelled email, a plain address only', () => {
-  const reqs = [
-    { key: 'tg', label: 'Telegram', kind: 'contact' as const },
-    { key: 'mail', label: 'Contact email', kind: 'contact' as const },
-    { key: 'pitch', label: 'Email us your pitch', kind: 'pitch' as const },
-  ];
-  assert.equal(entryEmail(reqs, { tg: '@a', mail: ' Alice@Example.com ' }), 'alice@example.com');
-  assert.equal(entryEmail(reqs, { mail: 'not an email', pitch: 'x@y.z' }), null);
+test('cleanEmail: a plain address only', () => {
+  assert.equal(cleanEmail(' Alice@Example.com '), 'alice@example.com');
+  assert.equal(cleanEmail('not an email'), null);
   assert.equal(cleanEmail('a@b.co, c@d.co'), null);
   assert.equal(cleanEmail(`${'a'.repeat(250)}@b.co`), null);
 });
@@ -406,7 +400,7 @@ test('10.8 no opt-in, nothing sent; an empty week is never sent; without RESEND_
   }
 });
 
-test('the question: once per installation, keeps the address unopted; shared clients name only this entry\'s address', db, async () => {
+test('the question: once per installation, keeps the address unopted; never on a shared client', db, async () => {
   const tag = `digest-ask-${process.pid}-${Date.now()}`;
   const prevKey = process.env.RESEND_API_KEY;
   process.env.RESEND_API_KEY = 're_test_never_used';
@@ -420,11 +414,9 @@ test('the question: once per installation, keeps the address unopted; shared cli
     assert.equal(await askWeeklyEmail(a.id, { shared: false, email: 'a@b.co' }), null, 'once');
     const [row] = await sql()<{ email: string; opted_in_at: Date | null }[]>`SELECT email, opted_in_at FROM digest_subscriptions WHERE installation_id = ${a.id}`;
     assert.deepEqual(row, { email: 'a@b.co', opted_in_at: null });
-    // Ruling G21: a shared client is asked only with a verified login, once per login.
-    assert.equal(await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co' }), null, 'no code, no question');
-    assert.equal((await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co', login: 'carol' }))?.question, emailQuestionFor('c@d.co'));
-    assert.equal(await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co', login: 'carol' }), null, 'once per login');
-    assert.equal((await askWeeklyEmail(s.id, { shared: true, email: null, login: 'dan' }))?.question, EMAIL_QUESTION);
+    // Ruling G21: a shared client is never asked and keeps nothing.
+    assert.equal(await askWeeklyEmail(s.id, { shared: true, email: 'c@d.co' }), null);
+    assert.equal((await sql()`SELECT 1 FROM digest_subscriptions WHERE installation_id = ${s.id}`).length, 0);
   } finally {
     if (prevKey === undefined) delete process.env.RESEND_API_KEY;
     else process.env.RESEND_API_KEY = prevKey;
