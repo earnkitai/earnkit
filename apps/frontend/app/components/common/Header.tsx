@@ -31,7 +31,7 @@ export default function Header() {
         <a href={DOCS} target="_blank" rel="noopener noreferrer" className={`${LINK} hidden sm:inline-flex`}>
           Docs
         </a>
-        <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-blue-bright px-4 font-funnel-sans text-sm font-medium text-ek-page transition-colors hover:bg-ek-blue-soft md:h-9" />
+        <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-brand px-4 font-funnel-sans text-sm font-medium text-ek-text transition-colors hover:bg-ek-accent md:h-9" />
       </nav>
     </header>
   );

@@ -138,8 +138,10 @@ apps/frontend/
   app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
                                Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
   app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
-  app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
-  apps/frontend/DESIGN.md      R18: the design system (tokens, surfaces, text roles, buttons, the profile's accent palette)
+  app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
+                               BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
+  apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
+                               accent, hairline rows, type scale, contrast table, the profile's PART_COLORS kept)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -213,8 +215,9 @@ apps/frontend/
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
                                on a failed read
-  app/components/common/Panel.tsx  R18: SURFACE (the one card surface), COLUMN (the page column), H1, H2,
-                               LEDE (the type scale) and Panel (a section on the surface); Eyebrow removed
+  app/components/common/Panel.tsx  v3 Stage 3 T1: the flat primitives: COLUMN (1120px), SECTION, H1 (56/36), H2 (32/24),
+                               LEDE, NUM (tabular Funnel Display), ROWS/ROW (hairline rows), SURFACE (a flat block
+                               that opens with a hairline; kept for callers) and Panel
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)

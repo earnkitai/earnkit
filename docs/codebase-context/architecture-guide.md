@@ -6788,3 +6788,45 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
   (`schema-rerun.test.ts`).
 
 Tests for the four parts: `v3-programs`, `v3-apply`, `v3-backing`, `v3-earned` (`.test.ts`).
+
+## v3 Stage 3: the flat system (Task 1: tokens and primitives, spec 5.8)
+
+The site moves from the navy gradient card kit to a flat system: a true black page, white type, one accent
+(Base blue), hairline rows instead of cards, Funnel Display for display and numbers, Funnel Sans for text.
+Task 1 changes only the tokens and the primitives; the pages are restyled on them in the later tasks
+(landing, profile, leaderboard, feed, programs, docs, shell pages, card, badge), so a page can look
+in-between until its task lands. The build and the suite stay green throughout.
+
+- **Tokens (`lib/earnkit/theme.ts THEME`).** Same keys, new values: `page`/`pageTop` `#000000`, `glass`
+  black at 85%, `surface`/`surfaceTop` `#0E1116` (one colour; the two stops exist so the old mirrors stay
+  flat), `raised` `#161A22`, `border`/`hairline` white 12%, `borderStrong` white 24%, `chip` white 6%,
+  `chipHover` white 12%, `track` white 10%, `glow` transparent, `text` `#FFFFFF`, `body` `#C9CDD6`, `muted`
+  `#7E8694`, `accent` `#3D7BFF`, `brand` `#0052FF`. `brand` is a fill (3.7:1 on black): the primary button,
+  dots, selection. Blue text is always `accent` (5.5:1 on black, 4.5:1 on `raised`).
+- **Mirrors.** `app/globals.css` defines every value as `--ek-p-*` (tested in `profile-pages.test.ts 10.5` and
+  `v3-tokens.test.ts`); the body is `background-color: var(--ek-p-page)` with no background image, no
+  gradient, no glow; the marquee keyframes are gone; `::selection` is brand with white text, the focus ring
+  is the accent; `.ek-arc` and both reduced-motion blocks stay. `tailwind.config.ts` holds no raw hex: every
+  `ek-*` colour is a variable. `ek-blue-bright`, `ek-blue-soft` and `ek-score-orange` are removed; new
+  `ek-brand`, `ek-brand-hover` (an alias of the accent) and `ek-track`. `brand-page.ts` reads THEME, so the
+  shell pages went flat black on their own (Task 6 restyles their card and shadow).
+- **Primitives (`Panel.tsx`, `Button.tsx`).** `COLUMN` is 1120px with 16px gutters (32px from md); `SECTION`
+  is the vertical rhythm; `H1` 56px (36px on a phone), `H2` 32px (24px), `LEDE` body colour at a 36rem
+  measure; `NUM` is tabular Funnel Display; `ROWS`/`ROW` are hairline rows; `SURFACE` is a flat block that
+  opens with a hairline (no radius, no gradient), kept so the callers compile until their tasks move them to
+  rows. `BTN_PRIMARY` is a 48px pill on `ek-brand` with `ek-text`, `ek-accent` on hover; `BTN_SECONDARY` is
+  the `ek-line-strong` outline with `ek-chip` on hover.
+- **Usages fixed.** Every `ek-blue-bright` fill is `ek-brand` with `ek-text` on it (Header, AddToAgent,
+  FilterChip, the terms bullets); every `ek-blue-soft` focus ring is `ek-accent` (BenchProfileView, ProjectTab,
+  FilterChip, BenchRowItem, AddToAgent, ProgramCard); the orange on the won line (ProjectTab) and the
+  Backing pill (RaisingPill) is `ek-accent`. The share card (`card-response.tsx`) and the badge (`badge.ts`)
+  keep their own hexes until the card and badge tasks; the card's orange becomes brand blue there
+  (DESIGN.md). `layout.tsx` reads `theme-color` from `THEME.page`.
+- **Profile palette.** `PART_COLORS` is unchanged (the owner keeps it); `SCORE_COLORS` reads page, surface,
+  track and text from THEME, and the hero ring is white to the accent. The rings are the one gradient left.
+- **DESIGN.md** is rewritten to one page: the rules (no gradients, glow, shadows, decorative images, video,
+  emoji, em dashes; one accent; sentence case; no all-caps, no eyebrows; 1120px column; 44px tap targets;
+  reduced motion), the type scale, the token table, the contrast table, the profile palette, layout, buttons.
+
+Test: `v3-tokens.test.ts` (T1.1 to T1.8: the values and the mirror, contrast, globals.css rules, no raw hex in
+Tailwind, no removed token in `app/`, the primitive strings, SCORE_COLORS from THEME, DESIGN.md's scope).

@@ -74,7 +74,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -118,7 +118,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -148,7 +148,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -168,7 +168,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -210,7 +210,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -246,7 +246,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -279,7 +279,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -314,7 +314,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -352,7 +352,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -371,7 +371,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -404,7 +404,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -438,7 +438,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -474,7 +474,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -511,7 +511,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -540,7 +540,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -566,7 +566,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -606,7 +606,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -630,7 +630,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -655,7 +655,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -689,7 +689,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -715,7 +715,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -742,7 +742,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -760,7 +760,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -782,7 +782,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -808,7 +808,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -845,7 +845,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -874,7 +874,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -910,7 +910,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}
@@ -940,7 +940,7 @@ export default function RiskSection() {
                 key={index}
                 className="flex items-start text-ek-body"
               >
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-blue-bright mt-2 mr-3 flex-shrink-0" />
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-ek-brand mt-2 mr-3 flex-shrink-0" />
                 <span>{item}</span>
               </li>
             ))}

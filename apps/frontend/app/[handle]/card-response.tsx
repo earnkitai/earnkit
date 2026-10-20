@@ -18,8 +18,8 @@ import { CARD_CACHE } from '../../lib/earnkit/share';
 
 const NAVY = '#0F1839'; // ek-navy-deep
 const WHITE = '#F6F9FE'; // ek-white
-const SOFT = '#A3C5FE'; // ek-blue-soft
-const ORANGE = '#FF7A1A'; // ek-score-orange
+const SOFT = '#A3C5FE'; // the old soft blue; the card task moves the card onto THEME (DESIGN.md)
+const ORANGE = '#FF7A1A'; // the old coin orange; becomes brand blue in the card task (DESIGN.md)
 const PURPLE = '#9B6BFF'; // ek-score-purple: shapes only, never text on the card's navy
 const notFound = () => new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 

@@ -1,12 +1,12 @@
 import { THEME } from '../../lib/earnkit/theme';
 
 /**
- * profile-whoop v2 (v4: on the deep-blue THEME, lib/earnkit/theme.ts): the profile's premium palette.
+ * profile-whoop v2 (v3: on the flat black THEME, lib/earnkit/theme.ts): the profile's accent palette.
  * Scoring and clarity: one score (Shipping, the hero ring in SCORE_COLORS.total), so the hue families
  * are for the facts around it: `ship` (going live, commits), `weeks` (the grid, streaks) and `wins`
  * (program wins). Each keeps its gradient (`from` to `to`) and `text`, the one solid color it is set
- * in (4.5:1 or more on the page and the card surface, tested). R18 (owner): the profile's accent palette,
- * kept on purpose to make the profile fun and encouraging; UpdateCard's chip dot reads `to` from here.
+ * in (4.5:1 or more on the page and the surface, tested). Owner: kept on purpose to make the profile fun
+ * and encouraging; the one place the site has more than one hue. UpdateCard's chip dot reads `to` from here.
  */
 export const PART_COLORS = {
   ship: { from: '#3B82F6', to: '#22D3EE', text: '#67E8F9' }, // blue to cyan
@@ -16,20 +16,20 @@ export const PART_COLORS = {
 export type PartLabel = keyof typeof PART_COLORS;
 export type Hue = { from: string; to: string; text?: string };
 
-/** R18: the site's one card surface (Panel.tsx SURFACE). */
+/** A flat block that opens with a hairline (Panel.tsx SURFACE); kept for the profile's callers. */
 export { SURFACE } from '../components/common/Panel';
 
 export const SCORE_COLORS = {
-  /** The hero ring: white to the soft brand blue. */
+  /** The hero ring: white to the accent blue. */
   total: { from: '#FFFFFF', to: THEME.accent } as Hue,
   /** A ring's empty track: thin and dim. */
   track: THEME.track,
-  /** The page behind everything (deep navy). */
+  /** The page behind everything (black). */
   page: THEME.page,
-  /** A card surface: a soft top-down gradient between these two. */
+  /** A flat surface; both stops are the same colour so the ring's backdrop stays flat. */
   surfaceTop: THEME.surfaceTop,
   surface: THEME.surface,
-  /** Text: primary, and the muted blue-grey for secondary lines and labels. */
+  /** Text: primary, and the muted grey for secondary lines and labels. */
   text: THEME.text,
   muted: THEME.muted,
 } as const;

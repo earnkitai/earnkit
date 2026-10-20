@@ -224,7 +224,7 @@ function ConfirmingCard({ line, pulse = true }: { line: string; pulse?: boolean 
 }
 
 const TAB =
-  'inline-flex h-11 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft md:h-9';
+  'inline-flex h-11 items-center rounded-full px-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent md:h-9';
 const TAB_ON = 'bg-ek-chip-hover text-ek-text';
 const TAB_OFF = 'text-ek-muted hover:bg-ek-chip hover:text-ek-text';
 

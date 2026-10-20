@@ -24,7 +24,7 @@ export default function BenchRowItem({ r }: { r: BenchRow }) {
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           <Link
             href={pagePath(r.handle)}
-            className="min-w-0 max-w-full font-funnel-display text-base font-medium text-ek-text [overflow-wrap:break-word] after:absolute after:inset-0 after:content-[''] hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-ek-blue-soft md:text-lg"
+            className="min-w-0 max-w-full font-funnel-display text-base font-medium text-ek-text [overflow-wrap:break-word] after:absolute after:inset-0 after:content-[''] hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-ek-accent md:text-lg"
           >
             {r.name}
           </Link>

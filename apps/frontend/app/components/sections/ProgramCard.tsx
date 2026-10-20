@@ -18,7 +18,7 @@ export default function ProgramCard({ tile: t }: { tile: Tile }) {
     <Link
       href={`/programs/${t.id}`}
       aria-label={`${t.title}, ${t.prize}`}
-      className={`${SURFACE} group flex h-full flex-col p-6 transition-colors duration-200 hover:border-ek-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ek-blue-bright`}
+      className={`${SURFACE} group flex h-full flex-col p-6 transition-colors duration-200 hover:border-ek-line-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ek-accent`}
     >
       <div className="flex items-center gap-3">
         <ProgramLogo logo={t.logo} title={t.title} size={40} />

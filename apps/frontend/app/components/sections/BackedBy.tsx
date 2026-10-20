@@ -13,7 +13,7 @@ const investorLogos = [
   { src: '/images/investors/COOPER_TURLEY.png', alt: 'Cooper Turley' },
 ];
 
-/** v2.13: the label is sentence case (no all-caps labels). */
+/** v2.13: the label is sentence case (no all-caps labels). v3 Task 1: the marquee keyframes are gone; Task 2 makes this a static row. */
 export default function BackedBy() {
   return (
     <section aria-label="Backed by" className="flex w-full flex-col items-center gap-8">
@@ -22,7 +22,7 @@ export default function BackedBy() {
       </p>
 
       <div className="relative w-full overflow-hidden before:absolute before:left-0 before:top-0 before:z-10 before:h-full before:w-8 before:bg-gradient-to-r before:from-ek-page before:to-transparent after:absolute after:right-0 after:top-0 after:z-10 after:h-full after:w-8 after:bg-gradient-to-l after:from-ek-page after:to-transparent">
-        <ul className="flex w-fit animate-marquee items-center gap-16 px-8 md:gap-24">
+        <ul className="flex w-fit items-center gap-16 px-8 md:gap-24">
           {/* Doubled for the seamless loop; the copies are decorative */}
           {[...investorLogos, ...investorLogos].map((logo, index) => (
             <li

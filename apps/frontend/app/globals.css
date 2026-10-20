@@ -3,33 +3,31 @@
 @tailwind utilities;
 
 /*
- * One design system (scoring and clarity R18, DESIGN.md). The page tokens (--ek-p-*, lib/earnkit/theme.ts
- * THEME; tested to match) are the colors. Tailwind reads them as ek-page, ek-surface, ek-text and
- * friends (tailwind.config.ts), next to three brand colors (ek-blue-bright, ek-blue-soft,
- * ek-score-orange), so every page
- * (landing, leaderboard, feed, profile, programs, terms) and the brandShell sign-in pages share one
- * page, one card surface, one text scale.
+ * One design system (v3 spec 5.8, DESIGN.md). The page tokens (--ek-p-*, lib/earnkit/theme.ts THEME;
+ * tested to match) are the colours. Tailwind reads them as ek-page, ek-text, ek-brand and friends
+ * (tailwind.config.ts), so every page (landing, leaderboard, feed, profile, programs, terms) and the
+ * brandShell sign-in pages share one black page, one type scale and one accent.
  */
 :root {
   /* Page tokens (theme.ts THEME) */
-  --ek-p-page: #070D24;
-  --ek-p-page-top: #0A1433;
-  --ek-p-glass: rgba(7, 13, 36, 0.85);
-  --ek-p-surface-top: #111C3D;
-  --ek-p-surface: #0C1530;
-  --ek-p-raised: #16224A;
-  --ek-p-border: rgba(87, 157, 255, 0.12);
-  --ek-p-border-strong: rgba(87, 157, 255, 0.2);
-  --ek-p-hairline: rgba(87, 157, 255, 0.1);
-  --ek-p-chip: rgba(87, 157, 255, 0.1);
-  --ek-p-chip-hover: rgba(87, 157, 255, 0.18);
-  --ek-p-track: rgba(163, 197, 254, 0.1);
-  --ek-p-glow: rgba(87, 157, 255, 0.16);
-  --ek-p-text: #F5F8FF;
-  --ek-p-body: #C8D4EE;
-  --ek-p-muted: #94A3C4;
-  --ek-p-accent: #A3C5FE;
-  --ek-p-brand: #579DFF;
+  --ek-p-page: #000000;
+  --ek-p-page-top: #000000;
+  --ek-p-glass: rgba(0,0,0,0.85);
+  --ek-p-surface-top: #0E1116;
+  --ek-p-surface: #0E1116;
+  --ek-p-raised: #161A22;
+  --ek-p-border: rgba(255,255,255,0.12);
+  --ek-p-border-strong: rgba(255,255,255,0.24);
+  --ek-p-hairline: rgba(255,255,255,0.12);
+  --ek-p-chip: rgba(255,255,255,0.06);
+  --ek-p-chip-hover: rgba(255,255,255,0.12);
+  --ek-p-track: rgba(255,255,255,0.10);
+  --ek-p-glow: rgba(0,0,0,0);
+  --ek-p-text: #FFFFFF;
+  --ek-p-body: #C9CDD6;
+  --ek-p-muted: #7E8694;
+  --ek-p-accent: #3D7BFF;
+  --ek-p-brand: #0052FF;
 }
 
 @layer utilities {
@@ -48,15 +46,11 @@
   box-sizing: border-box;
 }
 
-/* Every page: deep navy with a soft blue glow at the top. */
+/* Every page: black. Nothing behind the type. */
 body {
   min-height: 100dvh;
   color: var(--ek-p-body);
   background-color: var(--ek-p-page);
-  background-image:
-    radial-gradient(56rem 28rem at 50% -6rem, var(--ek-p-glow), transparent 70%),
-    linear-gradient(180deg, var(--ek-p-page-top), var(--ek-p-page) 40rem);
-  background-repeat: no-repeat;
   font-family: var(--font-funnel-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
@@ -64,11 +58,11 @@ body {
 /* Browser surfaces are part of the design, not defaults. */
 ::selection {
   background: var(--ek-p-brand);
-  color: var(--ek-p-page);
+  color: var(--ek-p-text);
 }
 
 :focus-visible {
-  outline: 2px solid var(--ek-p-brand);
+  outline: 2px solid var(--ek-p-accent);
   outline-offset: 3px;
   border-radius: 4px;
 }
@@ -95,25 +89,7 @@ html {
   background: var(--ek-p-muted);
 }
 
-/* Backed by: the investors' logos scroll slowly; hover pauses. */
-@keyframes ek-marquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-.animate-marquee {
-  animation: ek-marquee 30s linear infinite;
-}
-
-.animate-marquee:hover {
-  animation-play-state: paused;
-}
-
-/* profile-whoop: a score ring's arc draws in once (ScoreRing). */
+/* The one motion: a score ring's arc draws in once (ScoreRing). */
 @keyframes ek-arc-in {
   from {
     stroke-dashoffset: 100;

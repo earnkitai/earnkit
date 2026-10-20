@@ -122,7 +122,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         });
       }}
       aria-label={label}
-      className="inline-flex min-h-11 flex-shrink-0 items-center rounded-full bg-ek-blue-bright px-4 font-funnel-sans text-sm font-medium text-ek-page transition-colors hover:bg-ek-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
+      className="inline-flex min-h-11 flex-shrink-0 items-center rounded-full bg-ek-brand px-4 font-funnel-sans text-sm font-medium text-ek-text transition-colors hover:bg-ek-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
@@ -177,7 +177,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
+          className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
         >
           <svg
             viewBox="0 0 24 24"
@@ -221,7 +221,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               role="tab"
               aria-selected={i === active}
               onClick={() => setActive(i)}
-              className={`inline-flex min-h-11 items-center gap-2 rounded-full pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-full pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface ${
                 i === active
                   ? 'bg-ek-text text-ek-page'
                   : 'bg-ek-chip text-ek-body hover:bg-ek-chip-hover'
@@ -250,7 +250,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           {agent.install && (
             <a
               href={agent.install}
-              className="mb-4 inline-flex min-h-11 items-center rounded-full bg-ek-blue-bright px-5 font-medium text-ek-page transition-colors hover:bg-ek-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
+              className="mb-4 inline-flex min-h-11 items-center rounded-full bg-ek-brand px-5 font-medium text-ek-text transition-colors hover:bg-ek-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
             >
               Add to {agent.name}
             </a>

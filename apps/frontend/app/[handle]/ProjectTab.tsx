@@ -7,7 +7,7 @@ export const LIVE_LINK = 'Live site';
 export const CODE_LINK = 'Code';
 
 const LINK =
-  'group inline-flex h-11 items-center gap-1.5 rounded-full border border-ek-line-strong px-4 font-funnel-sans text-sm font-medium text-ek-body transition-colors hover:bg-ek-chip hover:text-ek-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft md:h-10';
+  'group inline-flex h-11 items-center gap-1.5 rounded-full border border-ek-line-strong px-4 font-funnel-sans text-sm font-medium text-ek-body transition-colors hover:bg-ek-chip hover:text-ek-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-accent md:h-10';
 
 function Arrow() {
   return (
@@ -109,7 +109,7 @@ export default function ProjectTab({
       ) : null}
 
       {p.coin ? (
-        <p className="mt-6 font-funnel-sans text-base font-medium text-ek-score-orange">
+        <p className="mt-6 font-funnel-sans text-base font-medium text-ek-accent">
           <a href={p.coin.url} target="_blank" rel="noopener noreferrer" className="underline-offset-4 hover:underline">{`$${p.coin.symbol} on tokens.fun`}</a>
         </p>
       ) : null}
@@ -122,7 +122,7 @@ export default function ProjectTab({
             return label ? (
               <li
                 key={g.title}
-                className={`break-words ${g.won ? 'font-medium text-ek-score-orange' : 'text-ek-body'}`}
+                className={`break-words ${g.won ? 'font-medium text-ek-accent' : 'text-ek-body'}`}
               >
                 {label}
               </li>
