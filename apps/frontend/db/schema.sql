@@ -1722,3 +1722,20 @@ CREATE TABLE IF NOT EXISTS creator_fees (tx_hash text NOT NULL, log_index intege
 CREATE TABLE IF NOT EXISTS creator_deposits (tx_hash text NOT NULL, log_index integer NOT NULL, coin text NOT NULL, wallet text NOT NULL, amount_wei numeric NOT NULL, block_number bigint NOT NULL, PRIMARY KEY (tx_hash, log_index));
 CREATE INDEX IF NOT EXISTS creator_deposits_wallet ON creator_deposits (wallet, block_number);
 CREATE INDEX IF NOT EXISTS creator_fees_coin ON creator_fees (coin);
+-- v3 Stage 2 Task 4 fix round 2: a database that ran the first version of creator_fees (key (tx_hash, log_index), one
+-- row per claim, never capped at the EarnKit coins' deposits) moves to the per-coin key, and its uncapped rows and
+-- cursors ('creator_fees:<coin>') are cleared so the next run credits again under the cap. Only when the old key is
+-- found; a rerun is a no-op.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'creator_fees_pkey' AND conrelid = 'creator_fees'::regclass
+      AND pg_get_constraintdef(oid) NOT LIKE '%coin%'
+  ) THEN
+    ALTER TABLE creator_fees DROP CONSTRAINT creator_fees_pkey;
+    DELETE FROM creator_fees;
+    DELETE FROM bonus_cursor WHERE id LIKE 'creator_fees:%';
+    ALTER TABLE creator_fees ADD CONSTRAINT creator_fees_pkey PRIMARY KEY (tx_hash, log_index, coin);
+  END IF;
+END $$;
