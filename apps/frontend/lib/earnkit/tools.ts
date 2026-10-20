@@ -3104,11 +3104,11 @@ export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
   find: async (input: unknown, ctx0: ToolContext) => {
     // v2.14 T5 (A6): the fallback link's paste code binds this installation first, so this reply is already the
-    // person's. A shared client's is never read (it serves many builders; no person binding).
+    // person's. v3 Stage 1: a hosted client's too (its token is one builder's).
     const { sign_in_code, ...unsigned } = (input ?? {}) as Record<string, unknown>;
     input = unsigned;
     let signInNote: string | null = null;
-    if (sign_in_code !== undefined && !ctx0.sharedClient) {
+    if (sign_in_code !== undefined) {
       const own = ctx0.ownInstallationId ?? ctx0.installationId;
       const b = await bindFromPaste(own, sign_in_code, new Date());
       if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own };

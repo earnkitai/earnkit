@@ -225,14 +225,19 @@ test('5.9 a root with members: the members are detached first (each its own anon
   assert.deepEqual(await xOf(m3.own), { x: null, b: null });
 });
 
-test('5.10 a shared client\'s sign_in_code is never read; X off gives no link', db, async () => {
+test('5.10 v3: a hosted client\'s bad sign_in_code binds nothing; X off gives no link', db, async () => {
   const s = await install('Grok');
   await sql()`UPDATE installations SET shared_client = true WHERE id = ${s.own}`;
-  assert.equal(await signInLink(s.own, NOW), null);
   const r = await mcpCall({ ...ctxOf(s), sharedClient: true }, 'find', { sign_in_code: 'ABCD-EFGH-JKMN' });
   assert.equal(r.isError, false, r.text);
-  assert.equal(r.reply?.sign_in_note, undefined);
+  assert.ok(r.reply?.sign_in_note, 'the code is read, and refused');
   assert.equal((await xOf(s.own)).x, null);
+  delete process.env.X_CLIENT_ID;
+  try {
+    assert.equal(await signInLink(s.own, NOW), null);
+  } finally {
+    process.env.X_CLIENT_ID = 'cid';
+  }
 });
 
 test('5.11 fix 1: an unbound root whose page another X claimed can\'t sign in to an X that has a page; nothing changes', db, async () => {

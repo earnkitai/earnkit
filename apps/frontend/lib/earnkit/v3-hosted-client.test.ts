@@ -7,6 +7,8 @@ import { authorizeGet } from './oauth-routes';
 import { attachToX } from './x-install';
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
+import { signInLink } from './x-link';
+import { X_ON, withEnv } from './fixtures/find';
 import { enqueueClue } from './discovery';
 import { pageHandle } from './github-verify';
 import type { XUser } from './x-oauth';
@@ -84,4 +86,13 @@ test('(f) a bound hosted installation gets discovery clues and its page handle; 
   assert.ok(r.ok);
   assert.equal(await enqueueClue(bound.own, 'signin'), true);
   assert.equal(await pageHandle(bound.own), user('fay').username.toLowerCase());
+});
+
+test('(g) an anonymous shared_client installation is minted a sign-in link; a bound one is not', db, async () => {
+  const anon = await hosted('g1');
+  const link = await withEnv(X_ON, () => signInLink(anon.own, new Date()));
+  assert.match(link ?? '', /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
+  const bound = await hosted('g2');
+  assert.ok((await attachToX(bound.own, user('gus'), new Date())).ok);
+  assert.equal(await withEnv(X_ON, () => signInLink(bound.own, new Date())), null);
 });
