@@ -8,7 +8,7 @@ export default function SchemaOrg() {
     slogan: 'Ship every week. Get funded.',
     description:
       'EarnKit ranks builders by what they ship and finds grants that fit. Agents connect at https://earnkit.com/mcp.',
-    sameAs: ['https://x.com/EarnKit_ai'],
+    sameAs: ['https://x.com/EarnKitAI'],
     parentOrganization: {
       '@type': 'Organization',
       name: 'Tokenfi Inc.',
