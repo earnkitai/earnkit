@@ -21,7 +21,7 @@ export const BADGE_MISS_CACHE = 'public, max-age=600, s-maxage=600';
 
 const NAVY = '#0F1839'; // ek-navy-deep
 const WHITE = '#F6F9FE'; // ek-white
-const BLUE = '#579DFF'; // ek-blue-bright
+const BLUE = '#579DFF'; // the old bright blue; the badge task moves the badge onto THEME.brand
 const MUTED = '#3A4466';
 
 const escapeXml = (s: string) =>

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { THEME, themeVar } from './theme';
+import { brandShell } from './brand-page';
 import { PART_COLORS, SCORE_COLORS } from '../../app/[handle]/score-colors';
 import { COLUMN, H1, H2, LEDE, NUM, ROW, ROWS, SECTION, SURFACE } from '../../app/components/common/Panel';
 import { BTN_PRIMARY, BTN_SECONDARY } from '../../app/components/common/Button';
@@ -83,17 +84,20 @@ test('T1.4 tailwind.config.ts: every colour is a --ek-p-* variable (no raw hex);
   for (const old of ['ek-blue-bright', 'ek-blue-soft', 'ek-score-orange']) assert.ok(!tw.includes(old), `${old} removed`);
 });
 
-test('T1.5 no page or component uses a removed token, a card gradient or the marquee', () => {
+test('T1.5 no page, component or shell (app/ and lib/) uses a removed token or the marquee', () => {
   const files: string[] = [];
   const walk = (d: string) => {
     for (const f of readdirSync(d)) {
       const p = join(d, f);
+      if (f === 'node_modules') continue;
       if (statSync(p).isDirectory()) walk(p);
       else if (/\.(tsx?|css)$/.test(f) && !/\.test\.tsx?$/.test(f)) files.push(p);
     }
   };
   walk(join(FRONTEND, 'app'));
-  assert.ok(files.length > 50, 'walked the app');
+  walk(join(FRONTEND, 'lib'));
+  assert.ok(files.length > 100, 'walked app/ and lib/');
+  assert.ok(files.some((p) => p.endsWith('/brand-page.ts')), 'the shell pages are in the scan');
   for (const p of files) {
     const src = readFileSync(p, 'utf8');
     for (const old of ['ek-blue-bright', 'ek-blue-soft', 'ek-score-orange', 'animate-marquee']) assert.ok(!src.includes(old), `${old} in ${p.slice(FRONTEND.length)}`);
@@ -140,6 +144,22 @@ test('T1.7 the profile keeps PART_COLORS; SCORE_COLORS reads the page, surface, 
   assert.deepEqual(SCORE_COLORS.total, { from: '#FFFFFF', to: THEME.accent });
   // The layout's theme-color is the page token, not a stale hex.
   assert.match(read('app/layout.tsx'), /theme-color" content=\{THEME\.page\}/);
+});
+
+test('T1.9 the shell pages (brand-page.ts) draw the same system: the button is white on brand at 4.5:1 or more, the body is flat, nothing has a gradient or a shadow', () => {
+  const html = brandShell('<p>x</p>');
+  const css = html.slice(html.indexOf('<style'), html.indexOf('</style>'));
+  const btn = css.match(/\.ek-btn\{([^}]*)\}/)?.[1];
+  assert.ok(btn, '.ek-btn rule');
+  const bg = btn.match(/(?:^|;)background:(#[0-9a-f]{6})/i)?.[1];
+  const fg = btn.match(/(?:^|;)color:(#[0-9a-f]{6})/i)?.[1];
+  assert.equal(bg, THEME.brand, 'button fill');
+  assert.equal(fg, THEME.text, 'button text');
+  assert.ok(ratio(fg!, bg!) >= 4.5, `shell button text: ${ratio(fg!, bg!).toFixed(2)}`);
+  assert.doesNotMatch(css, /gradient\(/, 'no gradient in the shell CSS');
+  assert.doesNotMatch(css, /box-shadow/, 'no shadow in the shell CSS');
+  assert.match(css, /body\{[^}]*background:#000000/);
+  assert.doesNotMatch(css, /navy/i);
 });
 
 test('T1.8 DESIGN.md is the one-page rulebook of the flat system', () => {

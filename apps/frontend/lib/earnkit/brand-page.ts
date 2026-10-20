@@ -6,11 +6,12 @@ import { THEME as T } from './theme';
 
 /**
  * v2.12.1 T11 fix round 2: the look of the claim, done and wallet pages (route handlers that answer
- * HTML with no script of ours but the wallet page's nonce one). The profile's navy design system in
- * one inline <style>. v4 (premium deep blue, the shared THEME of theme.ts, same as the profile and feed): a deep navy page with a soft blue glow, a slim top
- * bar (wordmark plus quiet links, the React header's width), one centered dark gradient card, Funnel Display for the headline (embedded as
- * data: fonts; the wallet page's CSP allows font-src data: for them), one brand-blue primary button (R18: as on every page). Nothing external is
- * loaded, so no CSP changes.
+ * HTML with no script of ours but the wallet page's nonce one). The site's one design system (the shared THEME of
+ * theme.ts, same as every React page) in one inline <style>. v3 Stage 3 (spec 5.8): a flat black page, a slim top bar
+ * (wordmark plus quiet links, the React header's width), one centered flat panel, Funnel Display for the headline
+ * (embedded as data: fonts; the wallet page's CSP allows font-src data: for them), one brand-blue primary button with
+ * white text (as BTN_PRIMARY). No gradient, no glow, no shadow. Nothing external is loaded, so no CSP changes.
+ * Task 6 restyles the panel itself.
  */
 
 /** The Funnel Display files (assets/fonts, OFL), read once; null when missing (tests run from the repo root). */
@@ -38,7 +39,7 @@ const CSS = `
 :root{color-scheme:dark}
 *{box-sizing:border-box}
 html,body{margin:0}
-body{min-height:100vh;min-height:100dvh;background:${T.page};background-image:radial-gradient(48rem 24rem at 50% -4rem,${T.glow},transparent 70%),linear-gradient(180deg,${T.pageTop},${T.page} 36rem);background-repeat:no-repeat;color:${T.text};font:400 1rem/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center}
+body{min-height:100vh;min-height:100dvh;background:${T.page};color:${T.text};font:400 1rem/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;align-items:center}
 .ek-top{position:sticky;top:0;z-index:1;width:100%;background:${T.glass};border-bottom:1px solid ${T.border}}
 .ek-bar{max-width:72rem;height:56px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;padding:0 16px}
 .ek-home{display:inline-flex;align-items:center;min-height:44px;color:${T.text}}
@@ -48,7 +49,7 @@ body{min-height:100vh;min-height:100dvh;background:${T.page};background-image:ra
 .ek-nav a:hover{color:${T.text}}
 .ek-nav .ek-wide{display:none}
 .ek-wrap{width:100%;display:flex;justify-content:center;padding:32px 16px 56px}
-.ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid ${T.border};border-radius:24px;padding:32px 24px 28px;background:linear-gradient(180deg,${T.surfaceTop},${T.surface});box-shadow:inset 0 1px 0 rgba(163,197,254,.05),0 24px 64px -32px rgba(2,6,20,.85)}
+.ek-panel{position:relative;overflow:hidden;width:100%;max-width:30rem;border:1px solid ${T.border};border-radius:24px;padding:32px 24px 28px;background:${T.surface}}
 .ek-mark{display:flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;margin-bottom:20px;background:${T.raised};border:1px solid ${T.borderStrong};color:${T.text}}
 .ek-mark svg{width:24px;height:24px}
 h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:700;font-size:1.75rem;line-height:1.15;letter-spacing:-.02em;margin:0;text-wrap:balance}
@@ -67,7 +68,7 @@ h1{font-family:"Funnel Display",ui-sans-serif,system-ui,sans-serif;font-weight:7
 .ek-note strong{color:${T.text};font-weight:600}
 .ek-actions{margin-top:24px;display:flex;flex-direction:column;gap:12px}
 form{margin:0}
-.ek-btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.brand};color:${T.page};font:500 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
+.ek-btn{display:flex;width:100%;min-height:48px;align-items:center;justify-content:center;gap:10px;border:0;border-radius:999px;background:${T.brand};color:${T.text};font:500 1rem/1 ui-sans-serif,system-ui,sans-serif;text-decoration:none;cursor:pointer;transition:background-color .15s}
 .ek-btn:hover{background:${T.accent}}
 .ek-btn:focus-visible,.ek-link:focus-visible,.ek-nav a:focus-visible,.ek-home:focus-visible{outline:2px solid ${T.accent};outline-offset:3px}
 .ek-btn svg{width:20px;height:20px}

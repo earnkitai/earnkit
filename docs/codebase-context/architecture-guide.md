@@ -6808,8 +6808,9 @@ in-between until its task lands. The build and the suite stay green throughout.
   gradient, no glow; the marquee keyframes are gone; `::selection` is brand with white text, the focus ring
   is the accent; `.ek-arc` and both reduced-motion blocks stay. `tailwind.config.ts` holds no raw hex: every
   `ek-*` colour is a variable. `ek-blue-bright`, `ek-blue-soft` and `ek-score-orange` are removed; new
-  `ek-brand`, `ek-brand-hover` (an alias of the accent) and `ek-track`. `brand-page.ts` reads THEME, so the
-  shell pages went flat black on their own (Task 6 restyles their card and shadow).
+  `ek-brand`, `ek-brand-hover` (an alias of the accent) and `ek-track`. `brand-page.ts` reads THEME; review fix 1
+  made its CSS flat too (no body gradient, no panel gradient or shadow) and its `.ek-btn` white on brand like
+  `BTN_PRIMARY` (5.8:1; it was page-on-brand, 3.7:1). Task 6 restyles the panel itself.
 - **Primitives (`Panel.tsx`, `Button.tsx`).** `COLUMN` is 1120px with 16px gutters (32px from md); `SECTION`
   is the vertical rhythm; `H1` 56px (36px on a phone), `H2` 32px (24px), `LEDE` body colour at a 36rem
   measure; `NUM` is tabular Funnel Display; `ROWS`/`ROW` are hairline rows; `SURFACE` is a flat block that
