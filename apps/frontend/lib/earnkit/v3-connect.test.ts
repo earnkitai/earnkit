@@ -4,12 +4,12 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
 import { computeScoreV2 } from './score-v2';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, mondayOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import { readStats } from './stats';
 import { pointsTotal } from './points';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { CONNECT_ASK, CONNECT_HEAD, answerConnect, connectDue, openConnect } from './connect-moment';
+import { CONNECT_ASK, CONNECT_HEAD, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
@@ -209,21 +209,49 @@ test('(h) final review: an empty read before the backfill completes leaves the o
   assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /^Your last 3 weeks:/);
 });
 
-test('(i) final review: a week whose approval fails stays open; the next yes retries it', db, async () => {
+test('(i) final review: a week whose approval fails stays open; the reply asks to retry and the next yes retries it', db, async () => {
   await freshBoard();
   const me = await ranked('cnj');
   await backfilled(me.id, me.key);
   const [good] = backfillMondays(new Date());
   // A stored week the database refuses (not a date): its approval throws.
   await openConnect(me.id, { key: me.key, weeks: [good!, 'not-a-date'] });
-  const r = await answerConnect(me.id, me.key, 'yes', new Date());
-  assert.deepEqual(r, { approved: 1, pending: 1 });
+  const yes = { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } };
+  const first = await mcpCall(ctx(me.id), 'tell', yes);
+  assert.equal(show(first), CONNECT_RETRY);
+  assert.doesNotMatch(show(first), /—/);
+  assert.equal(questions(show(first)), 1);
+  const move = first.reply?.move_up as { kind: string; project_key: string; agent_note: string };
+  assert.deepEqual([move.kind, move.project_key], ['connect', me.key]);
+  assert.match(move.agent_note, /kind: 'connect'/);
   const st = await seen(me.id);
   assert.deepEqual(st.connect_open, { key: me.key, weeks: ['not-a-date'] });
+  assert.deepEqual(st.bench_ask, { kind: 'connect', key: me.key });
   assert.equal(st.connect_done, undefined, 'not done while a week is left');
   assert.equal(await connectDue(me.id), false, 'the open offer is the guard');
+  // The week is still failing: a second yes asks again (it retried).
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', yes)), CONNECT_RETRY);
   // Fixed and retried: the next yes approves the rest and closes it.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{connect_open,weeks}', ${sql().json([backfillMondays(new Date())[1]] as never)}::jsonb) WHERE builder_id = ${me.id}`;
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', yes)), /^Done\./);
+  const end = await seen(me.id);
+  assert.ok(end.connect_done);
+  assert.equal(end.bench_ask, undefined, 'the ask is cleared once it lands');
+});
+
+test('(j) reward integrity: a running week is never listed or approved; a finished checked week still is', db, async () => {
+  await freshBoard();
+  const me = await ranked('cnk');
+  const [finished] = backfillMondays(new Date());
+  const running = mondayOf(new Date());
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES
+    (${me.id}, ${me.key}, ${finished!}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)}),
+    (${me.id}, ${me.key}, ${running}, ${sql().json({ shipped_code: { n: 5 } } as never)})`;
+  assert.deepEqual((await connectWeeks(me.id, me.key, new Date())).map((w) => w.monday), [finished]);
+  // Stored in the offer anyway (an older offer): the running week is skipped, not an error.
+  await openConnect(me.id, { key: me.key, weeks: [running, finished!] });
   assert.deepEqual(await answerConnect(me.id, me.key, 'yes', new Date()), { approved: 1, pending: 0 });
+  const rows = await sql()<{ week: string; a: boolean }[]>`SELECT week::text, COALESCE((facts->>'approved')::boolean, false) AS a FROM project_updates WHERE builder_id = ${me.id}`;
+  assert.deepEqual(rows.map((r) => [r.week, r.a]).sort(), [[finished, true], [running, false]].sort());
   assert.ok((await seen(me.id)).connect_done);
 });

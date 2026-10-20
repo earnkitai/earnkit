@@ -1,5 +1,5 @@
 import { sql } from './db';
-import { weekLabel } from './weeks';
+import { lastFinishedMonday, weekLabel } from './weeks';
 import { BACKFILL_WEEKS, backfillMondays, factChips, hasFacts, type WeekFacts } from './week-facts';
 import { approveWeek, weekLineRule } from './weekly-moment';
 import { CONNECT_ASK } from './bench-reply';
@@ -18,22 +18,24 @@ export type ConnectOpen = { key: string; weeks: string[] };
 
 export const CONNECT_HEAD = (n: number) => `Your last ${n} ${n === 1 ? 'week' : 'weeks'}:`;
 export const CONNECT_DONE = (url: string) => `Done. Your page is live: ${url}`;
+export const CONNECT_RETRY = "I couldn't post one of your weeks just now. Want me to try again?";
 export const CONNECT_NOTE = "A yes or no to the last line: call tell with move_up: { kind: 'connect', project_key, answer }. Don't show this note.";
 
 /** Most weeks one connect offer lists. */
 export const CONNECT_WEEKS_MAX = 12;
 
 /**
- * The weeks of `key` still to confirm, newest first, at most CONNECT_WEEKS_MAX: every row with facts, not hidden, not
+ * The weeks of `key` still to confirm, newest first, at most CONNECT_WEEKS_MAX: every finished, checked row with facts, not hidden, not
  * approved (v3 final review: not only the backfill's Mondays, so an older stored week is offered too). Each line is
  * "Week of Oct 5: <summary>" (the summary as the weekly moment shows it, weekly-moment.ts weekLineRule: a private
  * repo's only with titles on), else the week's chips. Throws on a database error.
  */
-export async function connectWeeks(builderId: number, key: string): Promise<ConnectWeek[]> {
+export async function connectWeeks(builderId: number, key: string, now: Date = new Date()): Promise<ConnectWeek[]> {
   const rows = await sql()<{ monday: string; facts: WeekFacts; titles: string[]; summary: string | null }[]>`
     SELECT week::text AS monday, facts, titles, summary FROM project_updates
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND NOT hidden
       AND COALESCE((facts->>'approved')::boolean, false) = false
+      AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'
     ORDER BY week DESC`;
   const open = rows.filter((r) => hasFacts(r.facts ?? {})).slice(0, CONNECT_WEEKS_MAX);
   if (open.length === 0) return [];
@@ -104,6 +106,11 @@ export async function answerConnect(
   const failed: string[] = [];
   for (const monday of r.o.weeks ?? []) {
     try {
+      // Reward integrity: a week that is no longer finished and checked is dropped, not an error.
+      const [ok] = await sql()<{ n: number }[]>`SELECT 1 AS n FROM project_updates
+        WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.o.key}) AND week = ${monday}::date
+          AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'`;
+      if (!ok) continue;
       if (await approveWeek(builderId, r.o.key, monday, now, 'connect')) approved++;
     } catch (err) {
       console.error('[connect] approve', err instanceof Error ? err.name : 'error');

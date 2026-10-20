@@ -42,7 +42,7 @@ import { displayName } from './bench-reply';
 import { targetIn, weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentLines, momentReady, openShare, shareLink, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
-import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, answerConnect, backfillComplete, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
+import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
 import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
@@ -416,7 +416,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
  */
 async function connectMoment(id: number, key: string, now: Date): Promise<string | null> {
   if (!(await connectDue(id))) return null;
-  const weeks = await connectWeeks(id, key).catch(logged('connect weeks'));
+  const weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
   if (!weeks) return null;
   if (weeks.length === 0) {
     // v3 final review: closed only once the backfill is complete; until then the offer waits for its rows.
@@ -653,6 +653,17 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v3 Stage 1 (spec 5.1): the connect offer is answerable once (standing_seen.connect_open is its guard).
   if (m.kind === 'connect') {
     const r = await answerConnect(id, m.project_key, m.answer, now).catch(logged('answer connect'));
+    if (r && r.pending > 0) {
+      // An approval threw and the offer reopened: keep the ask so the next yes retries it.
+      const [o] = await sql()<{ key: string | null }[]>`SELECT standing_seen->'connect_open'->>'key' AS key FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+        logged('connect key')(err);
+        return [];
+      });
+      const key = o?.key ?? m.project_key ?? null;
+      const ask = { kind: 'connect', key };
+      await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb) WHERE builder_id = ${id}`.catch(logged('keep connect ask'));
+      return { show_to_builder: CONNECT_RETRY, move_up: { kind: 'connect', project_key: key, agent_note: CONNECT_NOTE } };
+    }
     if (r) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'connect'`.catch(logged('clear connect ask'));
     if (!r || r.approved === 0) return okay;
     const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
