@@ -6,6 +6,7 @@ import UpdateCard from '../components/ui/UpdateCard';
 import { streakWords, type ProfileData } from '../../lib/earnkit/bench-data';
 import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
+import { POINTS_PAGE_LINE } from '../../lib/earnkit/points';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import Avatar from './Avatar';
 import BadgeCopy from './BadgeCopy';
@@ -133,6 +134,18 @@ function Originality({ value }: { value: number }) {
   );
 }
 
+/** v3 Stage 1: points under Originality, with what they are as small text (never ranked, never a ring). */
+function Points({ value }: { value: number }) {
+  return (
+    <div className="max-w-xs text-center">
+      <p className="whitespace-nowrap font-funnel-sans text-sm text-ek-muted md:text-base">
+        <span className="font-medium tabular-nums text-ek-text">{value.toLocaleString('en-US')}</span> points
+      </p>
+      <p className="font-funnel-sans text-xs text-ek-muted">{POINTS_PAGE_LINE}</p>
+    </div>
+  );
+}
+
 /** While the page's sources refresh: the photo, name and @handle at once, the rest as quiet shapes. */
 export function BenchProfileSkeleton({
   head,
@@ -254,6 +267,7 @@ export default function BenchProfileView({
                       numberClassName="text-[2.75rem] md:text-[5rem]"
                     />
                     {d.originality !== null ? <Originality value={d.originality} /> : null}
+                    {d.points > 0 ? <Points value={d.points} /> : null}
                   </div>
                 ) : null}
                 {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} target={d.target} chains={d.chainLines} /> : null}

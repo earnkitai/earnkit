@@ -5,6 +5,7 @@ import { raisingEnabled } from './builder-score-flag';
 import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
+import { pointsTotal } from './points';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
@@ -126,6 +127,8 @@ export type ProfileData = {
   target: string | null;
   /** Scoring and clarity R3: Originality, 0 to 100, shown small beside Shipping (never ranked); null until computed or while no score shows. */
   originality: number | null;
+  /** v3 Stage 1: points awarded for approved weeks (points.ts); shown under Originality when above 0. */
+  points: number;
   grid: { week: string; on: boolean }[]; streak: number; log: ProfileCard[]; project: ProjectTabData | null;
 };
 
@@ -252,6 +255,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     why: scored ? scoreWhy(live.parts, now) : null,
     target: scored ? await targetFor(builderId, live.parts, now, { only: o.only, voice: 'page' }) : null,
     originality: scored ? await readOriginality(builderId, p.main) : null,
+    points: await pointsTotal(builderId),
   };
   const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
   if (!p.main) return empty;

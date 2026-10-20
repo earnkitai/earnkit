@@ -1,3 +1,4 @@
+import { pointsTotal } from './points';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
@@ -369,6 +370,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const room = !project || !project.confirmed ? NEEDS_MAX - fund.length : 0;
   const has = taken ? {} : { live: project?.live ?? false, repo: Boolean(project && /^[^/:]+\/[^/]+$/.test(project.key)) };
   fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, taken ? [] : (row?.chains ?? []), has)];
+
+  // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
+  if (ranked) {
+    const total = await pointsTotal(id).catch(logged('points'));
+    if (total) fund = [...fund, { kind: 'points', total }];
+  }
 
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).

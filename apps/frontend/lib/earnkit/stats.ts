@@ -29,6 +29,7 @@ export const STATS_KEYS = [
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
+  'points_total',
 ] as const;
 
 /**
@@ -78,6 +79,7 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
+  points_total: 'points awarded for approved weeks',
 };
 
 /** v2.9 E20: the won line lives in pool.ts (no imports, so present.ts can use it without a cycle). */
@@ -125,6 +127,8 @@ type Row = {
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
+  /** v3 Stage 1: points awarded to non-test people (builder_points). */
+  points_total?: string | number | null;
 };
 
 /**
@@ -175,6 +179,7 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
+    points_total: Number(r.points_total ?? 0),
   };
 }
 
@@ -278,7 +283,10 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS entries_won,
       -- v2.9 E20: the prizes of announced won or placed outcomes with a known prize (one per entry
       -- and round); never a self-report, never a test installation's entry.
-      (${wonUsdSql(db, ids)})::text AS builders_won_usd`;
+      (${wonUsdSql(db, ids)})::text AS builders_won_usd,
+      -- v3 Stage 1: points awarded for approved weeks, people only (never a test installation's group).
+      (SELECT COALESCE(sum(bp.points), 0) FROM builder_points bp JOIN builder_profiles p ON p.builder_id = bp.builder_id
+        WHERE ${notTest(db, ids)})::text AS points_total`;
   return statsFrom(r, now);
 }
 

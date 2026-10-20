@@ -1,6 +1,7 @@
 import { siteUrl } from './entry-text';
 import { pagePath, pageUrl } from './reserved-routes';
 import { scoreLine } from './rank';
+import { POINTS_LINE } from './points';
 
 /**
  * v2.13 spec "2a", "2b", "5. Ways to get funded", "The last line", v2.14 spec 4: the reply in three parts
@@ -23,7 +24,9 @@ export type FundLine =
   | { kind: 'fits'; title: string; prize: string; when: string; why: string }
   | { kind: 'idea'; who: string; prize: string; for: string }
   /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
-  | { kind: 'needs'; title: string; prize: string | null; needs: string };
+  | { kind: 'needs'; title: string; prize: string | null; needs: string }
+  /** v3 Stage 1: the ranked builder's points so far (points.ts), last under Ways to get funded. */
+  | { kind: 'points'; total: number };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
@@ -165,7 +168,9 @@ export function benchReply(v: BenchView): string {
   const stand = [BENCH_HEADS.stand, standLine(v), ...why, ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const none = v.state === 'ranked' && v.project ? noFitLine(v.project.name) : NO_MONEY_LINE;
-  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none])];
+  // v3 Stage 1: the points statement is last, and never stands in for the no-fit line.
+  const pts = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'points' && f.total > 0 ? [POINTS_LINE(f.total)] : [])) : [];
+  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...pts];
   // Fix round 1 (ruling 4): signed out, the sign-in step always wins.
   const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
   return [stand, money, up].map((x) => x.join('\n')).join('\n\n');

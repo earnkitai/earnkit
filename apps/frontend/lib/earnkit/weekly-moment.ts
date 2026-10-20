@@ -5,7 +5,8 @@ import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { checkUpdate } from './update-text';
 import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
-import { WEEKLY_HOUR_UTC } from './week-facts';
+import { WEEKLY_HOUR_UTC, hasFacts, type WeekFacts } from './week-facts';
+import { awardWeekPoints, type ApproveVia } from './points';
 
 /**
  * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
@@ -155,17 +156,22 @@ export async function takeMoment(own: number, now: Date): Promise<boolean> {
  * nowhere: no facts, text or titles). The weekly job's later upsert merges its facts in, keeping these. False when
  * another builder holds the week.
  */
-export async function approveWeek(builderId: number, key: string, monday: string, now: Date): Promise<boolean> {
-  const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: 'share' });
-  const [had] = await sql()`
+export async function approveWeek(builderId: number, key: string, monday: string, now: Date, via: ApproveVia = 'share'): Promise<boolean> {
+  const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: via });
+  const [had] = await sql()<{ facts: WeekFacts }[]>`
     UPDATE project_updates SET facts = facts || ${facts}::jsonb
-    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING 1`;
-  if (had) return true;
-  const r = await sql()`
+    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
+  if (had) return award(builderId, monday, via, now, had.facts);
+  const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
-    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
-  return r.length > 0;
+    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
+  return r ? award(builderId, monday, via, now, r.facts) : false;
+}
+/** v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. Never throws. */
+async function award(builderId: number, monday: string, via: ApproveVia, now: Date, facts: WeekFacts): Promise<true> {
+  if (hasFacts(facts ?? {})) await awardWeekPoints(builderId, monday, via, now).catch((err: unknown) => console.error('[points] award', err instanceof Error ? err.name : 'error'));
+  return true;
 }
 
 /**

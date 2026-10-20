@@ -1679,3 +1679,15 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS moment_week text;
 -- Weekly updates: the week's work in one short paragraph (week-summary.ts), written by the weekly job from the week's
 -- PR and commit titles. The builder's own note stays in `text`. Additive.
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS summary text;
+
+-- v3 Stage 1: points, the default program. One row per approved week with facts; never ranked.
+CREATE TABLE IF NOT EXISTS builder_points (
+  builder_id integer NOT NULL,
+  week       date NOT NULL CHECK (EXTRACT(isodow FROM week) = 1),
+  points     integer NOT NULL CHECK (points >= 0),
+  rank       integer,
+  total      integer,
+  via        text NOT NULL CHECK (via IN ('share', 'connect', 'email')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, week)
+);
