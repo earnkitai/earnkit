@@ -3,6 +3,7 @@ import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody, emailQuestionFor,
 } from './digest';
+import { WEEK_TEXT } from './week-links';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -986,11 +987,17 @@ const builderFacing: [string, string][] = [
   ['home page (won line)', homeText({ ...homeFixture, won_line: wonLine(12_500) })],
   ...(() => {
     const b = digestBody({
+      week: null,
+      handle: null,
       newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: new Date('2026-11-02T00:00:00Z') }],
       wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }],
       deadlines: [{ program: 'Arc Microgrants', what: 'decision', at: new Date('2026-10-20T00:00:00Z') }],
     })!;
-    return [['digest subject', b.subject], ['digest text', b.text]] as [string, string][];
+    const w = digestBody({
+      week: { lines: ['Last week you finished at Shipping 72 (+6), #3 (up 2).'], standing: { score: 72, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false },
+      handle: null, newPrograms: [], wins: [], deadlines: [],
+    })!;
+    return [['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
   })(),
   // v2.9 T12, Part 2: what a hosted site's visitors see when it ended or was taken down (the
   // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.

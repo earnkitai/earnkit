@@ -221,6 +221,7 @@ apps/frontend/
   app/api/host/upload/route.ts  v2.9 C12: POST -> hostUploadPost (?t= one-time token, one zip, 503 when R2 off)
   app/api/host/takedown/route.ts  v2.9 C14: POST -> hostTakedownPost (Bearer ADMIN_VETO_SECRET; kill or approve)
   app/api/digest/unsubscribe/route.ts  v2.9 E19: GET confirm page (POST button), POST one-click (RFC 8058) -> digest.ts
+  app/api/week/route.ts         v3 Stage 1: GET the week's page (one POST button), POST Looks right / Hide -> week-links.ts
   app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
                                instead of slug for a builder bonus round)
   app/admin/veto/[slug]/page.tsx  v2.4: the owner's review (noindex, ?key= required, rate limited):
@@ -1193,7 +1194,7 @@ apps/frontend/
                                campaign under its lease, then the ledger (v2.14 T3: no bonus scoring, rounds,
                                proof re-check or collect step; every deposit books to the Safe), then the fee
                                refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
-                               then v2.9 Task 10 sendDigests (RESEND_API_KEY set; `digest` in the result);
+                               then (v3: after the score steps) v2.9 Task 10 sendDigests (RESEND_API_KEY set; `digest` in the result);
                                needs_owner incl. host-review:<slug> (P46), PAY_FAILED_RUNS failed pay steps in a row
                                and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
                                index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
@@ -1291,12 +1292,16 @@ apps/frontend/
                                (list_programs' seam; fixtures/no-network-checks pins it to 0)
     digest.ts(+test)           v2.9 E19 (Task 10): the weekly email. digestEnabled (RESEND_API_KEY),
                                DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/emailQuestionFor/EMAIL_NOTE,
-                               weekStart (Monday 14:00 UTC), digestDue (P17), digestBody, SubKey (G21:
+                               DIGEST_HOUR_UTC 16, weekStart (Monday 16:00 UTC), digestDue (P17), digestBody
+                               (v3: the week's moment and Looks right / Hide links first), SubKey (G21:
                                installation + login), unsubToken/unsubTarget (HMAC, timing-safe),
                                unsubHeaders, idempotencyKey, MAX_SEND_FAILURES, Mailer/MailError/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
-                               free-tier caps), digestUnsubscribeGet/Post
+                               free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post
+    week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
+                               the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
+                               (approveWeek via 'email' or hideUpdate); v3-monday-email.test.ts
     public-pages.test.ts       markup tests of /terms (11.4: section ids, MINI line; 11.5 redirects 301; 11.6 Tokenfi line; 11.7 no /fund or /award in builder navigation) and the footer link
     install.test.ts            v2.8 Task 5: the install tabs and order, the Claude Code and Codex
                                commands, local icons (logoFileProblem), no editor tab in the modal,

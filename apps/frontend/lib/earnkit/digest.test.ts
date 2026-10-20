@@ -42,33 +42,33 @@ const DAY = 86_400_000;
 
 // ---- pure
 
-test('10.1 weekStart: Monday 14:00 UTC; just before it, the Monday before; Sunday is the past Monday', () => {
+test('10.1 weekStart: Monday 16:00 UTC; just before it, the Monday before; Sunday is the past Monday', () => {
   // 2026-10-12 is a Monday.
-  assert.equal(weekStart(at('2026-10-12T13:59:00Z')).toISOString(), '2026-10-05T14:00:00.000Z');
-  assert.equal(weekStart(at('2026-10-12T14:00:00Z')).toISOString(), '2026-10-12T14:00:00.000Z');
-  assert.equal(weekStart(at('2026-10-11T23:00:00Z')).toISOString(), '2026-10-05T14:00:00.000Z');
-  assert.equal(weekStart(at('2026-10-13T02:00:00Z')).toISOString(), '2026-10-12T14:00:00.000Z');
-  assert.equal(weekStart(at('2026-10-18T20:00:00Z')).toISOString(), '2026-10-12T14:00:00.000Z');
+  assert.equal(weekStart(at('2026-10-12T15:59:00Z')).toISOString(), '2026-10-05T16:00:00.000Z');
+  assert.equal(weekStart(at('2026-10-12T16:00:00Z')).toISOString(), '2026-10-12T16:00:00.000Z');
+  assert.equal(weekStart(at('2026-10-11T23:00:00Z')).toISOString(), '2026-10-05T16:00:00.000Z');
+  assert.equal(weekStart(at('2026-10-13T02:00:00Z')).toISOString(), '2026-10-12T16:00:00.000Z');
+  assert.equal(weekStart(at('2026-10-18T20:00:00Z')).toISOString(), '2026-10-12T16:00:00.000Z');
 });
 
 test('10.2 digestDue: opt-in, unsubscribe, sent or considered this week; P17: a new opt-in waits for Monday', () => {
-  const now = at('2026-10-13T10:00:00Z'); // Tuesday; this week started Monday 14:00
+  const now = at('2026-10-13T10:00:00Z'); // Tuesday; this week started Monday 16:00
   const base = { opted_in_at: at('2026-10-01T00:00:00Z'), unsubscribed_at: null, last_sent_at: null, last_considered_at: null };
   assert.equal(digestDue({ ...base, opted_in_at: null }, now), false, 'never opted in');
   assert.equal(digestDue({ ...base, unsubscribed_at: at('2026-10-02T00:00:00Z') }, now), false, 'unsubscribed');
-  assert.equal(digestDue({ ...base, last_sent_at: at('2026-10-12T15:00:00Z') }, now), false, 'sent this week');
-  assert.equal(digestDue({ ...base, last_sent_at: at('2026-10-05T15:00:00Z') }, now), true, 'sent last week');
+  assert.equal(digestDue({ ...base, last_sent_at: at('2026-10-12T17:00:00Z') }, now), false, 'sent this week');
+  assert.equal(digestDue({ ...base, last_sent_at: at('2026-10-05T17:00:00Z') }, now), true, 'sent last week');
   assert.equal(digestDue(base, now), true, 'never sent');
-  assert.equal(digestDue({ ...base, last_considered_at: at('2026-10-12T14:30:00Z') }, now), false, 'an empty one this week');
-  assert.equal(digestDue({ ...base, last_considered_at: at('2026-10-06T14:30:00Z') }, now), true, 'empty last week');
-  // P17: opted in after this week's start (Tuesday): nothing until next Monday 14:00.
+  assert.equal(digestDue({ ...base, last_considered_at: at('2026-10-12T16:30:00Z') }, now), false, 'an empty one this week');
+  assert.equal(digestDue({ ...base, last_considered_at: at('2026-10-06T16:30:00Z') }, now), true, 'empty last week');
+  // P17: opted in after this week's start (Tuesday): nothing until next Monday 16:00.
   const tuesday = { ...base, opted_in_at: at('2026-10-13T09:00:00Z') };
   assert.equal(digestDue(tuesday, now), false);
-  assert.equal(digestDue(tuesday, at('2026-10-19T13:59:00Z')), false);
-  assert.equal(digestDue(tuesday, at('2026-10-19T14:00:00Z')), true);
+  assert.equal(digestDue(tuesday, at('2026-10-19T15:59:00Z')), false);
+  assert.equal(digestDue(tuesday, at('2026-10-19T16:00:00Z')), true);
 });
 
-const noFacts: DigestFacts = { newPrograms: [], wins: [], deadlines: [] };
+const noFacts: DigestFacts = { week: null, handle: null, newPrograms: [], wins: [], deadlines: [] };
 const avalanche = { title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: at('2026-11-02T23:59:00Z') };
 
 test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines; plain words only', () => {
@@ -77,6 +77,7 @@ test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines;
   assert.ok(one.text.startsWith('New: Avalanche Mini Grant fits TipJar, $10,000, closes Nov 2.'), one.text);
   assert.equal(one.subject, 'New: Avalanche Mini Grant fits TipJar');
   const all = digestBody({
+    ...noFacts,
     newPrograms: [avalanche, { title: 'Rolling Grant', repo: 'Ledger', prize_usd: null, ends_at: null }],
     wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }, { name: 'Quiet', program: 'Base Batches', prize_usd: null }],
     deadlines: [
@@ -120,6 +121,7 @@ test('names other people read: at most 40 characters, no URLs, emails or @handle
   assert.equal(cleanName('A'.repeat(60), 'x'), 'A'.repeat(40));
   // In the email itself: every builder-supplied name, in the lines and the subject.
   const b = digestBody({
+    ...noFacts,
     newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'tipjar https://evil.example @bob', prize_usd: null, ends_at: null }],
     wins: [{ name: 'Win big at claim-now.xyz, DM @scammer or x@y.com, the longest project name ever written', program: 'Arc', prize_usd: 500 }],
     deadlines: [],
@@ -156,8 +158,8 @@ test('10.4 unsubToken round-trips; another id, another login or a changed charac
 
 test('review I2: the Idempotency-Key names the subscription and the week', () => {
   const start = weekStart(at('2026-10-13T10:00:00Z'));
-  assert.equal(idempotencyKey({ installationId: 7, login: '' }, start), 'digest-7-2026-10-12T14:00:00.000Z');
-  assert.equal(idempotencyKey({ installationId: 7, login: 'alice' }, start), 'digest-7-alice-2026-10-12T14:00:00.000Z');
+  assert.equal(idempotencyKey({ installationId: 7, login: '' }, start), 'digest-7-2026-10-12T16:00:00.000Z');
+  assert.equal(idempotencyKey({ installationId: 7, login: 'alice' }, start), 'digest-7-alice-2026-10-12T16:00:00.000Z');
 });
 
 test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
@@ -167,8 +169,8 @@ test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
   assert.equal(digestEnabled({ RESEND_API_KEY: 're_x' }), false);
   assert.equal(digestEnabled({ RESEND_API_KEY: 're_x', EARNKIT_AUTH_SECRET: 's' }), true);
   assert.equal(DIGEST_FROM_DEFAULT, 'EarnKit <digest@earnkit.com>');
-  assert.equal(EMAIL_QUESTION, 'Get new programs and wins by email, once a week? yes / no');
-  assert.equal(emailQuestionFor('a@b.co'), 'Get new programs and wins by email at a@b.co, once a week? yes / no');
+  assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
+  assert.equal(emailQuestionFor('a@b.co'), 'Want the Monday summary by email at a@b.co?');
 });
 
 test('entryEmail: the first contact field labelled email, a plain address only', () => {
@@ -518,7 +520,7 @@ test('Ruling G21: on a shared install each login has its own subscription; one n
   try {
     const shared = { shared: true };
     const week = new Date(now.getTime() - 7 * DAY);
-    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'a@x.co' }, { ...shared, login: 'alice' }, week)).show_to_builder, 'Done. One email a week, on Mondays.');
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'a@x.co' }, { ...shared, login: 'alice' }, week)).show_to_builder, 'Done. Every Monday, once your week is written.');
     assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'b@x.co' }, { ...shared, login: 'Bob' }, week)).saved, true);
     assert.deepEqual(await rows(), [
       { login: 'alice', email: 'a@x.co', opted: true, unsub: false },

@@ -307,17 +307,6 @@ export async function runCron(
       hosting = { step: 'error', note: STEP_FAILED };
     }
   }
-  // v2.9 E19: the weekly email, Mondays from 14:00 UTC (sendDigests decides who is due), within
-  // Resend's free caps, with what is left of the budget. Off without RESEND_API_KEY.
-  let digest: Awaited<ReturnType<typeof sendDigests>> | { step: 'error'; note: string } | undefined;
-  if (digestEnabled() && (!opts.only || deps.digest !== undefined)) {
-    try {
-      digest = await sendDigests(now, { ...deps.digest, budgetMs: Math.max(0, deadline - Date.now()) });
-    } catch (err) {
-      console.error('[cron] digest', err instanceof Error ? err.name : 'error');
-      digest = { step: 'error', note: STEP_FAILED };
-    }
-  }
   // v2.10 fix round 1: bounded cleanup of expired sign-in links and stale public repo reads.
   let cleanup: { nonces: number; public_reads: number; rate_windows: number } | { step: 'error'; note: string } | undefined;
   if (!opts.only || deps.cleanup) {
@@ -369,6 +358,18 @@ export async function runCron(
     } catch (err) {
       console.error('[cron] builder score', err instanceof Error ? err.name : 'error');
       builderScore = { step: 'error', note: STEP_FAILED };
+    }
+  }
+  // v2.9 E19: the weekly email, Mondays from DIGEST_HOUR_UTC (sendDigests decides who is due), within
+  // Resend's free caps, with what is left of the budget. Off without RESEND_API_KEY. v3 Stage 1 (spec 5.4):
+  // after the score steps, so the weekly job writes last week (the email's moment) first within one run.
+  let digest: Awaited<ReturnType<typeof sendDigests>> | { step: 'error'; note: string } | undefined;
+  if (digestEnabled() && (!opts.only || deps.digest !== undefined)) {
+    try {
+      digest = await sendDigests(now, { ...deps.digest, budgetMs: Math.max(0, deadline - Date.now()) });
+    } catch (err) {
+      console.error('[cron] digest', err instanceof Error ? err.name : 'error');
+      digest = { step: 'error', note: STEP_FAILED };
     }
   }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the

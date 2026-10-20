@@ -667,7 +667,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));
     if (r === true) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
-      return { show_to_builder: APPROVED_LINE };
+      // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
+      const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
+      return { show_to_builder: [APPROVED_LINE, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
     }
     return okay;
   }

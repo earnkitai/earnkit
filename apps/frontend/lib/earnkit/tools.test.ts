@@ -24,7 +24,7 @@ import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
 import { wonSource } from './stats';
-import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN } from './digest';
+import { EMAIL_NOTE, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, WHICH_EMAIL } from './digest';
 import { saveVerification } from './github-verify';
 import { mcpCall } from './fixtures/mcp-call';
 import { committedProgram } from './fixtures/program-file';
@@ -1144,33 +1144,30 @@ const subscription = async (inst: number) =>
     SELECT email, opted_in_at IS NOT NULL AS opted FROM digest_subscriptions WHERE installation_id = ${inst}`)[0] ?? null;
 const skip = { builder_confirmed: true, decision: 'skip' } as const;
 
-test('10.9 the first recorded entry asks once; a plain yes uses that entry\'s email', dbTest, () =>
+test('10.9, v3 spec 5.4: an entry never asks (the question is the first yes after activation); weekly_email yes with an address subscribes', dbTest, () =>
   withTokenEnv(() =>
     withResend(async () => {
       const t = await confirmSetup('email', { extra: [EMAIL_FIELD] });
       const answers = { ...t.answers, email: 'Alice@Example.com' };
       const first = (await handlers.confirm_entry({ ...t.input, answers, ...skip }, t.ctx)) as Confirmed;
       assert.ok(first.kit);
-      assert.ok(first.show_to_builder.endsWith(`\n\n${EMAIL_QUESTION}`), first.show_to_builder);
-      assert.ok(!first.show_to_builder.includes('alice@example.com'), 'a non-shared question names no address');
-      assert.ok(first.agent_note!.endsWith(EMAIL_NOTE));
+      assert.ok(!first.show_to_builder.includes(EMAIL_QUESTION), first.show_to_builder);
+      assert.ok(!(first.agent_note ?? '').includes('weekly_email'));
       assert.equal(EMAIL_NOTE, "Pass the builder's answer to tell as weekly_email.");
-      // The second entry (and the same one again) never asks.
-      const project = { ...t.project, name: 'Tip Jar Two', repo_url: `${t.repo}-two` };
-      const second = (await handlers.confirm_entry({ ...t.input, project, answers, ...skip }, t.ctx)) as Confirmed;
-      assert.ok(second.kit);
-      assert.ok(!second.show_to_builder.includes(EMAIL_QUESTION));
-      assert.ok(!(second.agent_note ?? '').includes('weekly_email'));
-      assert.deepEqual(await subscription(t.inst), { email: 'alice@example.com', opted: false }, 'kept, not opted in');
-      const yes = (await handlers.tell_earnkit({ weekly_email: { answer: 'Yes' } }, t.ctx)) as { show_to_builder: string; saved: string[] };
+      const [row] = await sql()<{ asked: Date | null }[]>`SELECT digest_asked_at AS asked FROM installations WHERE id = ${t.inst}`;
+      assert.equal(row.asked, null, 'still to ask after activation');
+      assert.equal(await subscription(t.inst), null, 'the entry keeps no address');
+      // A plain yes with no address kept asks which; one with an address subscribes.
+      const plain = (await handlers.tell_earnkit({ weekly_email: { answer: 'Yes' } }, t.ctx)) as { show_to_builder: string; saved: string[] };
+      assert.equal(plain.show_to_builder, WHICH_EMAIL);
+      const yes = (await handlers.tell_earnkit({ weekly_email: { answer: 'yes', email: 'Alice@Example.com' } }, t.ctx)) as { show_to_builder: string; saved: string[] };
       assert.equal(yes.show_to_builder, EMAIL_ON);
       assert.deepEqual(yes.saved, ['weekly email: on']);
       assert.deepEqual(await subscription(t.inst), { email: 'alice@example.com', opted: true });
       const no = (await handlers.tell_earnkit({ weekly_email: { answer: 'no' } }, t.ctx)) as { show_to_builder: string };
       assert.equal(no.show_to_builder, 'No weekly email.');
-      // The address goes; the row stays, so the question is never asked again.
+      // The address goes; the row stays.
       assert.deepEqual(await subscription(t.inst), { email: null, opted: false });
-
     }),
   ));
 

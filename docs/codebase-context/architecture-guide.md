@@ -3211,7 +3211,7 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
 ## The weekly email and "Builders using EarnKit won $X" (v2.9 E19, E20, Task 10)
 
 - **Where.** `lib/earnkit/digest.ts` (all of it), `app/api/digest/unsubscribe`, the cron step in
-  `cron.ts`, the question in `tools.ts` (`withEmailQuestion`), the answer in `tell_earnkit`
+  `cron.ts`, the question in `bench-find.ts` (`benchMoveUp`, v3 Stage 1), the answer in `tell_earnkit`
   (`weekly_email`), and `digest_subscriptions` plus `installations.digest_asked_at` in the schema.
   Everything is off while `RESEND_API_KEY` or `EARNKIT_AUTH_SECRET` (it signs the unsubscribe
   link) is unset: no question, `tell_earnkit` saves nothing ("The weekly email is not available
@@ -3232,7 +3232,22 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   code nothing changes ("The weekly email needs your GitHub sign-in on this agent."). A plain yes with
   no kept address is "Which email should I use?". "no" clears the address and the opt-in (the row
   stays, so the question is not asked again).
-- **Who is due (P17).** Opted in before this week's start (`weekStart`: Monday 14:00 UTC), not
+- **v3 Stage 1 (spec 5.4): the Monday moment.** The question ("Want the Monday summary by email? Reply with the
+  address.") moved from the entry replies to the first yes after activation: the connect yes and the share yes
+  (`benchMoveUp`), once per installation (`digest_asked_at`), appended to the Done line as the reply's one question.
+  An entry no longer asks or keeps its email. `DIGEST_HOUR_UTC` is 16, after the weekly job (`WEEKLY_HOUR_UTC` 15),
+  and the cron runs the digest after `runScoreSteps`, so one run writes the week then mails it. `digestFacts` finds
+  the person (`COALESCE(profile by x_user_id, i.builder_id, i.id)`) and their main project's last week
+  (`lastWeekOf`); a checked week leads the email: subject "Your week on EarnKit: Shipping S · #R of T builders",
+  `momentLines`, then "Looks right: <url>" and "Hide this week: <url>" (no links once the week is approved). A ranked
+  week of a confirmed main project not written yet is `pending` (not sent, not considered; `pending` counted in the
+  step result) until a day after `weekStart`, then the email goes without it. `week-links.ts` signs the links:
+  `<builder>.<monday>.<approve|hide>.<HMAC-SHA256("week:v1:<builder>:<key>:<monday>:<action>")>`, the key only inside
+  the mac (checked against `main_project_key`, so a changed main project voids old links). `/api/week` GET shows the
+  week and one POST button (changes nothing); POST approves (`approveWeek(..., 'email')`, points once; an approved
+  week keeps its first approval) or hides (`hideUpdate`), then links the page. A bad token is a 400 "This link is
+  not valid.". None on a shared client or a per-login subscription.
+- **Who is due (P17).** Opted in before this week's start (`weekStart`: Monday 16:00 UTC), not
   unsubscribed, nothing sent and nothing considered since that start. So emails start on Mondays, a
   spillover past the daily cap goes out on later runs that week, and a new opt-in waits for Monday.
 - **Sending (hourly cron, after hosting).** `sendDigests` loops with the time left: both counters

@@ -300,7 +300,7 @@ export async function runScoreSteps(now: Date, sliceEnd: number, deps: ScoreCron
   await step('empty', () => profileEmpty(now, { only: deps.only }));
   // Scoring and clarity R3: Originality for main projects whose text changed (bounded; never ranked).
   await step('originality', () => originalityStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch, embed: deps.embed }));
-  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC, after the digest).
+  // v2.13 spec "Cost": the weekly facts (Mondays from 15:00 UTC; v3 Stage 1: the digest follows, from 16:00).
   await step('weekly', () => weeklyFactsStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));
   // R13: the backfill's catch-up (App-proven projects missing their last 3 finished weeks or their titles; bounded).
   await step('backfill', () => backfillStep(now, { deadline: sliceEnd, only: deps.only, ghFetch: reader.ghFetch }));

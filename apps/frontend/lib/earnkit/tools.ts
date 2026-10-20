@@ -40,7 +40,7 @@ import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
 import { outcomeQuestion, outcomeToAsk } from './outcomes';
 import { wonSource } from './stats';
-import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
+import { WHICH_EMAIL, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
 import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
@@ -848,40 +848,6 @@ export const TELL_SHARED_NOTE =
  * v2.9 A3: the builder's memory (Ruling G6: none on a shared client, memoryKey null); a failed read
  * is an empty memory, never a failed tool.
  */
-/**
- * v2.9 E19, Ruling 13 (Pre-flight P16): the weekly email question, added to the reply of a call that
- * recorded an entry, once per installation and only while the email is on. Ruling G21: never on a shared
- * client (v2.14 final fix: no login can be verified there any more). `email`: the
- * entry's email answer; on a shared client only one this builder typed in this entry (never a saved
- * one the coach offered back, `reused`), so the question names it. Never fails the tool.
- */
-async function withEmailQuestion<T extends { show_to_builder: string; agent_note?: string }>(
-  ctx: ToolContext,
-  reply: T,
-  email: string | null,
-  reused: boolean,
-): Promise<T> {
-  const shared = Boolean(ctx.sharedClient);
-  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email, login: null });
-  if (!q) return reply;
-  return {
-    ...reply,
-    show_to_builder: `${reply.show_to_builder}\n\n${q.question}`,
-    agent_note: reply.agent_note ? `${reply.agent_note} ${q.agent_note}` : q.agent_note,
-  };
-}
-
-/** Pre-flight P16: the email saved in this project's answer bank (a shared client's may be another builder's). */
-async function bankedEmail(installationId: number, key: string): Promise<string | null> {
-  try {
-    const contact = (await readBank(installationId, key)).get('contact');
-    const slots: unknown = contact ? JSON.parse(contact) : null;
-    return slots && typeof slots === 'object' ? cleanEmail((slots as Record<string, unknown>).email) : null;
-  } catch {
-    return null;
-  }
-}
-
 const memoryOf = (key: MemoryKey | null, where: string): Promise<BuilderMemory> =>
   key === null
     ? Promise.resolve(emptyMemory())
@@ -1909,23 +1875,17 @@ export const handlers = {
       { browser: i.agent?.browser === true },
       { problems: filled.missing.filter((m) => m.problem).map((m) => m.key) },
     );
-    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation.
-    const email = entryEmail(program.submission_requirements, values);
-    return withEmailQuestion(
-      ctx,
-      {
-        project_id: entry.id,
-        ...(token && { token }),
-        kit,
-        // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
-        show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
-        // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
-        // v2.9 F25: the kit rules that left confirm_entry's description are here.
-        agent_note: kitReplyNote(kit, program),
-      },
-      email,
-      Object.values(banked.suggested).some((v) => cleanEmail(v) === email),
-    );
+    // v3 Stage 1 (spec 5.4): the weekly email question moved to the first yes after activation (bench-find.ts).
+    return {
+      project_id: entry.id,
+      ...(token && { token }),
+      kit,
+      // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
+      show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
+      // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
+      // v2.9 F25: the kit rules that left confirm_entry's description are here.
+      agent_note: kitReplyNote(kit, program),
+    };
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
@@ -2014,20 +1974,9 @@ export const handlers = {
       ctx.tokenDeps,
       deadline,
     );
-    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation. P16: on a shared
-    // client an address the answer bank holds for this project is never named (it may be another builder's).
-    const askEmail = async <T extends { show_to_builder: string; agent_note?: string }>(reply: T) => {
-      if (!('project_id' in result)) return reply;
-      const submitted = answersOf(parsed.submission_data);
-      const email = entryEmail(program.submission_requirements, submitted);
-      const reused =
-        Boolean(ctx.sharedClient && email) &&
-        (await bankedEmail(ctx.installationId, projectKey({ repo_url: parsed.project.repo_url ?? submitted.repo_url, name: parsed.project.name }))) === email;
-      return withEmailQuestion(ctx, reply, email, reused);
-    };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }));
+      return withAlerts(ctx, { ...result, show_to_builder: result.show_to_builder, token });
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin.
     const tokenOut = token.no_wallet
       ? // Ruling 31's split here too: plain note, the instruction (NO_COIN_YET) for the agent.
@@ -2061,15 +2010,12 @@ export const handlers = {
     });
     const show_to_builder =
       enteredText({ programTitle: result.program_title, coin, countsIn }) + (also?.text ? `\n\n${also.text}` : '');
-    return withAlerts(
-      ctx,
-      await askEmail({
-        ...result,
-        token: tokenOut,
-        show_to_builder,
-        ...(also?.rows.length && { also_qualifies: also.rows }),
-      }),
-    );
+    return withAlerts(ctx, {
+      ...result,
+      token: tokenOut,
+      show_to_builder,
+      ...(also?.rows.length && { also_qualifies: also.rows }),
+    });
   },
 
   // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
