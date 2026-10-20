@@ -1238,7 +1238,10 @@ export const handlers = {
     // (I3): one question per reply: this one, then the lead's.
     // v2.14 T9 fix round 1: signed out, the sign-in question wins; the results question is not used up (outcomeToAsk
     // marks it asked) until the first reply after the bind.
-    const signedOut = scoring && profiled && !more
+    // v3 Stage 1: an anonymous hosted installation (no page, no X) always reads as signed out: the Bench's
+    // signed-out reply is the only reply (the sign-in link and its one question).
+    const hostedAnon = Boolean(ctx.sharedClient) && !more;
+    const signedOut = hostedAnon ? true : scoring && profiled && !more
       ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => true)
       : false;
     const ask = signedOut || !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
@@ -1249,7 +1252,7 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the Bench's three-part reply (where you stand, ways to get funded, how to
     // move up) replaces the short v2.11 reply. "Show more" (more: true) and a shared client keep the
     // v2.11 tables.
-    if (scoring && profiled && !more) {
+    if ((scoring && profiled && !more) || hostedAnon) {
       // v2.13.1 O5 N1: the reply waits for the refresh at most REPLY_WAIT_MS (it runs on).
       await refresh.started?.within(REPLY_WAIT_MS);
       const shownCards = withPools.filter((c) => !hide.has(c.id));

@@ -96,3 +96,14 @@ test('(g) an anonymous shared_client installation is minted a sign-in link; a bo
   assert.ok((await attachToX(bound.own, user('gus'), new Date())).ok);
   assert.equal(await withEnv(X_ON, () => signInLink(bound.own, new Date())), null);
 });
+
+test('(h) an anonymous hosted find renders the Bench signed_out reply: Sign in with X and one link', db, async () => {
+  const { token } = await hosted('h');
+  const c = (await connectInstallation(token))!;
+  const r = await withEnv({ EARNKIT_URL: undefined, ...X_ON }, () =>
+    mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', { agent_can_build: true }));
+  assert.equal(r.isError, false, r.text);
+  const text = String(r.reply?.show_to_builder);
+  assert.match(text, /Sign in with X/, text);
+  assert.equal((text.match(/https?:\/\/\S+/g) ?? []).length, 1, text);
+});
