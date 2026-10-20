@@ -19,7 +19,7 @@ should read as one useful update derived from the pushed commits, with an option
   the GitHub App. It now keeps up to 40 cleaned titles (`shipTitles(..., SUMMARY_TITLES_MAX)`) and passes them to
   `week-summary.ts weekSummary`.
 - `aiSummary`: Claude Haiku 5.5 (`claude-haiku-5-5`), effort low, 15 s timeout, one retry. Only with
-  `ANTHROPIC_API_KEY` set. The system prompt treats titles as data, asks for at most 200 characters, past tense,
+  `ANTHROPIC_API_KEY` set. The system prompt treats titles as data, asks for at most 200 characters (stored up to 280, the note limit), past tense,
   no numbers, no dashes. "NONE" when nothing is worth saying. The model gets the titles only, never the project name;
   with a private repo, titles naming the repo are left out.
 - `ruleSummary` is the free fallback (no key, an error, a refusal, or a reply the filter refuses): verb-led titles in

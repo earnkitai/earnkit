@@ -9,7 +9,7 @@ import { checkUpdate, type OwnLinks } from './update-text';
  * `ruleSummary` writes it from the titles for free. Either way the text goes through the update filter
  * (update-text.ts checkUpdate) before it is stored. The builder's own note (tell update { text }) shows under it.
  */
-export const SUMMARY_MAX = 220;
+export const SUMMARY_MAX = 280;
 export const SUMMARY_MODEL = 'claude-haiku-5-5';
 /** At most this many titles go to the model (PRs first, newest first: shipTitles' order). */
 export const SUMMARY_TITLES_MAX = 40;
