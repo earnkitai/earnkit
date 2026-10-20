@@ -37,7 +37,8 @@ program is never closed under it either.
      campaigns don't need it: their per-winner amount is the prize divided by the winners.
    - `pool_usd` (optional): the program's total prize pool in USD, as a number. Set it only when
      the source states a pool (e.g. `840000` for "$840,000 in prizes", `10000` for "10,000 USDC
-     pool"); leave it out when none is published. `reward` must state the same amount followed by
+     pool"); leave it out when none is published. Never invent a fact: do not estimate, sum or round up a pool, and do not
+     derive it from another program's figures. `reward` must state the same amount followed by
      a pool word (`$840,000 in prizes`, `$250,000+ prize pool`, `10,000 USDC pool`, `$200K
      available`; `programs:check` refuses it otherwise), and a `+`
      right after it there ("$250,000+") shows on the page. The landing page's money line, "$X in

@@ -1712,7 +1712,7 @@ ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
 
 -- v3 Stage 2: backers (distinct wallets that received a coin, excluding the pool, the locker and zero) and creator fees paid.
 -- backers.ts indexBackers reads each launched Base coin's Transfer logs from its cursor (start: the launch block);
--- earned.ts indexCreatorFees reads, per creator wallet (cursor in bonus_cursor 'creator_fees:<wallet>'), the FeeLocker's
+-- earned.ts indexCreatorFees reads, per creator wallet (cursor in bonus_cursor 'creator_fees:<wallet>', one per wallet, not per coin), the FeeLocker's
 -- StoreTokens deposits attributed to the wallet's EarnKit coins (creator_deposits, as bonusDeposits attributes the Safe's)
 -- and its ClaimTokens claims (token WETH); a claim is credited per coin (creator_fees, one row per claim and coin) only up
 -- to those coins' deposits not yet credited, so a claim of another coin's fees never counts. Additive; a rerun is a no-op.

@@ -221,6 +221,7 @@ apps/frontend/
   app/api/host/upload/route.ts  v2.9 C12: POST -> hostUploadPost (?t= one-time token, one zip, 503 when R2 off)
   app/api/host/takedown/route.ts  v2.9 C14: POST -> hostTakedownPost (Bearer ADMIN_VETO_SECRET; kill or approve)
   app/api/digest/unsubscribe/route.ts  v2.9 E19: GET confirm page (POST button), POST one-click (RFC 8058) -> digest.ts
+  app/api/builders/[handle]/route.ts  v3 Stage 2: GET /api/builders/<handle>.json -> builder-json.ts (60 s cache, CORS tokens.fun)
   app/api/week/route.ts         v3 Stage 1: GET the week's page (one POST button), POST Looks right / Hide -> week-links.ts
   app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
                                instead of slug for a builder bonus round)
@@ -1304,6 +1305,10 @@ apps/frontend/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
                                free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post
+    ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
+    builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
+    backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin
+    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
                                (approveWeek via 'email', un-hiding; or an UPDATE setting hidden on the week's row); v3-monday-email.test.ts
@@ -1912,8 +1917,8 @@ ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `PO
 `v3-week-points.test.ts`, `v3-unconfirmed.test.ts`, `v3-points.test.ts`, `v3-connect.test.ts`,
 `v3-monday-email.test.ts`.
 
-v3 Stage 2 Task 1 (programs, `upcoming`, the honest total, Base first; see the architecture guide's "v3 Stage 2"
-section): `program-file.ts` (`status` adds `upcoming`, `opens_note`, `in_person`), `db/schema.sql` (widened status
+v3 Stage 2 Task 1 (programs, `upcoming`, the honest total, Base first; see the architecture guide's "v3 Stage 2: money",
+Part 1): `program-file.ts` (`status` adds `upcoming`, `opens_note`, `in_person`), `db/schema.sql` (widened status
 check, two columns), `programs.ts` (`listPrograms` lists upcoming; `programCard` status/opens_note/in_person),
 `present.ts` (`byRelevance`; `presentFirstMessage` drops upcoming), `pool.ts` (`openMoneyUsd` skips investments,
 `openMoneyWords`, `openGrantsText`), `landing.ts`, `stats.ts`, `guide.ts`, `bench-find.ts` (`UPCOMING_STREAK`),
@@ -1933,7 +1938,7 @@ application), `page-data.ts` (`ProgramLabel`, `programLabel`), `bench-data.ts` (
 `app/[handle]/ProjectTab.tsx` ("Won X" / "Applied to X"), `stats.ts` (`applications`, `accepted`), `db/schema.sql`
 (widened `builder_program_status` CHECK, `asked_at`). New test: `v3-apply.test.ts`.
 
-v3 Stage 2 Task 3 (Backing; see the architecture guide's "v3 Stage 2 (Task 3)" section): new `builder-json.ts`
+v3 Stage 2 Task 3 (Backing; see the architecture guide's "v3 Stage 2: money", Part 3): new `builder-json.ts`
 (`BuilderJson`, `builderJson`, `builderResponse`, `builderPreflight`) and `app/api/builders/[handle]/route.ts`
 (GET `/api/builders/<handle>.json`, 60 s unstable_cache keyed by EARNKIT_RAISING, CORS https://tokens.fun). Changed:
 `policy-constants.ts` (`BACKING_EXCLUDED_REPOS`), `coin-moments.ts` (`Moment` `first_week`, `BACKING_OFFER`,
@@ -1949,7 +1954,7 @@ removed), `app/terms/page.tsx` (revalidate 600), `RaisingPill.tsx` ("Backing · 
 `fixtures/banned-words.ts` (`community round` banned; the offer's own risk words allowed), `db/schema.sql` (the
 `coin_moments` CHECK lists `first_week` in both re-adds). New test: `v3-backing.test.ts`.
 
-v3 Stage 2 Task 4 (Backers, Earned and "waiting"; see the architecture guide's "v3 Stage 2 (Task 4)" section): new
+v3 Stage 2 Task 4 (Backers, Earned and "waiting"; see the architecture guide's "v3 Stage 2: money", Part 4): new
 `backers.ts` (`indexBackers`, `backersOf`, `backersOfCoin`, `launchBlock`, `BACKER_EXCLUDED`, `POOL_MANAGER`,
 `INDEXER_MS`, `INDEX_CHUNK`, `CALLS_PER_COIN`, `RECIPIENTS_PER_RANGE`) and `earned.ts` (`indexCreatorFees`, `earnedUsd`, `Earned`, `feesCursor`). Changed:
 `bonus-ledger.ts` (`CLAIM_TOKENS`, `ERC20_TRANSFER`; `BonusRpc.transferLogs/poolHooks/claimTokenLogs`; runBonusLedger
@@ -1959,3 +1964,9 @@ steps `backers_index`, `creator_fees_index`), `fees.ts` (`cachedWethUsd`, `PRICE
 `builder-json.ts` (`earned`), `stats.ts` (`backing_open`, `backers`, `earned_usd`), `db/schema.sql` (`coin_backers`,
 `coin_backer_cursor`, `creator_fees`, `creator_deposits`), `raising.ts` (`pillCoin`, `RaisingCoin.coin`). New test:
 `v3-earned.test.ts`.
+
+v3 Stage 2 summary. Programs schema (`program-file.ts`, `programs/README.md`): `status` `upcoming`, `opens_note`,
+`in_person`; `pool_usd` is set only when the source states a pool. New files: `ship-log-facts.ts`, `backers.ts`,
+`earned.ts`, `builder-json.ts`, `app/api/builders/[handle]/route.ts`. New tests: `v3-programs.test.ts`,
+`v3-apply.test.ts`, `v3-backing.test.ts`, `v3-earned.test.ts`. New programs: `alliance-all19`, `ethglobal-mumbai`,
+`monad-nitro`, `base-batches-005`; `a16z-speedrun` has its deadline.

@@ -6626,7 +6626,14 @@ say yes, earn points, get the Monday email.
 - Tests: `v3-hosted-client`, `v3-week-points`, `v3-unconfirmed`, `v3-points`, `v3-connect`, `v3-monday-email`
   (`.test.ts`); `digest.test.ts` and `oauth.test.ts` updated.
 
-## v3 Stage 2 (Task 1): programs for Q4 2026, `upcoming`, the honest total, Base first
+## v3 Stage 2: money
+
+Design: `docs/design-docs-and-implementation-plans/v3-power-user.md` (spec 5.2, 5.3); plan:
+`v3-power-user-plan-stage2.md`. Stage 2 puts money in front of the builder: the programs worth applying to (with the
+honest total), a drafted application from the ship log and the outcome loop, Backing on the builder's coin, and the
+numbers that prove it (backers and Earned). Four parts, in the order they were built.
+
+### Part 1: programs for Q4 2026, `upcoming`, the honest total, Base first
 
 - **The `upcoming` status (`program-file.ts`, `db/schema.sql`, `programs.ts`).** A program file may be
   `status: 'upcoming'` with `opens_note` (one line, at most 140 characters, no links); it may have no
@@ -6651,10 +6658,11 @@ say yes, earn points, get the Monday email.
 - **In person.** An `in_person` program is never a fit in the ranked reply (`benchFind` rows and
   `stand-view.ts scoreFits` skip it); it stays on the landing and /programs.
 - **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, up to $15K per partner prize),
-  `monad-nitro` and `base-batches-005` (both upcoming). `landing.ts byPool` was removed (no caller). Test:
+  `monad-nitro` and `base-batches-005` (both upcoming); `a16z-speedrun` now has its real deadline (`ends_at` 2026-11-02T07:59:59Z,
+  November 1, 11:59 PM PT), so it can be the apply step. `programs/README.md` documents `upcoming`, `opens_note`, `in_person`. `landing.ts byPool` was removed (no caller). Test:
   `v3-programs.test.ts`.
 
-## v3 Stage 2 (Task 2): the drafted application and the outcome loop (spec 5.3 Route 1)
+### Part 2: the drafted application and the outcome loop (spec 5.3 Route 1)
 
 - **The apply step (`bench-find.ts applyPick`, `bench-reply.ts applyAsk`).** In the ranked reply, a fit (deadline
   order) closing within `APPLY_WINDOW_DAYS` (30) becomes the one step: "<title> closes <day>. Want me to draft your
@@ -6682,7 +6690,7 @@ say yes, earn points, get the Monday email.
 - **Stats.** `applications` (distinct person and program rows with applied, accepted, funded or rejected, no test
   installation) and `accepted` (of those, accepted or funded). Test: `v3-apply.test.ts`.
 
-## v3 Stage 2 (Task 3): Backing (spec 5.3 Route 2)
+### Part 3: Backing (spec 5.3 Route 2)
 
 - **The word.** Builder text says Backing / backers / "Back <project>", never "community round", "raise" or
   "raising" (`fixtures/banned-words.ts BENCH_EXTRA` now bans "community round"). Internal names stay (`raising_at`,
@@ -6720,7 +6728,7 @@ say yes, earn points, get the Monday email.
   In find and score the offer waits at most the reply's budget (`boundedBacking`, at least `BACKING_WAIT_MIN_MS`);
   past it, `late()` keeps the moment unclaimed (or releases it), so it is offered on a later reply.
 
-## v3 Stage 2 (Task 4): Backers, Earned and "waiting" (spec 5.2, 5.3 Route 2)
+### Part 4: Backers, Earned and "waiting" (spec 5.2, 5.3 Route 2)
 
 - **Backers (`backers.ts indexBackers`).** Distinct wallets that bought a launched Base coin (`projects.coin_address`,
   `token_status 'launched'`), from the coin's ERC-20 Transfer logs: a backer received the coin from the pool side (the
@@ -6757,3 +6765,10 @@ say yes, earn points, get the Monday email.
 - **Stats.** `earned_usd` (credited fees over non-test coins at the WETH price, plus `builders_won_usd`),
   `backing_open` (launched coins with `raising_at`, non-test) and `backers` (their coins' backers); the last two are
   always present and 0 while the flag is off. Test: `v3-earned.test.ts`.
+- **Schema migration (`db/schema.sql`).** `creator_fees` is keyed (tx_hash, log_index, coin). A database that ran the
+  first version (key tx_hash, log_index) is migrated in one guarded DO block: drop the old key, clear `creator_fees`
+  and the old `bonus_cursor` rows (`creator_fees:%`), add the new key; the next run credits again under the deposit
+  cap. Cursors are per creator wallet (`creator_fees:<wallet>`). A rerun of the schema is a no-op
+  (`schema-rerun.test.ts`).
+
+Tests for the four parts: `v3-programs`, `v3-apply`, `v3-backing`, `v3-earned` (`.test.ts`).
