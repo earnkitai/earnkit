@@ -127,6 +127,10 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${a.id}`).length, 0, 'no coin offer recorded');
 
   // score: the same parts, its fits from the real matcher over what find saw (fit_repos), never a closed program.
+  // v3 Stage 2 final review: an open investment closing within 30 days (a16z speedrun, Alliance) is score's apply step
+  // for this product repo (v3-apply.test.ts (h)); marked asked here, so the step is the ranked one on any date.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || jsonb_build_object('apply_asked', jsonb_build_object('a16z-speedrun', now()::text, 'alliance-all19', now()::text)) WHERE builder_id = ${a.id}`;
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
   assert.match(t, /^Kit: Shipping \d+ · /m);

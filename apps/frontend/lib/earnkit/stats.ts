@@ -323,13 +323,14 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted,
       -- v3 Stage 2 (spec 5.3 Route 2): open backings (launched, raising_at set) and their coins' distinct backers, never a
       -- test installation's coin; creator fees claimed to each non-test coin's creator wallet (creator_fees).
+      -- v3 Stage 2 final review: never a test installation's group (testProject), as every other people stat.
       (SELECT count(*) FROM projects p WHERE p.token_status = 'launched' AND p.raising_at IS NOT NULL
-        AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS backing_open,
+        AND NOT ${testProject(db, ids)})::int AS backing_open,
       (SELECT count(*) FROM coin_backers b WHERE b.coin IN (SELECT lower(p.coin_address) FROM projects p
         WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND p.raising_at IS NOT NULL
-          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)))::int AS backers,
+          AND NOT ${testProject(db, ids)}))::int AS backers,
       (SELECT sum(f.amount_wei) FROM creator_fees f JOIN projects p ON lower(p.coin_address) = f.coin
-        WHERE f.wallet = ${creatorWalletSql(db)} AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::text AS creator_fees_wei`;
+        WHERE f.wallet = ${creatorWalletSql(db)} AND NOT ${testProject(db, ids)})::text AS creator_fees_wei`;
   // The WETH price only when there are claimed fees to value (fees.ts: cached, at most a short wait).
   const weth_usd = BigInt(r.creator_fees_wei ?? '0') > 0n ? await cachedWethUsd(now.getTime(), PRICE_WAIT_MS, db) : null;
   return statsFrom({ ...r, weth_usd }, now);
@@ -342,6 +343,13 @@ const applicationsSql = (db: Db, ids: number[], statuses: string[]) => db`
 /** Launch-ready L9: `p` (a builder_profiles row) is no owner test installation's group. */
 const notTest = (db: Db, ids: number[]) => db`NOT (p.builder_id = ANY(${ids}::int[]))
   AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.id = ANY(${ids}::int[]))`;
+/**
+ * v3 Stage 2 final review: `p` (a projects row) belongs to an owner test installation's group: its installation is
+ * a test one, or its group (COALESCE(builder_id, id)) is, or any installation in its group is (as notTest).
+ */
+const testProject = (db: Db, ids: number[]) => db`EXISTS (SELECT 1 FROM installations i WHERE i.id = p.installation_id
+  AND (i.id = ANY(${ids}::int[]) OR COALESCE(i.builder_id, i.id) = ANY(${ids}::int[])
+    OR EXISTS (SELECT 1 FROM installations j WHERE COALESCE(j.builder_id, j.id) = COALESCE(i.builder_id, i.id) AND j.id = ANY(${ids}::int[]))))`;
 /** Launch-ready L9: `u` (a project_updates row) is a week the builder approved at the weekly moment (L6). */
 const approvedWeek = (db: Db) => db`u.facts->'approved' = 'true'::jsonb AND jsonb_typeof(u.facts->'approved_at') = 'string'`;
 

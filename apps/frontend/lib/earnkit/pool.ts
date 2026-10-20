@@ -129,6 +129,10 @@ export type OpenMoneyRow = {
   investment?: boolean | null;
   /** v3 Stage 2: a pool with no per-winner amount (a hackathon) is named, not counted. */
   pool_usd?: number | null;
+  /** v3 Stage 2 final review: an in-person program with no per-winner amount is named a hackathon, not counted. */
+  in_person?: boolean | null;
+  /** v3 Stage 2 final review: the stated prize text; a program with only this (no amount) is named, not counted. */
+  reward?: string | null;
   status?: string;
   campaign?: unknown;
   earnkit_campaign?: unknown;
@@ -153,13 +157,16 @@ export function openMoneyUsd(programs: OpenMoneyRow[], now = new Date()): number
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 /**
  * v3 Stage 2: what the money total leaves out, in words: the open curated accelerators (investment)
- * and hackathons (a pool with no per-winner amount). "Plus 2 accelerators and 1 hackathon.", or
+ * and hackathons (no per-winner amount: in person, a pool, or only a stated prize text). "Plus 2 accelerators and 1 hackathon.", or
  * null when there are none. Pure.
  */
 export function openMoneyWords(programs: OpenMoneyRow[], now = new Date()): string | null {
   const open = programs.filter((p) => openCurated(p, now));
   const acc = open.filter((p) => p.investment).length;
-  const hack = open.filter((p) => !p.investment && p.pool_usd && !p.max_award_usd).length;
+  // v3 Stage 2 final review, the hackathon rule: never an investment and never counted in the total (no
+  // max_award_usd), and either in person, or a stated pool (pool_usd), or a stated prize text with no amount
+  // EarnKit can count (neither max_award_usd nor pool_usd). So a program is either summed or named, never both.
+  const hack = open.filter((p) => !p.investment && !p.max_award_usd && (p.in_person || p.pool_usd || Boolean(p.reward?.trim()))).length;
   const parts = [...(acc ? [plural(acc, 'accelerator', 'accelerators')] : []), ...(hack ? [plural(hack, 'hackathon', 'hackathons')] : [])];
   return parts.length ? `Plus ${parts.join(' and ')}.` : null;
 }

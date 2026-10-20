@@ -23,10 +23,10 @@ import { xSignInEnabled } from './builder-score-flag';
 import { outcomeLine } from './outcomes';
 import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
-  biggestPick, earnPrize, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
+  biggestPick, earnPrize, FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byDeadline, byPrize, byRelevance, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byPrize, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { creditsMainnet, type Detection } from './match';
@@ -319,7 +319,7 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
 export const UPCOMING_STREAK = 4;
 
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
-type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string; /** v3 Stage 2: the deadline (ISO), null when rolling. */ ends_at: string | null };
+type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string; /** v3 Stage 2: the deadline (ISO), null when rolling. */ ends_at: string | null; /** v3 Stage 2 final review: an investment (an apply candidate only, never a fit line). */ investment?: boolean };
 const isoOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
@@ -331,6 +331,11 @@ type ViewIn = {
   name: string | null;
   /** Programs the one project qualifies for (at most 3 are shown). */
   fits: Fit[];
+  /**
+   * v3 Stage 2 final review: the programs the apply step may offer: the fits plus the open investments (an
+   * accelerator) the one project could apply to, deadline order. Never shown as fit lines. Defaults to the fits.
+   */
+  applies?: Fit[];
   cards: Card[]; skip: Set<string>;
   /** v3 Stage 2: the listed upcoming programs (never open), for the one upcoming line. */
   upcoming?: Card[];
@@ -413,7 +418,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // v3 Stage 2 (spec 5.3): a fit closing within APPLY_WINDOW_DAYS, once a program, before (and in place of) the weekly moment.
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
   const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
-  const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.fits.slice(0, 3), o.skip, now) : null;
+  const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.applies ?? o.fits.slice(0, 3), o.skip, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
@@ -634,19 +639,23 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const main = read.main?.toLowerCase() ?? null;
   // Ways to get funded: the programs the one project qualifies for (as standFind's earn rows).
   // R12 (fix round 1): one fit order with score (present.ts byDeadline); lead and recordShown use these same 3.
-  const rows = main
+  // v3 Stage 2 final review: the rows the one project could apply to (an investment included: the apply step's
+  // candidates); the fit lines leave the investments out, as before.
+  const can = main
     ? layout(m, entered).rows
         // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
-        .filter((r) => qualifies(r) && !r.card.sponsored && !r.card.in_person && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
+        .filter((r) => canApply(r) && !r.card.sponsored && !r.card.in_person && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
         .sort((a, b) => byDeadline(a.card, b.card))
-        .slice(0, 3)
     : [];
+  const rows = can.filter((r) => !r.card.investment).slice(0, 3);
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
-  const fits: Fit[] = rows.map((r) => {
+  const fitOf = (r: (typeof can)[number]): Fit => {
     const f = facts.get(r.repo);
     const why = fitWhy(r.card, whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified }));
     return { program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at) };
-  });
+  };
+  const fits: Fit[] = rows.map(fitOf);
+  const applies: Fit[] = can.map(fitOf);
   const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
   const submit = a.ask || signedOut ? undefined : submitStep(m);
@@ -656,7 +665,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut, name, fits, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
+    id, now, read, own, signedOut, name, fits, applies, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
     deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS,
   });
   const taken = view.variant === 'taken';
@@ -715,13 +724,16 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const entered = new Set(entries.map((e) => e.program_id));
   const shown = cards.filter((c) => !hidden.has(c.id));
   const main = read.main?.toLowerCase() ?? null;
-  const fits: Fit[] = main
-    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now })).map((f) => ({
+  // v3 Stage 2 final review: the apply step's candidates include an open investment; the fit lines never do.
+  const applies: Fit[] = main
+    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now, investments: true })).map((f) => ({
         program_id: f.card.id, title: f.card.title, prize: earnPrize(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
+        investment: f.card.investment === true,
       }))
     : [];
+  const fits: Fit[] = applies.filter((f) => !f.investment).slice(0, FITS_MAX);
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
     due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS,
   });
   await noteEvent('score_viewed', () => ({

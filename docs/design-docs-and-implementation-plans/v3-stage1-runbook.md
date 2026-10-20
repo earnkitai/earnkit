@@ -115,3 +115,20 @@ claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp
 ```
 
 Then open Claude Code, type `/mcp`, pick earnkit, choose Authenticate, sign in with X, and ask "where do I stand".
+
+## Stage 2 go-live
+
+Read this before you set `EARNKIT_RAISING=on`.
+
+1. **The backing offer.** With `EARNKIT_RAISING=on`, the backing offer is the one question of the first reply for
+   every ranked builder who has an approved week with code, a confirmed public repo and no coin. That includes your
+   own test repos that are not EarnKit's (only `earnkitai/earnkit` itself is excluded). A no is remembered: the offer
+   is never asked again for that project.
+2. **Backers and Earned.** The backers indexer and the Earned (creator fees) indexer run inside the bonus ledger, so
+   they need `CAMPAIGN_PAYOUT_PRIVATE_KEY` (already set). They read Base through the public Base RPC unless
+   `BASE_RPC_URL` is set. On the public RPC the first catch-up is slow; the numbers fill in over the next runs.
+3. **The outcome ask.** Existing `applied` rows for programs that have closed trigger the one outcome question
+   ("Did <program> come back on <project>?") 14 days after the program's deadline, so expect the first ones from about
+   Oct 27.
+4. **Stats for jenil.ai.** `/api/stats` has four new keys for `get_funnel`: `applications`, `backing_open`, `backers`
+   and `earned_usd`. `backing_open` and `backers` read 0 while `EARNKIT_RAISING` is off.

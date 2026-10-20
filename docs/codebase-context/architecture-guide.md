@@ -6644,10 +6644,15 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
   `openProgramFacts`, `pool.ts openCurated` (it reads the card's status), `isOpen`, `readStats`, and `tools.ts`
   (find's `programs`, `needsRepoLine`, `buildPick`) and `present.ts presentFirstMessage` drop upcoming cards.
 - **Base first (`present.ts byRelevance`, re-exported by `landing.ts`).** The tiles' order: open before upcoming, then
-  Base and any-chain programs, then the sooner deadline (rolling last), then the bigger `max_award_usd`. An upcoming
+  Base programs (`chains` include `base`), then any-chain programs, then the rest; within each, grants before
+  investments; then the sooner deadline (rolling last), then the bigger `max_award_usd`. On Oct 20 the landing reads
+  Base Builder Grants, ETHGlobal Mumbai, a16z speedrun, Alliance ALL19, Circle, Avalanche, then Base Batches 005 and
+  Monad Nitro (upcoming). An upcoming
   tile's `days_left` is `'not open yet'`; `ProgramCard` shows "Not open yet" and, when `in_person`, an "In person" chip.
 - **The honest total (`pool.ts`).** `openMoneyUsd` never counts an investment. `openMoneyWords` names what it leaves
-  out ("Plus 2 accelerators and 1 hackathon.": investments, and pools with no per-winner amount). `openGrantsText`
+  out ("Plus 2 accelerators and 1 hackathon."): investments, and hackathons (never an investment, no `max_award_usd`,
+  and in person, or a stated `pool_usd`, or only a stated `reward` text), so a program is summed or named, never both. The first reply's context line (`fresh-build.ts contextLine`) counts
+  only the programs the figure sums (an amount, never an investment). `openGrantsText`
   renders "$115K in grants and prizes open". `Landing.open_text` is that line (null when nothing is open) and `open_more` the
   words; `ProgramCards` shows both (`figure`, `more`). `/api/stats` `open_money_usd` excludes investments and
   `open_money_text` is the same line. The first reply's headline keeps `moneyText` ("$X in prizes open right now.").
@@ -6656,16 +6661,25 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
   builder on a 4-week streak (`UPCOMING_STREAK`) gets one `FundLine` `upcoming` ("<title>: <prize>, not open yet.
   <note>"), the first upcoming program by `byRelevance`, after the fits (or the no-fit line) and before the points.
 - **In person.** An `in_person` program is never a fit in the ranked reply (`benchFind` rows and
-  `stand-view.ts scoreFits` skip it); it stays on the landing and /programs.
-- **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, up to $15K per partner prize),
+  `stand-view.ts scoreFits` skip it) nor on the profile's Ways to get funded (`bench-data.ts fundLines`); it stays on
+  the landing and /programs.
+- **Investment wording.** `stand-view.ts earnPrize` reads an investment "up to $500K investment" (as `pool.ts
+  eachLine`), so the upcoming line says "Monad Nitro: up to $500K investment, not open yet.".
+- **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person; no `max_award_usd`: the source lists partner prizes, not a
+  per-winner amount, so it is a named hackathon, never in the total),
   `monad-nitro` and `base-batches-005` (both upcoming); `a16z-speedrun` now has its real deadline (`ends_at` 2026-11-02T07:59:59Z,
-  November 1, 11:59 PM PT), so it can be the apply step. `programs/README.md` documents `upcoming`, `opens_note`, `in_person`. `landing.ts byPool` was removed (no caller). Test:
+  November 1, 11:59 PM PT), so (as Alliance ALL19, Nov 18) it can be the apply step (an investment is an apply
+  candidate, never a fit line). `programs/README.md` documents `upcoming`, `opens_note`, `in_person`. `landing.ts byPool` was removed (no caller). Test:
   `v3-programs.test.ts`.
 
 ### Part 2: the drafted application and the outcome loop (spec 5.3 Route 1)
 
-- **The apply step (`bench-find.ts applyPick`, `bench-reply.ts applyAsk`).** In the ranked reply, a fit (deadline
-  order) closing within `APPLY_WINDOW_DAYS` (30) becomes the one step: "<title> closes <day>. Want me to draft your
+- **The apply step (`bench-find.ts applyPick`, `bench-reply.ts applyAsk`).** In the ranked reply, a program the one
+  project could apply to (deadline order) closing within `APPLY_WINDOW_DAYS` (30) becomes the one step. The candidates
+  (`ViewIn.applies`) are the fits plus the open investments: find takes `layout` rows with `present.ts canApply` (good
+  odds, no `new_work`; `qualifies` is `canApply` without an investment), score takes `scoreFits(..., { investments: true })`
+  (`alerts.ts repoCanWin(..., { apply: true })` passes an investment the tier fits, whose verdict is always weeks of
+  work). The fit lines still never name an investment. The step: "<title> closes <day>. Want me to draft your
   application from your ship log?" (kind `apply`, `project_key`, `program_id`). Skipped when the program is entered or
   hidden, when `builder_program_status` holds any row for it (any status, any round), when the builder said no to it in
   the last 30 days (`standing_seen.declined['apply:<program_id>']`), and once shown (`standing_seen.apply_asked`, one
@@ -6688,7 +6702,9 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
   "Applied to X" (a submitted entry, or a told application of any of the four statuses), else nothing. A self-reported
   accepted or funded never changes the label.
 - **Stats.** `applications` (distinct person and program rows with applied, accepted, funded or rejected, no test
-  installation) and `accepted` (of those, accepted or funded). Test: `v3-apply.test.ts`.
+  installation) and `accepted` (of those, accepted or funded). `backing_open`, `backers` and `earned_usd` skip a coin of
+  any test installation's group (`stats.ts testProject`: the project's installation, its group root, or any installation
+  in the group). Test: `v3-apply.test.ts`.
 
 ### Part 3: Backing (spec 5.3 Route 2)
 

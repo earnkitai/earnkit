@@ -17,7 +17,9 @@ import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
 import { listPrograms, openProgramFacts, upsertProgram } from './programs';
 import { byRelevance, landingFrom, readGuidePage } from './landing';
-import { openMoneyUsd, openMoneyWords, openGrantsText } from './pool';
+import { openCurated, openMoneyUsd, openMoneyWords, openGrantsText } from './pool';
+import { profileData } from './bench-data';
+import { earnPrize } from './stand-view';
 import { guideText } from './guide';
 import type { Card, RepoFit } from './present';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -88,7 +90,7 @@ test('(a) an upcoming program is listed with "not open yet", never a fit, never 
   assert.deepEqual(chips.slice(0, 2), ['Not open yet', 'In person']);
 });
 
-test('(b) tile order: active Base first, dated before rolling, upcoming last', () => {
+test('(b) tile order: active first; Base, then any chain, then the rest; grants before investments; dated before rolling', () => {
   const cards = [
     card('arc-dated', { ends_at: new Date('2026-10-25T00:00:00Z'), max_award_usd: 90000 }),
     card('base-rolling', { chains: ['base'], max_award_usd: 5000 }),
@@ -100,12 +102,24 @@ test('(b) tile order: active Base first, dated before rolling, upcoming last', (
   ];
   assert.deepEqual(
     [...cards].sort(byRelevance).map((c) => c.id),
-    ['any-dated', 'base-dated', 'base-rolling-big', 'base-rolling', 'arc-dated', 'arc-rolling', 'upcoming-base'],
+    ['base-dated', 'base-rolling-big', 'base-rolling', 'any-dated', 'arc-dated', 'arc-rolling', 'upcoming-base'],
   );
   assert.deepEqual(landingFrom(cards, stats, now).tiles.map((t) => t.id), [...cards].sort(byRelevance).map((c) => c.id));
+  // Within a group, a grant before an investment, whatever the deadline.
+  const any = [
+    card('any-inv', { chains: [], any_chain: true, investment: true, ends_at: new Date('2026-11-01T00:00:00Z') }),
+    card('any-grant', { chains: [], any_chain: true, ends_at: new Date('2026-11-07T00:00:00Z') }),
+  ];
+  assert.deepEqual([...any].sort(byRelevance).map((c) => c.id), ['any-grant', 'any-inv']);
+  // v3 Stage 2 final review: the committed set on Oct 20 (open or upcoming), as the landing lists it.
+  const listed = fileCards().filter((c) => c.status === 'upcoming' || openCurated(c, now));
+  assert.deepEqual(landingFrom(listed, stats, now).tiles.map((t) => t.id), [
+    'base-builder-grants', 'ethglobal-mumbai', 'a16z-speedrun', 'alliance-all19', 'circle-developer-grants', 'avalanche-team1-mini-grants',
+    'base-batches-005', 'monad-nitro',
+  ]);
 });
 
-test('(c) the money total excludes investments and pool-only programs; words name them', () => {
+test('(c) the money total excludes investments, pool-only and in-person programs; words name them', () => {
   const a16z = card('a16z', { chains: [], any_chain: true, investment: true, max_award_usd: 1000000 });
   const circle = card('circle', { max_award_usd: 100000 });
   const eth = card('ethglobal', { chains: [], any_chain: true, max_award_usd: null, pool_usd: 141000, ends_at: new Date('2026-11-07T03:30:00Z') });
@@ -115,12 +129,21 @@ test('(c) the money total excludes investments and pool-only programs; words nam
   assert.equal(openMoneyWords([circle], now), null);
   assert.equal(openGrantsText(openMoneyUsd([a16z], now)), '$0 in grants and prizes open');
   assert.equal(openGrantsText(115000), '$115K in grants and prizes open');
-  // The committed files on Oct 20: Avalanche, Base, Circle and ETHGlobal Mumbai ($15K per partner prize) count;
-  // a16z speedrun and Alliance are named, not counted.
+  // v3 Stage 2 final review, the hackathon rule: in person, or a stated prize text with no amount, is named, not counted.
+  const inPerson = card('in-person', { chains: [], any_chain: true, max_award_usd: null, in_person: true });
+  const textOnly = card('text-only', { max_award_usd: null, pool_usd: null, reward: 'Partner prizes, amounts to be announced' });
+  assert.equal(openMoneyWords([inPerson], now), 'Plus 1 hackathon.');
+  assert.equal(openMoneyWords([textOnly, inPerson], now), 'Plus 2 hackathons.');
+  assert.equal(openMoneyWords([{ ...textOnly, reward: '' }], now), null, 'no amount and no prize text: nothing to name');
+  assert.equal(openMoneyUsd([inPerson, textOnly], now), 0);
+  // The committed files on Oct 20: Avalanche, Base and Circle count ($115K); a16z speedrun and Alliance (accelerators)
+  // and ETHGlobal Mumbai (in person, no stated per-winner amount) are named, not counted.
   const files = fileCards();
-  assert.equal(openMoneyUsd(files, now), 130000);
-  assert.equal(openMoneyWords(files, now), 'Plus 2 accelerators.');
-  assert.equal(landingFrom(files, stats, now).open_text, '$130K in grants and prizes open');
+  assert.equal(openMoneyUsd(files, now), 115000);
+  assert.equal(openMoneyWords(files, now), 'Plus 2 accelerators and 1 hackathon.');
+  assert.equal(landingFrom(files, stats, now).open_text, '$115K in grants and prizes open');
+  assert.equal(landingFrom(files, stats, now).open_more, 'Plus 2 accelerators and 1 hackathon.');
+  assert.equal(committedProgram('ethglobal-mumbai').max_award_usd, undefined, 'no per-winner amount the source does not state');
   const landing = landingFrom([a16z, circle, eth], stats, now);
   assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
@@ -222,6 +245,18 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
     assert.match(s, /Base Builder Grant Program: /, `${tool}: ${s}`);
     assert.doesNotMatch(s, /ETHGlobal Mumbai/, `${tool}: ${s}`);
   }
+  // v3 Stage 2 final review: nor on the profile's Ways to get funded.
+  const funds = (await profileData(c.id, new Date()))!.project!.funds;
+  assert.ok(funds.some((l) => l.startsWith('Base Builder Grant Program pays ')), JSON.stringify(funds));
+  assert.ok(!funds.some((l) => /ETHGlobal/.test(l)), JSON.stringify(funds));
   const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === 'ethglobal-mumbai');
   assert.equal(tile?.in_person, true, 'still listed');
+});
+
+test('(h) an upcoming investment reads "investment", never as a prize', () => {
+  // v3 Stage 2 final review: as pool.ts eachLine ("up to $500K investment").
+  assert.equal(earnPrize({ max_award_usd: 500000, summary: 'up to $500K investment', investment: true }), 'up to $500K investment');
+  assert.equal(earnPrize({ max_award_usd: 5000, summary: 'up to $5,000' }), 'up to $5K');
+  const nitro = fileCards().find((c) => c.id === 'monad-nitro')!;
+  assert.equal(earnPrize(nitro), 'up to $500K investment');
 });

@@ -229,7 +229,8 @@ async function fundLines(builderId: number, key: string, now: Date): Promise<str
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
     const skip = new Set(entered.map((e) => e.program_id));
     const out: string[] = [];
-    for (const c of (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean })[]).filter((x) => showable(x, now, skip)).sort(byPrize)) {
+    for (const c of (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean })[]).filter((x) => showable(x, now, skip) && !x.in_person).sort(byPrize)) {
+      // v3 Stage 2 final review: an in-person program is never a way to get funded (it stays on /programs).
       const np = byId.get(c.id);
       if (!np || !mine.some((f) => repoCanWin(np, f))) continue;
       const when = earnWhen(c);

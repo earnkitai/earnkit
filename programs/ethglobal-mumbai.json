@@ -103,6 +103,5 @@
   "logo": {
     "path": "programs/ethglobal-mumbai.png",
     "source_url": "https://cdn.ethglobal.com/events/mumbai/square-logo/default.png"
-  },
-  "max_award_usd": 15000
+  }
 }

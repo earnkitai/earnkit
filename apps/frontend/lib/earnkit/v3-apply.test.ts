@@ -259,3 +259,22 @@ test('(g) readStats applications and accepted', db, async () => {
     if (!(err instanceof Error && err.message === 'rollback')) throw err;
   });
 });
+
+test('(h) an investment closing within 30 days is the apply step (find and score), never a fit line', db, async () => {
+  // v3 Stage 2 final review: the spec's example is an accelerator ("Alliance ALL19 closes Nov 18. Want me to draft
+  // your application from your ship log?"), so an investment is an apply candidate while the fit lines leave it out.
+  // 5 days: sooner than every other dated program in this file and the committed ones, so score (which reads every
+  // open program the repo's facts can win, not only this builder's verdicts) asks this one first.
+  const p = await dated('h', 5, { investment: true, max_award_usd: 400000, summary: 'up to $400K investment' });
+  for (const tool of ['find', 'score'] as const) {
+    const b = await builder(`h${tool[0]}`, [p.id]);
+    // find writes the fits score reads (installations.fit_repos); the first reply here is the builder's own.
+    const r = await mcpCall(b.ctx, tool, {});
+    const s = show(r);
+    assert.ok(s.endsWith(`How to move up\n${applyAsk(p.title, p.when)}`), `${tool}: ${s}`);
+    assert.doesNotMatch(s.split('How to move up')[0], new RegExp(`${p.title}:`), `${tool}: never a fit line: ${s}`);
+    assert.equal(questions(s), 1, s);
+    assert.equal(links(s).length <= 1, true, s);
+    assert.equal((r.reply?.move_up as { kind: string }).kind, 'apply', tool);
+  }
+});

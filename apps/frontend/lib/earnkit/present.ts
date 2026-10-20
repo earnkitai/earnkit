@@ -372,17 +372,20 @@ export const byDeadline = (a: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>, b:
 
 /**
  * v3 Stage 2 (Base first): the program list's order (landing and /programs tiles, and the one upcoming
- * line): open before upcoming; then Base programs and programs open to any chain; then the sooner
- * deadline (rolling last); then the bigger known per-winner award; then the id (stable). Pure.
+ * line): open before upcoming; then Base programs (chains include 'base'), then programs open to any
+ * chain, then the rest; within each, grants before investments; then the sooner deadline (rolling
+ * last); then the bigger known per-winner award; then the id (stable). Pure.
  */
 export const byRelevance = (
-  a: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd'>,
-  b: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd'>,
+  a: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>,
+  b: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>,
 ) => {
   const later = (c: typeof a) => Number(c.status === 'upcoming');
-  const base = (c: typeof a) => Number(c.any_chain === true || (c.chains ?? []).includes('base'));
+  // v3 Stage 2 final review: Base itself first, any chain second, every other chain after.
+  const reach = (c: typeof a) => ((c.chains ?? []).includes('base') ? 0 : c.any_chain === true ? 1 : 2);
+  const inv = (c: typeof a) => Number(c.investment === true);
   const at = (c: typeof a) => (c.ends_at ? new Date(c.ends_at).getTime() : 8.64e15);
-  return later(a) - later(b) || base(b) - base(a) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
+  return later(a) - later(b) || reach(a) - reach(b) || inv(a) - inv(b) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
 };
 
 /**
@@ -569,7 +572,13 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-export const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && !r.v.missing.includes('new_work');
+export const qualifies = (r: Fit) => canApply(r) && !r.card.investment;
+/**
+ * v3 Stage 2 final review: a matched row the builder could apply to from the ship log: good odds and never a
+ * program that counts only new work when the repo is existing work. An investment (an accelerator) can be
+ * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money and the fit lines. Pure.
+ */
+export const canApply = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work');
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,

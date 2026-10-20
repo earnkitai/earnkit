@@ -397,3 +397,27 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
     assert.equal(s.earned_usd, onStats.earned_usd);
   });
 });
+
+test('(f) backing_open, backers and earned_usd leave out a test group\'s coin under a child installation', db, async () => {
+  // v3 Stage 2 final review: group-aware, as every other people stat (stats.ts notTest).
+  fees(0n);
+  const root = await plainInstallation('fr');
+  const child = await plainInstallation('fc');
+  const sibling = await plainInstallation('fs');
+  await sql()`UPDATE installations SET builder_id = ${root} WHERE id = ANY(${[child, sibling]}::int[])`;
+  const coin = addr('t1');
+  const wallet = addr('t2');
+  await coinEntry(child, { coin, wallet, symbol: 'KITT', raising: true });
+  await sql()`INSERT INTO creator_fees (tx_hash, log_index, coin, wallet, amount_wei, block_number, block_time)
+    VALUES (${`0x${randomBytes(32).toString('hex')}`}, 1, ${coin}, ${wallet}, ${(E18 / 10n).toString()}, 5100, now())`;
+  await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${addr('t3')}, 6000), (${coin}, ${addr('t4')}, 6001)`;
+  const read = (tests?: number) => withEnv({ ...ON, EARNKIT_TEST_INSTALLATIONS: tests === undefined ? undefined : String(tests) }, () => readStats(new Date()));
+  const all = await read();
+  // The group's root is a test installation, or another installation in the group is: the child's coin is left out.
+  for (const flagged of [root, sibling]) {
+    const s = await read(flagged);
+    assert.equal(all.backing_open - s.backing_open, 1, `backing_open (${flagged === root ? 'root' : 'sibling'})`);
+    assert.equal(all.backers - s.backers, 2, 'backers');
+    assert.equal(all.earned_usd - s.earned_usd, 200, 'earned_usd: 0.1 WETH at $2,000');
+  }
+});

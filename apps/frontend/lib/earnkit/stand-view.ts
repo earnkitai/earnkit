@@ -104,9 +104,12 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
 
 // ---- Ways to get funded -------------------------------------------------------------------------
 
-/** An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. Pure. */
+/**
+ * An earn line's prize: "up to $10K" from the per-winner award, else the summary's prize. v3 Stage 2 final
+ * review: an investment reads "up to $500K investment" (as pool.ts eachLine), never as a prize. Pure.
+ */
 export const earnPrize = (c: { max_award_usd?: number | null; summary: string; investment?: boolean }) =>
-  c.max_award_usd ? `up to ${moneyText(c.max_award_usd)}` : prizeOf(c).split(' × ')[0];
+  c.max_award_usd ? `up to ${moneyText(c.max_award_usd)}${c.investment ? ' investment' : ''}` : prizeOf(c).split(' × ')[0];
 /** "closes Oct 14", or "open all year" for a rolling program (the profile's words). Pure. */
 export const earnWhen = (c: { summary: string; ends_at?: Date | null }) => {
   const day = closeDayOf(c);
@@ -134,24 +137,24 @@ export const FITS_MAX = 3;
  * R12: score's fits without a GitHub read: the open programs (present.ts byDeadline, find's order) the one project's repo,
  * as find last matched it (installations.fit_repos), can really win (alerts.ts repoCanWin: good odds, the
  * verdict likely or one quick step, never a chain only mentioned), never an in-person program. At most FITS_MAX, each with the repo's
- * facts for its why. Never throws (none on an error).
+ * facts for its why. v3 Stage 2 final review: with `investments`, an open investment (an accelerator) the repo
+ * can win counts too and nothing is cut at FITS_MAX (the apply step's candidates; never a fit line). Never throws (none on an error).
  */
-export async function scoreFits(id: number, main: string, o: { cards: Card[]; skip: Set<string>; now: Date }): Promise<{ card: Card; repo: FitRepo }[]> {
+export async function scoreFits(id: number, main: string, o: { cards: Card[]; skip: Set<string>; now: Date; investments?: boolean }): Promise<{ card: Card; repo: FitRepo }[]> {
   try {
     const [fits, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);
     const repo = fits.find((f) => f.key.toLowerCase() === main.toLowerCase());
     if (!repo) return [];
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
-    return o.cards
+    const can = o.cards
       // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
-      .filter((c) => showable(c, o.now, o.skip) && !c.in_person)
+      .filter((c) => showable(o.investments ? { ...c, investment: false } : c, o.now, o.skip) && !c.in_person)
       .sort(byDeadline)
       .filter((c) => {
         const np = byId.get(c.id);
-        return Boolean(np && repoCanWin(np, repo));
-      })
-      .slice(0, FITS_MAX)
-      .map((card) => ({ card, repo }));
+        return Boolean(np && repoCanWin(np, repo, { apply: o.investments }));
+      });
+    return (o.investments ? can : can.slice(0, FITS_MAX)).map((card) => ({ card, repo }));
   } catch (err) {
     console.error('[score] fits', err instanceof Error ? err.name : 'error');
     return [];

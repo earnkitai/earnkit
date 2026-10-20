@@ -1242,8 +1242,8 @@ apps/frontend/
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
                                open_text = openGrantsText(openMoneyUsd(kept)) (v3 Stage 2: "$115K in grants and prizes open", null when
-                               nothing is open) and open_more = openMoneyWords; tiles sorted by byRelevance (open first, Base
-                               and any chain first, then deadline, then award), carry status / in_person, days_left "not open yet"
+                               nothing is open) and open_more = openMoneyWords; tiles sorted by byRelevance (open first, Base,
+                               then any chain, then the rest; grants before investments; then deadline, then award), carry status / in_person, days_left "not open yet"
                                for upcoming; GuidePage.upcoming; v2.9 E20 won_line = wonLine
                                (Hero shows it under the stats line); stats_line = statsLine
                                (installs ≥100, bonus paid >0); v2.8: no bonus_pools / bonus_every /
@@ -1970,3 +1970,10 @@ v3 Stage 2 summary. Programs schema (`program-file.ts`, `programs/README.md`): `
 `earned.ts`, `builder-json.ts`, `app/api/builders/[handle]/route.ts`. New tests: `v3-programs.test.ts`,
 `v3-apply.test.ts`, `v3-backing.test.ts`, `v3-earned.test.ts`. New programs: `alliance-all19`, `ethglobal-mumbai`,
 `monad-nitro`, `base-batches-005`; `a16z-speedrun` has its deadline.
+
+v3 Stage 2 final review: `present.ts` (`canApply`: qualifies without the investment rule; `byRelevance` Base > any
+chain > rest, grants before investments), `bench-find.ts` (`ViewIn.applies`, `Fit.investment`: the apply step's
+candidates include an open investment, never a fit line), `stand-view.ts` (`scoreFits({ investments })`, `earnPrize`
+"investment"), `alerts.ts` (`repoCanWin(..., { apply })`), `bench-data.ts` (`fundLines` skips in person), `pool.ts`
+(`openMoneyWords` hackathon rule: in person, pool or prize text, never summed; `OpenMoneyRow.in_person`, `reward`),
+`stats.ts` (`testProject`: backing_open, backers, earned_usd group-aware). `ethglobal-mumbai` has no `max_award_usd`.
