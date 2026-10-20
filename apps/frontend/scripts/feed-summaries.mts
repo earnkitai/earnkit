@@ -10,9 +10,10 @@ import { weekTitles } from '../lib/earnkit/week-facts';
  */
 const dry = process.argv.includes('--dry');
 const redo = process.argv.includes('--redo');
-const rows = await sql()<{ id: number; builder_id: number; key: string; week: string }[]>`
+const db = sql();
+const rows = await db<{ id: number; builder_id: number; key: string; week: string }[]>`
   SELECT id::int AS id, builder_id::int AS builder_id, project_key AS key, week::text AS week FROM project_updates
-  WHERE facts ? 'shipped_code' ${redo ? sql`` : sql`AND summary IS NULL`} ORDER BY week DESC`;
+  WHERE facts ? 'shipped_code' ${redo ? db`` : db`AND summary IS NULL`} ORDER BY week DESC`;
 let wrote = 0;
 for (const r of rows) {
   const work = await weekTitles(r.builder_id, r.key, r.week, new Date(), fetch).catch((err: unknown) => {
