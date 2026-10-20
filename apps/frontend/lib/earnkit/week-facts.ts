@@ -58,6 +58,20 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
 export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
 
 /**
+ * The progress points of one week's facts (a start is not progress). R16b: shipping facts only (went live,
+ * a win, commits, the streak); an old row's people and money count nothing. Ties go to the builder's
+ * Shipping score (feedRows). Pure.
+ */
+export function pointsOf(f: WeekFacts): number {
+  let p = 0;
+  if (f.went_live) p += 40;
+  if ((f.won?.length ?? 0) > 0) p += 40;
+  if (f.shipped_code && f.shipped_code.n > 0) p += 10;
+  if (f.streak && f.streak.w > 0) p += Math.min(10, f.streak.w);
+  return Math.round(p);
+}
+
+/**
  * The one reading the ship log reads for a repo source `s` (a LATERAL subquery): the newest good one, live or daily,
  * preferring one the current reader wrote (sources.ts REPO_READER). Launch-ready (hotfix carry-over): a reader-1
  * reading (a busy repo's newest 100 commits only) newer than a reader-2 one would otherwise write short weeks.
@@ -127,7 +141,13 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts,
       titles = CASE WHEN cardinality(EXCLUDED.titles) > 0 THEN EXCLUDED.titles ELSE project_updates.titles END,
       summary = COALESCE(EXCLUDED.summary, project_updates.summary)
-    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
+    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING id::int AS id, facts, points::int AS points`;
+  // v3: the points are written with the week (the feed shows points > 0), not left to the daily rank step.
+  const row = wrote[0] as { id: number; facts: WeekFacts; points: number } | undefined;
+  if (row) {
+    const p = hasFacts(row.facts) ? pointsOf(row.facts) : 0;
+    if (p !== row.points) await sql()`UPDATE project_updates SET points = ${p} WHERE id = ${row.id}`;
+  }
   return wrote.length > 0;
 }
 
