@@ -125,6 +125,10 @@ export function statedPool(pool_usd: string | number | null, reward: string): { 
 /** v2.9 F21: one program as the money figure reads it: a DB row (`campaign`, `source`) or a card (`earnkit_campaign`, `sponsored`). */
 export type OpenMoneyRow = {
   max_award_usd?: number | null;
+  /** v3 Stage 2: an accelerator's investment is never counted as money open (openMoneyWords names it). */
+  investment?: boolean | null;
+  /** v3 Stage 2: a pool with no per-winner amount (a hackathon) is named, not counted. */
+  pool_usd?: number | null;
   status?: string;
   campaign?: unknown;
   earnkit_campaign?: unknown;
@@ -138,11 +142,33 @@ export type OpenMoneyRow = {
  * v2.9 F21: the one money figure: the top prize of every open curated program, summed. Never an
  * EarnKit campaign (P19: `campaign` on a row, `earnkit_campaign` on a card) or a sponsor's. Open:
  * active, started, not ended. The landing page, /programs, the first reply and /api/stats all
- * call it (stats.ts re-exports it; it lives here because present.ts can't import stats.ts). Pure.
+ * call it (stats.ts re-exports it; it lives here because present.ts can't import stats.ts).
+ * v3 Stage 2 (the honest total): never an investment (an accelerator), so the figure is grants and
+ * prizes only; openMoneyWords names what it leaves out. Pure.
  */
 export function openMoneyUsd(programs: OpenMoneyRow[], now = new Date()): number {
-  return programs.filter((p) => openCurated(p, now)).reduce((sum, p) => sum + Number(p.max_award_usd ?? 0), 0);
+  return programs.filter((p) => openCurated(p, now) && !p.investment).reduce((sum, p) => sum + Number(p.max_award_usd ?? 0), 0);
 }
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/**
+ * v3 Stage 2: what the money total leaves out, in words: the open curated accelerators (investment)
+ * and hackathons (a pool with no per-winner amount). "Plus 2 accelerators and 1 hackathon.", or
+ * null when there are none. Pure.
+ */
+export function openMoneyWords(programs: OpenMoneyRow[], now = new Date()): string | null {
+  const open = programs.filter((p) => openCurated(p, now));
+  const acc = open.filter((p) => p.investment).length;
+  const hack = open.filter((p) => !p.investment && p.pool_usd && !p.max_award_usd).length;
+  const parts = [...(acc ? [plural(acc, 'accelerator', 'accelerators')] : []), ...(hack ? [plural(hack, 'hackathon', 'hackathons')] : [])];
+  return parts.length ? `Plus ${parts.join(' and ')}.` : null;
+}
+
+/**
+ * v3 Stage 2: the landing's and /api/stats' money line, "$115K in grants open" (moneyText's
+ * figure; "$0 in grants open" at 0). The caller hides it when nothing is open. Pure.
+ */
+export const openGrantsText = (usd: number): string => `${moneyText(usd) ?? '$0'} in grants open`;
 
 /**
  * v2.9 F21: the programs openMoneyUsd sums: open (active, started, not ended) and curated (never an

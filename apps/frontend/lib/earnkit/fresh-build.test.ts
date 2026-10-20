@@ -23,7 +23,7 @@ import type { Verdict } from './match';
 
 const NOW = new Date('2026-10-10T12:00:00Z');
 const ARC = 'arc-microgrants';
-const CONTEXT = '$1.1M+ in prizes is open right now across 7 programs.';
+const CONTEXT = '$170.5K in prizes is open right now across 7 programs.';
 const ARC_LEAD = 'Arc Microgrants pays 500 USDC and closes in 4 days. A USDC tip page on Arc takes about an hour. Want me to build it?';
 const ARC_PLAN =
   'Arc Microgrants pays 500 USDC and closes in 4 days. A coding agent builds the USDC tip page in about an hour. Want the plan?';
@@ -64,9 +64,9 @@ test('7.1 today\'s files at 2026-10-10T12:00Z, deploys and hosting on, Arc tagge
 test('7.2 fail closed: deploys off, hosting off for a starter with no Pages fallback, an untested starter, an unknown starter or no program carrying fresh_build gives no pick, and the reply is the v2.10 line byte for byte', () => {
   const cards = tagged();
   const v210 = presentFirstMessage(short({ cards }));
-  assert.equal(v210, '$1.1M+ is open. Want the 3 easiest?');
+  assert.equal(v210, '$170.5K is open. Want the 3 easiest?');
   const v210Repos = presentFirstMessage(short({ cards, repos: { checked: 2, fits: [] } }));
-  assert.equal(v210Repos, 'No repo fits yet. $1.1M+ is open; want the 3 easiest?');
+  assert.equal(v210Repos, 'No repo fits yet. $170.5K is open; want the 3 easiest?');
   const cases: [string, Card[], FirstMessage['fresh']][] = [
     ['deploys off', cards, { ...FRESH_ON, deployOn: () => false }],
     ['deploys off on Arc only', cards, { ...FRESH_ON, deployOn: (c) => c !== 'arc' }],

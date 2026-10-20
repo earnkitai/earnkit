@@ -112,7 +112,8 @@ export function freshPick(cards: Card[], now: Date, opts: FreshPickOpts): FreshP
  */
 export function contextLine(cards: Card[], now: Date): string | null {
   const fig = moneyText(openMoneyUsd(cards, now));
-  const n = cards.filter((c) => openCurated(c, now)).length;
+  // v3 Stage 2: the programs the figure sums (never an investment), so money and count agree.
+  const n = cards.filter((c) => openCurated(c, now) && !c.investment).length;
   if (!fig || n === 0) return null;
   return `${fig} in prizes is open right now across ${n} program${n === 1 ? '' : 's'}.`;
 }

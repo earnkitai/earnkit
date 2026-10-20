@@ -46,6 +46,10 @@ export function fileCards(): Card[] {
           pool_usd: p.pool_usd == null ? null : String(p.pool_usd),
           min_award_usd: p.min_award_usd == null ? null : String(p.min_award_usd),
           needs_repo: p.needs_repo ?? null,
+          // v3 Stage 2: programCard now carries status. The pick rules here run on the files' dates, as
+          // before (a closed file such as Arc Microgrants stays pickable at the tests' fixed dates); an
+          // upcoming file stays upcoming (never open).
+          status: p.status === 'upcoming' ? 'upcoming' : 'active',
         },
         [],
       ),

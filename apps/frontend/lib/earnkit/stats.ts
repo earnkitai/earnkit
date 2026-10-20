@@ -1,7 +1,7 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
+import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
 
 /**
  * Public stats (v2.5 §4) for jenil.ai: /api/stats, cached 10 min. Database aggregates only: no
@@ -43,14 +43,14 @@ export const WIN_RATE_MIN_LABELLED = 30;
 export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
- * curated program, summed) and `open_money_text` the text every page shows for it ("$1.1M+", null
- * at 0). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
+ * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
+ * shows for it ("$115K in grants open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
  * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
 export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
 
 /** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
-export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
+export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoneyRow } from './pool';
 
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
@@ -91,6 +91,8 @@ export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
 /** v2.9 F21: an active program as readStats reads it (json, so dates are strings). */
 type OpenRow = {
   max_award_usd: string | number | null;
+  /** v3 Stage 2: an investment is never counted (openMoneyUsd). */
+  investment?: boolean | null;
   status: string;
   campaign: unknown;
   source: string;
@@ -152,15 +154,12 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
   const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
-  const openUsd = Math.round(
-    openMoneyUsd(
-      (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) })),
-      now,
-    ),
-  );
+  const openRows = (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) }));
+  const openUsd = Math.round(openMoneyUsd(openRows, now));
   return {
     open_money_usd: openUsd,
-    open_money_text: moneyText(openUsd),
+    // v3 Stage 2: the landing's line ("$115K in grants open"), null when no curated program is open.
+    open_money_text: openRows.some((p) => openCurated(p, now)) ? openGrantsText(openUsd) : null,
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
@@ -206,7 +205,7 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
     )
     SELECT
       -- v2.9 F21: every active program; openMoneyUsd (statsFrom) keeps the open curated ones.
-      (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'status', status, 'campaign', campaign,
+      (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'investment', investment, 'status', status, 'campaign', campaign,
         'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active') AS open_rows,
       -- v2.7.1: the landing page's programs (listPrograms' open rule, curated only: no campaign).
       (SELECT json_agg(json_build_object('pool_usd', pool_usd, 'reward', reward)) FROM programs

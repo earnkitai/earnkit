@@ -90,6 +90,8 @@ export default function GuideView({ page }: { page: GuidePage }) {
           <p className="mt-5 font-funnel-display text-xl font-medium text-ek-text md:text-2xl">
             {page.any_chain ? `${facts} · ${ANY_CHAIN}` : facts}
           </p>
+          {/* v3 Stage 2: an upcoming program's one line (opens_note) under the header; it has no Ask button (page.open is false). */}
+          {page.upcoming && g.opens_note && <p className="mt-2 font-funnel-sans text-base text-ek-body">{g.opens_note}</p>}
           <dl className="mt-2 font-funnel-sans text-base text-ek-muted">
             <dt className="inline">Difficulty:</dt>{' '}
             <dd className="inline">

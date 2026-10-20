@@ -27,10 +27,14 @@ export type FundLine =
   /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
   | { kind: 'needs'; title: string; prize: string | null; needs: string }
   /** v3 Stage 1: the ranked builder's points so far (points.ts), last under Ways to get funded. */
-  | { kind: 'points'; total: number };
+  | { kind: 'points'; total: number }
+  /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
+  | { kind: 'upcoming'; title: string; prize: string; note: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
+/** v3 Stage 2: "Base Batches 005: up to $100K, opens soon. <note>" (a statement, never a link or a question). Pure. */
+export const upcomingLine = (title: string, prize: string, note: string) => `${title}: ${prize}, opens soon. ${note}`;
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** R12: a ranked project no open program fits (only fits are named for it). */
 export const noFitLine = (name: string) => `No open program fits ${name} yet. I'll look again next week.`;
@@ -175,7 +179,9 @@ export function benchReply(v: BenchView): string {
   const none = v.state === 'ranked' && v.project ? noFitLine(v.project.name) : NO_MONEY_LINE;
   // v3 Stage 1: the points statement is last, and never stands in for the no-fit line.
   const pts = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'points' && f.total > 0 ? [POINTS_LINE(f.total)] : [])) : [];
-  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...pts];
+  // v3 Stage 2: at most one upcoming line, after the fits (or the no-fit line) and before the points.
+  const soon = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'upcoming' ? [upcomingLine(f.title, f.prize, f.note)] : [])).slice(0, 1) : [];
+  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...soon, ...pts];
   // Fix round 1 (ruling 4): signed out, the sign-in step always wins.
   const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
   return [stand, money, up].map((x) => x.join('\n')).join('\n\n');

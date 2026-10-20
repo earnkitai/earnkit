@@ -31,7 +31,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
       <div className={`${COLUMN} flex flex-col gap-16 md:gap-24`}>
         {bench && <BenchTop rows={bench.rows} count={bench.count} />}
         {bench && bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
-        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
+        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} bench />}
         <BackedBy />
       </div>
 

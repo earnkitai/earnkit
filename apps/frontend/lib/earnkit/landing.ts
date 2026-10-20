@@ -1,10 +1,12 @@
 import { prizeOf } from './entry-text';
 import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { daysLeftText, NO_CELL, type Card } from './present';
-import { eachLine } from './pool';
+import { byRelevance, daysLeftText, NO_CELL, type Card } from './present';
+import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
-import { moneyText, openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
+import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
+
+export { byRelevance };
 import { sql } from './db';
 import { benchRows, type BenchRow } from './bench-data';
 import { raisingEnabled } from './builder-score-flag';
@@ -40,15 +42,24 @@ export type Tile = {
   pool_usd: number | null;
   /** v2.8 Ruling 21 (plan): the level word only ("Hard", never "(estimate)"; the guide keeps the full label), or NO_CELL without one (then no chip). */
   difficulty: string;
-  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`). */
+  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`); v3 Stage 2: "opens soon" for an upcoming program. */
   days_left: string;
+  /** v3 Stage 2: an upcoming program is listed, never open (its guide has no Ask button). */
+  status: 'active' | 'upcoming';
+  /** v3 Stage 2: the card adds an "In person" chip. */
+  in_person: boolean;
   /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
   logo: string | null;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
-  /** v2.9 F21: the one money figure ("$1.1M+", moneyText(openMoneyUsd) of the tiles' programs), or null at 0. */
+  /**
+   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants open" (openGrantsText(openMoneyUsd) of the
+   * tiles' programs, never an investment), or null when no program is open.
+   */
   open_text: string | null;
+  /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
+  open_more: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning", or null below the threshold. */
   stats_line: string | null;
@@ -77,12 +88,13 @@ export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, 
   (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
 
 /**
- * The landing data from open program cards, by pool (`byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
+ * The landing data from open program cards, Base first (`byRelevance`, v3 Stage 2; was `byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
  * EarnKit or sponsor campaign) and the public stats. v2.9 F21: the hero
  * figure is moneyText(openMoneyUsd) of the same cards (/programs, the first reply and /api/stats show the same). Pure.
  */
 export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landing {
-  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPool);
+  // v3 Stage 2: Base first (byRelevance), upcoming programs last.
+  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byRelevance);
   const tiles = kept.map((c): Tile => {
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
@@ -98,12 +110,15 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       prize_usd: perWinner,
       pool_usd: c.pool_usd ?? null,
       difficulty: c.difficulty ? c.difficulty.level : NO_CELL,
-      days_left: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
+      days_left: c.status === 'upcoming' ? 'opens soon' : c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
       logo: c.logo ? `/${c.logo}` : null,
+      status: c.status === 'upcoming' ? 'upcoming' : 'active',
+      in_person: c.in_person === true,
     };
   });
   return {
-    open_text: moneyText(openMoneyUsd(kept, now)),
+    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
+    open_more: openMoneyWords(kept, now),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),
@@ -139,6 +154,8 @@ export type GuidePage = {
   logo: string | null;
   /** Ruling 22 (plan): a closed or past-deadline program still renders, without "Ask your agent". */
   open: boolean;
+  /** v3 Stage 2: not open yet: the header reads "opens soon", the note shows under it, no "Ask your agent". */
+  upcoming: boolean;
   /** v2.8 Ruling 13 (plan), Task 3 carry: the program fits any chain; the page says "Any chain". */
   any_chain: boolean;
   /** The program's own page. */
@@ -169,6 +186,7 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     title: row.title,
     logo: row.logo ? `/${row.logo.path}` : null,
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
+    upcoming: row.status === 'upcoming' && (row.ends_at === null || row.ends_at > now),
     any_chain: row.any_chain === true,
     source_url: row.source_url,
     // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).

@@ -1,0 +1,39 @@
+{
+  "id": "monad-nitro",
+  "organizer": "Monad Foundation",
+  "title": "Monad Nitro",
+  "description": "Monad's accelerator, open to founders building on any chain. Each cohort runs three months (one month in person in NYC, two months remote with weekly KPI check-ins, then a demo day in front of 300+ investors), with $500K deployed per selected team on day one.",
+  "source_url": "https://monad.xyz/blog/home-for-builders",
+  "submission_url": "https://monad.xyz/blog/home-for-builders",
+  "reward": "$500K deployed per selected team on day one",
+  "summary": "$500K per team · next cohort not announced",
+  "max_award_usd": 500000,
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-10-20",
+  "status": "upcoming",
+  "opens_note": "Cohort 2 is not announced yet. Four public weekly ship logs in a row get you the interview; your EarnKit log counts.",
+  "existing_work": "unknown",
+  "needs_repo": false,
+  "chains": [],
+  "any_chain": true,
+  "investment": true,
+  "min_product_score": 5,
+  "setup": [],
+  "each_time": [],
+  "rules": [
+    "Admission requires publishing four consecutive public weekly ship logs before an interview is granted.",
+    "Nitro is open to founders building on any chain, for teams actively building and making progress on their applications.",
+    "Each cohort runs three months: one month in person in NYC, two months remote with weekly KPI check-ins, and a demo day in front of 300+ investors.",
+    "The first cohort's applications closed on March 14, 2026; the next cohort's dates are not announced."
+  ],
+  "submission_requirements": [],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "logo": {
+    "path": "programs/monad-nitro.svg",
+    "source_url": "https://www.monad.xyz/brand-and-media-kit"
+  }
+}

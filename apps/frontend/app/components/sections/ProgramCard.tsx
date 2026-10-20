@@ -4,7 +4,7 @@ import { SURFACE } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 import { NO_CELL } from '../../../lib/earnkit/no-cell';
 
-/** `ek-chip` marks the card's chips (days left, difficulty). */
+/** `ek-chip` marks the card's chips (days left or "Opens soon", "In person", difficulty). */
 const CHIP = 'ek-chip inline-flex h-7 items-center rounded-full bg-ek-chip px-3 font-funnel-sans text-xs font-medium text-ek-body';
 
 /**
@@ -31,6 +31,8 @@ export default function ProgramCard({ tile: t }: { tile: Tile }) {
       <div className="mt-auto flex flex-wrap items-center gap-2 pt-6">
         {/* Launch ready L10: chips start with a capital, as the difficulty chip does ("Rolling", "12 days left"). */}
         <span className={CHIP}>{t.days_left.charAt(0).toUpperCase() + t.days_left.slice(1)}</span>
+        {/* v3 Stage 2: an in-person program (an ETHGlobal hackathon) says so. */}
+        {t.in_person && <span className={CHIP}>In person</span>}
         {/* NO_CELL: no difficulty, no chip. no-cell.ts has no imports, so this stays client-safe. */}
         {t.difficulty !== NO_CELL && <span className={CHIP}>{t.difficulty}</span>}
       </div>

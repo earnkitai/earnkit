@@ -927,8 +927,8 @@ const GITHUB_LIMITED =
  */
 async function needsRepoLine(program: { id: string; title: string }): Promise<string> {
   const open = await listPrograms().catch(() => []);
-  // v2.12 spec 9: as find, only programs an agent can complete.
-  const alt = enterableWithoutRepo(open.filter((p) => p.agent_completable !== false), program.id);
+  // v2.12 spec 9: as find, only programs an agent can complete (v3 Stage 2: and open now, never upcoming).
+  const alt = enterableWithoutRepo(open.filter((p) => p.agent_completable !== false && p.status !== 'upcoming'), program.id);
   const head = `${program.title} needs a public repo with your project's code.`;
   return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
 }
@@ -1005,8 +1005,10 @@ export const handlers = {
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: none on a shared client).
       memoryOf(memoryKey(ctx), 'list_programs'),
     ]);
-    // v2.12 spec 9 (R21): only programs an agent can complete for the builder.
-    const programs = openPrograms.filter((p) => p.agent_completable !== false);
+    // v2.12 spec 9 (R21): only programs an agent can complete for the builder. v3 Stage 2: an upcoming
+    // program is never matched, offered or entered; it only feeds the Bench's one upcoming line.
+    const programs = openPrograms.filter((p) => p.agent_completable !== false && p.status !== 'upcoming');
+    const upcoming = openPrograms.filter((p) => p.status === 'upcoming' && !p.earnkit_campaign);
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
@@ -1228,6 +1230,7 @@ export const handlers = {
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
         start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut,
+        upcoming: upcoming.filter((c) => !hide.has(c.id)),
       });
       return {
         ...r,
@@ -2232,7 +2235,8 @@ export const WALLET_NEEDED_NOTE =
  * when they are off.
  */
 async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<Pick<FreshPick, 'starter'> | null> {
-  const programs = await listPrograms();
+  // v3 Stage 2: never an upcoming program.
+  const programs = (await listPrograms()).filter((p) => p.status !== 'upcoming');
   const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
   if (!card) return null;
   const told = await memoryOf(memoryKey(ctx), 'prepare');

@@ -34,6 +34,7 @@ const page = (facts: Facts, o: Partial<GuidePage> = {}): GuidePage => {
     title: facts.title,
     logo: null,
     open: facts.status === 'active',
+    upcoming: false,
     any_chain: false,
     source_url: facts.source_url,
     sources: guideSourceList(facts, [{ label: 'program page', url: facts.source_url }]),

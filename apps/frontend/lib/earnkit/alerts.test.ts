@@ -769,12 +769,13 @@ test('alertFacts: announced wins only; a self-reported win never alerts; new pro
 
 test('Ruling C23: a new investment program alert reads "up to $1M investment", never a bare prize', () => {
   const f = ProgramFile.parse(JSON.parse(readFileSync(join(__dirname, '../../../../programs/a16z-speedrun.json'), 'utf8')));
-  const p = newProgramOf({ ...f, investment: f.investment, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]);
+  // v3 Stage 2: the file now has a deadline (a date on a row, never the file's string).
+  const p = newProgramOf({ ...f, ends_at: null, investment: f.investment, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]);
   assert.equal(p.prize, 'up to $1M investment');
   // v2.9 A7: an investment is a company application, weeks away (matchRepo), so it is never alerted.
   assert.equal(p.investment, true);
   assert.equal(alertable(p, [tipjar()], NO_SKIP, NOW_ALERT), false);
-  assert.equal(newProgramOf({ ...f, investment: false, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]).prize, 'up to $1M');
+  assert.equal(newProgramOf({ ...f, ends_at: null, investment: false, opened_at: t(5) } as unknown as Parameters<typeof newProgramOf>[0]).prize, 'up to $1M');
 });
 
 // ---- v2.10 item 6, Pre-flight P13: low odds are never alerted ----

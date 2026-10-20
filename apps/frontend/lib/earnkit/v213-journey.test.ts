@@ -345,7 +345,8 @@ before(async () => {
   // Arc Microgrants (the starter build's program), which closes in 3 days (the build lead's window).
   for (const f of readdirSync(PROGRAMS_DIR).filter((f) => f.endsWith('.json'))) {
     const raw = JSON.parse(readFileSync(join(PROGRAMS_DIR, f), 'utf8'));
-    if (!raw.campaign) Object.assign(raw, { status: 'active', ends_at: raw.ends_at ? FAR : raw.ends_at });
+    // v3 Stage 2: an upcoming file stays upcoming (it has no form yet).
+    if (!raw.campaign && raw.status !== 'upcoming') Object.assign(raw, { status: 'active', ends_at: raw.ends_at ? FAR : raw.ends_at });
     if (raw.id === ARC) raw.ends_at = new Date(Date.now() + 3 * DAY + HOUR).toISOString();
     await upsertProgram(ProgramFile.parse(raw));
   }

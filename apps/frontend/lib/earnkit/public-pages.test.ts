@@ -188,7 +188,7 @@ test('/programs: every open program as cards under an h1, or the unavailable lin
   assert.doesNotMatch(h, /See all/);
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} open right now CW Crypto World`) && !fig.includes('By pool'), fig);
+  assert.ok(fig.includes(` Open programs ${homeFixture.open_text} CW Crypto World`) && !fig.includes('By pool'), fig);
   const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
   assert.match(page, /figure=\{landing\.open_text\}/);
   assert.match(page, /layout="grid"/);
@@ -216,7 +216,7 @@ test('3.1 v2.8, R18: the section is the h2, the figure, then a list of whole-car
   const sec = programsSection(h);
   const t = text(sec);
   assert.match(sec, /<h2[^>]*>Open programs<\/h2>/);
-  const order = ['>Open programs</h2>', `${homeFixture.open_text} open right now`, '<ul'].map((s) => sec.indexOf(s));
+  const order = ['>Open programs</h2>', `${homeFixture.open_text}</p>`, '<ul'].map((s) => sec.indexOf(s));
   assert.ok(order.every((n) => n >= 0), String(order));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   assert.ok(!t.includes('Ask your agent') && !h.includes('Ask your agent'), 'R18: no repeated button');

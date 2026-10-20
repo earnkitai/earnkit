@@ -40,9 +40,11 @@ program is never closed under it either.
      pool"); leave it out when none is published. `reward` must state the same amount followed by
      a pool word (`$840,000 in prizes`, `$250,000+ prize pool`, `10,000 USDC pool`, `$200K
      available`; `programs:check` refuses it otherwise), and a `+`
-     right after it there ("$250,000+") shows on the page. The landing page's "$X open right now"
-     is the sum of the open programs' pools, with "+" when any lacks one. The landing and
-     /programs sort cards with a pool first, by pool, then the rest by `max_award_usd`.
+     right after it there ("$250,000+") shows on the page. The landing page's money line, "$X in
+     grants open", sums the open programs' `max_award_usd`, never an investment; a second line names
+     the open accelerators (`investment`) and hackathons (a pool and no `max_award_usd`) it leaves out.
+     The landing and /programs list open programs first, then upcoming ones; Base and any-chain
+     programs first, then the sooner deadline, then the bigger `max_award_usd`.
    - `min_award_usd` (optional): the smallest award, only when the source states a range ("from
      $5,000 to $100,000"); needs a larger `max_award_usd` and must be stated in `reward`. The card
      then reads "$5K–$100K per grant" (grant programs say "per grant", others "per winner").
@@ -55,6 +57,16 @@ program is never closed under it either.
    - `starts_at`: for new-work-only programs, the start of the build window (matching
      checks commit dates against it). Otherwise `null` unless stated.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
+   - `status`: `active` (open now), `closed`, or `upcoming`: a program a builder should know about
+     that isn't open yet (a next cohort or batch not announced). An upcoming program is listed on the
+     landing and /programs with an "Opens soon" chip and its guide page shows its note, but it is
+     never a fit, never offered, never entered and never counted in the money total. It needs
+     `opens_note`; it may have `submission_requirements: []` (no form yet) and `submission_url` equal
+     to `source_url`. When it opens, set `active` and mirror the real form as usual.
+   - `opens_note` (only with `upcoming`): one line, at most 140 characters, no links, on when and how
+     it opens, from the source (e.g. `"Batch 005 is not announced yet."`). Never invent an opening date.
+   - `in_person` (optional): `true` when the program must be attended in person (an ETHGlobal
+     hackathon); the card adds an "In person" chip.
    - `builder_bonus` (optional): leave it out for the default (`true`, on). Set `false` only when
      EarnKit should never book entries of this program's coins to a builder bonus round.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and

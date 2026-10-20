@@ -23,7 +23,7 @@ export default async function ProgramsPage() {
     <>
       <div className={`${COLUMN} pt-8 md:pt-12`}>
         {landing.tiles.length > 0 ? (
-          <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} layout="grid" />
+          <ProgramCards tiles={landing.tiles} heading="h1" figure={landing.open_text} more={landing.open_more} layout="grid" />
         ) : (
           <section aria-label="Open programs">
             <h1 className={H1}>Open programs</h1>

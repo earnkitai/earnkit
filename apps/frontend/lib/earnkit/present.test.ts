@@ -693,7 +693,10 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   assert.doesNotMatch(ethOnly, /(start on|new for) a16z/);
   // v2.10 item 10: Avalanche is Medium now, so the easiest program to build for is Arc.
   assert.match(ethOnly, /Want me to build something new for Arc Microgrants/);
-  assert.match(ethOnly, /\| Avalanche Team1 Mini Grants \| up to \$10,000 \| Medium \(estimate\) \|/);
+  // v3 Stage 2: Alliance joins "Also open" (Avalanche moves into "more open"); upcoming programs never show.
+  assert.match(ethOnly, /\| Alliance ALL19 \| \$400K at admission investment \|/);
+  assert.match(ethOnly, /3 more open: ask me for the full list\./);
+  assert.doesNotMatch(ethOnly, /Monad Nitro|Base Batches 005/);
   for (const t of [noRepo, oneRepo, ethOnly]) {
     noEmoji(t);
     assert.doesNotMatch(t, /—|Clanker|\bcoin\b/);

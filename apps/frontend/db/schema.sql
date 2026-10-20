@@ -1691,3 +1691,9 @@ CREATE TABLE IF NOT EXISTS builder_points (
   created_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (builder_id, week)
 );
+
+-- v3 Stage 2: upcoming programs (listed, never a fit, never counted in the money total).
+ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
+ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming'));
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS opens_note text;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS in_person boolean NOT NULL DEFAULT false;

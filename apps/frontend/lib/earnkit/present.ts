@@ -24,6 +24,12 @@ export { endsOf } from './entry-text';
  */
 export type Card = {
   id: string;
+  /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Opens soon), never open. Absent: active. */
+  status?: 'active' | 'closed' | 'upcoming';
+  /** v3 Stage 2: when and how an upcoming program opens, or null. */
+  opens_note?: string | null;
+  /** v3 Stage 2: attended in person (the card's "In person" chip). */
+  in_person?: boolean;
   title: string;
   summary: string;
   tag: string | null;
@@ -362,6 +368,21 @@ export const byPrize = (a: Pick<Card, 'max_award_usd' | 'ends_at'>, b: Pick<Card
 export const byDeadline = (a: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>) => {
   const at = (c: Pick<Card, 'ends_at'>) => (c.ends_at ? new Date(c.ends_at).getTime() : 8.64e15);
   return at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
+};
+
+/**
+ * v3 Stage 2 (Base first): the program list's order (landing and /programs tiles, and the one upcoming
+ * line): open before upcoming; then Base programs and programs open to any chain; then the sooner
+ * deadline (rolling last); then the bigger known per-winner award; then the id (stable). Pure.
+ */
+export const byRelevance = (
+  a: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd'>,
+  b: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd'>,
+) => {
+  const later = (c: typeof a) => Number(c.status === 'upcoming');
+  const base = (c: typeof a) => Number(c.any_chain === true || (c.chains ?? []).includes('base'));
+  const at = (c: typeof a) => (c.ends_at ? new Date(c.ends_at).getTime() : 8.64e15);
+  return later(a) - later(b) || base(b) - base(a) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
 };
 
 /**
@@ -724,8 +745,12 @@ export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): strin
 export function freshLead(given: FirstMessage): (FreshPick & { canBuild: boolean }) | undefined {
   const on = given.fresh;
   if (!on || given.more || given.holdQuestion) return undefined;
+  // v3 Stage 2: an upcoming program is never in an open table or the offer (tools.ts leaves it out too).
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
-  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const m: FirstMessage =
+    hidden.size || given.cards.some((c) => c.status === 'upcoming')
+      ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id) && c.status !== 'upcoming') }
+      : given;
   // Review M1: a repo read error or a repo EarnKit can't see may still fit; never lead past it.
   if (m.repos && ('error' in m.repos || m.repos.unseen?.length)) return undefined;
   const entered = enteredIds(m);
@@ -752,8 +777,12 @@ export function presentFirstMessage(given: FirstMessage): string {
   const done = () => withWonLine(sections, bodyStart, given.wonUsd).join('\n\n');
   // v2.9 A3: a program the builder is not interested in, or applied to outside EarnKit, leaves
   // every table and the offer.
+  // v3 Stage 2: an upcoming program is never in an open table or the offer (tools.ts leaves it out too).
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
-  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const m: FirstMessage =
+    hidden.size || given.cards.some((c) => c.status === 'upcoming')
+      ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id) && c.status !== 'upcoming') }
+      : given;
   // Only open EarnKit campaigns get a table (Campaign #1 is closed: none).
   const campaigns = m.campaigns.filter((r) => r.open).sort(byCampaignPrize);
   if (campaigns.length === 0 && m.cards.length === 0) {

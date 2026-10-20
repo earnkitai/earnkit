@@ -6625,3 +6625,28 @@ say yes, earn points, get the Monday email.
   `EMAIL_REASK_DAYS` (30). Needs `RESEND_API_KEY` and `EARNKIT_AUTH_SECRET`; unset, the feature is off.
 - Tests: `v3-hosted-client`, `v3-week-points`, `v3-unconfirmed`, `v3-points`, `v3-connect`, `v3-monday-email`
   (`.test.ts`); `digest.test.ts` and `oauth.test.ts` updated.
+
+## v3 Stage 2 (Task 1): programs for Q4 2026, `upcoming`, the honest total, Base first
+
+- **The `upcoming` status (`program-file.ts`, `db/schema.sql`, `programs.ts`).** A program file may be
+  `status: 'upcoming'` with `opens_note` (one line, at most 140 characters, no links); it may have no
+  `submission_requirements` and its `submission_url` may be its `source_url`. `in_person` (default false) marks an
+  in-person program. The schema widens `programs_status_check` and adds `opens_note` and `in_person`.
+  `listPrograms` returns active and upcoming programs (`status IN ('active', 'upcoming')`); `programCard` carries
+  `status`, `opens_note` and `in_person`. Everything that matches, offers, enters or counts keeps `'active'`:
+  `openProgramFacts`, `pool.ts openCurated` (it reads the card's status), `isOpen`, `readStats`, and `tools.ts`
+  (find's `programs`, `needsRepoLine`, `buildPick`) and `present.ts presentFirstMessage` drop upcoming cards.
+- **Base first (`present.ts byRelevance`, re-exported by `landing.ts`).** The tiles' order: open before upcoming, then
+  Base and any-chain programs, then the sooner deadline (rolling last), then the bigger `max_award_usd`. An upcoming
+  tile's `days_left` is `'opens soon'`; `ProgramCard` shows "Opens soon" and, when `in_person`, an "In person" chip.
+- **The honest total (`pool.ts`).** `openMoneyUsd` never counts an investment. `openMoneyWords` names what it leaves
+  out ("Plus 2 accelerators and 1 hackathon.": investments, and pools with no per-winner amount). `openGrantsText`
+  renders "$115K in grants open". `Landing.open_text` is that line (null when nothing is open) and `open_more` the
+  words; `ProgramCards` shows both (`figure`, `more`). `/api/stats` `open_money_usd` excludes investments and
+  `open_money_text` is the same line. The first reply's headline keeps `moneyText` ("$X in prizes open right now.").
+- **Guide and reply.** `GuidePage.upcoming`; `programGuide` ends the header with "opens soon" and sets
+  `Guide.opens_note`, shown under the header (and in `guideText`); no "Ask your agent". In the Bench reply a ranked
+  builder on a 4-week streak (`UPCOMING_STREAK`) gets one `FundLine` `upcoming` ("<title>: <prize>, opens soon.
+  <note>"), the first upcoming program by `byRelevance`, after the fits (or the no-fit line) and before the points.
+- **Programs added (2026-10-20).** `alliance-all19`, `ethglobal-mumbai` (in person, pool only), `monad-nitro` and
+  `base-batches-005` (both upcoming). Test: `v3-programs.test.ts`.

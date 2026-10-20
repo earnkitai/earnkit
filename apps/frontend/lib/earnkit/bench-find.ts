@@ -24,7 +24,7 @@ import {
   biggestPick, earnPrize, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byDeadline, byPrize, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byPrize, byRelevance, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { creditsMainnet, type Detection } from './match';
@@ -291,6 +291,9 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
   }
 }
 
+/** v3 Stage 2: the streak (weeks shipped in a row) from which a ranked reply names one upcoming program. */
+export const UPCOMING_STREAK = 4;
+
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
 type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string };
 type ViewIn = {
@@ -304,6 +307,8 @@ type ViewIn = {
   /** Programs the one project qualifies for (at most 3 are shown). */
   fits: Fit[];
   cards: Card[]; skip: Set<string>;
+  /** v3 Stage 2: the listed upcoming programs (never open), for the one upcoming line. */
+  upcoming?: Card[];
   /** A17: the question this reply asks instead of the state's (an outcome question, a submission step). */
   held: string | null;
   due: string[];
@@ -378,6 +383,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const room = !project || !project.confirmed ? NEEDS_MAX - fund.length : 0;
   const has = taken ? {} : { live: project?.live ?? false, repo: Boolean(project && /^[^/:]+\/[^/]+$/.test(project.key)) };
   fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, taken ? [] : (row?.chains ?? []), has)];
+
+  // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
+  // the program list's order (byRelevance), after the fits and before the points.
+  if (ranked && streak >= UPCOMING_STREAK) {
+    const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
+    if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
+  }
 
   // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
   if (ranked) {
@@ -499,6 +511,8 @@ export type BenchFindArgs = {
   project: IdentityProject | null;
   /** Fix round 1: tools.ts's signedOutNow (it skipped the results question while signed out). */
   signedOut?: boolean;
+  /** v3 Stage 2: the listed upcoming programs (listPrograms, status 'upcoming'). */
+  upcoming?: Card[];
 };
 
 /**
@@ -539,7 +553,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut, name, fits, cards: a.cards, skip, held, due, live,
+    id, now, read, own, signedOut, name, fits, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((fits[0] && !submit && !taken) || submit);
@@ -588,8 +602,11 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const read = await benchRead(id, own);
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
-  const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
+  const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
     .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
+  // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.
+  const upcoming = all.filter((p) => p.status === 'upcoming');
+  const cards = all.filter((p) => p.status !== 'upcoming');
   const hidden = memory ? hiddenIds(hiddenPrograms(memory, cards.map((c) => ({ id: c.id, starts_at: c.starts_at, ends_at: c.ends_at ?? null, opened_at: c.opened_at })))) : new Set<string>();
   const entered = new Set(entries.map((e) => e.program_id));
   const shown = cards.filter((c) => !hidden.has(c.id));
@@ -600,7 +617,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
       }))
     : [];
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
     due: [], live,
   });
   await noteEvent('score_viewed', () => ({

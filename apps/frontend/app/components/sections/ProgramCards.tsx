@@ -6,22 +6,25 @@ import { H1, H2, LEDE } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
 /**
- * v2.8 Rulings 20, 21 (plan), R18: the title, the money figure ("$1.1M+ open right now", v2.9 F21),
+ * v2.8 Rulings 20, 21 (plan), R18: the title, the money line ("$115K in grants open", v3 Stage 2) and what it leaves out,
  * then every open curated program as a slim card (ProgramCard; each opens its guide, where the agent
- * is one tap away), sorted by pool (landing.ts byPool). Home: one carousel row (CarouselRow).
+ * is one tap away), Base first (landing.ts byRelevance). Home: one carousel row (CarouselRow).
  * /programs: the same cards in a grid (`layout="grid"`, heading h1).
  * v2.13 (`bench`, the landing): the title is "Money open now" (O5 P10).
  */
 export default function ProgramCards({
   tiles,
   figure = null,
+  more = null,
   heading = 'h2',
   layout = 'carousel',
   bench = false,
 }: {
   tiles: Tile[];
-  /** The one money figure ("$1.1M+", landing.open_text), shown under the title; null hides the line. */
+  /** The money line ("$115K in grants open", landing.open_text), shown under the title; null hides the line. */
   figure?: string | null;
+  /** v3 Stage 2: what the total leaves out ("Plus 2 accelerators and 1 hackathon.", landing.open_more), a second muted line. */
+  more?: string | null;
   /** v2.7 /programs: the cards are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
   layout?: 'carousel' | 'grid';
@@ -35,7 +38,8 @@ export default function ProgramCards({
   const head = (
     <div>
       <Heading className={heading === 'h1' ? H1 : H2}>{title}</Heading>
-      {figure && <p className={heading === 'h1' ? LEDE : 'mt-2 font-funnel-sans text-base text-ek-muted md:text-lg'}>{figure} open right now</p>}
+      {figure && <p className={heading === 'h1' ? LEDE : 'mt-2 font-funnel-sans text-base text-ek-muted md:text-lg'}>{figure}</p>}
+      {figure && more && <p className="mt-1 font-funnel-sans text-sm text-ek-muted">{more}</p>}
     </div>
   );
 

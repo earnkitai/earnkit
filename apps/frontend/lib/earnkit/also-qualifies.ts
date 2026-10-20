@@ -25,7 +25,7 @@ export type AlsoProgram = {
   /** Review fix round 1, item 3: matchRepo's "needs a live product" gate (match.ts tag). */
   tag: string | null;
   ends_at: Date | null;
-  status: 'active' | 'closed';
+  status: 'active' | 'closed' | 'upcoming';
   campaign: boolean;
   source: 'file' | 'sponsor';
   /**

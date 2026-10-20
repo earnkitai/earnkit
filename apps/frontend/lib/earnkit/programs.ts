@@ -125,7 +125,12 @@ export type ProgramRow = {
   reward: string;
   starts_at: Date | null;
   ends_at: Date | null;
-  status: 'active' | 'closed';
+  /** v3 Stage 2: `upcoming` is listed (Opens soon), never a fit, an entry or in the money total. */
+  status: 'active' | 'closed' | 'upcoming';
+  /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
+  opens_note?: string | null;
+  /** v3 Stage 2: attended in person (the card's "In person" chip). Optional for older fixtures. */
+  in_person?: boolean;
   verified_at: Date | null;
   existing_work: 'allowed' | 'new_work_only' | 'unknown';
   token_policy: TokenPolicy;
@@ -194,7 +199,11 @@ export type ProgramRow = {
   pitch?: { who: string; for: string } | null;
 };
 
-/** Open programs: marked active and the deadline hasn't passed. */
+/**
+ * Open programs: marked active and the deadline hasn't passed. v3 Stage 2: upcoming programs too
+ * (card `status: 'upcoming'`), for the program list and the one upcoming line; every caller that
+ * offers, matches or counts keeps `status === 'active'` (pool.ts openCurated, isOpen).
+ */
 export async function listPrograms() {
   const db = sql();
   const programs = await db<
@@ -238,6 +247,9 @@ export async function listPrograms() {
       | 'starts_at'
       | 'match_precision'
       | 'submission_url'
+      | 'status'
+      | 'opens_note'
+      | 'in_person'
       | 'fresh_build'
       | 'agent_completable'
       | 'pitch'
@@ -252,9 +264,9 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      p.match_precision, p.submission_url, p.fresh_build, p.agent_completable, p.pitch, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
-    WHERE p.status = 'active' AND (p.ends_at IS NULL OR p.ends_at > now())
+    WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
     ORDER BY p.ends_at NULLS LAST, p.id`; // Task 11: a tie-breaker, so equal deadlines list in one order (the 9.3 find test compared two reads)
   const tracks = await db<{ id: string; program_id: string; name: string }[]>`
@@ -342,7 +354,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null },
+  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -413,6 +425,10 @@ export function programCard(
     agent_completable: p.agent_completable !== false,
     // v2.13 (plan B12): the no-project reply's pitch; never on a campaign.
     pitch: p.campaign ? null : (p.pitch ?? null),
+    // v3 Stage 2: an upcoming program is listed but never open (pool.ts openCurated reads status).
+    status: p.status ?? 'active',
+    opens_note: p.opens_note ?? null,
+    in_person: p.in_person === true,
   };
 }
 
@@ -728,6 +744,9 @@ export async function upsertProgram(
       starts_at: p.starts_at,
       ends_at: p.ends_at,
       status: p.status,
+      // v3 Stage 2: the file is the source of truth (a removed note clears the column).
+      opens_note: p.opens_note ?? null,
+      in_person: p.in_person ?? false,
       verified_at: p.verified_at,
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),
@@ -756,6 +775,7 @@ export async function upsertProgram(
       opened_at: p.status === 'active' ? new Date() : null,
     };
     // opened_at: set when the program becomes active, kept while it stays active (v2.4 §4).
+    // v3 Stage 2: an upcoming program has none; it is set the day its file turns active.
     const cols = (Object.keys(row) as (keyof typeof row)[]).filter(
       (k) => k !== 'id' && k !== 'opened_at',
     );

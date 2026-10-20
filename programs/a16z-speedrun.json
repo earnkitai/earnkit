@@ -2,17 +2,17 @@
   "id": "a16z-speedrun",
   "organizer": "a16z (Andreessen Horowitz)",
   "title": "a16z speedrun SR008",
-  "description": "a16z's 12-week startup program, in person in San Francisco. It invests up to $1M in each accepted company, plus $10M+ in partner credits. SR008 runs from late January through April 2027; the priority application window is October 12 through November 1, and applications are accepted year-round.",
+  "description": "a16z's 12-week startup program, in person in San Francisco. It invests up to $1M in each accepted company, plus $10M+ in partner credits. SR008 runs from February 1 to April 18, 2027; applications are open October 12 through November 1, 2026 at 11:59 PM PT.",
   "source_url": "https://speedrun.a16z.com/faq",
   "submission_url": "https://speedrun.a16z.com/apply",
   "reward": "Up to $1M in funding and $10M+ in credits",
-  "summary": "up to $1M · priority window Oct 12 to Nov 1",
+  "summary": "up to $1M · closes Nov 1, 11:59 PM PT",
   "max_award_usd": 1000000,
   "tag": "long shot",
   "submission_proof": null,
   "starts_at": null,
-  "ends_at": null,
-  "verified_at": "2026-10-07",
+  "ends_at": "2026-11-02T07:59:59Z",
+  "verified_at": "2026-10-20",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
@@ -25,13 +25,12 @@
   ],
   "each_time": [],
   "rules": [
-    "Priority application window: October 12 through November 1. Applications submitted then are reviewed fastest; applications are accepted year-round.",
-    "SR008 runs from late January through April 2027 in San Francisco. In-person attendance is required.",
+    "SR008 applications are open October 12 through November 1, 2026 at 11:59 PM PT. Applications are reviewed on a rolling basis; miss the window and you are considered for the next residency.",
+    "SR008 runs from February 1 to April 18, 2027 in San Francisco, with Demo Day on April 13. In-person attendance is required.",
     "The program runs for 12 intensive weeks and requires a full-time commitment.",
     "For early-stage founders; companies that have already raised capital can apply.",
     "For teams that can build and iterate on their product internally, usually with a technical co-founder.",
-    "Deal: $500K for 10% upfront in a SAFE, and another $500K in your next round within 18 months.",
-    "Applications are reviewed on a rolling basis, usually within 4 to 6 weeks."
+    "Deal: up to $1M. $500K for 10% upfront on a SAFE, and up to another $500K in your next qualifying round ($2M+) within 18 months."
   ],
   "submission_requirements": [
     {
@@ -49,7 +48,7 @@
   "starters": [],
   "difficulty_override": {
     "level": "Hard",
-    "basis": "speedrun says its acceptance rate is lower than 0.4%",
+    "basis": "speedrun says fewer than 0.4% of applicants are accepted",
     "source_url": "https://speedrun.a16z.com/faq"
   },
   "logo": {

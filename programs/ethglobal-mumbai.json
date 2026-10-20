@@ -1,0 +1,137 @@
+{
+  "id": "ethglobal-mumbai",
+  "organizer": "ETHGlobal",
+  "title": "ETHGlobal Mumbai",
+  "description": "ETHGlobal's in-person hackathon in Mumbai, November 5 to 7, 2026. Hackers apply to attend, stake a small amount of ETH to confirm (returned after submitting), build in teams of up to 5, and submit through the Hacker Dashboard. 12 partner prizes are listed so far.",
+  "source_url": "https://ethglobal.com/events/mumbai",
+  "submission_url": "https://ethglobal.com/events/mumbai/home",
+  "pool_source_url": "https://ethglobal.com/events/mumbai/prizes",
+  "reward": "$141,000 in prizes across the 12 partner prizes listed on Oct 20, 2026 (World's prize details are still to come)",
+  "summary": "$141K in prizes · in person · submit by Nov 7, 9:00 AM IST",
+  "pool_usd": 141000,
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": "2026-11-07T03:30:00Z",
+  "verified_at": "2026-10-20",
+  "status": "active",
+  "in_person": true,
+  "existing_work": "allowed",
+  "needs_repo": true,
+  "chains": [],
+  "any_chain": true,
+  "min_product_score": 5,
+  "setup": [
+    "apply to attend by Nov 3 and get accepted",
+    "stake a small amount of ETH",
+    "be in Mumbai Nov 5 to 7"
+  ],
+  "each_time": [],
+  "rules": [
+    "In person in Mumbai, November 5 to 7, 2026. Hacker applications close November 3 at 11:59 PM IST; each team member must be accepted and stake individually. Teams of up to 5.",
+    "Submissions are due Saturday, November 7, 2026 at 9:00 AM IST, through the Hacker Dashboard. Late submissions are not accepted.",
+    "Classic track: all project work must begin after the hackathon starts. Projects built before the event may still take part but don't qualify for partner prizes or the Finalist category.",
+    "Continuity tracks (Extend Open Source, Ship a Feature): you may build on an existing codebase; document the pre-existing work and add new features built during the hackathon. Partner prize eligibility may vary by partner.",
+    "Use version control: large single commits or missing histories may be disqualified.",
+    "AI tools are allowed: document where and how they were used; projects built entirely by AI may not be eligible for partner prizes or finalist consideration.",
+    "Select up to 3 partner prizes on the last step of the submission form.",
+    "The stake is returned within about 4 weeks after the event to hackers who submitted a project."
+  ],
+  "judging": {
+    "criteria": [
+      {
+        "text": "Technicality"
+      },
+      {
+        "text": "Originality"
+      },
+      {
+        "text": "Practicality"
+      },
+      {
+        "text": "Usability (UI/UX/DX)"
+      },
+      {
+        "text": "WOW Factor"
+      }
+    ],
+    "source_url": "https://ethglobal.com/events/mumbai/info/details"
+  },
+  "submission_requirements": [
+    {
+      "key": "project_name",
+      "label": "Project title",
+      "kind": "name",
+      "todo": "a project name",
+      "type": "text",
+      "required": true,
+      "project_field": "name",
+      "from": "project"
+    },
+    {
+      "key": "short_description",
+      "label": "Short description",
+      "kind": "one_liner",
+      "todo": "a one-line description",
+      "type": "text",
+      "required": true,
+      "from": "project"
+    },
+    {
+      "key": "description",
+      "label": "Description",
+      "kind": "solution",
+      "todo": "a full description",
+      "type": "text",
+      "required": true,
+      "project_field": "description",
+      "from": "project"
+    },
+    {
+      "key": "how_its_made",
+      "label": "How it's made",
+      "kind": "how_it_works",
+      "todo": "how it's made",
+      "type": "text",
+      "required": true,
+      "description": "Document where and how AI tools were used, and keep any spec files and prompts in the repo.",
+      "from": "project"
+    },
+    {
+      "key": "repo_url",
+      "label": "GitHub repository",
+      "kind": "links",
+      "todo": "a GitHub repo link",
+      "type": "url",
+      "required": true,
+      "project_field": "repo_url",
+      "description": "A repo (or Figma files or equivalent) proving the work was done during the hackathon, with a commit history; say what is new and what is reused.",
+      "from": "project"
+    },
+    {
+      "key": "demo_video",
+      "label": "Demo video",
+      "kind": "demo_video",
+      "type": "url",
+      "required": false,
+      "project_field": "demo_url",
+      "description": "Optional but strongly encouraged: 2 to 4 minutes, at least 720p, no sped-up footage, no AI voiceover.",
+      "from": "project"
+    },
+    {
+      "key": "partner_prizes",
+      "label": "Partner prizes",
+      "kind": "other",
+      "type": "text",
+      "required": false,
+      "description": "On the last step, select up to 3 partner prizes, and explain for each how you used the partner's tools.",
+      "from": "builder"
+    }
+  ],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "logo": {
+    "path": "programs/ethglobal-mumbai.png",
+    "source_url": "https://cdn.ethglobal.com/events/mumbai/square-logo/default.png"
+  }
+}
