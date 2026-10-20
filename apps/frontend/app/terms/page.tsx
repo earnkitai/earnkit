@@ -6,8 +6,11 @@ import ProfilesSection from './sections/ProfilesSection';
 import RiskSection from './sections/RiskSection';
 import SponsorTermsSection from './sections/SponsorTermsSection';
 
-/** v3 Stage 2: the Backing section reads EARNKIT_RAISING at run time (a flip shows at once, as the leaderboard). */
-export const dynamic = 'force-dynamic';
+/**
+ * v3 Stage 2: the Backing section reads EARNKIT_RAISING. The page is static and regenerated at run time every 10 minutes
+ * (ISR reads the running server's env), so a flip shows within 10 minutes without a render per request.
+ */
+export const revalidate = 600;
 
 /** v2.13 R16: no builder bonus. */
 const DESCRIPTION = 'How EarnKit works, where token fees go, what it records, builder profiles, the risks, and the sponsor terms.';

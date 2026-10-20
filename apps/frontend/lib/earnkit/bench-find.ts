@@ -11,7 +11,7 @@ import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
 import { pillOf, raisingCoin, showRaisingLine } from './raising';
 import { raisingEnabled } from './builder-score-flag';
@@ -254,6 +254,8 @@ export const TOKEN_NOT_YET = 'A token comes after your project is counted on the
 /** R8: tell token: 'ask' when no coin can be offered for the project now (launches off, declined, a private repo). */
 export const tokenUnavailable = (name: string) => `A token isn't available for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
+/** v3 Stage 2 review: tell token: 'ask' under EARNKIT_RAISING before the first approved week with code (the terms: offered after it). */
+export const BACKING_NOT_YET = 'Backing opens after your first confirmed week.';
 /** The agent's note with the line to show backing for an old coin: the yes is tell coin { raising: true }. */
 export const RAISE_NOTE = "A yes to the last line: call tell with coin: { raising: true }. Don't show this note.";
 
@@ -280,8 +282,13 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
     return { show_to_builder: coin.status === 'launched' ? COIN_LIVE : COIN_LAUNCHING };
   }
   if (row.has_coin) return { show_to_builder: tokenHasCoin(name) };
+  if (backingExcluded(row.key)) return { show_to_builder: tokenUnavailable(name) };
   const again = (await coinOpen(id, row.key).catch(() => false)) ? await openCoinLine(id, row.key, deps).catch(logged('token again')) : null;
-  const offer = again ?? (await offerCoin(id, row.key, 'countable', deps).catch(logged('token offer')));
+  // v3 Stage 2 review: under EARNKIT_RAISING the offer is backing's own, once a project, only after the first approved week with code.
+  if (!again && raisingEnabled() && !(await approvedCodeWeek(id, row.key).catch(() => false))) return { show_to_builder: BACKING_NOT_YET };
+  const offer = again ?? (raisingEnabled()
+    ? await backingOffer(id, row.key, deps).catch(logged('token backing'))
+    : await offerCoin(id, row.key, 'countable', deps).catch(logged('token offer')));
   if (!offer) return { show_to_builder: tokenUnavailable(name) };
   return { show_to_builder: offer.line, coin: { project_key: row.key }, agent_note: COIN_NOTE };
 }
@@ -332,7 +339,33 @@ type ViewIn = {
   live?: LiveSite | null;
   /** The tokens.fun ticker check the backing offer's proposal uses (ToolContext.tokenDeps.check). */
   check?: TickerCheck;
+  /** When the reply's wait ends (start + REPLY_WAIT_MS); the backing offer waits until then, at least BACKING_WAIT_MIN_MS. */
+  deadline?: number;
 };
+
+/** v3 Stage 2 review: the backing offer (its tokens.fun ticker check) never holds a reply long; it gets at least this. */
+export const BACKING_WAIT_MIN_MS = 1_000;
+/**
+ * The backing offer within the reply's wait. Past it, the reply goes on without the offer and the offer is told it is
+ * late (set in the timer itself, before the race settles), so its moment is never claimed unshown. Never throws.
+ */
+async function boundedBacking(id: number, key: string, check: TickerCheck | undefined, deadline: number | undefined) {
+  let late = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = Math.max(BACKING_WAIT_MIN_MS, (deadline ?? 0) - Date.now());
+  const gaveUp = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      late = true;
+      resolve(null);
+    }, wait);
+  });
+  const offer = backingOffer(id, key, { check, late: () => late }).catch(logged('backing offer'));
+  try {
+    return await Promise.race([offer, gaveUp]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * The one view find and score share (F19), in one of the four states (R16a): the project, the rank, the ways
@@ -377,7 +410,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now) : null;
   // v3 Stage 2 (spec 5.3): a fit closing within APPLY_WINDOW_DAYS, once a program, before (and in place of) the weekly moment.
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
-  const backing = ranked && project && handle && !held && !connect ? await backingOffer(id, project.key, { check: o.check }).catch(logged('backing offer')) : null;
+  const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.fits.slice(0, 3), o.skip, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
@@ -617,6 +650,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut, name, fits, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
+    deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS,
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((fits[0] && !submit && !taken) || submit);
@@ -681,7 +715,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     : [];
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
-    due: [], live, check: ctx.tokenDeps?.check,
+    due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS,
   });
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',

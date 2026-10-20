@@ -1943,7 +1943,7 @@ v3 Stage 2 Task 3 (Backing; see the architecture guide's "v3 Stage 2 (Task 3)" s
 `coinAnswer`, now exported), `mcp.ts` (descriptions), `bench-data.ts` (`ProfileData.backing`, `BenchRow.backing`,
 `BenchFilter.backed`/`?backed=1`, the project tab's coin line only with the flag), `policy.ts` (`BACKING_TITLE`,
 `BACKING_POINTS`), `app/terms/sections/PolicySection.tsx` (the Backing section with the flag; "The token is optional"
-removed), `app/terms/page.tsx` (force-dynamic), `RaisingPill.tsx` ("Backing · $X", `data-pill="backing"`),
+removed), `app/terms/page.tsx` (revalidate 600), `RaisingPill.tsx` ("Backing · $X", `data-pill="backing"`),
 `BenchProfileView.tsx` (the `Back <project>` button, `data-ek-back`), `BenchView.tsx`/`FilterChip.tsx`
 (`FILTER_BACKED`), `BenchRowItem.tsx`, `card-response.tsx`, `llms/v213.txt` and `app/llms.txt/route.ts`,
 `fixtures/banned-words.ts` (`community round` banned; the offer's own risk words allowed), `db/schema.sql` (the

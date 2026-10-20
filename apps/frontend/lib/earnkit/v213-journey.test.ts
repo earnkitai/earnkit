@@ -1,5 +1,6 @@
 import './fixtures/no-network-checks';
 import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
+import { BACKING_NOT_YET } from './bench-find';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -544,6 +545,11 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
   assert.equal(r2.move_up?.kind, 'ship');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
+  // v3 Stage 2 review: under EARNKIT_RAISING, backing opens after the first approved week with code.
+  assert.equal((await call('tell', { token: 'ask' }, ctx(id))).show_to_builder, BACKING_NOT_YET);
+  await sql()`
+    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
   const asked = await call('tell', { token: 'ask' }, ctx(id));
   assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;

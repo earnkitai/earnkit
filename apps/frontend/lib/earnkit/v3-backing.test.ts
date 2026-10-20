@@ -12,7 +12,8 @@ import { pageWords } from './fixtures/page-words';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
-import { BACKING_OFFER, COIN_YES_NOTE, raiseLine } from './coin-moments';
+import { BACKING_OFFER, COIN_YES_NOTE, coinAllowed, raiseLine } from './coin-moments';
+import { BACKING_NOT_YET, tokenUnavailable } from './bench-find';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { backingLine } from './bench-reply';
 import { BACKING_EXCLUDED_REPOS } from './policy-constants';
@@ -170,7 +171,7 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
     const r = await find(b);
     const s = show(r);
     // Ranked (the offer's own state), so only the rule under test keeps it away.
-    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /: Shipping \d+ · /.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
+    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit: Shipping \d+/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
     assert.doesNotMatch(s, /backing/i, `${label}: ${s}`);
     assert.equal((await moments(b.id)).length, 0, label);
   };
@@ -178,12 +179,18 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
   await none(priv, 'private');
   const held = await builder('ch', { week: true });
   await sql()`UPDATE builder_profiles SET held = true WHERE builder_id = ${held.id}`;
-  await none(held, 'held', false);
+  await none(held, 'held');
   const coin = await builder('cc', { week: true });
   await sql()`UPDATE builder_projects SET has_coin = true WHERE builder_id = ${coin.id}`;
   await none(coin, 'has a coin');
   const own = await builder('co', { week: true, key: 'earnkitai/earnkit' });
   await none(own, 'earnkitai/earnkit');
+  // Review fix 1: nor when the builder asks about a token (tell token: 'ask'); the exclusion is in coinAllowed.
+  const ownAsk = await tell(own, { token: 'ask' });
+  assert.equal(show(ownAsk), tokenUnavailable('Kit'), show(ownAsk));
+  assert.equal((await moments(own.id)).length, 0);
+  assert.equal(await coinAllowed(own.id, 'earnkitai/earnkit'), false);
+  assert.equal(await coinAllowed(own.id, 'EarnKitAI/EarnKit'), false, 'compared lowercase');
   // Another person holds the repo: never ranked for it, never offered.
   const holder = await builder('ct', { week: true });
   const t = `ek_v3b_ct2_${RUN}_${Math.random().toString(36).slice(2)}`;
@@ -336,6 +343,39 @@ test('(g) copy-review: "community round", "raise", "raising" absent from builder
   }
   for (const p of BACKING_POINTS) assert.doesNotMatch(p, /community round|\braise\b|\braising\b|fundrais|—/i, p);
 });
+
+test('(h) review fix 3: tell token: \'ask\' before the first approved week says backing opens after it; after it, the same once-a-project offer', db, () => on(async () => {
+  assert.equal(BACKING_NOT_YET, 'Backing opens after your first confirmed week.');
+  const b = await builder('h');
+  assert.equal(show(await tell(b, { token: 'ask' })), BACKING_NOT_YET);
+  assert.equal((await moments(b.id)).length, 0, 'nothing spent');
+  await approvedWeek(b);
+  const asked = await tell(b, { token: 'ask' });
+  assert.match(show(asked), OFFER_RE, show(asked));
+  assert.deepEqual(await moments(b.id), [{ moment: 'first_week', answer: null }]);
+  // Asked again: the same line (the open offer), and find never offers it a second time.
+  assert.equal(show(await tell(b, { token: 'ask' })), show(asked));
+  assert.doesNotMatch(show(await find(b)), /backing/i);
+}));
+
+test('(i) review fix 2: a slow ticker check never holds the reply; the offer waits for a later reply, unspent', db, () => on(async () => {
+  const b = await builder('i', { week: true });
+  let slow = true;
+  b.ctx.tokenDeps = {
+    check: async () => {
+      if (slow) await new Promise((r) => setTimeout(r, 2_500));
+      return true;
+    },
+  };
+  const t = Date.now();
+  const late = show(await find(b));
+  assert.ok(Date.now() - t < 2_400, `the reply went on (${Date.now() - t} ms)`);
+  assert.doesNotMatch(late, /backing/i, late);
+  await new Promise((r) => setTimeout(r, 2_000));
+  assert.equal((await moments(b.id)).length, 0, 'the late offer never claimed the moment');
+  slow = false;
+  assert.match(lastLine(show(await find(b))), OFFER_RE);
+}));
 
 /** withEnv for a synchronous body. */
 function withEnvSync<T>(vars: Record<string, string | undefined>, fn: () => T): T {

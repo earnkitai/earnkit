@@ -6708,8 +6708,14 @@ say yes, earn points, get the Monday email.
   Backed filter chip (`FILTER_BACKED`).
 - **The terms.** `policy.ts BACKING_POINTS` (the split in words, offered once, the risk, closing keeps the coin, never
   changes Shipping or rank) under "Backing" in `PolicySection` with the flag; the old "The token is optional" section
-  is gone; the fee table stays. `/terms` renders per request so a flip shows at once.
+  is gone; the fee table stays. `/terms` revalidates every 600 s (ISR reads the running env), so a flip shows within 10 minutes.
 - **The JSON (`builder-json.ts`, `GET /api/builders/<handle>.json`).** `{ handle, name, page, shipping, rank, total,
   streak, points, last_week, last_shipped_days, stopped_shipping, backing }` from `profileData` and `standingOf`;
   404 for an unknown or hidden page; `Cache-Control: public, max-age=60`; CORS for https://tokens.fun.
   `last_shipped_days` counts from the end of the newest week with code (weeks are the grain). Test: `v3-backing.test.ts`.
+- **Review fix round 1.** `BACKING_EXCLUDED_REPOS` is checked in `coinAllowed` (the key and the confirmed repo link,
+  lowercase) and in `openCoinLine`/`coinYes` (`backingExcluded`), so no entry point offers EarnKit's own repo a coin.
+  Under the flag `tell token: 'ask'` answers `BACKING_NOT_YET` ("Backing opens after your first confirmed week.")
+  before the first approved week with code (`approvedCodeWeek`), then makes the same once-a-project `backingOffer`.
+  In find and score the offer waits at most the reply's budget (`boundedBacking`, at least `BACKING_WAIT_MIN_MS`);
+  past it, `late()` keeps the moment unclaimed (or releases it), so it is offered on a later reply.
