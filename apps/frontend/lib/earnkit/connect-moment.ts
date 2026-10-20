@@ -36,7 +36,7 @@ export async function connectWeeks(builderId: number, key: string, now: Date): P
   const line = await weekLineRule(builderId, key);
   return open.map((r) => ({
     monday: r.monday,
-    line: `${weekLabel(r.monday)}: ${(r.titles.length > 0 || r.summary ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
+    line: `${weekLabel(r.monday)}: ${((r.titles.length > 0 || r.summary) ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
   }));
 }
 

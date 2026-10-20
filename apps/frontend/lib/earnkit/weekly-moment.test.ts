@@ -206,7 +206,12 @@ test('L6.4 the moment through score, once per installation (another agent of the
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
 
-  // A second agent of the same person: its own first reply of the week has the moment, once.
+  // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never asked about again, by any agent.
+  const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
+  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Last week|Share your week/, 'the approved week is not asked again');
+  // A second agent of the same person, last week not yet confirmed (the approval removed): its own first reply of
+  // the week has the moment, once.
+  await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
   assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week')).length, 1, 'two replies at once: one moment');

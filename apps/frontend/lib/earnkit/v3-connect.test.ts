@@ -147,6 +147,23 @@ test('(e) the weekly moment still shows the week after', db, async () => {
   }
 });
 
+test('(e2) same week as the connect yes: the next find never asks about the week just confirmed; the ask is the weekly target', db, async () => {
+  await freshBoard();
+  const me = await ranked('cng');
+  await backfilled(me.id, me.key);
+  // A ranked day last week, so the weekly moment has a week to show (the backfill's newest Monday, Oct 5).
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${me.id}, '2026-10-11', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /^Your last 3 weeks:/);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^Done\./);
+  const f = await mcpCall(ctx(me.id), 'find', {});
+  const s = show(f);
+  assert.doesNotMatch(s, /Your last \d+ weeks?:|Last week you finished|Share your week|Does last week look right\?/, s);
+  assert.match(s, /How to move up\nShip code this week: \+\d+ points/, s);
+  assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
+  assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
+});
+
 test('(f) with the weekly email on, the Done line carries the email question as the one question', db, async () => {
   await freshBoard();
   await withEnv({ RESEND_API_KEY: 'test-key', EARNKIT_AUTH_SECRET: process.env.EARNKIT_AUTH_SECRET ?? 'test-secret' }, async () => {

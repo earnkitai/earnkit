@@ -434,7 +434,13 @@ async function connectMoment(id: number, key: string, now: Date): Promise<string
 async function weeklyMoment(own: number, id: number, key: string, handle: string, aim: TargetIn | null, now: Date): Promise<{ lines: string; share: string } | null> {
   if (!(await momentDue(own, now))) return null;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !momentReady(last.checked, now) || !(await takeMoment(own, now))) return null;
+  if (!last || !momentReady(last.checked, now)) return null;
+  // v3 Stage 1 fix round 1: a week already confirmed (the connect yes) is never asked about again; the week is claimed.
+  if (last.approved) {
+    await takeMoment(own, now);
+    return null;
+  }
+  if (!(await takeMoment(own, now))) return null;
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
   return { lines: momentLines(last, aim ? weekStartLine(aim) : null).join('\n'), share: shareLink(handle, last.now) };
 }

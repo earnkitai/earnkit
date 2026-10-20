@@ -18,8 +18,11 @@ import { awardWeekPoints, type ApproveVia } from './points';
 const DAY_MS = 86_400_000;
 /** A week's standing as the daily history (builder_scores) left it: its last ranked day. */
 export type WeekStanding = { score: number; rank: number; total: number };
-/** `checked`: the weekly job has written last week's ship-log row (facts.checked). */
-export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean };
+/**
+ * `checked`: the weekly job has written last week's ship-log row (facts.checked). `approved`: the builder already
+ * confirmed it (facts.approved, as the connect yes does), so the moment never asks about it again.
+ */
+export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean };
 
 /** "+6", "-3", "same". Pure. */
 const scoreDelta = (d: number) => (d === 0 ? 'same' : d > 0 ? `+${d}` : `${d}`);
@@ -34,7 +37,7 @@ const rankDelta = (before: number, now: number) => (before === now ? 'same' : no
 export const MOMENT_TITLES_MAX = 2;
 /** Weekly updates: the builder's optional note under the week's summary (tell update { text }). */
 export const NOTE_LINE = 'Send a line about your week and it goes under your update.';
-export function momentLines(w: LastWeek, weekStart: string | null = null): string[] {
+export function momentLines(w: Omit<LastWeek, 'approved'>, weekStart: string | null = null): string[] {
   const { now, before } = w;
   const head = before
     ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
@@ -101,14 +104,14 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (!cur) return null;
   const before = await weekStanding(builderId, new Date(Date.parse(`${monday}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10));
   const db = sql();
-  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean }[]>`
-    SELECT titles, summary, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
+  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean; approved: boolean }[]>`
+    SELECT titles, summary, facts ? 'checked' AS checked, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && (u.titles.length > 0 || u.summary)) {
     const line = (await weekLineRule(builderId, key))(u);
     if (line) titles = [line];
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved: u?.approved ?? false };
 }
 
 /**
