@@ -130,7 +130,7 @@ export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolea
           </div>
         </div>
         {f.raising ? (
-          <div style={{ display: 'flex', padding: '12px 26px', borderRadius: 40, border: `3px solid ${ORANGE}`, color: ORANGE, fontSize: 30, fontWeight: 700 }}>Community round ${f.raising}</div>
+          <div style={{ display: 'flex', padding: '12px 26px', borderRadius: 40, border: `3px solid ${ORANGE}`, color: ORANGE, fontSize: 30, fontWeight: 700 }}>Backing · ${f.raising}</div>
         ) : null}
       </div>
       <div style={{ display: 'flex', fontSize: size, fontWeight: 700, lineHeight: 1.04, letterSpacing: -size / 36, maxWidth: 1048 }}>{big}</div>

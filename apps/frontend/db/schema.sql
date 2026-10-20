@@ -1460,7 +1460,7 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pitch jsonb;
 -- The fifth week in a row is a coin moment too (spec "Optional: raise"). Re-added once only.
 ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
-  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five'));
+  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five','first_week'));
 -- v2.13.1 O1 (owner ruling, proof branch): the one project's proof is a temporary branch
 -- earnkit-<code> the agent pushes to the exact repo (no file, no commit). The code is never stored:
 -- it is HMAC(EARNKIT_AUTH_SECRET, seed), and only its sha256 is kept to find it (as claim_codes).
@@ -1703,3 +1703,9 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS in_person boolean NOT NULL DEFAULT
 ALTER TABLE builder_program_status DROP CONSTRAINT IF EXISTS builder_program_status_status_check;
 ALTER TABLE builder_program_status ADD CONSTRAINT builder_program_status_status_check CHECK (status IN ('applied','not_interested','accepted','funded','rejected'));
 ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS asked_at timestamptz;
+
+-- v3 Stage 2 Task 3 (spec 5.3 Route 2): backing is offered once, after the first approved week (moment 'first_week').
+-- The earlier re-add (above) lists it too: schema.sql reruns whole before every deploy (schema-rerun.test.ts).
+ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
+ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
+  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five','first_week'));

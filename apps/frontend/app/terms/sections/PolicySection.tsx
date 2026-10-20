@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import { Panel } from '../../components/common/Panel';
 import { X } from '../../lib/links';
+import { raisingEnabled } from '../../../lib/earnkit/builder-score-flag';
 import {
+  BACKING_POINTS,
+  BACKING_TITLE,
   CLANKER_CUT_PCT,
   CONTACT_EMAIL,
   MINI_LINE,
@@ -129,11 +132,12 @@ export default function PolicySection() {
         </Section>
 
 
-        <Section title="The token is optional">
-          <p>
-            Every entry is offered a token, named after the project. Turn it down and there&apos;s no token.
-          </p>
-        </Section>
+        {/* v3 Stage 2 (spec 5.3 Route 2): backing, only while EARNKIT_RAISING is on. */}
+        {raisingEnabled() ? (
+          <Section title={BACKING_TITLE}>
+            <List items={[...BACKING_POINTS]} />
+          </Section>
+        ) : null}
 
         <Section title="No affiliation">
           <p>

@@ -6,6 +6,9 @@ import ProfilesSection from './sections/ProfilesSection';
 import RiskSection from './sections/RiskSection';
 import SponsorTermsSection from './sections/SponsorTermsSection';
 
+/** v3 Stage 2: the Backing section reads EARNKIT_RAISING at run time (a flip shows at once, as the leaderboard). */
+export const dynamic = 'force-dynamic';
+
 /** v2.13 R16: no builder bonus. */
 const DESCRIPTION = 'How EarnKit works, where token fees go, what it records, builder profiles, the risks, and the sponsor terms.';
 

@@ -6681,3 +6681,35 @@ say yes, earn points, get the Monday email.
   accepted or funded never changes the label.
 - **Stats.** `applications` (distinct person and program rows with applied, accepted, funded or rejected, no test
   installation) and `accepted` (of those, accepted or funded). Test: `v3-apply.test.ts`.
+
+## v3 Stage 2 (Task 3): Backing (spec 5.3 Route 2)
+
+- **The word.** Builder text says Backing / backers / "Back <project>", never "community round", "raise" or
+  "raising" (`fixtures/banned-words.ts BENCH_EXTRA` now bans "community round"). Internal names stay (`raising_at`,
+  `RaisingPill`, `raisingEnabled`, `tell coin { raising }`).
+- **One switch.** `EARNKIT_RAISING` gates every coin-facing surface at once: the offer (`backingOfferable`), the
+  reply's fund line, the page's pill and Back button (`pillOf`), the project tab's "$SYM on tokens.fun" line
+  (`profileData`), the leaderboard's Backed chip and `?backed=1` (`parseBenchFilter`), the card's pill, the terms'
+  Backing section and the JSON's `backing`. Off, `tell coin` keeps its old schema (no `raising`).
+- **The offer (`coin-moments.ts backingOffer`, moment `first_week`).** Once a project, in the first ranked reply after
+  a week of it the builder approved with code in it (`project_updates.facts.approved` and `hasFacts`), when a coin is
+  offerable (`coinOfferable`: launches on, not shared or held, never offered, no coin, under the declines, a confirmed
+  repo read public) and the repo is not `BACKING_EXCLUDED_REPOS` (`earnkitai/earnkit`). The line is `BACKING_OFFER`
+  (the coin and the wallet named, the risk said, one question). Order in `stateAsk`: connect > backing > apply >
+  share > ship; a shown offer holds apply and the weekly moment for a later reply. `tell token: 'ask'` (the countable
+  moment) shows the same words under the flag (`raiseLine`).
+- **The answer (`benchMoveUp` kind `backing`).** Taken once, then `tools.ts coinAnswer`: a yes is `coinYes` (the
+  entry, `COIN_YES_NOTE`, `confirm { project_id }` launches; `raising_at` set under the flag), a no is `coinNo`
+  (`coin_moments.answer`, counts toward `DECLINES_MAX`). Backing never moves Shipping or rank.
+- **Backing open.** The ranked reply's Ways to get funded ends (before points) with `backingLine`: "Backing open. Your
+  page: earnkit.com/<handle>" while backers and fees earned are 0 (Task 4 fills them), a statement whose page is
+  schemeless beside the reply's one https link. The page: the "Backing · $SYM" pill and a secondary `Back <project>`
+  button (`data-ek-back`) to the coin's tokens.fun page under the score card; the leaderboard row's pill and the
+  Backed filter chip (`FILTER_BACKED`).
+- **The terms.** `policy.ts BACKING_POINTS` (the split in words, offered once, the risk, closing keeps the coin, never
+  changes Shipping or rank) under "Backing" in `PolicySection` with the flag; the old "The token is optional" section
+  is gone; the fee table stays. `/terms` renders per request so a flip shows at once.
+- **The JSON (`builder-json.ts`, `GET /api/builders/<handle>.json`).** `{ handle, name, page, shipping, rank, total,
+  streak, points, last_week, last_shipped_days, stopped_shipping, backing }` from `profileData` and `standingOf`;
+  404 for an unknown or hidden page; `Cache-Control: public, max-age=60`; CORS for https://tokens.fun.
+  `last_shipped_days` counts from the end of the newest week with code (weeks are the grain). Test: `v3-backing.test.ts`.

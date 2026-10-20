@@ -417,14 +417,15 @@ test('A.2 through find (R8, R12): a project with a fit names it in Ways to get f
     assert.equal(r.move_up?.kind, 'ship');
   }));
 
-test('B.1 "community round", never raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
-  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
-  assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Community round \$RECIPE</);
+test('B.1 (v3 Stage 2) "Backing", never a community round, raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
+  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+  assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Backing · \$RECIPE</);
   for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
   assert.notDeepEqual(bannedInBench('Want to raise for it?', []), []);
   assert.notDeepEqual(bannedInBench('Raising $X', []), []);
   assert.notDeepEqual(bannedInBench('Start a fundraise', []), []);
+  assert.notDeepEqual(bannedInBench('Open a community round', []), []);
   // The needs lines name their chain and pass the copy check.
   assert.deepEqual(bannedInBench(needsLine('Grants', 'up to $5K', "for a Base app, once it's live"), ['Grants']), []);
 });
@@ -465,7 +466,7 @@ test('R2 (I1) no community round for a repo not read public; once public it is o
     assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0, 'no moment used up');
     await markPublic(id);
     const ask = await offerCoin(id, key, 'countable', { check: async () => true });
-    assert.match(ask!.line, /\. Want to open a community round for secret\?$/);
+    assert.match(ask!.line, /\. Want to open backing for secret\?$/);
     // The repo goes private after the offer: the yes makes the coin under the safe name, with no repo link.
     await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${id} AND kind = 'repo'`;
     const yes = await coinYes(id, key, `0x${'d'.repeat(40)}`, { check: async () => true });
@@ -521,9 +522,9 @@ test('R7 (M5) a program with no known prize is named with what it needs, without
 
 test('R3 one question, last: the community round and coin lines end on their question (Bench)', () =>
   on(async () => {
-    assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
+    assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
     assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-      "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e. Want to open a community round for Recipe planner?");
+      'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees, paid to 0x12ab…9f3e. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
     const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
     for (const m of ['built_live', 'countable', 'first_five', 'has_people', 'streak_five'] as const) {
       const l = coinLine(m, 'Recipe planner', null, coin);

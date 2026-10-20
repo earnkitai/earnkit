@@ -1507,7 +1507,7 @@ apps/frontend/
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
-                               launch-ready L3: BenchFilter is { chain, weekly } (no community round filter),
+                               launch-ready L3: BenchFilter is { chain, weekly } (v3 Stage 2 adds backed, ?backed=1),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
                                tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
                                v2.14 T8: profile log cards carry titles (titlesShown, S9); launch ready L5: ProfileData.target
@@ -1932,3 +1932,19 @@ rejected), `outcomes.ts` (`OutcomeAsk`, `outcomeLine`, `applyAsk`, `APPLY_OUTCOM
 application), `page-data.ts` (`ProgramLabel`, `programLabel`), `bench-data.ts` (`liveSite` exported),
 `app/[handle]/ProjectTab.tsx` ("Won X" / "Applied to X"), `stats.ts` (`applications`, `accepted`), `db/schema.sql`
 (widened `builder_program_status` CHECK, `asked_at`). New test: `v3-apply.test.ts`.
+
+v3 Stage 2 Task 3 (Backing; see the architecture guide's "v3 Stage 2 (Task 3)" section): new `builder-json.ts`
+(`BuilderJson`, `builderJson`, `builderResponse`, `builderPreflight`) and `app/api/builders/[handle]/route.ts`
+(GET `/api/builders/<handle>.json`, 60 s unstable_cache keyed by EARNKIT_RAISING, CORS https://tokens.fun). Changed:
+`policy-constants.ts` (`BACKING_EXCLUDED_REPOS`), `coin-moments.ts` (`Moment` `first_week`, `BACKING_OFFER`,
+`raiseLine` = the backing offer, `backingOfferable`, `backingOffer`), `raising.ts` (Backing copy), `bench-reply.ts`
+(`BenchAskKind` `backing`, `FundLine` `backing`, `backingLine`; `stateAsk` connect > backing > apply > share > ship),
+`bench-find.ts` (`BACKING_NOTE`; benchView's backing offer and fund line; benchMoveUp `backing` -> tools.ts
+`coinAnswer`, now exported), `mcp.ts` (descriptions), `bench-data.ts` (`ProfileData.backing`, `BenchRow.backing`,
+`BenchFilter.backed`/`?backed=1`, the project tab's coin line only with the flag), `policy.ts` (`BACKING_TITLE`,
+`BACKING_POINTS`), `app/terms/sections/PolicySection.tsx` (the Backing section with the flag; "The token is optional"
+removed), `app/terms/page.tsx` (force-dynamic), `RaisingPill.tsx` ("Backing · $X", `data-pill="backing"`),
+`BenchProfileView.tsx` (the `Back <project>` button, `data-ek-back`), `BenchView.tsx`/`FilterChip.tsx`
+(`FILTER_BACKED`), `BenchRowItem.tsx`, `card-response.tsx`, `llms/v213.txt` and `app/llms.txt/route.ts`,
+`fixtures/banned-words.ts` (`community round` banned; the offer's own risk words allowed), `db/schema.sql` (the
+`coin_moments` CHECK lists `first_week` in both re-adds). New test: `v3-backing.test.ts`.

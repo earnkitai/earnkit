@@ -7,17 +7,18 @@ import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/b
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
 import { benchLine } from '../components/sections/BenchTop';
 import BenchRowItem from './BenchRowItem';
-import { Chip, FILTER_WEEKLY } from './FilterChip';
+import { Chip, FILTER_BACKED, FILTER_WEEKLY } from './FilterChip';
+import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 
 export const BENCH_TITLE = 'Leaderboard';
 export { benchLine };
 export const BENCH_EMPTY = 'No builder matches this filter yet.';
 export const BENCH_SHOW_ALL = 'Show everyone';
-export { FILTER_WEEKLY };
+export { FILTER_BACKED, FILTER_WEEKLY };
 
 /**
  * v2.13 spec "The Bench" (R4, R9, R14): one row per builder, best score first; filters are links
- * (a chain chip from one ranked project on it, Shipping every week; launch-ready L3: no community round chip). Pure.
+ * (a chain chip from one ranked project on it, Shipping every week; v3 Stage 2: Backed, only with EARNKIT_RAISING on).
  */
 export default function BenchView({ rows, count, chips, filter }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter }) {
   return (
@@ -38,6 +39,11 @@ export default function BenchView({ rows, count, chips, filter }: { rows: BenchR
             <Chip on={filter.weekly} href={filterHref({ ...filter, weekly: !filter.weekly })}>
               {FILTER_WEEKLY}
             </Chip>
+            {raisingEnabled() ? (
+              <Chip on={Boolean(filter.backed)} href={filterHref({ ...filter, backed: !filter.backed })}>
+                {FILTER_BACKED}
+              </Chip>
+            ) : null}
           </nav>
         </section>
         {/* v2.13.2 fix 1: nobody ranked: the header's empty line is the only one; a filtered view with no rows keeps BENCH_EMPTY. */}

@@ -11,9 +11,9 @@ import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, coinOpen, offerCoin, openCoinLine } from './coin-moments';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
-import { raisingCoin, showRaisingLine } from './raising';
+import { pillOf, raisingCoin, showRaisingLine } from './raising';
 import { raisingEnabled } from './builder-score-flag';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
@@ -81,6 +81,10 @@ export const INSTALL_APP_NOTE =
 /** v2.14 A17: find's held outcome question is the reply's last line; the answer goes to tell. */
 export const BENCH_OUTCOME_NOTE =
   "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. Don't show this note.";
+/** v3 Stage 2 (spec 5.3 Route 2): the backing offer's note; a yes goes to the coin flow (coinYes, then confirm { project_id }). */
+export const BACKING_NOTE =
+  "A yes or no to the last line: call tell with move_up: { kind: 'backing', project_key, answer } (project_key as given here). " +
+  "If they give a wallet for the fees with the yes, call tell with coin: { project_key, answer: 'yes', wallet } instead. Never launch anything before that yes. Don't show this note.";
 /** v3 Stage 2 (spec 5.3): the apply step's ask; a yes drafts the entry (APPLY_YES_NOTE). */
 export const APPLY_NOTE = "A yes or no to the last line: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
 /** v3 Stage 2: the yes to the apply step: prepare drafts the entry, the ship log's facts on top. */
@@ -250,13 +254,13 @@ export const TOKEN_NOT_YET = 'A token comes after your project is counted on the
 /** R8: tell token: 'ask' when no coin can be offered for the project now (launches off, declined, a private repo). */
 export const tokenUnavailable = (name: string) => `A token isn't available for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
-/** The agent's note with a community-round line: the yes is tell coin { raising: true }. */
+/** The agent's note with the line to show backing for an old coin: the yes is tell coin { raising: true }. */
 export const RAISE_NOTE = "A yes to the last line: call tell with coin: { raising: true }. Don't show this note.";
 
 /**
- * R8: the coin and community-round offer, only when the builder asks about a token (tell token: 'ask'),
- * never in find's or score's default reply. For the confirmed one project: a launched coin not shown as a
- * community round yet: that line (EARNKIT_RAISING on); a coin out or launching: says so; an offer made and
+ * R8: the coin and backing offer, only when the builder asks about a token (tell token: 'ask'),
+ * never in find's or score's default reply (v3 Stage 2: save backing's own moment, backingOffer). For the confirmed
+ * one project: a launched coin not shown as backing yet: that line (EARNKIT_RAISING on); a coin out or launching: says so; an offer made and
  * not answered: the same line again; else a new offer (coin-moments.ts offerCoin, the coin named and the
  * wallet shown). The yes goes to tell coin as with any coin offer, then confirm { project_id }. Never throws
  * on its own reads (a failed read is "not available").
@@ -326,6 +330,8 @@ type ViewIn = {
   due: string[];
   /** v2.13.4 (spec 4, R3): the one project's live link, checked (wording and program fit only). */
   live?: LiveSite | null;
+  /** The tokens.fun ticker check the backing offer's proposal uses (ToolContext.tokenDeps.check). */
+  check?: TickerCheck;
 };
 
 /**
@@ -370,10 +376,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now) : null;
   // v3 Stage 2 (spec 5.3): a fit closing within APPLY_WINDOW_DAYS, once a program, before (and in place of) the weekly moment.
-  // ---- Stage 2 Task 3 slot: the `backing` moment goes here (after connect, before apply). ----
-  const apply = ranked && project && !taken && !held && !connect ? await applyPick(id, read.seen, o.fits.slice(0, 3), o.skip, now) : null;
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
+  const backing = ranked && project && handle && !held && !connect ? await backingOffer(id, project.key, { check: o.check }).catch(logged('backing offer')) : null;
+  const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.fits.slice(0, 3), o.skip, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held && !connect && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
+  const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
 
   let fund: FundLine[] = [];
@@ -406,6 +413,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
   }
 
+  // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step.
+  // Backers and fees earned come with Task 4 (0 until then).
+  if (ranked && handle && (await pillOf(id).catch(logged('backing pill'))))
+    fund = [...fund, { kind: 'backing', backers: 0, earned_usd: 0, page: `${siteUrl()}${pagePath(handle)}` }];
+
   // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
   if (ranked) {
     const total = await pointsTotal(id).catch(logged('points'));
@@ -414,7 +426,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).
-  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null, connect: Boolean(connect), apply });
+  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null, connect: Boolean(connect), backing: backing?.line ?? null, apply });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
   const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }) };
@@ -426,7 +438,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
     target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
+  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
@@ -604,7 +616,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut, name, fits, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
+    id, now, read, own, signedOut, name, fits, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((fits[0] && !submit && !taken) || submit);
@@ -639,7 +651,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreFits, at most 3, R12). One score_viewed event a minute (v2.12). Null without a
  * profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
@@ -669,7 +681,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     : [];
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
-    due: [], live,
+    due: [], live, check: ctx.tokenDeps?.check,
   });
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',
@@ -694,7 +706,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null; program_id?: string; repo?: string } | null> {
@@ -714,7 +726,7 @@ export async function benchAsked(id: number, m: { kind?: string; project_key?: s
  * offer's answer stays there). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
@@ -756,6 +768,18 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
+  // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
+  if (asked.kind === 'backing') {
+    const [taken] = await sql()`
+      UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
+      WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
+      logged('take backing ask')(err);
+      return [];
+    });
+    if (!taken || !asked.key) return okay;
+    return (await import('./tools')).coinAnswer(ctx, { project_key: asked.key, answer: m.answer });
+  }
   if (m.answer === 'no') {
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',

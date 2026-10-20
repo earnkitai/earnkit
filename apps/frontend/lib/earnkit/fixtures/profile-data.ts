@@ -3,7 +3,7 @@ import type { ProfileData } from '../bench-data';
 /** v2.13 T11: a rich profile (raising, a chain line, a Started card) for the profile's render and copy tests. */
 export const DATA: ProfileData = {
   handle: 'maya_makes', name: 'Maya Chen', avatar: 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg', initials: 'M',
-  raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, bench: 'Top 4% of builders this week', line: 'Shipping 62 · Top 4% of builders this week',
+  backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1', backers: 0, earned_usd: 0 }, bench: 'Top 4% of builders this week', line: 'Shipping 62 · Top 4% of builders this week',
   chainLines: [{ chain: 'base', label: 'Base', line: 'Top 1% of builders on Base this week' }], score: 62,
   why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', target: 'Code this week adds +14 points, enough to pass #2.', originality: 72, points: 0,
   grid: Array.from({ length: 52 }, (_, i) => ({ week: `2026-W${String((i % 52) + 1).padStart(2, '0')}`, on: i >= 46 })), streak: 6,

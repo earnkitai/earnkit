@@ -42,9 +42,9 @@ export default function BenchRowItem({ r }: { r: BenchRow }) {
               )}
             </span>
           )}
-          {r.raising && (
+          {r.backing && (
             <span className="relative z-10">
-              <RaisingPill symbol={r.raising.symbol} url={r.raising.url} size="sm" />
+              <RaisingPill symbol={r.backing.symbol} url={r.backing.url} size="sm" />
             </span>
           )}
         </div>

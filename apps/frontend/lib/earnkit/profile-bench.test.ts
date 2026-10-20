@@ -38,7 +38,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27
 
 test('11.1 the header: photo, name, @handle, pill, the score line (R16c) then each chain line with its logo', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
+  for (const s of ['Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
   assert.ok(h.indexOf('Top 4%') < h.indexOf('Top 1% of builders on Base'));
   assert.match(h, /alt="Base"/);
 });
@@ -192,7 +192,7 @@ test('11.9 the grid titles each square with its week\'s Monday (week keys go thr
 });
 
 test('11.10 a new profile: no ring without a rank line, no raising, no chain lines; the Project tab without a project says so', () => {
-  const fresh: ProfileData = { ...DATA, raising: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
+  const fresh: ProfileData = { ...DATA, backing: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
   const h = html(React.createElement(BenchProfileView, { data: fresh, tab: 'log' }));
   assert.doesNotMatch(h, /Shipping \d+ of 100/);
   assert.doesNotMatch(h, /Raising|Community round/);

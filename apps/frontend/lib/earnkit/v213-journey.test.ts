@@ -545,7 +545,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.equal(r2.move_up?.kind, 'ship');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
   const asked = await call('tell', { token: 'ask' }, ctx(id));
-  assert.match(asked.show_to_builder, /^I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, asked.show_to_builder);
+  assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes', 'log');
@@ -630,10 +630,10 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   const id = MAYA.id;
   await giveFivePeople(id);
   // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
-  assert.match(MAYA.offer, /Want to open a community round for Recipe planner\?/);
+  assert.match(MAYA.offer, /Want to open backing for Recipe planner\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
-  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise/i);
+  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise|backing/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
   // v2.14 spec 2: the App proved the repo: nothing is pushed.
@@ -641,9 +641,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Community round $${pill.symbol}`));
+  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Backing · $${pill.symbol}`));
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
-  assert.deepEqual(row?.raising, pill);
+  assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
   const [p] = await sql()<{ coin_tx: string; coin_chain_id: number }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${yes.project_id!}`;
   assert.deepEqual({ ...p }, { coin_tx: `0x${'c'.repeat(64)}`, coin_chain_id: 8453 });

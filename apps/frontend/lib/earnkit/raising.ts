@@ -5,19 +5,19 @@ import { mainConfirmed, mainProjectOf } from './main-project';
 import { normalizeRepoUrl } from './campaigns';
 
 /**
- * v2.13 spec "4. Optional: raise" (R8): the one project's coin, the raising flag on it, the pill.
- * A coin launched before v2.13 never turns the pill on by itself: the builder says yes first
- * ("Want to show your community round with $X?", only when the builder asks about a token: bench-find.ts
- * tokenAsk, R8). "Stop raising" clears the flag; the coin stays. The pill, the line and setRaising do
- * nothing while EARNKIT_RAISING is off (final fix, controller ruling).
+ * v2.13 spec "4. Optional: raise" (R8), v3 Stage 2 (spec 5.3 Route 2): the one project's coin, the backing flag on it
+ * (projects.raising_at, the column keeps its name), the pill. A coin launched before v2.13 never turns the pill on by
+ * itself: the builder says yes first (showRaisingLine, only when the builder asks about a token: bench-find.ts tokenAsk).
+ * Closing backing clears the flag; the coin stays. The pill, the line and setRaising do nothing while EARNKIT_RAISING is
+ * off (final fix, controller ruling). Builder text says Backing, never "community round", "raise" or "raising".
  */
 export const RAISE_LINES = {
-  on: (symbol: string) => `Done. Your page shows your community round with $${symbol}.`,
-  off: "Okay, your page no longer shows a community round. Your coin stays.",
-  notLaunched: "Your coin isn't live yet. It shows once it is.",
+  on: (symbol: string) => `Done. Your page shows backing for $${symbol}.`,
+  off: 'Okay. Your page no longer shows backing. Your coin stays onchain.',
+  notLaunched: 'Backing opens once your coin is launched.',
 } as const;
-/** Owner ruling B (v2.13.3): "community round", never "raise" or "raising", in builder text. */
-export const showRaisingLine = (symbol: string) => `Want to show your community round with $${symbol} on your page?`;
+/** The line for a launched coin not shown as backing yet (tell token: 'ask'). Pure. */
+export const showRaisingLine = (symbol: string) => `Want your page to show backing for $${symbol}?`;
 
 export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean };
 
@@ -55,7 +55,7 @@ export async function setRaising(builderId: number, on: boolean): Promise<{ show
   return { show_to_builder: on ? RAISE_LINES.on(c.symbol) : RAISE_LINES.off };
 }
 
-/** The pill: only while EARNKIT_RAISING is on, the coin is launched, the builder said they're raising, and the one project is confirmed. */
+/** The pill: only while EARNKIT_RAISING is on, the coin is launched, the builder opened backing, and the one project is confirmed. */
 export async function pillOf(builderId: number): Promise<{ symbol: string; url: string } | null> {
   if (!raisingEnabled()) return null;
   const c = await raisingCoin(builderId);

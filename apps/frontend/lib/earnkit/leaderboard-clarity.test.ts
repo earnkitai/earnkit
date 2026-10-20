@@ -135,7 +135,7 @@ test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (th
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
-    r: { rank: 3, line: '#3 of 12 builders this week', points: 72, handle: 'maxi', name, avatar: null, raising: null, chains: [], project, best: '3 weeks in a row' },
+    r: { rank: 3, line: '#3 of 12 builders this week', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row' },
   }));
   assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*>Shipping<\/span>/);
   // R18 fix 1 (supersedes R6 for rows): "#3" alone on screen; the whole rank line only for screen readers.

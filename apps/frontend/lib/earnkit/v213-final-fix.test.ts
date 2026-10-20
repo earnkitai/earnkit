@@ -172,10 +172,10 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
   const only = [p.id];
   await withRaising(false, async () => {
     assert.equal(await pillOf(p.id), null);
-    assert.equal((await benchRows({ chain: null, weekly: false }, { only })).rows[0].raising, null);
-    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false }, '?raising=1 is ignored');
+    assert.equal((await benchRows({ chain: null, weekly: false }, { only })).rows[0].backing, null);
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false, backed: false }, '?raising=1 is ignored');
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
-    assert.equal(d.raising, null);
+    assert.equal(d.backing, null);
     assert.ok(!JSON.stringify(d.log).includes('Community round'), 'no Community round chip on the update cards');
     assert.equal((await benchCardFacts(p.id))!.raising, null);
   });
@@ -183,11 +183,11 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
     const pill = await pillOf(p.id);
     assert.deepEqual(pill, { symbol: 'RECIPE', url: `https://tokens.fun/c/${p.id}` });
     const rows = await benchRows({ chain: null, weekly: false }, { only });
-    assert.deepEqual(rows.rows[0].raising, pill, 'the row\'s pill is pillOf\'s, in the same read');
+    assert.deepEqual(rows.rows[0].backing, pill, 'the row\'s pill is pillOf\'s, in the same read');
     // Launch-ready L3: no raising filter even with EARNKIT_RAISING on (an old link shows the whole board).
-    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false });
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false, backed: false });
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
-    assert.deepEqual(d.raising, pill);
+    assert.deepEqual(d.backing, { ...pill!, backers: 0, earned_usd: 0 });
     assert.equal((await benchCardFacts(p.id))!.raising, 'RECIPE');
   });
 });
@@ -214,7 +214,7 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
 });
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
-  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
+  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, backing: null, chains: [], project: 'Recipe planner', best: 'Live' };
   const filter = { chain: null, weekly: false };
   // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
   const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));

@@ -16,7 +16,7 @@ import ScoreRing from './ScoreRing';
 import { COLUMN, SURFACE } from '../components/common/Panel';
 import ShipGrid, { shippedWords } from './ShipGrid';
 import InstallButton from '../components/common/InstallButton';
-import { BTN_PRIMARY } from '../components/common/Button';
+import { BTN_PRIMARY, BTN_SECONDARY } from '../components/common/Button';
 
 export const TAB_LOG = 'Ship log';
 export const TAB_PROJECT = 'Project';
@@ -208,7 +208,7 @@ const TAB_OFF = 'text-ek-muted hover:bg-ek-chip hover:text-ek-text';
 
 /**
  * v2.13 spec "Profile" (R10, R11, R12), profile-whoop v2 layout on the near-black page: the header
- * (photo, name, @handle, the Raising pill); the hero card, the one Shipping ring (0 to 100) beside
+ * (photo, name, @handle, the Backing pill); the hero card, the one Shipping ring (0 to 100) beside
  * the rank (the percentile or "#N" large, its words, the why sentence, then each chain's line with
  * its logo; scoring and clarity: no per-part rings, one score); the 52-week shipping grid with the streak;
  * then two tabs as plain links: the Ship log (default; long cards, newest first, the Started card
@@ -237,9 +237,9 @@ export default function BenchProfileView({
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-3">
           <Photo src={d.avatar} handle={d.handle} />
           <Who name={d.name} handle={d.handle} />
-          {d.raising ? (
+          {d.backing ? (
             <div className="w-full sm:ml-auto sm:w-auto">
-              <RaisingPill symbol={d.raising.symbol} url={d.raising.url} />
+              <RaisingPill symbol={d.backing.symbol} url={d.backing.url} />
             </div>
           ) : null}
         </div>
@@ -271,6 +271,14 @@ export default function BenchProfileView({
                   </div>
                 ) : null}
                 {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} target={d.target} chains={d.chainLines} /> : null}
+              </div>
+            ) : null}
+            {/* v3 Stage 2 (spec 5.3 Route 2): backing open: one secondary button under the three numbers, to the coin's tokens.fun page. */}
+            {d.backing && d.project ? (
+              <div className="mt-3 md:mt-4">
+                <a href={d.backing.url} target="_blank" rel="noopener noreferrer" data-ek-back="" className={BTN_SECONDARY}>
+                  {`Back ${d.project.name}`}
+                </a>
               </div>
             ) : null}
             <div className={`mt-3 p-6 md:mt-4 md:p-8 ${SURFACE}`}>

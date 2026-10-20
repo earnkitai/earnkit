@@ -21,8 +21,11 @@ import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
 import { last52, streakOf, weekOfMonday } from './weeks';
 
-/** v2.13 spec "The Bench": its rows and its URL filters (R9). Launch-ready L3: no community round filter. */
-export type BenchFilter = { chain: BenchChain | null; weekly: boolean };
+/**
+ * v2.13 spec "The Bench": its rows and its URL filters (R9). v3 Stage 2: `backed`, builders with backing open
+ * (`?backed=1`, only while EARNKIT_RAISING is on).
+ */
+export type BenchFilter = { chain: BenchChain | null; weekly: boolean; backed?: boolean };
 /** "Shipping every week": a streak (commit weeks in a row, builder_projects.streak) of at least this many weeks. */
 export const WEEKLY_STREAK = 4;
 export const BENCH_MAX = 100;
@@ -30,12 +33,12 @@ export const BENCH_MAX = 100;
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : undefined);
 
 /**
- * Pure. Anything but one known value per key is ignored, so at most 4 x 2 = 8 variants exist. Launch-ready L3: an old
- * link's ?raising=1 is ignored too (the unfiltered board).
+ * Anything but one known value per key is ignored, so at most 4 x 2 x 2 = 16 variants exist. Launch-ready L3: an old
+ * link's ?raising=1 is ignored too (the unfiltered board). v3 Stage 2: `?backed=1` only with EARNKIT_RAISING on.
  */
-export function parseBenchFilter(q: Record<string, string | string[] | undefined>): BenchFilter {
+export function parseBenchFilter(q: Record<string, string | string[] | undefined>, raising = raisingEnabled()): BenchFilter {
   const c = one(q.chain)?.toLowerCase();
-  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, weekly: one(q.weekly) === '1' };
+  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, weekly: one(q.weekly) === '1', backed: raising && one(q.backed) === '1' };
 }
 
 /** Pure. The one URL of a filter variant (also its cache key). */
@@ -43,6 +46,7 @@ export function filterHref(f: BenchFilter): string {
   const p = new URLSearchParams();
   if (f.chain) p.set('chain', f.chain);
   if (f.weekly) p.set('weekly', '1');
+  if (f.backed) p.set('backed', '1');
   const s = p.toString();
   return s ? `/leaderboard?${s}` : '/leaderboard';
 }
@@ -54,8 +58,8 @@ export function bestFact(p: { streak: number; weeks_shipping: number; shipped: b
   return p.shipped ? 'Live' : 'Building';
 }
 
-/** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. */
-export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; raising: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
+/** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. v3 Stage 2: `backing`, the Backing pill's coin. */
+export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
 
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
@@ -83,6 +87,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       ORDER BY x.coin_launched_at DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
     WHERE (${f.chain}::text IS NULL OR ${f.chain}::text = ANY(b.chains))
       AND (NOT ${f.weekly}::boolean OR b.streak >= ${WEEKLY_STREAK})
+      AND (NOT ${Boolean(f.backed && raisingOn)}::boolean OR (c.token_status = 'launched' AND c.raising_at IS NOT NULL))
     ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${Math.min(BENCH_MAX, o.limit ?? BENCH_MAX)}`;
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
   const pools = await chainPools(o);
@@ -99,7 +104,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       handle: r.handle,
       name: displayName(r.x_name, r.handle),
       avatar: avatarUrl(r.avatar),
-      raising: pill(r),
+      backing: pill(r),
       chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
       project: nameOf(r.builder_id, r.key),
       best: bestFact(r),
@@ -117,7 +122,10 @@ export type ProjectTabData = {
   coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
 };
 export type ProfileData = {
-  handle: string; name: string; avatar: string | null; initials: string; raising: { symbol: string; url: string } | null; bench: string | null;
+  handle: string; name: string; avatar: string | null; initials: string;
+  /** v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on); backers and fees earned come with Task 4 (0 until then). */
+  backing: { symbol: string; url: string; backers: number; earned_usd: number } | null;
+  bench: string | null;
   /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders this week"), null while unranked. */
   line: string | null;
   chainLines: { chain: BenchChain; label: string; line: string }[];
@@ -246,7 +254,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     name: displayName(p.x_name, p.x_handle),
     avatar: avatarUrl(p.x_avatar_url),
     initials: initialsOf(p.x_handle),
-    raising: pill,
+    backing: pill ? { symbol: pill.symbol, url: pill.url, backers: 0, earned_usd: 0 } : null,
     bench: lines.bench,
     line: lines.line,
     chainLines: lines.chains,
@@ -290,7 +298,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
       live: liveSite(shown.link),
       repo: REPO_KEY.test(repoKey) && !shown.hiddenRepo ? `https://github.com/${p.main}` : null,
       chains: confirmed ? BENCH_CHAINS.filter((c) => b.chains.includes(c)) : [],
-      coin: coin && coin.status === 'launched' ? { symbol: coin.symbol, url: coin.url } : null,
+      // v3 Stage 2: the "$SYM on tokens.fun" line is coin-facing, so only with EARNKIT_RAISING on.
+      coin: raisingEnabled() && coin && coin.status === 'launched' ? { symbol: coin.symbol, url: coin.url } : null,
       programs,
       funds,
       confirmed,

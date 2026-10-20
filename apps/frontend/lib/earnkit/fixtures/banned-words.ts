@@ -30,6 +30,11 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /EarnKit can only see public repos right now\./g,
   // Launch ready L2: the owner's own repo picker line ("Install the read-only EarnKit app on the repo you want ranked").
   /\bon the repo you want ranked\b/g,
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer's own risk words ("People can back X onchain.", "a tradable token on Base").
+  /(?<=^|\. )People can back .{1,80}? onchain(?=\. EarnKit launches a )/g,
+  /\bIt is a tradable token on Base and can go to zero\./g,
+  // Its "Your coin stays onchain." (RAISE_LINES.off).
+  /\bYour coin stays onchain\./g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,
@@ -38,8 +43,8 @@ export const BENCH_ALLOWED: RegExp[] = [
   /\b\d[\d,]* commits?\b/g,
   ...BENCH_PITCH_ALLOWED,
 ];
-/** Owner ruling B (v2.13.3): "community round", never raise, raising or fundraise, in builder text under the Bench. */
-export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i, /\braise\b/i, /\braising\b/i, /\bfundrais/i];
+/** v3 Stage 2 (spec 5.3 Route 2): "Backing", never "community round", raise, raising or fundraise, in builder text under the Bench. */
+export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i, /\braise\b/i, /\braising\b/i, /\bfundrais/i, /community round/i];
 export function bannedInBench(text: string, exempt: string[]): string[] {
   let t = text;
   for (const r of BENCH_ALLOWED) t = t.replace(r, ' ');

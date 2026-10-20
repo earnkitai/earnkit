@@ -33,3 +33,6 @@ export const isEarnkitSplit = (bps: readonly number[]) =>
  * seeds it closed). Its entries never show as program entries; coin-moments.ts re-exports it.
  */
 export const COIN_PROGRAM = 'earnkit-coin';
+
+/** v3 Stage 2 (spec 5.3 Route 2): repos never offered backing (EarnKit's own; compared lowercase). */
+export const BACKING_EXCLUDED_REPOS = ['earnkitai/earnkit'] as const;

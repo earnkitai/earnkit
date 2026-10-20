@@ -2853,7 +2853,7 @@ export const COIN_WALLET_NOTE = "wallet must be the 0x address the builder gave;
  * coinNo check it); anything else is "Okay." with nothing changed. A yes returns the entry the
  * agent confirms by project_id (the usual token steps follow); a no is never offered again.
  */
-async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'yes' | 'no'; wallet?: string }): Promise<Reply> {
+export async function coinAnswer(ctx: Pick<ToolContext, 'installationId' | 'tokenDeps'>, c: { project_key: string; answer: 'yes' | 'no'; wallet?: string }): Promise<Reply> {
   const id = ctx.installationId;
   if (c.answer === 'no') {
     await coinNo(id, c.project_key);

@@ -5,7 +5,8 @@ import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
-import { COIN_PROGRAM } from './policy-constants';
+import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
+import { hasFacts, type WeekFacts } from './week-facts';
 import { DECLINES_MAX, declines, offerIdentity, offerKey, readShownOffer, recordDecline, saveOffer } from './token-offers';
 import { proposeToken, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { tokenLaunchesAvailable } from './tokens';
@@ -19,7 +20,8 @@ import { earnkitOwnRepo } from './own-brand';
  * shared clients or held profiles. first_five, has_people and streak_five are kept for offers already made.
  */
 export { COIN_PROGRAM };
-export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five';
+/** v3 Stage 2 (spec 5.3 Route 2): `first_week`, the backing offer after the first approved week with code (backingOffer). */
+export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five' | 'first_week';
 export type Coin = { name: string; symbol: string };
 
 /**
@@ -28,9 +30,14 @@ export type Coin = { name: string; symbol: string };
  */
 const coinFees = (wallet: string | null) => `A coin pays you 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
-/** v2.13 spec "4. Optional: raise" (owner ruling B, v2.13.3: "a community round"): the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
-export const raiseLine = (name: string, symbol: string, wallet: string | null) =>
-  `I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. Want to open a community round for ${name}?`;
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): the backing offer, the one question of the first ranked reply after the first approved
+ * week with code. The coin is named and the wallet shown when known, before the yes. Pure.
+ */
+export const BACKING_OFFER = (name: string, symbol: string, wallet: string | null) =>
+  `People can back ${name} onchain. EarnKit launches a $${symbol} coin on tokens.fun for it; you keep 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. It is a tradable token on Base and can go to zero. Want to open backing for ${name}?`;
+/** v2.13's offer line under EARNKIT_RAISING (tell token: 'ask'); v3 Stage 2: the backing offer's words. Pure. */
+export const raiseLine = (name: string, symbol: string, wallet: string | null) => BACKING_OFFER(name, symbol, wallet);
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the
@@ -39,14 +46,14 @@ export const raiseLine = (name: string, symbol: string, wallet: string | null) =
  * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
-  // v2.13: every project moment is the raise line (built_live keeps its own);
+  // v2.13: every project moment is the backing offer (built_live keeps its own);
   // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
-  if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
+  if (raisingEnabled() && moment !== 'built_live' && coin) return BACKING_OFFER(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
   // v2.13.3 review: one question, last.
   if (moment === 'built_live') return `It's live, and your entry is ready either way. ${coinFees(wallet)} Want to launch ${a} for it?`;
   if (moment === 'first_five') return `5 people have used ${name}. ${coinFees(wallet)} Want to launch ${a} for it?`;
-  if (moment === 'countable' || moment === 'streak_five') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
+  if (moment === 'countable' || moment === 'streak_five' || moment === 'first_week') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
   return `${name} has people using it. ${coinFees(wallet)} Want to launch ${a} for it?`;
 }
 
@@ -174,6 +181,34 @@ export async function offerCoin(
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
   await saveOffer(builderId, COIN_PROGRAM, offerKey(repo_url, p.name), coin, false, wallet);
   return { line: coinLine(moment, p.name, wallet, coin), wallet };
+}
+
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): whether backing may be offered for this project now: EARNKIT_RAISING on, a coin
+ * offerable (coinOfferable: launches available, not shared or held, never offered for it, no coin, under the declines,
+ * a confirmed repo read public), never EarnKit's own repo (BACKING_EXCLUDED_REPOS), and a week of it approved by the
+ * builder with code in it (project_updates facts.approved and hasFacts). A failed read is no.
+ */
+export async function backingOfferable(builderId: number, projectKey: string): Promise<boolean> {
+  if (!raisingEnabled() || (BACKING_EXCLUDED_REPOS as readonly string[]).includes(projectKey.toLowerCase())) return false;
+  if (!(await coinOfferable(builderId, projectKey))) return false;
+  const rows = await sql()<{ facts: WeekFacts }[]>`
+    SELECT facts FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${projectKey}) AND NOT hidden
+      AND COALESCE((facts->>'approved')::boolean, false)`;
+  return rows.some((r) => hasFacts(r.facts ?? {}));
+}
+
+/**
+ * v3 Stage 2: the backing offer (moment `first_week`), as offerCoin: the moment claimed (once a project), the name and
+ * ticker proposed and saved as the shown offer, so the yes launches exactly it. Null when backingOfferable is not.
+ */
+export async function backingOffer(
+  builderId: number,
+  projectKey: string,
+  deps: { check?: TickerCheck } = {},
+): Promise<{ line: string; wallet: string | null } | null> {
+  if (!(await backingOfferable(builderId, projectKey))) return null;
+  return offerCoin(builderId, projectKey, 'first_week', deps);
 }
 
 /**
