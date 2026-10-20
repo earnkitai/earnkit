@@ -25,7 +25,9 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  // v3 Stage 2: backing_open and backers only with EARNKIT_RAISING on (off here); earned_usd last.
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(statsFrom(emptyRow, new Date(), true)).slice(-3), [0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -222,7 +224,7 @@ test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): outcomes in public stats.
 test('v2.8 Ruling 30 (plan): labelled_entries and entries_won keys and labels; the win-rate floor is documented', () => {
-  assert.deepEqual(STATS_KEYS.slice(-6, -4), ['labelled_entries', 'entries_won']);
+  assert.deepEqual(STATS_KEYS.slice(-9, -7), ['labelled_entries', 'entries_won']);
   assert.equal(STATS_LABELS.labelled_entries, 'entries with a published result');
   assert.equal(STATS_LABELS.entries_won, 'entries that won');
   assert.equal(WIN_RATE_MIN_LABELLED, 30);
@@ -300,7 +302,7 @@ test('10.10 builders_won_usd: announced won or placed prizes only; a self-report
   const tag = `stats-won-${process.pid}-${Date.now()}`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   const Rollback = new Error('rollback');
-  assert.equal(STATS_KEYS.at(-4), 'builders_won_usd');
+  assert.equal(STATS_KEYS.at(-7), 'builders_won_usd');
   assert.equal(STATS_LABELS.builders_won_usd, 'won by EarnKit builders (announced, USD)');
   try {
     await sql().begin('isolation level repeatable read', async (tx) => {
@@ -388,7 +390,9 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   assert.match(STATS_LABELS.open_pools_plus, /deprecated/);
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
-  assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
+  // v3 Stage 2: with EARNKIT_RAISING off (here), the coin-facing keys are absent; with it on, every key.
+  assert.deepEqual(Object.keys(s), STATS_KEYS.filter((k) => k !== 'backing_open' && k !== 'backers'));
+  assert.deepEqual(Object.keys(statsFrom(emptyRow, now, true)), [...STATS_KEYS]);
   assert.equal(s.open_money_usd, 130000);
   assert.equal(s.open_money_text, '$130K in grants and prizes open');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);

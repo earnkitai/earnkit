@@ -9,7 +9,8 @@ import { lastFinishedMonday, mondayOfWeek, weekOfMonday } from './weeks';
 /**
  * v3 Stage 2 (spec 5.3 Route 2): one builder's public numbers as JSON, for the tokens.fun coin page
  * (GET /api/builders/<handle>.json). Only what the public page already shows. `backing` only while EARNKIT_RAISING
- * is on (profileData's pill rule); its backers and fees earned come with Task 4 (0 until then).
+ * is on (profileData's pill rule), with its backers and the creator fees claimed (whole USD). `earned`, the profile's
+ * third number (earned.ts: fees claimed plus announced prizes; waiting, still in the FeeLocker), shown with the flag off too.
  */
 export type BuilderJson = {
   handle: string; name: string; page: string;
@@ -25,6 +26,7 @@ export type BuilderJson = {
   /** No code in the last 2 finished weeks. */
   stopped_shipping: boolean;
   backing: { symbol: string; url: string; backers: number; earned_usd: number } | null;
+  earned: { paid_usd: number; waiting_usd: number };
 };
 
 const DAY = 86_400_000;
@@ -56,6 +58,7 @@ export async function builderJson(handle: string, now: Date): Promise<BuilderJso
     last_shipped_days: newest ? Math.max(0, Math.floor((now.getTime() - (Date.parse(`${newest}T00:00:00Z`) + 7 * DAY)) / DAY)) : null,
     stopped_shipping: !finished.some((w) => w !== null && on.includes(w)),
     backing: d.backing,
+    earned: d.earned,
   };
 }
 

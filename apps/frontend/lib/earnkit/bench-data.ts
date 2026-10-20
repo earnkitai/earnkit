@@ -6,6 +6,8 @@ import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
 import { pointsTotal } from './points';
+import { backersOfBuilder } from './backers';
+import { NO_EARNED, earnedUsd } from './earned';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
@@ -123,8 +125,16 @@ export type ProjectTabData = {
 };
 export type ProfileData = {
   handle: string; name: string; avatar: string | null; initials: string;
-  /** v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on); backers and fees earned come with Task 4 (0 until then). */
+  /**
+   * v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on): its backers (backers.ts, distinct wallets
+   * that received the coin) and the creator fees claimed from it, whole USD (earned.ts fees_usd).
+   */
   backing: { symbol: string; url: string; backers: number; earned_usd: number } | null;
+  /**
+   * v3 Stage 2 (spec 5.2): Earned, the third number (earned.ts earnedUsd): fees claimed plus announced prizes, and the
+   * fees still waiting in the FeeLocker (shown as "and $X waiting", never summed in). Shown with EARNKIT_RAISING off too.
+   */
+  earned: { paid_usd: number; waiting_usd: number };
   bench: string | null;
   /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders this week"), null while unranked. */
   line: string | null;
@@ -245,7 +255,15 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null; titles_on: boolean }[]>`
     SELECT x_handle, x_name, x_avatar_url, main_project_key AS main, (ship_titles_at IS NOT NULL) AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
-  const [lines, pill] = await Promise.all([rankLines(builderId, o), pillOf(builderId)]);
+  const [lines, pill, earned] = await Promise.all([
+    rankLines(builderId, o),
+    pillOf(builderId),
+    earnedUsd(builderId, now).catch((err: unknown) => {
+      console.error('[profile] earned', err instanceof Error ? err.name : 'error');
+      return NO_EARNED;
+    }),
+  ]);
+  const backers = pill ? await backersOfBuilder(builderId) : 0;
   const [live] = await db<{ score: number; parts: unknown }[]>`
     SELECT score::float8 AS score, parts FROM builder_live WHERE builder_id = ${builderId}`;
   const scored = lines.bench !== null && live;
@@ -254,7 +272,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     name: displayName(p.x_name, p.x_handle),
     avatar: avatarUrl(p.x_avatar_url),
     initials: initialsOf(p.x_handle),
-    backing: pill ? { symbol: pill.symbol, url: pill.url, backers: 0, earned_usd: 0 } : null,
+    backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
+    earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },
     bench: lines.bench,
     line: lines.line,
     chainLines: lines.chains,

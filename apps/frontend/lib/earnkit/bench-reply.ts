@@ -45,7 +45,7 @@ export const upcomingLine = (title: string, prize: string, note: string) => `${t
  * either yet, "Backing open. Your page: ...". Pure.
  */
 export const backingLine = (backers: number, earned: number, page: string) =>
-  backers === 0 && earned === 0 ? `Backing open. Your page: ${page}` : `Backing: ${backers} backers, $${earned.toLocaleString('en-US')} earned. Your page: ${page}`;
+  backers === 0 && earned === 0 ? `Backing open. Your page: ${page}` : `Backing: ${backers} ${backers === 1 ? 'backer' : 'backers'}, $${earned.toLocaleString('en-US')} earned. Your page: ${page}`;
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** R12: a ranked project no open program fits (only fits are named for it). */
 export const noFitLine = (name: string) => `No open program fits ${name} yet. I'll look again next week.`;
@@ -106,6 +106,8 @@ export const STATE_COPY = {
     ask: (target: string | null = null) => target ?? SHIP_STEP,
   },
 } as const;
+/** v3 Stage 2 (spec 5.2): "Earned $340." after the ranked score line, only from $1 (a statement, never a step). Pure. */
+export const earnedWords = (usd: number) => `Earned $${Math.round(usd).toLocaleString('en-US')}.`;
 /** Scoring and clarity R3: "Originality 72." beside the score line (computed only; never a rank). Pure. */
 export const originalityWords = (n: number) => `Originality ${n}.`;
 /** A15: not counted, when the install link can't help. */
@@ -137,6 +139,8 @@ export type BenchView = {
   share: string | null;
   /** Scoring and clarity R3: Originality (0 to 100, never ranked), after the score line when ranked; null until computed. */
   originality: number | null;
+  /** v3 Stage 2 (spec 5.2): Earned (earned.ts paid_usd: fees claimed plus announced prizes), after the ranked score line from $1. */
+  earned?: number;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
   /** The state's action link: the sign-in link (signed_out), the repo picker (no_project), the install link (not_counted, no variant) or the share link (ranked, the weekly moment). */
@@ -177,7 +181,8 @@ function standLine(v: BenchView): string {
   if (v.state === 'not_counted' && v.variant) return VARIANT_COPY[v.variant].stand(name);
   if (v.state === 'signed_out' || v.state === 'no_project') return NOT_ON_BENCH;
   if (v.state === 'not_counted') return STATE_COPY.not_counted.stand(name);
-  const line = STATE_COPY.ranked.stand(name, v.score, v.rank);
+  const stand = STATE_COPY.ranked.stand(name, v.score, v.rank);
+  const line = Math.round(v.earned ?? 0) > 0 ? `${stand} ${earnedWords(v.earned!)}` : stand;
   return v.originality !== null && v.score !== null ? `${line} ${originalityWords(v.originality)}` : line;
 }
 function fundLines(v: BenchView): string[] {

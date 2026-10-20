@@ -2,6 +2,8 @@ import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
 import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
+import { raisingEnabled } from './builder-score-flag';
+import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fees';
 
 /**
  * Public stats (v2.5 §4) for jenil.ai: /api/stats, cached 10 min. Database aggregates only: no
@@ -32,6 +34,9 @@ export const STATS_KEYS = [
   'points_total',
   'applications',
   'accepted',
+  'backing_open',
+  'backers',
+  'earned_usd',
 ] as const;
 
 /**
@@ -43,13 +48,17 @@ export const WIN_RATE_MIN_LABELLED = 30;
 
 /** Every stat but `open_pools_plus` and `open_money_text` is a number. */
 export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
+/** v3 Stage 2: the coin-facing stats, present only while EARNKIT_RAISING is on (absent, never 0, with it off). */
+export type BackingStatsKey = 'backing_open' | 'backers';
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
  * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
  * shows for it ("$115K in grants and prizes open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
  * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
-export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
+export type PublicStats = Record<Exclude<StatsNumberKey, BackingStatsKey>, number> & Partial<Record<BackingStatsKey, number>> & {
+  open_money_text: string | null; open_pools_plus: boolean;
+};
 
 /** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
 export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoneyRow } from './pool';
@@ -84,6 +93,9 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   points_total: 'points awarded for approved weeks',
   applications: 'applications the builder told EarnKit about',
   accepted: 'of which accepted or funded (self-reported)',
+  backing_open: 'projects with backing open (only while EARNKIT_RAISING is on)',
+  backers: 'distinct wallets that received an open backing\'s coin (only while EARNKIT_RAISING is on)',
+  earned_usd: 'earned by EarnKit builders: creator fees claimed plus announced prizes (USD)',
 };
 
 /** v2.9 E20: the won line lives in pool.ts (no imports, so present.ts can use it without a cycle). */
@@ -139,6 +151,14 @@ type Row = {
   applications?: number;
   /** v3 Stage 2: of those, accepted or funded (self-reported). */
   accepted?: number;
+  /** v3 Stage 2: launched coins with backing open (raising_at set), no test installation's. */
+  backing_open?: number;
+  /** v3 Stage 2: distinct wallets that received those coins (coin_backers). */
+  backers?: number;
+  /** v3 Stage 2: WETH claimed to the creator wallets of non-test coins (creator_fees). */
+  creator_fees_wei?: string | null;
+  /** v3 Stage 2: the WETH price earned_usd values creator_fees_wei at (fees.ts cachedWethUsd); null: unknown. */
+  weth_usd?: number | null;
 };
 
 /**
@@ -156,7 +176,7 @@ type Row = {
  * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
  * routed to the Safe as before. Pure.
  */
-export function statsFrom(r: Row, now = new Date()): PublicStats {
+export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
   const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
@@ -189,6 +209,10 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     points_total: Number(r.points_total ?? 0),
     applications: Number(r.applications ?? 0),
     accepted: Number(r.accepted ?? 0),
+    // v3 Stage 2: coin-facing, so only with EARNKIT_RAISING on (absent with it off).
+    ...(raising && { backing_open: Number(r.backing_open ?? 0), backers: Number(r.backers ?? 0) }),
+    // v3 Stage 2 (spec 5.2): Earned over people, fees claimed (at the WETH price; none while it is unknown) plus announced prizes.
+    earned_usd: Math.round((r.weth_usd ? wethToUsd(big(r.creator_fees_wei), r.weth_usd) : 0) + Number(r.builders_won_usd ?? 0)),
   };
 }
 
@@ -299,8 +323,19 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- v3 Stage 2 (spec 5.3): applications the builder told EarnKit about, one per person and program (a person: the
       -- installation's group), never a test installation's; accepted: of those, accepted or funded (self-reported).
       (${applicationsSql(db, ids, ['applied', 'accepted', 'funded', 'rejected'])})::int AS applications,
-      (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted`;
-  return statsFrom(r, now);
+      (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted,
+      -- v3 Stage 2 (spec 5.3 Route 2): open backings (launched, raising_at set) and their coins' distinct backers, never a
+      -- test installation's coin; creator fees claimed to each non-test coin's creator wallet (creator_fees).
+      (SELECT count(*) FROM projects p WHERE p.token_status = 'launched' AND p.raising_at IS NOT NULL
+        AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS backing_open,
+      (SELECT count(*) FROM coin_backers b WHERE b.coin IN (SELECT lower(p.coin_address) FROM projects p
+        WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND p.raising_at IS NOT NULL
+          AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)))::int AS backers,
+      (SELECT sum(f.amount_wei) FROM creator_fees f JOIN projects p ON lower(p.coin_address) = f.coin
+        WHERE f.wallet = ${creatorWalletSql(db)} AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::text AS creator_fees_wei`;
+  // The WETH price only when there are claimed fees to value (fees.ts: cached, at most a short wait).
+  const weth_usd = BigInt(r.creator_fees_wei ?? '0') > 0n ? await cachedWethUsd(now.getTime(), PRICE_WAIT_MS, db) : null;
+  return statsFrom({ ...r, weth_usd }, now);
 }
 
 /** v3 Stage 2: distinct (person, program) rows of builder_program_status with one of `statuses`, no test installation's. */

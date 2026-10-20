@@ -256,7 +256,7 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.equal(j.handle, b.handle);
   assert.equal(j.page, `https://earnkit.com/${b.handle}`);
   assert.deepEqual(j.backing, { symbol: sym, url, backers: 0, earned_usd: 0 });
-  assert.deepEqual(Object.keys(j).sort(), ['backing', 'handle', 'last_shipped_days', 'last_week', 'name', 'page', 'points', 'rank', 'shipping', 'stopped_shipping', 'streak', 'total'].sort());
+  assert.deepEqual(Object.keys(j).sort(), ['backing', 'earned', 'handle', 'last_shipped_days', 'last_week', 'name', 'page', 'points', 'rank', 'shipping', 'stopped_shipping', 'streak', 'total'].sort());
   assert.equal(j.last_week?.week, lastFinishedMonday(new Date()));
   assert.equal(j.stopped_shipping, false);
   // The route's answer (route.ts passes its cached read; here the read itself).

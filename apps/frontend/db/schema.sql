@@ -1709,3 +1709,12 @@ ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS asked_at timestamptz
 ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
   CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five','first_week'));
+
+-- v3 Stage 2: backers (distinct wallets that received a coin, excluding the pool, the locker and zero) and creator fees paid.
+-- backers.ts indexBackers reads each launched Base coin's Transfer logs from its cursor (start: the launch block);
+-- earned.ts indexCreatorFees reads the FeeLocker's ClaimTokens logs (feeOwner = the coin's creator wallet, token WETH),
+-- its cursor per coin in bonus_cursor ('creator_fees:<coin>'). Additive; a rerun is a no-op.
+CREATE TABLE IF NOT EXISTS coin_backers (coin text NOT NULL, wallet text NOT NULL, first_block bigint NOT NULL, PRIMARY KEY (coin, wallet));
+CREATE TABLE IF NOT EXISTS coin_backer_cursor (coin text PRIMARY KEY, block bigint NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS creator_fees (tx_hash text NOT NULL, log_index integer NOT NULL, coin text NOT NULL, wallet text NOT NULL, amount_wei numeric NOT NULL, block_number bigint NOT NULL, block_time timestamptz NOT NULL, PRIMARY KEY (tx_hash, log_index));
+CREATE INDEX IF NOT EXISTS creator_fees_coin ON creator_fees (coin);

@@ -79,6 +79,9 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['person_wallets', 'wallet'],
   // v2.12.1 T10 fix round 1: the wallet a coin line showed (the row is deleted with the page data).
   ['coin_moments', 'wallet'],
+  // v3 Stage 2: a wallet that received a coin (backers.ts), and a creator wallet's claimed fees (earned.ts).
+  ['coin_backers', 'wallet'],
+  ['creator_fees', 'wallet'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

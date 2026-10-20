@@ -49,7 +49,49 @@ let source: FeeSource = chain;
 /** Tests and the e2e: replace the source (null restores the chain). */
 export const setFeeSource = (s: FeeSource | null) => {
   source = s ?? chain;
+  priceMemo = null;
+  priceFailedAt = null;
 };
+
+/** v3 Stage 2 (earned.ts, stats.ts): the WETH price, read at most once per FEE_TTL_MS per process. */
+let priceMemo: { usd: number; at: number } | null = null;
+let priceFailedAt: number | null = null;
+let priceRead: Promise<number | null> | null = null;
+/** How long a reply waits on a fresh WETH price before it uses the last known one. */
+export const PRICE_WAIT_MS = 1_500;
+
+/**
+ * v3 Stage 2: the WETH price in USD (the fee source's, as refreshFees reads it), cached FEE_TTL_MS per process. A
+ * missing or stale price is read, waited on at most `waitMs`; past that, or after a failed read (not retried for
+ * FEE_RETRY_MS), the price the token_fees cache implies (its newest row with WETH), else the last one read, else null.
+ */
+export async function cachedWethUsd(now = Date.now(), waitMs = PRICE_WAIT_MS, db: Db = sql()): Promise<number | null> {
+  if (priceMemo && now - priceMemo.at < FEE_TTL_MS) return priceMemo.usd;
+  if (priceFailedAt === null || now - priceFailedAt >= FEE_RETRY_MS) {
+    priceRead ??= source
+      .wethUsd()
+      .then((usd) => {
+        priceMemo = { usd, at: Date.now() };
+        priceFailedAt = null;
+        return usd;
+      })
+      .catch((err: unknown) => {
+        console.error('[fees] weth price', err instanceof Error ? err.name : 'error');
+        priceFailedAt = Date.now();
+        return null;
+      })
+      .finally(() => {
+        priceRead = null;
+      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const fresh = await Promise.race([priceRead, new Promise<null>((r) => (timer = setTimeout(() => r(null), waitMs)))]);
+    clearTimeout(timer);
+    if (fresh !== null) return fresh;
+  }
+  const [r] = await db<{ usd: number | null }[]>`
+    SELECT (usd / (weth::numeric / 1e18))::float8 AS usd FROM token_fees WHERE CASE WHEN weth ~ '^[0-9]+$' THEN weth::numeric > 0 ELSE false END AND usd > 0 ORDER BY read_at DESC LIMIT 1`;
+  return r?.usd ?? priceMemo?.usd ?? null;
+}
 
 /** WETH wei at a USD price. Pure; exported for tests. */
 export const wethToUsd = (wei: bigint, price: number) => (Number(wei) / 1e18) * price;
@@ -121,3 +163,10 @@ export async function launchedCreatorWallets() {
     WHERE token_url LIKE 'https://tokens.fun/coin/%' AND COALESCE(creator_wallet, payout_wallet) IS NOT NULL`;
   return rows.map((r) => r.wallet);
 }
+
+/**
+ * v3 Stage 2 (earned.ts, stats.ts): a coin's creator wallet as SQL (the FeeLocker's fee owner for the creator slot):
+ * the slot's recipient as read onchain (bonus-ledger.ts feeRecipients), else the wallet the launch used (creator_wallet,
+ * else payout_wallet, as launchedCreatorWallets). `p` is a projects row.
+ */
+export const creatorWalletSql = (db: Db) => db`lower(COALESCE(p.fee_recipients->>'creator', p.creator_wallet, p.payout_wallet))`;

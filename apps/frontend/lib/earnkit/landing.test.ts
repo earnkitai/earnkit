@@ -47,6 +47,7 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   points_total: 0,
   applications: 0,
   accepted: 0,
+  earned_usd: 0,
   ...o,
 });
 const now = new Date('2026-10-06T12:00:00Z');

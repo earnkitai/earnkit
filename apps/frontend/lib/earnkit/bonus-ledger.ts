@@ -77,6 +77,10 @@ export const STORE_TOKENS = parseAbiItem(
 export const CLAIMED_REWARDS = parseAbiItem(
   'event ClaimedRewards(address indexed token, uint256 amount0, uint256 amount1, uint256[] rewards0, uint256[] rewards1)',
 );
+/** v3 Stage 2 (earned.ts): the FeeLocker pays a claim to its owner (tokens.fun lib/fees/abi.ts, Clanker v4 on Base). */
+export const CLAIM_TOKENS = parseAbiItem('event ClaimTokens(address indexed feeOwner, address indexed token, uint256 amountClaimed)');
+/** v3 Stage 2 (backers.ts): the ERC-20 Transfer event. */
+export const ERC20_TRANSFER = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const STORE_TOPIC = toEventSelector(STORE_TOKENS);
 const CLAIMED_TOPIC = toEventSelector(CLAIMED_REWARDS);
 export const FEE_LOCKER_ABI = parseAbi([
@@ -154,6 +158,12 @@ export type BonusRpc = PayoutRpc & {
    * only across the blocks of a range's Safe deposits.
    */
   claimLogs?: (from: bigint, to: bigint) => Promise<TxLog[]>;
+  /** v3 Stage 2 (backers.ts): `token`'s ERC-20 Transfer logs in `from..to`. Absent: indexBackers is skipped. */
+  transferLogs?: (token: Hex, from: bigint, to: bigint) => Promise<TxLog[]>;
+  /** v3 Stage 2 (backers.ts): the hook of `coin`'s pool (its locker's tokenRewards poolKey), lowercase; null when no locker knows it. */
+  poolHooks?: (coin: Hex) => Promise<string | null>;
+  /** v3 Stage 2 (earned.ts): the FeeLocker's ClaimTokens logs with feeOwner = `owner` and token = WETH. Absent: indexCreatorFees is skipped. */
+  claimTokenLogs?: (owner: Hex, from: bigint, to: bigint) => Promise<TxLog[]>;
 };
 /** v2.13.2: a raw log with its transaction and block. */
 export type TxLog = RawLog & { txHash: Hex; blockNumber: bigint };
@@ -222,6 +232,20 @@ export function bonusRpc(url = process.env.BASE_RPC_URL, chain: BonusChain = BAS
     safeStoreLogs: async (fromBlock, toBlock, owner) =>
       (await c.getLogs({ address: chain.feeLocker, event: STORE_TOKENS, args: { feeOwner: owner, token: chain.weth }, fromBlock, toBlock })).map(txLog),
     claimLogs: async (fromBlock, toBlock) => (await c.getLogs({ address: chain.lockers, event: CLAIMED_REWARDS, fromBlock, toBlock })).map(txLog),
+    transferLogs: async (token, fromBlock, toBlock) => (await c.getLogs({ address: token, event: ERC20_TRANSFER, fromBlock, toBlock })).map(txLog),
+    poolHooks: async (coin) => {
+      for (const locker of chain.lockers) {
+        // A locker that doesn't know the coin returns an empty split or reverts; a transport error throws.
+        const r = await c.readContract({ address: locker, abi: LOCKER_ABI, functionName: 'tokenRewards', args: [coin] }).catch((err: unknown) => {
+          if (isRevert(err)) return null;
+          throw err;
+        });
+        if (r && r.rewardRecipients.length > 0) return lower(r.poolKey.hooks);
+      }
+      return null;
+    },
+    claimTokenLogs: async (owner, fromBlock, toBlock) =>
+      (await c.getLogs({ address: chain.feeLocker, event: CLAIM_TOKENS, args: { feeOwner: owner, token: chain.weth }, fromBlock, toBlock })).map(txLog),
   };
 }
 
@@ -909,7 +933,8 @@ async function countIndexRun(ok: boolean, id: string = CURSOR) {
 }
 
 /**
- * The cron step: index, claim, sweep, the creator and MINI claims and the Safe index, under one lease (a concurrent run gets 'busy').
+ * The cron step: index, claim, sweep, the creator and MINI claims, the Safe index, then (v3 Stage 2) the backers and creator
+ * fees indexes, under one lease (a concurrent run gets 'busy').
  * v2.9 D17: first the payout wallet's ETH balance (`gas`; under gasMinWei() it is `low`, which the cron escalates).
  * Skipped without a usable CAMPAIGN_PAYOUT_PRIVATE_KEY (missing, or malformed: `problem`) or off
  * Base mainnet; the cron escalates a skip once the bonus can earn (Ruling 20). One step's failure
@@ -968,6 +993,14 @@ export async function runBonusLedger(deps: BonusDeps = {}) {
     // v2.13.2 (2), review 1c: the Safe's own deposits from EarnKit coins (both splits), for /api/stats,
     // last, in its own slice, so the money steps always run first.
     Object.assign(out, await safeIndexStep(d));
+    // v3 Stage 2: the backers and the creator fees claimed (backers.ts, earned.ts), each in its own slice
+    // (INDEXER_MS, never past the run's deadline), after the money steps; each fails soft per coin.
+    const { indexBackers, INDEXER_MS } = await import('./backers');
+    const { indexCreatorFees } = await import('./earned');
+    const slice = () => Math.min(toDeadline(d), Date.now() + INDEXER_MS);
+    const now = d.now ?? new Date();
+    await step('backers_index', () => indexBackers(now, { rpc, chain, deadline: slice(), sleep: d.sleep }));
+    await step('creator_fees_index', () => indexCreatorFees(now, { rpc, chain, deadline: slice(), sleep: d.sleep }));
     return out;
   }, leaseMs);
   return r === 'busy' ? { skipped: 'busy' } : r;

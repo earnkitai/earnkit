@@ -1948,3 +1948,13 @@ removed), `app/terms/page.tsx` (revalidate 600), `RaisingPill.tsx` ("Backing · 
 (`FILTER_BACKED`), `BenchRowItem.tsx`, `card-response.tsx`, `llms/v213.txt` and `app/llms.txt/route.ts`,
 `fixtures/banned-words.ts` (`community round` banned; the offer's own risk words allowed), `db/schema.sql` (the
 `coin_moments` CHECK lists `first_week` in both re-adds). New test: `v3-backing.test.ts`.
+
+v3 Stage 2 Task 4 (Backers, Earned and "waiting"; see the architecture guide's "v3 Stage 2 (Task 4)" section): new
+`backers.ts` (`indexBackers`, `backersOf`, `backersOfBuilder`, `launchBlock`, `BACKER_EXCLUDED`, `INDEXER_MS`,
+`INDEX_CHUNK`, `CALLS_PER_COIN`) and `earned.ts` (`indexCreatorFees`, `earnedUsd`, `Earned`, `feesCursor`). Changed:
+`bonus-ledger.ts` (`CLAIM_TOKENS`, `ERC20_TRANSFER`; `BonusRpc.transferLogs/poolHooks/claimTokenLogs`; runBonusLedger
+steps `backers_index`, `creator_fees_index`), `fees.ts` (`cachedWethUsd`, `PRICE_WAIT_MS`, `creatorWalletSql`),
+`bench-data.ts` (`ProfileData.earned`, backing counts), `BenchProfileView.tsx` (`Earned`, `dollars`, `waitingLine`),
+`bench-reply.ts` (`earnedWords`, `BenchView.earned`), `bench-find.ts` (earned and the backing counts),
+`builder-json.ts` (`earned`), `stats.ts` (`backing_open`, `backers`, `earned_usd`), `db/schema.sql` (`coin_backers`,
+`coin_backer_cursor`, `creator_fees`). New test: `v3-earned.test.ts`.

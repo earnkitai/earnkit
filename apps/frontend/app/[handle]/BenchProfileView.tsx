@@ -125,6 +125,28 @@ function Rank({
   );
 }
 
+/** v3 Stage 2 (spec 5.2): whole dollars, "$1,240". Pure. */
+export const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
+/** v3 Stage 2: the small line under Earned, the fees still in the FeeLocker (never summed into Earned). Pure. */
+export const waitingLine = (usd: number) => `and ${dollars(usd)} waiting`;
+
+/**
+ * v3 Stage 2 (spec 5.2): Earned, the third number (after the Shipping ring and the rank): money that reached the
+ * builder (fees claimed plus announced prizes), "$0" when nothing yet; under it "and $X waiting" from $1 waiting.
+ */
+function Earned({ paid, waiting }: { paid: number; waiting: number }) {
+  return (
+    <div className="min-w-0">
+      <p
+        data-ek-earned=""
+        className="whitespace-nowrap font-funnel-display text-[2.25rem] font-medium leading-none tracking-[-0.04em] text-ek-text tabular-nums md:text-[3.5rem]"
+      >{dollars(paid)}</p>
+      <p className="mt-2 font-funnel-sans text-sm text-ek-muted md:mt-3 md:text-base">Earned</p>
+      {waiting >= 1 ? <p className="mt-1 font-funnel-sans text-xs text-ek-muted md:text-sm">{waitingLine(waiting)}</p> : null}
+    </div>
+  );
+}
+
 /** Scoring and clarity R3: Originality, one small line under the Shipping ring (never a second ring, never ranked). */
 function Originality({ value }: { value: number }) {
   return (
@@ -210,7 +232,8 @@ const TAB_OFF = 'text-ek-muted hover:bg-ek-chip hover:text-ek-text';
  * v2.13 spec "Profile" (R10, R11, R12), profile-whoop v2 layout on the near-black page: the header
  * (photo, name, @handle, the Backing pill); the hero card, the one Shipping ring (0 to 100) beside
  * the rank (the percentile or "#N" large, its words, the why sentence, then each chain's line with
- * its logo; scoring and clarity: no per-part rings, one score); the 52-week shipping grid with the streak;
+ * its logo; scoring and clarity: no per-part rings, one score), then (v3 Stage 2) Earned, the third number, with
+ * "and $X waiting" under it; the 52-week shipping grid with the streak;
  * then two tabs as plain links: the Ship log (default; long cards, newest first, the Started card
  * last) and the Project. A quiet sources line at the end.
  * v2.13.1 O3: while the one project is Confirming, one calm card in place of the score and the grid,
@@ -230,6 +253,8 @@ export default function BenchProfileView({
   // Launch ready L10: no project and no week with code: nothing to chart yet.
   const empty = d.project === null && d.score === null && !d.grid.some((g) => g.on);
   const codeIn = shippedWords(d.grid.filter((g) => g.on).length, d.grid.length);
+  // v3 Stage 2 (spec 5.2): Earned while ranked ("$0" with nothing yet), or once anything reached the builder.
+  const earnedShown = d.bench !== null || d.earned.paid_usd >= 0.5;
   return (
     <>
     <div className={`${COLUMN} pt-5 md:pt-8`}>
@@ -251,9 +276,9 @@ export default function BenchProfileView({
           <ConfirmingCard line={noProjectLine(d.name)} pulse={false} />
         ) : (
           <>
-            {d.bench || d.score !== null ? (
+            {d.bench || d.score !== null || earnedShown ? (
               <div
-                className={`mt-5 flex items-center gap-6 p-6 md:mt-6 md:gap-14 md:p-10 ${SURFACE}`}
+                className={`mt-5 flex flex-wrap items-center gap-6 p-6 md:mt-6 md:flex-nowrap md:gap-14 md:p-10 ${SURFACE}`}
               >
                 {d.score !== null ? (
                   <div className="flex shrink-0 flex-col items-center gap-3 md:gap-4">
@@ -271,6 +296,7 @@ export default function BenchProfileView({
                   </div>
                 ) : null}
                 {d.bench ? <Rank line={d.bench} scoreLine={d.line} why={d.why} target={d.target} chains={d.chainLines} /> : null}
+                {earnedShown ? <Earned paid={d.earned.paid_usd} waiting={d.earned.waiting_usd} /> : null}
               </div>
             ) : null}
             {/* v3 Stage 2 (spec 5.3 Route 2): backing open: one secondary button under the three numbers, to the coin's tokens.fun page. */}

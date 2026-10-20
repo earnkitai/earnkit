@@ -14,6 +14,8 @@ import { rankLines, type RankLines } from './bench-rank';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
 import { pillOf, raisingCoin, showRaisingLine } from './raising';
+import { backersOfBuilder } from './backers';
+import { earnedUsd } from './earned';
 import { raisingEnabled } from './builder-score-flag';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
@@ -446,10 +448,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
   }
 
-  // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step.
-  // Backers and fees earned come with Task 4 (0 until then).
-  if (ranked && handle && (await pillOf(id).catch(logged('backing pill'))))
-    fund = [...fund, { kind: 'backing', backers: 0, earned_usd: 0, page: `${siteUrl()}${pagePath(handle)}` }];
+  // v3 Stage 2 (spec 5.2): Earned (fees claimed plus announced prizes), for the ranked stand line.
+  const earned = ranked ? await earnedUsd(id, now).catch(logged('earned')) : null;
+  // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step,
+  // with its backers (backers.ts) and the creator fees claimed (earned.ts fees_usd).
+  if (ranked && handle && (await pillOf(id).catch(logged('backing pill')))) {
+    const backers = (await backersOfBuilder(id).catch(logged('backers'))) ?? 0;
+    fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}` }];
+  }
 
   // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
   if (ranked) {
@@ -469,7 +475,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
-    target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
+    earned: earned?.paid_usd ?? 0, target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
   };
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
