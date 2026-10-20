@@ -18,9 +18,10 @@ export const BENCH_HERO_SUBTITLE =
 export default function Hero({ featured }: { featured: FeaturedData | null }) {
   return (
     <section aria-label="EarnKit" className={`${COLUMN} pb-14 pt-12 md:pb-24 md:pt-24`}>
-      <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] md:items-center lg:gap-20">
+      {/* Review round 1: with no card, the words take the whole column (no empty right half). */}
+      <div className={featured ? 'grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] md:items-center lg:gap-20' : ''}>
         <div>
-          <h1 className={`${H1} max-w-[16ch]`}>{BENCH_HERO_TITLE}</h1>
+          <h1 className={`${H1} ${featured ? 'max-w-[16ch]' : ''}`}>{BENCH_HERO_TITLE}</h1>
           <p className={LEDE}>{BENCH_HERO_SUBTITLE}</p>
           <div className="mt-8 md:mt-10">
             <InstallButton className={BTN_PRIMARY} />

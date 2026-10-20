@@ -25,7 +25,7 @@ export default function ProgramLogo({ logo, title, size = 48 }: { logo: string |
         alt={title}
         width={size}
         height={size}
-        className="flex-shrink-0 rounded-full bg-ek-text/90 object-contain p-1.5"
+        className="flex-shrink-0 object-contain"
         style={{ width: size, height: size }}
       />
     );

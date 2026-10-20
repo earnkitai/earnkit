@@ -175,7 +175,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-to-agent-title"
-      className="fixed inset-0 z-[100] bg-ek-page/85 sm:flex sm:items-center sm:justify-center sm:p-4"
+      className="fixed inset-0 z-[100] bg-ek-glass sm:flex sm:items-center sm:justify-center sm:p-4"
       onClick={onClose}
     >
       <div

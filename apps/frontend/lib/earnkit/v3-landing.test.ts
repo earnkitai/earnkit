@@ -1,6 +1,6 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -32,6 +32,7 @@ const ROW = { rank: 1, line: '#1 of 12 builders this week', points: 62, handle: 
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '12 commits'], summary: 'Shipped the fridge import and a weekly plan.', pinned: false, confirmed: true };
 const FEATURED: FeaturedData = {
   f: { handle: 'jenilt', name: 'Jenil Thakker', avatar: null, bench: 'Shipping 72 · #3 of 40 builders this week', project: 'EarnKit', streak: 6, raising: null },
+  rank: '#3',
   log: [
     { week: '2026-10-12', summary: 'Shipped the weekly ship log and the leaderboard rows.' },
     { week: '2026-10-05', summary: 'Added the Money tab and the backing button.' },
@@ -105,12 +106,17 @@ test('(f) FeaturedCard: the handle and name, the three numbers, the streak, two 
   for (const s of ['72', 'Shipping', '#3', 'Rank', '$1,240', 'Earned', '6 weeks in a row', 'Shipped the weekly ship log', 'Added the Money tab']) assert.ok(t.includes(s), s);
   assert.equal((h.match(/<a /g) ?? []).length, 1, 'one link');
   assert.match(h, /<a [^>]*href="\/jenilt"/);
-  // Without Earned (no Stage 2 field), the number is omitted, never "$0".
-  const two = text(html(React.createElement(FeaturedCard, { ...FEATURED, earned: null })));
+  assert.match(h, /<ul class="grid[^"]*grid-cols-3/);
+  // Review round 1: nothing earned (null) means no Earned number, never "$0", and a two-column grid.
+  const twoHtml = html(React.createElement(FeaturedCard, { ...FEATURED, earned: null }));
+  const two = text(twoHtml);
   assert.ok(!two.includes('Earned') && !two.includes('$'));
-  // "Top 4%" leads the rank the same way.
-  const top = text(html(React.createElement(FeaturedCard, { ...FEATURED, f: { ...FEATURED.f, bench: 'Shipping 72 · Top 4% of builders this week' } })));
+  assert.match(twoHtml, /<ul class="grid[^"]*grid-cols-2/);
+  assert.doesNotMatch(twoHtml, /grid-cols-3/);
+  // The rank is structured data ("Top 4%" the same way); no rank, one column.
+  const top = text(html(React.createElement(FeaturedCard, { ...FEATURED, rank: 'Top 4%' })));
   assert.ok(top.includes('Top 4%') && top.includes('Rank'));
+  assert.match(html(React.createElement(FeaturedCard, { ...FEATURED, rank: null, earned: null })), /grid-cols-1/);
   assert.doesNotMatch(h, /uppercase|gradient|shadow/);
   // The landing shows it only with data.
   assert.match(page(full), /data-featured=""/);
@@ -142,6 +148,12 @@ test('(i) the install modal: a flat sheet, a bottom sheet on phones, hairline ta
   assert.doesNotMatch(h, /rounded-full pl-3 pr-4/, 'no pill tabs');
   // The link's Copy is the primary button.
   assert.match(h, /<button[^>]*aria-label="Copy the EarnKit link"[^>]*class="[^"]*bg-ek-brand/);
+  // Review round 1: the backdrop is a token that carries alpha (ek-glass). A `/NN` opacity modifier on a var() token
+  // emits no CSS at all (tailwind.config.ts has no <alpha-value>), so none may appear anywhere under app/.
+  const overlay = h.match(/<div role="dialog"[^>]*class="([^"]*)"/)?.[1] ?? '';
+  assert.match(overlay, /(^| )bg-ek-glass( |$)/);
+  const files = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? files(p) : /\.tsx?$/.test(n) ? [p] : []; });
+  for (const f of files(join(FRONTEND, 'app'))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b(?:bg|text|border|ring|from|to)-ek-[a-z-]+\/\d/, f);
 });
 
 test('(j) ProgramRow: one link per row with the title, the award and the chips in order', () => {
@@ -182,9 +194,10 @@ test('(d) featured: a listed ranked builder with the log; null when hidden, held
   assert.equal(on.featured.f.name, 'Jenil Thakker');
   assert.match(on.featured.f.bench ?? '', /^Shipping 72 · #\d/);
   assert.equal(on.featured.points, 72);
+  assert.match(on.featured.rank ?? '', /^#\d/);
   assert.deepEqual(on.featured.log.map((l) => l.week), ['2026-10-12', '2026-10-05']);
   assert.equal(on.featured.log[0].summary, 'Shipped week 0 of the site.');
-  assert.equal(typeof on.featured.earned, 'number');
+  assert.equal(on.featured.earned, null, 'nothing earned: null, never 0');
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'plain JSON');
   // The feed rows are the last finished week's, at most 6.
   assert.ok(on.bench && on.bench.cards.length <= 6);
@@ -201,6 +214,17 @@ test('(d) featured: a listed ranked builder with the log; null when hidden, held
   assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: unranked }, () => readLanding(now))).featured, null, 'unranked');
   assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: `nobody${RUN}` }, () => readLanding(now))).featured, null, 'missing');
   assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: 'not a handle!' }, () => readLanding(now))).featured, null, 'malformed');
+});
+
+test('(l) review round 1: a failing featured read is logged and leaves featured null; the bench and the tiles still arrive', dbTest, async (t) => {
+  const logged = t.mock.method(console, 'error', () => {});
+  const l = await readLanding(now, { featured: () => Promise.reject(new Error('featured boom')) });
+  assert.equal(l.featured, null);
+  assert.ok(l.bench && Array.isArray(l.bench.rows) && Array.isArray(l.tiles));
+  assert.ok(logged.mock.calls.some((c) => c.arguments[0] === '[landing] featured'), 'logged');
+  // The cache key names the featured handle, so a changed handle never serves the old card.
+  const { landingCacheKey } = await import('../../app/lib/landing-cache');
+  await withEnv({ LANDING_FEATURED_HANDLE: 'someone', EARNKIT_RAISING: undefined }, async () => assert.match(landingCacheKey(), /^landing-v3-someone/));
 });
 
 after(async () => {

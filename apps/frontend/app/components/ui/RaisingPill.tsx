@@ -7,7 +7,7 @@ export default function RaisingPill({ symbol, url, size = 'md' }: { symbol: stri
       target="_blank"
       rel="noopener noreferrer"
       data-pill="backing"
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-ek-accent/60 bg-ek-surface font-funnel-sans font-medium text-ek-accent ${box}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-ek-line-strong bg-ek-surface font-funnel-sans font-medium text-ek-accent ${box}`}
     >
       Backing · ${symbol}
     </a>

@@ -10,7 +10,7 @@ import { benchCardFacts, benchRows, profileData, type BenchCardFacts, type Bench
 import { raisingEnabled } from './builder-score-flag';
 import { feedWeeks, type FeedCard } from './feed';
 import { resolveHandle } from './profiles';
-import type { BenchChain } from './rank';
+import { rankSplit, type BenchChain } from './rank';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
 export { byRelevance };
@@ -76,11 +76,12 @@ export type Landing = {
 };
 
 /**
- * v3 Stage 3: what the landing's FeaturedCard shows (plain JSON): the share card's facts (the name, @handle, the score
- * line, the project, the streak), the two latest log lines, `points` (the Shipping number, as BenchRow.points) and
- * `earned` (profileData.earned.paid_usd, whole dollars; null when the Stage 2 field is missing, so the card omits it).
+ * v3 Stage 3: what the landing's FeaturedCard shows (plain JSON): the share card's facts (the name, @handle, the
+ * project, the streak), `rank` (the rank line's lead, "#3" or "Top 4%", rank.ts rankSplit; null unranked), the two
+ * latest log lines, `points` (the Shipping number, as BenchRow.points) and `earned` (profileData.earned.paid_usd,
+ * whole dollars; null at 0 or without the Stage 2 field, so the card omits the number: never "$0", review round 1).
  */
-export type FeaturedData = { f: BenchCardFacts; log: { week: string; summary: string | null }[]; points: number; earned: number | null };
+export type FeaturedData = { f: BenchCardFacts; rank: string | null; log: { week: string; summary: string | null }[]; points: number; earned: number | null };
 
 /** The landing's Feed section shows at most this many rows of the last finished week. */
 export const FEED_ROWS = 6;
@@ -160,22 +161,32 @@ async function readFeatured(now: Date): Promise<FeaturedData | null> {
   if (!d || d.score === null) return null;
   return {
     f,
+    rank: d.bench ? rankSplit(d.bench).lead : null,
     // The two latest weeks with a line (the summary, else the builder's note); a chips-only week shows nothing worth a row.
     log: d.log.filter((c) => !c.started && (c.summary || c.text)).slice(0, FEATURED_LOG).map((c) => ({ week: c.week, summary: c.summary ?? c.text ?? null })),
     points: d.score,
-    earned: Math.round(d.earned.paid_usd),
+    earned: d.earned.paid_usd > 0 ? Math.round(d.earned.paid_usd) : null,
   };
 }
 
+/** Test seam: readLanding's featured read. */
+export type LandingDeps = { featured?: (now: Date) => Promise<FeaturedData | null> };
+
 /**
- * The landing page's one read: open programs, the public stats and the Bench parts. It rejects when
- * the database is unreachable (never empty data): the caller renders without the live parts
- * (Ruling 21 (plan), Review Focus 1).
+ * The landing page's one read: open programs, the public stats, the Bench parts and the featured builder. It rejects
+ * when the database is unreachable (never empty data): the caller renders without the live parts (Ruling 21 (plan),
+ * Review Focus 1). Review round 1: a failing featured read alone is logged and leaves `featured` null; the hero's
+ * card never takes the landing or /programs down.
  */
-export async function readLanding(now = new Date()): Promise<Landing> {
+export async function readLanding(now = new Date(), deps: LandingDeps = {}): Promise<Landing> {
   const cards: Card[] = await listPrograms();
   const stats = await readStats(now);
-  return { ...landingFrom(cards, stats, now), bench: await readBench(now), featured: await readFeatured(now) };
+  const bench = await readBench(now);
+  const featured = await (deps.featured ?? readFeatured)(now).catch((err: unknown) => {
+    console.error('[landing] featured', err instanceof Error ? err.message : err);
+    return null;
+  });
+  return { ...landingFrom(cards, stats, now), bench, featured };
 }
 
 /**

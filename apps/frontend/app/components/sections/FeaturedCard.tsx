@@ -3,29 +3,29 @@ import { NUM } from '../common/Panel';
 import type { FeaturedData } from '../../../lib/earnkit/landing';
 import { streakWords } from '../../../lib/earnkit/bench-data';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
-import { rankSplit } from '../../../lib/earnkit/rank';
 import { weekLabel } from '../../../lib/earnkit/weeks';
-
-/** The score line as its two numbers: "Shipping 72 · #3 of 40 builders" gives "#3" (or "Top 4%"). Pure. */
-export function featuredRank(bench: string | null): string | null {
-  const rank = bench?.split(' · ')[1];
-  return rank ? rankSplit(rank).lead : null;
-}
 
 /** Whole dollars, "$1,240". Pure. */
 const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
+
+/** One, two or three numbers: a literal class per count, so Tailwind emits it. */
+const COLS = ['grid-cols-1', 'grid-cols-1', 'grid-cols-2', 'grid-cols-3'];
 
 const LABEL = 'mt-1.5 font-funnel-sans text-sm text-ek-muted';
 const BIG = `${NUM} text-[2rem] font-medium leading-none text-ek-text md:text-[2.5rem]`;
 
 /**
  * v3 Stage 3 (spec 5.8): the founder's live profile preview, the hero's one real artifact. A slice of the page
- * itself: the name and @handle with the streak, the three numbers (Shipping, Rank, Earned when the Stage 2 field
- * exists), the two latest ship log lines, split by hairlines. The whole card is one link to the page.
+ * itself: the name and @handle with the streak, the numbers (Shipping, Rank, Earned when there is money: never "$0"),
+ * the two latest ship log lines, split by hairlines. The whole card is one link to the page.
  */
-export default function FeaturedCard({ f, log, points, earned }: FeaturedData) {
-  const rank = featuredRank(f.bench);
+export default function FeaturedCard({ f, rank, log, points, earned }: FeaturedData) {
   const streak = streakWords(f.streak);
+  const numbers: [string, string][] = [
+    [String(points), 'Shipping'],
+    ...(rank ? [[rank, 'Rank'] as [string, string]] : []),
+    ...(earned !== null ? [[dollars(earned), 'Earned'] as [string, string]] : []),
+  ];
   return (
     <a
       href={pagePath(f.handle)}
@@ -42,23 +42,13 @@ export default function FeaturedCard({ f, log, points, earned }: FeaturedData) {
         {streak ? <p className="shrink-0 text-sm text-ek-body">{streak}</p> : null}
       </div>
 
-      <ul className={`grid border-t border-ek-line py-5 ${earned !== null ? 'grid-cols-3' : 'grid-cols-2'}`}>
-        <li>
-          <p className={BIG}>{points}</p>
-          <p className={LABEL}>Shipping</p>
-        </li>
-        {rank ? (
-          <li>
-            <p className={`${BIG} whitespace-nowrap`}>{rank}</p>
-            <p className={LABEL}>Rank</p>
+      <ul className={`grid border-t border-ek-line py-5 ${COLS[numbers.length]}`}>
+        {numbers.map(([value, label]) => (
+          <li key={label}>
+            <p className={`${BIG} whitespace-nowrap`}>{value}</p>
+            <p className={LABEL}>{label}</p>
           </li>
-        ) : null}
-        {earned !== null ? (
-          <li>
-            <p className={`${BIG} whitespace-nowrap`}>{dollars(earned)}</p>
-            <p className={LABEL}>Earned</p>
-          </li>
-        ) : null}
+        ))}
       </ul>
 
       {log.length > 0 ? (

@@ -99,7 +99,7 @@ apps/frontend/
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
-                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3'), else null with no per-id read;
+                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
   app/programs/page.tsx        v2.7 Ruling 22: /programs, every open curated program as ProgramCards rows
                                (heading h1, v2.7.1 figure = landing.open_text, the landing's pool
