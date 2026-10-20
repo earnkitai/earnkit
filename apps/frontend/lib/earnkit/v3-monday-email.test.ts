@@ -14,7 +14,6 @@ import {
   EMAIL_ON,
   EMAIL_QUESTION,
   digestBody,
-  emailQuestionFor,
   sendDigests,
   weekStart,
   type DigestFacts,
@@ -238,7 +237,6 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
 test('(f) the connect yes asks for the address once; tell weekly_email yes with an address subscribes', db, () =>
   withEnv(ON, async () => {
     assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
-    assert.equal(emailQuestionFor('a@b.co'), 'Want the Monday summary by email at a@b.co?');
     assert.equal(EMAIL_ON, 'Done. Every Monday, once your week is written.');
     await freshBoard();
     const me = await builder('mef');

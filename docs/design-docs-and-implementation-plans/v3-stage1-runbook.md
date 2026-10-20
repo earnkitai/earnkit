@@ -33,57 +33,79 @@ cd /Users/jenil/earnkit
 railway run --service earnkit -- pnpm feed:rank
 ```
 
-You should see: a short list of weeks being ranked, then it exits with no error.
-If it fails: run it again once. If it fails twice, send me the output.
+You should see: one line like `{"rows":4}` (the number of week rows it rewrote), then it exits with no error.
+If it fails: run it again once. If it prints `{"rows":0}`, your weeks are older than 12 weeks or not stored; send me
+the output. If it fails twice, send me the output.
 
 ## 4. Check the site
 
 1. Open https://earnkit.com/feed. You should see your weeks as cards, each with points.
-2. Open https://earnkit.com/jenilt. You should see the same weeks, a points line, and "Not yet confirmed" on weeks you
-   have not approved.
+2. Open https://earnkit.com/jenilt. You should see the same weeks, each marked "Not yet confirmed". There is no points
+   line yet: it appears only after your first yes in step 6.
 
 If it fails: a blank feed means step 3 did not run; run it again and refresh.
 
-## 5. Connect through Grok Bot
+## 5. Connect Grok Bot
 
 1. In Grok Bot, add the MCP connector `https://earnkit.com/mcp`.
 2. A browser window opens. Sign in with X there and approve.
-3. Back in Grok Bot, type: `where do I stand`
 
-You should see: your standing and your last weeks, then the line "Does this look right? Yes posts them."
-If it fails: if Grok Bot shows a "Sign in with X" link instead, open it and sign in, then ask again. If the browser
-never opens, remove the connector and add it again.
+Do not ask anything yet.
+If it fails: if the browser never opens, remove the connector and add it again.
 
-## 6. Install the App and say yes
+## 6. Install the App, then ask and say yes
 
-1. Install the EarnKit GitHub App on `earnkitai/earnkit` (GitHub, Settings, Applications, Install; pick that repo).
-2. In Grok Bot, say `yes`.
+1. Install the EarnKit GitHub App on `earnkitai/earnkit` (GitHub, Settings, Applications, Install; pick that repo). Do
+   this before you ask: without the App, EarnKit cannot count the repo, and the reply asks you to install it (with a
+   link) instead of showing your weeks.
+2. Wait a minute (the App's first read writes your weeks), then in Grok Bot type: `where do I stand`
 
-You should see: the weeks are posted, and a "Points:" line appears with your total.
-If it fails: say `where do I stand` again. If it still asks the same question, send me the reply.
+You should see: the reply starts with "Your last 4 weeks:" (the count is how many of your weeks are not confirmed),
+then one line a week such as "Week of Oct 5: 2 commits", then "Where you stand" with your rank and your page link,
+and it ends with "Does this look right? Yes posts them."
+
+3. Say `yes`.
+
+You should see: "Done. Your page is live: https://earnkit.com/jenilt". If the email key from step 1 is set, the next
+line is "Want the Monday summary by email? Reply with the address." (that is step 8). Your points are not in this
+reply: ask `where do I stand` again and the reply carries "Points: N. They convert to $EARN at launch, in proportion to
+all points earned."
+
+If it fails: if Grok Bot shows a "Sign in with X" link instead, open it and sign in, then ask again. If the reply
+asks you to install the GitHub App (with a link), the install did not take: open that link, install, and ask again.
+If the reply has no "Your last" lines, your weeks may still be loading after the install: ask again in an hour. If `yes` gets only "Okay.", the question was already
+answered; send me the reply.
 
 ## 7. Check the page again
 
 Reload https://earnkit.com/jenilt and https://earnkit.com/feed.
 
-You should see: "Not yet confirmed" gone from the weeks you approved, and your points total on the page.
+You should see: "Not yet confirmed" gone from the weeks you approved, and your points total under Originality on the
+page ("N points", with a small line that points convert to $EARN when it launches).
 
 ## 8. Give your email address
 
 Grok Bot asks "Want the Monday summary by email? Reply with the address." Reply with your address.
 
-You should see: a one-line confirmation.
-If it never asks: the key in step 1 is missing, or you already answered once.
+You should see: "Done. Every Monday, once your week is written."
+If it never asks: the key in step 1 is missing, or you are already subscribed. Either way you can say it directly:
+tell the agent `send the Monday summary to you@example.com` (with your address). The agent calls tell with
+weekly_email { answer: 'yes', email }, which works whether or not you were asked, and EarnKit replies "Done. Every
+Monday, once your week is written."
 
 ## 9. Monday
 
 From 16:15 UTC on Monday (the email goes out after the weekly facts are written):
 
-1. Open the email "Last week". It lists last week's lines.
-2. Click "Looks right". A page opens with one button; click it.
+1. Open the email with the subject "Your week on EarnKit: Shipping N · #R of T builders". It starts with "Last week you
+   finished at Shipping N, #R." and lists last week's lines, then a "Looks right:" link and a "Hide this week:" link.
+2. Click the "Looks right" link. A page titled "Your week on EarnKit" opens with one "Looks right" button; click it.
 
-You should see: a confirmation page, and the week on your page loses "Not yet confirmed" and earns its points.
-"Hide this week" does the opposite: the week disappears from the public page. Links work for 14 days.
+You should see: "Confirmed. Your page shows it." and a "See your page" link. On your page the week loses "Not yet
+confirmed" and your points total goes up. "Hide this week" does the opposite: "Hidden. Your page no longer shows this
+week." Links work for the last finished week and the one before (two weeks); an older link shows "This link has
+expired."
+If the email has no links: that week was already confirmed (for example by a yes in Grok Bot). That is fine.
 If no email arrives by 17:00 UTC: check spam, then confirm step 1 and step 8, and tell me.
 
 ## Test in Claude Code too

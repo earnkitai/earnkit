@@ -3234,7 +3234,7 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   stays, so the question is not asked again).
 - **v3 Stage 1 (spec 5.4): the Monday moment.** The question ("Want the Monday summary by email? Reply with the
   address.") moved from the entry replies to the first yes after activation: the connect yes and the share yes
-  (`benchMoveUp`), once per installation (`digest_asked_at`), appended to the Done line as the reply's one question.
+  (`benchMoveUp`), while the person has no opted-in subscription and `digest_asked_at` is null or over 30 days old (v3 final review), appended to the Done line as the reply's one question.
   An entry no longer asks or keeps its email. `DIGEST_HOUR_UTC` is 16, after the weekly job (`WEEKLY_HOUR_UTC` 15),
   and the cron runs the digest after `runScoreSteps`, so one run writes the week then mails it. `digestFacts` finds
   the person (`COALESCE(profile by x_user_id, i.builder_id, i.id)`) and their main project's last week
@@ -6604,18 +6604,24 @@ say yes, earn points, get the Monday email.
 - **"Not yet confirmed" (`week-facts.ts`, `feed.ts`, `UpdateCard.tsx`, `BenchProfileView.tsx`).** Weeks that are not
   approved carry `confirmed: false`; the card shows `UNCONFIRMED_LABEL` ("Not yet confirmed") until the builder's yes.
   Weeks post on Monday.
-- **The points ledger (`points.ts`, `week-facts.ts approveWeek`, `stats.ts`, `bench-reply.ts`).** `builder_points`
-  holds one row per award. `awardWeekPoints` writes it, `pointsForRank` gives 100/90/70/50/30 for ranks 1-5,
-  `CONNECT_POINTS` is 30, `pointsTotal` sums. `approveWeek(..., via)` awards points when a week is approved. The profile
+- **The points ledger (`points.ts`, `weekly-moment.ts approveWeek`, `week-facts.ts upsertWeekFacts`, `stats.ts`,
+  `bench-reply.ts`).** `builder_points` holds one row per builder and week. `awardWeekPoints` writes it (created_at is
+  its `now`), `pointsForRank` gives by rank share: 100 for #1, 90 for the top 10%, 70 for the top 25%, 50 for the top
+  50%, else 30 (also with no rank); `CONNECT_POINTS` is 30, `pointsTotal` sums. `approveWeek(..., via)` awards points
+  when a week with facts is approved; a week approved before its facts arrive is awarded by `upsertWeekFacts` when they
+  do (via its `approved_via`). The profile
   shows `POINTS_PAGE_LINE`, the reply `POINTS_LINE`, and `/api/stats` returns `points_total`.
 - **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
-  ranked reply after connect shows the last backfilled weeks (`CONNECT_HEAD`) and asks `CONNECT_ASK` ("Does this look
-  right? Yes posts them."). `tell move_up { kind: 'connect' }` approves them (via `'connect'`) and counts as
-  activation. `standing_seen.connect_open/connect_done` track it. The weekly moment skips a week already approved.
+  ranked reply after connect shows every unconfirmed, unhidden week with facts, newest first, at most 12
+  (`CONNECT_HEAD`), and asks `CONNECT_ASK` ("Does this look right? Yes posts them."). `tell move_up { kind: 'connect' }`
+  approves them (via `'connect'`) and counts as activation; the Done line carries the https page link.
+  `standing_seen.connect_open/connect_done` track it: an empty read closes the offer only once the backfill is complete
+  (`backfillComplete`), and a week whose approval failed reopens the offer with that week for the next yes. The weekly moment skips a week already approved.
 - **The Monday email (`week-links.ts`, `app/api/week/route.ts`, `digest.ts`, `cron.ts`).** At `DIGEST_HOUR_UTC` (16),
   after the weekly facts, the digest carries last week's lines with signed "Looks right" and "Hide this week" links
   (`week-links.ts`). GET shows one button, POST acts; links last 14 days; hiding a week works on any row and
-  approving un-hides it. `pending` weeks wait. The address is asked once, after the connect yes or a share yes
-  (`EMAIL_QUESTION`). Needs `RESEND_API_KEY` and `EARNKIT_AUTH_SECRET`; unset, the feature is off.
+  approving un-hides it. `pending` weeks wait. The address is asked after the connect yes or a share yes
+  (`EMAIL_QUESTION`) while the person has no opted-in subscription and this installation was not asked in the last
+  `EMAIL_REASK_DAYS` (30). Needs `RESEND_API_KEY` and `EARNKIT_AUTH_SECRET`; unset, the feature is off.
 - Tests: `v3-hosted-client`, `v3-week-points`, `v3-unconfirmed`, `v3-points`, `v3-connect`, `v3-monday-email`
   (`.test.ts`); `digest.test.ts` and `oauth.test.ts` updated.

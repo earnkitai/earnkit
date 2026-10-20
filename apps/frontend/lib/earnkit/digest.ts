@@ -34,8 +34,6 @@ export const digestEnabled = (env: Record<string, string | undefined> = process.
 const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
 export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the address.';
-/** The question for an address EarnKit already holds. Kept as pinned copy: no caller names an address since the entry ask moved (v3 Stage 1). */
-export const emailQuestionFor = (email: string) => `Want the Monday summary by email at ${email}?`;
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
@@ -249,12 +247,16 @@ export function cleanEmail(v: unknown): string | null {
   return e.length <= 254 && EMAIL.test(e) ? e : null;
 }
 
+/** v3 final review: an installation asked this long ago (and still not opted in anywhere) is asked again. */
+export const EMAIL_REASK_DAYS = 30;
+
 /**
- * Ruling 13: the question, once per installation (installations.digest_asked_at), only while the email is on.
+ * Ruling 13: the question, once per installation (installations.digest_asked_at; v3 final review: again after
+ * EMAIL_REASK_DAYS, and never while the person has an opted-in subscription), only while the email is on.
  * v3 Stage 1: asked in the first yes after activation (bench-find.ts benchMoveUp). Ruling G21 (v2.14 final fix):
  * never on a shared client (`shared`), which has no verified caller. `email`: an address to keep with the
  * question (unopted until a yes; the question never names it). Returns what the reply adds, or null (off,
- * shared, or asked before). Never fails the tool.
+ * shared, opted in, or asked within EMAIL_REASK_DAYS). Never fails the tool.
  */
 export async function askWeeklyEmail(
   installationId: number,
@@ -263,8 +265,14 @@ export async function askWeeklyEmail(
   if (!digestEnabled() || opts.shared) return null;
   try {
     return await sql().begin(async (tx) => {
+      // v3 final review: asked while the person (the group root) has no opted-in subscription, and this installation
+      // was never asked or was asked over EMAIL_REASK_DAYS ago (an old entry-time ask no longer blocks it).
       const [asked] = await tx<{ id: number }[]>`
-        UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
+        UPDATE installations i SET digest_asked_at = now()
+        WHERE i.id = ${installationId} AND (i.digest_asked_at IS NULL OR i.digest_asked_at < now() - make_interval(days => ${EMAIL_REASK_DAYS}))
+          AND NOT EXISTS (SELECT 1 FROM digest_subscriptions d JOIN installations j ON j.id = d.installation_id
+            WHERE COALESCE(j.builder_id, j.id) = COALESCE(i.builder_id, i.id) AND d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL)
+        RETURNING i.id`;
       if (!asked) return null;
       await tx`
         INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())

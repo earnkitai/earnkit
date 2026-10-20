@@ -23,9 +23,8 @@ export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('e
 /** The profile's small text under the points. */
 export const POINTS_PAGE_LINE = 'Points convert to $EARN when it launches, in proportion to all points earned. They are not a token and have no value until then.';
 
-/** One row per builder and week: the points awarded now, or 0 when the week already had its row. */
+/** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {
-  void now;
   let points = CONNECT_POINTS;
   let rank: number | null = null;
   let total: number | null = null;
@@ -36,7 +35,7 @@ export async function awardWeekPoints(builderId: number, week: string, via: Appr
     points = pointsForRank(rank, total);
   }
   const [r] = await sql()<{ points: number }[]>`
-    INSERT INTO builder_points (builder_id, week, points, rank, total, via) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${via})
+    INSERT INTO builder_points (builder_id, week, points, rank, total, via, created_at) VALUES (${builderId}, ${week}, ${points}, ${rank}, ${total}, ${via}, ${now})
     ON CONFLICT (builder_id, week) DO NOTHING RETURNING points`;
   return r?.points ?? 0;
 }

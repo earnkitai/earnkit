@@ -42,9 +42,10 @@ import { displayName } from './bench-reply';
 import { targetIn, weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentLines, momentReady, openShare, shareLink, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
-import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, answerConnect, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
+import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, answerConnect, backfillComplete, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
 import { askWeeklyEmail, digestEnabled } from './digest';
-import { pageUrl } from './reserved-routes';
+import { pagePath } from './reserved-routes';
+import { siteUrl } from './entry-text';
 export { displayName };
 
 /**
@@ -410,15 +411,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 
 /**
  * v3 Stage 1 (spec 5.1): the backfilled weeks to confirm ("Your last 3 weeks:" and a line each), when this person
- * hasn't been offered them (connectDue). Shown: the offer opens (openConnect). None to confirm: connect_done, never
- * asked. A failed read is no lines, asked again on a later reply. Never throws.
+ * hasn't been offered them (connectDue). Shown: the offer opens (openConnect). None to confirm once the backfill is
+ * complete (backfillComplete): connect_done, never asked; before that, asked again on a later reply. A failed read is no lines, asked again on a later reply. Never throws.
  */
 async function connectMoment(id: number, key: string, now: Date): Promise<string | null> {
   if (!(await connectDue(id))) return null;
-  const weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
+  const weeks = await connectWeeks(id, key).catch(logged('connect weeks'));
   if (!weeks) return null;
   if (weeks.length === 0) {
-    await closeConnect(id, now);
+    // v3 final review: closed only once the backfill is complete; until then the offer waits for its rows.
+    if (await backfillComplete(id, key, now).catch(logged('connect backfill'))) await closeConnect(id, now);
     return null;
   }
   await openConnect(id, { key, weeks: weeks.map((w) => w.monday) });
@@ -657,7 +659,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       logged('connect handle')(err);
       return [];
     });
-    const done = p?.handle ? CONNECT_DONE(pageUrl(p.handle)) : APPROVED_CONNECT;
+    const done = p?.handle ? CONNECT_DONE(`${siteUrl()}${pagePath(p.handle)}`) : APPROVED_CONNECT;
     // The Done line is a statement, so the email question (when it is asked) is the reply's one question.
     const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
     return { show_to_builder: [done, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };

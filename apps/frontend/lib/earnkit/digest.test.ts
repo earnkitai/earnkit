@@ -15,7 +15,6 @@ import {
   NAME_MAX,
   digestUnsubscribeGet,
   digestUnsubscribePost,
-  emailQuestionFor,
   MailError,
   sendDigests,
   unsubTarget,
@@ -169,7 +168,6 @@ test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
   assert.equal(digestEnabled({ RESEND_API_KEY: 're_x', EARNKIT_AUTH_SECRET: 's' }), true);
   assert.equal(DIGEST_FROM_DEFAULT, 'EarnKit <digest@earnkit.com>');
   assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
-  assert.equal(emailQuestionFor('a@b.co'), 'Want the Monday summary by email at a@b.co?');
 });
 
 test('cleanEmail: a plain address only', () => {
@@ -412,6 +410,14 @@ test('the question: once per installation, keeps the address unopted; never on a
       agent_note: "Pass the builder's answer to tell as weekly_email.",
     });
     assert.equal(await askWeeklyEmail(a.id, { shared: false, email: 'a@b.co' }), null, 'once');
+    // v3 final review: asked again after EMAIL_REASK_DAYS while not opted in; never once opted in.
+    await sql()`UPDATE installations SET digest_asked_at = now() - interval '31 days' WHERE id = ${a.id}`;
+    assert.equal((await askWeeklyEmail(a.id, { shared: false, email: null }))?.question, EMAIL_QUESTION, 'asked again after 30 days');
+    assert.equal(await askWeeklyEmail(a.id, { shared: false, email: null }), null, 'not twice in 30 days');
+    await sql()`UPDATE installations SET digest_asked_at = now() - interval '31 days' WHERE id = ${a.id}`;
+    await sql()`UPDATE digest_subscriptions SET opted_in_at = now() WHERE installation_id = ${a.id}`;
+    assert.equal(await askWeeklyEmail(a.id, { shared: false, email: null }), null, 'opted in: never asked');
+    await sql()`UPDATE digest_subscriptions SET opted_in_at = NULL WHERE installation_id = ${a.id}`;
     const [row] = await sql()<{ email: string; opted_in_at: Date | null }[]>`SELECT email, opted_in_at FROM digest_subscriptions WHERE installation_id = ${a.id}`;
     assert.deepEqual(row, { email: 'a@b.co', opted_in_at: null });
     // Ruling G21: a shared client is never asked and keeps nothing.

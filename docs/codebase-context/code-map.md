@@ -1291,7 +1291,7 @@ apps/frontend/
                                pool.ts), readWonUsd (10-minute in-process cache, 0 on error), wonSource
                                (list_programs' seam; fixtures/no-network-checks pins it to 0)
     digest.ts(+test)           v2.9 E19 (Task 10): the weekly email. digestEnabled (RESEND_API_KEY),
-                               DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/emailQuestionFor/EMAIL_NOTE,
+                               DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/EMAIL_NOTE/EMAIL_REASK_DAYS,
                                DIGEST_HOUR_UTC 16, weekStart (Monday 16:00 UTC), digestDue (P17), digestBody
                                (v3: the week's moment and Looks right / Hide links first), SubKey (G21:
                                installation + login), unsubToken/unsubTarget (HMAC, timing-safe),
@@ -1301,7 +1301,7 @@ apps/frontend/
                                free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
-                               (approveWeek via 'email' or hideUpdate); v3-monday-email.test.ts
+                               (approveWeek via 'email', un-hiding; or an UPDATE setting hidden on the week's row); v3-monday-email.test.ts
     public-pages.test.ts       markup tests of /terms (11.4: section ids, MINI line; 11.5 redirects 301; 11.6 Tokenfi line; 11.7 no /fund or /award in builder navigation) and the footer link
     install.test.ts            v2.8 Task 5: the install tabs and order, the Claude Code and Codex
                                commands, local icons (logoFileProblem), no editor tab in the modal,
@@ -1900,9 +1900,9 @@ build. `fonts` is in `reserved-routes.ts` (the folder has no page).
 
 v3 Stage 1 (the founder's loop; see the architecture guide's "v3 Stage 1" section): `points.ts` (the `builder_points`
 ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`, `POINTS_PAGE_LINE`),
-`connect-moment.ts` (the last backfilled weeks in the first ranked reply and the one yes), `week-links.ts` (signed
+`connect-moment.ts` (every unconfirmed week with facts, at most 12, in the first ranked reply and the one yes; `backfillComplete`), `week-links.ts` (signed
 "Looks right" and "Hide this week" links), `app/api/week/route.ts` (GET shows the button, POST acts). Changed:
-`week-facts.ts` (`pointsOf`, `UNCONFIRMED_LABEL`, `approveWeek` via), `digest.ts` (Monday email, `EMAIL_QUESTION`),
+`week-facts.ts` (`pointsOf`, `UNCONFIRMED_LABEL`; `upsertWeekFacts` awards an approved week's points when its facts arrive late), `weekly-moment.ts` (`approveWeek` via), `digest.ts` (Monday email, `EMAIL_QUESTION`),
 `oauth.ts`/`x-install.ts` (hosted clients), `scripts/feed.mts` (`rank`). New tests: `v3-hosted-client.test.ts`,
 `v3-week-points.test.ts`, `v3-unconfirmed.test.ts`, `v3-points.test.ts`, `v3-connect.test.ts`,
 `v3-monday-email.test.ts`.

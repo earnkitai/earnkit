@@ -4,6 +4,7 @@ import { poolChanged } from './profile-cache';
 import { benchConfirmedSql } from './main-project';
 import { weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
+import { awardWeekPoints, type ApproveVia } from './points';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
@@ -137,7 +138,8 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
 /**
  * The week's row for the project: facts merged in, text, pins and hides kept; v2.14 spec 3: the week's
  * titles (ship-titles.ts) replace the stored ones only when there are some. Another builder's row is left
- * alone. True when a row was written.
+ * alone. True when a row was written. v3 final review: an approved row that now has facts and no points row earns its
+ * points (awardWeekPoints, via its approved_via).
  */
 export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts, titles: string[] = [], summary: string | null = null): Promise<boolean> {
   const wrote = await sql()`
@@ -151,6 +153,16 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
   if (row) {
     const p = hasFacts(row.facts) ? pointsOf(row.facts) : 0;
     if (p !== row.points) await sql()`UPDATE project_updates SET points = ${p} WHERE id = ${row.id}`;
+    // v3 final review: a week approved before its facts arrived earns its points now, once (awardWeekPoints is one row a week).
+    if (row.facts.approved && hasFacts(row.facts)) {
+      const [had] = await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${builderId} AND week = ${monday}`;
+      if (!had) {
+        const v = row.facts.approved_via;
+        const via: ApproveVia = v === 'connect' || v === 'email' ? v : 'share';
+        await awardWeekPoints(builderId, monday, via, new Date())
+          .catch((err: unknown) => console.error('[points] retro award', err instanceof Error ? err.name : 'error'));
+      }
+    }
   }
   return wrote.length > 0;
 }

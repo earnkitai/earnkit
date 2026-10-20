@@ -1,7 +1,7 @@
 import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
-  digestBody, emailQuestionFor,
+  digestBody,
 } from './digest';
 import { WEEK_TEXT } from './week-links';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
@@ -974,7 +974,6 @@ const builderFacing: [string, string][] = [
   ['withBadge', withBadge('', 'alice', 'tipjar-alice').replace(/<[^>]+>/g, '')],
   // v2.9 Task 10: the weekly email and the won line.
   ['EMAIL_QUESTION', EMAIL_QUESTION],
-  ['emailQuestionFor', emailQuestionFor('a@b.co')],
   ['WHICH_EMAIL', WHICH_EMAIL],
   ['EMAIL_ON', EMAIL_ON],
   ['EMAIL_OFF', EMAIL_OFF],
