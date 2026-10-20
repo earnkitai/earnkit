@@ -97,7 +97,8 @@ The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the 
 | `BTN_PRIMARY` | Pill, 48px, `ek-brand` fill, white text, `ek-accent` on hover |
 | `BTN_SECONDARY` | Pill, 48px, `ek-line-strong` outline, white text, `ek-chip` on hover |
 
-The brandShell pages (`lib/earnkit/brand-page.ts`) read the same THEME and draw the same button.
+The brandShell pages (`lib/earnkit/brand-page.ts`) read the same THEME and draw the same button, header and
+type; so do the share card (`card-response.tsx`), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`).
 
 ## Motion
 

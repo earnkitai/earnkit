@@ -54,7 +54,8 @@ test('L8 the SVG: shields-like, brand colors, sized to its text, text escaped, l
   const svg = badgeSvg('Shipping 72 · #3');
   assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="\d+" height="20" role="img" aria-label="EarnKit: Shipping 72 · #3">/);
   assert.match(svg, /<title>EarnKit: Shipping 72 · #3<\/title>/);
-  assert.ok(svg.includes('fill="#0F1839"') && svg.includes('fill="#579DFF"'), 'navy label, bright blue value');
+  // v3 Stage 3 Task 6: the flat system's colours (theme.ts): the label on black, the value on brand blue, white text.
+  assert.ok(svg.includes('fill="#000000"') && svg.includes('fill="#0052FF"'), 'black label, brand blue value');
   assert.ok(textWidth('Shipping 100 · Top 12%') > textWidth('not ranked'));
   const wide = Number(/width="(\d+)"/.exec(badgeSvg('Shipping 100 · Top 12%'))![1]);
   const narrow = Number(/width="(\d+)"/.exec(badgeSvg('not ranked'))![1]);

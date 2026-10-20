@@ -6967,3 +6967,43 @@ grid, (g) tabs, rows and the visitor row, (h) the badge).
 Test: `v3-pages.test.ts` ((a) the leaderboard and its chips, (b) the feed, (c) /programs and the logo disc,
 (d) the upcoming and open guides, 404, (e) the rank wording and the source scan, (f) nothing wider than a
 phone column).
+
+### v3 Stage 3 Task 6: the HTML shell pages, the share card, the badge, the OG image (spec 5.6, 5.8)
+
+The four surfaces outside React draw the flat system from `THEME` (no hex of their own):
+
+- **Shell pages (`brand-page.ts brandShell`).** The CSS is built from THEME: a black page, the React header's
+  slim sticky bar (56px, 64px from 640px; the wordmark, Leaderboard, Feed, Programs and Docs as quiet links, the
+  1120px column), the words in the page column at a 36rem measure with no panel around them (`.ek-panel` is a
+  max-width only: no fill, no border, no radius). Funnel Sans is embedded as a data: woff2 (`sansFile`,
+  `app/fonts/funnel-sans-latin-wght-normal.woff2`, the file the React pages load) for the text; Funnel Display
+  stays as the two data: woffs for `h1` (36px, 48px from 640px, weight 500) and `.ek-first` (the one-line
+  pages, 28/32px). `.ek-rows`/`.ek-row` are hairline rows; `.ek-note` is a hairline row (no tinted box; no
+  double line after `.ek-rows`); `.ek-code` is a flat surface block with a hairline and no radius; `.ek-mark`
+  a raised disc; `.ek-chip` a hairline pill; `.ek-btn` is `BTN_PRIMARY` (48px pill, brand, white, accent on
+  hover; full width on a phone, inline from 640px); links are the accent. The wallet page's CSP
+  (`font-src data:`) already allows both fonts. The `<header class="ek-top">` structure and every status code
+  are unchanged (`page-shells.test.ts`).
+- **Unsubscribe pages (`digest.ts digestUnsubscribeGet/Post`)** go through `brandShell` (were a plain
+  system-ui page): the question as the `h1` with one `.ek-btn` form (GET), `UNSUB_DONE` and `UNSUB_BAD` as
+  one-line statements; 200/400 and the no-store, noindex headers kept. The week page already used the shell.
+- **Share card (`card-response.tsx benchCard`).** Black (`THEME.page`), the wordmark top left (`CardWordmark`,
+  Logo.tsx's path), the Backing pill top right (a hairline pill, accent text, `Backing · $SYM`, only while
+  `raising`), the photo in a hairline ring (or the initial on the raised spot) beside the name (44px) and
+  @handle (muted), the rank line as the 64px headline (`rankSplit` of the score line without its "Shipping N ·
+  " prefix; without a rank the project, else the name, at 64px or 52px when long: `headlineSize`), then the
+  numbers (`CardNumber`: Shipping, and Earned from $1), the project and streak left and the page URL right at
+  30px. `BenchCardFacts` gained `score` (the score line's number while ranked, else null) and `earned` (whole
+  dollars from $1 while ranked, else null; `earnedUsd` failures log and count as 0), read in `benchCardFacts`
+  only when the line exists (no bare score without a rank). `v3-landing.test.ts`'s fixture carries the fields.
+- **Badge (`badge.ts badgeSvg`).** Geometry unchanged; the label on `THEME.page`, the value on `THEME.brand`
+  (white text on both, 5.8:1), the not-found value on `THEME.muted`; `aria-label` unchanged.
+- **OG image (`scripts/og.mts`).** `ogImage()` renders `BENCH_HERO_TITLE` (two lines at 104px) and
+  `BENCH_HERO_SUBTITLE` (30px, body colour) under the wordmark with the site host at the foot through the card's
+  renderer (next/og, `loadFonts` from `card-response.tsx`); run as a script it writes `public/og.png`
+  (1200x630). The script sets the React global, as the tests do, because the card's JSX compiles to
+  `React.createElement` under tsx.
+
+Test: `v3-shells.test.ts` (T6.1 every shell page is the flat system and its CSS hex set is a subset of THEME;
+T6.2 the unsubscribe pages; T6.3 the card's composition, numbers and hex set; T6.4 the badge; T6.5 the OG PNG's
+IHDR is 1200x630). Pins updated: `badge.test.ts` (black label, brand value), `v3-landing.test.ts` (the fixture).

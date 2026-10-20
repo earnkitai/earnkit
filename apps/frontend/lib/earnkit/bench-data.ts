@@ -359,7 +359,14 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
 }
 
 /** v2.13 spec "Card (OG image)": what the share card shows. */
-export type BenchCardFacts = { handle: string; name: string; avatar: string | null; bench: string | null; project: string | null; streak: number; raising: string | null };
+/**
+ * v3 Stage 3 Task 6: `score`, the Shipping number while ranked (the score line's; null without a rank, as the line);
+ * `earned`, Earned in whole dollars from $1 while ranked (earned.ts paid_usd), else null, so the card never shows "$0".
+ */
+export type BenchCardFacts = {
+  handle: string; name: string; avatar: string | null; bench: string | null; project: string | null; streak: number; raising: string | null;
+  score: number | null; earned: number | null;
+};
 
 /**
  * The card's facts from stored rows, lighter than profileData (no log, no programs): the Bench line
@@ -384,8 +391,20 @@ export async function benchCardFacts(builderId: number): Promise<BenchCardFacts 
       streak = b.confirmed ? b.streak : 0;
     }
   }
-  // R16c: the card's line is the score line.
-  return { handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.line, project, streak, raising: pill?.symbol ?? null };
+  // R16c: the card's line is the score line. Task 6: its number and Earned, only while ranked (no bare score without a rank).
+  const [score, earned] = lines.line
+    ? await Promise.all([
+        db<{ score: number }[]>`SELECT score::int AS score FROM builder_live WHERE builder_id = ${builderId}`.then((r) => r[0]?.score ?? null),
+        earnedUsd(builderId).catch((err: unknown) => {
+          console.error('[card] earned', err instanceof Error ? err.name : 'error');
+          return NO_EARNED;
+        }),
+      ])
+    : [null, NO_EARNED];
+  return {
+    handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.line, project, streak, raising: pill?.symbol ?? null,
+    score, earned: earned.paid_usd > 0 ? Math.round(earned.paid_usd) : null,
+  };
 }
 
 /**

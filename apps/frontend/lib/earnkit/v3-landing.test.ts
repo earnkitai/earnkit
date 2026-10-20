@@ -31,7 +31,7 @@ const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 const ROW = { rank: 1, line: '#1 of 12 builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '12 commits'], summary: 'Shipped the fridge import and a weekly plan.', pinned: false, confirmed: true };
 const FEATURED: FeaturedData = {
-  f: { handle: 'jenilt', name: 'Jenil Thakker', avatar: null, bench: 'Shipping 72 · #3 of 40 builders', project: 'EarnKit', streak: 6, raising: null },
+  f: { handle: 'jenilt', name: 'Jenil Thakker', avatar: null, bench: 'Shipping 72 · #3 of 40 builders', project: 'EarnKit', streak: 6, raising: null, score: 72, earned: null },
   rank: '#3',
   log: [
     { week: '2026-10-12', summary: 'Shipped the weekly ship log and the leaderboard rows.' },

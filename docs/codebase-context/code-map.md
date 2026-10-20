@@ -204,9 +204,11 @@ apps/frontend/
                                ek-accent, the site's one gradient), THEME track, no glow (v3 Stage 3); "N of 100" in words
   app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
-                               picture with a 3 s timeout, headline of card_moments.latest, CARD_CACHE) and
-                               shareResponse (card_shared once a day, 302 to the X intent); both check the live
-                               row (no-store 404, 308 to pagePath)
+                               picture with a 3 s timeout, CARD_CACHE) and shareResponse (card_shared once a day,
+                               302 to the X intent); both check the live row (no-store 404, 308 to pagePath).
+                               v3 Stage 3 Task 6: benchCard on THEME (black, CardWordmark, the Backing pill, the
+                               rank line as the 64px headline, CardNumber for Shipping and Earned, project and
+                               streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
   app/[handle]/BadgeCopy.tsx   launch-ready L8, v3 Stage 3: the badge image, then "Badge for your README" as a details/summary
                                that opens to the markdown and a Copy button (client)
@@ -1620,7 +1622,7 @@ apps/frontend/
                                Launch-ready: readGithubRepos returns { repos, failed } (one busy repo's failed weekly
                                call fails only it; a repo refused on its own alias is in refused, aliasErrors); needsAllWeeks (the 52-week call only without a reader-2 baseline or
                                when last week isn't fully read); no weekly call past ReaderDeps.deadline.
-    badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
+    badge.ts(+test)            launch-ready L8 (v3 Stage 3 Task 6: THEME colours, black label, brand value, white text): badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
                                ranked"), badgeMarkdown, badgeFor ("not found" for unknown, unclaimed, hidden), badgeResponse
                                final fix M6: badgeFileOk / badgeMiss (a name that can't be a handle never reaches the cache or DB)
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
@@ -1662,7 +1664,8 @@ apps/frontend/
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
-    brand-page.ts              v2.12.1 T11: the claim, done and wallet pages' navy shell (fonts as data:), X_ICON
+    v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
+    brand-page.ts              v2.12.1 T11, v3 Stage 3 Task 6: the flat shell of every route-handler page (CSS from THEME: black page, the slim header, no panel, hairline rows, BTN_PRIMARY button; Funnel Display woffs via fontFile and Funnel Sans woff2 via sansFile as data: fonts), X_ICON, GITHUB_ICON; the unsubscribe pages (digest.ts) and the week page use it too
                                Scoring and clarity R14: the one shell for every sign-in and verify page (verifyPage, signinPage, the 404s, OAuth authorize 429/400, wallet 405); page-shells.test.ts checks each carries the slim top bar
     stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, standingNews, NOTED_LINE
                                (Task 4 removed the dead step, project and money-line types and helpers)
@@ -1785,6 +1788,7 @@ apps/frontend/
                                events-backfill.mts: v2.11 T3, the owner's one-off event backfill (needs
                                EARNKIT_EVENT_LOG=on; never predeploy or cron)
                                scripts/feed.mts: v2.13 T6, pnpm feed:pin|feed:hide <update-id> [--off] (owner-run); scripts/feed-summaries.mts: pnpm feed:summaries [--dry] [--redo]
+                               scripts/og.mts: v3 Stage 3 Task 6, ogImage() / `npx tsx apps/frontend/scripts/og.mts` writes public/og.png (1200x630) from the hero words through the card's renderer
                                v211-metric.mts: v2.11 T13, the success metric, shown, never a target
                                (owner-run, read-only; never predeploy or cron): of no-repo builders who said
                                yes to the build (fresh_offer_at, not shared, installations.build set), the

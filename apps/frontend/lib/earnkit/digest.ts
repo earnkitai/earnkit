@@ -1,3 +1,4 @@
+import { brandShell } from './brand-page';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
@@ -585,13 +586,10 @@ const PAGE_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Robots-Tag': 'noindex',
 };
-const page = (body: string, status = 200) =>
-  new Response(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-      '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-      `${body}</body></html>`,
-    { status, headers: PAGE_HEADERS },
-  );
+/** v3 Stage 3 Task 6: the site's shell (brand-page.ts brandShell), as every other route-handler page. */
+const page = (body: string, status = 200) => new Response(brandShell(body), { status, headers: PAGE_HEADERS });
+/** A one-line page: the line as the statement. */
+const linePage = (line: string, status = 200) => page(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`, status);
 
 export const UNSUB_CONFIRM = 'Stop the weekly EarnKit email?';
 export const UNSUB_DONE = 'Done. No more weekly emails.';
@@ -602,11 +600,11 @@ const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t')
 /** GET: a confirm page whose button POSTs (link scanners never unsubscribe anyone). No script. */
 export function digestUnsubscribeGet(request: Request): Response {
   const t = tokenOf(request);
-  if (unsubTarget(t) === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  if (unsubTarget(t) === null) return linePage(UNSUB_BAD, 400);
   return page(
-    `<p>${escapeHtml(UNSUB_CONFIRM)}</p>` +
-      `<form method="post" action="${escapeHtml(`${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(t)}`)}">` +
-      '<button type="submit">Unsubscribe</button></form>',
+    `<h1>${escapeHtml(UNSUB_CONFIRM)}</h1>` +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(`${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(t)}`)}">` +
+      '<button class="ek-btn" type="submit">Unsubscribe</button></form></div>',
   );
 }
 
@@ -616,7 +614,7 @@ export function digestUnsubscribeGet(request: Request): Response {
  */
 export async function digestUnsubscribePost(request: Request): Promise<Response> {
   const target = unsubTarget(tokenOf(request));
-  if (target === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  if (target === null) return linePage(UNSUB_BAD, 400);
   await unsubscribe(target);
-  return page(`<p>${escapeHtml(UNSUB_DONE)}</p>`);
+  return linePage(UNSUB_DONE);
 }

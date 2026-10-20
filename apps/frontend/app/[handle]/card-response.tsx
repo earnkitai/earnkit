@@ -1,12 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ImageResponse } from 'next/og';
-import { benchCardFacts, benchShareText, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
+import { WORDMARK_D } from '../components/ui/Logo';
+import { benchCardFacts, benchShareText, dollars, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
 import { noteEvent } from '../../lib/earnkit/events';
 import { shareIntentText } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
+import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath, pageUrl } from '../../lib/earnkit/reserved-routes';
 import { CARD_CACHE } from '../../lib/earnkit/share';
+import { THEME as T } from '../../lib/earnkit/theme';
 
 /**
  * v2.12.1 spec "Card": the share card of the page at `path` and its share link, used by
@@ -14,13 +17,12 @@ import { CARD_CACHE } from '../../lib/earnkit/share';
  * live row on every request (hidden, unclaimed or unknown: a no-store 404; another case or a rename:
  * a 308 to the page's own path), so the card follows the page at once; a shared cache may keep the
  * image 60 seconds (CARD_CACHE).
+ *
+ * v3 Stage 3 Task 6 (spec 5.8): the card draws the flat system from THEME: a black card, white type, one accent,
+ * hairlines; the wordmark top left, the Backing pill top right, the name and @handle, the rank line as the headline,
+ * then the numbers (Shipping, and Earned when there is money), the project and streak, the page URL.
  */
 
-const NAVY = '#0F1839'; // ek-navy-deep
-const WHITE = '#F6F9FE'; // ek-white
-const SOFT = '#A3C5FE'; // the old soft blue; the card task moves the card onto THEME (DESIGN.md)
-const ORANGE = '#FF7A1A'; // the old coin orange; becomes brand blue in the card task (DESIGN.md)
-const PURPLE = '#9B6BFF'; // ek-score-purple: shapes only, never text on the card's navy
 const notFound = () => new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
 /** The live row behind `handle` at `path`: the person, or the 404 or 308 to send. */
@@ -33,11 +35,13 @@ async function live(handle: string, path: string, suffix: string): Promise<{ bui
   return r;
 }
 
+export type CardFont = { name: string; data: ArrayBuffer; weight: 500 | 700; style: 'normal' };
+
 // Funnel Display, read once per process (assets/fonts, OFL). A missing file draws the default font.
-let fonts: Promise<{ name: string; data: ArrayBuffer; weight: 500 | 700; style: 'normal' }[]> | null = null;
-function loadFonts() {
+let fonts: Promise<CardFont[]> | null = null;
+export function loadFonts() {
   fonts ??= (async () => {
-    const out: { name: string; data: ArrayBuffer; weight: 500 | 700; style: 'normal' }[] = [];
+    const out: CardFont[] = [];
     for (const weight of [500, 700] as const) {
       for (const dir of [join(process.cwd(), 'assets/fonts'), join(process.cwd(), 'apps/frontend/assets/fonts')]) {
         try {
@@ -77,34 +81,55 @@ export async function avatarData(url: string | null, f: typeof fetch = fetch): P
   return data;
 }
 
-/** The headline's size by its length: one or two lines at X's mobile preview (about 500px wide). Pure. */
-export const headlineSize = (s: string) => (s.length <= 24 ? 92 : s.length <= 34 ? 76 : s.length <= 48 ? 64 : 52);
+/** The headline's size: 64px (the rank line always fits), smaller for a long project or name so it stays two lines at X's mobile preview (about 500px wide). Pure. */
+export const headlineSize = (s: string) => (s.length <= 40 ? 64 : 52);
 
-/** The photo in its orange to purple ring, or the first letter on navy. */
-function CardPhoto({ avatar, handle }: { avatar: string | null; handle: string }) {
+/** The wordmark, white, at `height` px (the 124x23 viewBox of Logo.tsx). */
+export function CardWordmark({ height }: { height: number }) {
   return (
-    <div style={{ display: 'flex', width: 120, height: 120, borderRadius: 60, padding: 5, backgroundImage: `linear-gradient(135deg, ${ORANGE}, ${PURPLE})` }}>
-      {avatar ? (
-        // eslint-disable-next-line @next/next/no-img-element -- satori draws a plain img
-        <img src={avatar} width={110} height={110} alt="" style={{ width: 110, height: 110, borderRadius: 55, objectFit: 'cover', border: `4px solid ${NAVY}` }} />
-      ) : (
-        <div style={{ display: 'flex', width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center', backgroundColor: '#112969', border: `4px solid ${NAVY}`, fontSize: 52, fontWeight: 700, color: WHITE }}>
-          {handle.replace(/^_+/, '').charAt(0).toUpperCase() || '?'}
-        </div>
-      )}
+    <svg viewBox="0 0 124 23" width={Math.round((height * 124) / 23)} height={height}>
+      <path fillRule="evenodd" clipRule="evenodd" d={WORDMARK_D} fill={T.text} />
+    </svg>
+  );
+}
+
+/** The photo in a hairline ring, or the first letter on the raised spot. */
+function CardPhoto({ avatar, handle }: { avatar: string | null; handle: string }) {
+  const ring = `2px solid ${T.borderStrong}`;
+  return avatar ? (
+    // eslint-disable-next-line @next/next/no-img-element -- satori draws a plain img
+    <img src={avatar} width={88} height={88} alt="" style={{ width: 88, height: 88, borderRadius: 44, objectFit: 'cover', border: ring }} />
+  ) : (
+    <div style={{ display: 'flex', width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: T.raised, border: ring, fontSize: 40, fontWeight: 500, color: T.text }}>
+      {handle.replace(/^_+/, '').charAt(0).toUpperCase() || '?'}
+    </div>
+  );
+}
+
+/** One number with its word under it. */
+function CardNumber({ value, label }: { value: string; label: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', fontSize: 56, fontWeight: 500, lineHeight: 1, letterSpacing: -1.5, color: T.text }}>{value}</div>
+      <div style={{ display: 'flex', marginTop: 10, fontSize: 24, fontWeight: 500, color: T.muted }}>{label}</div>
     </div>
   );
 }
 
 /**
- * v2.13 spec "Card (OG image)": the photo, the name, the score line ("Shipping 62 · Top 4% of builders", else nothing), the
- * project's name and the streak, and "Community round $X" while the pill shows. Pure.
+ * v2.13 spec "Card (OG image)", v3 Task 6: the wordmark and the Backing pill, the photo, the name and @handle, the rank
+ * line as the headline ("#3 of 40 builders"; without a rank the project, else the name), the numbers under it
+ * (Shipping, and Earned from $1; none without a rank), the project and the streak, the page URL. Pure.
  */
 export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolean) {
   const streak = streakWords(f.streak);
   const named = f.name !== `@${f.handle}`;
-  const big = f.bench ?? f.project ?? f.name;
+  const rank = f.bench ? rankSplit(f.bench.replace(/^Shipping \d+ · /, '')) : null;
+  const big = rank ? `${rank.lead}${rank.rest ? ` ${rank.rest}` : ''}` : (f.project ?? f.name);
   const size = headlineSize(big);
+  const numbers: [string, string][] = rank && f.score !== null
+    ? [[String(f.score), 'Shipping'], ...(f.earned !== null && f.earned > 0 ? [[dollars(f.earned), 'Earned'] as [string, string]] : [])]
+    : [];
   const foot = [f.bench ? f.project : null, streak].filter(Boolean).join(' · ');
   return (
     <div
@@ -114,29 +139,38 @@ export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolea
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        padding: '64px 76px 56px',
-        backgroundColor: NAVY,
-        backgroundImage: 'radial-gradient(circle at 96% 0%, rgba(155, 107, 255, 0.30), transparent 46%), radial-gradient(circle at 0% 100%, rgba(255, 122, 26, 0.16), transparent 42%)',
-        color: WHITE,
+        padding: '52px 64px 48px',
+        backgroundColor: T.page,
+        color: T.text,
         fontFamily: font ? 'Funnel Display' : undefined,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-          <CardPhoto avatar={avatar} handle={f.handle} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ display: 'flex', fontSize: 48, fontWeight: 700, letterSpacing: -0.5, maxWidth: 640 }}>{f.name}</div>
-            {named ? <div style={{ display: 'flex', fontSize: 30, fontWeight: 500, color: SOFT }}>@{f.handle}</div> : null}
-          </div>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <CardWordmark height={26} />
         {f.raising ? (
-          <div style={{ display: 'flex', padding: '12px 26px', borderRadius: 40, border: `3px solid ${ORANGE}`, color: ORANGE, fontSize: 30, fontWeight: 700 }}>Backing · ${f.raising}</div>
+          <div style={{ display: 'flex', padding: '10px 22px', borderRadius: 999, border: `2px solid ${T.borderStrong}`, color: T.accent, fontSize: 26, fontWeight: 500 }}>Backing · ${f.raising}</div>
         ) : null}
       </div>
-      <div style={{ display: 'flex', fontSize: size, fontWeight: 700, lineHeight: 1.04, letterSpacing: -size / 36, maxWidth: 1048 }}>{big}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+        <CardPhoto avatar={avatar} handle={f.handle} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', fontSize: 44, fontWeight: 500, letterSpacing: -1, lineHeight: 1.1, maxWidth: 900 }}>{f.name}</div>
+          {named ? <div style={{ display: 'flex', fontSize: 28, fontWeight: 500, color: T.muted }}>@{f.handle}</div> : null}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', fontSize: size, fontWeight: 500, lineHeight: 1.05, letterSpacing: -size / 32, maxWidth: 1072 }}>{big}</div>
+        {numbers.length ? (
+          <div style={{ display: 'flex', gap: 72, marginTop: 36 }}>
+            {numbers.map(([value, label]) => (
+              <CardNumber key={label} value={value} label={label} />
+            ))}
+          </div>
+        ) : null}
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 30, fontWeight: 500 }}>
-        <div style={{ display: 'flex', color: WHITE, maxWidth: 700 }}>{foot}</div>
-        <div style={{ display: 'flex', color: SOFT }}>{pageUrl(f.handle)}</div>
+        <div style={{ display: 'flex', color: T.body, maxWidth: 700 }}>{foot}</div>
+        <div style={{ display: 'flex', color: T.muted }}>{pageUrl(f.handle)}</div>
       </div>
     </div>
   );
