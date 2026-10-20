@@ -20,7 +20,8 @@ should read as one useful update derived from the pushed commits, with an option
   `week-summary.ts weekSummary`.
 - `aiSummary`: Claude Haiku 5.5 (`claude-haiku-5-5`), effort low, 15 s timeout, one retry. Only with
   `ANTHROPIC_API_KEY` set. The system prompt treats titles as data, asks for at most 200 characters, past tense,
-  no project name, no numbers, no dashes. "NONE" when nothing is worth saying.
+  no numbers, no dashes. "NONE" when nothing is worth saying. The model gets the titles only, never the project name;
+  with a private repo, titles naming the repo are left out.
 - `ruleSummary` is the free fallback (no key, an error, a refusal, or a reply the filter refuses): verb-led titles in
   the past tense ("Fixed the timer and added the shopping list."), the rest after "Shipped".
 - Both go through `update-text.ts checkUpdate` before storing (no foreign links, @mentions, secrets).
