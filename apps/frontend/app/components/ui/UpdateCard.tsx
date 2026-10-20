@@ -9,8 +9,8 @@ import { weekLabel } from '../../../lib/earnkit/weeks';
 export type UpdateCardData = {
   handle?: string; name?: string; avatar?: string | null; project?: string;
   week: string; text: string | null; chips: string[]; started?: string | null;
-  /** v2.14 spec 3: the week's shipped titles, already filtered (ship-titles.ts titlesShown); plain text. */
-  titles?: string[];
+  /** Weekly updates: what the week shipped, one paragraph, already filtered (week-summary.ts summaryShown); plain text. */
+  summary?: string | null;
 };
 
 
@@ -54,11 +54,11 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
   const shell = square
     ? `${SURFACE} aspect-square p-5 flex flex-col justify-between w-[78vw] max-w-[18rem] sm:w-[18rem]`
     : `${SURFACE} p-5 md:px-8 md:py-6 w-full`;
-  const raw = card.started ?? card.text;
-  const text = raw && square ? raw.split(/(?<=[.!?])\s/)[0] : raw;
+  // Weekly updates: the week's summary leads; the builder's own note sits under it as a quote. The square card
+  // shows the summary, or the note when there is no summary.
+  const lead = card.started ?? card.summary ?? null;
+  const note = card.started || !card.text ? null : square ? card.text.split(/(?<=[.!?])\s/)[0] : card.text;
   const chips = square ? card.chips.slice(0, 2) : card.chips;
-  // The square card has room for one title beside its text.
-  const titles = (square ? card.titles?.slice(0, 1) : card.titles) ?? [];
   const handle = card.handle;
   return (
     <article data-shape={shape} className={shell}>
@@ -74,9 +74,13 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
           </div>
         )}
         {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-muted">{weekLabel(card.week)}</p>}
-        {titles.length ? <ul className="mt-2 space-y-1">{titles.map((t) => <li key={t} className="font-funnel-sans text-[15px] font-medium text-ek-text">{t}</li>)}</ul> : null}
-        {text && (
-          <p className={`mt-2 font-funnel-sans text-base text-ek-body ${square ? 'line-clamp-3' : ''}`}><Body text={text} /></p>
+        {lead && (
+          <p data-ek-summary="" className={`mt-2 font-funnel-sans text-base text-ek-text ${square ? 'line-clamp-4' : ''}`}><Body text={lead} /></p>
+        )}
+        {note && !(square && lead) && (
+          <blockquote data-ek-note="" className="mt-3 border-l-2 border-ek-chip pl-3 font-funnel-sans text-base text-ek-body">
+            <p className={square ? 'line-clamp-3' : ''}><Body text={note} /></p>
+          </blockquote>
         )}
       </div>
       {chips.length > 0 && (

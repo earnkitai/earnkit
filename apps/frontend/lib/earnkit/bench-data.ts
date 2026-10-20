@@ -15,6 +15,7 @@ import { scoreWhy, storedShipping } from './score-v2';
 import { targetFor } from './weekly-target';
 import { earnPrize, earnWhen, showable } from './stand-view';
 import { titlesShown } from './ship-titles';
+import { summaryShown } from './week-summary';
 import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
 import { last52, streakOf, weekOfMonday } from './weeks';
@@ -108,8 +109,8 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 // ---- v2.13 T11: the profile (spec "Profile", R10, R11, R12) ----------------------------------------
 
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
-/** v2.14 spec 3: `titles`, the week's shipped titles the card may show (ship-titles.ts titlesShown). */
-export type ProfileCard = { week: string; text: string | null; titles?: string[]; chips: string[]; started?: string | null };
+/** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
+export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null };
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
   coin: { symbol: string; url: string } | null; programs: { title: string; won: boolean }[]; funds: string[]; confirmed: boolean;
@@ -149,22 +150,25 @@ export const initialsOf = (handle: string) => handle.replace(/^_+/, '').charAt(0
 export const STARTED_CHIP = 'Started tracking';
 
 /**
- * The Ship log, newest first: a week with text or facts is a card (chips alone when there is no
- * text). The week with facts.started: v2.13.1 O3, when it has a card, the start is a chip on it
+ * The Ship log, newest first: a week with a summary, a note or facts is a card (chips alone when there is
+ * neither). The week with facts.started: v2.13.1 O3, when it has a card, the start is a chip on it
  * ("Started tracking" first, then the start's own chips), never a second card under the same week
- * heading; with no card that week, the Started card. Hidden weeks never. Pure.
+ * heading; with no card that week, the Started card. Only the oldest week carrying facts.started shows the
+ * start (a second stored start, from a race or a backfill, never repeats it). Hidden weeks never. Pure.
  */
-export function logCards(rows: { week: string; text: string | null; titles?: string[]; facts: WeekFacts }[], name: string): ProfileCard[] {
+export function logCards(rows: { week: string; text: string | null; summary?: string | null; facts: WeekFacts }[], name: string): ProfileCard[] {
   const out: ProfileCard[] = [];
+  const startWeek = rows.reduce<string | null>((w, r) => (r.facts?.started && (!w || r.week < w) ? r.week : w), null);
   for (const r of rows) {
-    const facts = r.facts ?? {};
-    const titles = r.titles ?? [];
-    if (r.text || titles.length > 0 || hasFacts(facts)) {
+    const facts: WeekFacts = { ...(r.facts ?? {}) };
+    if (r.week !== startWeek) delete facts.started;
+    const summary = r.summary ?? null;
+    if (r.text || summary || hasFacts(facts)) {
       const chips = factChips(facts);
       // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
       const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
       const start = facts.started ? [STARTED_CHIP, ...own] : [];
-      out.push({ week: r.week, text: r.text, ...(titles.length > 0 && { titles }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+      out.push({ week: r.week, text: r.text, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;
@@ -259,12 +263,13 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const confirmed = b.confirmed;
   const name = shown.safeName;
   const stored = confirmed
-    ? await db<{ week: string; text: string | null; titles: string[]; facts: WeekFacts }[]>`
-        SELECT week::text AS week, text, titles, facts FROM project_updates
+    ? await db<{ week: string; text: string | null; titles: string[]; summary: string | null; facts: WeekFacts }[]>`
+        SELECT week::text AS week, text, titles, summary, facts FROM project_updates
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.main}) AND NOT hidden ORDER BY week DESC LIMIT ${LOG_MAX}`
     : [];
-  // Preflight S9: a repo that isn't read public shows its titles only while titles are on (and never its name).
-  const updates = stored.map((u) => ({ ...u, titles: titlesShown(u.titles, { hiddenRepo: shown.hiddenRepo, titlesOn: p.titles_on, repoKey: p.main! }) }));
+  // Preflight S9: a repo that isn't read public shows its week's work only while titles are on (and never its name).
+  const rule = { hiddenRepo: shown.hiddenRepo, titlesOn: p.titles_on, repoKey: p.main! };
+  const updates = stored.map(({ titles, ...u }) => ({ ...u, summary: summaryShown(u.summary, titlesShown(titles, rule), rule) }));
   const weeks = confirmed ? gridWeeks(b.commit_weeks, updates) : new Set<string>();
   const coin = confirmed ? await raisingCoin(builderId) : null;
   const repoKey = norm(p.main);

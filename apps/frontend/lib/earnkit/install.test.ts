@@ -23,12 +23,18 @@ const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 const CLAUDE_CODE = 'claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp';
 const CODEX = 'codex mcp add earnkit --url https://earnkit.com/mcp';
 
-test('the tabs are Grok Bot, Claude Code, Cursor, Codex, Muse; Grok Bot is selected first', () => {
-  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Claude Code', 'Cursor', 'Codex', 'Muse']);
+test('the tabs: the personal agents first (Grok Bot, Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
+  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
   const first = html.match(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>(.*?)<\/button>/);
   assert.ok(first, 'a selected tab');
   assert.match(first[1], /Grok Bot$/);
   assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
+});
+
+test('OpenClaw: openclaw mcp add over streamable HTTP, then log in (docs.openclaw.ai/tools/mcp)', () => {
+  const oc = byName('OpenClaw');
+  assert.equal(oc.code, 'openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http');
+  assert.equal(oc.afterCode, 'openclaw mcp login earnkit');
 });
 
 test('Claude Code: user scope, then /mcp and Authenticate (the menu item Claude Code shows)', () => {

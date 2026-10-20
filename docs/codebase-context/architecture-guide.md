@@ -6500,7 +6500,7 @@ simple: one number (Shipping), one target this week, one weekly moment.
 ## Launch ready (UX pass, L10): the site and the replies as a new builder sees them
 
 Walked every page (desktop 1440x900, phone 390x844) and the agent replies through `mcpCall` as a brand-new builder
-and as a designer. Screenshots and the rendered replies: `docs/screenshots/launch-ready/{before,after}/`,
+and as a designer. Screenshots and the rendered replies were in `docs/screenshots/launch-ready/{before,after}/` (removed 2026-10-20 with the rest of `docs/screenshots/`),
 `replies.md` (after) and `replies-before.md`. The full issue table is in `.superpowers/sdd/launch-ready/task-ux-report.md`.
 
 - **404.** `app/not-found.tsx`: the site's own page ("Page not found", the leaderboard and home) for any unknown path
@@ -6545,3 +6545,26 @@ and as a designer. Screenshots and the rendered replies: `docs/screenshots/launc
   the drop from last week's number reads as the new week.
 - **M6 Badge.** `badge.ts badgeFileOk` (X handle, 1 to 15 of `[A-Za-z0-9_]`, plus ".svg"); the route answers
   `badgeMiss()` for anything else before `unstable_cache` or the database.
+
+## Weekly updates (2026-10-20)
+
+Design doc: `docs/design-docs-and-implementation-plans/weekly-updates.md`. Feed and ship-log cards no longer list raw
+commit titles. Each week shows one summary (`project_updates.summary`), with the builder's note (`text`) under it as a
+quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows the summary, or the note without one).
+
+- **Written by the weekly job.** `week-facts.ts weekTitles` returns `{ titles, summary }`: up to 40 cleaned titles
+  go to `week-summary.ts weekSummary` (Claude Haiku 5.5 via `aiSummary` when `ANTHROPIC_API_KEY` is set, else
+  `ruleSummary`), checked by `checkUpdate`; `upsertWeekFacts` keeps an older summary when the new one is null. The
+  stored `titles` (3) stay for older readers and the read-time fallback.
+- **Read time.** `summaryShown(summary, titlesShown(...), rule)` in `feed.ts feedRows`, `bench-data.ts profileData`
+  and `weekly-moment.ts lastWeekOf`: the titles privacy rule, and never text naming a private repo.
+- **The note.** `updates.ts noteMonday`: Monday and Tuesday UTC a `tell update { text }` goes under the finished
+  week; from Wednesday, this week's. The moment adds `NOTE_LINE` under the summary; `SHARE_NOTE` tells the agent to
+  post the builder's line with `tell update`.
+- **Started once.** `logCards` shows the start only on the oldest week whose facts carry `started`.
+- **Owner script.** `pnpm feed:summaries [--dry] [--redo]` (`scripts/feed-summaries.mts`) fills or rewrites summaries
+  of stored weeks by reading the titles again.
+- **Install pop-up.** `AddToAgent.tsx AGENTS`: Grok Bot, Muse, OpenClaw (documented `openclaw mcp add ... --transport
+  streamable-http`, then `openclaw mcp login`), Claude Code, Cursor, Codex. Instinct documents no way to add an MCP
+  server, so it has no tab.
+- Tests: `week-summary.test.ts` (W1-W8); `feed.test.ts` 6.6/6.7b and `v214-ship-log.test.ts` 8.9/8.10 read summaries.

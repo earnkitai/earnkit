@@ -4,6 +4,7 @@ import { hit } from './rate-limit';
 import { listedRanked } from './person-score';
 import { PRIVATE_NAME, avatarUrl, displayName, norm, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
+import { summaryShown } from './week-summary';
 import { factChips, hasFacts, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
 import { lastFinishedMonday, weekLabel } from './weeks';
 
@@ -49,10 +50,10 @@ export async function feedRankStep(now: Date): Promise<{ step: 'skipped' } | { r
   return rankFeed(now);
 }
 
-/** v2.14 spec 3: `titles`, the week's shipped titles the card may show (ship-titles.ts titlesShown). */
-export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; titles: string[]; chips: string[]; pinned: boolean };
+/** Weekly updates: `summary`, what the week shipped in one paragraph (week-summary.ts summaryShown); `text`, the builder's own note. */
+export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; summary: string | null; chips: string[]; pinned: boolean };
 type Row = {
-  id: number; builder_id: number; key: string; week: string; text: string | null; titles: string[]; facts: WeekFacts; pinned: boolean; handle: string;
+  id: number; builder_id: number; key: string; week: string; text: string | null; summary: string | null; facts: WeekFacts; pinned: boolean; handle: string;
   x_name: string | null; avatar: string | null; project: string;
 };
 
@@ -63,9 +64,9 @@ type Row = {
  */
 async function feedRows(since: string, until: string, only?: number[]): Promise<Row[]> {
   const db = sql();
-  const rows = await db<(Omit<Row, 'project'> & { titles_on: boolean })[]>`
+  const rows = await db<(Omit<Row, 'project'> & { titles: string[]; titles_on: boolean })[]>`
     SELECT * FROM (
-      SELECT u.id::int AS id, u.builder_id::int AS builder_id, b.project_key AS key, u.week::text AS week, u.text, u.titles, u.facts, u.pinned,
+      SELECT u.id::int AS id, u.builder_id::int AS builder_id, b.project_key AS key, u.week::text AS week, u.text, u.titles, u.summary, u.facts, u.pinned,
         p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, (p.ship_titles_at IS NOT NULL) AS titles_on,
         row_number() OVER (PARTITION BY u.week ORDER BY u.pinned DESC, u.points DESC, l.score DESC, u.id) AS n
       FROM project_updates u
@@ -75,15 +76,16 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
       WHERE u.week >= ${since} AND u.week < ${until} AND NOT u.hidden AND NOT u.feed_hidden AND u.points > 0
     ) x WHERE x.n <= ${FEED_WEEK_MAX} ORDER BY x.week DESC, x.n`;
   const shown = await shownProjects([...new Set(rows.map((r) => r.builder_id))]);
-  return rows.map(({ titles_on, ...r }) => {
+  return rows.map(({ titles_on, titles, ...r }) => {
     const s = (shown.get(r.builder_id) ?? []).find((x) => norm(x.key) === norm(r.key));
-    // Preflight S9: a repo that isn't read public shows its titles only while titles are on (and never its name).
-    return { ...r, project: s?.safeName ?? PRIVATE_NAME, titles: titlesShown(r.titles, { hiddenRepo: s?.hiddenRepo ?? true, titlesOn: titles_on, repoKey: r.key }) };
+    // Preflight S9: a repo that isn't read public shows its week's work only while titles are on (and never its name).
+    const rule = { hiddenRepo: s?.hiddenRepo ?? true, titlesOn: titles_on, repoKey: r.key };
+    return { ...r, project: s?.safeName ?? PRIVATE_NAME, summary: summaryShown(r.summary, titlesShown(titles, rule), rule) };
   });
 }
 const toCard = (r: Row): FeedCard => ({
   id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar), project: r.project, week: r.week,
-  text: r.text, titles: r.titles, chips: factChips(r.facts), pinned: r.pinned,
+  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned,
 });
 
 /** The last finished week and FEED_OLDER_WEEKS before it, newest first, at most FEED_WEEK_MAX cards each. */

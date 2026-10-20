@@ -147,7 +147,7 @@ const confirmDescription = (campaignOpen: boolean) =>
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program's site; a shared agent adds project_id. " +
-  'update: { text } adds one plain line to this week\'s log; { hide: "YYYY-MM-DD" } hides that week. ' +
+  'update: { text } adds the builder\'s line to their update; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
   'main_project: owner/repo to rank instead. ' +
   'coin: their coin answer, or { raising } to open or close a community round. ' +

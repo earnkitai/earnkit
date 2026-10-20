@@ -150,3 +150,18 @@ test('5.10 through the tool: tell update and updates under the flag; a shared cl
   const shared = (await tools.tell({ update: { text: 'x' } }, { installationId: id, sharedClient: true } as never)) as { agent_note?: string };
   assert.ok(shared.agent_note);
 });
+
+test('5.11 weekly updates: on Monday or Tuesday a note goes under last week\'s written update while it has none; else this week', dbTest, async () => {
+  const { id, key } = await person();
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary) VALUES (${id}, ${key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)}, 'Fixed the timer.')`;
+  assert.equal((await postUpdate(id, 'Biggest week yet.', new Date('2026-10-20T09:00:00Z'))).show_to_builder, UPDATE_LINES.lastWeek);
+  assert.deepEqual((await rows(key)).map((x) => [x.week, x.text]), [['2026-10-12', 'Biggest week yet.']]);
+  // Last week has its note now: a second line is this week's.
+  await postUpdate(id, 'Starting the parser.', new Date('2026-10-20T10:00:00Z'));
+  assert.deepEqual((await rows(key)).map((x) => [x.week, x.text]), [['2026-10-12', 'Biggest week yet.'], ['2026-10-19', 'Starting the parser.']]);
+  // From Wednesday, always this week.
+  const b = await person();
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, '2026-10-12', ${sql().json({ checked: true } as never)})`;
+  await postUpdate(b.id, 'Midweek.', new Date('2026-10-21T09:00:00Z'));
+  assert.deepEqual((await rows(b.key)).map((x) => [x.week, x.text]), [['2026-10-12', null], ['2026-10-19', 'Midweek.']]);
+});

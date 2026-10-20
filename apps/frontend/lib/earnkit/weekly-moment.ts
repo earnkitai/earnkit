@@ -2,6 +2,7 @@ import { sql } from './db';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { norm, shareIntentText, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
+import { summaryShown } from './week-summary';
 import { checkUpdate } from './update-text';
 import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
 import { WEEKLY_HOUR_UTC } from './week-facts';
@@ -30,13 +31,15 @@ const rankDelta = (before: number, now: number) => (before === now ? 'same' : no
  * week's line (weekly-target.ts weekStartLine), when there is one. Pure.
  */
 export const MOMENT_TITLES_MAX = 2;
+/** Weekly updates: the builder's optional note under the week's summary (tell update { text }). */
+export const NOTE_LINE = 'Send a line about your week and it goes under your update.';
 export function momentLines(w: LastWeek, weekStart: string | null = null): string[] {
   const { now, before } = w;
   const head = before
     ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
     : `Last week you finished at Shipping ${now.score}, #${now.rank}.`;
   const titles = w.titles.slice(0, MOMENT_TITLES_MAX);
-  return [head, ...(titles.length > 0 ? [titles.join(' · ')] : []), ...(weekStart ? [weekStart] : [])];
+  return [head, ...(titles.length > 0 ? [titles.join(' · '), NOTE_LINE] : []), ...(weekStart ? [weekStart] : [])];
 }
 
 /**
@@ -58,7 +61,7 @@ export const shareText = (w: WeekStanding) =>
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =
-  "show_to_builder ends with a share link for X and one question. A yes or no to it: call tell with move_up: { kind, project_key, answer } (as given here). Never post for the builder. Don't show this note.";
+  "show_to_builder ends with a share link for X and one question. A yes or no to it: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
 export const APPROVED_LINE = 'Thanks. Last week is confirmed.';
 
 /**
@@ -97,22 +100,26 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (!cur) return null;
   const before = await weekStanding(builderId, new Date(Date.parse(`${monday}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10));
   const db = sql();
-  const [u] = await db<{ titles: string[]; checked: boolean }[]>`
-    SELECT titles, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
+  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean }[]>`
+    SELECT titles, summary, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
-  if (u && u.titles.length > 0) {
+  if (u && (u.titles.length > 0 || u.summary)) {
     const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
     const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
     // The titles are the builder's own commit text: checked again here as when stored (update-text.ts checkUpdate),
-    // so a reply never carries one the filter refuses.
-    const own = titlesShown(u.titles, { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key });
-    if (own.length > 0) {
-      const links = await (await import('./updates')).ownLinks(builderId);
-      titles = own.flatMap((t) => {
-        const c = checkUpdate(t, links);
-        return c.ok && !titleHasLink(c.text) ? [c.text] : [];
-      });
-    }
+    // so a reply never carries one the filter refuses. Weekly updates: the week's summary stands in for them.
+    const rule = { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key };
+    const links = await (await import('./updates')).ownLinks(builderId);
+    const safe = (t: string) => {
+      const c = checkUpdate(t, links);
+      return c.ok && !titleHasLink(c.text) ? c.text : null;
+    };
+    // Weekly updates: the week's summary stands in for the titles; written from the titles a reply may carry
+    // when the stored one names a host.
+    const shownTitles = titlesShown(u.titles, rule).flatMap((t) => safe(t) ?? []);
+    const summary = summaryShown(u.summary && safe(u.summary), shownTitles, rule);
+    const line = summary && safe(summary);
+    if (line) titles = [line];
   }
   return { monday, now: cur, before, titles, checked: u?.checked ?? false };
 }

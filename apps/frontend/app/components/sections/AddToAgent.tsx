@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 
 const MCP_URL = 'https://earnkit.com/mcp';
 
-export type AgentName = 'Grok Bot' | 'Claude Code' | 'Cursor' | 'Codex' | 'Muse';
+export type AgentName = 'Grok Bot' | 'Muse' | 'OpenClaw' | 'Claude Code' | 'Cursor' | 'Codex';
 
 export type Agent = {
   name: AgentName;
@@ -44,14 +44,18 @@ export type Agent = {
  *   (muse.ai is the site Meta's announcement names: https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/),
  *   the same path; its blue gradient fill is flattened to its middle stop (#0064E0), since the
  *   logo checks refuse url() and the tab draws the mark in one color anyway.
+ * - openclaw.svg: OpenClaw's lobster mark from its official site, https://openclaw.ai/favicon.svg, the same paths;
+ *   its gradient fill flattened to one color and the eyes dropped (the tab draws the mark in one color).
  *
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
- * (codex mcp add <name> --url <url>, then codex mcp login <name>).
+ * (codex mcp add <name> --url <url>, then codex mcp login <name>); OpenClaw per https://docs.openclaw.ai/tools/mcp
+ * (openclaw mcp add <name> --url <url> --transport streamable-http, then openclaw mcp login <name>).
+ * The personal agents (Grok Bot, Muse, OpenClaw) lead; Instinct documents no way to add an MCP server, so it has no tab.
  * Launch-ready L1: Claude Code's line is user scope (EarnKit works in every folder). One-click links only where the
  * agent documents one: Cursor's MCP install deep link (Cursor docs, "Add to Cursor" links:
  * cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>), shown first in
- * its tab. Claude Code, Codex, Grok Bot and Muse document none, so none is made up.
+ * its tab. Claude Code, Codex, Grok Bot, Muse and OpenClaw document none, so none is made up.
  */
 export const AGENTS: Agent[] = [
   {
@@ -61,6 +65,22 @@ export const AGENTS: Agent[] = [
       'Add an MCP connector in Grok Bot.',
       'Paste the EarnKit link and save.',
     ],
+  },
+  {
+    name: 'Muse',
+    icon: '/images/agents/muse.svg',
+    steps: [
+      'Add a custom integration in Muse.',
+      'Paste the EarnKit link and save.',
+    ],
+  },
+  {
+    name: 'OpenClaw',
+    icon: '/images/agents/openclaw.svg',
+    steps: ['Run this where OpenClaw runs:'],
+    code: `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http`,
+    after: 'Then sign in:',
+    afterCode: 'openclaw mcp login earnkit',
   },
   {
     name: 'Claude Code',
@@ -87,14 +107,6 @@ export const AGENTS: Agent[] = [
     code: `codex mcp add earnkit --url ${MCP_URL}`,
     after: 'Then sign in:',
     afterCode: 'codex mcp login earnkit',
-  },
-  {
-    name: 'Muse',
-    icon: '/images/agents/muse.svg',
-    steps: [
-      'Add a custom integration in Muse.',
-      'Paste the EarnKit link and save.',
-    ],
   },
 ];
 

@@ -234,14 +234,14 @@ test('11.16 (fix round 1) Avatar remembers which photo failed: a new src gets it
   assert.match(src, /onError=\{\(\) => setFailedSrc\(src\)\}/);
 });
 
-test('11.17 (v2.13.1 O3) logCards: the start merges into its week\'s card as a chip; a week with only the start keeps its Started card', async () => {
+test('11.17 (v2.13.1 O3) logCards: a week with only the start keeps its Started card; a second stored start never repeats it', async () => {
   const { logCards } = await import('./bench-data');
   const cards = logCards([
     { week: '2026-10-12', text: 'Shipped the parser.', facts: { shipped_code: { n: 3 }, started: { live: true, weeks: 2, people: 0 } } },
     { week: '2026-10-05', text: null, facts: { started: { live: false, weeks: 0, people: 0 } } },
   ], 'Recipe planner');
   assert.deepEqual(cards, [
-    { week: '2026-10-12', text: 'Shipped the parser.', chips: ['Started tracking', '3 commits', 'Live', '2 weeks shipping'] },
+    { week: '2026-10-12', text: 'Shipped the parser.', chips: ['3 commits'] },
     { week: '2026-10-05', text: null, chips: [], started: 'Started tracking Recipe planner.' },
   ]);
   // Never two cards under one week heading.

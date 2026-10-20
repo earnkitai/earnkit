@@ -7,7 +7,8 @@ import { COIN_PROGRAM } from './policy-constants';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
-import { readWeekTitles, shipTitles } from './ship-titles';
+import { TITLES_MAX, readWeekTitles, shipTitles } from './ship-titles';
+import { SUMMARY_TITLES_MAX, weekSummary } from './week-summary';
 import { REPO_READER } from './sources';
 import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
 
@@ -120,39 +121,48 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
  * titles (ship-titles.ts) replace the stored ones only when there are some. Another builder's row is left
  * alone. True when a row was written.
  */
-export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts, titles: string[] = []): Promise<boolean> {
+export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts, titles: string[] = [], summary: string | null = null): Promise<boolean> {
   const wrote = await sql()`
-    INSERT INTO project_updates (builder_id, project_key, week, facts, titles) VALUES (${builderId}, ${projectKey}, ${monday}, ${sql().json(f as never)}, ${titles}::text[])
+    INSERT INTO project_updates (builder_id, project_key, week, facts, titles, summary) VALUES (${builderId}, ${projectKey}, ${monday}, ${sql().json(f as never)}, ${titles}::text[], ${summary})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts,
-      titles = CASE WHEN cardinality(EXCLUDED.titles) > 0 THEN EXCLUDED.titles ELSE project_updates.titles END
+      titles = CASE WHEN cardinality(EXCLUDED.titles) > 0 THEN EXCLUDED.titles ELSE project_updates.titles END,
+      summary = COALESCE(EXCLUDED.summary, project_updates.summary)
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
   return wrote.length > 0;
 }
+
+/** Weekly updates: the week's titles (at most TITLES_MAX shown) and its summary (week-summary.ts). */
+export type WeekWork = { titles: string[]; summary: string | null };
+const NO_WORK: WeekWork = { titles: [], summary: null };
 
 /**
  * v2.14 spec 3 (A11): the week's cleaned titles of the person's App-proven repo `key`, read with its installation
  * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) is read
  * only once the builder turned titles on; fix round 1: else one GET /repos/{key} through the same client checks it,
  * and a public answer stamps builder_sources.public_at. At most 3 GitHub calls (plus the token). Only called for a
- * week with shipped code (writeWeek).
+ * week with shipped code (writeWeek). Weekly updates: also the week's summary, from up to SUMMARY_TITLES_MAX titles.
  */
-export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<string[]> {
+export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<WeekWork> {
   const db = sql();
   const k = key.toLowerCase();
   const [app] = await db<{ id: number; titles_on: boolean }[]>`
     SELECT s.id::int AS id, (p.ship_titles_at IS NOT NULL) AS titles_on FROM builder_sources s JOIN builder_profiles p ON p.builder_id = s.builder_id
     WHERE s.builder_id = ${id} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
       AND regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${k}`;
-  if (!app) return [];
+  if (!app) return NO_WORK;
   const get = await appClient(id, k, ghFetch);
-  if (!get) return [];
+  if (!get) return NO_WORK;
   if (!app.titles_on && !(await repoReadPublic(id, k, now))) {
     const meta = await get<{ private?: unknown }>(`/repos/${k}`);
-    if (meta?.private !== false) return [];
+    if (meta?.private !== false) return NO_WORK;
     await db`UPDATE builder_sources SET public_at = ${now} WHERE id = ${app.id}`;
   }
   // updates.ts imports this file: ownLinks is loaded when called.
-  return shipTitles(await readWeekTitles(get, k, monday), await (await import('./updates')).ownLinks(id));
+  const own = await (await import('./updates')).ownLinks(id);
+  const all = shipTitles(await readWeekTitles(get, k, monday), own, SUMMARY_TITLES_MAX);
+  const [b] = await db<{ name: string | null }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = ${k}`;
+  const summary = all.length > 0 ? await weekSummary({ project: b?.name || k.split('/').pop() || k, titles: all, own }) : null;
+  return { titles: all.slice(0, TITLES_MAX), summary };
 }
 
 /**
@@ -175,7 +185,7 @@ export async function writeWeek(
   const week = weekOfMonday(monday)!;
   const f = await weekFactsFor(id, monday, now);
   // v2.14 spec 3 (A11): the week's titles (weekTitles). Fix round 1: a failure there never stops the facts.
-  let titles: string[] = [];
+  let work: WeekWork = NO_WORK;
   let titled = !f.shipped_code;
   if (f.shipped_code && d.ghFetch && (d.deadline === undefined || Date.now() < d.deadline)) {
     const base = d.ghFetch;
@@ -194,16 +204,16 @@ export async function writeWeek(
         throw err;
       }
     }) as typeof fetch;
-    titles = await weekTitles(id, key, monday, now, tracked).catch((err: unknown) => {
+    work = await weekTitles(id, key, monday, now, tracked).catch((err: unknown) => {
       console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
       failed = true;
-      return [];
+      return NO_WORK;
     });
     titled = read && !failed;
   }
   const reader = Number((await readingOf(id, key))?.reader ?? 0) || 0;
   const facts: WeekFacts = { ...f, checked: true, ...(d.mark && f.shipped_code && titled && { titles_read: true as const }), ...(reader > 0 && { reader }) };
-  if (!(await upsertWeekFacts(id, key, monday, facts, titles))) return { wrote: false, facts, titled };
+  if (!(await upsertWeekFacts(id, key, monday, facts, work.titles, work.summary))) return { wrote: false, facts, titled };
   const at = new Date(`${monday}T12:00:00Z`);
   // R16b: weekFactsFor never sets users_up (people aren't counted), so no users_up event is written.
   const ev = (type: 'shipped_code' | 'went_live', detail: Record<string, unknown>) =>
