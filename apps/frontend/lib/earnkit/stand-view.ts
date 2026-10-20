@@ -84,8 +84,8 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
           -- v2.13.1 O5: the quiet asks.
           'quiet', standing_seen->'quiet'))
           -- v2.13.1 O5 fix round 2: the kept repo reads and match, unstripped (their nulls are values).
-          -- v2.13.4: the live link check. Launch ready L6: the open share offer.
-          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'share_open']) k WHERE standing_seen ? k),
+          -- v2.13.4: the live link check. Launch ready L6: the open share offer. v3: the connect offer and its answer.
+          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'share_open', 'connect_open', 'connect_done']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

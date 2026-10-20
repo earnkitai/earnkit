@@ -42,6 +42,9 @@ import { displayName } from './bench-reply';
 import { targetIn, weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentLines, momentReady, openShare, shareLink, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
+import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, answerConnect, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
+import { askWeeklyEmail, digestEnabled } from './digest';
+import { pageUrl } from './reserved-routes';
 export { displayName };
 
 /**
@@ -52,6 +55,8 @@ export { displayName };
  * never by the agent's kind. Never throws on its own reads: each falls back as standFind's do.
  */
 
+/** v3 Stage 1: the connect yes's line when no page handle could be read (a statement, no link). */
+const APPROVED_CONNECT = 'Done. Your weeks are posted.';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the last line: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -344,8 +349,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // Launch ready L5: the ranked state's one next step is the weekly target (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
   const target = aim ? weeklyTarget(aim) : null;
+  // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
+  const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
+  const moment = ranked && project && handle && !held && !connect ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
 
   let fund: FundLine[] = [];
@@ -379,7 +386,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).
-  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null });
+  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null, connect: Boolean(connect) });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
   const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key };
@@ -391,14 +398,31 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
     target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
+  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
   };
-  return { view, fields, moment: moment?.lines ?? null };
+  return { view, fields, moment: connect ?? moment?.lines ?? null };
+}
+
+/**
+ * v3 Stage 1 (spec 5.1): the backfilled weeks to confirm ("Your last 3 weeks:" and a line each), when this person
+ * hasn't been offered them (connectDue). Shown: the offer opens (openConnect). None to confirm: connect_done, never
+ * asked. A failed read is no lines, asked again on a later reply. Never throws.
+ */
+async function connectMoment(id: number, key: string, now: Date): Promise<string | null> {
+  if (!(await connectDue(id))) return null;
+  const weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
+  if (!weeks) return null;
+  if (weeks.length === 0) {
+    await closeConnect(id, now);
+    return null;
+  }
+  await openConnect(id, { key, weeks: weeks.map((w) => w.monday) });
+  return [CONNECT_HEAD(weeks.length), ...weeks.map((w) => w.line)].join('\n');
 }
 
 /**
@@ -618,6 +642,20 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
+  // v3 Stage 1 (spec 5.1): the connect offer is answerable once (standing_seen.connect_open is its guard).
+  if (m.kind === 'connect') {
+    const r = await answerConnect(id, m.project_key, m.answer, now).catch(logged('answer connect'));
+    if (r) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'connect'`.catch(logged('clear connect ask'));
+    if (!r || r.approved === 0) return okay;
+    const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+      logged('connect handle')(err);
+      return [];
+    });
+    const done = p?.handle ? CONNECT_DONE(pageUrl(p.handle)) : APPROVED_CONNECT;
+    // The Done line is a statement, so the email question (when it is asked) is the reply's one question.
+    const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
+    return { show_to_builder: [done, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
+  }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
   if (m.kind === 'share') {
     const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));

@@ -43,7 +43,8 @@ const noHostile = (s: string) => assert.ok(!/ignore previous|instructions|wtana|
 async function builder(tag: string, name: string, ages: number[]) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
-  const id = await person({ main: key, claimed: handle, ranked: true, projects: [{ key, name: 'App', confirmed: true }] });
+  // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
   await setWeeks(id, ages);
   return { id, key, handle };

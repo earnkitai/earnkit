@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { CONNECT_ASK } from './connect-moment';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -96,6 +97,10 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const reads = gh.calls.filter((c) => c.path === '/graphql');
   assert.equal(reads.length, 1);
   assert.equal(reads[0].auth, 'Bearer ghs_fake_91');
+  // v3 Stage 1 Task 5: the first ranked reply after connect leads with the backfilled weeks and asks their one yes.
+  const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
+  assert.match(first, /^Your last \d weeks?:\nWeek of /, first);
+  assert.ok(first.endsWith(`How to move up\n${CONNECT_ASK}`), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
   // R16a: one ranked state; the streak lives in the Shipping score (the stand line is the score line alone).

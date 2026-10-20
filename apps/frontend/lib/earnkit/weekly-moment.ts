@@ -105,24 +105,35 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     SELECT titles, summary, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && (u.titles.length > 0 || u.summary)) {
-    const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
-    const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
-    // The titles are the builder's own commit text: checked again here as when stored (update-text.ts checkUpdate),
-    // so a reply never carries one the filter refuses. Weekly updates: the week's summary stands in for them.
-    const rule = { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key };
-    const links = await (await import('./updates')).ownLinks(builderId);
-    const safe = (t: string) => {
-      const c = checkUpdate(t, links);
-      return c.ok && !titleHasLink(c.text) ? c.text : null;
-    };
+    const line = (await weekLineRule(builderId, key))(u);
+    if (line) titles = [line];
+  }
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false };
+}
+
+/**
+ * The one line a reply may carry for a week of `key`'s ship log: its summary as the profile would show it
+ * (ship-titles.ts titlesShown: a private repo's titles only with titles on, never one naming it; week-summary.ts
+ * summaryShown), checked again as when stored (update-text.ts checkUpdate) and never holding a link. Null: nothing
+ * to show. Reads once; the rule it returns is pure. Throws on a database error.
+ */
+export async function weekLineRule(builderId: number, key: string): Promise<(u: { titles: string[]; summary: string | null }) => string | null> {
+  const db = sql();
+  const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
+  const rule = { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key };
+  const links = await (await import('./updates')).ownLinks(builderId);
+  const safe = (t: string) => {
+    const c = checkUpdate(t, links);
+    return c.ok && !titleHasLink(c.text) ? c.text : null;
+  };
+  return (u) => {
     // Weekly updates: the week's summary stands in for the titles; written from the titles a reply may carry
     // when the stored one names a host.
     const shownTitles = titlesShown(u.titles, rule).flatMap((t) => safe(t) ?? []);
     const summary = summaryShown(u.summary && safe(u.summary), shownTitles, rule);
-    const line = summary && safe(summary);
-    if (line) titles = [line];
-  }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false };
+    return (summary && safe(summary)) || null;
+  };
 }
 
 /** A cheap first look: this installation hasn't been shown `now`'s week yet (so last week is worth reading). Never throws. */
