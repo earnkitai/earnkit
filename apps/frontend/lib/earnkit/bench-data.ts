@@ -6,13 +6,13 @@ import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
 import { pointsTotal } from './points';
-import { backersOfBuilder } from './backers';
+import { backersOfCoin } from './backers';
 import { NO_EARNED, earnedUsd } from './earned';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
-import { pillOf, raisingCoin } from './raising';
+import { pillCoin, pillOf, raisingCoin } from './raising';
 import { BENCH_CHAINS, rankLine, type BenchChain } from './rank';
 import { scoreWhy, storedShipping } from './score-v2';
 import { targetFor } from './weekly-target';
@@ -257,13 +257,13 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   if (!p?.x_handle) return null;
   const [lines, pill, earned] = await Promise.all([
     rankLines(builderId, o),
-    pillOf(builderId),
+    pillCoin(builderId),
     earnedUsd(builderId, now).catch((err: unknown) => {
       console.error('[profile] earned', err instanceof Error ? err.name : 'error');
       return NO_EARNED;
     }),
   ]);
-  const backers = pill ? await backersOfBuilder(builderId) : 0;
+  const backers = pill ? await backersOfCoin(pill.coin) : 0;
   const [live] = await db<{ score: number; parts: unknown }[]>`
     SELECT score::float8 AS score, parts FROM builder_live WHERE builder_id = ${builderId}`;
   const scored = lines.bench !== null && live;

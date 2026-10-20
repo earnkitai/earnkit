@@ -82,6 +82,7 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   // v3 Stage 2: a wallet that received a coin (backers.ts), and a creator wallet's claimed fees (earned.ts).
   ['coin_backers', 'wallet'],
   ['creator_fees', 'wallet'],
+  ['creator_deposits', 'wallet'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

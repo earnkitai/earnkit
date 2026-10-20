@@ -253,8 +253,8 @@ export default function BenchProfileView({
   // Launch ready L10: no project and no week with code: nothing to chart yet.
   const empty = d.project === null && d.score === null && !d.grid.some((g) => g.on);
   const codeIn = shippedWords(d.grid.filter((g) => g.on).length, d.grid.length);
-  // v3 Stage 2 (spec 5.2): Earned while ranked ("$0" with nothing yet), or once anything reached the builder.
-  const earnedShown = d.bench !== null || d.earned.paid_usd >= 0.5;
+  // v3 Stage 2 (spec 5.2): Earned only while ranked ("$0" with nothing yet); omitted while unranked.
+  const earnedShown = d.bench !== null;
   return (
     <>
     <div className={`${COLUMN} pt-5 md:pt-8`}>
@@ -276,7 +276,7 @@ export default function BenchProfileView({
           <ConfirmingCard line={noProjectLine(d.name)} pulse={false} />
         ) : (
           <>
-            {d.bench || d.score !== null || earnedShown ? (
+            {d.bench || d.score !== null ? (
               <div
                 className={`mt-5 flex flex-wrap items-center gap-6 p-6 md:mt-6 md:flex-nowrap md:gap-14 md:p-10 ${SURFACE}`}
               >

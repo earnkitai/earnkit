@@ -13,8 +13,8 @@ import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
-import { pillOf, raisingCoin, showRaisingLine } from './raising';
-import { backersOfBuilder } from './backers';
+import { pillCoin, raisingCoin, showRaisingLine } from './raising';
+import { backersOfCoin } from './backers';
 import { earnedUsd } from './earned';
 import { raisingEnabled } from './builder-score-flag';
 import { NEEDS_LIVE_PRODUCT } from './guide';
@@ -452,8 +452,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const earned = ranked ? await earnedUsd(id, now).catch(logged('earned')) : null;
   // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step,
   // with its backers (backers.ts) and the creator fees claimed (earned.ts fees_usd).
-  if (ranked && handle && (await pillOf(id).catch(logged('backing pill')))) {
-    const backers = (await backersOfBuilder(id).catch(logged('backers'))) ?? 0;
+  const pill = ranked && handle ? await pillCoin(id).catch(logged('backing pill')) : null;
+  if (ranked && handle && pill) {
+    const backers = (await backersOfCoin(pill.coin).catch(logged('backers'))) ?? 0;
     fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}` }];
   }
 

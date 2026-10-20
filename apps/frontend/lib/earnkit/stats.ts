@@ -48,17 +48,13 @@ export const WIN_RATE_MIN_LABELLED = 30;
 
 /** Every stat but `open_pools_plus` and `open_money_text` is a number. */
 export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
-/** v3 Stage 2: the coin-facing stats, present only while EARNKIT_RAISING is on (absent, never 0, with it off). */
-export type BackingStatsKey = 'backing_open' | 'backers';
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
  * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
  * shows for it ("$115K in grants and prizes open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
  * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
-export type PublicStats = Record<Exclude<StatsNumberKey, BackingStatsKey>, number> & Partial<Record<BackingStatsKey, number>> & {
-  open_money_text: string | null; open_pools_plus: boolean;
-};
+export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
 
 /** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
 export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoneyRow } from './pool';
@@ -93,8 +89,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   points_total: 'points awarded for approved weeks',
   applications: 'applications the builder told EarnKit about',
   accepted: 'of which accepted or funded (self-reported)',
-  backing_open: 'projects with backing open (only while EARNKIT_RAISING is on)',
-  backers: 'distinct wallets that received an open backing\'s coin (only while EARNKIT_RAISING is on)',
+  backing_open: 'projects with backing open (0 while EARNKIT_RAISING is off)',
+  backers: 'distinct wallets that received an open backing\'s coin (0 while EARNKIT_RAISING is off)',
   earned_usd: 'earned by EarnKit builders: creator fees claimed plus announced prizes (USD)',
 };
 
@@ -209,8 +205,9 @@ export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()):
     points_total: Number(r.points_total ?? 0),
     applications: Number(r.applications ?? 0),
     accepted: Number(r.accepted ?? 0),
-    // v3 Stage 2: coin-facing, so only with EARNKIT_RAISING on (absent with it off).
-    ...(raising && { backing_open: Number(r.backing_open ?? 0), backers: Number(r.backers ?? 0) }),
+    // v3 Stage 2: coin-facing, so 0 unless EARNKIT_RAISING is on (the keys always stay, for jenil.ai).
+    backing_open: raising ? Number(r.backing_open ?? 0) : 0,
+    backers: raising ? Number(r.backers ?? 0) : 0,
     // v3 Stage 2 (spec 5.2): Earned over people, fees claimed (at the WETH price; none while it is unknown) plus announced prizes.
     earned_usd: Math.round((r.weth_usd ? wethToUsd(big(r.creator_fees_wei), r.weth_usd) : 0) + Number(r.builders_won_usd ?? 0)),
   };

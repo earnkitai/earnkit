@@ -47,6 +47,8 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   points_total: 0,
   applications: 0,
   accepted: 0,
+  backing_open: 0,
+  backers: 0,
   earned_usd: 0,
   ...o,
 });

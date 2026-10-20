@@ -14,9 +14,9 @@ import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { BASE_BONUS, CONFIRMATIONS, type BonusRpc, type TxLog } from './bonus-ledger';
-import { BACKER_EXCLUDED, backersOf, indexBackers } from './backers';
-import { CLAIM_TOKENS, earnedUsd, indexCreatorFees } from './earned';
+import { BASE_BONUS, CLAIMED_REWARDS, CONFIRMATIONS, STORE_TOKENS, type BonusRpc, type TxLog } from './bonus-ledger';
+import { BACKER_EXCLUDED, POOL_MANAGER, backersOf, indexBackers } from './backers';
+import { CLAIM_TOKENS, earnedUsd, feesCursor, indexCreatorFees } from './earned';
 import { refreshFees, setFeeSource } from './fees';
 import { profileData } from './bench-data';
 import { builderJson } from './builder-json';
@@ -74,9 +74,29 @@ const claim = (owner: string, amount: bigint, block: bigint, i: number, o: { tok
   txHash: `0x${randomBytes(32).toString('hex')}` as Hex,
   blockNumber: block,
 });
+/**
+ * A WETH deposit of `amount` for `owner` attributed to `coin`: the FeeLocker's StoreTokens from the LP locker, then the
+ * locker's ClaimedRewards(coin) in the same transaction (bonus-ledger.ts bonusDeposits' rule).
+ */
+const deposit = (owner: string, coin: string, amount: bigint, block: bigint): TxLog[] => {
+  const txHash = `0x${randomBytes(32).toString('hex')}` as Hex;
+  const locker = BASE_BONUS.lockers[0];
+  return [
+    {
+      address: BASE_BONUS.feeLocker, txHash, blockNumber: block, logIndex: 1,
+      topics: encodeEventTopics({ abi: [STORE_TOKENS], eventName: 'StoreTokens', args: { sender: locker, feeOwner: owner as Hex, token: BASE_BONUS.weth } }) as Hex[],
+      data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }], [amount, amount]),
+    },
+    {
+      address: locker, txHash, blockNumber: block, logIndex: 2,
+      topics: encodeEventTopics({ abi: [CLAIMED_REWARDS], eventName: 'ClaimedRewards', args: { token: coin as Hex } }) as Hex[],
+      data: encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint256[]' }, { type: 'uint256[]' }], [0n, 0n, [], []]),
+    },
+  ];
+};
 
 /** A fake Base for the indexers: `head` (moves between runs), the launch receipt's block, the logs by block. */
-function fakeChain(o: { launch: bigint; transfers?: TxLog[]; claims?: TxLog[]; hook?: string }) {
+function fakeChain(o: { launch: bigint; transfers?: TxLog[]; claims?: TxLog[]; deposits?: TxLog[]; hook?: string }) {
   const s = { head: 0n, ranges: [] as [bigint, bigint][], fail: new Set<string>() };
   const rpc = {
     blockNumber: async () => s.head + CONFIRMATIONS,
@@ -93,6 +113,9 @@ function fakeChain(o: { launch: bigint; transfers?: TxLog[]; claims?: TxLog[]; h
       s.ranges.push([lo, hi]);
       return (o.claims ?? []).filter((l) => l.blockNumber >= lo && l.blockNumber <= hi);
     },
+    // StoreTokens logs (any owner; bonusDeposits keeps the wallet's) and the lockers' ClaimedRewards logs.
+    safeStoreLogs: async (lo: bigint, hi: bigint) => (o.deposits ?? []).filter((l) => l.topics[0] === encodeEventTopics({ abi: [STORE_TOKENS], eventName: 'StoreTokens' })[0] && l.blockNumber >= lo && l.blockNumber <= hi),
+    claimLogs: async (lo: bigint, hi: bigint) => (o.deposits ?? []).filter((l) => l.address === BASE_BONUS.lockers[0] && l.blockNumber >= lo && l.blockNumber <= hi),
   } as unknown as BonusRpc;
   return { s, rpc };
 }
@@ -165,22 +188,30 @@ async function outcome(installation: number, result: string, basis: string, priz
 /** WETH at $2,000; `waiting` WETH in the FeeLocker for every wallet. */
 const fees = (waiting: bigint) => setFeeSource({ availableWeth: async () => waiting, wethUsd: async () => 2000 });
 
-test('(a) indexBackers counts distinct recipients, skips zero/pool/locker/safe, advances the cursor and resumes', db, async () => {
+test('(a) indexBackers counts distinct recipients, skips zero/pool/locker/safe, advances the cursor and resumes; a wallet-to-wallet transfer or a dev buy adds none', db, async () => {
   const inst = await plainInstallation('a');
   const coin = addr('a1');
   const other = addr('a2');
-  const [w1, w2, w3, hook] = [addr('b1'), addr('b2'), addr('b3'), addr('h1')];
-  await coinEntry(inst, { coin, wallet: addr('c1') });
+  const [w1, w2, w3, w4, w5, hook] = [addr('b1'), addr('b2'), addr('b3'), addr('b4'), addr('b5'), addr('h1')];
+  const creator = addr('c1');
+  await coinEntry(inst, { coin, wallet: creator });
   await coinEntry(inst, { coin: other, wallet: addr('c2') });
   const ZERO = '0x0000000000000000000000000000000000000000';
-  const POOL = BACKER_EXCLUDED.poolManager;
+  const POOL = POOL_MANAGER;
+  const FACTORY = '0xe85a59c628f7d27878aceb4bf3b35733630083a9';
+  const DEV_BUY = '0x1331f0788f9c08c8f38d52c7a1152250a9de00be';
+  for (const a of [POOL, FACTORY, DEV_BUY, '0x000000000022d473030f116ddee9f6b43ac78ba3', '0xcf77a3ba9a5ca399b7c97c74d54e5b1beb874e43']) assert.ok(BACKER_EXCLUDED.has(a), a);
   const transfers = [
-    transfer(coin, ZERO, BACKER_EXCLUDED.factory, 5_000n, 1), // the mint
-    transfer(coin, BACKER_EXCLUDED.factory, BASE_BONUS.lockers[0], 5_000n, 2),
+    transfer(coin, ZERO, FACTORY, 5_000n, 1), // the mint
+    transfer(coin, FACTORY, BASE_BONUS.lockers[0], 5_000n, 2),
     transfer(coin, BASE_BONUS.lockers[0], POOL, 5_000n, 3),
     transfer(coin, POOL, w1, 6_000n, 1),
     transfer(coin, POOL, w2, 7_000n, 1),
     transfer(coin, w1, w2, 7_400n, 1), // w2 again: counted once
+    transfer(coin, w1, w4, 7_410n, 1), // wallet to wallet: never a backer
+    transfer(coin, POOL, DEV_BUY, 7_420n, 1), // the dev buy extension: never a backer
+    transfer(coin, DEV_BUY, w5, 7_430n, 1), // out of the dev buy (not a trade)
+    transfer(coin, POOL, creator, 7_440n, 1), // the creator wallet: never its own backer
     transfer(coin, w2, hook, 7_450n, 1),
     transfer(coin, POOL, BASE_BONUS.feeLocker, 7_460n, 1),
     transfer(coin, POOL, BASE_BONUS.safe, 7_470n, 1),
@@ -216,34 +247,51 @@ test('(a) indexBackers counts distinct recipients, skips zero/pool/locker/safe, 
   assert.deepEqual(await indexBackers(new Date(), { rpc: {} as BonusRpc, only: [coin] }), { skipped: 'no reader' });
 });
 
-test('(b) indexCreatorFees records claims to the creator wallet only', db, async () => {
+test('(b) indexCreatorFees records claims to the creator wallet only, never past its EarnKit coins\' deposits, once per wallet', db, async () => {
   const inst = await plainInstallation('b');
   const coin = addr('d1');
+  const coin2 = addr('d3');
+  const outside = addr('d4'); // a coin EarnKit never launched, paying the same wallet
   const wallet = addr('e1');
   const stranger = addr('e2');
   await coinEntry(inst, { coin, wallet });
+  await coinEntry(inst, { coin: coin2, wallet });
+  const deposits = [
+    ...deposit(wallet, coin, E18 / 10n, 5_050n),
+    ...deposit(wallet, coin2, (E18 * 3n) / 100n, 5_060n),
+    ...deposit(wallet, outside, E18, 5_070n),
+    ...deposit(stranger, coin, E18, 5_080n), // another owner's deposit
+    ...deposit(wallet, coin, E18 / 20n, 7_900n),
+  ];
   const claims = [
-    claim(wallet, E18 / 10n, 5_100n, 1),
+    claim(wallet, E18 + E18 / 10n + (E18 * 3n) / 100n, 5_100n, 3), // the whole balance, the outside coin's 1 WETH included
     claim(stranger, E18, 5_200n, 1), // another owner
     claim(wallet, E18, 5_300n, 1, { token: addr('f1') }), // not WETH
     claim(wallet, E18, 5_400n, 1, { address: addr('f2') }), // not the FeeLocker
-    claim(wallet, E18 / 20n, 8_000n, 2),
+    claim(wallet, E18, 8_000n, 2), // more than the 0.05 deposited since
   ];
-  const f = fakeChain({ launch: 5_000n, claims });
+  const f = fakeChain({ launch: 5_000n, claims, deposits });
   f.s.head = 6_000n;
-  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin] });
+  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin, coin2] });
   assert.ok(f.s.ranges.every(([lo, hi]) => hi - lo + 1n <= 2_000n));
-  const read = async () => sql()<{ wallet: string; amount_wei: string; coin: string; block_number: string }[]>`
-    SELECT wallet, amount_wei::text AS amount_wei, coin, block_number::text AS block_number FROM creator_fees WHERE coin = ${coin} ORDER BY block_number`;
-  assert.deepEqual((await read()).map((r) => [r.wallet, r.amount_wei, r.block_number]), [[wallet, (E18 / 10n).toString(), '5100']]);
-  // Resumes after its cursor; a claim read twice is stored once.
+  assert.equal(f.s.ranges.length, 1, 'the wallet is scanned once, not once per coin');
+  const read = async () => (await sql()<{ wallet: string; amount_wei: string; coin: string; block_number: string }[]>`
+    SELECT wallet, amount_wei::text AS amount_wei, coin, block_number::text AS block_number FROM creator_fees WHERE wallet = ${wallet}
+    ORDER BY block_number, coin = ${coin} DESC`).map((r) => [r.coin, r.amount_wei, r.block_number]);
+  // The claim covers 1.13 WETH; only the EarnKit coins' 0.1 and 0.03 are credited, each to its coin.
+  assert.deepEqual(await read(), [[coin, (E18 / 10n).toString(), '5100'], [coin2, ((E18 * 3n) / 100n).toString(), '5100']]);
+  // Resumes after its cursor (one per wallet); a claim larger than the coin's deposits since credits only those.
   f.s.ranges = [];
   f.s.head = 9_000n;
-  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin] });
+  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin, coin2] });
   assert.equal(f.s.ranges[0][0], 6_001n);
-  await sql()`DELETE FROM bonus_cursor WHERE id = ${`creator_fees:${coin}`}`;
-  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin] });
-  assert.deepEqual((await read()).map((r) => r.amount_wei), [(E18 / 10n).toString(), (E18 / 20n).toString()]);
+  const after = [[coin, (E18 / 10n).toString(), '5100'], [coin2, ((E18 * 3n) / 100n).toString(), '5100'], [coin, (E18 / 20n).toString(), '8000']];
+  assert.deepEqual(await read(), after);
+  // Read again from the start: the stored credits replay, nothing is credited twice.
+  await sql()`DELETE FROM bonus_cursor WHERE id = ${feesCursor(wallet)}`;
+  await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin, coin2] });
+  assert.deepEqual(await read(), after);
+  assert.equal((await sql()`SELECT 1 FROM creator_fees WHERE wallet = ${stranger}`).length, 0);
 });
 
 test('(c) earnedUsd sums claims at the WETH price plus announced prizes; waiting from cachedFeesUsd', db, async () => {
@@ -252,7 +300,7 @@ test('(c) earnedUsd sums claims at the WETH price plus announced prizes; waiting
   const wallet = addr('g2');
   await coinEntry(inst, { coin, wallet });
   fees(E18 / 4n); // $500 waiting
-  const f = fakeChain({ launch: 5_000n, claims: [claim(wallet, E18 / 10n, 5_100n, 1)] }); // $200 claimed
+  const f = fakeChain({ launch: 5_000n, deposits: deposit(wallet, coin, E18 / 10n, 5_050n), claims: [claim(wallet, E18 / 10n, 5_100n, 3)] }); // $200 claimed
   f.s.head = 6_000n;
   await indexCreatorFees(new Date(), { rpc: f.rpc, deadline: Date.now() + 25_000, only: [coin] });
   await outcome(inst, 'won', 'announcement', 500);
@@ -312,6 +360,9 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   const hz = renderToStaticMarkup(React.createElement(BenchProfileView, { data: dz, tab: 'log' }));
   assert.match(hz, /data-ek-earned[^>]*>\$0</, hz);
   assert.doesNotMatch(hz, /waiting/);
+  // Unranked: Earned is omitted (even with money earned).
+  const unranked = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: null, line: null }, tab: 'log' }));
+  assert.doesNotMatch(unranked, /data-ek-earned/);
   assert.doesNotMatch(show(await find(z)), /Earned/);
 }));
 
@@ -323,8 +374,8 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
   await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${addr('p3')}, 6000)`;
   await outcome(b.id, 'won', 'announcement', 340);
   const onStats = await on(() => readStats(new Date()));
-  assert.ok((onStats.backing_open ?? 0) >= 1, JSON.stringify(onStats));
-  assert.ok((onStats.backers ?? 0) >= 1);
+  assert.ok(onStats.backing_open >= 1, JSON.stringify(onStats));
+  assert.ok(onStats.backers >= 1);
   assert.ok(onStats.earned_usd >= 340);
   await off(async () => {
     const d = (await profileData(b.id, new Date()))!;
@@ -340,7 +391,9 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
     assert.equal(j.backing, null);
     assert.deepEqual(j.earned, { paid_usd: 340, waiting_usd: 0 });
     const s = await readStats(new Date());
-    assert.ok(!('backing_open' in s) && !('backers' in s), JSON.stringify(s));
+    // The keys stay (jenil.ai reads them); 0 with the flag off.
+    assert.equal(s.backing_open, 0, JSON.stringify(s));
+    assert.equal(s.backers, 0);
     assert.equal(s.earned_usd, onStats.earned_usd);
   });
 });

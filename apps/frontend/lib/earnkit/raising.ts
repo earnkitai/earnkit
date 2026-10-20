@@ -19,7 +19,8 @@ export const RAISE_LINES = {
 /** The line for a launched coin not shown as backing yet (tell token: 'ask'). Pure. */
 export const showRaisingLine = (symbol: string) => `Want your page to show backing for $${symbol}?`;
 
-export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean };
+/** v3 Stage 2: `coin`, the Base coin address (lowercase), null when none was recorded. */
+export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean; coin: string | null };
 
 /**
  * The one project's launched (or launching) coin entry, newest first. A launch records the repo
@@ -31,7 +32,8 @@ export async function raisingCoin(builderId: number): Promise<RaisingCoin | null
   if (!key) return null;
   const repo = `https://github.com/${key}`;
   const [r] = await sql()<RaisingCoin[]>`
-    SELECT x.id AS project_id, x.token_symbol AS symbol, x.token_url AS url, x.token_status AS status, x.raising_at IS NOT NULL AS raising
+    SELECT x.id AS project_id, x.token_symbol AS symbol, x.token_url AS url, x.token_status AS status, x.raising_at IS NOT NULL AS raising,
+      lower(x.coin_address) AS coin
     FROM projects x JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.token_url IS NOT NULL AND x.token_symbol IS NOT NULL
       AND (x.token_repo_key = ${normalizeRepoUrl(repo)} OR lower(x.repo_url) IN (lower(${repo}), lower(${`${repo}/`})))
@@ -57,8 +59,13 @@ export async function setRaising(builderId: number, on: boolean): Promise<{ show
 
 /** The pill: only while EARNKIT_RAISING is on, the coin is launched, the builder opened backing, and the one project is confirmed. */
 export async function pillOf(builderId: number): Promise<{ symbol: string; url: string } | null> {
+  const c = await pillCoin(builderId);
+  return c ? { symbol: c.symbol, url: c.url } : null;
+}
+/** v3 Stage 2: the coin behind the pill (pillOf's rule), so a caller that needs its address reads it once. */
+export async function pillCoin(builderId: number): Promise<RaisingCoin | null> {
   if (!raisingEnabled()) return null;
   const c = await raisingCoin(builderId);
   if (!c || c.status !== 'launched' || !c.raising || !(await mainConfirmed(builderId))) return null;
-  return { symbol: c.symbol, url: c.url };
+  return c;
 }

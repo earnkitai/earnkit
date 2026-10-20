@@ -6722,34 +6722,38 @@ say yes, earn points, get the Monday email.
 
 ## v3 Stage 2 (Task 4): Backers, Earned and "waiting" (spec 5.2, 5.3 Route 2)
 
-- **Backers (`backers.ts indexBackers`).** Distinct wallets that received a launched Base coin (`projects.coin_address`,
-  `token_status 'launched'`), from the coin's ERC-20 Transfer logs. Per coin, a cursor in `coin_backer_cursor`
-  (start: the launch block from the `coin_tx` receipt; without one, estimated from `coin_launched_at` at 2 s a block,
-  an hour early). Ranges of at most 2,000 blocks (`scanForward`, so a refused range shrinks and a rate limit backs off),
-  `CALLS_PER_COIN` calls a coin, `INDEXER_MS` (25 s) a run, the coin whose cursor moved longest ago first; one coin's
-  failure is logged and the rest go on. Never a backer: zero, the Uniswap v4 PoolManager and Universal Router, the
-  Clanker factory, vault and dynamic hook, the coin's own pool hook (`BonusRpc.poolHooks`, tokenRewards poolKey), the
-  LP lockers, the FeeLocker, the Safe and the coin itself (`BACKER_EXCLUDED`, verified against tokens.fun's Base
-  registry). Rows in `coin_backers (coin, wallet, first_block)`.
-- **Creator fees paid (`earned.ts indexCreatorFees`).** The FeeLocker's `ClaimTokens(feeOwner, token, amountClaimed)`
-  logs (not `ClaimedRewards`, which is the LP locker's event and names no owner) with feeOwner = the coin's creator
-  wallet (`fees.ts creatorWalletSql`: `fee_recipients.creator`, else `creator_wallet`, else `payout_wallet`) and
-  token WETH, rechecked after the read; rows in `creator_fees`, cursor `bonus_cursor 'creator_fees:<coin>'`, same
-  bounds and fail-soft rule. The FeeLocker keeps one balance per owner, so a claim is stored once under the first of
-  the owner's coins that reads it.
+- **Backers (`backers.ts indexBackers`).** Distinct wallets that bought a launched Base coin (`projects.coin_address`,
+  `token_status 'launched'`), from the coin's ERC-20 Transfer logs: a backer received the coin from the pool side (the
+  Transfer's `from` is a trade venue, `shared-contracts.ts tradeVenue`, the PoolManager or the coin's pool hook) and is
+  not in `BACKER_EXCLUDED` (zero, every `SHARED_BASE_CONTRACTS` address, every `traction.ts CLANKER_ADDRESSES` one:
+  dev buy, airdrop, MEV modules, presales, hooks) nor the Safe, the lockers, the FeeLocker, the coin, its hook
+  (`BonusRpc.poolHooks`) or its creator wallet. A transfer between two wallets never adds one. Per coin, a cursor in
+  `coin_backer_cursor` (start: the launch block from the `coin_tx` receipt; without one, estimated from
+  `coin_launched_at` at 2 s a block, an hour early). Ranges of at most 2,000 blocks (`scanForward`), `CALLS_PER_COIN`
+  calls a coin, `INDEXER_MS` (25 s) a run, the oldest cursor first; a range's rows (batches of 1,000) and its cursor
+  are one transaction; over `RECIPIENTS_PER_RANGE` recipients, or a failed write, reads the range again smaller. One
+  coin's failure is logged and the rest go on.
+- **Creator fees paid (`earned.ts indexCreatorFees`).** Per distinct creator wallet (`fees.ts creatorWalletSql`:
+  `fee_recipients.creator`, else `creator_wallet`, else `payout_wallet`), cursor `bonus_cursor 'creator_fees:<wallet>'`
+  from the earliest launch block of its coins. A FeeLocker `ClaimTokens` (WETH) empties the owner's whole balance, so
+  the index also books the wallet's `StoreTokens` deposits to their coin through the same transaction's
+  `ClaimedRewards` (`bonus-ledger.ts bonusDeposits`, as the Safe index does), keeping only the wallet's EarnKit coins
+  (`creator_deposits`). A claim is credited only up to those coins' deposits not yet credited, oldest coin first, one
+  `creator_fees` row per (claim, coin). A range's deposits, credits and cursor are one transaction; a range read again
+  replays its stored credits. Same bounds and fail-soft rule as the backers index.
 - **Cron.** `runBonusLedger` runs `backers_index` then `creator_fees_index` after `safe_index`, each in its own
   `INDEXER_MS` slice (never past the run's deadline). They need what the ledger needs (`CAMPAIGN_PAYOUT_PRIVATE_KEY`,
   Base mainnet over `BASE_RPC_URL`); an RPC without the readers skips them (`{ skipped: 'no reader' }`).
-- **Earned (`earnedUsd(builderId, now)`).** `paid_usd` = WETH claimed to the builder's creator wallets (their
-  coins) at `fees.ts cachedWethUsd` (6 h per process; waits at most 1.5 s, else the price token_fees implies, else
-  the last one) plus the prizes of announced won or placed outcomes; `waiting_usd` = `cachedFeesUsd` of those wallets
-  (the FeeLocker read; never awaited); `fees_usd` = the claimed part alone. Never touches Shipping or rank.
-- **Where it shows.** The page's third number after the Shipping ring and the rank (`BenchProfileView` `Earned`,
-  `data-ek-earned`, "$1,240"; "$0" while ranked with nothing; "and $X waiting" from $1). The ranked stand line ends
-  "Earned $340." from $1 (`bench-reply.ts earnedWords`, a statement). `ProfileData.earned` and
+- **Earned (`earnedUsd(builderId, now)`).** `paid_usd` = the credited WETH of the builder's coins at
+  `fees.ts cachedWethUsd` (6 h per process; waits at most 1.5 s, else the price token_fees implies, else the last one)
+  plus the prizes of announced won or placed outcomes; `waiting_usd` = `cachedFeesUsd` of those wallets (the FeeLocker
+  read; never awaited); `fees_usd` = the credited part alone. Never touches Shipping or rank.
+- **Where it shows.** The page's third number after the Shipping ring and the rank, only while ranked
+  (`BenchProfileView` `Earned`, `data-ek-earned`, "$1,240"; "$0" with nothing; "and $X waiting" from $1). The ranked
+  stand line ends "Earned $340." from $1 (`bench-reply.ts earnedWords`, a statement). `ProfileData.earned` and
   `BuilderJson.earned` (`{ paid_usd, waiting_usd }`) with the flag off too. With `EARNKIT_RAISING` on and backing
-  open: `backing.backers` (`backersOfBuilder`) and `backing.earned_usd` (the claimed fees, whole USD) on the page, the
-  JSON and the reply's "Backing: N backers, $X earned." line.
-- **Stats.** `earned_usd` (fees claimed over non-test coins at the WETH price, plus `builders_won_usd`); with the flag
-  on only, `backing_open` (launched coins with `raising_at`, non-test) and `backers` (their coins' backers). With it
-  off the two keys are absent. Test: `v3-earned.test.ts`.
+  open (`raising.ts pillCoin`): `backing.backers` (`backersOfCoin`) and `backing.earned_usd` (the credited fees, whole
+  USD) on the page, the JSON and the reply's "Backing: N backers, $X earned." line.
+- **Stats.** `earned_usd` (credited fees over non-test coins at the WETH price, plus `builders_won_usd`),
+  `backing_open` (launched coins with `raising_at`, non-test) and `backers` (their coins' backers); the last two are
+  always present and 0 while the flag is off. Test: `v3-earned.test.ts`.
