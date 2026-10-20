@@ -9,7 +9,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY } from './bench-reply';
+import { NOT_ON_BENCH, STATE_COPY } from './bench-reply';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
@@ -24,6 +24,7 @@ import { benchLine } from '../../app/leaderboard/BenchView';
 import BenchTop, { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13.1 O5 (the second first-run audit, N1 to N16, and round 1's open F11, F15, F16, P1 to P5, P7,
@@ -172,12 +173,12 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping ("Ship this
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(r.show_to_builder.endsWith(`How to move up\n${SHIP_STEP}`), r.show_to_builder);
+    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
     assert.equal(r.move_up?.kind, 'ship');
     await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
-    assert.ok(s.show_to_builder.endsWith(SHIP_STEP), s.show_to_builder);
+    assert.ok(endsOnRankedStep(s.show_to_builder), s.show_to_builder);
     assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 0, 'a statement, never a question');
     const y = (await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
     assert.match(y.agent_note ?? '', /one small thing/);
@@ -252,7 +253,7 @@ test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 o
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'no second link');
     // R8: the one next step is the statement "Ship this week to climb.": no question at all.
     assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 0, 'no question');
-    assert.ok(r.show_to_builder.endsWith(SHIP_STEP), r.show_to_builder);
+    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.ok(!(r.note ?? '').includes(EARN_NOTE), r.note);
     assert.equal(r.lead, undefined);
   }),

@@ -113,7 +113,7 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
 
 /** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows). Plain JSON. */
 async function readBench(now: Date): Promise<Landing['bench']> {
-  const { rows, count, chips } = await benchRows({ chain: null, raising: false, weekly: false }, { limit: 10 });
+  const { rows, count, chips } = await benchRows({ chain: null, weekly: false }, { limit: 10 });
   return { rows, count, chips, cards: await carouselCards(now), raising: raisingEnabled() };
 }
 

@@ -16,6 +16,7 @@ import { scoreFits } from './stand-view';
 import { fitWhy, tokenUnavailable } from './bench-find';
 import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, noFitLine } from './bench-reply';
 import type { RepoFit } from './present';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * Scoring and clarity, Task 4: four reply states (R16a), moving up by shipping (R8: "Ship this week to climb.",
@@ -118,7 +119,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal(fund[0], `${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`, s);
   assert.equal(fund.length, 3);
   assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'circle-developer-grants', 'the lead is the first named');
-  assert.equal(up, `How to move up\n${SHIP_STEP}`);
+  assert.ok(endsOnRankedStep(up), up);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
   assert.doesNotMatch(s, COIN_WORDS, s);
   assert.equal(r.move_up && (r.move_up as { kind: string }).kind, 'ship');
@@ -133,7 +134,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal(fits.length, 3, t);
   for (const l of fits) assert.match(l, FIT_LINE, l);
   assert.deepEqual(fits, fund, 'find and score name the same fits in the same order');
-  assert.ok(t.endsWith(`How to move up\n${SHIP_STEP}`), t);
+  assert.ok(endsOnRankedStep(t), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
@@ -171,7 +172,7 @@ test('R16a: the four states\' copy, one table (signed_out, no_project, not_count
   assert.equal(STATE_COPY.ranked.ask(), 'Ship this week to climb.');
   // The other states keep their next steps: sign in, name a repo, install the App.
   assert.match(STATE_COPY.signed_out.ask('https://x'), /^Sign in with X/);
-  assert.equal(STATE_COPY.no_project.ask(), "What's your GitHub, or a link to something you've made?");
+  assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
   assert.match(STATE_COPY.not_counted.ask('https://x'), /^Install the read-only EarnKit app/);
   for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit', 1, null))),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), noFitLine('Kit')])
@@ -184,7 +185,8 @@ test('R16a through mcpCall: signed out, no project and not counted keep their ow
   assert.match(s1, /You're not on the leaderboard yet\.[\s\S]*How to move up\nSign in with X/);
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
-  assert.ok(s2.endsWith(STATE_COPY.no_project.ask()), s2);
+  // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.
+  assert.match(s2, /How to move up\nInstall the read-only EarnKit app on the repo you want ranked \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nWant me to rank it once that's done\?$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
   assert.match(s3, /Unc isn't counted yet\.[\s\S]*Install the read-only EarnKit app/);

@@ -45,6 +45,11 @@ function fakeGitHub(answers: Record<string, () => Response>, calls: Call[] = [])
   }) as typeof fetch;
 }
 const json = (body: unknown, status = 200) => () => new Response(JSON.stringify(body), { status });
+/** Launch ready fix round 1 (M2): what proveOne reads before the verification is written (the repo, its installation 77). */
+const proveApi = (key: string, owner: string) => ({
+  [`GET /repos/${key}`]: json({ id: 4242, full_name: key, private: false, fork: false, is_template: false, owner: { login: owner, type: 'User' } }),
+  [`GET /repos/${key}/installation`]: json({ id: 77 }),
+});
 
 /** An installation (77) of `account` listing `repos`, minting `ghs_secret_token`; `permission` for the collaborator read. */
 const appApi = (o: { account: string; repos: string[]; permission?: string; login?: string; repoKey?: string }) => ({
@@ -155,7 +160,8 @@ test('4.9 appSetup: the browser cookie first, then the nonce once; a passing pro
     // The OAuth hop stores the login on the nonce (not consumed).
     const hop = await completeVerify('code', nonce, oauth('Alice'));
     assert.deepEqual(hop, { ok: true, repoKey: f.repoKey, install: installUrl('earnkit-read', nonce) });
-    const fetch = fakeGitHub(appApi({ account: 'alice', repos: [f.repoKey] }));
+    // Fix round 1 (M2): the verification is written once proveOne proved the repo, so the fake answers its reads too.
+    const fetch = fakeGitHub({ ...appApi({ account: 'alice', repos: [f.repoKey] }), ...proveApi(f.repoKey, 'alice') });
     const q = `installation_id=77&setup_action=install&state=${encodeURIComponent(nonce)}`;
     const cookie = `${csrfCookieName(nonce)}=K1`;
 
@@ -231,10 +237,14 @@ test('4.9c on a shared client the App page shows no paste code (v2.14 final fix)
     const fetch = fakeGitHub(appApi({ account: 'alice', repos: [f.repoKey] }));
     const res = await appSetup(setupAt(`installation_id=77&state=${encodeURIComponent(nonce)}`, `${csrfCookieName(nonce)}=K1`), { ...limit, fetch });
     const page = await res.text();
-    assert.match(page, /Done\. Go back to your agent and say go\./);
+    assert.match(page, /Done\. Go back to your agent and say yes\./);
     assert.doesNotMatch(page, /Paste this code/);
-    const [v] = await sql()<{ code_hash: string | null }[]>`SELECT code_hash FROM github_verifications WHERE installation_id = ${f.inst} AND via = 'app'`;
-    assert.equal(v.code_hash, null);
+    // Launch ready fix round 1 (M2): a shared client proves nothing (A19), so no verification is written at all.
+    assert.equal((await sql()`SELECT 1 FROM github_verifications WHERE installation_id = ${f.inst} AND via = 'app'`).length, 0);
+    // A row from before (an old setup) is still read only for its own caller.
+    await sql()`
+      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose, via, github_installation_id)
+      VALUES (${f.repoKey}, 'alice', ${f.inst}, '2020-01-01', 3, 'app', 'app', 77)`;
     const calls: Call[] = [];
     // v2.13.3 review M4: the installation is looked up by repo before the mint.
     const tokenFetch = fakeGitHub({ ...appApi({ account: 'alice', repos: [f.repoKey] }), [`GET /repos/${f.repoKey}/installation`]: json({ id: 77 }) }, calls);

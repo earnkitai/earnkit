@@ -42,6 +42,28 @@ export async function setMainProject(builderId: number, p: IdentityProject): Pro
   });
 }
 
+/**
+ * Launch ready L2: the builder names which repo to rank (tell main_project). Unlike setMainProject's set-once
+ * rule, a confirmed one project may change, but only to a repo this person proved with the read-only App
+ * (a verified `github_app` repo source; repo-proof.ts APP_PROOF), so it never moves to a repo they haven't
+ * shown is theirs. `key`: lowercase owner/repo. Nothing changes for 'same' or 'not_proven'.
+ */
+export async function rankRepo(builderId: number, key: string): Promise<'set' | 'same' | 'not_proven'> {
+  const k = key.toLowerCase();
+  if (!REPO_KEY.test(k)) return 'not_proven';
+  return sql().begin(async (tx) => {
+    const [old] = await tx<{ was: string | null }[]>`SELECT main_project_key AS was FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE`;
+    if (!old) return 'not_proven';
+    if (old.was?.toLowerCase() === k) return 'same';
+    const [proven] = await tx`
+      SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = 'github_app'
+        AND regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '') = ${k}`;
+    if (!proven) return 'not_proven';
+    await tx`UPDATE builder_profiles SET main_project_key = ${k}, updated_at = now() WHERE builder_id = ${builderId}`;
+    return 'set';
+  });
+}
+
 /** Whether the person's one project is Bench-confirmed (mainConfirmed, on a transaction). */
 const confirmedIn = async (db: Db, builderId: number) =>
   Boolean(

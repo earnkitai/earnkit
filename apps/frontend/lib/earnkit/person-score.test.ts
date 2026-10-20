@@ -136,7 +136,7 @@ test('4.1 only confirmed sources score; an agent-reported repo shows as a projec
   await source(id, { kind: 'site', ref: 'https://tip.example.com', key: 'lee/tipjar', state: 'proposed', proof: null, by: 'agent' });
   await reading('https://tip.example.com', { status: 200, up: true });
   const r = await rescorePerson(id, NOW);
-  assert.deepEqual(r, { score: 0, ranked: false, held: false });
+  assert.deepEqual(r, { score: 0, ranked: false, held: false, changed: true });
   const [p] = await sql()`SELECT confirmed, shipped FROM builder_projects WHERE builder_id = ${id}`;
   assert.deepEqual({ ...p }, { confirmed: false, shipped: true });
 });
@@ -260,6 +260,20 @@ test('4.6 a 30-point jump is held: the public score stays, the new one waits in 
   const [row] = await sql()<{ score: number; pending: { score: number } | null }[]>`SELECT score, pending FROM builder_live WHERE builder_id = ${id}`;
   assert.equal(row.score, 10);
   assert.ok(row.pending!.score >= 40);
+});
+
+test('4.6b launch-ready (hotfix carry-over): a builder who stays held changes nothing public, so a refresh expires no cache', dbTest, async () => {
+  const id = T + 26;
+  await person(id, {});
+  await history(id, 10);
+  await live(id, { score: 10, ranked: true });
+  await fakeBigUse(id);
+  // The hold starts: the pool loses them (changed).
+  const first = await rescorePerson(id, NOW);
+  assert.deepEqual([first.held, first.changed], [true, true]);
+  // Ten minutes later, still held, same public row: nothing changed.
+  const again = await rescorePerson(id, new Date(NOW.getTime() + 600_000));
+  assert.deepEqual([again.held, again.changed, again.score], [true, false, 10]);
 });
 
 test('4.8 R16b: a contract\'s callers count nothing (not tagged, no people); junk in an old reading never makes the score NaN', dbTest, async () => {
@@ -400,9 +414,9 @@ test('4.15d fix round 1: found yesterday (a 0 history row, unranked), connects t
   // Today the App proves the repo and its first reading has commits in this week and the two before.
   await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'github_app', by: 'server' });
   await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [0, 1, 2].map((i) => isoWeekOf(new Date(NOW.getTime() - i * 7 * DAY))) }, NOW);
-  assert.deepEqual(await rescorePerson(id, NOW), { score: 38, ranked: true, held: false }, 'round(90 x 33 / 78) = 38');
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 38, ranked: true, held: false, changed: true }, 'round(90 x 33 / 78) = 38');
   // A later refresh the same day: the baseline is still an unranked day, so still no jump.
-  assert.deepEqual(await rescorePerson(id, new Date(NOW.getTime() + 3_600_000)), { score: 38, ranked: true, held: false });
+  assert.deepEqual(await rescorePerson(id, new Date(NOW.getTime() + 3_600_000)), { score: 38, ranked: true, held: false, changed: false });
   const [l] = await sql()<{ pending: unknown; ranked: boolean }[]>`SELECT pending, ranked FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual({ ...l }, { pending: null, ranked: true });
   // The cron's history row records the rank, so it can be tomorrow's baseline.
@@ -468,7 +482,7 @@ test('4.15g fix round 2 (anti-backdating rule 2): commit weeks before the repo w
   }, NOW);
   const r = await rescorePerson(id, NOW);
   // Only this week and the two before (the week it was created): round(90 x 33 / 78) = 38.
-  assert.deepEqual(r, { score: 38, ranked: true, held: false });
+  assert.deepEqual(r, { score: 38, ranked: true, held: false, changed: true });
   const [p] = await sql()<{ ship_weeks: string[]; commit_weeks: string[] }[]>`SELECT ship_weeks, commit_weeks FROM builder_projects WHERE builder_id = ${id}`;
   assert.equal(p.ship_weeks.length, 3, 'the streak follows the same floor');
   // R18 fix 1: the grid reads commit_weeks, the same counted weeks as the score.
@@ -777,12 +791,12 @@ test('4.2b R4 the ranked rule: a confirmed project ranks only once a repo of it 
   const key = `lee/rk${id}`;
   await mainIs(id, key);
   await source(id, { kind: 'repo', ref: key, state: 'verified', proof: 'repo_owner', by: 'server' });
-  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: false, held: false }, 'confirmed, never read: not ranked');
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: false, held: false, changed: true }, 'confirmed, never read: not ranked');
   await reading(key, { owner: 'lee', owner_type: 'User', commit_weeks: [] });
-  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: true, held: false }, 'read, no commits: ranked at 0, never hidden');
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 0, ranked: true, held: false, changed: true }, 'read, no commits: ranked at 0, never hidden');
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
     SELECT id, ${sql().json({ owner: 'lee', owner_type: 'User', commit_weeks: [isoWeekOf(NOW)] } as never)}, true, ${NOW} FROM builder_sources WHERE builder_id = ${id} AND ref = ${key}`;
-  assert.deepEqual(await rescorePerson(id, NOW), { score: 14, ranked: true, held: false }, 'this week only: 14');
+  assert.deepEqual(await rescorePerson(id, NOW), { score: 14, ranked: true, held: false, changed: true }, 'this week only: 14');
   // A proposed (unproven) repo with a reading never ranks.
   await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL WHERE builder_id = ${id} AND ref = ${key}`;
   assert.equal((await rescorePerson(id, NOW)).ranked, false);
@@ -840,7 +854,7 @@ test('4.26 an older rescore never overwrites a newer one (decided and written un
   await sql()`DELETE FROM hosted_sites WHERE slug = ${`ol${id}`}`;
   // A slow refresh that started before (an older `now`, a stale ring): it writes nothing.
   const r = await rescorePerson(id, NOW);
-  assert.deepEqual(r, { score: 10, ranked: true, held: false });
+  assert.deepEqual(r, { score: 10, ranked: true, held: false, changed: false });
   const [l] = await sql()<{ score: number; computed_at: Date }[]>`SELECT score, computed_at FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual([l.score, l.computed_at.getTime()], [10, NOW.getTime() + DAY]);
   assert.equal((await sql()`SELECT 1 FROM builder_projects WHERE builder_id = ${id}`).length, 1);

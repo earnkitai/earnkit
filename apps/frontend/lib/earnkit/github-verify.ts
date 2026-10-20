@@ -31,7 +31,7 @@ export const VERIFY_TTL_MS = 15 * 60_000;
 
 /** What the builder reads in the browser after the callback. */
 export const VERIFY_PAGE = {
-  done: 'Done. Go back to your agent and say go.',
+  done: 'Done. Go back to your agent and say yes.',
   expired: 'This link has expired. Ask your agent for a new one.',
   notYours: "This GitHub account can't push to that repo. Sign in with the account that owns it.",
   failed: "Sign-in didn't finish. Ask your agent for a new link.",
@@ -103,8 +103,17 @@ export async function pageHandle(installationId: number): Promise<string | null>
 }
 
 /**
+ * Launch ready L2: the repo_key of a repo-less App link (the repo picker). GitHub's own install page lets the
+ * builder pick the repos; the setup URL proves each one (github-app.ts pickSetup). Never a real repo key (one
+ * always has a slash), so no other path reads it as a repo.
+ */
+export const PICK_REPOS = '*';
+
+/**
  * A one-time App link for this repo (`owner/repo`, answer-bank.ts repoKey), bound to the installation
  * (the person's root) and the purpose `app`: `<site>/github/verify?n=<nonce>`. v2.14: no other purpose.
+ * Launch ready L2: `repoKey` null is the repo picker's link (stored as PICK_REPOS), with the same S7 page,
+ * cookie, expiry and single use.
  * v2.10 fix round 1 (concern 4): an open link (unused, at least REUSE_MIN_LEFT_MS left, no sign-in
  * started on it) for the same installation, purpose, repo, entry, wallet and ticker is shown again
  * instead of minting a new one. Never on a shared client (each builder there gets their own link).
@@ -113,7 +122,8 @@ export async function createVerifyLink(
   a: {
     installationId: number;
     projectId: number | null;
-    repoKey: string;
+    /** Null: the repo picker (L2), the builder picks the repos on GitHub. */
+    repoKey: string | null;
     purpose: VerifyPurpose;
     /** Ruling G11: an `entry` link needs the fee wallet the launch will use (shown, then bound). */
     wallet?: string | null;
@@ -129,7 +139,7 @@ export async function createVerifyLink(
   // an anonymous installation, or a shared client) gets no link.
   if (!(await pageHandle(a.installationId))) throw new Error('An App link needs the person\'s page handle first.');
   const secret = process.env.EARNKIT_AUTH_SECRET;
-  const repoKey = a.repoKey.toLowerCase();
+  const repoKey = a.repoKey === null ? PICK_REPOS : a.repoKey.toLowerCase();
   const wallet = a.wallet?.toLowerCase() ?? null;
   const symbol = a.symbol?.toUpperCase() ?? null;
   if (secret && !(await sharedGroup(a.installationId).catch(() => true))) {
@@ -511,6 +521,11 @@ export const APP_CONFIRM_TITLE = 'Connect GitHub';
 /** Preflight S7: the App link names the page the repo is added to (a forwarded link adds the repo to someone else's page). */
 export const appConfirmDestination = (repoKey: string, handle: string) => `This adds github.com/${repoKey} to ${pageUrl(handle)}.`;
 export const APP_CONFIRM_ONLY_YOURS = 'Only continue if that is your page.';
+/** Launch ready L2: the repo picker's confirm page (no repo named: the builder picks them on GitHub). */
+export const APP_PICK_LEAD = 'Sign in with GitHub, then pick the repos EarnKit may read.';
+export const APP_PICK_REPOS = 'The ones you pick on GitHub';
+/** Preflight S7 for the picker: the page every picked repo is added to. */
+export const appPickDestination = (handle: string) => `This connects your repos to ${pageUrl(handle)}.`;
 
 
 const escapeHtml = (s: string) =>
@@ -519,6 +534,17 @@ const escapeHtml = (s: string) =>
 const PAGE_HEADERS = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' };
 /** v2 premium: the same dark shell as the claim, sign-in and wallet pages (brand-page.ts). */
 const html = (body: string) => brandShell(body);
+
+/**
+ * Fix round 1 (I2): the setup's success page: the first line, the others small, then `link`'s line with its one
+ * https link. No script, nothing cached. Pure.
+ */
+export function pageWith(lines: string[], link: { text: string; href: string } | null, status = 200, headers: Record<string, string> = {}): Response {
+  const [first, ...rest] = lines;
+  const body = `<p class="ek-line ek-first">${escapeHtml(first ?? '')}</p>` + rest.map((l) => `<p class="ek-small">${escapeHtml(l)}</p>`).join('') +
+    (link ? `<p class="ek-small">${escapeHtml(link.text)} <a href="${escapeHtml(link.href)}" rel="noopener noreferrer">${escapeHtml(link.href)}</a></p>` : '');
+  return new Response(html(body), { status, headers: { ...PAGE_HEADERS, ...headers } });
+}
 
 /** The tiny page the builder sees. No script, nothing cached. Pure. */
 export function verifyPage(line: string, status = 200, headers: Record<string, string> = {}): Response {
@@ -553,13 +579,19 @@ const sameSecret = (a: string, b: string) => {
  * Pure.
  */
 export function confirmPage(d: { repo_key: string; handle: string }, nonce: string, csrf: string): string {
+  // Launch ready L2: the picker's link names no repo (GitHub's page picks them) and the page they all go to.
+  const pick = d.repo_key === PICK_REPOS;
+  const repoRow = pick
+    ? `<span class="ek-chip">${escapeHtml(APP_PICK_REPOS)}</span>`
+    : `<span class="ek-chip">${GITHUB_ICON}github.com/${escapeHtml(d.repo_key)}</span>`;
+  const destination = pick ? appPickDestination(d.handle) : appConfirmDestination(d.repo_key, d.handle);
   return html(
     `<span class="ek-mark" aria-hidden="true">${GITHUB_ICON}</span>` +
-      `<h1>${escapeHtml(APP_CONFIRM_TITLE)}</h1><p class="ek-line">${escapeHtml(APP_CONFIRM_LEAD)}</p>` +
-      `<dl class="ek-rows"><div class="ek-row"><dt class="ek-k">Repo<span class="ek-sr">:</span></dt><dd><span class="ek-chip">${GITHUB_ICON}github.com/${escapeHtml(d.repo_key)}</span></dd></div>` +
+      `<h1>${escapeHtml(APP_CONFIRM_TITLE)}</h1><p class="ek-line">${escapeHtml(pick ? APP_PICK_LEAD : APP_CONFIRM_LEAD)}</p>` +
+      `<dl class="ek-rows"><div class="ek-row"><dt class="ek-k">${pick ? 'Repos' : 'Repo'}<span class="ek-sr">:</span></dt><dd>${repoRow}</dd></div>` +
       `<div class="ek-row"><dt class="ek-k">Page<span class="ek-sr">:</span></dt><dd><span class="ek-chip">${escapeHtml(pageUrl(d.handle))}</span></dd></div></dl>` +
       `<p class="ek-note"><strong>Read only.</strong> ${escapeHtml(APP_CONFIRM_READ_ONLY)}</p>` +
-      `<p class="ek-small">${escapeHtml(appConfirmDestination(d.repo_key, d.handle))} ${escapeHtml(APP_CONFIRM_ONLY_YOURS)}</p>` +
+      `<p class="ek-small">${escapeHtml(destination)} ${escapeHtml(APP_CONFIRM_ONLY_YOURS)}</p>` +
       `<div class="ek-actions"><form method="post" action="${escapeHtml(siteUrl())}/github/verify">` +
       `<input type="hidden" name="n" value="${escapeHtml(nonce)}"><input type="hidden" name="csrf" value="${escapeHtml(csrf)}">` +
       `<button class="ek-btn" type="submit">${GITHUB_ICON}Continue with GitHub</button></form></div>`,

@@ -45,6 +45,7 @@ import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
@@ -538,7 +539,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
-  assert.ok(r2.show_to_builder.endsWith('How to move up\nShip this week to climb.'), r2.show_to_builder);
+  assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
   assert.equal(r2.move_up?.kind, 'ship');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
@@ -616,7 +617,7 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(base.rows.length >= 10 && base.rows.every((r) => r.chains.includes('base')), JSON.stringify(base.rows));
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
-  assert.match(html(React.createElement(BenchView, { ...base, filter, raising: true })), /alt="Base"/);
+  assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
   assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base this week/);
 });
 
@@ -636,7 +637,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
   assert.ok((await renderProfile('maya_makes', 'log')).includes(`Community round $${pill.symbol}`));
-  const row = (await benchRows(parseBenchFilter({ raising: '1' }))).rows.find((r) => r.handle === 'maya_makes');
+  const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.raising, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
   const [p] = await sql()<{ coin_tx: string; coin_chain_id: number }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${yes.project_id!}`;

@@ -11,6 +11,8 @@ import { CONTACT_EMAIL, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_ST
 import Footer from '../../app/components/common/Footer';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
+import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
+import { AGENTS, Command, INTRO } from '../../app/components/sections/AddToAgent';
 import { NO_CELL } from './present';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
@@ -243,7 +245,7 @@ test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days lef
     assert.match(c, new RegExp(`<h3[^>]*>${tl.title.replace(/'/g, '&#x27;')}</h3>`), tl.id);
     assert.ok(ct.includes(tl.prize), tl.id);
     if (tl.prize_note) assert.ok(ct.includes(tl.prize_note), tl.id);
-    assert.deepEqual(chipsOf(c), [tl.days_left, ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
+    assert.deepEqual(chipsOf(c), [tl.days_left.charAt(0).toUpperCase() + tl.days_left.slice(1), ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
     assert.doesNotMatch(ct, /\(estimate\)/, tl.id);
     assert.ok(!ct.includes('Builder bonus'), tl.id);
     // The whole card's name: "<title>, <prize>".
@@ -254,8 +256,8 @@ test('3.2 v2.8: each slim card: logo, title, big line, per-winner line, days lef
   // Colosseum: Hard (never "(estimate)"); Program Six: no difficulty chip.
   assert.deepEqual(chipsOf(cards[0]), ['8 days left', 'Hard']);
   assert.deepEqual(chipsOf(cards[5]), ['8 days left']);
-  assert.deepEqual(chipsOf(cards[1]), ['ends today', 'Hard']);
-  assert.deepEqual(chipsOf(cards[2]), ['rolling', 'Medium']);
+  assert.deepEqual(chipsOf(cards[1]), ['Ends today', 'Hard']);
+  assert.deepEqual(chipsOf(cards[2]), ['Rolling', 'Medium']);
 });
 
 test('3.3 v2.8: two arrow buttons (desktop only), a focusable snap scroller, snap-start cards', () => {
@@ -611,4 +613,35 @@ test('4.13 (H6) a private repo matched only from the local copy (App off) shows 
     await sql()`DELETE FROM repo_public_reads WHERE repo_key LIKE ${`%${tag}`}`;
     await sql()`DELETE FROM github_repo_facts WHERE full_name LIKE ${`%${tag}`}`;
   }
+});
+
+test('L10 the site 404 (never Next\'s white default): title, one line, the way to the leaderboard and home', () => {
+  const h = renderToStaticMarkup(React.createElement(NotFound));
+  assert.ok(h.includes(NOT_FOUND_TITLE) && h.includes(NOT_FOUND_LINE), h);
+  assert.match(h, /href="\/leaderboard"/);
+  assert.match(h, /href="\/"/);
+});
+
+test('L10 the header names Programs (the money); the install modal: no "no account", numbers only for two steps or more', () => {
+  assert.match(renderToStaticMarkup(React.createElement(Header)), /href="\/programs"[^>]*>Programs</);
+  assert.doesNotMatch(INTRO, /no account/i);
+  const h = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
+  assert.ok(h.includes(INTRO), h);
+  // The first tab (Grok Bot) has two steps: a numbered list.
+  assert.match(h, /<ol[^>]*list-decimal/);
+});
+
+test('final fix I1: a command wraps only between words, and a multi-line block keeps its lines and indentation', () => {
+  const plain = (h: string) => h.replace(/<[^>]+>/g, '').replace(/&quot;/g, '"');
+  for (const a of AGENTS) for (const code of [a.code, a.afterCode]) {
+    if (!code) continue;
+    const h = renderToStaticMarkup(React.createElement(Command, { text: code }));
+    assert.equal(plain(h), code, a.name);
+    // nowrap collapses a line break into a space, so no nowrap span may hold one (the regression: flat mcp.json).
+    for (const m of h.matchAll(/<span class="whitespace-nowrap">([^<]*)<\/span>/g)) assert.ok(!m[1].includes('\n'), `${a.name}: ${JSON.stringify(m[1])}`);
+  }
+  const cursor = AGENTS.find((a) => a.name === 'Cursor')!.code!;
+  assert.ok(cursor.includes('\n'), 'the Cursor block is multi-line');
+  assert.equal(plain(renderToStaticMarkup(React.createElement(Command, { text: cursor }))).split('\n').length, cursor.split('\n').length);
+  assert.match(renderToStaticMarkup(React.createElement(Command, { text: 'claude mcp add --transport http' })), /<span class="whitespace-nowrap">--transport<\/span>/);
 });

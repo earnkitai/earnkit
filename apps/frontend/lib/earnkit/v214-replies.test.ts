@@ -14,6 +14,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { SIGN_IN_NOTES, signinGet } from './x-link';
 import type { XOAuthDeps, XUser } from './x-oauth';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -31,8 +32,8 @@ const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of 
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal(links(s).length, 1, s);
-  // R8: a ranked reply ends on the one statement "Ship this week to climb." (no question); every other on one question.
-  const ranked = s.trimEnd().endsWith('How to move up\nShip this week to climb.');
+  // R8, L5: a ranked reply ends on the one statement, the weekly target (no question); every other on one question.
+  const ranked = endsOnRankedStep(s);
   assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
   assert.ok(ranked || s.trimEnd().endsWith('?'), s);
   assert.match(s, /Ways to get funded/);
@@ -57,11 +58,13 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
 });
 
-test('9.9 state 2, signed in with no project: the page and the GitHub question', db, async () => {
+test('9.9 state 2, signed in with no project: the page and the repo picker (launch ready L2)', db, async () => {
   const a = await agent({ x: 'abe' });
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, new RegExp(`Your page: https://earnkit\\.com/abe${RUN}`, 'i'));
-  assert.ok(s.endsWith("What's your GitHub, or a link to something you've made?"));
+  assert.match(s, new RegExp(`Your page: earnkit\\.com/abe${RUN}`, 'i'));
+  assert.match(s, /Install the read-only EarnKit app on the repo you want ranked \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.ok(s.endsWith("Want me to rank it once that's done?"));
+  assert.doesNotMatch(s, /What's your GitHub/);
 });
 
 test('9.10 state 3, a project without the App: the install link; then state 4 once installed', db, async () => {
@@ -135,7 +138,7 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const first = rule(bound.reply);
   assert.ok(first.startsWith(`Signed in as @${handle}.\n\n`), first);
-  assert.match(first, new RegExp(`Your page: https://earnkit\\.com/${handle}`, 'i'));
+  assert.match(first, new RegExp(`Your page: earnkit\\.com/${handle}`, 'i'));
   // Once: the next reply goes straight to where they stand.
   const c = (await connectInstallation(String(a.token)))!;
   const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);

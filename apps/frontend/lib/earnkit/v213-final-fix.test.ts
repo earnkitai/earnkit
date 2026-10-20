@@ -15,7 +15,7 @@ import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
 import { TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, toolDescriptions } from './mcp';
-import BenchView, { FILTER_RAISING } from '../../app/leaderboard/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import BenchTop from '../../app/components/sections/BenchTop';
 import { GET as llms } from '../../app/llms.txt/route';
 
@@ -97,7 +97,7 @@ test('F1 a private main repo shows the safe name on /bench, /feed and the carous
   await sql()`UPDATE builder_projects SET name = ${secret.key.split('/')[1]} WHERE builder_id = ${secret.id}`;
   const open = await listed({ name: 'Open app', public: true, update: true, score: 40 });
   const only = [secret.id, open.id];
-  const bench = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const bench = await benchRows({ chain: null, weekly: false }, { only });
   assert.deepEqual(bench.rows.map((r) => r.project), ['Private project', 'Open app']);
   await rankFeed(NOW);
   const feed = (await feedWeeks(NOW, { only })).flatMap((w) => w.cards);
@@ -136,10 +136,10 @@ test('F6 the Bench gate is read now: a lost repo proof leaves /bench, the chain 
   const b = await listed({ public: true, chains: ['base'], update: true });
   const only = [a.id, b.id];
   await rankFeed(NOW);
-  assert.equal((await benchRows({ chain: null, raising: false, weekly: false }, { only })).count, 2);
+  assert.equal((await benchRows({ chain: null, weekly: false }, { only })).count, 2);
   // The repo source is rejected; builder_live.ranked is still true (no rescore yet).
   await sql()`UPDATE builder_sources SET state = 'rejected' WHERE id = ${b.sid}`;
-  const after = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const after = await benchRows({ chain: null, weekly: false }, { only });
   assert.equal(after.count, 1);
   assert.deepEqual(after.rows.map((r) => r.rank), [1]);
   assert.equal((await chainPools({ only })).base, 1);
@@ -172,10 +172,8 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
   const only = [p.id];
   await withRaising(false, async () => {
     assert.equal(await pillOf(p.id), null);
-    assert.equal((await benchRows({ chain: null, raising: false, weekly: false }, { only })).rows[0].raising, null);
-    assert.equal(parseBenchFilter({ raising: '1' }).raising, false, '?raising=1 is ignored');
-    // A raising filter passed anyway filters nothing.
-    assert.equal((await benchRows({ chain: null, raising: true, weekly: false }, { only })).rows.length, 1);
+    assert.equal((await benchRows({ chain: null, weekly: false }, { only })).rows[0].raising, null);
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false }, '?raising=1 is ignored');
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
     assert.equal(d.raising, null);
     assert.ok(!JSON.stringify(d.log).includes('Community round'), 'no Community round chip on the update cards');
@@ -184,9 +182,10 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
   await withRaising(true, async () => {
     const pill = await pillOf(p.id);
     assert.deepEqual(pill, { symbol: 'RECIPE', url: `https://tokens.fun/c/${p.id}` });
-    const rows = await benchRows({ chain: null, raising: true, weekly: false }, { only });
+    const rows = await benchRows({ chain: null, weekly: false }, { only });
     assert.deepEqual(rows.rows[0].raising, pill, 'the row\'s pill is pillOf\'s, in the same read');
-    assert.equal(parseBenchFilter({ raising: '1' }).raising, true);
+    // Launch-ready L3: no raising filter even with EARNKIT_RAISING on (an old link shows the whole board).
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false });
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
     assert.deepEqual(d.raising, pill);
     assert.equal((await benchCardFacts(p.id))!.raising, 'RECIPE');
@@ -216,13 +215,12 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
   const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
-  const filter = { chain: null, raising: false, weekly: false };
-  const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: false }));
-  assert.ok(!off.includes(FILTER_RAISING) && !off.includes('raising=1'));
-  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: true }));
-  assert.ok(on.includes(FILTER_RAISING) && on.includes('raising=1'));
+  const filter = { chain: null, weekly: false };
+  // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
+  const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));
+  assert.ok(!board.includes('Community round') && !board.includes('raising=1'));
   // R18: the landing's top 10 has no filter chips at all (they live on /leaderboard).
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes(FILTER_RAISING));
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes('Community round'));
   await withRaising(false, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));
@@ -235,7 +233,7 @@ test('F11 raising off: the Bench, the landing top 10, tell\'s description and ll
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH);
     // Owner ruling B (v2.13.3): "community round", never raise or raising.
     const text = await (await llms()).text();
-    assert.match(text, /chain, community round and weekly filters/);
+    assert.ok(text.includes('with chain and weekly filters.'), 'launch-ready L3: no community round filter');
     assert.doesNotMatch(text, /\braise\b|\braising\b/i);
   });
 });

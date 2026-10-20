@@ -9,7 +9,8 @@ const LINK =
 /**
  * R18: the one site header on every page (it was the profile's slim top bar): the wordmark, quiet
  * links, "Add to your agent" (the install modal), a hairline under it. Sticky, on the page's glass.
- * On a phone: the wordmark, Leaderboard and the install; Feed and Docs from sm (and in the footer).
+ * On a phone: the wordmark, Leaderboard and the install; Programs, Feed and Docs from sm (and in the footer).
+ * Launch ready L10: Programs (the money) in the header too.
  */
 export default function Header() {
   return (
@@ -23,6 +24,9 @@ export default function Header() {
         </Link>
         <Link href="/feed" className={`${LINK} hidden sm:inline-flex`}>
           Feed
+        </Link>
+        <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
+          Programs
         </Link>
         <a href={DOCS} target="_blank" rel="noopener noreferrer" className={`${LINK} hidden sm:inline-flex`}>
           Docs

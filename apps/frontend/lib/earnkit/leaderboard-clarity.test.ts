@@ -12,7 +12,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
-import { SHIP_STEP, STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
+import { STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -23,8 +23,9 @@ import { wholeWords } from './untrusted-text';
 import { projectOf } from './identity-input';
 import { PROFILES_POINTS } from './policy';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
-import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import BenchProfileView, { confirmingCardLine } from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 
 /**
  * Scoring and clarity, Task 3: the leaderboard (R9, R17), rank wording (R6), one status line and one
@@ -64,7 +65,7 @@ function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   const up = s.split('\n\n').find((p) => p.startsWith('How to move up'));
   assert.ok(up, s);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-  if (up === `How to move up\n${SHIP_STEP}`) assert.equal(questions, 0, `a statement, no question: ${s}`);
+  if (endsOnRankedStep(up!)) assert.equal(questions, 0, `a statement, no question: ${s}`);
   else {
     assert.equal((up!.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one next step: ${s}`);
     assert.equal(questions, 1, `one question in all: ${s}`);
@@ -85,8 +86,8 @@ async function rankedBuilder(x: string, name: string, repo: string, gh: number) 
 
 test('R9: the page is "Leaderboard", its filters link /leaderboard, the sitemap lists /leaderboard (never /bench)', async () => {
   assert.equal(BENCH_TITLE, 'Leaderboard');
-  assert.equal(filterHref({ chain: null, raising: false, weekly: false }), '/leaderboard');
-  assert.equal(filterHref({ chain: 'arc', raising: false, weekly: true }), '/leaderboard?chain=arc&weekly=1');
+  assert.equal(filterHref({ chain: null, weekly: false }), '/leaderboard');
+  assert.equal(filterHref({ chain: 'arc', weekly: true }), '/leaderboard?chain=arc&weekly=1');
   const map = readFileSync(join(FRONTEND, 'app/sitemap.ts'), 'utf8');
   assert.match(map, /\/leaderboard`/);
   assert.doesNotMatch(map, /\/bench`/);
@@ -116,7 +117,7 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
   }
   assert.deepEqual(found, []);
   const copy = [
-    NOT_ON_BENCH, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.ask(), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
+    NOT_ON_BENCH, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
   for (const c of copy) assert.doesNotMatch(c, /bench/i, c);
@@ -152,7 +153,7 @@ test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (th
 test('R17: benchRows gives each row its Shipping points (builder_live.score) and its rank line', db, async () => {
   const a = await rankedBuilder('pts', 'Points', 'points', 7101);
   await sql()`UPDATE builder_live SET score = 72 WHERE builder_id = ${a.id}`;
-  const { rows } = await benchRows({ chain: null, raising: false, weekly: false }, { only: [a.id] });
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows.length, 1);
   assert.equal(rows[0].points, 72);
   assert.equal(rows[0].line, '#1 of 1 builder this week');
@@ -179,7 +180,7 @@ test('Final follow-ups 2: "#N of M" counts the leaderboard\'s own pool (a ranked
   await sql()`UPDATE builder_live SET score = 80 WHERE builder_id = ${b.id}`;
   await sql()`UPDATE builder_profiles SET main_project_key = ${`elsewhere${RUN}/nope`} WHERE builder_id = ${b.id}`;
   const only = [a.id, b.id];
-  const board = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const board = await benchRows({ chain: null, weekly: false }, { only });
   assert.deepEqual([board.count, board.rows.map((r) => r.handle)], [1, [`one${RUN}`.slice(0, 15)]]);
   const s = await standingOf(a.id, { only });
   assert.deepEqual([s.rank, s.total], [1, board.count], 'the profile and reply rank matches the leaderboard header');
@@ -242,7 +243,7 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   assert.equal((await benchCardFacts(a.id))!.bench, null);
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: 'Top 4% of builders this week', line: 'Shipping 62 · Top 4% of builders this week' }, tab: 'log' }));
   assert.ok(d.project && !d.project.confirmed, 'confirming');
-  assert.ok(html.includes(`is getting ${d.project.name} on the leaderboard.`), html);
+  assert.ok(html.includes(confirmingCardLine(d.name, d.project.name)), html);
   assert.doesNotMatch(html, /Top 4%/, 'never a rank beside the confirming card, even from a stale line');
 });
 
@@ -253,7 +254,7 @@ test('R11: a long project name is whole in the reply and on the leaderboard', db
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
   assert.ok(s.includes(`${name}: Shipping`), s);
-  const { rows } = await benchRows({ chain: null, raising: false, weekly: false }, { only: [a.id] });
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });
 

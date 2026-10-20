@@ -4,7 +4,7 @@ import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { benchRows, filterHref, type BenchFilter } from '../../lib/earnkit/bench-data';
 
 /**
- * One cached read per filter variant (at most 16), 60 seconds; a hide, claim or rename expires them
+ * One cached read per filter variant (at most 8), 60 seconds; a hide, claim or rename expires them
  * (PROFILE_TAG). Final fix: the key carries EARNKIT_RAISING, so a flip never serves the other's pills.
  */
 export const cachedBench = (f: BenchFilter) =>

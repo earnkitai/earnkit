@@ -36,7 +36,7 @@ export type PrSignals = { target: string; target_stars: number; merged_at: strin
 export type ReaderDeps = {
   gh: <T>(path: string, accept?: string) => Promise<T>;
   /** GitHub GraphQL (one call per person, person-github.ts); counted against the run's GitHub budget. */
-  ghGraphql: <T>(query: string, variables: Record<string, unknown>) => Promise<T>;
+  ghGraphql: <T>(query: string, variables: Record<string, unknown>, o?: GraphqlOptions) => Promise<T>;
   probe: (url: string) => Promise<{ status: number }>;
   fetchText: (url: string) => Promise<string>;
   /** npm and pypistats (public, keyless). */
@@ -49,6 +49,11 @@ export type ReaderDeps = {
    */
   walletCreations: (wallet: string) => Promise<{ address: string; created_at: string }[]>;
   now: Date;
+  /**
+   * Epoch ms: the read's deadline (defaultReaderDeps'), so a reader can stop between calls rather than start one past
+   * it (person-github.ts withAllWeeks). Absent (test fakes): never.
+   */
+  deadline?: number;
   /** Whether the run's GitHub budget is spent (budgetedGh); absent: never. */
   ghSpent?: () => boolean;
   /**
@@ -309,11 +314,23 @@ const GRAPHQL_MAX_BYTES = 5_000_000;
  * login or repo reads as null). Any other error (rate limit, timeout, a bad query) throws, so a
  * partial answer is never read as zero. Pure; exported for tests.
  */
-export function graphqlUsable(body: unknown): boolean {
+export function graphqlUsable(body: unknown, o: GraphqlOptions = {}): boolean {
   const b = (body ?? {}) as { data?: unknown; errors?: unknown };
   if (!b.data || typeof b.data !== 'object') return false;
   if (b.errors === undefined) return true;
-  return Array.isArray(b.errors) && b.errors.every((e) => (e as { type?: unknown } | null)?.type === 'NOT_FOUND');
+  return Array.isArray(b.errors) && b.errors.every((e) => (e as { type?: unknown } | null)?.type === 'NOT_FOUND' || (o.aliasErrors === true && aliasOf(e) !== null));
+}
+
+/**
+ * Launch-ready fix round 1: `aliasErrors`, for a query of aliased repos (person-github.ts reposQuery, `r0`..): an error
+ * whose path starts at one alias (GitHub refusing one repo, e.g. FORBIDDEN for an org that blocks the token) is that
+ * repo's alone, and the answer stays usable for the rest. An error without such a path still refuses the answer.
+ */
+export type GraphqlOptions = { aliasErrors?: boolean };
+/** The `rN` alias an error's path starts at, else null. Pure. */
+export function aliasOf(e: unknown): string | null {
+  const p = (e as { path?: unknown } | null)?.path;
+  return Array.isArray(p) && typeof p[0] === 'string' && /^r\d+$/.test(p[0]) ? p[0] : null;
 }
 
 /**
@@ -347,7 +364,7 @@ export function readError(err: unknown): string {
  * One GitHub GraphQL call, counted against the run's budget (`github.take()`, GitHubBudgetStop when
  * spent). An answer graphqlUsable refuses throws: the caller writes failed readings.
  */
-async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>, onRequest?: () => void): Promise<T> {
+async function githubGraphql<T>(query: string, variables: Record<string, unknown>, github: ReturnType<typeof budgetedGh>, onRequest?: () => void, o: GraphqlOptions = {}): Promise<T> {
   if (!github.take()) throw new GitHubBudgetStop();
   onRequest?.();
   const token = process.env.GITHUB_TOKEN;
@@ -362,7 +379,7 @@ async function githubGraphql<T>(query: string, variables: Record<string, unknown
     github.watch(res);
     if (!res.ok) throw new Error(`GitHub GraphQL returned ${res.status}`);
     const body = await cappedJson<{ data?: unknown; errors?: unknown[] }>(res, GRAPHQL_MAX_BYTES);
-    if (!graphqlUsable(body)) throw new Error(graphqlErrors(body));
+    if (!graphqlUsable(body, o)) throw new Error(graphqlErrors(body));
     return body as T;
   } catch (err) {
     if (github.spent()) throw new GitHubBudgetStop();
@@ -416,7 +433,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
   const tick = (p: Provider) => requests.tick?.(p);
   return {
     gh: <T>(path: string, accept?: string) => by(github<T>(path, accept, () => tick('github_rest'))),
-    ghGraphql: <T>(query: string, variables: Record<string, unknown>) => by(githubGraphql<T>(query, variables, github, () => tick('github_graphql'))),
+    ghGraphql: <T>(query: string, variables: Record<string, unknown>, o?: GraphqlOptions) => by(githubGraphql<T>(query, variables, github, () => tick('github_graphql'), o)),
     probe: (url) => by(probeSite(url, { onRequest: () => tick('site') }).then(() => ({ status: 200 }))),
     fetchText: (url) => (tick('site'), by(safeFetchText(url))),
     json: <T>(url: string) => (tick(providerOfUrl(url)), by(packageJson<T>(url, deadline))),
@@ -424,6 +441,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
     walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
     now,
+    deadline,
     ghSpent: github.spent,
     ghFetch: async (input, init) => {
       // v2.14 final fix 8: a call with an App credential (an installation token or the App's JWT) spends the

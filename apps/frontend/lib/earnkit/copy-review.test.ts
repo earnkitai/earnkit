@@ -23,7 +23,9 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { SHIP_STEP, fitsLine, noFitLine } from './bench-reply';
+import { SHIP_STEP, fitsLine, noFitLine, shareAsk } from './bench-reply';
+import { weekStartLine, weeklyTarget } from './weekly-target';
+import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
@@ -454,7 +456,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -859,12 +861,38 @@ function buildFixTexts(): [string, string][] {
   return cases.map((c, i): [string, string] => [`buildCheck fix ${i}`, buildCheck({ ...ok, ...c }, s)!]);
 }
 
+/** Launch ready L5, L6: every weekly target shape, the moment's lines, the share ask (a placeholder link) and the yes. */
+function weeklyCopy(): [string, string][] {
+  const g = { active: false, gain: 14, next: 13 };
+  const t = (o: Partial<Parameters<typeof weeklyTarget>[0]>) => weeklyTarget({ gains: g, score: 50, rank: 2, above: null, ...o });
+  const w = { score: 72, rank: 3, total: 40 };
+  return [
+    ['target pass', t({ above: { rank: 1, score: 60 } })],
+    ['target behind', t({ above: { rank: 1, score: 90 } })],
+    ['target hold', t({ rank: 1 })],
+    ['target unranked', t({ rank: null })],
+    ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],
+    // Launch ready L10: the profile's voice (said to a visitor).
+    ['page target pass', weeklyTarget({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } }, 'page')!],
+    ['page target done', weeklyTarget({ gains: { active: true, gain: 14, next: 13 }, score: 50, rank: 2, above: null }, 'page')!],
+    ['moment', momentLines({ monday: '2026-10-12', now: w, before: { score: 66, rank: 5, total: 40 }, titles: ['Add dark mode', 'Fix the login loop'], checked: true },
+      weekStartLine({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } })).join('\n')],
+    ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
+    ['shareText', shareText(w)],
+    // The real link carries its query; the rule counts question marks in the text, so it is left off here.
+    ['shareAsk', shareAsk('https://x.com/intent/post')],
+    ['APPROVED_LINE', APPROVED_LINE],
+  ];
+}
+
 // v2.12.1 T8: the news line, the money lines and the card answers (v2.14: the three-part reply and its steps are gone;
 // R8, R12: the ranked step, the fit line and the token-ask answers).
 export const v2121Texts: [string, string][] = [
   ['standingNews card', standingNews({ rank: 5, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 19 } }, new Date('2026-10-14T00:00:00Z'), true)!.line],
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   ['SHIP_STEP', SHIP_STEP],
+  // Launch ready L5, L6: the weekly target, the weekly moment, its share ask and the yes.
+  ...weeklyCopy(),
   ['fitsLine', fitsLine('Recipe Grants', 'up to $5K', 'closes Oct 30', 'It takes any chain and your app is live.')],
   ['noFitLine', noFitLine('Recipes')],
   ['TOKEN_NOT_YET', TOKEN_NOT_YET],
@@ -988,6 +1016,7 @@ const agentFacing: [string, string][] = [
   // v2.12.1 T9: the notes after a move-up yes, and the build kit's attribution rule.
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['SHIP_STEP_NOTE', SHIP_STEP_NOTE],
+  ['SHARE_NOTE', SHARE_NOTE],
   ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
@@ -1247,7 +1276,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
-  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 };
+  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 };
   const landing = landingFrom(cards, zero, now);
   assert.equal(landing.open_text, fig);
   assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} open right now`));

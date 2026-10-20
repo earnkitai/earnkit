@@ -13,7 +13,6 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { FILTER_RAISING } from '../../app/leaderboard/FilterChip';
 import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
@@ -36,6 +35,7 @@ import { safeNames } from './page-data';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from './mcp';
 import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
+import { RANKED_STEP } from './fixtures/ranked-step';
 
 /**
  * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
@@ -143,8 +143,8 @@ test('2.1 pure: what each program needs, in plain words; a chain program names i
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
   assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, handle: null, link: null, due: [], held: null,
-    ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() },
+  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, target: null, share: null, handle: null, link: null, due: [], held: null,
+    ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() },
     fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
   assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");
 });
@@ -180,14 +180,14 @@ test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and exist
   on(async () => {
     assert.equal(NOT_ON_BENCH, "You're not on the leaderboard yet.");
     // v2.14 spec 4 (no_project): one question, last.
-    assert.equal(STATE_COPY.no_project.ask(), "What's your GitHub, or a link to something you've made?");
+    assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
     // No program with a starter that can compete open: the line, no build offer, money shown.
     const id = await install();
     await claimFx(id); // v2.13.4: unclaimed, X is the one ask; this is what follows it
     const r = await find(id, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[1], NOT_ON_BENCH, r.show_to_builder);
-    assert.equal(lines.at(-1), STATE_COPY.no_project.ask());
+    assert.equal(lines.at(-1), STATE_COPY.no_project.noApp());
     assert.equal(questions(r.show_to_builder), 1);
     assert.ok(r.show_to_builder.endsWith('?'));
     assert.doesNotMatch(r.show_to_builder, /tip jar/i);
@@ -203,7 +203,7 @@ test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and exist
     await claimFx(c);
     const rc = await find(c, { agent_can_build: false }, NO_MATCH);
     assert.equal(rc.show_to_builder.split('\n')[1], NOT_ON_BENCH);
-    assert.equal(rc.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.ask());
+    assert.equal(rc.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.noApp());
     // v2.14 A18: an open program with its own starter changes nothing: no build offered in find.
     const arc = { ...committedProgram('arc-microgrants'), id: `v2133-arc-${RUN}`, status: 'active', ends_at: new Date(Date.now() + 3 * 86_400_000).toISOString(), fresh_build: { starter: STARTER_ID } };
     await upsertProgram(ProgramFile.parse(arc));
@@ -211,7 +211,7 @@ test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and exist
       const b = await install();
       await claimFx(b);
       const rb = await find(b, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
-      assert.equal(rb.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.ask(), rb.show_to_builder);
+      assert.equal(rb.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.noApp(), rb.show_to_builder);
       assert.equal(questions(rb.show_to_builder), 1, 'one question mark in the whole reply (links stripped)');
       assert.equal(rb.build_offer, undefined);
       assert.equal(rb.move_up?.kind, 'start');
@@ -413,13 +413,12 @@ test('A.2 through find (R8, R12): a project with a fit names it in Ways to get f
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: up to \\$10K, rolling\\. `, 'm'), r.show_to_builder);
-    assert.equal(r.show_to_builder.split('\n').at(-1), SHIP_STEP);
+    assert.match(r.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
     assert.equal(r.move_up?.kind, 'ship');
   }));
 
 test('B.1 "community round", never raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
-  assert.equal(FILTER_RAISING, 'Community round');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Community round \$RECIPE</);
   for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);

@@ -6,11 +6,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { WEEKLY_STREAK, benchRows, bestFact, filterHref, parseBenchFilter } from './bench-data';
 import { pillOf } from './raising';
-import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_RAISING, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, BENCH_SHOW_ALL, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
-// Final fix: the raising filter and pill are behind EARNKIT_RAISING; these cases are the flag on (v213-final-fix F9, F11: off).
+// Final fix: the raising pill is behind EARNKIT_RAISING (launch-ready L3: no raising filter); these cases are the flag on (v213-final-fix F9, F11: off).
 process.env.EARNKIT_RAISING = 'on';
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -32,12 +32,13 @@ after(async () => {
   await sql().end();
 });
 
-test('10.1 filters come from the URL; anything unknown is ignored (16 variants at most)', () => {
-  assert.deepEqual(parseBenchFilter({ chain: 'base', raising: '1', weekly: '1' }), { chain: 'base', raising: true, weekly: true });
-  assert.deepEqual(parseBenchFilter({ chain: 'monad', raising: 'yes', weekly: ['1', '1'], page: '9' }), { chain: null, raising: false, weekly: false });
-  assert.deepEqual(parseBenchFilter({ chain: 'Robinhood' }), { chain: 'robinhood', raising: false, weekly: false });
-  assert.equal(filterHref({ chain: 'base', raising: true, weekly: false }), '/leaderboard?chain=base&raising=1');
-  assert.equal(filterHref({ chain: null, raising: false, weekly: false }), '/leaderboard');
+test('10.1 filters come from the URL; anything unknown is ignored (8 variants at most); launch-ready L3: ?raising=1 is ignored', () => {
+  assert.deepEqual(parseBenchFilter({ chain: 'base', raising: '1', weekly: '1' }), { chain: 'base', weekly: true });
+  assert.deepEqual(parseBenchFilter({ chain: 'monad', raising: 'yes', weekly: ['1', '1'], page: '9' }), { chain: null, weekly: false });
+  assert.deepEqual(parseBenchFilter({ chain: 'Robinhood' }), { chain: 'robinhood', weekly: false });
+  assert.equal(filterHref({ chain: 'base', weekly: false }), '/leaderboard?chain=base');
+  assert.equal(filterHref({ chain: 'base', weekly: true }), '/leaderboard?chain=base&weekly=1');
+  assert.equal(filterHref({ chain: null, weekly: false }), '/leaderboard');
   assert.equal(WEEKLY_STREAK, 4);
 });
 
@@ -68,11 +69,11 @@ async function listed(score: number, o: { chains?: string[]; raising?: boolean; 
   return id;
 }
 
-test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\'s; chips from one ranked project on a chain (R16e)', dbTest, async () => {
+test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips from one ranked project on a chain (R16e)', dbTest, async () => {
   const ids: number[] = [];
   for (let i = 0; i < 10; i++) ids.push(await listed(60 + i, { chains: ['base'], raising: i === 9, streak: i >= 8 ? 5 : 1 }));
   ids.push(await listed(99, { chains: ['arc'] }));
-  const all = await benchRows({ chain: null, raising: false, weekly: false }, { only: ids });
+  const all = await benchRows({ chain: null, weekly: false }, { only: ids });
   assert.equal(all.count, 11);
   assert.deepEqual(all.chips, ['base', 'arc'], 'arc has 1: its chip shows (R16e)');
   assert.deepEqual(all.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
@@ -83,36 +84,40 @@ test('10.3 chain, raising and weekly filter the rows; ranks are the whole Bench\
     const row = all.rows.find((r) => r.handle === `bn${RUN}${id}`)!;
     assert.deepEqual(row.raising, await pillOf(id), `row ${i}`);
   }
-  const base = await benchRows({ chain: 'base', raising: false, weekly: false }, { only: ids });
+  const base = await benchRows({ chain: 'base', weekly: false }, { only: ids });
   assert.equal(base.rows.length, 10);
   assert.ok(base.rows.every((r) => r.chains.includes('base')));
   assert.equal(base.rows[0].rank, 2, 'the rank is on the whole Bench (the Arc builder is first)');
-  const raising = await benchRows({ chain: 'base', raising: true, weekly: false }, { only: ids });
-  assert.deepEqual(raising.rows.map((r) => r.raising?.symbol), ['RECIPE']);
-  // Stop raising: the pill and the raising row go, the coin stays.
+  assert.deepEqual(base.rows.filter((r) => r.raising).map((r) => r.raising?.symbol), ['RECIPE'], 'the pill stays on its row');
+  // Stop raising: the pill goes, the coin stays.
   await sql()`UPDATE projects SET raising_at = NULL WHERE installation_id = ${ids[9]}`;
-  assert.deepEqual((await benchRows({ chain: null, raising: true, weekly: false }, { only: ids })).rows, []);
-  const weekly = await benchRows({ chain: null, raising: false, weekly: true }, { only: ids });
+  assert.ok((await benchRows({ chain: null, weekly: false }, { only: ids })).rows.every((r) => r.raising === null));
+  const weekly = await benchRows({ chain: null, weekly: true }, { only: ids });
   assert.equal(weekly.rows.length, 2);
 });
 
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "#N" on the right (R18 fix 1; the rank line to screen readers); the header count line', () => {
   const row = { rank: 2, line: 'Top 4% of builders this week', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-  const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, raising: false, weekly: false }, raising: true }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders this week. Ranked by Shipping points.', FILTER_RAISING, FILTER_WEEKLY])
+  const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, weekly: false } }));
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders this week. Ranked by Shipping points.', FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
   assert.match(html, /href="\/leaderboard\?chain=base"/);
-  assert.match(html, /href="\/leaderboard\?raising=1"/);
+  // Launch-ready L3: no community round chip.
+  assert.doesNotMatch(html, /raising=1|>Community round</);
   assert.match(html, /href="\/leaderboard\?weekly=1"/);
   assert.doesNotMatch(html, /<form/, 'filters are links');
   // A filter that is on links back to the Bench without it, and says so.
-  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', raising: true, weekly: false }, raising: true }));
+  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', weekly: true } }));
   const link = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
-  assert.match(link(on, '/leaderboard?raising=1'), /aria-pressed="true"/, 'Base is on: its chip turns it off');
-  assert.match(link(on, '/leaderboard?chain=base'), /aria-pressed="true"/, 'Raising is on: its chip turns it off');
-  assert.match(link(on, '/leaderboard?chain=base&amp;raising=1&amp;weekly=1'), /aria-pressed="false"/);
+  assert.match(link(on, '/leaderboard?weekly=1'), /aria-pressed="true"/, 'Base is on: its chip turns it off');
+  assert.match(link(on, '/leaderboard?chain=base'), /aria-pressed="true"/, 'Weekly is on: its chip turns it off');
+  const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', weekly: false } }));
+  assert.match(link(off, '/leaderboard?chain=base&amp;weekly=1'), /aria-pressed="false"/);
   // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
-  assert.ok(renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', raising: false, weekly: false }, raising: true })).includes(BENCH_EMPTY));
+  const filtered = renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', weekly: false } }));
+  assert.ok(filtered.includes(BENCH_EMPTY));
+  // Launch ready L10: the way back from an empty filter is one link to everyone.
+  assert.ok(filtered.includes(`href="/leaderboard">${BENCH_SHOW_ALL}</a>`), filtered);
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', weekly: false } })).includes(BENCH_EMPTY));
 });

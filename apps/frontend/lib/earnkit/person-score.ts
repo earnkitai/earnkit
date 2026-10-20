@@ -398,15 +398,16 @@ export async function ensureStartedRow(db: Db, builderId: number, key: string, a
  * public history row before today, so ten-minute refreshes can never step past it. `cron`: the cron's
  * score step (it rescores even when a refresh wrote a newer row during the run).
  */
-export async function rescorePerson(id: number, now: Date, o: { cron?: boolean } = {}): Promise<{ score: number; ranked: boolean; held: boolean }> {
+export async function rescorePerson(id: number, now: Date, o: { cron?: boolean } = {}): Promise<{ score: number; ranked: boolean; held: boolean; changed: boolean }> {
   const cal = calibrationV2();
   // One transaction for the decision and the write: a per-person advisory lock first (rescores of
   // one person never interleave), then every input the hold depends on (the live row, the
   // baseline, the stored ring) is read under it. A rescore older than the stored one writes nothing.
   const result = await sql().begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(${RESCORE_LOCK}, ${id})`;
-    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date }[]>`
-      SELECT score, ranked, computed_at FROM builder_live WHERE builder_id = ${id} FOR UPDATE`;
+    const [cur] = await tx<{ score: number; ranked: boolean; computed_at: Date; held: boolean }[]>`
+      SELECT l.score, l.ranked, l.computed_at, (l.pending IS NOT NULL OR COALESCE(p.held, false)) AS held
+      FROM builder_live l LEFT JOIN builder_profiles p USING (builder_id) WHERE l.builder_id = ${id} FOR UPDATE OF l`;
     // A newer rescore exists (a refresh during this cron run). An older refresh writes nothing. The cron
     // rescores at the newer row's time: same readings, same computed_at (never moves back), the rank, cap
     // and projects rebuilt.
@@ -470,8 +471,9 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
     // v2.13 B9 (F2): the "Started tracking" row, only for a confirmed one project.
     if (mainRow?.bench_confirmed)
       await ensureStartedRow(tx, id, mainRow.key, at, { live: mainRow.shipped && mainRow.kind === 'app', weeks: mainRow.weeks_shipping });
-    // Hotfix 2026-10-19: the public pool moved (a new row, its score or rank, or a hold).
-    const changed = !cur || cur.score !== out.score || cur.ranked !== out.ranked || reason !== null;
+    // Hotfix 2026-10-19: the public pool moved (a new row, its score or rank, or a hold starting or ending). A builder
+    // who stays held changes nothing public (the public columns stay), so their ten-minute refreshes expire no cache.
+    const changed = !cur || cur.score !== out.score || cur.ranked !== out.ranked || cur.held !== (reason !== null);
     return { ...out, held: reason !== null, reason, s, before: before?.score ?? null, changed };
   });
   if (result.reason && result.s) {
@@ -483,7 +485,7 @@ export async function rescorePerson(id: number, now: Date, o: { cron?: boolean }
   }
   // Hotfix 2026-10-19: the home page, feed and leaderboard follow the pool at once (never a stale "Nobody").
   if (result.changed) poolChanged();
-  return { score: result.score, ranked: result.ranked, held: result.held };
+  return { score: result.score, ranked: result.ranked, held: result.held, changed: result.changed };
 }
 
 /**
@@ -682,9 +684,20 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     const viaAppIds = new Set(
       (await db<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${db(repos.map((s) => s.id))} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
     );
+    // Launch-ready (hotfix carry-over): a short read's extra 52-week call runs only when needed (person-github.ts
+    // needsAllWeeks). Fix round 1: "has a baseline" is the write's own lookup (previousRepoSignals with the repo as
+    // read), asked only for a short read; a ref read for several sources has one only when every one of them has.
+    const opts = {
+      baseline: async (k: string, r: PersonRepo) => {
+        for (const s of repos) if (s.ref.toLowerCase() === k && needsPushCheck(await previousRepoSignals(s.id, r))) return false;
+        return true;
+      },
+    };
+    /** Fix round 1: what GitHub said refusing a repo on its own alias (logged when the App can't read it either). */
+    const refused = new Map<string, string>();
     for (const s of repos.filter((x) => viaAppIds.has(x.id))) {
       const go = await attempt([s], async () => {
-        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        for (const [k, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(k, r);
         asked.add(s.id);
       });
       if (!go) return done();
@@ -693,8 +706,19 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     for (let i = 0; i < byName.length; i += REPOS_MAX) {
       const batch = byName.slice(i, i + REPOS_MAX);
       const go = await attempt(batch, async () => {
-        for (const [k, r] of await readGithubRepos(batch.map((s) => s.ref), o.reader)) found.set(k, r);
-        for (const s of batch) asked.add(s.id);
+        const got = await readGithubRepos(batch.map((s) => s.ref), o.reader, opts);
+        for (const [k, r] of got.repos) found.set(k, r);
+        for (const [k, why] of got.refused) refused.set(k, why);
+        for (const s of batch) {
+          const err = got.failed.get(s.ref.toLowerCase());
+          if (err === undefined) {
+            asked.add(s.id);
+            continue;
+          }
+          // One repo's failed weekly call fails only its own reading.
+          console.error('[refresh] read failed', s.id, readError(err));
+          await put(s, { ok: false });
+        }
       });
       if (!go) return done();
     }
@@ -702,7 +726,7 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
     // installed it on that repo (a per-call token, never kept).
     for (const s of byName.filter((x) => asked.has(x.id) && !found.has(x.ref.toLowerCase()))) {
       const go = await attempt([s], async () => {
-        for (const [k, r] of await readAppRepos([s], o.reader)) viaApp.set(k, r);
+        for (const [k, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(k, r);
       });
       if (!go) return done();
     }
@@ -711,6 +735,8 @@ export async function readPersonLive(id: number, now: Date, o: { deadline: numbe
       const app = viaAppIds.has(s.id) || !found.has(s.ref.toLowerCase()) ? viaApp.get(s.id) : undefined;
       const r = app ?? found.get(s.ref.toLowerCase());
       if (!r) {
+        const why = refused.get(s.ref.toLowerCase());
+        if (why) console.error('[refresh] read failed', s.id, why);
         await put(s, { ok: false });
         continue;
       }

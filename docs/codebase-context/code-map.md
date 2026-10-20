@@ -68,14 +68,18 @@ apps/frontend/
                                PROFILE_TAG). BenchRowItem: name and project wrap (R11, no truncate), the Shipping points column
                                (R17, BenchRow.points) and the rank line split by rank.ts rankSplit (number large, words small);
                                v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
-                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
+                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows);
+                               launch ready L10: BENCH_EMPTY "No builder matches this filter yet." + BENCH_SHOW_ALL link;
+                               a phone row is three lines (handle with chain logos, project with its fact)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
   app/[handle]/{BenchProfileView,ProjectTab,ShipGrid}.tsx  v2.13 T11: the Bench profile (scoring and clarity: one Shipping ring; photo,
                                rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
-                               and grid, Project tab shows name and what only
+                               and grid, Project tab shows name and what only; launch ready L10: "a private project" in
+                               the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
+                               line only with a rank, BENCH_SOURCES_LINE without "public data"
   app/components/sections/{BenchTop,UpdateCarousel,CarouselRow}.tsx  v2.13 T12: the landing's
                                leaderboard top 10 (R18: no chips), "Shipped this week" carousel, shared carousel
                                row. R18: BenchHowItWorks deleted; the hero has one subtitle (no raising variant)
@@ -132,7 +136,8 @@ apps/frontend/
                                FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
                                line; renders from lib/earnkit/footer-links.ts; real links only
   app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
-                               Leaderboard, Feed and Docs (from sm), "Add to your agent"
+                               Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
+  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
   app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
   apps/frontend/DESIGN.md      R18: the design system (tokens, surfaces, text roles, buttons, the profile's accent palette)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
@@ -185,6 +190,9 @@ apps/frontend/
                                shareResponse (card_shared once a day, 302 to the X intent); both check the live
                                row (no-store 404, 308 to pagePath)
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
+  app/[handle]/BadgeCopy.tsx   launch-ready L8: "Add the badge to your README", the markdown and a Copy button (client)
+  app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
+                               cachedBadge (unstable_cache per file, 1 h, PROFILE_TAG)
   app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's
                                v2.12 slug (live or old) 308s to /<handle>; else 404
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
@@ -1093,6 +1101,10 @@ apps/frontend/
                                v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line only for
                                the builder's own User account; shared clients only the caller's or the entry's sign-in),
                                githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
+                               Launch ready L2: PICK_REPOS ('*', the repo picker's repo_key); createVerifyLink repoKey null
+                               makes it (same S7 page handle, cookie, expiry, single use); confirmPage for it: APP_PICK_LEAD,
+                               APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>."); pageWith
+                               (fix round 1: a setup success page with its one link)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
@@ -1100,6 +1112,15 @@ apps/frontend/
                                admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
                                null when off), installUrl, APP_PAGE, appSetup (the setup URL handler; v2.14 T6: then
                                repo-proof.ts proveByApp for the person's root)
+                               Launch ready L2: installationToken(id, null) (the installation's repo list, metadata read);
+                               pickedRepos (GET /installation/repositories, PICK_LIST_MAX 100, newest push first; own account
+                               or admin, R8; PICK_ADMIN_CHECKS 30 in batches of PICK_ADMIN_BATCH 5; stops at PICK_PROVE_MAX 20; returns org: an organization's installation proves
+                               only the one project's repo, final fix I2);
+                               pickSetup (appSetup for a PICK_REPOS nonce, one PICK_BUDGET_MS 25 s deadline through
+                               budgetedFetch: repo-proof.ts proveOne per repo, the verification only for a proven one; the one
+                               project kept when picked, else setMainProject(newest proven); connectProven in what is left);
+                               PICK_PAGE (always names the one project and its page; remove line), GITHUB_INSTALLATIONS_URL;
+                               fix round 1: the single-repo path is proveOne, then the verification, then connectProven
     builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
                                (memoryKey: own installation login '', a shared client null),
@@ -1242,6 +1263,8 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
+                               launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
+                               (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
                                open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
@@ -1364,7 +1387,9 @@ apps/frontend/
                                SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
                                (Bench-confirmed only, else null); v2.13.1 O2: setMainProject replaces an
                                unconfirmed one (old key's open proof code cleared), dropMainProject (tell
-                               repo_facts not_mine on the unconfirmed one project)
+                               repo_facts not_mine on the unconfirmed one project); launch ready L2: rankRepo (tell
+                               main_project: the one project moves, even a confirmed one, only to a repo this person proved
+                               with the App)
     repo-proof.ts              v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
                                deleted; proof_branches and proof_line_issues stay, unused). APP_PROOF 'github_app', APP_REMOVED,
                                APP_CHECK_PER_RUN 50, APP_CHECK_EVERY_MS 1 day, APP_PROOF_FRESH_MS (a day + 2 h);
@@ -1384,7 +1409,10 @@ apps/frontend/
                                a proof older than APP_PROOF_FRESH_MS use it; v2.14 final fix: no login option, sharedAppProven
                                gone: a shared client has no proof), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
                                heldByOther counts App holds only).
-                               tests: v214-app-proof.test.ts (fixtures fake-github.ts, app-install.ts)
+                               Launch ready L2: proveByApp = proveOne (the checks and the one transaction; returns Proven) +
+                               connectProven (replaced people rescored, events, one connect read of every proven row,
+                               rescore, backfill for first proofs; one REFRESH_BUDGET_MS, or less: o.deadline); pickLink (the repo picker's link).
+                               tests: v214-app-proof.test.ts, repo-picker.test.ts (fixtures fake-github.ts, app-install.ts)
     v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
     v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
                                kept, tell takes no pickup, bindX never asks, the S4 detach migration, a refused re-auth keeps
@@ -1394,6 +1422,7 @@ apps/frontend/
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
     week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor (R16b: no users_up or earned), factChips, startedLine, upsertWeekFacts,
+                               launch-ready: shipReading (one LATERAL: the newest good reading, a reader-2 one first),
                                weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
                                week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles);
                                scoring and clarity R13: writeWeek (the per-week body: facts, titles, row, events; shared
@@ -1423,14 +1452,19 @@ apps/frontend/
     bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
                                no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
                                STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
-                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; R8 ranked: SHIP_STEP
-                               "Ship this week to climb.", kind ship); benchReply: stand line (+ the why, "Your page"),
+                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; ranked: the weekly target
+                               line (L5, weekly-target.ts), SHIP_STEP "Ship this week to climb." only without a Shipping row, kind ship); benchReply: stand line (+ the why, "Your page"),
                                "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
                                Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
-                               else the page; none when there is no page, X off). Kinds sign_in, start, install_app,
+                               else the page; none when there is no page, X off). Launch ready L2: no_project asks the
+                               repo picker (STATE_COPY.no_project.ask(link), kind pick_repo; noApp() and kind start only
+                               while the App link can't be made). Kinds sign_in, start, pick_repo, install_app,
                                other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
                                displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
                                the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
+                               Launch ready L5, L6: BenchView.target (the weekly target, STATE_COPY.ranked.ask(target), else
+                               SHIP_STEP) and BenchView.share (the weekly moment's X link: then the one link, and stateAsk
+                               gives kind share, shareAsk "Share your week on X: <link>" + "Does last week look right?").
                                tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
@@ -1445,17 +1479,27 @@ apps/frontend/
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
                                handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
-                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE);
+                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE), pick_repo (PICK_REPO_YES_NOTE);
                                retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
                                no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
                                needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
-                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts
+                               Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
+                               main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
+                               RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
+                               (weekly-target.ts targetFor, ranks only) and weeklyMoment (momentDue, lastWeekOf, takeMoment:
+                               the moment's lines lead find's and score's show_to_builder, after "Signed in as"; the share
+                               link is the ranked link; momentReady gates it; openShare keeps the offer open all week);
+                               benchMoveUp kind share goes to answerShare (once, that week only; APPROVED_LINE); SHARE_NOTE.
+                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
+                               repo-picker.test.ts, weekly-moment.test.ts
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
+                               launch-ready L3: BenchFilter is { chain, weekly } (no community round filter),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
                                tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
-                               v2.14 T8: profile log cards carry titles (titlesShown, S9)
+                               v2.14 T8: profile log cards carry titles (titlesShown, S9); launch ready L5: ProfileData.target
+                               (weekly-target.ts targetFor, ranks only, voice 'page' since L10), shown under the why by BenchProfileView
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
@@ -1501,7 +1545,21 @@ apps/frontend/
     score-v2.ts(+test)         scoring and clarity: computeScoreV2 (one Shipping score: round(90 x weighted active
                                weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
                                shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
-                               sentence); R16b removed countUse
+                               sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
+                               as of now's week); R16b removed countUse
+    weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
+                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."; final fix I3: "D short of #k"
+                               via shortOf), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
+                               (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
+    weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
+                               titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
+                               shareText, shareLink (page-data shareIntentText), lastWeekOf (builder_scores' last ranked day
+                               of last week and the week before, rank among that day's listed rows; titlesShown, then checkUpdate again),
+                               momentDue / takeMoment (installations.moment_week, one UPDATE ... RETURNING), approveWeek
+                               (facts.approved, approved_at, approved_via 'share'; the existing row matched case-insensitively,
+                               else inserted), openShare / answerShare (standing_seen.share_open), SHARE_NOTE, APPROVED_LINE;
+                               weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
+                               fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
@@ -1522,6 +1580,12 @@ apps/frontend/
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
                                R16b: REPO_FIELDS has no stars or forks; no org contributors call.
+                               Launch-ready: readGithubRepos returns { repos, failed } (one busy repo's failed weekly
+                               call fails only it; a repo refused on its own alias is in refused, aliasErrors); needsAllWeeks (the 52-week call only without a reader-2 baseline or
+                               when last week isn't fully read); no weekly call past ReaderDeps.deadline.
+    badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
+                               ranked"), badgeMarkdown, badgeFor ("not found" for unknown, unclaimed, hidden), badgeResponse
+                               final fix M6: badgeFileOk / badgeMiss (a name that can't be a handle never reaches the cache or DB)
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),

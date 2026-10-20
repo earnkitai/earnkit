@@ -127,11 +127,16 @@ no addresses, hashes or lists of numbers.
 
 ## The leaderboard
 
-- One project per builder, confirmed by the read-only GitHub App.
+- One project per builder, confirmed by the read-only GitHub App. A builder
+  with no project installs the App and picks repos on GitHub; the most recently
+  pushed one is ranked until the builder names another they proved.
 - A weekly ship log EarnKit writes itself: commit and pull request titles
   (private repos show facts only until the builder turns titles on), plus
   one line of at most 280 characters the agent may add.
-- The public leaderboard at https://earnkit.com/leaderboard, with chain, community round and weekly filters.
+- One weekly target: a ranked builder's next step is this week's ship and the
+  points it adds. The first reply of a new week shows last week's Shipping and
+  rank, with a link to share it on X (the builder posts it; EarnKit never does).
+- The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
 - A community round through a tokens.fun coin: 40% of trading fees to the builder.
 
 ## Text from sponsors and builders

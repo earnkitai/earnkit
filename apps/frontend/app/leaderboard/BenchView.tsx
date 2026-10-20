@@ -1,23 +1,25 @@
+import Link from 'next/link';
 import Footer from '../components/common/Footer';
+import { BTN_SECONDARY } from '../components/common/Button';
 import { COLUMN, H1, LEDE, Panel } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
 import { benchLine } from '../components/sections/BenchTop';
 import BenchRowItem from './BenchRowItem';
-import { Chip, FILTER_RAISING, FILTER_WEEKLY } from './FilterChip';
+import { Chip, FILTER_WEEKLY } from './FilterChip';
 
 export const BENCH_TITLE = 'Leaderboard';
 export { benchLine };
-export const BENCH_EMPTY = 'No one here yet.';
-export { FILTER_RAISING, FILTER_WEEKLY };
+export const BENCH_EMPTY = 'No builder matches this filter yet.';
+export const BENCH_SHOW_ALL = 'Show everyone';
+export { FILTER_WEEKLY };
 
 /**
  * v2.13 spec "The Bench" (R4, R9, R14): one row per builder, best score first; filters are links
- * (a chain chip only from 10 ranked projects on it, Raising while `raising` (EARNKIT_RAISING) is on,
- * Shipping every week). Pure.
+ * (a chain chip from one ranked project on it, Shipping every week; launch-ready L3: no community round chip). Pure.
  */
-export default function BenchView({ rows, count, chips, filter, raising }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter; raising: boolean }) {
+export default function BenchView({ rows, count, chips, filter }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter }) {
   return (
     <>
       <div className={`${COLUMN} pt-8 md:pt-12`}>
@@ -33,11 +35,6 @@ export default function BenchView({ rows, count, chips, filter, raising }: { row
                 {CHAIN_LABEL[c]}
               </Chip>
             ))}
-            {raising && (
-              <Chip on={filter.raising} href={filterHref({ ...filter, raising: !filter.raising })}>
-                {FILTER_RAISING}
-              </Chip>
-            )}
             <Chip on={filter.weekly} href={filterHref({ ...filter, weekly: !filter.weekly })}>
               {FILTER_WEEKLY}
             </Chip>
@@ -47,7 +44,13 @@ export default function BenchView({ rows, count, chips, filter, raising }: { row
         {count > 0 && (
           <Panel className="mt-6 py-2 md:mt-8 md:py-4" label="Builders">
             {rows.length === 0 ? (
-              <p className="py-6 font-funnel-sans text-base text-ek-body">{BENCH_EMPTY}</p>
+              // Launch ready L10: only a filter can empty a ranked board, so the way back is one tap.
+              <div className="flex flex-wrap items-center justify-between gap-3 py-6">
+                <p className="font-funnel-sans text-base text-ek-body">{BENCH_EMPTY}</p>
+                <Link href={filterHref({ chain: null, weekly: false })} className={BTN_SECONDARY}>
+                  {BENCH_SHOW_ALL}
+                </Link>
+              </div>
             ) : (
               <ol className="md:-mx-4">
                 {rows.map((r) => (

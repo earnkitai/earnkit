@@ -5,8 +5,8 @@ import { scoreLine } from './rank';
 /**
  * v2.13 spec "2a", "2b", "5. Ways to get funded", "The last line", v2.14 spec 4: the reply in three parts
  * (where you stand, ways to get funded, how to move up), one https link and exactly one next step, last.
- * Scoring and clarity R8, R12, R16a: four states; ranked replies move up by shipping ("Ship this week to
- * climb."), never by a coin, token or community round; ways to get funded are the programs that fit, each
+ * Scoring and clarity R8, R12, R16a: four states; ranked replies move up by shipping (launch ready L5: the
+ * weekly target), never by a coin, token or community round; ways to get funded are the programs that fit, each
  * with its deadline and why. Plain words; a funder's short name is a name (plan B12). Pure.
  */
 export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded', up: 'How to move up' } as const;
@@ -14,7 +14,9 @@ export const BENCH_HEADS = { stand: 'Where you stand', fund: 'Ways to get funded
 export type ReplyState = 'signed_out' | 'no_project' | 'not_counted' | 'ranked';
 export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** R8: `ship` is the ranked state's one step; `suggest` stays for a project the App can't count (app_off). */
-export type BenchAskKind = 'sign_in' | 'start' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest';
+/** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
+/** Launch ready L6: `share`, the weekly moment's share link and question (ranked, once a week). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share';
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string };
 export type FundLine =
   /** R12: a program that fits: its award, its deadline ("closes Oct 30" or "rolling") and why it fits. */
@@ -28,8 +30,10 @@ export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** R12: a ranked project no open program fits (only fits are named for it). */
 export const noFitLine = (name: string) => `No open program fits ${name} yet. I'll look again next week.`;
-/** R8: the ranked state's one next step, exactly. */
+/** R8: the ranked state's one next step when no weekly target can be worked out (no Shipping row yet). */
 export const SHIP_STEP = 'Ship this week to climb.';
+/** Launch ready L6: the weekly moment's one next step, in place of the target (one link, one question). */
+export const shareAsk = (link: string) => `Share your week on X: ${link}\nDoes last week look right?`;
 /**
  * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week."
  * Before its first Shipping score (no row yet, or one from an older formula): the project is counted.
@@ -62,7 +66,10 @@ export const STATE_COPY = {
   },
   no_project: {
     stand: () => NOT_ON_BENCH,
-    ask: () => "What's your GitHub, or a link to something you've made?",
+    /** Launch ready L2: the repo picker's install link (GitHub's page picks the repos); never a GitHub URL asked for. */
+    ask: (link: string) => `Install the read-only EarnKit app on the repo you want ranked (one click): ${link}\nWant me to rank it once that's done?`,
+    /** The App link can't be made (the App is off): their work is asked for instead. */
+    noApp: () => "What's your GitHub, or a link to something you've made?",
   },
   not_counted: {
     stand: (name: string) => `${name} isn't counted yet.`,
@@ -70,7 +77,8 @@ export const STATE_COPY = {
   },
   ranked: {
     stand: (name: string, score: number | null, rank: string | null) => shippingStand(name, score, rank),
-    ask: () => SHIP_STEP,
+    /** Launch ready L5: the weekly target (weekly-target.ts weeklyTarget), else the plain step. */
+    ask: (target: string | null = null) => target ?? SHIP_STEP,
   },
 } as const;
 /** Scoring and clarity R3: "Originality 72." beside the score line (computed only; never a rank). Pure. */
@@ -98,24 +106,33 @@ export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null; rank: string | null;
   /** Shipping (0 to 100) and its why sentence (score-v2.ts scoreWhy), shown in the ranked state only. */
   score: number | null; why: string | null;
+  /** Launch ready L5: the weekly target, the ranked state's one next step (null: "Ship this week to climb."). */
+  target: string | null;
+  /** Launch ready L6: the weekly moment's X share link (ranked, once a week); it is then the reply's one link and its step. */
+  share: string | null;
   /** Scoring and clarity R3: Originality (0 to 100, never ranked), after the score line when ranked; null until computed. */
   originality: number | null;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
-  /** The state's action link: the sign-in link (signed_out) or the install link (not_counted, no variant). */
+  /** The state's action link: the sign-in link (signed_out), the repo picker (no_project), the install link (not_counted, no variant) or the share link (ranked, the weekly moment). */
   link: string | null;
   fund: FundLine[]; due: string[]; ask: BenchAsk;
   /** A17: an outcome question or a submission step, asked instead of the state's step. */
   held: string | null;
 };
 
-/** Each state's one next step (A16; signed out with no link: the retry; R8: ranked, "Ship this week to climb."). Pure. */
-export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'>): BenchAsk {
+/**
+ * Each state's one next step (A16; signed out with no link: the retry). Ranked: the weekly moment's share ask once a
+ * week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
+ */
+export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>>): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
-  if (v.state === 'no_project') return { kind: 'start', project_key: null, line: STATE_COPY.no_project.ask() };
-  if (v.state === 'ranked') return { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask() };
+  if (v.state === 'no_project')
+    return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
+  if (v.state === 'ranked')
+    return v.share ? { kind: 'share', project_key: key, line: shareAsk(v.share) } : { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask(v.target ?? null) };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
   if (v.variant === 'no_repo') return { kind: 'repo_behind', project_key: key, line: VARIANT_COPY.no_repo.ask(name) };
   if (v.variant === 'app_off' || !v.link) return { kind: 'suggest', project_key: key, line: VARIANT_COPY.app_off.ask(name) };

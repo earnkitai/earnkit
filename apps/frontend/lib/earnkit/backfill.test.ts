@@ -290,3 +290,22 @@ test('hotfix 2026-10-19: weeks written from a short reading (an older reader) ar
   assert.ok(got.every((r) => r.facts.reader === REPO_READER));
   assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 0, rows: 0 }, 'once');
 });
+
+test('launch-ready (hotfix carry-over): the ship log reads the newest reader-2 reading, never a newer short reading of an older reader', db, async () => {
+  const key = `iris${RUN}/busy`;
+  const commits = [on(MONDAYS[2], 1, 'a', 'Add the cart'), on(MONDAYS[1], 2, 'b', 'Add search'), on(MONDAYS[0], 1, 'c', 'Ship v2'), on(MONDAYS[0], 3, 'd', 'Add the share card')];
+  const p = await connect('iris', key, { private: false, commits });
+  const srcs = sql()`SELECT id FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo'`;
+  // A good daily reading of the current reader (two days ago, every week), then a newer live one of an older reader
+  // that holds only this week's commits (what a busy repo's newest 100 commits gave before reader 2).
+  const day = new Date(Date.now() - 2 * DAY).toISOString().slice(0, 10);
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok)
+    SELECT source_id, ${day}, signals || ${sql().json({ reader: REPO_READER })}, true FROM source_live WHERE source_id IN (${srcs})
+    ON CONFLICT (source_id, day) DO NOTHING`;
+  await sql()`UPDATE source_live SET signals = (signals - 'reader') || '{"commit_counts": {}}'::jsonb, read_at = now() WHERE source_id IN (${srcs})`;
+  await sql()`UPDATE project_updates SET facts = '{"checked": true}'::jsonb, titles = '{}' WHERE builder_id = ${p.id} AND week IN ${sql()(MONDAYS)}`;
+  assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 1, rows: 3 });
+  const got = await rows(p.id);
+  assert.deepEqual(got.map((r) => (r.facts.shipped_code as { n: number } | undefined)?.n), [2, 1, 1]);
+  assert.ok(got.every((r) => r.facts.reader === REPO_READER));
+});

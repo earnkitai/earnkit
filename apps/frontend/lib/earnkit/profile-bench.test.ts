@@ -6,7 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { profileData, type ProfileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
-import BenchProfileView, { BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, confirmingCardLine, streakWords } from '../../app/[handle]/BenchProfileView';
+import BenchProfileView, { BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, VISITOR_CTA, confirmingCardLine, noProjectLine, streakWords } from '../../app/[handle]/BenchProfileView';
+import { PRIVATE_NAME } from './page-data';
 import Avatar from '../../app/[handle]/Avatar';
 import UpdateCard from '../../app/components/ui/UpdateCard';
 
@@ -42,9 +43,11 @@ test('11.1 the header: photo, name, @handle, pill, the score line (R16c) then ea
   assert.match(h, /alt="Base"/);
 });
 
-test('11.2 one Shipping ring (no per-part rings) with the why sentence; the grid has 52 squares and the streak beside it', () => {
+test('11.2 one Shipping ring (no per-part rings) with the why sentence and the weekly target; the grid has 52 squares and the streak beside it', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['aria-label="Shipping 62 of 100"', 'Code in 7 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.', '6 weeks in a row']) assert.ok(h.includes(s), s);
+  for (const s of ['aria-label="Shipping 62 of 100"', 'Code in 7 of the last 12 weeks, 3 of the last 4.', '6 weeks in a row']) assert.ok(h.includes(s), s);
+  // Launch ready L5: the weekly target under the why, naming only the rank (never another builder); L10: in the page's voice.
+  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Code this week adds +14 points, enough to pass #2.'), 'the target under the why');
   for (const re of [/Shipped \d+ of/, /Used \d+ of/, /Earned \d+ of/, /Consistency \d+ of/]) assert.doesNotMatch(h, re);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
   assert.equal((h.match(/data-week=/g) ?? []).length, 52);
@@ -63,7 +66,8 @@ test('11.3 the Ship log tab is the default: long cards newest first, chips alone
   assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], order.join(','));
   assert.equal((h.match(/data-shape="long"/g) ?? []).length, 3);
   assert.ok(h.includes(BENCH_SOURCES_LINE));
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /written by|agent/i, 'R6'); // text only: the Docs link's #connect-an-agent anchor is not copy
+  // Text only: the Docs link's #connect-an-agent anchor is not copy; the visitor CTA (L7) is the one place the page names the agent.
+  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' ').replace(VISITOR_CTA, '').replace('Add to your agent', ''), /written by|agent/i, 'R6');
   assert.ok(html(React.createElement(BenchProfileView, { data: { ...DATA, log: [] }, tab: 'log' })).includes(LOG_EMPTY));
 });
 
@@ -117,7 +121,9 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.deepEqual(d.log[0].chips, ['2 commits']);
   // Shipping and its why from the stored parts; the old used and earned keys are ignored.
   assert.equal(d.score, 62);
-  assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4. Ship code this week to add up to 14 points.');
+  assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
+  // Launch ready L5: the weekly target (alone in the pool: hold #1).
+  assert.equal(d.target, 'Code this week adds +14 points to hold #1.');
   assert.equal(d.line, 'Shipping 62 · #1 of 1 builder this week');
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
@@ -281,4 +287,19 @@ test('11.21 (O3 fix round 1) the card links an href only when it is its own pars
   const ok = card('Code: https://github.com/alice/app/pull/3.');
   assert.match(ok, /<a href="https:\/\/github\.com\/alice\/app\/pull\/3"/);
   assert.match(card('Live at https://recipes.app/.'), /<a href="https:\/\/recipes\.app\/"/, 'trailing punctuation is not a dot segment');
+});
+
+test('L10 the UX pass on the page: a private repo is never named in the sentence; no project is one calm line; the visitor CTA; the badge only with a rank; no "public data"', () => {
+  assert.equal(confirmingCardLine('Fern Liu', PRIVATE_NAME), 'Fern Liu is getting a private project on the leaderboard.');
+  assert.equal(confirmingCardLine('Fern Liu', 'Plantpal'), 'Fern Liu is getting Plantpal on the leaderboard.');
+  assert.doesNotMatch(BENCH_SOURCES_LINE, /public data/, 'the App reads private repos too');
+  const ranked = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
+  assert.ok(ranked.includes(VISITOR_CTA) && ranked.includes('Add to your agent'), 'the visitor CTA');
+  assert.ok(ranked.includes('Add the badge to your README'), 'a ranked page offers the badge');
+  const none: ProfileData = { ...DATA, bench: null, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0, grid: DATA.grid.map((g) => ({ ...g, on: false })) };
+  const h = html(React.createElement(BenchProfileView, { data: none, tab: 'log' }));
+  assert.ok(h.includes(noProjectLine(DATA.name)), h);
+  assert.doesNotMatch(h, /Code in 0 of the last/, 'no empty grid');
+  assert.doesNotMatch(h, /Add the badge/, 'no badge without a rank (it would read "not ranked")');
+  assert.ok(h.includes(VISITOR_CTA));
 });

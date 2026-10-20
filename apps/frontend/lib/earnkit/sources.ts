@@ -537,7 +537,9 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (settled.has(s.id)) return true;
     if (!r) {
       // Unread because the budget ran out is not unknown to GitHub: no reading, it stays due.
-      if (!stalled.has(s.id)) await fail(s, 'not_found');
+      const why = refused.get(s.ref.toLowerCase());
+      if (why && !stalled.has(s.id)) console.error('[read] failed', s.id, why);
+      if (!stalled.has(s.id)) await fail(s, why ?? 'not_found');
       return true;
     }
     return attempt([s], async () => {
@@ -560,10 +562,21 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     (await sql()<{ id: number }[]>`SELECT id::int AS id FROM builder_sources WHERE id IN ${sql()(named.length ? named.map((s) => s.id) : [-1])} AND proof = 'github_app' AND state = 'verified'`).map((r) => r.id),
   );
   const viaApp = new Map<number, PersonRepo>();
+  // Launch-ready (hotfix carry-over): a short read's extra 52-week call runs only when needed (person-github.ts
+  // needsAllWeeks). Fix round 1: "has a baseline" is the write's own lookup (previousRepoSignals with the repo as
+  // read), asked only for a short read; a ref read once for several sources has one only when every one of them has.
+  const opts = {
+    baseline: async (k: string, r: PersonRepo) => {
+      for (const s of named) if (s.ref.toLowerCase() === k && needsPushCheck(await previousRepoSignals(s.id, r))) return false;
+      return true;
+    },
+  };
+  /** Fix round 1: what GitHub said refusing a repo on its own alias, written only when the App can't read it either. */
+  const refused = new Map<string, string>();
   for (const s of named.filter((x) => viaAppIds.has(x.id))) {
     if (Date.now() >= o.deadline) return { read, failed };
     const go = await attempt([s], async () => {
-      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+      for (const [id, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(id, r);
     });
     if (!go) return { read, failed };
   }
@@ -574,7 +587,16 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     const batch = byName.slice(i, i + REPOS_MAX);
     const refs = [...new Set(batch.map((s) => s.ref.toLowerCase()))];
     const go = await attempt(batch, async () => {
-      for (const [k, r] of await readGithubRepos(refs, o.reader)) found.set(k, r);
+      const got = await readGithubRepos(refs, o.reader, opts);
+      for (const [k, r] of got.repos) found.set(k, r);
+      for (const [k, why] of got.refused) refused.set(k, why);
+      // One repo's failed weekly call fails only its own reading.
+      for (const [k, err] of got.failed) {
+        const error = readError(err);
+        const mine = batch.filter((s) => s.ref.toLowerCase() === k);
+        console.error('[read] failed', mine.map((s) => s.id).join(','), error);
+        for (const s of mine) await fail(s, error);
+      }
     });
     if (!go) return { read, failed };
   }
@@ -584,7 +606,7 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
   for (const s of unread) {
     if (Date.now() >= o.deadline) return { read, failed };
     const go = await attempt([s], async () => {
-      for (const [id, r] of await readAppRepos([s], o.reader)) viaApp.set(id, r);
+      for (const [id, r] of await readAppRepos([s], o.reader, opts)) viaApp.set(id, r);
     });
     if (!go) return { read, failed };
   }

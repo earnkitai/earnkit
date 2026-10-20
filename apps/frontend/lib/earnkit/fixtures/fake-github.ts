@@ -55,10 +55,16 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
     if ((m = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(p)) && method === 'POST') return json(201, { token: `ghs_fake_${m[1]}` });
     if ((m = /^\/app\/installations\/(\d+)$/.exec(p))) {
       const r = Object.values(repos).find((x) => x.installation === Number(m![1]));
-      return r ? json(200, { account: { login: r.owner } }) : json(404, {});
+      return r ? json(200, { account: { login: r.owner, type: r.ownerType ?? 'User' } }) : json(404, {});
     }
-    if (p === '/installation/repositories')
-      return json(200, { repositories: Object.entries(repos).filter(([, r]) => r.installation === inst).map(([k]) => ({ full_name: k })) });
+    // Launch ready L2: the picker's setup reads pushed_at (the newest commit's date) and pages by per_page and page.
+    if (p === '/installation/repositories') {
+      const per = Number(url.searchParams.get('per_page') ?? 30);
+      const page = Number(url.searchParams.get('page') ?? 1);
+      const all = Object.entries(repos).filter(([, r]) => r.installation === inst)
+        .map(([k, r]) => ({ full_name: k, private: Boolean(r.private), fork: Boolean(r.fork), pushed_at: r.commits?.at(-1)?.date ?? null }));
+      return json(200, { total_count: all.length, repositories: all.slice((page - 1) * per, page * per) });
+    }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/collaborators\/([^/]+)\/permission$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];
       return json(200, { permission: r?.admins?.includes(decodeURIComponent(m[2]).toLowerCase()) ? 'admin' : 'write' });

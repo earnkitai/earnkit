@@ -28,6 +28,8 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\b[Yy]ou (?:deployed on|deploy to|build for) (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)\b/g,
   // v2.13.3 (5): the owner's honest line while the read-only GitHub App is off.
   /EarnKit can only see public repos right now\./g,
+  // Launch ready L2: the owner's own repo picker line ("Install the read-only EarnKit app on the repo you want ranked").
+  /\bon the repo you want ranked\b/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

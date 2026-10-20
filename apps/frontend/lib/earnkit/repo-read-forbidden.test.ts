@@ -131,7 +131,8 @@ test("hotfix: a read GitHub refuses is a failed reading whose error names GitHub
   }
   const r = await readingOf(id);
   assert.equal(r.ok, false);
-  assert.equal(r.error, 'Error: GitHub GraphQL answered errors: FORBIDDEN at r0.stargazers (Resource not accessible by personal access token)');
+  // Launch-ready fix round 1: a refusal on the repo's own alias is that repo's alone (no App here), its message the reading's error.
+  assert.equal(r.error, 'GitHub GraphQL answered errors: FORBIDDEN at r0.stargazers (Resource not accessible by personal access token)');
   const line = logged.find((a) => a[0] === '[read] failed');
   assert.ok(line, 'the failed read is logged');
   assert.match(String(line[2]), /FORBIDDEN at r0\.stargazers/);

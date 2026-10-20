@@ -142,16 +142,18 @@ const confirmDescription = (campaignOpen: boolean) =>
 
 /**
  * v2.10 item 4 (R16), v2.13: tell's description: also this week's line (or a week to hide), v2.14 spec 3:
- * a private repo's titles on or off, and coin { raising } (T9); under 800 characters (mcp.test.ts 5.11).
+ * a private repo's titles on or off, and coin { raising } (T9); launch ready L2: main_project, the repo to rank
+ * instead; under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
-  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they say they submitted on the program's site; a shared agent adds project_id. " +
+  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program's site; a shared agent adds project_id. " +
   'update: { text } adds one plain line to this week\'s log; { hide: "YYYY-MM-DD" } hides that week. ' +
-  'updates: { titles: true } when they want their commit titles on a private repo\'s log (false to hide them). ' +
+  'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
+  'main_project: owner/repo to rank instead. ' +
   'coin: their coin answer, or { raising } to open or close a community round. ' +
   "token: 'ask' only when they ask about a token. " +
   'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
-  'program_status: applied, not_interested, won, placed or lost. repo_facts and weekly_email: what they said. Results they report stay private.';
+  'program_status (applied, not_interested, won, placed or lost), repo_facts, weekly_email: what they said; results stay private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
@@ -455,6 +457,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           // v2.12 spec 7, 8.
           profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
           card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
+          // Launch ready L2: the repo to rank instead.
+          main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
           move_up: z
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),

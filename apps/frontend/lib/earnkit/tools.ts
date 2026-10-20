@@ -138,7 +138,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, signedOutNow, tokenAsk } from './bench-find';
+import { BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -2854,6 +2854,8 @@ export const TellToolInput = z
     // Scoring and clarity R8: the builder asked about a token. Only then is the coin or community-round line
     // offered (bench-find.ts tokenAsk); find and score never offer it.
     token: z.literal('ask').optional(),
+    // Launch ready L2: the repo the builder wants ranked instead (owner/repo or its GitHub URL; bench-find.ts rankAnswer).
+    main_project: z.string().max(300).optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
@@ -3222,18 +3224,20 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
-    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates))
+    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
+      // Launch ready L2: the repo to rank instead (only one this person proved with the App).
+      if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // R8: the coin or community-round line, only because the builder asked about a token.
       if (token === 'ask') replies.push(await tokenAsk(ctx.installationId, { check: ctx.tokenDeps?.check }));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).

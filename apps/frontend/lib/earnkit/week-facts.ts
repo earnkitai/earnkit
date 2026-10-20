@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { noteEvent } from './events';
 import { poolChanged } from './profile-cache';
 import { benchConfirmedSql } from './main-project';
@@ -56,6 +56,18 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
 /** A fact is shipped code, going live or a win; a streak, people, money, the start or the check alone is not. Pure. */
 export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
 
+/**
+ * The one reading the ship log reads for a repo source `s` (a LATERAL subquery): the newest good one, live or daily,
+ * preferring one the current reader wrote (sources.ts REPO_READER). Launch-ready (hotfix carry-over): a reader-1
+ * reading (a busy repo's newest 100 commits only) newer than a reader-2 one would otherwise write short weeks.
+ */
+const shipReading = (db: Db) => db`(
+  SELECT y.signals FROM (
+    (SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
+    UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok
+      ORDER BY COALESCE((r.signals->>'reader')::numeric, 0) >= ${REPO_READER} DESC, r.day DESC LIMIT 1)
+  ) y ORDER BY COALESCE((y.signals->>'reader')::numeric, 0) >= ${REPO_READER} DESC, y.at DESC LIMIT 1)`;
+
 /** The facts of the person's one project for the ISO week starting `monday`; {} unless that project is confirmed. */
 export async function weekFactsFor(builderId: number, monday: string, now: Date): Promise<WeekFacts> {
   const week = weekOfMonday(monday);
@@ -73,9 +85,7 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   // backfill alike; from commit_counts, never commit_weeks (GitHub's stats endpoint lags: 202 gives []).
   const [repo] = await db<{ counts: Record<string, number> | null; created_at: unknown; pushes_checked: unknown }[]>`
     SELECT x.signals->'commit_counts' AS counts, x.signals->'created_at' AS created_at, x.signals->'pushes_checked' AS pushes_checked FROM builder_sources s
-    JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
-      UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
-      ORDER BY at DESC LIMIT 1) x ON true
+    JOIN LATERAL ${shipReading(db)} x ON true
     WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(${p.key})`;
   const n = Number(repo?.counts?.[week] ?? 0);
   if (n > 0 && weekCounts(repo!, week, now)) f.shipped_code = { n };
@@ -250,15 +260,14 @@ export function backfillMondays(now: Date): string[] {
 }
 
 /**
- * The repo reading the ship log's facts come from (weekFactsFor's: the newest good one, live or daily) of the
- * person's verified repo source filed under `key`; null when there is none.
+ * The repo reading the ship log's facts come from (weekFactsFor's, shipReading) of the person's verified repo source
+ * filed under `key`; null when there is none.
  */
 async function readingOf(builderId: number, key: string): Promise<Record<string, unknown> | null> {
-  const [r] = await sql()<{ signals: Record<string, unknown> }[]>`
+  const db = sql();
+  const [r] = await db<{ signals: Record<string, unknown> }[]>`
     SELECT x.signals FROM builder_sources s
-    JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
-      UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
-      ORDER BY at DESC LIMIT 1) x ON true
+    JOIN LATERAL ${shipReading(db)} x ON true
     WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(${key})
     LIMIT 1`;
   return r?.signals ?? null;
@@ -334,9 +343,7 @@ export async function backfillStep(now: Date, o: { deadline: number; only?: numb
     WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
       -- App-proven, with a good reading (readingOf's) whose push check passed.
       AND EXISTS (SELECT 1 FROM builder_sources s
-        JOIN LATERAL ((SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
-          UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok ORDER BY r.day DESC LIMIT 1)
-          ORDER BY at DESC LIMIT 1) x ON true
+        JOIN LATERAL ${shipReading(db)} x ON true
         WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = ${APP_PROOF}
           AND lower(s.project_key) = lower(b.project_key) AND x.signals->'pushes_checked' IS DISTINCT FROM 'false'::jsonb
           AND COALESCE((x.signals->>'reader')::numeric, 0) >= ${REPO_READER})

@@ -91,6 +91,8 @@ test('5.3 signing in through the link alone binds nothing (a forwarded link can\
   assert.equal(r.status, 200);
   assert.ok(r.code, 'the done page shows a paste code');
   assert.ok(r.html.includes(LINK_TEXT.codeWarning));
+  // Launch ready L10: the code on its own line, never broken at a dash.
+  assert.match(r.html, /<p class="ek-code">[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}<\/p>/);
   assert.equal(LINK_TEXT.codeWarning, 'Anyone you give this code to can act as your EarnKit page. Paste it only into the agent you are using right now.');
   assert.equal((await xOf(c.own)).x, null);
   const [l] = await sql()<{ paste_hash: string }[]>`SELECT paste_hash FROM x_signin_links WHERE installation_id = ${c.own} AND x_user_id IS NOT NULL`;

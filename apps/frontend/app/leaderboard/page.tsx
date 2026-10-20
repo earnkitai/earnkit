@@ -1,4 +1,3 @@
-import { raisingEnabled } from '@/lib/earnkit/builder-score-flag';
 import { parseBenchFilter } from '@/lib/earnkit/bench-data';
 import BenchView, { BENCH_TITLE } from './BenchView';
 import { cachedBench } from './bench-load';
@@ -12,5 +11,5 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 export default async function BenchPage({ searchParams }: Props) {
   const filter = parseBenchFilter(await searchParams);
   const { rows, count, chips } = await cachedBench(filter);
-  return <BenchView rows={rows} count={count} chips={chips} filter={filter} raising={raisingEnabled()} />;
+  return <BenchView rows={rows} count={count} chips={chips} filter={filter} />;
 }

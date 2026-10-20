@@ -25,7 +25,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -108,6 +108,77 @@ test('pre-launch 2026-10-19: installs_used counts installations that called find
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
     await sql()`DELETE FROM installations WHERE id IN (${again.id}, ${bare.id})`;
     await sql()`DELETE FROM installations WHERE id = ${root.id}`;
+  }
+});
+
+test('launch-ready L9: activated, weekly_active and shared are served after builders, with labels', () => {
+  const i = STATS_KEYS.indexOf('builders');
+  assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['activated', 'weekly_active', 'shared']);
+  for (const k of ['activated', 'weekly_active', 'shared'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
+  const s = statsFrom({ ...emptyRow, activated: 3, weekly_active: 2, shared: 4 });
+  assert.deepEqual([s.activated, s.weekly_active, s.shared], [3, 2, 4]);
+  assert.equal(statsFrom(emptyRow).shared, 0);
+});
+
+test('launch-ready L9 (L6 approvals): activated needs a claimed page, an App-proven repo and an approved week; weekly_active the same people with a week approved in the last 7 days; shared counts approved weeks from the share offer; test installations never count', db, async () => {
+  const tag = `stats-l9-${process.pid}-${Date.now()}`;
+  const DAY = 86_400_000;
+  const mondayOf = (t: number) => {
+    const d = new Date(t);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const now = Date.now();
+  const lastWeek = mondayOf(now - 7 * DAY);
+  const longAgo = mondayOf(now - 35 * DAY);
+  const ids: number[] = [];
+  /** One person: claimed or not, their repo's proof, and their ship-log weeks ([week, facts]). */
+  const person = async (claimed: boolean, proof: string, weeks: [string, Record<string, unknown>][]) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${ids.length}`}) RETURNING id`;
+    ids.push(id);
+    const key = `${tag}/p${id}`;
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`${tag}-${id}`}, ${claimed ? `x${id}` : null}, ${claimed ? `h${id}` : null})`;
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', ${proof}, 'server')`;
+    for (const [week, facts] of weeks)
+      await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, ${key}, ${week}, ${sql().json(facts as never)})`;
+    return id;
+  };
+  const code = { checked: true, shipped_code: { n: 3 } };
+  const approved = (at: number) => ({ ...code, approved: true, approved_at: new Date(at).toISOString(), approved_via: 'share' });
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const active = await person(true, 'github_app', [[lastWeek, approved(now - DAY)]]); // activated, weekly active, shared
+    await person(true, 'github_app', [[longAgo, approved(now - 30 * DAY)]]); // activated, not weekly active, shared
+    await person(true, 'github_app', [[lastWeek, code]]); // a checked week with code, never approved: neither
+    await person(true, 'proof_line', [[lastWeek, approved(now - DAY)]]); // not App-proven: neither (still a shared week)
+    await person(false, 'github_app', [[lastWeek, approved(now - DAY)]]); // not claimed: neither (still a shared week)
+    await person(true, 'github_app', [[lastWeek, { ...code, approved: 'yes', approved_at: new Date(now).toISOString() }]]); // not a real approval: neither
+    const { base, mine, flagged } = await sql().begin('isolation level repeatable read', async (tx) => {
+      process.env.EARNKIT_TEST_INSTALLATIONS = ids.join(',');
+      const base = await readStats(new Date(), tx);
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const mine = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(active);
+      const flagged = await readStats(new Date(), tx);
+      return { base, mine, flagged };
+    });
+    assert.equal(mine.activated - base.activated, 2);
+    assert.equal(mine.weekly_active - base.weekly_active, 1);
+    // Fix round 1: weekly active is a subset of activated.
+    assert.ok(mine.weekly_active <= mine.activated && base.weekly_active <= base.activated);
+    assert.equal(mine.shared - base.shared, 4, 'every approved week from the share offer');
+    assert.equal(flagged.activated - base.activated, 1, 'a test installation\'s person never counts');
+    assert.equal(flagged.weekly_active - base.weekly_active, 0);
+    assert.equal(flagged.shared - base.shared, 3);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    if (ids.length) {
+      await sql()`DELETE FROM project_updates WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_sources WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_profiles WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM installations WHERE id IN ${sql()(ids)}`;
+    }
   }
 });
 
