@@ -94,7 +94,7 @@ export async function pageHandle(installationId: number): Promise<string | null>
       SELECT p.x_handle AS handle FROM builder_profiles p
       WHERE p.builder_id = COALESCE((SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = ${installationId}), ${installationId})
         AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
-        AND NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = p.builder_id AND s.shared_client)`;
+        AND NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = p.builder_id AND s.shared_client AND s.x_user_id IS NULL)`;
     return p?.handle ?? null;
   } catch (err) {
     console.error('[github-verify] handle', err instanceof Error ? err.name : 'error');

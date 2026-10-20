@@ -7,6 +7,8 @@ import { authorizeGet } from './oauth-routes';
 import { attachToX } from './x-install';
 import { connectInstallation, saveInstallation, sharedGroup } from './installations';
 import { mcpCall } from './fixtures/mcp-call';
+import { enqueueClue } from './discovery';
+import { pageHandle } from './github-verify';
 import type { XUser } from './x-oauth';
 
 process.env.EARNKIT_AUTH_SECRET ??= 'v3-hosted-test-secret';
@@ -71,4 +73,15 @@ test('(d) tell profile hide on a bound hosted installation hides the page (no SH
 test('(e) an anonymous shared_client installation stays shared', db, async () => {
   const { token } = await hosted('e');
   assert.equal((await connectInstallation(token))!.shared, true);
+});
+
+test('(f) a bound hosted installation gets discovery clues and its page handle; an anonymous one gets neither', db, async () => {
+  const anon = await hosted('f1');
+  assert.equal(await enqueueClue(anon.own, 'signin'), false);
+  assert.equal(await pageHandle(anon.own), null);
+  const bound = await hosted('f2');
+  const r = await attachToX(bound.own, user('fay'), new Date());
+  assert.ok(r.ok);
+  assert.equal(await enqueueClue(bound.own, 'signin'), true);
+  assert.equal(await pageHandle(bound.own), user('fay').username.toLowerCase());
 });

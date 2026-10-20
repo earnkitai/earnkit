@@ -238,7 +238,7 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
-    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)
       -- Per (project_key, week), any builder: done once checked, and never due while another builder's
       -- row holds the week (checked or not, e.g. Started only). By ruling the first confirmed owner of a
       -- shared repo keeps the ship log; a later owner (whose upsert writes nothing) must never be due
@@ -331,7 +331,7 @@ export async function backfillOnConnect(builderId: number, repoKey: string, now:
     SELECT b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
     WHERE p.builder_id = ${builderId} AND lower(b.project_key) = ${repoKey.toLowerCase()}
-      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)`;
+      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)`;
   if (!p) return { rows: 0, done: false };
   return backfillWeeks({ id: builderId, key: p.key }, now, o);
 }
@@ -351,7 +351,7 @@ export async function backfillStep(now: Date, o: { deadline: number; only?: numb
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
-    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)
       -- App-proven, with a good reading (readingOf's) whose push check passed.
       AND EXISTS (SELECT 1 FROM builder_sources s
         JOIN LATERAL ${shipReading(db)} x ON true
