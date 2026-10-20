@@ -275,7 +275,7 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
   try {
     const [r] = await sql()<{ claimed: boolean; bound: boolean }[]>`
       SELECT EXISTS (SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL AND x_handle IS NOT NULL) AS claimed,
-        EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND (x_user_id IS NOT NULL OR shared_client)) AS bound`;
+        EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND x_user_id IS NOT NULL) AS bound`;
     return Boolean(r) && !r.claimed && !r.bound;
   } catch (err) {
     // Final fix 12: with X on, a failed read is signed out (the retry question), never read as signed in.

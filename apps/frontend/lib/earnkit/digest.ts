@@ -457,7 +457,7 @@ export async function sendDigests(
     const step = await sql().begin(async (tx) => {
       const [s] = await tx<SubRow[]>`
         SELECT d.installation_id, d.login, d.email, d.opted_in_at, d.unsubscribed_at, d.last_sent_at, d.last_considered_at,
-          i.shared_client AS shared
+          (i.shared_client AND i.x_user_id IS NULL) AS shared
         FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
         WHERE d.opted_in_at IS NOT NULL AND d.opted_in_at < ${start} AND d.unsubscribed_at IS NULL
           AND (d.last_sent_at IS NULL OR d.last_sent_at < ${start})

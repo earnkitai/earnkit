@@ -1,0 +1,74 @@
+import { after, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { sql } from './db';
+import { registerClient } from './oauth';
+import { authorizeGet } from './oauth-routes';
+import { attachToX } from './x-install';
+import { connectInstallation, saveInstallation, sharedGroup } from './installations';
+import { mcpCall } from './fixtures/mcp-call';
+import type { XUser } from './x-oauth';
+
+process.env.EARNKIT_AUTH_SECRET ??= 'v3-hosted-test-secret';
+process.env.X_CLIENT_ID = 'cid';
+process.env.X_CLIENT_SECRET = 'sec';
+process.env.EARNKIT_URL = 'https://earnkit.com';
+
+const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
+after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
+
+const RUN = String(process.pid % 100000);
+const CHALLENGE = createHash('sha256').update('v'.repeat(64)).digest('base64url');
+const GROK = 'https://grok.com/mcp/callback';
+const noLimit = { limit: async () => {} };
+const user = (n: string): XUser => ({ id: `93${RUN}${[...n].map((c) => c.charCodeAt(0) % 10).join('')}`, username: `${n}${RUN}`.slice(0, 15), name: n, avatar: 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg' });
+const hosted = async (tag: string) => {
+  const t = `ek_v3h_${tag}_${RUN}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, true);
+  return { token: t, own: (await connectInstallation(t))!.own };
+};
+
+test('(a) authorize from a hosted client goes to X, not straight to a code', db, async () => {
+  const { client_id } = registerClient({ redirect_uris: [GROK], client_name: 'Grok' });
+  const res = await authorizeGet(new Request(`https://earnkit.com/oauth/authorize?${new URLSearchParams({ response_type: 'code', client_id, redirect_uri: GROK, state: 's', code_challenge: CHALLENGE, code_challenge_method: 'S256' })}`), noLimit);
+  const loc = res.headers.get('location');
+  assert.ok(res.status === 200 || (res.status === 302 && loc && !loc.startsWith('https://grok.com/')), `status ${res.status} ${loc}`);
+});
+
+test('(b) attachToX on a shared_client installation binds it and the caller is not shared', db, async () => {
+  const { token, own } = await hosted('b');
+  const r = await attachToX(own, user('ana'), new Date());
+  assert.equal(r.ok, true);
+  const c = (await connectInstallation(token))!;
+  assert.equal(c.shared, false);
+  assert.equal(c.x, user('ana').id);
+  assert.equal(await sharedGroup(own), false);
+});
+
+test('(c) a second hosted token for the same X attaches to the same page', db, async () => {
+  const a = await hosted('c1');
+  const b = await hosted('c2');
+  const r1 = await attachToX(a.own, user('cat'), new Date());
+  const r2 = await attachToX(b.own, user('cat'), new Date());
+  assert.ok(r1.ok && r2.ok);
+  if (r1.ok && r2.ok) assert.equal(r2.root, r1.root);
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_profiles WHERE x_user_id = ${user('cat').id}`;
+  assert.equal(n, 1);
+});
+
+test('(d) tell profile hide on a bound hosted installation hides the page (no SHARED note)', db, async () => {
+  const { token, own } = await hosted('d');
+  const r = await attachToX(own, user('dan'), new Date());
+  assert.ok(r.ok);
+  const c = (await connectInstallation(token))!;
+  const out = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'tell', { profile: 'hide' });
+  assert.equal(out.isError, false, out.text);
+  assert.ok(out.reply, out.text);
+  assert.ok(!/shared/i.test(String(out.reply!.agent_note ?? '')), out.text);
+  assert.ok(String(out.reply!.show_to_builder ?? '').length > 0, out.text);
+});
+
+test('(e) an anonymous shared_client installation stays shared', db, async () => {
+  const { token } = await hosted('e');
+  assert.equal((await connectInstallation(token))!.shared, true);
+});

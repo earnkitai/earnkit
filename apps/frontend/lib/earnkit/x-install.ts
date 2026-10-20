@@ -213,12 +213,13 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       const [cleared] = await tx`SELECT 1 FROM x_owner_clears WHERE x_user_id = ${user.id}`;
       if (cleared) throw new AttachRefused('owner_cleared');
       const groups = held ? [mine, held.root] : [mine];
-      const [g] = await tx<{ shared: boolean | null }[]>`
-        SELECT bool_or(shared_client) AS shared FROM installations WHERE id = ANY(${groups}::int[]) OR builder_id = ANY(${groups}::int[])`;
-      if (me.shared || g?.shared) throw new AttachRefused('shared');
       let root: number;
       let created = false;
       // Read before the members are detached below: an installation that had members is never fresh.
+      // v3 Stage 1: the bind comes first, so ensureProfile below sees a bound hosted installation as not shared.
+      const set = await tx`
+        UPDATE installations SET x_user_id = ${user.id}, x_signed_in_unseen = true WHERE id = ${own} AND (x_user_id IS NULL OR x_user_id = ${user.id}) RETURNING id`;
+      if (set.length !== 1) throw new Error('installation not bound');
       const [f] = await tx<{ fresh: boolean }[]>`
         SELECT NOT EXISTS (SELECT 1 FROM installations m WHERE m.builder_id = ${own})
           AND NOT EXISTS (SELECT 1 FROM projects p WHERE p.installation_id = ${own})
@@ -241,9 +242,6 @@ async function attachOnce(own: number, user: XUser, now: Date): Promise<AttachRe
       // The X profile's handle, name and photo, refreshed at every sign-in (v2.13 B14).
       const out = await bindXIn(tx, root, user, now);
       if (!out.ok) throw new AttachRefused(out.reason === 'owner_cleared' ? 'owner_cleared' : 'claimed_by_other');
-      const set = await tx`
-        UPDATE installations SET x_user_id = ${user.id}, x_signed_in_unseen = true WHERE id = ${own} AND (x_user_id IS NULL OR x_user_id = ${user.id}) RETURNING id`;
-      if (set.length !== 1) throw new Error('installation not bound');
       return { root, out, created };
     });
   } catch (err) {

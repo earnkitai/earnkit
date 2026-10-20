@@ -242,7 +242,7 @@ export const AGENT_REDIRECT_URIS = [
   'https://chatgpt.com/connector_platform_oauth_redirect',
   'https://www.cursor.com/agents/mcp/oauth/callback',
 ] as const;
-/** v2.14 A1: hosted agents that serve many builders from one registration: no person binding (spec 1). */
+/** v2.14 A1, v3 Stage 1: hosted agents that serve many builders from one registration: the warning page, then X sign-in. */
 export const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;
 const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
 
@@ -367,8 +367,8 @@ export function exchangeCode(form: URLSearchParams): {
   }
 
   const client = verify<ClientPayload>('client', payload.c);
-  // A client serving many builders never binds a person (A1), even if a code for it carried an X user.
-  const x: XUser | null = payload.x && /^\d{1,20}$/.test(payload.x.id) && !(client && servesMany(client))
+  // v3 Stage 1: a hosted client's code carrying an X user binds that person, like any other client.
+  const x: XUser | null = payload.x && /^\d{1,20}$/.test(payload.x.id)
     ? { id: payload.x.id, username: payload.x.u, name: payload.x.n, avatar: payload.x.a }
     : null;
   // v2.14 A2: one installation per registration and X account.

@@ -55,7 +55,7 @@ export async function ensureProfile(
 ): Promise<{ profile: Profile; created: boolean } | null> {
   // v2.14: `db`, a caller's transaction (attachToX makes the page in the same one that binds it).
   const db = o.db ?? sql();
-  if (await sharedGroup(builderId)) return null;
+  if (await sharedGroup(builderId, db)) return null;
   const existing = await profileOf(builderId, db);
   if (existing) return { profile: existing, created: false };
   for (let tries = 0; tries < 5; tries++) {

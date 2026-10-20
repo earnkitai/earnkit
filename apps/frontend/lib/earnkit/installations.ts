@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ReportedRepo } from './match';
 import type { FitRepo } from './alerts';
 import { isWalletAddress, normalizeRepoUrl } from './campaigns';
-import { sql } from './db';
+import { sql, type Db } from './db';
 
 const hash = (token: string) =>
   createHash('sha256').update(token).digest('hex');
@@ -264,8 +264,10 @@ export async function connectInstallation(token: string): Promise<Caller | null>
       WHERE token_hash = ${hash(token)} RETURNING id, builder_id, shared_client, x_user_id)
     SELECT COALESCE((SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = t.x_user_id), t.builder_id, t.id) AS id,
       t.id AS own, t.x_user_id AS x,
-      (t.shared_client OR EXISTS (SELECT 1 FROM installations s
-        WHERE (s.id = COALESCE(t.builder_id, t.id) OR s.builder_id = COALESCE(t.builder_id, t.id)) AND s.shared_client)) AS shared
+      -- v3 Stage 1: bound is never shared.
+      ((t.shared_client AND t.x_user_id IS NULL) OR EXISTS (SELECT 1 FROM installations s
+        WHERE (s.id = COALESCE(t.builder_id, t.id) OR s.builder_id = COALESCE(t.builder_id, t.id))
+          AND s.shared_client AND s.x_user_id IS NULL)) AS shared
     FROM t`;
   return row ?? null;
 }
@@ -279,9 +281,9 @@ export async function touchInstallation(token: string) {
  * v2.8.1 §E17: whether any installation in this one's group came from a hosted agent client (the
  * per-agent launch floor is then tokenLaunchShared).
  */
-export async function sharedGroup(installationId: number) {
-  const [row] = await sql()<{ shared: boolean | null }[]>`
-    SELECT bool_or(shared_client) AS shared FROM installations
+export async function sharedGroup(installationId: number, db: Db = sql()) {
+  const [row] = await db<{ shared: boolean | null }[]>`
+    SELECT bool_or(shared_client AND x_user_id IS NULL) AS shared FROM installations
     WHERE id = ${installationId} OR builder_id = ${installationId}`;
   return row?.shared ?? false;
 }
