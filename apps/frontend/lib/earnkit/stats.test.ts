@@ -25,7 +25,10 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  // v3 Stage 2: backing_open and backers (0 with EARNKIT_RAISING off, as here) and earned_usd last.
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 })).slice(-3), [0, 0, 0], 'flag off: 0');
+  assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 }, new Date(), true)).slice(-3), [2, 9, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -222,7 +225,7 @@ test('v2.6 Ruling 16 (plan): bonus_programs_open key and label', () => {
 
 // ---- v2.8 Task 12, Part G, Ruling 30 (plan): outcomes in public stats.
 test('v2.8 Ruling 30 (plan): labelled_entries and entries_won keys and labels; the win-rate floor is documented', () => {
-  assert.deepEqual(STATS_KEYS.slice(-3, -1), ['labelled_entries', 'entries_won']);
+  assert.deepEqual(STATS_KEYS.slice(-9, -7), ['labelled_entries', 'entries_won']);
   assert.equal(STATS_LABELS.labelled_entries, 'entries with a published result');
   assert.equal(STATS_LABELS.entries_won, 'entries that won');
   assert.equal(WIN_RATE_MIN_LABELLED, 30);
@@ -300,7 +303,7 @@ test('10.10 builders_won_usd: announced won or placed prizes only; a self-report
   const tag = `stats-won-${process.pid}-${Date.now()}`;
   const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
   const Rollback = new Error('rollback');
-  assert.equal(STATS_KEYS.at(-1), 'builders_won_usd');
+  assert.equal(STATS_KEYS.at(-7), 'builders_won_usd');
   assert.equal(STATS_LABELS.builders_won_usd, 'won by EarnKit builders (announced, USD)');
   try {
     await sql().begin('isolation level repeatable read', async (tx) => {
@@ -343,6 +346,7 @@ const catalogueRows = () =>
     .map((f) => JSON.parse(readFileSync(join(import.meta.dirname, '../../../../programs', f), 'utf8')))
     .map((p) => ({
       max_award_usd: p.max_award_usd ?? null,
+      investment: p.investment ?? false,
       status: p.status,
       campaign: p.campaign ?? null,
       source: 'file',
@@ -355,7 +359,10 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   const now = new Date('2026-10-08T00:00:00Z');
   const rows = catalogueRows();
   // Campaign #1 is closed; scoring and clarity R12 closed Arc Microgrants, Colosseum and Monad Metropolis too.
-  assert.equal(openMoneyUsd(rows, now), 1115000);
+  // v3 Stage 2 (the honest total): a16z speedrun and Alliance are investments, never counted; upcoming programs neither.
+  // Avalanche $10K, Base $5K and Circle $100K. v3 Stage 2 final review: ETHGlobal Mumbai (in person) states no
+  // per-winner amount, so it is named (a hackathon), never counted.
+  assert.equal(openMoneyUsd(rows, now), 115000);
   assert.equal(moneyText(1115000), '$1.1M+');
   assert.equal(moneyText(1_000_000), '$1M');
   assert.equal(moneyText(0), null);
@@ -370,7 +377,10 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P19: an open EarnKit campaign never counts, as a DB row (campaign) or a card (earnkit_campaign).
   assert.equal(openMoneyUsd([{ ...open, campaign: { prize_usd: 100 } }], now), 0);
   assert.equal(openMoneyUsd([{ ...open, earnkit_campaign: { slug: 'c1' } }], now), 0);
-  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1115000);
+  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 115000);
+  // v3 Stage 2: an investment and an upcoming program count 0.
+  assert.equal(openMoneyUsd([{ ...open, investment: true }], now), 0);
+  assert.equal(openMoneyUsd([{ ...open, status: 'upcoming' }], now), 0);
   // A program without a stated top prize counts 0.
   assert.equal(openMoneyUsd([{ ...open, max_award_usd: null }], now), 0);
 });
@@ -382,8 +392,10 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   assert.match(STATS_LABELS.open_pools_plus, /deprecated/);
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
+  // v3 Stage 2: every key with EARNKIT_RAISING off (here) and on (backing_open and backers are 0 while off).
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.equal(s.open_money_usd, 1115000);
-  assert.equal(s.open_money_text, '$1.1M+');
+  assert.deepEqual(Object.keys(statsFrom(emptyRow, now, true)), [...STATS_KEYS]);
+  assert.equal(s.open_money_usd, 115000);
+  assert.equal(s.open_money_text, '$115K in grants and prizes open');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });

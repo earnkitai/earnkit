@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
+import { THEME } from '@/lib/earnkit/theme';
 
 // v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
@@ -95,7 +96,7 @@ export default function RootLayout({
           sizes="180x180"
           href="/apple-icon.png"
         />
-        <meta name="theme-color" content="#070D24" />
+        <meta name="theme-color" content={THEME.page} />
         <SchemaOrg />
       </head>
       <body

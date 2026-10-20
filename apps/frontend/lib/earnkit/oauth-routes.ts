@@ -92,7 +92,8 @@ const authorizeLimit = (request: Request) => enforce('oauthAuthorize', clientIp(
 
 /**
  * v2.14 spec 1: the authorize step signs the person in with X (x-install.ts), then sends the client its code.
- * A client serving many builders, or X not configured, keeps the anonymous approval (A1, A5).
+ * X not configured keeps the anonymous approval (A5). v3 Stage 1: a hosted client signs in too (the X sign-in is in the
+ * person's own browser); `checked.many` only shapes the warning page's wording.
  */
 export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
   try {
@@ -100,7 +101,7 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     const checked = checkAuthorize(new URL(request.url).searchParams);
     if ('error' in checked) return Response.redirect(checked.error, 302);
     const issuer = publicOrigin(request);
-    if (!xSignInEnabled() || checked.many) return Response.redirect(issueCode(checked.req, null, issuer), 302);
+    if (!xSignInEnabled()) return Response.redirect(issueCode(checked.req, null, issuer), 302);
     return await startInstallSignIn(checked);
   } catch (err) {
     if (err instanceof RateLimitError)

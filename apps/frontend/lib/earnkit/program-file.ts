@@ -380,7 +380,21 @@ export const ProgramFile = z
     starts_at: z.string().datetime({ offset: true }).nullable(),
     /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
     ends_at: z.string().datetime({ offset: true }).nullable(),
-    status: z.enum(['active', 'closed']),
+    /**
+     * v3 Stage 2: `upcoming` is listed (the card reads "Not open yet") but never a fit, an entry or
+     * counted in the money total; it needs `opens_note`.
+     */
+    status: z.enum(['active', 'closed', 'upcoming']),
+    /** v3 Stage 2: one line on when and how an upcoming program opens (max 140 chars, no links). Only with `upcoming`. */
+    opens_note: z
+      .string()
+      .min(1)
+      .max(140)
+      .refine((t) => !/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|xyz|io|org|app|net)\b/i.test(t), 'opens_note has no links')
+      .refine((t) => !/—/.test(t), 'opens_note: no em dashes')
+      .optional(),
+    /** v3 Stage 2: the program is attended in person (an in-person hackathon); the card adds "In person". */
+    in_person: z.boolean().default(false),
     /** The day these facts were last checked against source_url (YYYY-MM-DD). */
     verified_at: z.string().date(),
     /**
@@ -471,7 +485,8 @@ export const ProgramFile = z
     rules: z.array(z.string().min(1)),
     /** Present only for EarnKit's own campaigns: builders submit to EarnKit and we pay winners. */
     campaign: CampaignConfig.optional(),
-    submission_requirements: z.array(SubmissionRequirement).min(1),
+    /** At least one, except on an `upcoming` program (its form isn't out yet). */
+    submission_requirements: z.array(SubmissionRequirement),
     tracks: z
       .array(
         z
@@ -561,6 +576,12 @@ export const ProgramFile = z
   .superRefine((p, ctx) => {
     const issue = (message: string) =>
       ctx.addIssue({ code: 'custom', message });
+
+    // v3 Stage 2: an upcoming program carries its note; its form may not exist yet.
+    if (p.status === 'upcoming' && !p.opens_note) issue('an upcoming program needs opens_note');
+    if (p.status !== 'upcoming' && p.opens_note) issue('opens_note is only for an upcoming program');
+    if (p.status !== 'upcoming' && p.submission_requirements.length === 0)
+      issue('submission_requirements needs at least one item (only an upcoming program may have none)');
 
     // v2.8 Ruling 13 (plan): one chain at least, unless the program fits any chain (then none).
     if (p.any_chain && p.chains.length > 0) issue('any_chain programs list no chains');

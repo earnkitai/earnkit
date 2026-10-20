@@ -26,7 +26,7 @@ export const TEXTS: string[] = [
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [rankLine(s(1, 100), { chain })!, rankLine(s(2, 12), { chain })!]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
   // v2.14 T9, R16a: the four states' copy (STATE_COPY, VARIANT_COPY). R12: a fit line with its deadline and why, each why the matcher can give.
-  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.ranked.stand('Recipe planner', 62, 'Top 18% of builders this week'), STATE_COPY.ranked.ask(),
+  NOT_ON_BENCH, STATE_COPY.not_counted.stand('Recipe planner'), STATE_COPY.ranked.stand('Recipe planner', 62, 'Top 18% of builders'), STATE_COPY.ranked.ask(),
   noFitLine('Recipe planner'),
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
@@ -61,9 +61,9 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
 });
 
-test('9.9 the pill says "Community round $RECIPE" (owner ruling B, v2.13.3) and links to the coin\'s tokens.fun page, nothing else', () => {
+test('9.9 the pill says "Backing · $RECIPE" (v3 Stage 2) and links to the coin\'s tokens.fun page, nothing else', () => {
   const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
-  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Community round $RECIPE');
+  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Backing · $RECIPE');
   assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
 });
 
@@ -75,7 +75,7 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
     { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
   ].map(bestFact);
   for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
   const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false } }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
@@ -89,7 +89,7 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   const { benchShareText } = await import('./bench-data');
   const texts = [
     TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, confirmingCardLine('Maya Chen', 'Recipe planner'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
-    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders this week', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders this week', project: null, streak: 0 }),
+    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders', project: null, streak: 0 }),
     benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }),
@@ -99,8 +99,9 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
   assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
   // Launch-ready L8: README is a file's name (the badge line), not shouting.
-  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', 'README', ...Object.values(CHAIN_LABEL)];
-  for (const tab of ['log', 'project'] as const) {
+  // v3 Stage 3: the Money tab too; $EARN is the token's name (the points line).
+  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', '$EARN', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', 'README', ...Object.values(CHAIN_LABEL)];
+  for (const tab of ['log', 'project', 'money'] as const) {
     const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
     assert.deepEqual(bannedInBench(page, exempt), [], page);
     // v2.13.1 O3: the Confirming page too.
@@ -114,11 +115,11 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const { homeFixture } = await import('./fixtures/landing');
   const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
   const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
-  const { CAROUSEL_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/UpdateCarousel');
+  const { FEED_SECTION_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/FeedRows');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, CAROUSEL_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
+  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, FEED_SECTION_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false };
   const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
   const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, count: 12, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
@@ -144,7 +145,7 @@ test('13.8 no builder-visible bonus text: replies, landing, program pages, guide
     renderToStaticMarkup(React.createElement(TermsPage)),
     renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),
     renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} })),
-    renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', layout: 'grid' })),
+    renderToStaticMarkup(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' })),
     ...Object.values(toolDescriptions(true, true)), serverInstructions(),
   ];
   for (const p of pages) assert.doesNotMatch(p, bonusWords, p.slice(0, 200));

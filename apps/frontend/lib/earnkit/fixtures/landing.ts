@@ -5,7 +5,7 @@ import { NO_CELL } from '../present';
  * Test only: a homepage with 7 open programs (v2.8: all 7 in the carousel), for
  * public-pages and copy-review. Shaped like landingFrom's output (v2.7.1): the big line is the
  * pool when the source states one, else the per-winner amount, else the curated text; the hero's
- * figure is the one money figure (the top prizes summed). Sorted by pool (byPool).
+ * figure is the one money figure (the top prizes summed). Listed in this order as given (landingFrom sorts real cards with byRelevance).
  */
 const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Tile => ({
   id,
@@ -18,11 +18,14 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
   difficulty: 'Medium',
   days_left: '8 days left',
   logo: null,
+  status: 'active',
+  in_person: false,
   ...o,
 });
 export const homeFixture: Landing = {
-  // v2.9 F21: moneyText(openMoneyUsd) of these programs' top prizes (prize_usd): $160,500.
-  open_text: '$160.5K',
+  // v3 Stage 2: openGrantsText(openMoneyUsd) of these programs' top prizes (prize_usd): $160,500.
+  open_text: '$160.5K in grants and prizes open',
+  open_more: null,
   tiles: [
     tile('colosseum-worlds-fair', "Crypto World's Fair Hackathon", 30000, { chain: 'Base · Tempo · Robinhood Chain', prize: '$840K in prizes', prize_note: 'up to $30,000 per winner', pool_usd: 840000, difficulty: 'Hard' }),
     tile('monad-metropolis', 'Monad Metropolis', 25000, { chain: 'Monad', prize: '$250K+ in prizes', prize_note: 'up to $25,000 per winner', pool_usd: 250000, difficulty: 'Hard', days_left: 'ends today' }),
@@ -34,6 +37,7 @@ export const homeFixture: Landing = {
   ],
   stats_line: '120 agents earning',
   won_line: null,
-  // landingFrom alone has no Bench parts; landing.test.ts 12.x passes its own.
+  // landingFrom alone has no Bench parts nor a featured builder; landing.test.ts 12.x and v3-landing.test.ts pass their own.
   bench: null,
+  featured: null,
 };

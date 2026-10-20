@@ -1,3 +1,4 @@
+import { brandShell } from './brand-page';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
@@ -6,15 +7,20 @@ import { siteUrl } from './entry-text';
 import { COIN_PROGRAM } from './policy-constants';
 import { freeTierRoom, takeFreeTier } from './free-tier';
 import { testInstallationIds } from './installations';
+import { mainConfirmed } from './main-project';
+import { lastWeekOf, momentLines, shareText, type WeekStanding } from './weekly-moment';
+import { weekUrl } from './week-links';
 
 /**
- * v2.9 E19: the weekly email, opt-in only. Asked once per installation, after its first recorded
- * entry (Ruling 13); the answer comes back through tell_earnkit's `weekly_email`. Sent by the hourly
- * cron from Monday 14:00 UTC (weekStart), at most once a week per subscription, never empty, within
+ * v2.9 E19: the weekly email, opt-in only. Asked once per installation (Ruling 13; v3 Stage 1: in the first
+ * yes after activation, the connect or share yes in bench-find.ts); the answer comes back through tell_earnkit's `weekly_email`. Sent by the hourly
+ * cron from Monday DIGEST_HOUR_UTC (weekStart, after the weekly job writes last week), at most once a week per subscription, never empty, within
  * Resend's free tier (free-tier.ts: 100 a day, 3,000 a month; the rest wait for a later run). Every
  * email carries List-Unsubscribe with a one-click link (RFC 8058, /api/digest/unsubscribe). With
  * RESEND_API_KEY unset the whole feature is off: no question, no send.
- * Content (in this order): new programs one of the builder's remembered repos could really win
+ * v3 Stage 1 (spec 5.4): it leads with the Monday moment: last week's lines, then Looks right and Hide this week
+ * links (week-links.ts) that work without the agent; a subscription whose week is not written yet waits (pending).
+ * Then (in this order): new programs one of the builder's remembered repos could really win
  * (alerts.ts alertFit, the alert rule), wins by EarnKit builders (announced only), and the builder's
  * own deadlines and decision dates in the coming week. Ruling G21: on a hosted agent (shared_client)
  * one installation serves many builders, so a subscription would need a verified caller; v2.14 final
@@ -28,13 +34,12 @@ export const digestEnabled = (env: Record<string, string | undefined> = process.
   Boolean(env.RESEND_API_KEY?.trim() && env.EARNKIT_AUTH_SECRET);
 const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
-export const EMAIL_QUESTION = 'Get new programs and wins by email, once a week? yes / no';
-export const emailQuestionFor = (email: string) => `Get new programs and wins by email at ${email}, once a week? yes / no`;
+export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the address.';
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
 export const WHICH_EMAIL = 'Which email should I use?';
-export const EMAIL_ON = 'Done. One email a week, on Mondays.';
+export const EMAIL_ON = 'Done. Every Monday, once your week is written.';
 export const EMAIL_OFF = 'No weekly email.';
 export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
 /** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */
@@ -56,9 +61,14 @@ const RUN_MAX = 100;
 const RESEND_URL = 'https://api.resend.com/emails';
 const RESEND_TIMEOUT_MS = 10_000;
 
-/** This week's Monday 14:00 UTC, or last week's before that moment. Pure. */
+/** v3 Stage 1: the email's Monday hour (UTC), after the weekly job's (week-facts.ts WEEKLY_HOUR_UTC, 15). */
+export const DIGEST_HOUR_UTC = 16;
+/** A week not written by then is sent without its moment (the weekly job only writes confirmed projects). */
+const PENDING_MAX_MS = 86_400_000;
+
+/** This week's Monday DIGEST_HOUR_UTC, or last week's before that moment. Pure. */
 export function weekStart(now: Date): Date {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 14));
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), DIGEST_HOUR_UTC));
   const back = (d.getUTCDay() + 6) % 7; // days since Monday
   let start = new Date(d.getTime() - back * DAY);
   if (start > now) start = new Date(start.getTime() - 7 * DAY);
@@ -80,7 +90,14 @@ export function digestDue(s: DigestState, now: Date): boolean {
   return !(s.last_considered_at && s.last_considered_at >= start);
 }
 
+/** Last week's moment: its lines (weekly-moment.ts momentLines), standing (the subject) and the two signed links. */
+export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean };
 export type DigestFacts = {
+  week: DigestWeek | null;
+  /** The person's X handle, when claimed. */
+  handle: string | null;
+  /** The week is not written yet: neither sent nor considered (the next hourly run tries again). */
+  pending?: true;
   newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null }[];
   wins: { name: string; program: string; prize_usd: number | null }[];
   deadlines: { program: string; what: 'closes' | 'decision'; at: Date }[];
@@ -119,18 +136,27 @@ export function cleanName(name: string, fallback: string): string {
 }
 
 /**
- * The email: new programs, then wins, then the builder's deadlines; null when all three are empty.
- * Every builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
+ * The email: last week's moment (its lines, then Looks right and Hide this week while it is unconfirmed), then new
+ * programs, wins and the builder's deadlines; null when there is no week and all three are empty. Every
+ * builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
  */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
+  const week = f.week
+    ? [...f.week.lines, ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`])].join('\n')
+    : null;
   const lines = [
     ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
     ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
     ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? 'closes' : 'results due'} ${day(d.at)}.`),
   ];
-  if (lines.length === 0) return null;
-  const subject = f.newPrograms[0] ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}` : 'Your EarnKit week';
-  return { subject, text: `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` };
+  if (lines.length === 0 && !week) return null;
+  const subject = f.week
+    ? `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
+    : f.newPrograms[0]
+      ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
+      : 'Your EarnKit week';
+  const sections = lines.length > 0 ? `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` : null;
+  return { subject, text: [week, sections].filter(Boolean).join('\n\n') };
 }
 
 const mac = (k: SubKey, secret: string) =>
@@ -222,55 +248,38 @@ export function cleanEmail(v: unknown): string | null {
   return e.length <= 254 && EMAIL.test(e) ? e : null;
 }
 
-/**
- * The entry's email answer: the first field of type email, or contact field whose label says email
- * (coach.ts's email slot), holding a plain address. Pure.
- */
-export function entryEmail(reqs: { key: string; label: string; kind?: string; type?: string }[], values: Record<string, string>): string | null {
-  for (const r of reqs) {
-    if (r.type !== 'email' && (r.kind !== 'contact' || !/e-?mail/i.test(r.label))) continue;
-    const e = cleanEmail(values[r.key]);
-    if (e) return e;
-  }
-  return null;
-}
+/** v3 final review: an installation asked this long ago (and still not opted in anywhere) is asked again. */
+export const EMAIL_REASK_DAYS = 30;
 
 /**
- * Ruling 13: the question, once per subscription key, only while the email is on: an installation
- * (installations.digest_asked_at), or on a shared client (Ruling G21) a verified login (its row's
- * asked_at); a shared client without a login is never asked. `email`: the address the question may
- * use (P16: on a shared client, only the one this builder typed in this entry; never one remembered).
- * It is kept, not opted in, until a yes. Returns what the reply adds, or null (off, no login, or asked
- * before). Never fails the tool.
+ * Ruling 13: the question, once per installation (installations.digest_asked_at; v3 final review: again after
+ * EMAIL_REASK_DAYS, and never while the person has an opted-in subscription), only while the email is on.
+ * v3 Stage 1: asked in the first yes after activation (bench-find.ts benchMoveUp). Ruling G21 (v2.14 final fix):
+ * never on a shared client (`shared`), which has no verified caller. `email`: an address to keep with the
+ * question (unopted until a yes; the question never names it). Returns what the reply adds, or null (off,
+ * shared, opted in, or asked within EMAIL_REASK_DAYS). Never fails the tool.
  */
 export async function askWeeklyEmail(
   installationId: number,
-  opts: { shared: boolean; email: string | null; login?: string | null },
+  opts: { shared: boolean; email: string | null },
 ): Promise<{ question: string; agent_note: string } | null> {
-  if (!digestEnabled()) return null;
-  const login = opts.shared ? opts.login?.toLowerCase() : '';
-  if (!login && opts.shared) return null;
+  if (!digestEnabled() || opts.shared) return null;
   try {
     return await sql().begin(async (tx) => {
-      if (opts.shared) {
-        const [asked] = await tx<{ id: number }[]>`
-          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, ${login!}, ${opts.email}, now())
-          ON CONFLICT (installation_id, login) DO NOTHING RETURNING installation_id AS id`;
-        if (!asked) return null;
-      } else {
-        const [asked] = await tx<{ id: number }[]>`
-          UPDATE installations SET digest_asked_at = now() WHERE id = ${installationId} AND digest_asked_at IS NULL RETURNING id`;
-        if (!asked) return null;
-        await tx`
-          INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())
-          ON CONFLICT (installation_id, login) DO UPDATE SET email = COALESCE(EXCLUDED.email, digest_subscriptions.email), asked_at = now()
-          WHERE digest_subscriptions.opted_in_at IS NULL`;
-      }
-      return {
-        // Non-shared clients: the entry's email is reused only after the yes, so the question names none.
-        question: opts.shared && opts.email ? emailQuestionFor(opts.email) : EMAIL_QUESTION,
-        agent_note: EMAIL_NOTE,
-      };
+      // v3 final review: asked while the person (the group root) has no opted-in subscription, and this installation
+      // was never asked or was asked over EMAIL_REASK_DAYS ago (an old entry-time ask no longer blocks it).
+      const [asked] = await tx<{ id: number }[]>`
+        UPDATE installations i SET digest_asked_at = now()
+        WHERE i.id = ${installationId} AND (i.digest_asked_at IS NULL OR i.digest_asked_at < now() - make_interval(days => ${EMAIL_REASK_DAYS}))
+          AND NOT EXISTS (SELECT 1 FROM digest_subscriptions d JOIN installations j ON j.id = d.installation_id
+            WHERE COALESCE(j.builder_id, j.id) = COALESCE(i.builder_id, i.id) AND d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL)
+        RETURNING i.id`;
+      if (!asked) return null;
+      await tx`
+        INSERT INTO digest_subscriptions (installation_id, login, email, asked_at) VALUES (${installationId}, '', ${opts.email}, now())
+        ON CONFLICT (installation_id, login) DO UPDATE SET email = COALESCE(EXCLUDED.email, digest_subscriptions.email), asked_at = now()
+        WHERE digest_subscriptions.opted_in_at IS NULL`;
+      return { question: EMAIL_QUESTION, agent_note: EMAIL_NOTE };
     });
   } catch (err) {
     console.error('[digest] ask', err instanceof Error ? err.name : 'error');
@@ -336,6 +345,40 @@ export async function unsubscribe(target: number | SubKey, now = new Date()): Pr
 type SubRow = DigestState & { installation_id: number; login: string; email: string; shared: boolean };
 
 /**
+ * v3 Stage 1 (spec 5.4): the subscription's person (the X-bound profile, else the installation's builder, else the
+ * installation, as installations.ts connectInstallation reads it) and last week of their main project. A checked
+ * week (the weekly job wrote it) is the moment; a ranked week not written yet is pending until PENDING_MAX_MS after
+ * weekStart (a project the weekly job never writes, an unconfirmed one, is not pending). None on a shared client or
+ * a per-login subscription (no verified person). A failed read is no week, never a failed email.
+ */
+async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFacts, 'week' | 'handle' | 'pending'>> {
+  if (s.shared || s.login) return { week: null, handle: null };
+  const [p] = await db<{ id: number; key: string | null; handle: string | null }[]>`
+    SELECT x.id, b.main_project_key AS key, b.x_handle AS handle
+    FROM (SELECT COALESCE((SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = i.x_user_id), i.builder_id, i.id) AS id
+          FROM installations i WHERE i.id = ${s.installation_id}) x
+    LEFT JOIN builder_profiles b ON b.builder_id = x.id`;
+  const handle = p?.handle ?? null;
+  if (!p?.key) return { week: null, handle };
+  const key = p.key;
+  try {
+    const last = await lastWeekOf(p.id, key, now);
+    if (!last) return { week: null, handle };
+    if (!last.checked) {
+      const [hid] = await db<{ hidden: boolean }[]>`
+        SELECT hidden FROM project_updates WHERE builder_id = ${p.id} AND lower(project_key) = lower(${key}) AND week = ${last.monday}`;
+      const waiting = !hid?.hidden && now.getTime() < weekStart(now).getTime() + PENDING_MAX_MS && (await mainConfirmed(p.id));
+      return waiting ? { week: null, handle, pending: true } : { week: null, handle };
+    }
+    const link = (action: 'approve' | 'hide') => weekUrl({ builderId: p.id, key, monday: last.monday, action });
+    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved }, handle };
+  } catch (err) {
+    console.error('[digest] week', err instanceof Error ? err.name : 'error');
+    return { week: null, handle };
+  }
+}
+
+/**
  * One subscription's facts, read on `db`. New programs: opened since the last send (else the opt-in),
  * still open, that a remembered repo could really win (alertFit; never on a shared client, whose
  * remembered repos are none). Wins: announced won or placed outcomes of the last 7 days, never a
@@ -343,6 +386,8 @@ type SubRow = DigestState & { installation_id: number; login: string; email: str
  * in the next 7 days.
  */
 export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise<DigestFacts> {
+  const moment = await digestWeek(s, now, db);
+  if (moment.pending) return { ...moment, newPrograms: [], wins: [], deadlines: [] };
   const since = s.last_sent_at ?? s.opted_in_at ?? now;
   const week = new Date(now.getTime() + 7 * DAY);
   const ids = testInstallationIds();
@@ -416,6 +461,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .slice(0, MAX_LINES);
   return {
+    ...moment,
     newPrograms,
     wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),
     deadlines,
@@ -424,7 +470,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
 
 /**
  * The cron's weekly email step. Each subscription is locked (FOR UPDATE SKIP LOCKED, so two runs at
- * once never send one twice) and handled in its own transaction: facts and body; an empty week sets
+ * once never send one twice) and handled in its own transaction: facts and body (v3 Stage 1: a week not
+ * written yet is `pending`, neither sent nor considered, and counted in `pending`); an empty week sets
  * last_considered_at; else one slot of the day's and the month's cap (taken before the send and kept
  * whatever happens), the send, and last_sent_at in that same transaction. A refused cap stops the run
  * (`capped`); the rest wait for a later run. A send that fails for good (a 4xx other than 429) skips
@@ -437,8 +484,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
 export async function sendDigests(
   now: Date,
   deps: { mail?: Mailer; budgetMs?: number; only?: number[] } = {},
-): Promise<{ sent: number; skipped: number; capped: boolean; stopped?: true }> {
-  const out: { sent: number; skipped: number; capped: boolean; stopped?: true } = { sent: 0, skipped: 0, capped: false };
+): Promise<{ sent: number; skipped: number; capped: boolean; stopped?: true; pending?: number }> {
+  const out: { sent: number; skipped: number; capped: boolean; stopped?: true; pending?: number } = { sent: 0, skipped: 0, capped: false };
   const key = process.env.RESEND_API_KEY?.trim();
   const mail = deps.mail ?? (key ? resendMailer(key) : null);
   if (!mail || !process.env.EARNKIT_AUTH_SECRET) return out;
@@ -457,7 +504,7 @@ export async function sendDigests(
     const step = await sql().begin(async (tx) => {
       const [s] = await tx<SubRow[]>`
         SELECT d.installation_id, d.login, d.email, d.opted_in_at, d.unsubscribed_at, d.last_sent_at, d.last_considered_at,
-          i.shared_client AS shared
+          (i.shared_client AND i.x_user_id IS NULL) AS shared
         FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
         WHERE d.opted_in_at IS NOT NULL AND d.opted_in_at < ${start} AND d.unsubscribed_at IS NULL
           AND (d.last_sent_at IS NULL OR d.last_sent_at < ${start})
@@ -471,7 +518,10 @@ export async function sendDigests(
       tried.push(`${s.installation_id}:${s.login}`);
       if (!digestDue(s, now)) return 'skip' as const;
       const target = { installationId: s.installation_id, login: s.login };
-      const body = digestBody(await digestFacts(s, now, tx));
+      const facts = await digestFacts(s, now, tx);
+      // v3 Stage 1: last week is not written yet; neither sent nor considered, so a later run sends it.
+      if (facts.pending) return 'pending' as const;
+      const body = digestBody(facts);
       const consider = () => tx`
         UPDATE digest_subscriptions SET last_considered_at = ${now} WHERE installation_id = ${s.installation_id} AND login = ${s.login}`;
       if (!body) {
@@ -513,6 +563,10 @@ export async function sendDigests(
       out.capped = true;
       break;
     }
+    if (step === 'pending') {
+      out.pending = (out.pending ?? 0) + 1;
+      continue;
+    }
     if (step === 'sent') out.sent++;
     else out.skipped++;
     failures = step === 'failed' || step === 'rejected' ? failures + 1 : step === 'sent' ? 0 : failures;
@@ -532,13 +586,10 @@ const PAGE_HEADERS = {
   'Referrer-Policy': 'no-referrer',
   'X-Robots-Tag': 'noindex',
 };
-const page = (body: string, status = 200) =>
-  new Response(
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
-      '<title>EarnKit</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem">' +
-      `${body}</body></html>`,
-    { status, headers: PAGE_HEADERS },
-  );
+/** v3 Stage 3 Task 6: the site's shell (brand-page.ts brandShell), as every other route-handler page. */
+const page = (body: string, status = 200) => new Response(brandShell(body), { status, headers: PAGE_HEADERS });
+/** A one-line page: the line as the statement. */
+const linePage = (line: string, status = 200) => page(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`, status);
 
 export const UNSUB_CONFIRM = 'Stop the weekly EarnKit email?';
 export const UNSUB_DONE = 'Done. No more weekly emails.';
@@ -549,11 +600,11 @@ const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t')
 /** GET: a confirm page whose button POSTs (link scanners never unsubscribe anyone). No script. */
 export function digestUnsubscribeGet(request: Request): Response {
   const t = tokenOf(request);
-  if (unsubTarget(t) === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  if (unsubTarget(t) === null) return linePage(UNSUB_BAD, 400);
   return page(
-    `<p>${escapeHtml(UNSUB_CONFIRM)}</p>` +
-      `<form method="post" action="${escapeHtml(`${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(t)}`)}">` +
-      '<button type="submit">Unsubscribe</button></form>',
+    `<h1>${escapeHtml(UNSUB_CONFIRM)}</h1>` +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(`${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(t)}`)}">` +
+      '<button class="ek-btn" type="submit">Unsubscribe</button></form></div>',
   );
 }
 
@@ -563,7 +614,7 @@ export function digestUnsubscribeGet(request: Request): Response {
  */
 export async function digestUnsubscribePost(request: Request): Promise<Response> {
   const target = unsubTarget(tokenOf(request));
-  if (target === null) return page(`<p>${escapeHtml(UNSUB_BAD)}</p>`, 400);
+  if (target === null) return linePage(UNSUB_BAD, 400);
   await unsubscribe(target);
-  return page(`<p>${escapeHtml(UNSUB_DONE)}</p>`);
+  return linePage(UNSUB_DONE);
 }

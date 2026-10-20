@@ -11,18 +11,10 @@ export type FooterColumn = {
  * EXTERNAL_ALLOW and FOOTER_COLUMNS need them and lib/earnkit never imports from app/ (fix round
  * 1, Important #1; every other app/ constant stays in app/lib/links.ts, which re-exports these).
  */
-/**
- * "Docs" in the header and footer. Pre-launch fix (2026-10-19): docs.earnkit.com answers
- * 402 DEPLOYMENT_DISABLED, so the link goes to the public README's install section (the same
- * steps as the modal) until docs.earnkit.com is serving again; then point it back there.
- */
-export const DOCS = 'https://github.com/earnkitai/earnkit#connect-an-agent';
-/**
- * The footer's "For sponsors" (Ruling 22, plan). Pre-launch fix (2026-10-19): it was
- * docs.earnkit.com/for-sponsors (402 while that site is down) and sponsor campaigns are archived
- * (v2.12), so it is an email to the owner until the sponsor docs are back.
- */
-export const FOR_SPONSORS = 'mailto:j@earnkit.com?subject=Sponsoring%20on%20EarnKit';
+/** "Docs" in the header, footer and shell pages: the site's own page (v3 Stage 3, Task 5). */
+export const DOCS = '/docs';
+/** The footer's "For sponsors": the Docs page's section for program selectors. */
+export const FOR_SPONSORS = '/docs#selectors';
 /** The owner's personal account, used only for the footer's contact column (Ruling 22, plan). */
 export const JENIL_X = 'https://x.com/jenilt';
 /** The footer's contact email (Ruling 22, plan). */
@@ -35,7 +27,7 @@ export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
  * Ruling 22 (plan): the only external destinations the footer may link to. Owner rule: real
  * links only, no extras and no placeholders.
  */
-export const EXTERNAL_ALLOW = [DOCS, FOR_SPONSORS, JENIL_X, CONTACT_EMAIL];
+export const EXTERNAL_ALLOW = [JENIL_X, CONTACT_EMAIL];
 
 /** Ruling 22 (plan): the footer's links, in order (R18: shown as one row; the titles group them in code only). */
 export const FOOTER_COLUMNS: FooterColumn[] = [
@@ -75,7 +67,7 @@ export function footerLinkProblems(columns: FooterColumn[], routes: string[]): s
     for (const l of c.links) {
       if (!l.label.trim()) problems.push(`${c.title}: empty label`);
       if (l.href.startsWith('/')) {
-        if (!routes.includes(l.href)) problems.push(`internal link ${l.href} has no page`);
+        if (!routes.includes(l.href.split('#')[0])) problems.push(`internal link ${l.href} has no page`);
       } else if (!EXTERNAL_ALLOW.includes(l.href)) problems.push(`external link not allowed: ${l.href}`);
     }
   return problems;

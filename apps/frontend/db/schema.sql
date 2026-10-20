@@ -1460,7 +1460,7 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS pitch jsonb;
 -- The fifth week in a row is a coin moment too (spec "Optional: raise"). Re-added once only.
 ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
 ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
-  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five'));
+  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five','first_week'));
 -- v2.13.1 O1 (owner ruling, proof branch): the one project's proof is a temporary branch
 -- earnkit-<code> the agent pushes to the exact repo (no file, no commit). The code is never stored:
 -- it is HMAC(EARNKIT_AUTH_SECRET, seed), and only its sha256 is kept to find it (as claim_codes).
@@ -1679,3 +1679,63 @@ ALTER TABLE installations ADD COLUMN IF NOT EXISTS moment_week text;
 -- Weekly updates: the week's work in one short paragraph (week-summary.ts), written by the weekly job from the week's
 -- PR and commit titles. The builder's own note stays in `text`. Additive.
 ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS summary text;
+
+-- v3 Stage 1: points, the default program. One row per approved week with facts; never ranked.
+CREATE TABLE IF NOT EXISTS builder_points (
+  builder_id integer NOT NULL,
+  week       date NOT NULL CHECK (EXTRACT(isodow FROM week) = 1),
+  points     integer NOT NULL CHECK (points >= 0),
+  rank       integer,
+  total      integer,
+  via        text NOT NULL CHECK (via IN ('share', 'connect', 'email')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, week)
+);
+
+-- v3 Stage 2: upcoming programs (listed, never a fit, never counted in the money total).
+ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
+ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming'));
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS opens_note text;
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS in_person boolean NOT NULL DEFAULT false;
+
+-- v3 Stage 2 (spec 5.3): an application's outcome, as the builder tells it (self-reported, never public), and when its
+-- one outcome question was asked (14 days after the program's deadline).
+ALTER TABLE builder_program_status DROP CONSTRAINT IF EXISTS builder_program_status_status_check;
+ALTER TABLE builder_program_status ADD CONSTRAINT builder_program_status_status_check CHECK (status IN ('applied','not_interested','accepted','funded','rejected'));
+ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS asked_at timestamptz;
+
+-- v3 Stage 2 Task 3 (spec 5.3 Route 2): backing is offered once, after the first approved week (moment 'first_week').
+-- The earlier re-add (above) lists it too: schema.sql reruns whole before every deploy (schema-rerun.test.ts).
+ALTER TABLE coin_moments DROP CONSTRAINT IF EXISTS coin_moments_moment_check;
+ALTER TABLE coin_moments ADD CONSTRAINT coin_moments_moment_check
+  CHECK (moment IN ('built_live','countable','first_five','has_people','streak_five','first_week'));
+
+-- v3 Stage 2: backers (distinct wallets that received a coin, excluding the pool, the locker and zero) and creator fees paid.
+-- backers.ts indexBackers reads each launched Base coin's Transfer logs from its cursor (start: the launch block);
+-- earned.ts indexCreatorFees reads, per creator wallet (cursor in bonus_cursor 'creator_fees:<wallet>', one per wallet, not per coin), the FeeLocker's
+-- StoreTokens deposits attributed to the wallet's EarnKit coins (creator_deposits, as bonusDeposits attributes the Safe's)
+-- and its ClaimTokens claims (token WETH); a claim is credited per coin (creator_fees, one row per claim and coin) only up
+-- to those coins' deposits not yet credited, so a claim of another coin's fees never counts. Additive; a rerun is a no-op.
+CREATE TABLE IF NOT EXISTS coin_backers (coin text NOT NULL, wallet text NOT NULL, first_block bigint NOT NULL, PRIMARY KEY (coin, wallet));
+CREATE TABLE IF NOT EXISTS coin_backer_cursor (coin text PRIMARY KEY, block bigint NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS creator_fees (tx_hash text NOT NULL, log_index integer NOT NULL, coin text NOT NULL, wallet text NOT NULL, amount_wei numeric NOT NULL, block_number bigint NOT NULL, block_time timestamptz NOT NULL, PRIMARY KEY (tx_hash, log_index, coin));
+CREATE TABLE IF NOT EXISTS creator_deposits (tx_hash text NOT NULL, log_index integer NOT NULL, coin text NOT NULL, wallet text NOT NULL, amount_wei numeric NOT NULL, block_number bigint NOT NULL, PRIMARY KEY (tx_hash, log_index));
+CREATE INDEX IF NOT EXISTS creator_deposits_wallet ON creator_deposits (wallet, block_number);
+CREATE INDEX IF NOT EXISTS creator_fees_coin ON creator_fees (coin);
+-- v3 Stage 2 Task 4 fix round 2: a database that ran the first version of creator_fees (key (tx_hash, log_index), one
+-- row per claim, never capped at the EarnKit coins' deposits) moves to the per-coin key, and its uncapped rows and
+-- cursors ('creator_fees:<coin>') are cleared so the next run credits again under the cap. Only when the old key is
+-- found; a rerun is a no-op.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'creator_fees_pkey' AND conrelid = 'creator_fees'::regclass
+      AND pg_get_constraintdef(oid) NOT LIKE '%coin%'
+  ) THEN
+    ALTER TABLE creator_fees DROP CONSTRAINT creator_fees_pkey;
+    DELETE FROM creator_fees;
+    DELETE FROM bonus_cursor WHERE id LIKE 'creator_fees:%';
+    ALTER TABLE creator_fees ADD CONSTRAINT creator_fees_pkey PRIMARY KEY (tx_hash, log_index, coin);
+  END IF;
+END $$;

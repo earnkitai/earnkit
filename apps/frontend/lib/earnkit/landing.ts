@@ -1,15 +1,19 @@
 import { prizeOf } from './entry-text';
 import { guideSourceList, programGuide, type Guide, type GuideSource } from './guide';
 import { CHAIN_NAMES } from './match';
-import { daysLeftText, NO_CELL, type Card } from './present';
-import { eachLine } from './pool';
+import { byRelevance, daysLeftText, NO_CELL, type Card } from './present';
+import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
-import { moneyText, openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
+import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
-import { benchRows, type BenchRow } from './bench-data';
+import { benchCardFacts, benchRows, profileData, type BenchCardFacts, type BenchRow } from './bench-data';
 import { raisingEnabled } from './builder-score-flag';
-import { carouselCards, type FeedCard } from './feed';
-import type { BenchChain } from './rank';
+import { feedWeeks, type FeedCard } from './feed';
+import { resolveHandle } from './profiles';
+import { rankSplit, type BenchChain } from './rank';
+
+/** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
+export { byRelevance };
 
 /**
  * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
@@ -40,25 +44,53 @@ export type Tile = {
   pool_usd: number | null;
   /** v2.8 Ruling 21 (plan): the level word only ("Hard", never "(estimate)"; the guide keeps the full label), or NO_CELL without one (then no chip). */
   difficulty: string;
-  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`). */
+  /** v2.8: "8 days left", "ends today" or "rolling" (was `ends`); v3 Stage 2: "not open yet" for an upcoming program. */
   days_left: string;
+  /** v3 Stage 2: an upcoming program is listed, never open (its guide has no Ask button). */
+  status: 'active' | 'upcoming';
+  /** v3 Stage 2: the card adds an "In person" chip. */
+  in_person: boolean;
   /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
   logo: string | null;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
-  /** v2.9 F21: the one money figure ("$1.1M+", moneyText(openMoneyUsd) of the tiles' programs), or null at 0. */
+  /**
+   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants and prizes open" (openGrantsText(openMoneyUsd) of the
+   * tiles' programs, never an investment), or null when no program is open.
+   */
   open_text: string | null;
+  /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
+  open_more: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning", or null below the threshold. */
   stats_line: string | null;
   /** v2.9 E20: "Builders using EarnKit won $12,500" under the stats line, or null (no announced win with a prize). */
   won_line: string | null;
-  /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and this week's square cards (null from landingFrom alone). */
+  /** v2.13 spec "Landing page": the Bench's top 10 and its chain chips, and the Feed section's rows (v3 Stage 3: the last finished week's, at most FEED_ROWS; null from landingFrom alone). */
   /** `raising`: EARNKIT_RAISING was on for this read (the Raising chip shows only then). */
   /** `count`: every ranked builder (R18 fix 1: the header count line), not only the 10 rows. */
   bench: { rows: BenchRow[]; count: number; chips: BenchChain[]; cards: FeedCard[]; raising: boolean } | null;
+  /** v3 Stage 3 (spec 5.8): the hero's one real artifact, the featured builder's live profile preview; null from landingFrom alone or when nobody qualifies. */
+  featured: FeaturedData | null;
 };
+
+/**
+ * v3 Stage 3: what the landing's FeaturedCard shows (plain JSON): the share card's facts (the name, @handle, the
+ * project, the streak), `rank` (the rank line's lead, "#3" or "Top 4%", rank.ts rankSplit; null unranked), the two
+ * latest log lines, `points` (the Shipping number, as BenchRow.points) and `earned` (profileData.earned.paid_usd,
+ * whole dollars; null at 0 or without the Stage 2 field, so the card omits the number: never "$0", review round 1).
+ */
+export type FeaturedData = { f: BenchCardFacts; rank: string | null; log: { week: string; summary: string | null }[]; points: number; earned: number | null };
+
+/** The landing's Feed section shows at most this many rows of the last finished week. */
+export const FEED_ROWS = 6;
+/** The FeaturedCard shows the two latest log lines. */
+export const FEATURED_LOG = 2;
+/** The featured builder when LANDING_FEATURED_HANDLE is unset: the founder's own page. */
+export const FEATURED_HANDLE_DEFAULT = 'jenilt';
+/** LANDING_FEATURED_HANDLE (trimmed), else FEATURED_HANDLE_DEFAULT. Pure over the env. */
+export const featuredHandle = (): string => process.env.LANDING_FEATURED_HANDLE?.trim() || FEATURED_HANDLE_DEFAULT;
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
 export function statsLine(s: PublicStats): string | null {
@@ -66,23 +98,13 @@ export function statsLine(s: PublicStats): string | null {
 }
 
 /**
- * v2.7.1: the cards' order (landing and /programs): programs with a source-stated pool first,
- * highest pool first; then the rest by their per-winner amount; then the sooner deadline. The first message keeps
- * `byPrize`. Pure.
- */
-export const byPool = (a: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>, b: Pick<Card, 'pool_usd' | 'max_award_usd' | 'ends_at'>) =>
-  // Review #10: programs with a pool first (never a pool against a per-winner amount).
-  Number(b.pool_usd != null) - Number(a.pool_usd != null) ||
-  (b.pool_usd ?? b.max_award_usd ?? -1) - (a.pool_usd ?? a.max_award_usd ?? -1) ||
-  (a.ends_at?.getTime() ?? 8.64e15) - (b.ends_at?.getTime() ?? 8.64e15);
-
-/**
- * The landing data from open program cards, by pool (`byPool`), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
+ * The landing data from open program cards, Base first (`byRelevance`, v3 Stage 2), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
  * EarnKit or sponsor campaign) and the public stats. v2.9 F21: the hero
  * figure is moneyText(openMoneyUsd) of the same cards (/programs, the first reply and /api/stats show the same). Pure.
  */
 export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landing {
-  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byPool);
+  // v3 Stage 2: Base first (byRelevance), upcoming programs last.
+  const kept = cards.filter((c) => !c.sponsored && !c.earnkit_campaign).sort(byRelevance);
   const tiles = kept.map((c): Tile => {
     const perWinner = c.max_award_usd ?? 0;
     // Review #1: "per grant" for a grant program, a stated range ("$5K–$100K per grant").
@@ -98,34 +120,74 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       prize_usd: perWinner,
       pool_usd: c.pool_usd ?? null,
       difficulty: c.difficulty ? c.difficulty.level : NO_CELL,
-      days_left: c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
+      days_left: c.status === 'upcoming' ? 'not open yet' : c.ends_at ? daysLeftText(c.ends_at, now) : 'rolling',
       logo: c.logo ? `/${c.logo}` : null,
+      status: c.status === 'upcoming' ? 'upcoming' : 'active',
+      in_person: c.in_person === true,
     };
   });
   return {
-    open_text: moneyText(openMoneyUsd(kept, now)),
+    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
+    open_more: openMoneyWords(kept, now),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),
     bench: null,
+    featured: null,
   };
 }
 
-/** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows). Plain JSON. */
+/** v2.13: the landing's leaderboard parts (`rows`, `count` and `chips` from benchRows); v3 Stage 3: the last finished week's feed rows. Plain JSON. */
 async function readBench(now: Date): Promise<Landing['bench']> {
   const { rows, count, chips } = await benchRows({ chain: null, weekly: false }, { limit: 10 });
-  return { rows, count, chips, cards: await carouselCards(now), raising: raisingEnabled() };
+  const [week] = await feedWeeks(now);
+  return { rows, count, chips, cards: (week?.cards ?? []).slice(0, FEED_ROWS), raising: raisingEnabled() };
 }
 
 /**
- * The landing page's one read: open programs, the public stats and the Bench parts. It rejects when
- * the database is unreachable (never empty data): the caller renders without the live parts
- * (Ruling 21 (plan), Review Focus 1).
+ * v3 Stage 3 (spec 5.8, Review Focus 3): the featured builder's preview, or null. The handle (featuredHandle) goes
+ * through resolveHandle (a malformed or unknown handle, or a hidden profile, is null; a case redirect is followed once),
+ * then benchCardFacts and profileData. No score line (unranked, or held: rankLines gives none outside the pool) is null:
+ * the hero never shows a page that cannot show its rank. A missing handle falls back silently; a database failure
+ * rejects like the rest of readLanding.
  */
-export async function readLanding(now = new Date()): Promise<Landing> {
+async function readFeatured(now: Date): Promise<FeaturedData | null> {
+  let r = await resolveHandle(featuredHandle(), now);
+  if (r && 'redirect' in r) r = await resolveHandle(r.redirect.replace(/^\/(b\/)?/, ''), now);
+  if (!r || 'redirect' in r) return null;
+  // Task 7: Earned comes from profileData below; the card facts skip their own read of it.
+  const f = await benchCardFacts(r.builderId, { money: false });
+  if (!f?.bench) return null;
+  const d = await profileData(r.builderId, now);
+  if (!d || d.score === null) return null;
+  return {
+    f,
+    rank: d.bench ? rankSplit(d.bench).lead : null,
+    // The two latest weeks with a line (the summary, else the builder's note); a chips-only week shows nothing worth a row.
+    log: d.log.filter((c) => !c.started && (c.summary || c.text)).slice(0, FEATURED_LOG).map((c) => ({ week: c.week, summary: c.summary ?? c.text ?? null })),
+    points: d.score,
+    earned: d.earned.paid_usd > 0 ? Math.round(d.earned.paid_usd) : null,
+  };
+}
+
+/** Test seam: readLanding's featured read. */
+export type LandingDeps = { featured?: (now: Date) => Promise<FeaturedData | null> };
+
+/**
+ * The landing page's one read: open programs, the public stats, the Bench parts and the featured builder. It rejects
+ * when the database is unreachable (never empty data): the caller renders without the live parts (Ruling 21 (plan),
+ * Review Focus 1). Review round 1: a failing featured read alone is logged and leaves `featured` null; the hero's
+ * card never takes the landing or /programs down.
+ */
+export async function readLanding(now = new Date(), deps: LandingDeps = {}): Promise<Landing> {
   const cards: Card[] = await listPrograms();
   const stats = await readStats(now);
-  return { ...landingFrom(cards, stats, now), bench: await readBench(now) };
+  const bench = await readBench(now);
+  const featured = await (deps.featured ?? readFeatured)(now).catch((err: unknown) => {
+    console.error('[landing] featured', err instanceof Error ? err.message : err);
+    return null;
+  });
+  return { ...landingFrom(cards, stats, now), bench, featured };
 }
 
 /**
@@ -139,8 +201,12 @@ export type GuidePage = {
   logo: string | null;
   /** Ruling 22 (plan): a closed or past-deadline program still renders, without "Ask your agent". */
   open: boolean;
+  /** v3 Stage 2: not open yet: the header reads "not open yet", the note shows under it, no "Ask your agent". */
+  upcoming: boolean;
   /** v2.8 Ruling 13 (plan), Task 3 carry: the program fits any chain; the page says "Any chain". */
   any_chain: boolean;
+  /** v3 Stage 3 Task 4: the chains as one fact ("Base", "Base, Tempo, Robinhood Chain"), null for any chain or none. */
+  chain: string | null;
   /** The program's own page. */
   source_url: string;
   /** The program's own page, then every source the guide's facts rest on, labelled by role. */
@@ -169,7 +235,9 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
     title: row.title,
     logo: row.logo ? `/${row.logo.path}` : null,
     open: isOpen(row) && (row.ends_at === null || row.ends_at > now),
+    upcoming: row.status === 'upcoming' && (row.ends_at === null || row.ends_at > now),
     any_chain: row.any_chain === true,
+    chain: row.any_chain ? null : (row.chains ?? []).map((ch) => CHAIN_NAMES[ch]).filter(Boolean).join(', ') || null,
     source_url: row.source_url,
     // Review #9: where the pool is stated, when that isn't the program page (Circle's portal).
     sources: guideSourceList(row, [

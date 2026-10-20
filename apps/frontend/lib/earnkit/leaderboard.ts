@@ -115,7 +115,7 @@ export async function getCampaignBoard(slug: string) {
       description: string;
       summary: string;
       ends_at: Date;
-      status: 'active' | 'closed';
+      status: 'active' | 'closed' | 'upcoming';
       campaign: CampaignConfig | null;
       rules: string[];
       token_policy: TokenPolicy;
@@ -299,7 +299,7 @@ export async function campaignCandidates(programIds: string[], db: Db = sql()) {
 
 /** One EarnKit campaign row for list_programs (v2.4 §1): live numbers and the builder's best standing. Pure; exported for tests. */
 export function campaignRow(
-  p: { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed'; state: RunState | null },
+  p: { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed' | 'upcoming'; state: RunState | null },
   entries: Candidate[],
   mine: Set<number>,
   now: Date,
@@ -337,7 +337,7 @@ export async function earnkitCampaignRows(installationId: number, now = new Date
   const mineSql = () => db`(x.installation_id = ${installationId}
     OR lower(x.payout_wallet) IN (SELECT wallet FROM installation_wallets WHERE installation_id = ${installationId}))`;
   const programs = await db<
-    { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed'; state: RunState | null }[]
+    { id: string; title: string; campaign: CampaignConfig; ends_at: Date; status: 'active' | 'closed' | 'upcoming'; state: RunState | null }[]
   >`
     SELECT p.id, p.title, p.campaign, p.ends_at, p.status, r.state
     FROM programs p LEFT JOIN campaign_runs r ON r.program_id = p.id

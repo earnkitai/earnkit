@@ -1,0 +1,39 @@
+{
+  "id": "base-batches-005",
+  "organizer": "Base",
+  "title": "Base Batches 005",
+  "description": "Base's program for early-stage teams building on Base: an 8-week virtual program with a dedicated advisor, weekly support and a Demo Day pitch to VCs. Selected teams in Batch 004 received a $100K investment from the Base Ecosystem Fund. Batch 005 is not announced yet.",
+  "source_url": "https://www.base.org/batches",
+  "submission_url": "https://www.base.org/batches",
+  "reward": "$100K investment from the Base Ecosystem Fund (Batch 004)",
+  "summary": "$100K investment · Batch 005 not announced",
+  "max_award_usd": 100000,
+  "submission_proof": null,
+  "starts_at": null,
+  "ends_at": null,
+  "verified_at": "2026-10-20",
+  "status": "upcoming",
+  "opens_note": "Batch 005 is not announced yet. Base Batches runs twice a year.",
+  "existing_work": "unknown",
+  "needs_repo": false,
+  "chains": [
+    "base"
+  ],
+  "investment": true,
+  "setup": [],
+  "each_time": [],
+  "rules": [
+    "Batch 004 (applications Aug 19 to Sep 10, program Sep 29 to Nov 15, Demo Day Nov 17 in New York) is closed; Batch 005 is not announced yet. The program runs twice a year.",
+    "Early stage: pre-product to post-MVP teams that have not yet raised a formal Seed round.",
+    "Base first: teams committed to Base as their default implementation and network of choice.",
+    "Focus areas: trading, payments, agents, financing, and asset issuance."
+  ],
+  "submission_requirements": [],
+  "tracks": [],
+  "starters": [],
+  "difficulty_override": null,
+  "logo": {
+    "path": "programs/base-batches-005.svg",
+    "source_url": "https://www.base.org/brand"
+  }
+}

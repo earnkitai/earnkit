@@ -38,9 +38,10 @@ import {
 } from './installations';
 import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
-import { outcomeQuestion, outcomeToAsk } from './outcomes';
+import { outcomeLine, outcomeToAsk, type OutcomeAsk } from './outcomes';
+import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts } from './ship-log-facts';
 import { wonSource } from './stats';
-import { WHICH_EMAIL, askWeeklyEmail, cleanEmail, entryEmail, saveWeeklyEmail } from './digest';
+import { WHICH_EMAIL, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
 import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
@@ -138,7 +139,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -149,6 +150,7 @@ import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
 import { coinNo, coinOpen, coinPitchAllowed, coinYes } from './coin-moments';
+import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
@@ -790,6 +792,19 @@ export const ASK_OUTCOME_NOTE =
   'Then call tell with program_status: this program_id and project_id, their result (won, placed or lost), ' +
   "and prize_usd if they won money. If they don't know yet, call nothing.";
 
+/** v3 Stage 2: ask_outcome's note for an application (no entry) on the short reply. */
+export const APPLY_ASK_OUTCOME_NOTE =
+  "An application's deadline passed 14 days ago. After showing show_to_builder, ask the builder this question once, as written. " +
+  "Then call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing.";
+
+/** v3 Stage 2: ask_outcome's fields; an application's question names no entry (no project_id). Pure. */
+const askOutcome = (ask: OutcomeAsk, agent_note: string) => ({
+  ...(ask.project_id !== null && { project_id: ask.project_id }),
+  program_id: ask.program_id,
+  question: outcomeLine(ask),
+  agent_note,
+});
+
 /** v2.8 Ruling C21: the note when the builder's own outcome was saved. */
 export const OUTCOME_SAVED_NOTE = "Saved as the builder's own report. It never shows publicly or counts; only published results do.";
 /** v2.9 B9: confirm_entry's note with the sign-in line (spec wording). */
@@ -847,40 +862,6 @@ export const TELL_SHARED_NOTE =
  * v2.9 A3: the builder's memory (Ruling G6: none on a shared client, memoryKey null); a failed read
  * is an empty memory, never a failed tool.
  */
-/**
- * v2.9 E19, Ruling 13 (Pre-flight P16): the weekly email question, added to the reply of a call that
- * recorded an entry, once per installation and only while the email is on. Ruling G21: never on a shared
- * client (v2.14 final fix: no login can be verified there any more). `email`: the
- * entry's email answer; on a shared client only one this builder typed in this entry (never a saved
- * one the coach offered back, `reused`), so the question names it. Never fails the tool.
- */
-async function withEmailQuestion<T extends { show_to_builder: string; agent_note?: string }>(
-  ctx: ToolContext,
-  reply: T,
-  email: string | null,
-  reused: boolean,
-): Promise<T> {
-  const shared = Boolean(ctx.sharedClient);
-  const q = await askWeeklyEmail(ctx.installationId, { shared, email: shared && reused ? null : email, login: null });
-  if (!q) return reply;
-  return {
-    ...reply,
-    show_to_builder: `${reply.show_to_builder}\n\n${q.question}`,
-    agent_note: reply.agent_note ? `${reply.agent_note} ${q.agent_note}` : q.agent_note,
-  };
-}
-
-/** Pre-flight P16: the email saved in this project's answer bank (a shared client's may be another builder's). */
-async function bankedEmail(installationId: number, key: string): Promise<string | null> {
-  try {
-    const contact = (await readBank(installationId, key)).get('contact');
-    const slots: unknown = contact ? JSON.parse(contact) : null;
-    return slots && typeof slots === 'object' ? cleanEmail((slots as Record<string, unknown>).email) : null;
-  } catch {
-    return null;
-  }
-}
-
 const memoryOf = (key: MemoryKey | null, where: string): Promise<BuilderMemory> =>
   key === null
     ? Promise.resolve(emptyMemory())
@@ -960,8 +941,8 @@ const GITHUB_LIMITED =
  */
 async function needsRepoLine(program: { id: string; title: string }): Promise<string> {
   const open = await listPrograms().catch(() => []);
-  // v2.12 spec 9: as find, only programs an agent can complete.
-  const alt = enterableWithoutRepo(open.filter((p) => p.agent_completable !== false), program.id);
+  // v2.12 spec 9: as find, only programs an agent can complete (v3 Stage 2: and open now, never upcoming).
+  const alt = enterableWithoutRepo(open.filter((p) => p.agent_completable !== false && p.status !== 'upcoming'), program.id);
   const head = `${program.title} needs a public repo with your project's code.`;
   return alt ? `${head} No repo yet? ${alt.title} doesn't need one: say the word and I'll start there.` : head;
 }
@@ -1038,8 +1019,10 @@ export const handlers = {
       // v2.9 A3: what the builder told EarnKit, read once per call (G6: none on a shared client).
       memoryOf(memoryKey(ctx), 'list_programs'),
     ]);
-    // v2.12 spec 9 (R21): only programs an agent can complete for the builder.
-    const programs = openPrograms.filter((p) => p.agent_completable !== false);
+    // v2.12 spec 9 (R21): only programs an agent can complete for the builder. v3 Stage 2: an upcoming
+    // program is never matched, offered or entered; it only feeds the Bench's one upcoming line.
+    const programs = openPrograms.filter((p) => p.agent_completable !== false && p.status !== 'upcoming');
+    const upcoming = openPrograms.filter((p) => p.status === 'upcoming' && !p.earnkit_campaign);
     const hidden = hiddenPrograms(told, programs);
     const hide = hiddenIds(hidden);
     const { lastCheck } = memory;
@@ -1238,7 +1221,12 @@ export const handlers = {
     // (I3): one question per reply: this one, then the lead's.
     // v2.14 T9 fix round 1: signed out, the sign-in question wins; the results question is not used up (outcomeToAsk
     // marks it asked) until the first reply after the bind.
-    const signedOut = scoring && profiled && !more
+    // v3 Stage 1: an anonymous hosted installation (no page, no X) always reads as signed out: the Bench's
+    // signed-out reply is the only reply (the sign-in link and its one question).
+    // Only with X sign-in on (as signedOutNow), and only when the caller's own installation is unbound.
+    const hostedAnon = Boolean(ctx.sharedClient) && !more && xSignInEnabled() && Boolean(process.env.EARNKIT_AUTH_SECRET)
+      && (await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM installations WHERE id = ${ctx.ownInstallationId ?? ctx.installationId}`)[0]?.x == null;
+    const signedOut = hostedAnon ? true : scoring && profiled && !more
       ? await signedOutNow(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId).catch(() => true)
       : false;
     const ask = signedOut || !own ? null : await outcomeToAsk(ctx.installationId).catch((err: unknown) => {
@@ -1249,19 +1237,20 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the Bench's three-part reply (where you stand, ways to get funded, how to
     // move up) replaces the short v2.11 reply. "Show more" (more: true) and a shared client keep the
     // v2.11 tables.
-    if (scoring && profiled && !more) {
+    if ((scoring && profiled && !more) || hostedAnon) {
       // v2.13.1 O5 N1: the reply waits for the refresh at most REPLY_WAIT_MS (it runs on).
       await refresh.started?.within(REPLY_WAIT_MS);
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
         start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut,
+        upcoming: upcoming.filter((c) => !hide.has(c.id)),
       });
       return {
         ...r,
         ...(walletNote && { wallet_note: walletNote }),
         // v2.14 A17: the question is show_to_builder's last line, so the note only routes the answer.
-        ...(ask && { ask_outcome: { project_id: ask.project_id, program_id: ask.program_id, question: outcomeQuestion(ask.name, ask.program_title), agent_note: BENCH_OUTCOME_NOTE } }),
+        ...(ask && { ask_outcome: askOutcome(ask, ask.kind === 'apply' ? APPLY_OUTCOME_NOTE : BENCH_OUTCOME_NOTE) }),
         matches:
           yourRepos && 'fits' in yourRepos
             ? matchRows(yourRepos.fits, new Set(programs.filter((p) => p.any_chain).map((p) => p.id))).filter((x) => !hide.has(x.program_id))
@@ -1327,14 +1316,7 @@ export const handlers = {
       }),
       ...(walletNote && { wallet_note: walletNote }),
       ...(alerts.scheduleNote && { schedule_daily_check: alerts.scheduleNote }),
-      ...(ask && {
-        ask_outcome: {
-          project_id: ask.project_id,
-          program_id: ask.program_id,
-          question: outcomeQuestion(ask.name, ask.program_title),
-          agent_note: ASK_OUTCOME_NOTE,
-        },
-      }),
+      ...(ask && { ask_outcome: askOutcome(ask, ask.kind === 'apply' ? APPLY_ASK_OUTCOME_NOTE : ASK_OUTCOME_NOTE) }),
       // For planning: what each repo still needs, per program. Details: get_program.
       matches:
         yourRepos && 'fits' in yourRepos
@@ -1613,12 +1595,21 @@ export const handlers = {
       : [];
     const fixes = [...(failedCheck ? [failedCheck] : []), ...checked.filter((f) => f.for === 'builder')];
     const agent_fixes = checked.filter((f) => f.for === 'agent');
+    // v3 Stage 2 (spec 5.3): the ready draft opens with the builder's ship log facts (statements, never a question). Off a
+    // shared client only (its installation serves many builders); a failed read is no block.
+    const shipLog = prep.ready && !lead && !ctx.sharedClient
+      ? await shipLogFacts(ctx.installationId, new Date()).catch((err: unknown) => {
+          console.error('[prepare_submission] ship log', err instanceof Error ? err.name : 'error');
+          return null;
+        })
+      : null;
     const show_to_builder = lead && prep.ready
       ? [lead, fixesLine(fixes), pitch].filter((x): x is string => Boolean(x)).join('\n')
       : lead
         ? `${lead}\n\n${table}`
         : prep.ready
       ? [
+          shipLog ? shipLogBlock(shipLog).join('\n') : null,
           draftTable(program.submission_requirements, values),
           fixesLine(fixes),
           offer ? (offer.endsWith(READY_TO_SUBMIT) ? offer : `Ready. ${offer}`) : null,
@@ -1656,7 +1647,8 @@ export const handlers = {
       // Ruling 30: the wallet the builder sees on the offer's wallet line, to echo as confirm_entry's
       // wallet once they say yes. confirm_entry never reads the remembered wallet itself.
       ...(offersToken && offerWallet && { shown_wallet: offerWallet }),
-      ...(notes.length > 0 && { agent_note: notes.join(' ') }),
+      ...(notes.length > 0 && { agent_note: `${notes.join(' ')}${shipLog ? SHIP_LOG_NOTE : ''}` }),
+      ...(shipLog && { ship_log: shipLog }),
       ...(join && { entry: { project: known.project ?? {}, answers: known.answers ?? {} } }),
       ...(hosting && { host: hosting }),
     }));
@@ -1903,23 +1895,17 @@ export const handlers = {
       { browser: i.agent?.browser === true },
       { problems: filled.missing.filter((m) => m.problem).map((m) => m.key) },
     );
-    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation.
-    const email = entryEmail(program.submission_requirements, values);
-    return withEmailQuestion(
-      ctx,
-      {
-        project_id: entry.id,
-        ...(token && { token }),
-        kit,
-        // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
-        show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
-        // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
-        // v2.9 F25: the kit rules that left confirm_entry's description are here.
-        agent_note: kitReplyNote(kit, program),
-      },
-      email,
-      Object.values(banked.suggested).some((v) => cleanEmail(v) === email),
-    );
+    // v3 Stage 1 (spec 5.4): the weekly email question moved to the first yes after activation (bench-find.ts).
+    return {
+      project_id: entry.id,
+      ...(token && { token }),
+      kit,
+      // v2.8.1 §C13: a repo whose token is in another program: the kit alone (no bonus note here).
+      show_to_builder: first ? `${first}\n\n${kit.show_to_builder}` : kit.show_to_builder,
+      // Part E, Rulings 7, 27, 28 (plan): how this kit is used (the agent's, never the builder's).
+      // v2.9 F25: the kit rules that left confirm_entry's description are here.
+      agent_note: kitReplyNote(kit, program),
+    };
   },
 
   record_submission: async (input: unknown, ctx: ToolContext) => {
@@ -2008,20 +1994,9 @@ export const handlers = {
       ctx.tokenDeps,
       deadline,
     );
-    // v2.9 E19 (Ruling 13): the weekly email question, last, once per installation. P16: on a shared
-    // client an address the answer bank holds for this project is never named (it may be another builder's).
-    const askEmail = async <T extends { show_to_builder: string; agent_note?: string }>(reply: T) => {
-      if (!('project_id' in result)) return reply;
-      const submitted = answersOf(parsed.submission_data);
-      const email = entryEmail(program.submission_requirements, submitted);
-      const reused =
-        Boolean(ctx.sharedClient && email) &&
-        (await bankedEmail(ctx.installationId, projectKey({ repo_url: parsed.project.repo_url ?? submitted.repo_url, name: parsed.project.name }))) === email;
-      return withEmailQuestion(ctx, reply, email, reused);
-    };
     // Campaign entries carry their own table (enteredTable).
     if ('show_to_builder' in result && result.show_to_builder)
-      return withAlerts(ctx, await askEmail({ ...result, show_to_builder: result.show_to_builder, token }));
+      return withAlerts(ctx, { ...result, show_to_builder: result.show_to_builder, token });
     // v2.6 §3: outside campaigns, the reply the builder sees: the coin.
     const tokenOut = token.no_wallet
       ? // Ruling 31's split here too: plain note, the instruction (NO_COIN_YET) for the agent.
@@ -2055,15 +2030,12 @@ export const handlers = {
     });
     const show_to_builder =
       enteredText({ programTitle: result.program_title, coin, countsIn }) + (also?.text ? `\n\n${also.text}` : '');
-    return withAlerts(
-      ctx,
-      await askEmail({
-        ...result,
-        token: tokenOut,
-        show_to_builder,
-        ...(also?.rows.length && { also_qualifies: also.rows }),
-      }),
-    );
+    return withAlerts(ctx, {
+      ...result,
+      token: tokenOut,
+      show_to_builder,
+      ...(also?.rows.length && { also_qualifies: also.rows }),
+    });
   },
 
   // v2.9 A3: what the builder told EarnKit (programs: applied, not interested, their own outcomes;
@@ -2280,7 +2252,8 @@ export const WALLET_NEEDED_NOTE =
  * when they are off.
  */
 async function buildPick(programId: string, ctx: ToolContext, o: { anyDeploy?: boolean } = {}): Promise<Pick<FreshPick, 'starter'> | null> {
-  const programs = await listPrograms();
+  // v3 Stage 2: never an upcoming program.
+  const programs = (await listPrograms()).filter((p) => p.status !== 'upcoming');
   const card = programs.find((p) => p.id === programId && !p.earnkit_campaign);
   if (!card) return null;
   const told = await memoryOf(memoryKey(ctx), 'prepare');
@@ -2880,7 +2853,7 @@ export const COIN_WALLET_NOTE = "wallet must be the 0x address the builder gave;
  * coinNo check it); anything else is "Okay." with nothing changed. A yes returns the entry the
  * agent confirms by project_id (the usual token steps follow); a no is never offered again.
  */
-async function coinAnswer(ctx: ToolContext, c: { project_key: string; answer: 'yes' | 'no'; wallet?: string }): Promise<Reply> {
+export async function coinAnswer(ctx: Pick<ToolContext, 'installationId' | 'tokenDeps'>, c: { project_key: string; answer: 'yes' | 'no'; wallet?: string }): Promise<Reply> {
   const id = ctx.installationId;
   if (c.answer === 'no') {
     await coinNo(id, c.project_key);
@@ -3104,14 +3077,14 @@ export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
   find: async (input: unknown, ctx0: ToolContext) => {
     // v2.14 T5 (A6): the fallback link's paste code binds this installation first, so this reply is already the
-    // person's. A shared client's is never read (it serves many builders; no person binding).
+    // person's. v3 Stage 1: this holds for a hosted client too (its token is one builder's), so the code is read.
     const { sign_in_code, ...unsigned } = (input ?? {}) as Record<string, unknown>;
     input = unsigned;
     let signInNote: string | null = null;
-    if (sign_in_code !== undefined && !ctx0.sharedClient) {
+    if (sign_in_code !== undefined) {
       const own = ctx0.ownInstallationId ?? ctx0.installationId;
       const b = await bindFromPaste(own, sign_in_code, new Date());
-      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own };
+      if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own, sharedClient: false };
       signInNote = b.ok ? SIGN_IN_NOTES.bound : SIGN_IN_NOTES.bad;
     }
     const reply = await findReply(input, ctx0);

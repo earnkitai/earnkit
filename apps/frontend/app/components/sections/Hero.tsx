@@ -1,111 +1,34 @@
-'use client';
+import InstallButton from '../common/InstallButton';
+import FeaturedCard from './FeaturedCard';
+import { BTN_PRIMARY } from '../common/Button';
+import { COLUMN, H1, LEDE } from '../common/Panel';
+import type { FeaturedData } from '../../../lib/earnkit/landing';
 
-import { useCallback, useEffect, useState } from 'react';
-import AddToAgent from './AddToAgent';
-import { BTN_PRIMARY, BTN_SECONDARY } from '../common/Button';
-
-/** v2.13 spec "Landing page" 1, R18: the hero's words. Shipping and funding; no coin, no community round. */
+/** v2.13 spec "Landing page" 1, R18, v3 Stage 3 (spec 5.6): the hero's words. Shipping and funding; no coin, no community round. */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';
-export const BENCH_HERO_SUBTITLE = 'Add EarnKit to your AI agent. It ranks what you ship on the leaderboard and finds grants that fit.';
+export const BENCH_HERO_SUBTITLE =
+  'Add EarnKit to the agent you already use. It writes your weekly ship log from real commits, ranks you against every builder, and routes you to grants, accelerators and backers.';
 
 /**
- * The title and subtitle, the install and demo buttons, one short stats line once there is
- * something to show, and (v2.9 E20) the "Builders using EarnKit won $X" line once an announced win
- * exists.
+ * v3 Stage 3 (spec 5.8): a statement and one real artifact. The title, the one line under it and the one
+ * primary action on the left; the featured builder's live profile preview (FeaturedCard, production data)
+ * on the right from md, under the words on a phone. No video, no second button, no stats line.
+ * Server-safe: the install button is the one client island.
  */
-export default function Hero({ statsLine = null, wonLine = null }: { statsLine?: string | null; wonLine?: string | null }) {
-  const [open, setOpen] = useState(false);
-  const [installOpen, setInstallOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
-  const closeInstall = useCallback(() => setInstallOpen(false), []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
-    window.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
-    };
-  }, [open, close]);
-
+export default function Hero({ featured }: { featured: FeaturedData | null }) {
   return (
-    <>
-      <div className="flex w-full flex-col items-center text-center">
-        <h1 className="max-w-[16ch] text-balance font-funnel-display text-[2.5rem] font-medium leading-[1.05] tracking-[-0.03em] text-ek-text sm:text-[3.5rem] md:text-[4.5rem]">
-          {BENCH_HERO_TITLE}
-        </h1>
-
-        <p className="mt-5 max-w-[42ch] text-balance font-funnel-sans text-lg text-ek-body md:text-xl">
-          {BENCH_HERO_SUBTITLE}
-        </p>
-
-        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
-          <button type="button" onClick={() => setInstallOpen(true)} className={BTN_PRIMARY}>
-            Add to your agent
-          </button>
-          <button type="button" onClick={() => setOpen(true)} className={BTN_SECONDARY}>
-            <svg
-              viewBox="0 0 24 24"
-              fill="currentColor"
-              className="h-4 w-4"
-              aria-hidden="true"
-            >
-              <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-            </svg>
-            Watch the demo
-          </button>
+    <section aria-label="EarnKit" className={`${COLUMN} pb-14 pt-12 md:pb-24 md:pt-24`}>
+      {/* Review round 1: with no card, the words take the whole column (no empty right half). */}
+      <div className={featured ? 'grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,25rem)] md:items-center lg:gap-20' : ''}>
+        <div>
+          <h1 className={`${H1} ${featured ? 'max-w-[16ch]' : ''}`}>{BENCH_HERO_TITLE}</h1>
+          <p className={LEDE}>{BENCH_HERO_SUBTITLE}</p>
+          <div className="mt-8 md:mt-10">
+            <InstallButton className={BTN_PRIMARY} />
+          </div>
         </div>
-
-        {statsLine && (
-          <p className="mt-6 font-funnel-sans text-sm text-ek-muted">{statsLine}</p>
-        )}
-        {/* v2.9 E20: only once an announced win with a prize exists (never "$0"). */}
-        {wonLine && (
-          <p className={`${statsLine ? 'mt-1' : 'mt-6'} font-funnel-sans text-sm text-ek-muted`}>{wonLine}</p>
-        )}
+        {featured ? <FeaturedCard {...featured} /> : null}
       </div>
-
-      {installOpen && <AddToAgent onClose={closeInstall} />}
-
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="EarnKit demo video"
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-ek-page/90 p-4 backdrop-blur-sm"
-          onClick={close}
-        >
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close video"
-            className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className="h-5 w-5"
-              aria-hidden="true"
-            >
-              <path d="m6 6 12 12M18 6 6 18" />
-            </svg>
-          </button>
-
-          <video
-            src="/videos/earnkit-launch.mp4"
-            controls
-            autoPlay
-            playsInline
-            className="max-h-[85vh] w-auto max-w-full rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      )}
-    </>
+    </section>
   );
 }

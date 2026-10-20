@@ -111,11 +111,12 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
 
 // ---- 3. The Bench header's counts
 
-test('v2.13.2 3: the Bench header says nobody, one builder, or many', () => {
-  assert.equal(benchLine(0), 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
-  assert.equal(benchLine(1), '1 builder this week. Ranked by Shipping points.');
-  assert.equal(benchLine(2), '2 builders this week. Ranked by Shipping points.');
-  assert.equal(benchLine(1200), '1,200 builders this week. Ranked by Shipping points.');
+test('v2.13.2 3, v3 Stage 3 wording: the Bench header says nobody (BenchView and BenchTop show BENCH_TOP_EMPTY at 0), one builder, or many', () => {
+  assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
+  assert.ok(page(0).includes(BENCH_TOP_EMPTY) && !page(0).includes('0 builders'));
+  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
+  assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
+  assert.equal(benchLine(1200), '1,200 builders. Ranked by Shipping.');
 });
 
 // ---- Fix round 1
@@ -152,7 +153,7 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 (globalThis as { React?: typeof React }).React = React;
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
-    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building' })),
     count, chips: [], filter: { chain, weekly: false },
   })).replace(/&#x27;/g, "'");
 
@@ -162,7 +163,7 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
   const filtered = page(5, 0, 'base');
   assert.ok(filtered.includes(BENCH_EMPTY));
-  assert.ok(filtered.includes('5 builders this week.'));
+  assert.ok(filtered.includes('5 builders. Ranked by Shipping.'));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });
 

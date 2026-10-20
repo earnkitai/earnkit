@@ -242,14 +242,14 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
   }),
 );
 
-test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 of 1 builder this week"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
+test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 of 1 builder"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
   on(async () => {
     const key = `${uniq('rk')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('rk'), ranked: true, score: 100, projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    assert.equal((await rankLines(id, { only: [id] })).bench, '#1 of 1 builder this week');
+    assert.equal((await rankLines(id, { only: [id] })).bench, '#1 of 1 builder');
     const r = await find(id, {}, NO_MATCH);
     // The stand line is the score line ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
-    assert.match(r.show_to_builder, /^Hello-World: Shipping 100 · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m, r.show_to_builder);
+    assert.match(r.show_to_builder, /^Hello-World: Shipping 100 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, r.show_to_builder);
     assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'no second link');
     // R8: the one next step is the statement "Ship this week to climb.": no question at all.
     assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 0, 'no question');
@@ -296,9 +296,9 @@ test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder wh
   assert.ok(html(React.createElement(BenchTop, { rows: [], count: 0 })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
   // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
-  assert.equal(benchLine(1), '1 builder this week. Ranked by Shipping points.');
-  assert.equal(benchLine(2), '2 builders this week. Ranked by Shipping points.');
-  const cards = html(React.createElement(ProgramCards, { tiles: [], bench: true }));
+  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
+  assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
+  const cards = html(React.createElement(ProgramCards, { tiles: [] }));
   assert.ok(cards.includes('Money open now'), cards);
   assert.ok(!cards.includes('Grants open now'));
 });

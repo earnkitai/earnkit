@@ -86,7 +86,7 @@ export async function enqueueClue(installationId: number, reason: 'wallet' | 'si
       SELECT p.builder_id AS root FROM installations i
       JOIN builder_profiles p ON p.builder_id = COALESCE(i.builder_id, i.id)
       WHERE i.id = ${installationId}
-        AND NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = p.builder_id AND s.shared_client)`;
+        AND NOT EXISTS (SELECT 1 FROM installations s WHERE COALESCE(s.builder_id, s.id) = p.builder_id AND s.shared_client AND s.x_user_id IS NULL)`;
     if (!p) return false;
     await enqueueDiscovery(p.root, reason);
     return true;
@@ -337,7 +337,7 @@ export async function discover(
   const out: Counts = { people: 0, proposed: 0, verified: 0 };
   for (const { builder_id: root } of queue) {
     if (Date.now() >= o.deadline) break;
-    const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
+    const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client AND x_user_id IS NULL) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
     if (g?.shared) {
       await db`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${root}`;
       continue;
@@ -366,7 +366,7 @@ export async function discover(
 export async function discoverPerson(root: number, o: DiscoverOpts): Promise<Counts> {
   const db = sql();
   const out: Counts = { people: 0, proposed: 0, verified: 0 };
-  const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
+  const [g] = await db<{ shared: boolean | null }[]>`SELECT bool_or(shared_client AND x_user_id IS NULL) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${root}`;
   if (g?.shared) return out;
   await discoverOne(root, o, out);
   // A person never queued gets a done row too, so the refresh can tell when discovery last ran.

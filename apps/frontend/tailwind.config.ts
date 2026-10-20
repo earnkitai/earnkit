@@ -9,14 +9,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        /* Brand palette (DESIGN.md): the primary blue, its soft tint, and the coin/win accent. */
-        'ek-blue-bright': '#579DFF',
-        'ek-blue-soft': '#A3C5FE',
-        'ek-score-orange': '#FF7A1A',
-
         /*
-         * R18: the page tokens every page uses (lib/earnkit/theme.ts THEME, as the --ek-p-* variables
-         * in globals.css). Page, card surface, raised spot, hairline, and the three text roles.
+         * v3 (spec 5.8): every colour is a page token (lib/earnkit/theme.ts THEME, as the --ek-p-*
+         * variables in globals.css). No raw hex here: the mirror is globals.css. Page, flat surface,
+         * raised spot, hairlines, the three text roles, the one accent and the brand fill.
          */
         'ek-page': 'var(--ek-p-page)',
         'ek-surface': 'var(--ek-p-surface)',
@@ -26,10 +22,15 @@ export default {
         'ek-chip-hover': 'var(--ek-p-chip-hover)',
         'ek-line': 'var(--ek-p-border)',
         'ek-line-strong': 'var(--ek-p-border-strong)',
+        'ek-track': 'var(--ek-p-track)',
         'ek-text': 'var(--ek-p-text)',
         'ek-body': 'var(--ek-p-body)',
         'ek-muted': 'var(--ek-p-muted)',
+        /* The one accent: blue text (links, the won line, the Backing pill) and the brand fill's hover. */
         'ek-accent': 'var(--ek-p-accent)',
+        /* Base blue: fills only (the primary button, dots, selection). Text on it is ek-text. */
+        'ek-brand': 'var(--ek-p-brand)',
+        'ek-brand-hover': 'var(--ek-p-accent)',
         'ek-glass': 'var(--ek-p-glass)',
       },
       fontFamily: {

@@ -49,12 +49,12 @@ function codeFor(clientId: string, extra: Record<string, string> = {}) {
   return url;
 }
 
-const tokenForm = (clientId: string, code: string, v = verifier) =>
+const tokenForm = (clientId: string, code: string, v = verifier, uri = redirect) =>
   new URLSearchParams({
     grant_type: 'authorization_code',
     client_id: clientId,
     code,
-    redirect_uri: redirect,
+    redirect_uri: uri,
     code_verifier: v,
   });
 
@@ -223,10 +223,21 @@ test('v2.4: a new client id carries a nonce of at least 128 random bits', () => 
   assert.ok(Buffer.from(payload.n, 'base64url').length >= 16);
 });
 
-test('v2.4: re-authorizing the same client keeps its client key (one installation); the token is new', () => {
+test('v3 Stage 1: a hosted registration has no client key (one installation per token)', () => {
   const { client_id } = registerClient({ redirect_uris: [redirect] });
   const first = exchangeCode(tokenForm(client_id, codeOf(client_id)));
   const second = exchangeCode(tokenForm(client_id, codeOf(client_id)));
+  assert.equal(first.shared, true);
+  assert.equal(first.clientKey, undefined);
+  assert.equal(second.clientKey, undefined);
+});
+
+test('v2.4: re-authorizing the same client keeps its client key (one installation); the token is new', () => {
+  const own = 'http://127.0.0.1:33418/callback';
+  const { client_id } = registerClient({ redirect_uris: [own] });
+  const codeOf = (id: string) => codeFor(id, { redirect_uri: own }).searchParams.get('code')!;
+  const first = exchangeCode(tokenForm(client_id, codeOf(client_id), verifier, own));
+  const second = exchangeCode(tokenForm(client_id, codeOf(client_id), verifier, own));
   assert.notEqual(first.token, second.token);
   assert.equal(first.clientKey, second.clientKey);
   assert.equal(first.clientKey, clientKeyOf(client_id));

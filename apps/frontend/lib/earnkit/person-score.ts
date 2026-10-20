@@ -514,8 +514,7 @@ export const benchPool = (only?: number[]) => {
 
 /**
  * Where the person stands: their public live score and rank on the Bench (benchPool, the leaderboard's
- * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "M builders
- * this week"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
+ * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "of M builders"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
  * reply still has a place; `listed` says whether they are in it (a public rank shows only then: bench-rank rankLines).
  */
 export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null; listed: boolean }> {
@@ -544,7 +543,7 @@ export async function standingOf(id: number, o: { only?: number[] } = {}): Promi
 export async function refreshPerson(id: number, o: { now: Date; deadline: number; reader?: ReaderDeps; minAgeMs?: number }): Promise<{ refreshed: boolean }> {
   let claimed = false;
   try {
-    const [g] = await sql()<{ shared: boolean | null }[]>`SELECT bool_or(shared_client) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${id}`;
+    const [g] = await sql()<{ shared: boolean | null }[]>`SELECT bool_or(shared_client AND x_user_id IS NULL) AS shared FROM installations WHERE COALESCE(builder_id, id) = ${id}`;
     if (g?.shared) return { refreshed: false };
     const rows = await sql()`
       INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
@@ -793,7 +792,7 @@ export async function scorePeopleV2(now: Date, o: { deadline: number; only?: num
   const day = now.toISOString().slice(0, 10);
   const due = await db<{ builder_id: number }[]>`
     SELECT p.builder_id FROM builder_profiles p LEFT JOIN builder_live l USING (builder_id)
-    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)
       -- Scoring and clarity: a live row of an older calibration is rescored at once (the deploy's catch-up).
       AND (l.calibration <> ${LIVE_CALIBRATION_V2}
         OR NOT EXISTS (SELECT 1 FROM builder_scores s WHERE s.builder_id = p.builder_id AND s.day = ${day})

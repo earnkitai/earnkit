@@ -36,11 +36,13 @@ after(async () => {
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
 
-test('11.1 the header: photo, name, @handle, pill, the score line (R16c) then each chain line with its logo', () => {
+test('11.1 the header: photo, name, @handle, the score line (R16c) then each chain line with its logo; the pill on the Money tab (v3 Stage 3)', () => {
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Shipping 62 · Top 4% of builders this week', 'Top 4%', 'of builders this week', 'Top 1% of builders on Base this week']) assert.ok(h.includes(s), s);
+  for (const s of ['Maya Chen', '@maya_makes', 'Shipping 62 · Top 4% of builders', 'Top 4%', 'of builders', 'Top 1% of builders on Base']) assert.ok(h.includes(s), s);
   assert.ok(h.indexOf('Top 4%') < h.indexOf('Top 1% of builders on Base'));
   assert.match(h, /alt="Base"/);
+  // v3 Stage 3 (spec 5.6): the header carries Share and the Back button; the coin's pill sits in the Money tab's Backing group.
+  assert.ok(html(React.createElement(BenchProfileView, { data: DATA, tab: 'money' })).includes('Backing · $RECIPE'));
 });
 
 test('11.2 one Shipping ring (no per-part rings) with the why sentence and the weekly target; the grid has 52 squares and the streak beside it', () => {
@@ -77,6 +79,9 @@ test('11.4 the Project tab: name, what, links, chains, the coin, programs entere
     assert.ok(h.includes(s), s);
   assert.doesNotMatch(h, /people use it| earned/);
   assert.match(h, /aria-current="page"[^>]*>Project/);
+  // Final review: "Won" is text weight, never the accent (it would read as a link).
+  assert.match(h, /<li class="[^"]*font-medium text-ek-text[^"]*">Won Base Builder Grants</);
+  assert.doesNotMatch(h, /text-ek-accent[^"]*">Won/);
 });
 
 test('11.5 the photo falls back to the initials when it fails to load', async () => {
@@ -124,7 +129,7 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
   // Launch ready L5: the weekly target (alone in the pool: hold #1).
   assert.equal(d.target, 'Code this week adds +14 points to hold #1.');
-  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder this week');
+  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder');
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
   assert.equal(d.grid.filter((g) => g.on).length, 2);
@@ -192,7 +197,7 @@ test('11.9 the grid titles each square with its week\'s Monday (week keys go thr
 });
 
 test('11.10 a new profile: no ring without a rank line, no raising, no chain lines; the Project tab without a project says so', () => {
-  const fresh: ProfileData = { ...DATA, raising: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
+  const fresh: ProfileData = { ...DATA, backing: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
   const h = html(React.createElement(BenchProfileView, { data: fresh, tab: 'log' }));
   assert.doesNotMatch(h, /Shipping \d+ of 100/);
   assert.doesNotMatch(h, /Raising|Community round/);
@@ -213,7 +218,7 @@ test('11.12 scoring and clarity: no Community round chip on any card (the header
 
 test('11.14 (fix round 1) the share post\'s words: the Bench line, else the confirmed project and streak, else the page', async () => {
   const { benchShareText } = await import('./bench-data');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders this week', project: 'Recipe planner', streak: 6 }), 'Shipping 62 · Top 4% of builders this week at EarnKit.');
+  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: 'Recipe planner', streak: 6 }), 'Shipping 62 · Top 4% of builders at EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), 'Shipping Recipe planner, 6 weeks in a row, on EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 0 }), 'Shipping Recipe planner on EarnKit.');
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');
@@ -241,7 +246,7 @@ test('11.17 (v2.13.1 O3) logCards: a week with only the start keeps its Started 
     { week: '2026-10-05', text: null, facts: { started: { live: false, weeks: 0, people: 0 } } },
   ], 'Recipe planner');
   assert.deepEqual(cards, [
-    { week: '2026-10-12', text: 'Shipped the parser.', chips: ['3 commits'] },
+    { week: '2026-10-12', text: 'Shipped the parser.', confirmed: false, chips: ['3 commits'] },
     { week: '2026-10-05', text: null, chips: [], started: 'Started tracking Recipe planner.' },
   ]);
   // Never two cards under one week heading.
@@ -295,7 +300,8 @@ test('L10 the UX pass on the page: a private repo is never named in the sentence
   assert.doesNotMatch(BENCH_SOURCES_LINE, /public data/, 'the App reads private repos too');
   const ranked = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
   assert.ok(ranked.includes(VISITOR_CTA) && ranked.includes('Add to your agent'), 'the visitor CTA');
-  assert.ok(ranked.includes('Add the badge to your README'), 'a ranked page offers the badge');
+  // v3 Stage 3: one collapsed line, the badge image always shown.
+  assert.ok(ranked.includes('Badge for your README') && ranked.includes('src="/badge/maya_makes.svg"'), 'a ranked page offers the badge');
   const none: ProfileData = { ...DATA, bench: null, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0, grid: DATA.grid.map((g) => ({ ...g, on: false })) };
   const h = html(React.createElement(BenchProfileView, { data: none, tab: 'log' }));
   assert.ok(h.includes(noProjectLine(DATA.name)), h);

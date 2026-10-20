@@ -24,6 +24,12 @@ export { endsOf } from './entry-text';
  */
 export type Card = {
   id: string;
+  /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Not open yet), never open. Absent: active. */
+  status?: 'active' | 'closed' | 'upcoming';
+  /** v3 Stage 2: when and how an upcoming program opens, or null. */
+  opens_note?: string | null;
+  /** v3 Stage 2: attended in person (the card's "In person" chip). */
+  in_person?: boolean;
   title: string;
   summary: string;
   tag: string | null;
@@ -365,8 +371,26 @@ export const byDeadline = (a: Pick<Card, 'id' | 'max_award_usd' | 'ends_at'>, b:
 };
 
 /**
+ * v3 Stage 2 (Base first): the program list's order (landing and /programs tiles, and the one upcoming
+ * line): open before upcoming; then Base programs (chains include 'base'), then programs open to any
+ * chain, then the rest; within each, grants before investments; then the sooner deadline (rolling
+ * last); then the bigger known per-winner award; then the id (stable). Pure.
+ */
+export const byRelevance = (
+  a: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>,
+  b: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>,
+) => {
+  const later = (c: typeof a) => Number(c.status === 'upcoming');
+  // v3 Stage 2 final review: Base itself first, any chain second, every other chain after.
+  const reach = (c: typeof a) => ((c.chains ?? []).includes('base') ? 0 : c.any_chain === true ? 1 : 2);
+  const inv = (c: typeof a) => Number(c.investment === true);
+  const at = (c: typeof a) => (c.ends_at ? new Date(c.ends_at).getTime() : 8.64e15);
+  return later(a) - later(b) || reach(a) - reach(b) || inv(a) - inv(b) || at(a) - at(b) || (b.max_award_usd ?? -1) - (a.max_award_usd ?? -1) || a.id.localeCompare(b.id);
+};
+
+/**
  * v2.8 Ruling C4: Easy programs first (the lazy builder wants the easiest money), for the agent's
- * tables only; the landing carousel keeps byPool. Pure.
+ * tables only; the landing and /programs use byRelevance. Pure.
  */
 export const byEase = (a: Pick<Card, 'difficulty'>, b: Pick<Card, 'difficulty'>) =>
   Number(b.difficulty?.level === 'Easy') - Number(a.difficulty?.level === 'Easy');
@@ -548,7 +572,13 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-export const qualifies = (r: Fit) => r.odds === 'good' && !r.card.investment && !r.v.missing.includes('new_work');
+export const qualifies = (r: Fit) => canApply(r) && !r.card.investment;
+/**
+ * v3 Stage 2 final review: a matched row the builder could apply to from the ship log: good odds and never a
+ * program that counts only new work when the repo is existing work. An investment (an accelerator) can be
+ * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money and the fit lines. Pure.
+ */
+export const canApply = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work');
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
@@ -724,8 +754,12 @@ export function usersAskLine(a: NonNullable<ReturnType<typeof usersAsk>>): strin
 export function freshLead(given: FirstMessage): (FreshPick & { canBuild: boolean }) | undefined {
   const on = given.fresh;
   if (!on || given.more || given.holdQuestion) return undefined;
+  // v3 Stage 2: an upcoming program is never in an open table or the offer (tools.ts leaves it out too).
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
-  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const m: FirstMessage =
+    hidden.size || given.cards.some((c) => c.status === 'upcoming')
+      ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id) && c.status !== 'upcoming') }
+      : given;
   // Review M1: a repo read error or a repo EarnKit can't see may still fit; never lead past it.
   if (m.repos && ('error' in m.repos || m.repos.unseen?.length)) return undefined;
   const entered = enteredIds(m);
@@ -752,8 +786,12 @@ export function presentFirstMessage(given: FirstMessage): string {
   const done = () => withWonLine(sections, bodyStart, given.wonUsd).join('\n\n');
   // v2.9 A3: a program the builder is not interested in, or applied to outside EarnKit, leaves
   // every table and the offer.
+  // v3 Stage 2: an upcoming program is never in an open table or the offer (tools.ts leaves it out too).
   const hidden = new Set([...(given.hidden?.notInterested ?? []), ...(given.hidden?.applied ?? [])]);
-  const m: FirstMessage = hidden.size ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id)) } : given;
+  const m: FirstMessage =
+    hidden.size || given.cards.some((c) => c.status === 'upcoming')
+      ? { ...given, cards: given.cards.filter((c) => !hidden.has(c.id) && c.status !== 'upcoming') }
+      : given;
   // Only open EarnKit campaigns get a table (Campaign #1 is closed: none).
   const campaigns = m.campaigns.filter((r) => r.open).sort(byCampaignPrize);
   if (campaigns.length === 0 && m.cards.length === 0) {

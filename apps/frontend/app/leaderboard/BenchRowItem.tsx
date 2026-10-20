@@ -2,36 +2,42 @@ import Link from 'next/link';
 import ChainLogo from '../components/ui/ChainLogo';
 import RaisingPill from '../components/ui/RaisingPill';
 import Avatar from '../[handle]/Avatar';
+import { NUM } from '../components/common/Panel';
 import type { BenchRow } from '../../lib/earnkit/bench-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 
 /**
- * v2.13: one builder on the leaderboard (the /leaderboard page and the landing's top 10): photo, name and @handle
- * (linking their page, the whole row is the hit area, at least 44px), the pill and chain logos, the project and its
- * best fact, then the Shipping points (R17) and the rank. R18 fix 1 (supersedes R6 for rows): the rank is "#N"
- * alone; the page's header line says what it is out of, and the full rank line is read to screen readers.
- * Final follow-ups 4: the points and rank columns have fixed widths (tabular digits), so they line up at any rank (#1 to #100).
- * R11: names are never cut; long ones wrap at spaces (a single over-long word breaks only when it must).
+ * v2.13, v3 Stage 3 (spec 5.8): one builder on the leaderboard (the /leaderboard page and the landing's top 10), a
+ * hairline row: the rank ("#N" in Display 24px; R18 fix 1: the full rank line is read to screen readers), the photo
+ * with the name (its link is the whole row's hit area, at least 44px) and the @handle, chain logos and the Backing
+ * pill under it, the project with its best fact under it (two lines, no dotted pair), then the Shipping number (R17).
+ * From md the four columns sit on one line (3rem | 1fr | 1fr | 5rem); on a phone the project and fact drop to a
+ * second line under the name (the rank column is 3rem there too, so "#100" fits). R11: names are never cut; long ones wrap at spaces.
  */
 export default function BenchRowItem({ r }: { r: BenchRow }) {
+  const handleShown = r.name !== `@${r.handle}`;
   return (
     <li
       data-row={r.handle}
-      className="relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)_3.25rem_3rem] items-center gap-x-3 border-t border-ek-line py-4 transition-colors first:border-t-0 hover:bg-ek-chip md:gap-x-5 md:rounded-2xl md:border-t-0 md:px-4 md:py-3"
+      className="relative grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-t border-ek-line py-4 md:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5rem] md:gap-x-6 md:py-5"
     >
-      <Avatar src={r.avatar} handle={r.handle} className="h-11 w-11 text-base" />
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+      {/* On a phone the row is two lines: the rank and the number sit on the first, level with the photo. */}
+      <span data-rank="" className="mt-2.5 self-start md:mt-0 md:self-center">
+        <span aria-hidden="true" className={`${NUM} text-2xl font-medium leading-none text-ek-text`}>#{r.rank}</span>
+        <span className="sr-only">{r.line ?? `#${r.rank}`}</span>
+      </span>
+      <div className="flex min-w-0 items-center gap-3">
+        <Avatar src={r.avatar} handle={r.handle} className="h-11 w-11 text-base" />
+        <div className="min-w-0">
           <Link
             href={pagePath(r.handle)}
-            className="min-w-0 max-w-full font-funnel-display text-base font-medium text-ek-text [overflow-wrap:break-word] after:absolute after:inset-0 after:content-[''] hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:after:rounded-2xl focus-visible:after:ring-2 focus-visible:after:ring-ek-blue-soft md:text-lg"
+            className="block min-w-0 font-funnel-display text-base font-medium leading-tight text-ek-text [overflow-wrap:break-word] after:absolute after:inset-0 after:content-[''] hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-ek-accent md:text-lg"
           >
             {r.name}
           </Link>
-          {/* Phone: the @handle and chain logos on their own line; beside the name from sm (launch ready L10: one line, not two). */}
-          {(r.name !== `@${r.handle}` || r.chains.length > 0) && (
-            <span className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-              {r.name !== `@${r.handle}` && <span className="min-w-0 font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word]">@{r.handle}</span>}
+          {(handleShown || r.chains.length > 0 || r.backing) && (
+            <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-funnel-sans text-sm text-ek-muted">
+              {handleShown && <span className="min-w-0 [overflow-wrap:break-word]">@{r.handle}</span>}
               {r.chains.length > 0 && (
                 // Above the row's link, so each logo's tooltip shows.
                 <span className="relative z-10 inline-flex shrink-0 items-center gap-1">
@@ -40,29 +46,22 @@ export default function BenchRowItem({ r }: { r: BenchRow }) {
                   ))}
                 </span>
               )}
-            </span>
-          )}
-          {r.raising && (
-            <span className="relative z-10">
-              <RaisingPill symbol={r.raising.symbol} url={r.raising.url} size="sm" />
-            </span>
+              {r.backing && (
+                <span className="relative z-10">
+                  <RaisingPill symbol={r.backing.symbol} url={r.backing.url} size="sm" />
+                </span>
+              )}
+            </p>
           )}
         </div>
-        {/* The project and its best fact on one line (wrapping at spaces). R11: never cut, long names wrap. */}
-        <p className="mt-1 font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word]">
-          <span className="text-ek-body">{r.project}</span>
-          <span aria-hidden="true" className="px-1.5 text-ek-muted">·</span>
-          <span>{r.best}</span>
-        </p>
       </div>
-      {/* R17: the Shipping points, one compact column. */}
-      <span data-points="" className="flex flex-col items-end text-right">
-        <span className="font-funnel-display text-lg leading-none text-ek-text tabular-nums">{r.points}</span>
-        <span className="mt-1 font-funnel-sans text-xs text-ek-muted">Shipping</span>
-      </span>
-      <span data-rank="" className="flex flex-col items-end text-right">
-        <span aria-hidden="true" className="whitespace-nowrap font-funnel-display text-lg leading-none text-ek-text tabular-nums">#{r.rank}</span>
-        <span className="sr-only">{r.line ?? `#${r.rank}`}</span>
+      <div className="col-start-2 min-w-0 md:col-start-3 md:row-start-1">
+        <p className="font-funnel-sans text-base leading-snug text-ek-body [overflow-wrap:break-word]">{r.project}</p>
+        <p className="font-funnel-sans text-sm text-ek-muted [overflow-wrap:break-word]">{r.best}</p>
+      </div>
+      <span data-points="" className="col-start-3 row-start-1 mt-2.5 self-start text-right md:col-start-4 md:mt-0 md:self-center">
+        <span className={`${NUM} text-2xl font-medium leading-none text-ek-text`}>{r.points}</span>
+        <span className="sr-only">Shipping</span>
       </span>
     </li>
   );

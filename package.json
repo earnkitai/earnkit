@@ -26,6 +26,7 @@
     "programs:sync": "tsx apps/frontend/scripts/programs-sync.mts",
     "predeploy": "pnpm db:migrate && pnpm programs:sync",
     "programs:check": "tsx apps/frontend/scripts/programs-sync.mts --check",
+    "feed:rank": "tsx apps/frontend/scripts/feed.mts rank",
     "feed:pin": "tsx apps/frontend/scripts/feed.mts pin",
     "feed:summaries": "tsx apps/frontend/scripts/feed-summaries.mts",
     "feed:hide": "tsx apps/frontend/scripts/feed.mts hide",

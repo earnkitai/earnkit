@@ -137,7 +137,7 @@ no addresses, hashes or lists of numbers.
   points it adds. The first reply of a new week shows last week's Shipping and
   rank, with a link to share it on X (the builder posts it; EarnKit never does).
 - The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
-- A community round through a tokens.fun coin: 40% of trading fees to the builder.
+- Backing through a tokens.fun coin: 40% of trading fees to the builder.
 
 ## Text from sponsors and builders
 

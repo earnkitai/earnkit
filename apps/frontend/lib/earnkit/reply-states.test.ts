@@ -9,7 +9,7 @@ process.env.EARNKIT_URL = 'https://earnkit.com';
 const P: BenchProject = { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 3 };
 const fund = [{ kind: 'needs' as const, title: 'Base Builder Grants', prize: 'up to $5K', needs: 'for a Base app' }];
 const view = (v: Partial<BenchView>): BenchView => {
-  const base: BenchView = { state: 'ranked', variant: null, project: P, rank: '#1 of 1 builder this week', score: 14, originality: null, why: 'Code in 1 of the last 12 weeks, 1 of the last 4.', target: null, share: null, handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
+  const base: BenchView = { state: 'ranked', variant: null, project: P, rank: '#1 of 1 builder', score: 14, originality: null, why: 'Code in 1 of the last 12 weeks, 1 of the last 4.', target: null, share: null, handle: 'maya_makes', link: null, fund, due: [], ask: { kind: 'suggest', project_key: P.key, line: 'Want me to suggest one small thing to ship in Recipes this week?' }, held: null, ...v };
   return { ...base, ask: stateAsk(base) };
 };
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
@@ -52,7 +52,7 @@ test('9.2 the four replies, word for word', () => {
   const ranked = benchReply(view({ state: 'ranked', fund: fits }));
   assert.equal(ranked, [
     'Where you stand',
-    'Recipes: Shipping 14 · #1 of 1 builder this week.',
+    'Recipes: Shipping 14 · #1 of 1 builder.',
     'Code in 1 of the last 12 weeks, 1 of the last 4.',
     'Your page: https://earnkit.com/maya_makes', '',
     'Ways to get funded', 'Base Builder Grants: up to $5K, rolling. You deployed on Base and your app is live.', '',
@@ -99,7 +99,7 @@ test('9.6 R8: the ranked next step is always "Ship this week to climb." (never a
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.stand(), STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x'), STATE_COPY.not_counted.stand('A'),
-    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.ranked.stand('A', 10, '#1 of 2 builders this week'), STATE_COPY.ranked.ask(),
+    STATE_COPY.not_counted.ask('https://x'), STATE_COPY.ranked.stand('A', 10, '#1 of 2 builders'), STATE_COPY.ranked.ask(),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];
   for (const l of lines) {

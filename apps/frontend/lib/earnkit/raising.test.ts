@@ -37,11 +37,12 @@ const confirm = async (id: number, key: string) => {
     VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
 };
 
-test('9.1 the raise line names the coin before the yes, as the spec writes it; the wallet is shown when known (B13)', () => {
-  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
+test('9.1 the offer line names the coin before the yes (v3 Stage 2: the backing offer); the wallet is shown when known (B13)', () => {
+  assert.equal(raiseLine('Recipe planner', 'RECIPE', null),
+    'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
   assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-    "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees, paid to 0x12ab…9f3e. Want to open a community round for Recipe planner?");
-  assert.equal(showRaisingLine('RECIPE'), 'Want to show your community round with $RECIPE on your page?');
+    'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees, paid to 0x12ab…9f3e. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+  assert.equal(showRaisingLine('RECIPE'), 'Want your page to show backing for $RECIPE?');
 });
 
 test('9.2 a coin launched before v2.13 does not show the pill until the builder says yes; stop raising removes it, the coin stays', dbTest, async () => {

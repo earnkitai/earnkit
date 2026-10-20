@@ -4,7 +4,6 @@ import { X_ICON, brandShell } from './brand-page';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { noteEvent } from './events';
-import { sharedGroup } from './installations';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { SIGNIN_TEXT, attachToX, newSignin, signinPage } from './x-install';
 import type { XUser } from './x-oauth';
@@ -59,12 +58,12 @@ export function agoText(at: Date, now: Date = new Date()): string {
   return `${n} ${unit}${n === 1 ? '' : 's'} ago`;
 }
 
-/** The installation's sign-in link: null when X is off, it serves many (a shared group) or it is already bound. */
+/** The installation's sign-in link: null when X is off or it is already bound. v3 Stage 1: an anonymous hosted installation gets one too (each hosted user holds their own token). */
 export async function signInLink(own: number, now: Date): Promise<string | null> {
   const secret = process.env.EARNKIT_AUTH_SECRET;
-  if (!secret || !xSignInEnabled() || (await sharedGroup(own))) return null;
-  const [i] = await sql()<{ x: string | null; shared: boolean }[]>`SELECT x_user_id AS x, shared_client AS shared FROM installations WHERE id = ${own}`;
-  if (!i || i.x || i.shared) return null;
+  if (!secret || !xSignInEnabled()) return null;
+  const [i] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM installations WHERE id = ${own}`;
+  if (!i || i.x) return null;
   // As github-verify.ts createVerifyLink: the code is HMAC(secret, seed), so an open link (unused, no sign-in on
   // it yet, an hour or more left) is shown again while the database never holds a usable code.
   const codeOf = (seed: string) => createHmac('sha256', secret).update(`signin:v1:${seed}`).digest().subarray(0, 16).toString('base64url');
@@ -100,7 +99,7 @@ export async function signinGet(request: Request, code: string, deps: { limit?: 
   const [row] = await sql()<{ installation_id: number; name: string | null; at: Date }[]>`
     SELECT l.installation_id, i.client_name AS name, i.created_at AS at FROM x_signin_links l JOIN installations i ON i.id = l.installation_id
     WHERE l.link_hash = ${sha256(code)} AND l.used_at IS NULL AND l.x_user_id IS NULL AND l.expires_at > now()
-      AND i.x_user_id IS NULL AND NOT i.shared_client`;
+      AND i.x_user_id IS NULL`;
   if (!row) return signinPage(LINK_TEXT.gone, 410);
   const { to, cookie } = await newSignin({ purpose: 'link', installationId: row.installation_id, linkHash: sha256(code) });
   const body = brandShell(

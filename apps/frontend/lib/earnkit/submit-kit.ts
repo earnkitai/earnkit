@@ -82,7 +82,8 @@ export type KitProgram = Pick<ProgramRow, 'submission_url' | 'submission_require
  * email step, the application continues on a16z's site." Null for every other program. Pure.
  */
 export function continuesLine(p: Pick<KitProgram, 'investment' | 'organizer' | 'submission_requirements'>): string | null {
-  if (!p.investment) return null;
+  // v3 Stage 2: an upcoming program has no form steps yet, so nothing continues.
+  if (!p.investment || p.submission_requirements.length === 0) return null;
   const org = p.organizer?.replace(/\s*\([^)]*\)\s*/g, ' ').trim();
   const steps = p.submission_requirements.filter((r) => r.required);
   const step = steps.length === 1 ? `the ${steps[0].label.trim().replace(/[?:.]+$/, '').toLowerCase()} step` : 'these steps';

@@ -4,6 +4,7 @@ import { poolChanged } from './profile-cache';
 import { benchConfirmedSql } from './main-project';
 import { weekCounts } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
+import { awardWeekPoints, type ApproveVia } from './points';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
@@ -29,7 +30,11 @@ export type WeekFacts = {
    * newest 100 commits) is redone once.
    */
   reader?: number;
+  /** The builder's yes at the weekly moment (weekly-moment.ts approveWeek); a week without it reads UNCONFIRMED_LABEL. */
+  approved?: boolean; approved_at?: string; approved_via?: string;
 };
+/** The terms' promise: an unconfirmed week is shown, marked this. Lives in update-links.ts so the card (a client component) never imports this server module. */
+export { UNCONFIRMED_LABEL } from './update-links';
 export const WEEKLY_HOUR_UTC = 15;
 export const WEEKLY_PER_RUN = 200;
 const DAY = 86_400_000;
@@ -56,6 +61,20 @@ export function startedChips(s: NonNullable<WeekFacts['started']>): string[] {
 }
 /** A fact is shipped code, going live or a win; a streak, people, money, the start or the check alone is not. Pure. */
 export const hasFacts = (f: WeekFacts): boolean => Boolean((f.shipped_code?.n ?? 0) > 0 || f.went_live || (f.won?.length ?? 0) > 0);
+
+/**
+ * The progress points of one week's facts (a start is not progress). R16b: shipping facts only (went live,
+ * a win, commits, the streak); an old row's people and money count nothing. Ties go to the builder's
+ * Shipping score (feedRows). Pure.
+ */
+export function pointsOf(f: WeekFacts): number {
+  let p = 0;
+  if (f.went_live) p += 40;
+  if ((f.won?.length ?? 0) > 0) p += 40;
+  if (f.shipped_code && f.shipped_code.n > 0) p += 10;
+  if (f.streak && f.streak.w > 0) p += Math.min(10, f.streak.w);
+  return Math.round(p);
+}
 
 /**
  * The one reading the ship log reads for a repo source `s` (a LATERAL subquery): the newest good one, live or daily,
@@ -119,7 +138,8 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
 /**
  * The week's row for the project: facts merged in, text, pins and hides kept; v2.14 spec 3: the week's
  * titles (ship-titles.ts) replace the stored ones only when there are some. Another builder's row is left
- * alone. True when a row was written.
+ * alone. True when a row was written. v3 final review: an approved row that now has facts and no points row earns its
+ * points (awardWeekPoints, via its approved_via).
  */
 export async function upsertWeekFacts(builderId: number, projectKey: string, monday: string, f: WeekFacts, titles: string[] = [], summary: string | null = null): Promise<boolean> {
   const wrote = await sql()`
@@ -127,7 +147,23 @@ export async function upsertWeekFacts(builderId: number, projectKey: string, mon
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts,
       titles = CASE WHEN cardinality(EXCLUDED.titles) > 0 THEN EXCLUDED.titles ELSE project_updates.titles END,
       summary = COALESCE(EXCLUDED.summary, project_updates.summary)
-    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
+    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING id::int AS id, facts, points::int AS points`;
+  // v3: the points are written with the week (the feed shows points > 0), not left to the daily rank step.
+  const row = wrote[0] as { id: number; facts: WeekFacts; points: number } | undefined;
+  if (row) {
+    const p = hasFacts(row.facts) ? pointsOf(row.facts) : 0;
+    if (p !== row.points) await sql()`UPDATE project_updates SET points = ${p} WHERE id = ${row.id}`;
+    // v3 final review: a week approved before its facts arrived earns its points now, once (awardWeekPoints is one row a week).
+    if (row.facts.approved && hasFacts(row.facts)) {
+      const [had] = await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${builderId} AND week = ${monday}`;
+      if (!had) {
+        const v = row.facts.approved_via;
+        const via: ApproveVia = v === 'connect' || v === 'email' ? v : 'share';
+        await awardWeekPoints(builderId, monday, via, new Date())
+          .catch((err: unknown) => console.error('[points] retro award', err instanceof Error ? err.name : 'error'));
+      }
+    }
+  }
   return wrote.length > 0;
 }
 
@@ -238,7 +274,7 @@ export async function weeklyFactsStep(now: Date, o: { deadline: number; only?: n
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
-    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)
       -- Per (project_key, week), any builder: done once checked, and never due while another builder's
       -- row holds the week (checked or not, e.g. Started only). By ruling the first confirmed owner of a
       -- shared repo keeps the ship log; a later owner (whose upsert writes nothing) must never be due
@@ -331,7 +367,7 @@ export async function backfillOnConnect(builderId: number, repoKey: string, now:
     SELECT b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
     WHERE p.builder_id = ${builderId} AND lower(b.project_key) = ${repoKey.toLowerCase()}
-      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)`;
+      AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)`;
   if (!p) return { rows: 0, done: false };
   return backfillWeeks({ id: builderId, key: p.key }, now, o);
 }
@@ -351,7 +387,7 @@ export async function backfillStep(now: Date, o: { deadline: number; only?: numb
   const due = await db<{ id: number; key: string }[]>`
     SELECT p.builder_id AS id, b.project_key AS key FROM builder_profiles p
     JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
-    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client)
+    WHERE NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.shared_client AND i.x_user_id IS NULL)
       -- App-proven, with a good reading (readingOf's) whose push check passed.
       AND EXISTS (SELECT 1 FROM builder_sources s
         JOIN LATERAL ${shipReading(db)} x ON true

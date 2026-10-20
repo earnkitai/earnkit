@@ -378,7 +378,7 @@ test('O9 shown: the profile and the score reply carry "Originality N" once compu
   await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed: fakeEmbed() });
   const n = (await rowOf(k))!.originality!;
   const text = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(text, new RegExp(`^Kiln: Shipping \\d+ · .+ this week\\. Originality ${n}\\.$`, 'm'), text);
+  assert.match(text, new RegExp(`^Kiln: Shipping \\d+ · .+ builders?\\. Originality ${n}\\.$`, 'm'), text);
   assert.equal((await profileData(p.id, new Date()))!.originality, n);
 });
 

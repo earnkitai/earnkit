@@ -5,7 +5,7 @@ import { listedRanked } from './person-score';
 import { PRIVATE_NAME, avatarUrl, displayName, norm, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
-import { factChips, hasFacts, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
+import { factChips, hasFacts, pointsOf, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
 import { lastFinishedMonday, weekLabel } from './weeks';
 
 /** v2.13 spec "The feed (R7)": progress points, the daily rank, the feed's weeks and the carousel. */
@@ -15,23 +15,11 @@ export const CAROUSEL_MAX = 12;
 const DAY = 86_400_000;
 const ymd = (t: number) => new Date(t).toISOString().slice(0, 10);
 
-/**
- * The progress points of one week's facts (a start is not progress). R16b: shipping facts only (went live,
- * a win, commits, the streak); an old row's people and money count nothing. Ties go to the builder's
- * Shipping score (feedRows). Pure.
- */
-export function pointsOf(f: WeekFacts): number {
-  let p = 0;
-  if (f.went_live) p += 40;
-  if ((f.won?.length ?? 0) > 0) p += 40;
-  if (f.shipped_code && f.shipped_code.n > 0) p += 10;
-  if (f.streak && f.streak.w > 0) p += Math.min(10, f.streak.w);
-  return Math.round(p);
-}
+export { pointsOf } from './week-facts';
 
 /** The rank step: points for the last `weeks` Mondays' rows (0 for a row with no facts). */
 export async function rankFeed(now: Date, o: { weeks?: number } = {}): Promise<{ rows: number }> {
-  const from = ymd(new Date(`${lastFinishedMonday(now)}T00:00:00Z`).getTime() - 7 * DAY * ((o.weeks ?? 5) - 1));
+  const from = ymd(new Date(`${lastFinishedMonday(now)}T00:00:00Z`).getTime() - 7 * DAY * ((o.weeks ?? 12) - 1));
   const rows = await sql()<{ id: number; facts: WeekFacts }[]>`SELECT id::int AS id, facts FROM project_updates WHERE week >= ${from}`;
   for (const r of rows) {
     const p = hasFacts(r.facts) ? pointsOf(r.facts) : 0;
@@ -51,7 +39,7 @@ export async function feedRankStep(now: Date): Promise<{ step: 'skipped' } | { r
 }
 
 /** Weekly updates: `summary`, what the week shipped in one paragraph (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; summary: string | null; chips: string[]; pinned: boolean };
+export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; summary: string | null; chips: string[]; pinned: boolean; confirmed?: boolean };
 type Row = {
   id: number; builder_id: number; key: string; week: string; text: string | null; summary: string | null; facts: WeekFacts; pinned: boolean; handle: string;
   x_name: string | null; avatar: string | null; project: string;
@@ -85,7 +73,7 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
 }
 const toCard = (r: Row): FeedCard => ({
   id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar), project: r.project, week: r.week,
-  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned,
+  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned, confirmed: r.facts?.approved === true,
 });
 
 /** The last finished week and FEED_OLDER_WEEKS before it, newest first, at most FEED_WEEK_MAX cards each. */

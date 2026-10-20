@@ -93,14 +93,15 @@ test('4.3 an unknown https redirect host gets one page naming it before X; a kno
   assert.equal((await authorizeGet(authorizeReq(clientFor(claude, 'Claude'), claude), noLimit)).status, 302);
 });
 
-test('4.4 a hosted agent serving many (grok.com) and X off keep the anonymous approval', db, async () => {
+test('4.4 v3: a hosted agent (grok.com) signs in with X; with X off it keeps the anonymous approval', db, async () => {
   const grok = 'https://grok.com/oauth/callback';
   const r = await authorizeGet(authorizeReq(clientFor(grok, 'Grok'), grok), noLimit);
-  assert.equal(r.status, 302);
-  assert.ok(r.headers.get('location')!.startsWith(`${grok}?`));
-  assert.ok(new URL(r.headers.get('location')!).searchParams.get('code'));
+  assert.ok(!(r.headers.get('location') ?? '').startsWith(`${grok}?`), 'not straight to a code');
   delete process.env.X_CLIENT_ID;
   try {
+    const anon = await authorizeGet(authorizeReq(clientFor(grok, 'Grok'), grok), noLimit);
+    assert.equal(anon.status, 302);
+    assert.ok(new URL(anon.headers.get('location')!).searchParams.get('code'));
     const off = await authorizeGet(authorizeReq(clientFor()), noLimit);
     assert.ok(off.headers.get('location')!.startsWith(`${LOOPBACK}?`));
   } finally {
@@ -267,12 +268,14 @@ test('4.15 S5: two X accounts racing for one installation: one binds, the other 
   assert.equal(p.x, winner.id, 'the page holds the same X as the token');
 });
 
-test('4.16 a shared installation is never bound', db, async () => {
+test('4.16 v3: a shared installation binds, and a bound one is no longer shared', db, async () => {
   const t = `ek_sh_${RUN}_${Date.now()}`;
   await saveInstallation(t, undefined, true);
   const own = (await connectInstallation(t))!.own;
-  assert.deepEqual(await attachToX(own, person('kai'), new Date()), { ok: false, reason: 'shared' });
-  assert.equal((await connectInstallation(t))!.x, null);
+  assert.equal((await attachToX(own, person('kai'), new Date())).ok, true);
+  const c = (await connectInstallation(t))!;
+  assert.equal(c.x, person('kai').id);
+  assert.equal(c.shared, false);
 });
 
 test('4.17 S6 fix 1: only known agent app schemes skip the warning page; a browser trampoline or unknown scheme sees the full URI', db, async () => {

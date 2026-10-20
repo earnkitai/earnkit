@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { byPool, INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -15,11 +15,12 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import HomeView from '../../app/HomeView';
 import Footer from '../../app/components/common/Footer';
+import Header from '../../app/components/common/Header';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
 import { BENCH_FOOTER_TAGLINE } from './footer-links';
 import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
 import { BENCH_TOP_TITLE, SEE_BENCH } from '../../app/components/sections/BenchTop';
-import { CAROUSEL_TITLE } from '../../app/components/sections/UpdateCarousel';
+import { FEED_SECTION_TITLE } from '../../app/components/sections/FeedRows';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -44,6 +45,12 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   labelled_entries: 0,
   entries_won: 0,
   builders_won_usd: 0,
+  points_total: 0,
+  applications: 0,
+  accepted: 0,
+  backing_open: 0,
+  backers: 0,
+  earned_usd: 0,
   ...o,
 });
 const now = new Date('2026-10-06T12:00:00Z');
@@ -110,13 +117,15 @@ test('v2.7.1: each tile field; no pool means the per-winner amount is the big li
     difficulty: NO_CELL,
     days_left: '14 days left',
     logo: null,
+    status: 'active',
+    in_person: false,
   });
   assert.equal(b.days_left, 'rolling');
   assert.equal(b.difficulty, 'Hard'); // its round froze (I2)
   assert.equal(a.difficulty, 'Medium'); // v2.8 Ruling 21: the level word only; the guide keeps "(estimate)" // no pool read yet: the pill still shows // never "0 ETH"
   assert.equal(a.logo, '/programs/arc-microgrants.svg');
   assert.equal(b.prize, 'up to $5,000 per grant'); // review #1: a grant program
-  assert.equal(l.open_text, '$30.5K'); // v2.9 F21: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
+  assert.equal(l.open_text, '$30.5K in grants and prizes open'); // v2.9 F21, v3 Stage 2: the top prizes (Monad, Arc, Base), never the sponsor's or the campaign's
 });
 
 test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); the difficulty is the level word only', () => {
@@ -142,8 +151,8 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   assert.deepEqual([t('base-builder-grants').prize, t('base-builder-grants').prize_note], ['up to $5,000 per grant', null]);
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
   // v2.9 F21: the top prizes, never the pools; the sponsor and EarnKit campaigns never count.
-  assert.equal(l.open_text, '$30.5K');
-  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500');
+  assert.equal(l.open_text, '$30.5K in grants and prizes open');
+  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500 in grants and prizes open');
 });
 
 test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open right now"', () => {
@@ -153,7 +162,7 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
     return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
   const l = landingFrom(cards, stats(), now);
-  assert.equal(l.open_text, '$160.5K');
+  assert.equal(l.open_text, '$160.5K in grants and prizes open');
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
   assert.equal(t('colosseum-worlds-fair').prize_note, 'up to $30,000 per winner');
@@ -164,25 +173,11 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
   assert.equal(t('circle-developer-grants').prize_note, '$5K–$100K per grant');
   assert.equal(t('arc-microgrants').prize_note, '500 USDC per grant');
   assert.equal(t('monad-metropolis').prize_note, 'up to $25,000 per winner');
-  // Fix: sorted by pool, highest first; no pool falls back to the per-winner amount.
-  assert.deepEqual(l.tiles.map((x) => x.id), ['colosseum-worlds-fair', 'monad-metropolis', 'circle-developer-grants', 'arc-microgrants', 'base-builder-grants']);
+  // v3 Stage 2 (byRelevance, was by pool): these cards share Arc's chains and no deadline, so the bigger
+  // per-winner award comes first.
+  assert.deepEqual(l.tiles.map((x) => x.id), ['circle-developer-grants', 'colosseum-worlds-fair', 'monad-metropolis', 'base-builder-grants', 'arc-microgrants']);
   assert.equal(t('base-builder-grants').prize, 'up to $5,000 per grant');
   assert.equal(t('base-builder-grants').pool_usd, null);
-});
-
-test('v2.7.1 fix: byPool orders pools first by size, then the rest by per-winner amount, then the sooner deadline', () => {
-  const c = (id: string, pool_usd: number | null, max_award_usd: number | null, ends: string | null): Card =>
-    ({ ...arc, id, pool_usd, max_award_usd, ends_at: ends ? new Date(ends) : null });
-  const sorted = [
-    c('small-pool', 10000, 500, null),
-    c('no-pool-big-award', null, 50000, null),
-    c('big-pool', 840000, 30000, null),
-    c('nothing', null, null, null),
-    c('same-pool-later', 10000, 500, '2026-10-30T00:00:00Z'),
-    c('same-pool-sooner', 10000, 500, '2026-10-10T00:00:00Z'),
-  ].sort(byPool).map((x) => x.id);
-  // Review #10: every program with a pool before any without (never a pool against a per-winner amount).
-  assert.deepEqual(sorted, ['big-pool', 'same-pool-sooner', 'same-pool-later', 'small-pool', 'no-pool-big-award', 'nothing']);
 });
 
 test('v2.7.1: the stats line shows only from 100 installs (v2.14: never the builder bonus)', () => {
@@ -317,13 +312,14 @@ test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards,
   const pooledArc = { ...arc, pool_usd: 10000 };
   const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
   const l = landingFrom(cards, stats(), now);
-  assert.equal(l.open_text, moneyText(openMoneyUsd(cards, now)));
-  assert.equal(l.open_text, '$30.5K');
+  // v3 Stage 2: the same figure, as the landing's line ("$30.5K in grants and prizes open").
+  assert.equal(l.open_text, `${moneyText(openMoneyUsd(cards, now))} in grants and prizes open`);
+  assert.equal(l.open_text, '$30.5K in grants and prizes open');
   const first = presentFirstMessage({
     more: true, // v2.10 item 2: the v2.9 headline is behind "show more"
     alerts: [], campaigns: [], cards, repos: null, workingOn: [], agentCanBuild: true, sponsorEntries: null, now,
   });
-  assert.ok(first.startsWith(`${l.open_text} in prizes open right now.`), first);
+  assert.ok(first.startsWith(`${moneyText(openMoneyUsd(cards, now))} in prizes open right now.`), first);
 });
 
 test('v2.8 Ruling C5: an investment program reads "up to $1M investment", never "per winner"', () => {
@@ -360,48 +356,55 @@ test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won 
 
 // ---- v2.13 Task 12: the landing page (spec "Landing page", R15).
 const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/&#x27;/g, "'");
-const ROW = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+const bench = (rows: typeof ROW[], count: number, cards: typeof CARD[], raising = true, chips: ('base' | 'arc' | 'robinhood')[] = ['base']) => ({ rows, count, chips, cards, raising });
+const ROW = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], summary: null, pinned: false };
 
-test('12.1 the hero, word for word, and its one button', () => {
+test('12.1 the hero, word for word, and its one button (v3 Stage 3: the header holds the other one)', () => {
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  // R18: shipping and funding; the landing never pitches a coin or a community round.
-  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to your AI agent. It ranks what you ship on the leaderboard and finds grants that fit.');
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: ['base'], cards: [CARD], raising: true } });
-  assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE) && h.includes('Add to your agent'));
+  // R18, v3 Stage 3 (spec 5.6): shipping and funding; the landing never pitches a coin or a community round.
+  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to the agent you already use. It writes your weekly ship log from real commits, ranks you against every builder, and routes you to grants, accelerators and backers.');
+  const h = page({ ...LANDING_FIXTURE, bench: bench([ROW], 12, [CARD]) });
+  assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE));
+  // Exactly two on the landing: the header's (app/layout.tsx, outside HomeView) and the hero's. HomeView renders one.
+  assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
+  assert.equal((renderToStaticMarkup(React.createElement(Header)).match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
 });
 
 test('12.1b (R18) the landing never mentions a coin or a community round, raising on or off', () => {
   for (const raising of [false, true]) {
-    const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: ['base'], cards: [CARD], raising } });
+    const h = page({ ...LANDING_FIXTURE, bench: bench([ROW], 12, [CARD], raising) });
     assert.ok(h.includes(BENCH_HERO_SUBTITLE));
     assert.doesNotMatch(h, /\braise\b|raising|community round|your own coin/i);
   }
 });
 
-test('12.2 the sections in order: hero, the leaderboard top 10, shipped this week, money open now, backed by (R18: no How it works, no filter chips)', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), count: 12, chips: ['base'], cards: [CARD], raising: true } });
-  const at = [BENCH_HERO_TITLE, BENCH_TOP_TITLE, CAROUSEL_TITLE, 'Money open now', 'Backed by'].map((s) => h.indexOf(s));
+test('12.2 the sections in order: hero, Leaderboard (top 10), Feed, Money open now, Backed by (R18: no How it works, no filter chips)', () => {
+  const h = page({ ...LANDING_FIXTURE, bench: bench(Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), 12, [CARD]) });
+  const at = [BENCH_HERO_TITLE, `>${BENCH_TOP_TITLE}</h2>`, `>${FEED_SECTION_TITLE}</h2>`, '>Money open now</h2>', '>Backed by</h2>'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
-  // R18 fix 1: the count line under the title, for every ranked builder (not only the 10 rows).
-  assert.ok(h.includes('12 builders this week. Ranked by Shipping points.'));
+  // R18 fix 1, v3 Stage 3 wording: the count line under the title, for every ranked builder (not only the 10 rows).
+  assert.ok(h.includes('12 builders. Ranked by Shipping.'));
   assert.match(h, new RegExp(`href="/leaderboard"[^>]*>${SEE_BENCH}`));
   assert.doesNotMatch(h, /href="\/leaderboard\?/, 'the filters live on /leaderboard');
-  assert.match(h, /data-shape="square"/);
+  // v3 Stage 3: the feed section is rows of the long card, never the square one; no carousel.
+  assert.match(h, /data-shape="long"/);
+  assert.doesNotMatch(h, /data-shape="square"|snap-x/);
   assert.ok(!h.includes('How it works'));
 });
 
-test('12.3 the square card: photo, @handle, project, the first line of the update and at most two chips', () => {
-  const h = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [CARD], raising: true } });
-  assert.ok(h.includes('Added fridge photo import.') && !h.includes('It plans a week.'));
-  assert.ok(h.includes('Went live') && h.includes('+31 people') && !h.includes('12 commits'));
+test('12.3 the feed row: photo, @handle, project, the whole note and every chip; no rows, no section', () => {
+  const h = page({ ...LANDING_FIXTURE, bench: bench([ROW], 12, [CARD], true, []) });
+  assert.ok(h.includes('Added fridge photo import.') && h.includes('It plans a week.'));
+  assert.ok(h.includes('Went live') && h.includes('+31 people') && h.includes('12 commits'));
   assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
-  // No updates this week: no carousel (the Bench and the grants still show).
-  const none = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [], raising: true } });
-  assert.ok(!none.includes(CAROUSEL_TITLE) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
+  assert.ok(h.includes('Week of Oct 12'), 'the week named once under the title');
+  // No updates in the last finished week: no Feed section (the Bench and the grants still show).
+  const none = page({ ...LANDING_FIXTURE, bench: bench([ROW], 12, [], true, []) });
+  assert.ok(!none.includes(`>${FEED_SECTION_TITLE}</h2>`) && none.includes(BENCH_TOP_TITLE) && none.includes('Money open now'));
 });
 
 test('12.5 the footer tagline: "Ship every week. Get funded."', () => {
@@ -409,11 +412,12 @@ test('12.5 the footer tagline: "Ship every week. Get funded."', () => {
   assert.ok(renderToStaticMarkup(React.createElement(Footer)).includes(`>${BENCH_FOOTER_TAGLINE}<`));
 });
 
-test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel cards); plain JSON', dbTest, async () => {
+test('12.6 readLanding: the Bench (at most 10 rows, its chips, the feed rows); plain JSON', dbTest, async () => {
   const on = await readLanding(now);
   assert.ok(on.bench);
   assert.ok(Array.isArray(on.bench.rows) && on.bench.rows.length <= 10);
-  assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 12);
+  assert.ok(Array.isArray(on.bench.chips) && Array.isArray(on.bench.cards) && on.bench.cards.length <= 6);
+  assert.ok('featured' in on, 'v3 Stage 3: the featured builder (null when nobody qualifies)');
   assert.deepEqual(Object.keys(on.bench).sort(), ['cards', 'chips', 'count', 'raising', 'rows']);
   assert.ok(Number.isInteger(on.bench.count) && on.bench.count >= on.bench.rows.length, 'every ranked builder, not only the 10 rows');
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
@@ -421,7 +425,7 @@ test('12.6 readLanding: the Bench (at most 10 rows, its chips, the carousel card
 
 test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no column titles and nothing uppercase, with leaderboard data or without', () => {
   const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
-  const on = page({ ...LANDING_FIXTURE, bench: { rows: [ROW], count: 12, chips: [], cards: [CARD], raising: true } });
+  const on = page({ ...LANDING_FIXTURE, bench: bench([ROW], 12, [CARD], true, []) });
   // No leaderboard data (a failed read of its parts): the same page, minus the live sections.
   const fallback = page({ ...LANDING_FIXTURE, bench: null });
   for (const h of [on, fallback]) {
@@ -429,7 +433,7 @@ test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no c
     for (const t of ['Product', 'Resources', 'Legal', 'Contact']) assert.ok(!h.includes(`>${t}<`), t);
     assert.doesNotMatch(h, /\buppercase\b/, 'nothing uppercase anywhere on the landing');
   }
-  assert.ok(!fallback.includes('data-row=') && !fallback.includes('Ranked by Shipping points'), 'no data: no leaderboard section');
+  assert.ok(!fallback.includes('data-row=') && !fallback.includes('Ranked by Shipping'), 'no data: no leaderboard section');
 });
 
 test('12.9 the landing\'s Bench parts never import the /bench page module (BenchView pulls in its Footer)', () => {

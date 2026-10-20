@@ -1,3 +1,4 @@
+import { pointsTotal } from './points';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
@@ -10,20 +11,22 @@ import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, coinOpen, offerCoin, openCoinLine } from './coin-moments';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
-import { raisingCoin, showRaisingLine } from './raising';
+import { pillCoin, raisingCoin, showRaisingLine } from './raising';
+import { backersOfCoin } from './backers';
+import { earnedUsd } from './earned';
 import { raisingEnabled } from './builder-score-flag';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
 import { xSignInEnabled } from './builder-score-flag';
-import { outcomeQuestion } from './outcomes';
+import { outcomeLine } from './outcomes';
 import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
-  biggestPick, earnPrize, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
+  biggestPick, earnPrize, FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byDeadline, byPrize, enteredIds, layout, qualifies, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byPrize, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { creditsMainnet, type Detection } from './match';
@@ -31,8 +34,8 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  benchReply, benchStepKey, rankedState, replyState, stateAsk,
-  type BenchAskKind, type BenchProject, type BenchView, type FundLine, type Variant,
+  APPLY_WINDOW_DAYS, benchReply, benchStepKey, rankedState, replyState, stateAsk,
+  type ApplyPick, type BenchAskKind, type BenchProject, type BenchView, type FundLine, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { scoreWhy, storedShipping } from './score-v2';
@@ -41,6 +44,10 @@ import { displayName } from './bench-reply';
 import { targetIn, weekStartLine, weeklyTarget, type TargetIn } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentLines, momentReady, openShare, shareLink, takeMoment } from './weekly-moment';
 import { isoWeekOf } from './weeks';
+import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectDue, connectWeeks, openConnect } from './connect-moment';
+import { askWeeklyEmail, digestEnabled } from './digest';
+import { pagePath } from './reserved-routes';
+import { siteUrl } from './entry-text';
 export { displayName };
 
 /**
@@ -51,6 +58,8 @@ export { displayName };
  * never by the agent's kind. Never throws on its own reads: each falls back as standFind's do.
  */
 
+/** v3 Stage 1: the connect yes's line when no page handle could be read (a statement, no link). */
+const APPROVED_CONNECT = 'Done. Your weeks are posted.';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the last line: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -74,13 +83,28 @@ export const INSTALL_APP_NOTE =
 /** v2.14 A17: find's held outcome question is the reply's last line; the answer goes to tell. */
 export const BENCH_OUTCOME_NOTE =
   "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. Don't show this note.";
+/** v3 Stage 2 (spec 5.3 Route 2): the backing offer's note; a yes goes to the coin flow (coinYes, then confirm { project_id }). */
+export const BACKING_NOTE =
+  "A yes or no to the last line: call tell with move_up: { kind: 'backing', project_key, answer } (project_key as given here). " +
+  "If they give a wallet for the fees with the yes, call tell with coin: { project_key, answer: 'yes', wallet } instead. Never launch anything before that yes. Don't show this note.";
+/** v3 Stage 2 (spec 5.3): the apply step's ask; a yes drafts the entry (APPLY_YES_NOTE). */
+export const APPLY_NOTE = "A yes or no to the last line: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
+/** v3 Stage 2: the yes to the apply step: prepare drafts the entry, the ship log's facts on top. */
+export const APPLY_YES_NOTE = (id: string) => `Call prepare with program_id "${id}" for this project and show the draft. Don't show this note.`;
+/** v3 Stage 2: find's held apply-outcome question (14 days after the deadline) is the reply's last line. */
+export const APPLY_OUTCOME_NOTE =
+  "show_to_builder ends with the outcome question for this application. Their answer: call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing. Don't show this note.";
+/** A no keeps an ask away this long (standing_seen.declined). */
+export const DECLINE_MS = 30 * 86_400_000;
 /** v2.14 T4 (leaked authorize URL): the first reply after an X bind names the account, so a wrong one is noticed. */
 export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 
 /** What the person was last told (stand-view's Seen) plus the Bench's own: the ask. */
 export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
-  bench_ask?: { kind: BenchAskKind | string; key: string | null };
+  bench_ask?: { kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string };
+  /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
+  apply_asked?: Record<string, string>;
 };
 type Reply = Record<string, unknown>;
 
@@ -232,13 +256,15 @@ export const TOKEN_NOT_YET = 'A token comes after your project is counted on the
 /** R8: tell token: 'ask' when no coin can be offered for the project now (launches off, declined, a private repo). */
 export const tokenUnavailable = (name: string) => `A token isn't available for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
-/** The agent's note with a community-round line: the yes is tell coin { raising: true }. */
+/** v3 Stage 2 review: tell token: 'ask' under EARNKIT_RAISING before the first approved week with code (the terms: offered after it). */
+export const BACKING_NOT_YET = 'Backing opens after your first confirmed week.';
+/** The agent's note with the line to show backing for an old coin: the yes is tell coin { raising: true }. */
 export const RAISE_NOTE = "A yes to the last line: call tell with coin: { raising: true }. Don't show this note.";
 
 /**
- * R8: the coin and community-round offer, only when the builder asks about a token (tell token: 'ask'),
- * never in find's or score's default reply. For the confirmed one project: a launched coin not shown as a
- * community round yet: that line (EARNKIT_RAISING on); a coin out or launching: says so; an offer made and
+ * R8: the coin and backing offer, only when the builder asks about a token (tell token: 'ask'),
+ * never in find's or score's default reply (v3 Stage 2: save backing's own moment, backingOffer). For the confirmed
+ * one project: a launched coin not shown as backing yet: that line (EARNKIT_RAISING on); a coin out or launching: says so; an offer made and
  * not answered: the same line again; else a new offer (coin-moments.ts offerCoin, the coin named and the
  * wallet shown). The yes goes to tell coin as with any coin offer, then confirm { project_id }. Never throws
  * on its own reads (a failed read is "not available").
@@ -258,8 +284,13 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
     return { show_to_builder: coin.status === 'launched' ? COIN_LIVE : COIN_LAUNCHING };
   }
   if (row.has_coin) return { show_to_builder: tokenHasCoin(name) };
+  if (backingExcluded(row.key)) return { show_to_builder: tokenUnavailable(name) };
   const again = (await coinOpen(id, row.key).catch(() => false)) ? await openCoinLine(id, row.key, deps).catch(logged('token again')) : null;
-  const offer = again ?? (await offerCoin(id, row.key, 'countable', deps).catch(logged('token offer')));
+  // v3 Stage 2 review: under EARNKIT_RAISING the offer is backing's own, once a project, only after the first approved week with code.
+  if (!again && raisingEnabled() && !(await approvedCodeWeek(id, row.key).catch(() => false))) return { show_to_builder: BACKING_NOT_YET };
+  const offer = again ?? (raisingEnabled()
+    ? await backingOffer(id, row.key, deps).catch(logged('token backing'))
+    : await offerCoin(id, row.key, 'countable', deps).catch(logged('token offer')));
   if (!offer) return { show_to_builder: tokenUnavailable(name) };
   return { show_to_builder: offer.line, coin: { project_key: row.key }, agent_note: COIN_NOTE };
 }
@@ -275,7 +306,7 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
   try {
     const [r] = await sql()<{ claimed: boolean; bound: boolean }[]>`
       SELECT EXISTS (SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL AND x_handle IS NOT NULL) AS claimed,
-        EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND (x_user_id IS NOT NULL OR shared_client)) AS bound`;
+        EXISTS (SELECT 1 FROM installations WHERE id = ${own} AND x_user_id IS NOT NULL) AS bound`;
     return Boolean(r) && !r.claimed && !r.bound;
   } catch (err) {
     // Final fix 12: with X on, a failed read is signed out (the retry question), never read as signed in.
@@ -284,8 +315,12 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
   }
 }
 
+/** v3 Stage 2: the streak (weeks shipped in a row) from which a ranked reply names one upcoming program. */
+export const UPCOMING_STREAK = 4;
+
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
-type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string };
+type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string; /** v3 Stage 2: the deadline (ISO), null when rolling. */ ends_at: string | null; /** v3 Stage 2 final review: an investment (an apply candidate only, never a fit line). */ investment?: boolean };
+const isoOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
   /** D14: the caller's own installation, the one an X sign-in link is minted for (never the group root). */
@@ -296,13 +331,48 @@ type ViewIn = {
   name: string | null;
   /** Programs the one project qualifies for (at most 3 are shown). */
   fits: Fit[];
+  /**
+   * v3 Stage 2 final review: the programs the apply step may offer: the fits plus the open investments (an
+   * accelerator) the one project could apply to, deadline order. Never shown as fit lines. Defaults to the fits.
+   */
+  applies?: Fit[];
   cards: Card[]; skip: Set<string>;
+  /** v3 Stage 2: the listed upcoming programs (never open), for the one upcoming line. */
+  upcoming?: Card[];
   /** A17: the question this reply asks instead of the state's (an outcome question, a submission step). */
   held: string | null;
   due: string[];
   /** v2.13.4 (spec 4, R3): the one project's live link, checked (wording and program fit only). */
   live?: LiveSite | null;
+  /** The tokens.fun ticker check the backing offer's proposal uses (ToolContext.tokenDeps.check). */
+  check?: TickerCheck;
+  /** When the reply's wait ends (start + REPLY_WAIT_MS); the backing offer waits until then, at least BACKING_WAIT_MIN_MS. */
+  deadline?: number;
 };
+
+/** v3 Stage 2 review: the backing offer (its tokens.fun ticker check) never holds a reply long; it gets at least this. */
+export const BACKING_WAIT_MIN_MS = 1_000;
+/**
+ * The backing offer within the reply's wait. Past it, the reply goes on without the offer and the offer is told it is
+ * late (set in the timer itself, before the race settles), so its moment is never claimed unshown. Never throws.
+ */
+async function boundedBacking(id: number, key: string, check: TickerCheck | undefined, deadline: number | undefined) {
+  let late = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wait = Math.max(BACKING_WAIT_MIN_MS, (deadline ?? 0) - Date.now());
+  const gaveUp = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      late = true;
+      resolve(null);
+    }, wait);
+  });
+  const offer = backingOffer(id, key, { check, late: () => late }).catch(logged('backing offer'));
+  try {
+    return await Promise.race([offer, gaveUp]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * The one view find and score share (F19), in one of the four states (R16a): the project, the rank, the ways
@@ -343,8 +413,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   // Launch ready L5: the ranked state's one next step is the weekly target (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
   const target = aim ? weeklyTarget(aim) : null;
+  // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
+  const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now) : null;
+  // v3 Stage 2 (spec 5.3): a fit closing within APPLY_WINDOW_DAYS, once a program, before (and in place of) the weekly moment.
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
+  const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
+  const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.applies ?? o.fits.slice(0, 3), o.skip, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
+  const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
 
   let fund: FundLine[] = [];
@@ -370,28 +446,103 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const has = taken ? {} : { live: project?.live ?? false, repo: Boolean(project && /^[^/:]+\/[^/]+$/.test(project.key)) };
   fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, taken ? [] : (row?.chains ?? []), has)];
 
+  // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
+  // the program list's order (byRelevance), after the fits and before the points.
+  if (ranked && streak >= UPCOMING_STREAK) {
+    const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
+    if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
+  }
+
+  // v3 Stage 2 (spec 5.2): Earned (fees claimed plus announced prizes), for the ranked stand line.
+  const earned = ranked ? await earnedUsd(id, now).catch(logged('earned')) : null;
+  // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step,
+  // with its backers (backers.ts) and the creator fees claimed (earned.ts fees_usd).
+  const pill = ranked && handle ? await pillCoin(id).catch(logged('backing pill')) : null;
+  if (ranked && handle && pill) {
+    const backers = (await backersOfCoin(pill.coin).catch(logged('backers'))) ?? 0;
+    fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}` }];
+  }
+
+  // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
+  if (ranked) {
+    const total = await pointsTotal(id).catch(logged('points'));
+    if (total) fund = [...fund, { kind: 'points', total }];
+  }
+
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).
-  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null });
+  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null, connect: Boolean(connect), backing: backing?.line ?? null, apply });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
-  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key };
+  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }) };
   await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
-    target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
+    earned: earned?.paid_usd ?? 0, target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
+  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
+    : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
   };
-  return { view, fields, moment: moment?.lines ?? null };
+  return { view, fields, moment: connect ?? moment?.lines ?? null };
+}
+
+/**
+ * v3 Stage 2 (spec 5.3): the program the apply step offers: the first fit (deadline order) closing within
+ * APPLY_WINDOW_DAYS that isn't entered or hidden (`skip`), that the builder never told EarnKit about (builder_program_status,
+ * any status), not declined in the last 30 days (standing_seen.declined, keyed by program) and never asked before
+ * (standing_seen.apply_asked, set here in one guarded UPDATE: asked once a program). Null otherwise. Never throws.
+ */
+async function applyPick(id: number, seen: Seen, fits: Fit[], skip: Set<string>, now: Date): Promise<(ApplyPick & { repo?: string }) | null> {
+  const t = now.getTime();
+  const soon = fits.filter((f) => {
+    const end = f.ends_at ? Date.parse(f.ends_at) : NaN;
+    const no = seen.declined?.[benchStepKey('apply', f.program_id)];
+    // The ask names the day it closes, so only a fit whose line says "closes <day>" (never "rolling").
+    return end > t && end - t <= APPLY_WINDOW_DAYS * 86_400_000 && f.when.startsWith('closes ') && !skip.has(f.program_id) && !seen.apply_asked?.[f.program_id]
+      && !(no && t - Date.parse(no) < DECLINE_MS);
+  });
+  if (soon.length === 0) return null;
+  const told = await sql()<{ program_id: string }[]>`
+    SELECT program_id FROM builder_program_status WHERE installation_id = ${id} AND program_id = ANY(${soon.map((f) => f.program_id)}::text[])`.catch(logged('apply told'));
+  if (!told) return null;
+  const known = new Set(told.map((r) => r.program_id));
+  const pick = soon.find((f) => !known.has(f.program_id));
+  if (!pick) return null;
+  const [taken] = await sql()`
+    UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_asked}',
+      COALESCE(standing_seen->'apply_asked', '{}'::jsonb) || jsonb_build_object(${pick.program_id}::text, ${now.toISOString()}::text))
+    WHERE builder_id = ${id} AND NOT COALESCE(standing_seen->'apply_asked' ? ${pick.program_id}, false) RETURNING 1`.catch((err: unknown) => {
+    logged('apply asked')(err);
+    return [];
+  });
+  if (!taken) return null;
+  return { program_id: pick.program_id, title: pick.title, when: pick.when.replace(/^closes /, ''), ...(pick.repo && { repo: pick.repo }) };
+}
+
+/**
+ * v3 Stage 1 (spec 5.1): the backfilled weeks to confirm ("Your last 3 weeks:" and a line each), when this person
+ * hasn't been offered them (connectDue). Shown: the offer opens (openConnect). None to confirm once the backfill is
+ * complete (backfillComplete): connect_done, never asked; before that, asked again on a later reply. A failed read is no lines, asked again on a later reply. Never throws.
+ */
+async function connectMoment(id: number, key: string, now: Date): Promise<string | null> {
+  if (!(await connectDue(id))) return null;
+  const weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
+  if (!weeks) return null;
+  if (weeks.length === 0) {
+    // v3 final review: closed only once the backfill is complete; until then the offer waits for its rows.
+    if (await backfillComplete(id, key, now).catch(logged('connect backfill'))) await closeConnect(id, now);
+    return null;
+  }
+  await openConnect(id, { key, weeks: weeks.map((w) => w.monday) });
+  return [CONNECT_HEAD(weeks.length), ...weeks.map((w) => w.line)].join('\n');
 }
 
 /**
@@ -403,7 +554,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 async function weeklyMoment(own: number, id: number, key: string, handle: string, aim: TargetIn | null, now: Date): Promise<{ lines: string; share: string } | null> {
   if (!(await momentDue(own, now))) return null;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
-  if (!last || !momentReady(last.checked, now) || !(await takeMoment(own, now))) return null;
+  if (!last || !momentReady(last.checked, now)) return null;
+  // v3 Stage 1 fix round 1: a week already confirmed (the connect yes) is never asked about again; the week is claimed.
+  if (last.approved) {
+    await takeMoment(own, now);
+    return null;
+  }
+  if (!(await takeMoment(own, now))) return null;
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
   return { lines: momentLines(last, aim ? weekStartLine(aim) : null).join('\n'), share: shareLink(handle, last.now) };
 }
@@ -454,12 +611,15 @@ export type BenchFindArgs = {
   cards: FirstMessage['cards'];
   repos: YourRepos | null;
   myEntries: NonNullable<FirstMessage['entries']>;
-  ask: { project_id: number; program_id: string; name: string; program_title: string } | null;
+  /** A results question (an entry's) or, v3 Stage 2, an application's outcome question (kind 'apply', no entry). */
+  ask: { kind?: 'results' | 'apply'; project_id: number | null; program_id: string; name: string; program_title: string } | null;
   alerts: { lines: string[] };
   hide: Set<string>;
   project: IdentityProject | null;
   /** Fix round 1: tools.ts's signedOutNow (it skipped the results question while signed out). */
   signedOut?: boolean;
+  /** v3 Stage 2: the listed upcoming programs (listPrograms, status 'upcoming'). */
+  upcoming?: Card[];
 };
 
 /**
@@ -479,28 +639,34 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const main = read.main?.toLowerCase() ?? null;
   // Ways to get funded: the programs the one project qualifies for (as standFind's earn rows).
   // R12 (fix round 1): one fit order with score (present.ts byDeadline); lead and recordShown use these same 3.
-  const rows = main
+  // v3 Stage 2 final review: the rows the one project could apply to (an investment included: the apply step's
+  // candidates); the fit lines leave the investments out, as before.
+  const can = main
     ? layout(m, entered).rows
-        .filter((r) => qualifies(r) && !r.card.sponsored && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
+        // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
+        .filter((r) => canApply(r) && !r.card.sponsored && !r.card.in_person && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
         .sort((a, b) => byDeadline(a.card, b.card))
-        .slice(0, 3)
     : [];
+  const rows = can.filter((r) => !r.card.investment).slice(0, 3);
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
-  const fits: Fit[] = rows.map((r) => {
+  const fitOf = (r: (typeof can)[number]): Fit => {
     const f = facts.get(r.repo);
     const why = fitWhy(r.card, whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified }));
-    return { program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: fundWhen(r.card), why };
-  });
+    return { program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at) };
+  };
+  const fits: Fit[] = rows.map(fitOf);
+  const applies: Fit[] = can.map(fitOf);
   const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
   const submit = a.ask || signedOut ? undefined : submitStep(m);
   // A17: a results question, else a submission step, is the one question (never a money line).
-  const held = signedOut ? null : a.ask ? outcomeQuestion(a.ask.name, a.ask.program_title) : submit ? submitStepLine(submit) : null;
+  const held = signedOut ? null : a.ask ? outcomeLine(a.ask) : submit ? submitStepLine(submit) : null;
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut, name, fits, cards: a.cards, skip, held, due, live,
+    id, now, read, own, signedOut, name, fits, applies, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
+    deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS,
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((fits[0] && !submit && !taken) || submit);
@@ -535,7 +701,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreFits, at most 3, R12). One score_viewed event a minute (v2.12). Null without a
  * profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
@@ -549,20 +715,26 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const read = await benchRead(id, own);
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
   const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
-  const cards = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
+  const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
     .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
+  // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.
+  const upcoming = all.filter((p) => p.status === 'upcoming');
+  const cards = all.filter((p) => p.status !== 'upcoming');
   const hidden = memory ? hiddenIds(hiddenPrograms(memory, cards.map((c) => ({ id: c.id, starts_at: c.starts_at, ends_at: c.ends_at ?? null, opened_at: c.opened_at })))) : new Set<string>();
   const entered = new Set(entries.map((e) => e.program_id));
   const shown = cards.filter((c) => !hidden.has(c.id));
   const main = read.main?.toLowerCase() ?? null;
-  const fits: Fit[] = main
-    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now })).map((f) => ({
-        program_id: f.card.id, title: f.card.title, prize: earnPrize(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)),
+  // v3 Stage 2 final review: the apply step's candidates include an open investment; the fit lines never do.
+  const applies: Fit[] = main
+    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now, investments: true })).map((f) => ({
+        program_id: f.card.id, title: f.card.title, prize: earnPrize(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
+        investment: f.card.investment === true,
       }))
     : [];
+  const fits: Fit[] = applies.filter((f) => !f.investment).slice(0, FITS_MAX);
   const { view, fields, moment } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, cards: shown, skip: new Set([...entered, ...hidden]), held: null,
-    due: [], live,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
+    due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS,
   });
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',
@@ -587,10 +759,10 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
-export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null } | null> {
+export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null; program_id?: string; repo?: string } | null> {
   const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
     logged('asked')(err);
     return [];
@@ -607,25 +779,64 @@ export async function benchAsked(id: number, m: { kind?: string; project_key?: s
  * offer's answer stays there). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
+  // v3 Stage 1 (spec 5.1): the connect offer is answerable once (standing_seen.connect_open is its guard).
+  if (m.kind === 'connect') {
+    const r = await answerConnect(id, m.project_key, m.answer, now).catch(logged('answer connect'));
+    if (r && r.pending > 0) {
+      // An approval threw and the offer reopened: keep the ask so the next yes retries it.
+      const [o] = await sql()<{ key: string | null }[]>`SELECT standing_seen->'connect_open'->>'key' AS key FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+        logged('connect key')(err);
+        return [];
+      });
+      const key = o?.key ?? m.project_key ?? null;
+      const ask = { kind: 'connect', key };
+      await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb) WHERE builder_id = ${id}`.catch(logged('keep connect ask'));
+      return { show_to_builder: CONNECT_RETRY, move_up: { kind: 'connect', project_key: key, agent_note: CONNECT_NOTE } };
+    }
+    if (r) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'connect'`.catch(logged('clear connect ask'));
+    if (!r || r.approved === 0) return okay;
+    const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+      logged('connect handle')(err);
+      return [];
+    });
+    const done = p?.handle ? CONNECT_DONE(`${siteUrl()}${pagePath(p.handle)}`) : APPROVED_CONNECT;
+    // The Done line is a statement, so the email question (when it is asked) is the reply's one question.
+    const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
+    return { show_to_builder: [done, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
+  }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
   if (m.kind === 'share') {
     const r = await answerShare(id, m.project_key, m.answer, now).catch(logged('answer share'));
     if (r === true) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
-      return { show_to_builder: APPROVED_LINE };
+      // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
+      const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
+      return { show_to_builder: [APPROVED_LINE, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
     }
     return okay;
   }
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
+  // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
+  if (asked.kind === 'backing') {
+    const [taken] = await sql()`
+      UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
+      WHERE builder_id = ${id} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
+      logged('take backing ask')(err);
+      return [];
+    });
+    if (!taken || !asked.key) return okay;
+    return (await import('./tools')).coinAnswer(ctx, { project_key: asked.key, answer: m.answer });
+  }
   if (m.answer === 'no') {
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
-        COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${benchStepKey(asked.kind, asked.key)}::text, ${now.toISOString()}::text)) - 'bench_ask'
+        COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${benchStepKey(asked.kind, asked.kind === 'apply' ? (asked.program_id ?? null) : asked.key)}::text, ${now.toISOString()}::text)) - 'bench_ask'
       WHERE builder_id = ${id}`.catch(logged('decline'));
     return okay;
   }
@@ -657,6 +868,11 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'ship':
     case 'suggest':
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : okay;
+    case 'apply':
+      // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
+      return asked.program_id
+        ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
+        : okay;
     default:
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;

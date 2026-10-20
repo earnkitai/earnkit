@@ -112,7 +112,9 @@ export function freshPick(cards: Card[], now: Date, opts: FreshPickOpts): FreshP
  */
 export function contextLine(cards: Card[], now: Date): string | null {
   const fig = moneyText(openMoneyUsd(cards, now));
-  const n = cards.filter((c) => openCurated(c, now)).length;
+  // v3 Stage 2: the programs the figure sums (never an investment), so money and count agree. Final review: nor a
+  // program with no per-winner amount (a named hackathon such as ETHGlobal Mumbai adds nothing to the figure).
+  const n = cards.filter((c) => openCurated(c, now) && !c.investment && (c.max_award_usd ?? 0) > 0).length;
   if (!fig || n === 0) return null;
   return `${fig} in prizes is open right now across ${n} program${n === 1 ? '' : 's'}.`;
 }

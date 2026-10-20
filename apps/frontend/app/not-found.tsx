@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
-import { BTN_PRIMARY, BTN_SECONDARY } from './components/common/Button';
+import { BTN_SECONDARY } from './components/common/Button';
 import { COLUMN, H1, LEDE } from './components/common/Panel';
 
 export const NOT_FOUND_TITLE = 'Page not found';
@@ -16,7 +16,7 @@ export default function NotFound() {
         <h1 className={H1}>{NOT_FOUND_TITLE}</h1>
         <p className={LEDE}>{NOT_FOUND_LINE}</p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Link href="/leaderboard" className={BTN_PRIMARY}>
+          <Link href="/leaderboard" className={BTN_SECONDARY}>
             See the leaderboard
           </Link>
           <Link href="/" className={BTN_SECONDARY}>

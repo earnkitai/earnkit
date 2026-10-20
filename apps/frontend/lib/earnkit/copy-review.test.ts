@@ -1,11 +1,12 @@
 import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
-  digestBody, emailQuestionFor,
+  digestBody,
 } from './digest';
+import { WEEK_TEXT } from './week-links';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
 import { test } from 'node:test';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -120,6 +121,7 @@ import { NOTHING_YET } from './page-data';
 import SponsorTermsSection from '../../app/terms/sections/SponsorTermsSection';
 import HomeView from '../../app/HomeView';
 import GuideView, { Unavailable } from '../../app/programs/[id]/GuideView';
+import DocsView from '../../app/docs/DocsView';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import { closedGuide, emptyGuide, fullGuide, predecessorGuide } from './fixtures/guide';
 import { homeFixture } from './fixtures/landing';
@@ -443,6 +445,7 @@ const guideTexts: [string, string][] = [
   ['guide page (closed)', pageText(React.createElement(GuideView, { page: closedGuide }))],
   ['guide page (unavailable)', pageText(React.createElement(Unavailable, { text: 'This guide is unavailable right now. Try again in a few minutes.' }))],
   ['/programs', pageText(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }))],
+  ['/docs', pageText(React.createElement(DocsView))],
   ['/programs (unavailable)', pageText(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' }))],
 ];
 
@@ -456,7 +459,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -973,7 +976,6 @@ const builderFacing: [string, string][] = [
   ['withBadge', withBadge('', 'alice', 'tipjar-alice').replace(/<[^>]+>/g, '')],
   // v2.9 Task 10: the weekly email and the won line.
   ['EMAIL_QUESTION', EMAIL_QUESTION],
-  ['emailQuestionFor', emailQuestionFor('a@b.co')],
   ['WHICH_EMAIL', WHICH_EMAIL],
   ['EMAIL_ON', EMAIL_ON],
   ['EMAIL_OFF', EMAIL_OFF],
@@ -986,11 +988,17 @@ const builderFacing: [string, string][] = [
   ['home page (won line)', homeText({ ...homeFixture, won_line: wonLine(12_500) })],
   ...(() => {
     const b = digestBody({
+      week: null,
+      handle: null,
       newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: new Date('2026-11-02T00:00:00Z') }],
       wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }],
       deadlines: [{ program: 'Arc Microgrants', what: 'decision', at: new Date('2026-10-20T00:00:00Z') }],
     })!;
-    return [['digest subject', b.subject], ['digest text', b.text]] as [string, string][];
+    const w = digestBody({
+      week: { lines: ['Last week you finished at Shipping 72 (+6), #3 (up 2).'], standing: { score: 72, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false },
+      handle: null, newPrograms: [], wins: [], deadlines: [],
+    })!;
+    return [['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
   })(),
   // v2.9 T12, Part 2: what a hosted site's visitors see when it ended or was taken down (the
   // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.
@@ -1209,6 +1217,35 @@ test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and
   for (const [label, text] of coachTexts) assert.doesNotMatch(text, /\u2014/, label);
 });
 
+test('v3 Stage 3 (spec 5.2): never "this week" within 20 characters after "builders" (the rank line is "of N builders")', async () => {
+  const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
+  for (const [label, text] of all) assert.doesNotMatch(text, /builders.{0,20}this week/, label);
+  assert.ok(builderFacing.some(([, text]) => /of \d+ builders/.test(text)), 'the scan sees a rank line');
+});
+
+test('v3 Stage 3 Task 7 (spec 5.2, 5.5): the three numbers keep their names in every builder-facing string and page: never "Shipping points", "EARN points", "What builders shipped" or "the Bench"; Backing words, never a raise or a community round', async () => {
+  const all = [...builderFacing, ...(await gatherGateReasons())];
+  assert.ok(all.length > 100, 'the scan sees the replies');
+  for (const [label, text] of all) {
+    assert.doesNotMatch(text, /Shipping points/i, label);
+    assert.doesNotMatch(text, /EARN points/, label);
+    assert.doesNotMatch(text, /What builders shipped/i, label);
+    assert.doesNotMatch(text, /\bthe Bench\b/, label);
+    assert.doesNotMatch(text, /community round|\braise\b|\braising\b|\bfundrais/i, label);
+  }
+  // The pages too: every string literal and JSX text under app/ (the page metadata included), through humanStrings.
+  const APP = join(import.meta.dirname, '../../app');
+  const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) ? [p] : []; });
+  const pages = walk(APP);
+  assert.ok(pages.length > 40, 'walked app/');
+  for (const f of pages)
+    for (const { text, line } of humanStrings(f, readFileSync(f, 'utf8'))) {
+      const at = `${f.slice(APP.length)}:${line}`;
+      assert.doesNotMatch(text, /Shipping points|EARN points|What builders shipped|\bthe Bench\b|community round/i, at);
+      assert.doesNotMatch(text, /builders.{0,20}this week/, at);
+    }
+});
+
 test('v2.9 Task 12: never an em dash in builder-facing text', async () => {
   for (const [label, text] of [...builderFacing, ...(await gatherGateReasons())]) assert.doesNotMatch(text, /\u2014/, label);
 });
@@ -1276,10 +1313,11 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
-  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0 };
+  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
   const landing = landingFrom(cards, zero, now);
-  assert.equal(landing.open_text, fig);
-  assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} open right now`));
+  // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.
+  assert.equal(landing.open_text, `${fig} in grants and prizes open`);
+  assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} in grants and prizes open`));
   assert.ok(presentFirstMessage(msg({ cards, now })).startsWith(`${fig} in prizes open right now.`));
   const rows = cards.map((c) => ({
     max_award_usd: c.max_award_usd ?? null, status: 'active', campaign: c.earnkit_campaign ? {} : null,
@@ -1289,7 +1327,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
     open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, bonus_deposits_wei: null,
     bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null,
   }, now);
-  assert.equal(stats.open_money_text, fig);
+  assert.equal(stats.open_money_text, `${fig} in grants and prizes open`);
   // Never a hard-coded total in builder text.
   for (const [name, text] of builderFacing)
     for (const b of ['$1.3M', '1,170,500', '1170500']) assert.ok(!text.includes(b), `${name}: ${b}`);

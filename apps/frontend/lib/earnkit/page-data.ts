@@ -166,22 +166,49 @@ export async function safeNames(ids: number[]): Promise<(builderId: number, key:
   return (id, key) => (shown.get(id) ?? []).find((r) => norm(r.key) === norm(key))?.safeName ?? PRIVATE_NAME;
 }
 
-/** Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not program entries. */
+/**
+ * Programs entered and won (announcements only), matched to a project by its repo or live link; coin entries are not
+ * program entries. v3 Stage 2: `applied`, the entry was submitted (the Ruling C10 rule).
+ */
 async function programEntries(builderId: number) {
-  return sql()<{ keys: (string | null)[]; title: string; won: boolean; submitted_at: Date }[]>`
+  return sql()<{ keys: (string | null)[]; title: string; won: boolean; applied: boolean; submitted_at: Date }[]>`
     SELECT ARRAY[p.repo_key, p.token_repo_key, p.repo_url, p.live_url] AS keys, g.title, p.submitted_at,
-      EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won
+      EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won,
+      (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
+        OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id)) AS applied
     FROM projects p JOIN installations i ON i.id = p.installation_id JOIN programs g ON g.id = p.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL
     ORDER BY p.submitted_at, p.id`;
 }
-/** The programs one project (by key) entered and won, won first. Pure. */
-const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string) => {
+/**
+ * v3 Stage 2: the programs the builder told EarnKit they applied to (builder_program_status applied, accepted, funded or
+ * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project.
+ */
+async function toldApplied(builderId: number) {
+  return sql()<{ title: string }[]>`
+    SELECT DISTINCT g.title FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
+    WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
+    ORDER BY g.title`;
+}
+/** A program on the Project tab: won (announced only), else applied (submitted, or the builder said so). */
+export type ProgramLabel = { title: string; won: boolean; applied: boolean };
+/** "Won X", "Applied to X", else nothing (an entry never submitted has no label). Pure. */
+export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${g.title}` : g.applied ? `Applied to ${g.title}` : null);
+/** The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). Pure. */
+const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: string[] = []): ProgramLabel[] => {
   const k = norm(key);
-  const programs = new Map<string, boolean>();
-  for (const e of entries)
-    if (e.keys.some((x) => x && norm(x) === k)) programs.set(e.title, (programs.get(e.title) ?? false) || e.won);
-  return [...programs].map(([title, won]) => ({ title, won })).sort((a, b) => Number(b.won) - Number(a.won));
+  const programs = new Map<string, { won: boolean; applied: boolean }>();
+  const add = (title: string, won: boolean, applied: boolean) => {
+    const was = programs.get(title);
+    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied });
+  };
+  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied);
+  for (const title of told) add(title, false, true);
+  return [...programs]
+    .map(([title, g]) => ({ title, ...g }))
+    .filter((g) => programLabel(g) !== null)
+    .sort((a, b) => Number(b.won) - Number(a.won));
 };
-/** v2.13 T11: the programs the person's project `key` entered and won. */
-export const projectPrograms = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key);
+/** v2.13 T11: the programs the person's project `key` won or applied to (v3 Stage 2: told applications too). */
+export const projectPrograms = async (builderId: number, key: string) =>
+  programsOf(await programEntries(builderId), key, (await toldApplied(builderId)).map((r) => r.title));

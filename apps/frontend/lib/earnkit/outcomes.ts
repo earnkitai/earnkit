@@ -5,6 +5,7 @@ import { eventRepoKey, noteEvent, type EventType } from './events';
 import { loginBasisFor } from './github-verify';
 import { NotFoundError } from './programs';
 import { COIN_PROGRAM } from './policy-constants';
+import { displayName } from './bench-reply';
 
 /**
  * v2.8 Part G, Ruling 30 (plan): what happened to each entry.
@@ -181,6 +182,15 @@ export type ReportOutcome = z.infer<typeof ReportOutcome>;
 
 /** The one question the agent asks after results are due. */
 export const outcomeQuestion = (name: string, program: string) => `Did ${name} win anything in ${program}?`;
+/** v3 Stage 2 (spec 5.3): the one question 14 days after the deadline of a program the builder said they applied to. */
+export const applyAsk = (name: string, program: string) => `Did ${program} come back on ${name}? applied / accepted / funded / rejected.`;
+/** v3 Stage 2: days after a program's deadline before an application's outcome is asked. */
+export const APPLY_OUTCOME_DAYS = 14;
+/** What outcomeToAsk picked: an entry's results (`project_id`), or an application the builder told EarnKit about (no entry). */
+export type OutcomeAsk = { kind: 'results' | 'apply'; project_id: number | null; program_id: string; name: string; program_title: string };
+/** The question an OutcomeAsk asks. Pure. */
+export const outcomeLine = (a: Pick<OutcomeAsk, 'name' | 'program_title'> & { kind?: OutcomeAsk['kind'] }) =>
+  a.kind === 'apply' ? applyAsk(a.name, a.program_title) : outcomeQuestion(a.name, a.program_title);
 
 /** The round label a self-report is stored under (one self-report per entry; the latest answer wins). */
 export const SELF_REPORT_ROUND = 'builder report';
@@ -280,10 +290,42 @@ export async function saveSelfReport(installationId: number, r: ReportOutcome, d
 /**
  * At most one entry to ask about per call (Ruling 30): this installation's submitted entry whose
  * program's `results.expected` day has passed, with no outcome of any basis and never asked.
- * Marks it asked in the same statement, so the question is asked once. Null when there is none.
- * `onlyIds` (v2.9 B9, Ruling G7): only these entries (a verified login's, on a shared client).
+ * Marks it asked in the same statement, so the question is asked once. v3 Stage 2: with no such entry,
+ * an application the builder told EarnKit about (builder_program_status 'applied', the installation's own
+ * memory) whose program closed more than APPLY_OUTCOME_DAYS ago, never asked (asked_at, set in the same
+ * statement). Null when there is none. `onlyIds` (v2.9 B9, Ruling G7): only these entries (a verified
+ * login's, on a shared client), and then never an application.
  */
-export async function outcomeToAsk(installationId: number, now = new Date(), onlyIds?: number[]) {
+export async function outcomeToAsk(installationId: number, now = new Date(), onlyIds?: number[]): Promise<OutcomeAsk | null> {
+  const entry = await entryToAsk(installationId, now, onlyIds);
+  if (entry || onlyIds) return entry;
+  return applicationToAsk(installationId, now);
+}
+
+async function applicationToAsk(installationId: number, now: Date): Promise<OutcomeAsk | null> {
+  const [row] = await sql()<{ program_id: string; name: string | null; key: string | null; program_title: string }[]>`
+    WITH pick AS (
+      SELECT s.program_id FROM builder_program_status s JOIN programs pr ON pr.id = s.program_id
+      WHERE s.installation_id = ${installationId} AND s.login = '' AND s.status = 'applied' AND s.asked_at IS NULL
+        AND pr.ends_at IS NOT NULL AND pr.ends_at + make_interval(days => ${APPLY_OUTCOME_DAYS}) < ${now}
+      ORDER BY pr.ends_at, s.program_id
+      LIMIT 1
+      FOR UPDATE OF s SKIP LOCKED
+    )
+    UPDATE builder_program_status s SET asked_at = ${now}
+    FROM pick, programs pr
+    WHERE s.installation_id = ${installationId} AND s.login = '' AND s.program_id = pick.program_id AND pr.id = s.program_id AND s.asked_at IS NULL
+    RETURNING s.program_id, pr.title AS program_title,
+      (SELECT b.name FROM builder_profiles p JOIN builder_projects b ON b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)
+        WHERE p.builder_id = ${installationId}) AS name,
+      (SELECT main_project_key FROM builder_profiles WHERE builder_id = ${installationId}) AS key`;
+  if (!row) return null;
+  const key = row.key ?? '';
+  const name = row.name ? displayName(row.name, key, null) : key ? displayName(key.split('/').pop()!, key, null) : 'your project';
+  return { kind: 'apply', project_id: null, program_id: row.program_id, name, program_title: row.program_title };
+}
+
+async function entryToAsk(installationId: number, now: Date, onlyIds?: number[]): Promise<OutcomeAsk | null> {
   const db = sql();
   const [row] = await db<{ project_id: number; program_id: string; name: string; program_title: string }[]>`
     WITH pick AS (
@@ -305,5 +347,5 @@ export async function outcomeToAsk(installationId: number, now = new Date(), onl
     FROM pick, programs pr
     WHERE p.id = pick.id AND pr.id = p.program_id AND p.outcome_asked_at IS NULL
     RETURNING p.id AS project_id, p.program_id, p.name, pr.title AS program_title`;
-  return row ?? null;
+  return row ? { kind: 'results', ...row } : null;
 }

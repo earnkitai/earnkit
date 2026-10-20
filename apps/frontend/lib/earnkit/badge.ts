@@ -2,6 +2,7 @@ import { personFacts } from './page-data';
 import { resolveHandle } from './profiles';
 import { rankSplit } from './rank';
 import { pagePath } from './reserved-routes';
+import { THEME } from './theme';
 
 /**
  * Launch-ready L8: the README badge, earnkit.com/badge/<handle>.svg: "EarnKit | Shipping 72 · #3" in the brand's
@@ -19,10 +20,14 @@ export const BADGE_CACHE = 'public, max-age=3600, s-maxage=3600';
 /** A not-found badge is kept 10 minutes, so a handle claimed just now shows soon. */
 export const BADGE_MISS_CACHE = 'public, max-age=600, s-maxage=600';
 
-const NAVY = '#0F1839'; // ek-navy-deep
-const WHITE = '#F6F9FE'; // ek-white
-const BLUE = '#579DFF'; // ek-blue-bright
-const MUTED = '#3A4466';
+// v3 Stage 3 Task 6 (spec 5.8): the flat system's colours (theme.ts THEME): the label on the black page, the value on
+// brand blue, white text on both (5.8:1 on brand). Task 7: the not-found value is muted text on the raised spot (4.8:1;
+// white on the muted grey was 3.5:1). The geometry is shields.io's.
+const LABEL_FILL = THEME.page;
+const VALUE_FILL = THEME.brand;
+const INK = THEME.text;
+const MUTED_FILL = THEME.raised;
+const MUTED_INK = THEME.muted;
 
 const escapeXml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -40,7 +45,7 @@ export function textWidth(s: string): number {
   return Math.ceil(w);
 }
 
-/** The badge's SVG: the label on navy, the value on bright blue (or muted when `muted`); text escaped. Pure. */
+/** The badge's SVG: the label on black, the value on brand blue in white (or muted on the raised spot when `muted`); text escaped. Pure. */
 export function badgeSvg(value: string, o: { muted?: boolean } = {}): string {
   const pad = 6;
   const lw = textWidth(BADGE_LABEL) + 2 * pad;
@@ -48,14 +53,14 @@ export function badgeSvg(value: string, o: { muted?: boolean } = {}): string {
   const w = lw + vw;
   const label = escapeXml(BADGE_LABEL);
   const text = escapeXml(value);
-  const fill = o.muted ? MUTED : BLUE;
-  const ink = o.muted ? WHITE : NAVY;
+  const fill = o.muted ? MUTED_FILL : VALUE_FILL;
+  const ink = o.muted ? MUTED_INK : INK;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="20" role="img" aria-label="${label}: ${text}">` +
     `<title>${label}: ${text}</title>` +
     `<clipPath id="r"><rect width="${w}" height="20" rx="3"/></clipPath>` +
-    `<g clip-path="url(#r)"><rect width="${lw}" height="20" fill="${NAVY}"/><rect x="${lw}" width="${vw}" height="20" fill="${fill}"/></g>` +
+    `<g clip-path="url(#r)"><rect width="${lw}" height="20" fill="${LABEL_FILL}"/><rect x="${lw}" width="${vw}" height="20" fill="${fill}"/></g>` +
     `<g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11" text-rendering="geometricPrecision">` +
-    `<text x="${lw / 2}" y="14" fill="${WHITE}" text-anchor="middle" textLength="${lw - 2 * pad}" lengthAdjust="spacingAndGlyphs">${label}</text>` +
+    `<text x="${lw / 2}" y="14" fill="${INK}" text-anchor="middle" textLength="${lw - 2 * pad}" lengthAdjust="spacingAndGlyphs">${label}</text>` +
     `<text x="${lw + vw / 2}" y="14" fill="${ink}" text-anchor="middle" textLength="${vw - 2 * pad}" lengthAdjust="spacingAndGlyphs">${text}</text>` +
     `</g></svg>`;
 }

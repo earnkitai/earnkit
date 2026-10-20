@@ -305,8 +305,10 @@ test('v2.8.1 §C14: the speedrun kit says the application continues on a16z\'s s
       `\n${CONFIRMATION_ASK}`,
     ].join('\n'),
   );
-  // Every other committed program: no such line.
-  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && x !== 'a16z-speedrun.json')) {
+  // v3 Stage 2: Alliance's application also starts with one email; every other committed program: no such line.
+  const alliance = ProgramFile.parse(JSON.parse(readFileSync(join(dir, 'alliance-all19.json'), 'utf8')));
+  assert.equal(continuesLine(alliance), "After the email (1st founder) step, the application continues on Alliance's site.");
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.json') && x !== 'a16z-speedrun.json' && x !== 'alliance-all19.json')) {
     const p = ProgramFile.parse(JSON.parse(readFileSync(join(dir, f), 'utf8')));
     assert.equal(continuesLine(p), null, f);
   }

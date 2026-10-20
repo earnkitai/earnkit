@@ -1,7 +1,9 @@
 import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { moneyText, openMoneyUsd, poolTotal, statedPool } from './pool';
+import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
+import { raisingEnabled } from './builder-score-flag';
+import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fees';
 
 /**
  * Public stats (v2.5 §4) for jenil.ai: /api/stats, cached 10 min. Database aggregates only: no
@@ -29,6 +31,12 @@ export const STATS_KEYS = [
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
+  'points_total',
+  'applications',
+  'accepted',
+  'backing_open',
+  'backers',
+  'earned_usd',
 ] as const;
 
 /**
@@ -42,14 +50,14 @@ export const WIN_RATE_MIN_LABELLED = 30;
 export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
- * curated program, summed) and `open_money_text` the text every page shows for it ("$1.1M+", null
- * at 0). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
+ * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
+ * shows for it ("$115K in grants and prizes open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
  * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
  */
 export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
 
 /** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
-export { moneyText, openMoneyUsd, type OpenMoneyRow } from './pool';
+export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoneyRow } from './pool';
 
 /**
  * How jenil.ai should label each stat (T9 note): `fees_to_safe_eth` counts only coins launched
@@ -78,6 +86,12 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
+  points_total: 'points awarded for approved weeks',
+  applications: 'applications the builder told EarnKit about',
+  accepted: 'of which accepted or funded (self-reported)',
+  backing_open: 'projects with backing open (0 while EARNKIT_RAISING is off)',
+  backers: 'distinct wallets that received an open backing\'s coin (0 while EARNKIT_RAISING is off)',
+  earned_usd: 'earned by EarnKit builders: creator fees claimed plus announced prizes (USD)',
 };
 
 /** v2.9 E20: the won line lives in pool.ts (no imports, so present.ts can use it without a cycle). */
@@ -89,6 +103,8 @@ export const weiToEth = (wei: bigint) => Number(wei / 10n ** 12n) / 1e6;
 /** v2.9 F21: an active program as readStats reads it (json, so dates are strings). */
 type OpenRow = {
   max_award_usd: string | number | null;
+  /** v3 Stage 2: an investment is never counted (openMoneyUsd). */
+  investment?: boolean | null;
   status: string;
   campaign: unknown;
   source: string;
@@ -125,6 +141,20 @@ type Row = {
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
+  /** v3 Stage 1: points awarded to non-test people (builder_points). */
+  points_total?: string | number | null;
+  /** v3 Stage 2: distinct (person, program) applications the builder told EarnKit about (builder_program_status). */
+  applications?: number;
+  /** v3 Stage 2: of those, accepted or funded (self-reported). */
+  accepted?: number;
+  /** v3 Stage 2: launched coins with backing open (raising_at set), no test installation's. */
+  backing_open?: number;
+  /** v3 Stage 2: distinct wallets that received those coins (coin_backers). */
+  backers?: number;
+  /** v3 Stage 2: WETH claimed to the creator wallets of non-test coins (creator_fees). */
+  creator_fees_wei?: string | null;
+  /** v3 Stage 2: the WETH price earned_usd values creator_fees_wei at (fees.ts cachedWethUsd); null: unknown. */
+  weth_usd?: number | null;
 };
 
 /**
@@ -142,21 +172,18 @@ type Row = {
  * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
  * routed to the Safe as before. Pure.
  */
-export function statsFrom(r: Row, now = new Date()): PublicStats {
+export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
   const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
   const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
-  const openUsd = Math.round(
-    openMoneyUsd(
-      (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) })),
-      now,
-    ),
-  );
+  const openRows = (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) }));
+  const openUsd = Math.round(openMoneyUsd(openRows, now));
   return {
     open_money_usd: openUsd,
-    open_money_text: moneyText(openUsd),
+    // v3 Stage 2: the landing's line ("$115K in grants and prizes open"), null when no curated program is open.
+    open_money_text: openRows.some((p) => openCurated(p, now)) ? openGrantsText(openUsd) : null,
     open_pools_usd: Math.round(pools.usd),
     open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
@@ -175,6 +202,14 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
+    points_total: Number(r.points_total ?? 0),
+    applications: Number(r.applications ?? 0),
+    accepted: Number(r.accepted ?? 0),
+    // v3 Stage 2: coin-facing, so 0 unless EARNKIT_RAISING is on (the keys always stay, for jenil.ai).
+    backing_open: raising ? Number(r.backing_open ?? 0) : 0,
+    backers: raising ? Number(r.backers ?? 0) : 0,
+    // v3 Stage 2 (spec 5.2): Earned over people, fees claimed (at the WETH price; none while it is unknown) plus announced prizes.
+    earned_usd: Math.round((r.weth_usd ? wethToUsd(big(r.creator_fees_wei), r.weth_usd) : 0) + Number(r.builders_won_usd ?? 0)),
   };
 }
 
@@ -201,7 +236,7 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
     )
     SELECT
       -- v2.9 F21: every active program; openMoneyUsd (statsFrom) keeps the open curated ones.
-      (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'status', status, 'campaign', campaign,
+      (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'investment', investment, 'status', status, 'campaign', campaign,
         'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active') AS open_rows,
       -- v2.7.1: the landing page's programs (listPrograms' open rule, curated only: no campaign).
       (SELECT json_agg(json_build_object('pool_usd', pool_usd, 'reward', reward)) FROM programs
@@ -278,13 +313,43 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false))::int AS entries_won,
       -- v2.9 E20: the prizes of announced won or placed outcomes with a known prize (one per entry
       -- and round); never a self-report, never a test installation's entry.
-      (${wonUsdSql(db, ids)})::text AS builders_won_usd`;
-  return statsFrom(r, now);
+      (${wonUsdSql(db, ids)})::text AS builders_won_usd,
+      -- v3 Stage 1: points awarded for approved weeks, people only (never a test installation's group).
+      (SELECT COALESCE(sum(bp.points), 0) FROM builder_points bp JOIN builder_profiles p ON p.builder_id = bp.builder_id
+        WHERE ${notTest(db, ids)})::text AS points_total,
+      -- v3 Stage 2 (spec 5.3): applications the builder told EarnKit about, one per person and program (a person: the
+      -- installation's group), never a test installation's; accepted: of those, accepted or funded (self-reported).
+      (${applicationsSql(db, ids, ['applied', 'accepted', 'funded', 'rejected'])})::int AS applications,
+      (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted,
+      -- v3 Stage 2 (spec 5.3 Route 2): open backings (launched, raising_at set) and their coins' distinct backers, never a
+      -- test installation's coin; creator fees claimed to each non-test coin's creator wallet (creator_fees).
+      -- v3 Stage 2 final review: never a test installation's group (testProject), as every other people stat.
+      (SELECT count(*) FROM projects p WHERE p.token_status = 'launched' AND p.raising_at IS NOT NULL
+        AND NOT ${testProject(db, ids)})::int AS backing_open,
+      (SELECT count(*) FROM coin_backers b WHERE b.coin IN (SELECT lower(p.coin_address) FROM projects p
+        WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND p.raising_at IS NOT NULL
+          AND NOT ${testProject(db, ids)}))::int AS backers,
+      (SELECT sum(f.amount_wei) FROM creator_fees f JOIN projects p ON lower(p.coin_address) = f.coin
+        WHERE f.wallet = ${creatorWalletSql(db)} AND NOT ${testProject(db, ids)})::text AS creator_fees_wei`;
+  // The WETH price only when there are claimed fees to value (fees.ts: cached, at most a short wait).
+  const weth_usd = BigInt(r.creator_fees_wei ?? '0') > 0n ? await cachedWethUsd(now.getTime(), PRICE_WAIT_MS, db) : null;
+  return statsFrom({ ...r, weth_usd }, now);
 }
 
+/** v3 Stage 2: distinct (person, program) rows of builder_program_status with one of `statuses`, no test installation's. */
+const applicationsSql = (db: Db, ids: number[], statuses: string[]) => db`
+  SELECT count(DISTINCT (COALESCE(i.builder_id, i.id), s.program_id)) FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+  WHERE s.status = ANY(${statuses}::text[]) AND NOT (i.id = ANY(${ids}::int[])) AND NOT (COALESCE(i.builder_id, i.id) = ANY(${ids}::int[]))`;
 /** Launch-ready L9: `p` (a builder_profiles row) is no owner test installation's group. */
 const notTest = (db: Db, ids: number[]) => db`NOT (p.builder_id = ANY(${ids}::int[]))
   AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND i.id = ANY(${ids}::int[]))`;
+/**
+ * v3 Stage 2 final review: `p` (a projects row) belongs to an owner test installation's group: its installation is
+ * a test one, or its group (COALESCE(builder_id, id)) is, or any installation in its group is (as notTest).
+ */
+const testProject = (db: Db, ids: number[]) => db`EXISTS (SELECT 1 FROM installations i WHERE i.id = p.installation_id
+  AND (i.id = ANY(${ids}::int[]) OR COALESCE(i.builder_id, i.id) = ANY(${ids}::int[])
+    OR EXISTS (SELECT 1 FROM installations j WHERE COALESCE(j.builder_id, j.id) = COALESCE(i.builder_id, i.id) AND j.id = ANY(${ids}::int[]))))`;
 /** Launch-ready L9: `u` (a project_updates row) is a week the builder approved at the weekly moment (L6). */
 const approvedWeek = (db: Db) => db`u.facts->'approved' = 'true'::jsonb AND jsonb_typeof(u.facts->'approved_at') = 'string'`;
 

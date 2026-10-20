@@ -301,9 +301,10 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
  * any_chain or investment, project or better otherwise); with what the builder said applied, the
  * verdict is likely, or after_step with effort of hours or less and no real_users or new_work
  * missing; the row is not Hard, unless $10,000+ per winner and product tier. v2.10 item 6: never a
- * low-odds repo, nor a row on a chain only mentioned. Pure.
+ * low-odds repo, nor a row on a chain only mentioned. v3 Stage 2 final review: with `apply`, an investment the
+ * tier fits counts (its verdict is always weeks of work; the apply step offers it, never a fit line). Pure.
  */
-export function repoCanWin(p: NewProgram, r: FitRepo): boolean {
+export function repoCanWin(p: NewProgram, r: FitRepo, o: { apply?: boolean } = {}): boolean {
   if (!r.product || r.product.tier === 'noise') return false;
   // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies). v2.11 8a (S3):
   // nor an unknown one (asked about users first).
@@ -315,6 +316,9 @@ export function repoCanWin(p: NewProgram, r: FitRepo): boolean {
   if (!v || v.status === 'no') return false;
   // v2.10 item 9 (Pre-flight P13): nor a row whose chain the repo only mentions (low odds: not deployed yet).
   if (onlyMentioned(v, f.chains)) return false;
+  // v3 Stage 2 final review: an investment's verdict is always "apply as a company" (weeks, match.ts
+  // INVESTMENT_NOTE), so it is never close; `o.apply` (the apply step's candidates, as find's good-odds row) takes it.
+  if (p.investment && o.apply) return true;
   const close =
     v.status === 'likely' ||
     (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));

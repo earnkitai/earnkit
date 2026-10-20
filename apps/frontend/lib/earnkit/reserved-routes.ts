@@ -6,11 +6,11 @@
  */
 export const RESERVED_ROUTES: ReadonlySet<string> = new Set([
   // app/ directories (components, fonts and lib have no page but are kept out of the handle space too)
-  '.well-known', 'admin', 'api', 'b', 'badge', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'feed', 'fonts', 'github', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
+  '.well-known', 'admin', 'api', 'b', 'badge', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'docs', 'feed', 'fonts', 'github', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
   // app/ file routes and Next metadata names
   'favicon', 'sitemap', 'robots', 'manifest', 'icon', 'apple-icon', 'opengraph-image', 'twitter-image', '_next',
   // public/ (extension dropped)
-  'favicon-16x16', 'favicon-32x32', 'images', 'llms', 'logo', 'og', 'videos',
+  'favicon-32x32', 'images', 'llms', 'logo', 'og',
 ]);
 
 export const isReserved = (handle: string): boolean => RESERVED_ROUTES.has(handle.toLowerCase());

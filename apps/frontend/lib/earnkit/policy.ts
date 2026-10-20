@@ -122,3 +122,16 @@ export const PROFILES_POINTS: readonly string[] = [
   'EarnKit never posts for you. Your X account is read each time you sign in with it, to confirm it is yours and pick up a new handle, name or picture. EarnKit keeps your X user id, handle, name and picture.',
   'This data may transfer to a successor in a merger or acquisition. To have it removed, email the address on this page.',
 ];
+
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): the terms' Backing section (PolicySection, only while EARNKIT_RAISING is on). The split
+ * in words, matching feeTable and EARNKIT_SPLITS_BPS; the coin's risk; backing never moves Shipping or rank.
+ */
+export const BACKING_TITLE = 'Backing';
+export const BACKING_POINTS: readonly string[] = [
+  "Of a coin's trading fees, Clanker keeps 20%. Of the rest, 40% goes to the builder's wallet, 10% buys MINI and 50% goes to EarnKit's Safe.",
+  'Backing is offered once, after the first approved week, and only with a yes.',
+  'A coin is a tradable token on Base. It can go to zero. EarnKit never says it will rise.',
+  'Closing backing hides it from the page; the coin stays onchain.',
+  'Backing never changes Shipping or rank.',
+];

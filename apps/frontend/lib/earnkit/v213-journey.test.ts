@@ -1,5 +1,6 @@
 import './fixtures/no-network-checks';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
+import { BACKING_NOT_YET } from './bench-find';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -345,7 +346,8 @@ before(async () => {
   // Arc Microgrants (the starter build's program), which closes in 3 days (the build lead's window).
   for (const f of readdirSync(PROGRAMS_DIR).filter((f) => f.endsWith('.json'))) {
     const raw = JSON.parse(readFileSync(join(PROGRAMS_DIR, f), 'utf8'));
-    if (!raw.campaign) Object.assign(raw, { status: 'active', ends_at: raw.ends_at ? FAR : raw.ends_at });
+    // v3 Stage 2: an upcoming file stays upcoming (it has no form yet).
+    if (!raw.campaign && raw.status !== 'upcoming') Object.assign(raw, { status: 'active', ends_at: raw.ends_at ? FAR : raw.ends_at });
     if (raw.id === ARC) raw.ends_at = new Date(Date.now() + 3 * DAY + HOUR).toISOString();
     await upsertProgram(ProgramFile.parse(raw));
   }
@@ -537,14 +539,19 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
   assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
   assert.equal(r2.move_up?.kind, 'ship');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
+  // v3 Stage 2 review: under EARNKIT_RAISING, backing opens after the first approved week with code.
+  assert.equal((await call('tell', { token: 'ask' }, ctx(id))).show_to_builder, BACKING_NOT_YET);
+  await sql()`
+    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
   const asked = await call('tell', { token: 'ask' }, ctx(id));
-  assert.match(asked.show_to_builder, /^I'll launch \$\w+ on tokens\.fun and you get 40% of its trading fees\. Want to open a community round for Recipe planner\?$/, asked.show_to_builder);
+  assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes', 'log');
@@ -597,12 +604,16 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   const log = await renderProfile('maya_makes', 'log');
   assert.match(log, /data-shape="long"[\s\S]*Added fridge photo import[\s\S]*commit/, log);
   assert.doesNotMatch(log, /written by an agent/i);
-  // Not in /feed at once: only finished, ranked weeks.
+  // The current (unfinished) week is not in /feed.
   assert.deepEqual(await feedWeeks(new Date(), { only: [id] }), []);
   // The week finishes: the Monday step (from 15:00 UTC) and the daily rank, then the feed.
   const monday = nextMonday15(NOW);
   assert.deepEqual(await weeklyFactsStep(monday, { deadline: Date.now() + 20_000, only: [id] }), { people: 1, rows: 1 });
-  assert.deepEqual(await feedWeeks(monday, { only: [id] }), [], 'finished but not ranked yet');
+  // v3: upsertWeekFacts writes the points with the facts, so the week is on the feed as soon as it is written.
+  const written = await feedWeeks(monday, { only: [id] });
+  assert.equal(written.length, 1, JSON.stringify(written));
+  assert.equal(written[0].label, weekLabel(lastFinishedMonday(monday)));
+  // The daily rank is only a catch-up now.
   assert.ok('rows' in (await feedRankStep(monday)));
   const feed = await feedWeeks(monday, { only: [id] });
   assert.ok(feed[0]?.cards.some((c) => c.text?.startsWith('Added fridge photo import') && c.chips.some((x) => /commit/.test(x))), JSON.stringify(feed));
@@ -618,17 +629,17 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
   assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
-  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base this week/);
+  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base/);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
   const id = MAYA.id;
   await giveFivePeople(id);
   // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
-  assert.match(MAYA.offer, /Want to open a community round for Recipe planner\?/);
+  assert.match(MAYA.offer, /Want to open backing for Recipe planner\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
-  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise/i);
+  assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise|backing/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
   assert.ok(yes.project_id, JSON.stringify(yes));
   // v2.14 spec 2: the App proved the repo: nothing is pushed.
@@ -636,9 +647,11 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  assert.ok((await renderProfile('maya_makes', 'log')).includes(`Community round $${pill.symbol}`));
+  // v3 Stage 3 (spec 5.6): the pill sits in the Money tab's Backing group; the header carries the Back button.
+  assert.ok((await renderProfile('maya_makes', 'money')).includes(`Backing · $${pill.symbol}`));
+  assert.match(await renderProfile('maya_makes', 'log'), /data-ek-back/);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
-  assert.deepEqual(row?.raising, pill);
+  assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
   const [p] = await sql()<{ coin_tx: string; coin_chain_id: number }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${yes.project_id!}`;
   assert.deepEqual({ ...p }, { coin_tx: `0x${'c'.repeat(64)}`, coin_chain_id: 8453 });
@@ -646,12 +659,12 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(await pillOf(id), null);
 });
 
-test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the square cards', db, async () => {
+test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the feed rows', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('Shipped this week'));
+  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('>Feed</h2>'));
   assert.ok((landing.bench?.rows.length ?? 0) <= 10);
-  assert.match(page, /data-shape="square"/);
+  assert.match(page, /data-shape="long"/);
   assert.ok(landing.bench?.cards.some((c) => c.handle === 'maya_makes'));
 });
 

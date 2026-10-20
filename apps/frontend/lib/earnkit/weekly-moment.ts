@@ -5,7 +5,8 @@ import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { checkUpdate } from './update-text';
 import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
-import { WEEKLY_HOUR_UTC } from './week-facts';
+import { WEEKLY_HOUR_UTC, hasFacts, type WeekFacts } from './week-facts';
+import { awardWeekPoints, type ApproveVia } from './points';
 
 /**
  * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
@@ -17,8 +18,11 @@ import { WEEKLY_HOUR_UTC } from './week-facts';
 const DAY_MS = 86_400_000;
 /** A week's standing as the daily history (builder_scores) left it: its last ranked day. */
 export type WeekStanding = { score: number; rank: number; total: number };
-/** `checked`: the weekly job has written last week's ship-log row (facts.checked). */
-export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean };
+/**
+ * `checked`: the weekly job has written last week's ship-log row (facts.checked). `approved`: the builder already
+ * confirmed it (facts.approved, as the connect yes does), so the moment never asks about it again.
+ */
+export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean };
 
 /** "+6", "-3", "same". Pure. */
 const scoreDelta = (d: number) => (d === 0 ? 'same' : d > 0 ? `+${d}` : `${d}`);
@@ -33,7 +37,7 @@ const rankDelta = (before: number, now: number) => (before === now ? 'same' : no
 export const MOMENT_TITLES_MAX = 2;
 /** Weekly updates: the builder's optional note under the week's summary (tell update { text }). */
 export const NOTE_LINE = 'Send a line about your week and it goes under your update.';
-export function momentLines(w: LastWeek, weekStart: string | null = null): string[] {
+export function momentLines(w: Omit<LastWeek, 'approved'>, weekStart: string | null = null): string[] {
   const { now, before } = w;
   const head = before
     ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
@@ -100,28 +104,39 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (!cur) return null;
   const before = await weekStanding(builderId, new Date(Date.parse(`${monday}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10));
   const db = sql();
-  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean }[]>`
-    SELECT titles, summary, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
+  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean; approved: boolean }[]>`
+    SELECT titles, summary, facts ? 'checked' AS checked, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && (u.titles.length > 0 || u.summary)) {
-    const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
-    const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
-    // The titles are the builder's own commit text: checked again here as when stored (update-text.ts checkUpdate),
-    // so a reply never carries one the filter refuses. Weekly updates: the week's summary stands in for them.
-    const rule = { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key };
-    const links = await (await import('./updates')).ownLinks(builderId);
-    const safe = (t: string) => {
-      const c = checkUpdate(t, links);
-      return c.ok && !titleHasLink(c.text) ? c.text : null;
-    };
+    const line = (await weekLineRule(builderId, key))(u);
+    if (line) titles = [line];
+  }
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved: u?.approved ?? false };
+}
+
+/**
+ * The one line a reply may carry for a week of `key`'s ship log: its summary as the profile would show it
+ * (ship-titles.ts titlesShown: a private repo's titles only with titles on, never one naming it; week-summary.ts
+ * summaryShown), checked again as when stored (update-text.ts checkUpdate) and never holding a link. Null: nothing
+ * to show. Reads once; the rule it returns is pure. Throws on a database error.
+ */
+export async function weekLineRule(builderId: number, key: string): Promise<(u: { titles: string[]; summary: string | null }) => string | null> {
+  const db = sql();
+  const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
+  const rule = { hiddenRepo: shown?.hiddenRepo ?? true, titlesOn: p?.titles_on ?? false, repoKey: key };
+  const links = await (await import('./updates')).ownLinks(builderId);
+  const safe = (t: string) => {
+    const c = checkUpdate(t, links);
+    return c.ok && !titleHasLink(c.text) ? c.text : null;
+  };
+  return (u) => {
     // Weekly updates: the week's summary stands in for the titles; written from the titles a reply may carry
     // when the stored one names a host.
     const shownTitles = titlesShown(u.titles, rule).flatMap((t) => safe(t) ?? []);
     const summary = summaryShown(u.summary && safe(u.summary), shownTitles, rule);
-    const line = summary && safe(summary);
-    if (line) titles = [line];
-  }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false };
+    return (summary && safe(summary)) || null;
+  };
 }
 
 /** A cheap first look: this installation hasn't been shown `now`'s week yet (so last week is worth reading). Never throws. */
@@ -155,17 +170,22 @@ export async function takeMoment(own: number, now: Date): Promise<boolean> {
  * nowhere: no facts, text or titles). The weekly job's later upsert merges its facts in, keeping these. False when
  * another builder holds the week.
  */
-export async function approveWeek(builderId: number, key: string, monday: string, now: Date): Promise<boolean> {
-  const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: 'share' });
-  const [had] = await sql()`
+export async function approveWeek(builderId: number, key: string, monday: string, now: Date, via: ApproveVia = 'share'): Promise<boolean> {
+  const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: via });
+  const [had] = await sql()<{ facts: WeekFacts }[]>`
     UPDATE project_updates SET facts = facts || ${facts}::jsonb
-    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING 1`;
-  if (had) return true;
-  const r = await sql()`
+    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
+  if (had) return award(builderId, monday, via, now, had.facts);
+  const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts
-    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING 1`;
-  return r.length > 0;
+    WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
+  return r ? award(builderId, monday, via, now, r.facts) : false;
+}
+/** v3 Stage 1: an approval that stood earns the week's points, once, when the week has facts. Never throws. */
+async function award(builderId: number, monday: string, via: ApproveVia, now: Date, facts: WeekFacts): Promise<true> {
+  if (hasFacts(facts ?? {})) await awardWeekPoints(builderId, monday, via, now).catch((err: unknown) => console.error('[points] award', err instanceof Error ? err.name : 'error'));
+  return true;
 }
 
 /**

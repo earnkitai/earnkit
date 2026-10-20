@@ -5,21 +5,22 @@ import { mainConfirmed, mainProjectOf } from './main-project';
 import { normalizeRepoUrl } from './campaigns';
 
 /**
- * v2.13 spec "4. Optional: raise" (R8): the one project's coin, the raising flag on it, the pill.
- * A coin launched before v2.13 never turns the pill on by itself: the builder says yes first
- * ("Want to show your community round with $X?", only when the builder asks about a token: bench-find.ts
- * tokenAsk, R8). "Stop raising" clears the flag; the coin stays. The pill, the line and setRaising do
- * nothing while EARNKIT_RAISING is off (final fix, controller ruling).
+ * v2.13 spec "4. Optional: raise" (R8), v3 Stage 2 (spec 5.3 Route 2): the one project's coin, the backing flag on it
+ * (projects.raising_at, the column keeps its name), the pill. A coin launched before v2.13 never turns the pill on by
+ * itself: the builder says yes first (showRaisingLine, only when the builder asks about a token: bench-find.ts tokenAsk).
+ * Closing backing clears the flag; the coin stays. The pill, the line and setRaising do nothing while EARNKIT_RAISING is
+ * off (final fix, controller ruling). Builder text says Backing, never "community round", "raise" or "raising".
  */
 export const RAISE_LINES = {
-  on: (symbol: string) => `Done. Your page shows your community round with $${symbol}.`,
-  off: "Okay, your page no longer shows a community round. Your coin stays.",
-  notLaunched: "Your coin isn't live yet. It shows once it is.",
+  on: (symbol: string) => `Done. Your page shows backing for $${symbol}.`,
+  off: 'Okay. Your page no longer shows backing. Your coin stays onchain.',
+  notLaunched: 'Backing opens once your coin is launched.',
 } as const;
-/** Owner ruling B (v2.13.3): "community round", never "raise" or "raising", in builder text. */
-export const showRaisingLine = (symbol: string) => `Want to show your community round with $${symbol} on your page?`;
+/** The line for a launched coin not shown as backing yet (tell token: 'ask'). Pure. */
+export const showRaisingLine = (symbol: string) => `Want your page to show backing for $${symbol}?`;
 
-export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean };
+/** v3 Stage 2: `coin`, the Base coin address (lowercase), null when none was recorded. */
+export type RaisingCoin = { project_id: number; symbol: string; url: string; status: string | null; raising: boolean; coin: string | null };
 
 /**
  * The one project's launched (or launching) coin entry, newest first. A launch records the repo
@@ -31,7 +32,8 @@ export async function raisingCoin(builderId: number): Promise<RaisingCoin | null
   if (!key) return null;
   const repo = `https://github.com/${key}`;
   const [r] = await sql()<RaisingCoin[]>`
-    SELECT x.id AS project_id, x.token_symbol AS symbol, x.token_url AS url, x.token_status AS status, x.raising_at IS NOT NULL AS raising
+    SELECT x.id AS project_id, x.token_symbol AS symbol, x.token_url AS url, x.token_status AS status, x.raising_at IS NOT NULL AS raising,
+      lower(x.coin_address) AS coin
     FROM projects x JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.token_url IS NOT NULL AND x.token_symbol IS NOT NULL
       AND (x.token_repo_key = ${normalizeRepoUrl(repo)} OR lower(x.repo_url) IN (lower(${repo}), lower(${`${repo}/`})))
@@ -55,10 +57,15 @@ export async function setRaising(builderId: number, on: boolean): Promise<{ show
   return { show_to_builder: on ? RAISE_LINES.on(c.symbol) : RAISE_LINES.off };
 }
 
-/** The pill: only while EARNKIT_RAISING is on, the coin is launched, the builder said they're raising, and the one project is confirmed. */
+/** The pill: only while EARNKIT_RAISING is on, the coin is launched, the builder opened backing, and the one project is confirmed. */
 export async function pillOf(builderId: number): Promise<{ symbol: string; url: string } | null> {
+  const c = await pillCoin(builderId);
+  return c ? { symbol: c.symbol, url: c.url } : null;
+}
+/** v3 Stage 2: the coin behind the pill (pillOf's rule), so a caller that needs its address reads it once. */
+export async function pillCoin(builderId: number): Promise<RaisingCoin | null> {
   if (!raisingEnabled()) return null;
   const c = await raisingCoin(builderId);
   if (!c || c.status !== 'launched' || !c.raising || !(await mainConfirmed(builderId))) return null;
-  return { symbol: c.symbol, url: c.url };
+  return c;
 }

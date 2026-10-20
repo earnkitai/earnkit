@@ -98,12 +98,12 @@ test('11.1 the top line is what they made; rank and ring only when the rank read
   assert.equal(h.handle, handleOf(a));
   const b = await seededTraction(); // { id, ids }: ranked #3 of its own 40, 2 projects used
   const t = await pageHead(b.id, { only: b.ids }); // the shared DB ranks other files' people too
-  assert.equal(t.rank, 'Top 8% of builders this week', 'from 20 ranked, the top half reads as Top P%');
+  assert.equal(t.rank, 'Top 8% of builders', 'from 20 ranked, the top half reads as Top P%');
   assert.ok(t.score !== null);
   assert.equal(t.topLine, 'Lee has shipped 4 apps with AI.');
   // Low in its list (#30 of 40): every ranked builder sees their rank.
   const low = await pageHead(b.ids[29], { only: b.ids });
-  assert.equal(low.rank, '#30 of 40 builders this week');
+  assert.equal(low.rank, '#30 of 40 builders');
 });
 
 test('11.1b the name and the noun: X name, else @handle, never a wallet; nothing shipped reads as building', dbTest, async () => {

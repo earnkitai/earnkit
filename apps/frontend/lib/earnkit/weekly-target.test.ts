@@ -62,7 +62,7 @@ test('L10 the page voice (L7: the public profile is read by visitors): the same 
 
 test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line; the new week\'s line last', () => {
   const w = (score: number, rank: number) => ({ score, rank, total: 40 });
-  const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, ...o });
+  const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, approved: false, ...o });
   assert.deepEqual(momentLines(lw({ titles: ['Add dark mode', 'Fix the login loop', 'Third'] }), 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.'),
     ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', NOTE_LINE, 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.']);
   assert.deepEqual(momentLines(lw({ now: w(60, 7) })), ['Last week you finished at Shipping 60 (-6), #7 (down 2).']);

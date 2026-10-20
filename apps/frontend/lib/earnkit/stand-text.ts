@@ -7,7 +7,7 @@ import { rankLine, type Standing } from './rank';
 
 /**
  * spec 4: "EarnKit messages only when something real happens": a move up the rank, in the rank line's
- * own words ("You moved up to #2 of 40 builders this week."). Scoring and clarity: people aren't
+ * own words ("You moved up to #2 of 40 builders."). Scoring and clarity: people aren't
  * scored, so new people are no longer news. `ask`: the reply has no other question, so the card is
  * offered (spec 5's moments). Null when nothing happened. Pure.
  */

@@ -45,8 +45,8 @@ async function listed(score: number): Promise<{ id: number; handle: string }> {
 }
 
 test('L8 the value: the score and the rank\'s lead inside the pool, else "not ranked" (never a bare score)', () => {
-  assert.equal(badgeValue({ rank: '#3 of 40 builders this week', score: 72 }), 'Shipping 72 · #3');
-  assert.equal(badgeValue({ rank: 'Top 4% of builders this week', score: 88 }), 'Shipping 88 · Top 4%');
+  assert.equal(badgeValue({ rank: '#3 of 40 builders', score: 72 }), 'Shipping 72 · #3');
+  assert.equal(badgeValue({ rank: 'Top 4% of builders', score: 88 }), 'Shipping 88 · Top 4%');
   assert.equal(badgeValue({ rank: null, score: 72 }), 'not ranked');
 });
 
@@ -54,7 +54,8 @@ test('L8 the SVG: shields-like, brand colors, sized to its text, text escaped, l
   const svg = badgeSvg('Shipping 72 · #3');
   assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="\d+" height="20" role="img" aria-label="EarnKit: Shipping 72 · #3">/);
   assert.match(svg, /<title>EarnKit: Shipping 72 · #3<\/title>/);
-  assert.ok(svg.includes('fill="#0F1839"') && svg.includes('fill="#579DFF"'), 'navy label, bright blue value');
+  // v3 Stage 3 Task 6: the flat system's colours (theme.ts): the label on black, the value on brand blue, white text.
+  assert.ok(svg.includes('fill="#000000"') && svg.includes('fill="#0052FF"'), 'black label, brand blue value');
   assert.ok(textWidth('Shipping 100 · Top 12%') > textWidth('not ranked'));
   const wide = Number(/width="(\d+)"/.exec(badgeSvg('Shipping 100 · Top 12%'))![1]);
   const narrow = Number(/width="(\d+)"/.exec(badgeSvg('not ranked'))![1]);
@@ -77,7 +78,8 @@ test('L8 the profile offers the markdown, quietly, under the sources line', () =
   assert.ok(h.includes(BADGE_COPY_LINE));
   assert.ok(h.includes(badgeMarkdown(DATA.handle).replace(/&/g, '&amp;')), 'the markdown is shown');
   assert.match(h, /aria-label="Copy the badge markdown"/);
-  assert.equal(BADGE_COPY_LINE, 'Add the badge to your README');
+  // v3 Stage 3 (the profile): one quiet line, the image always shown, the markdown behind it.
+  assert.equal(BADGE_COPY_LINE, 'Badge for your README');
 });
 
 test('L8 a listed builder\'s badge has their score and rank; unlisted (held or hidden) shows no rank or not found; unknown is the not-found badge', dbTest, async () => {

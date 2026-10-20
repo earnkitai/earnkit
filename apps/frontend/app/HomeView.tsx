@@ -3,38 +3,29 @@ import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
 import { COLUMN } from './components/common/Panel';
 import BenchTop from './components/sections/BenchTop';
-import UpdateCarousel from './components/sections/UpdateCarousel';
+import FeedRows from './components/sections/FeedRows';
 import ProgramCards from './components/sections/ProgramCards';
 import type { Landing } from '../lib/earnkit/landing';
 
 /**
- * The homepage (R18: one idea per block): the hero (what EarnKit does, add it to your agent), the
- * leaderboard's top 10, what builders shipped this week (when there is any), the money open now,
- * backed by, the footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero
- * renders without its stats line and the live parts are skipped.
+ * The homepage (R18: one idea per block; v3 Stage 3, spec 5.6): the hero (a statement, one action and the featured
+ * builder's live preview), the leaderboard's top 10, the last finished week's feed rows (when there are any), the
+ * money open now, backed by, the footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero and
+ * Backed by render and the live sections are skipped (a failed read claims nothing, not even "nobody yet"); an
+ * empty bench or an empty program list shows its one empty line.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
   const bench = landing?.bench ?? null;
   return (
     <div className="w-full">
-      <section aria-label="EarnKit" className="relative overflow-hidden">
-        {/* The builder, dim and fading out at the edges, behind the headline. */}
-        <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center [mask-image:radial-gradient(closest-side,black_40%,transparent)]">
-          <img src="/images/graphics/builder-blue.png?v=4" alt="" className="h-[90%] w-auto opacity-25" />
-        </div>
-        <div className={`${COLUMN} relative flex min-h-[70svh] flex-col items-center justify-center py-20 md:min-h-[80svh]`}>
-          <Hero statsLine={landing?.stats_line ?? null} wonLine={landing?.won_line ?? null} />
-        </div>
-      </section>
-
-      <div className={`${COLUMN} flex flex-col gap-16 md:gap-24`}>
-        {bench && <BenchTop rows={bench.rows} count={bench.count} />}
-        {bench && bench.cards.length > 0 && <UpdateCarousel cards={bench.cards} />}
-        {landing && landing.tiles.length > 0 && <ProgramCards tiles={landing.tiles} figure={landing.open_text} bench />}
+      <Hero featured={landing?.featured ?? null} />
+      <div className={`${COLUMN} flex flex-col gap-14 md:gap-24`}>
+        {bench ? <BenchTop rows={bench.rows} count={bench.count} /> : null}
+        {bench ? <FeedRows cards={bench.cards} /> : null}
+        {landing ? <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} /> : null}
         <BackedBy />
       </div>
-
       <Footer />
     </div>
   );

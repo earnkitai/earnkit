@@ -72,7 +72,7 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/m);
+    assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
     // R12: the fit with its award, deadline and why (the fixture's match has no repo facts: the plain why).
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)}: up to \\$10K, rolling\\. It fits your project\\.$`, 'm'));
     // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).
@@ -149,14 +149,16 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
 
 // ---- Restored from v2121-find.test.ts in v2.14 T3 fix round 1: the live privacy and MCP-schema rules ----
 
-test('8.21 a shared client never sees the view: find is the v2.11 short reply, and move_up gets an agent note', dbTest, () =>
+test('8.21 an anonymous hosted client gets the Bench signed_out reply (v3 ruling): Sign in with X and one link; more:true keeps the v2.11 tables', dbTest, () =>
   benchOn(async () => {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`v213-find-s-${randomBytes(6).toString('hex')}`}, true) RETURNING id`;
     const r = await find(id, {}, { sharedClient: true });
-    assert.doesNotMatch(r.show_to_builder, /Where you stand/);
-    const t = (await tools.tell({ move_up: { answer: 'yes' } }, { installationId: id, sharedClient: true } as never)) as { show_to_builder?: string; agent_note?: string };
-    assert.equal(t.show_to_builder ?? '', '');
-    assert.match(t.agent_note ?? '', /serves many builders/);
+    assert.match(r.show_to_builder, /Where you stand/);
+    assert.match(r.show_to_builder, /Sign in with X/);
+    assert.equal((r.show_to_builder.match(/https:\/\/\S+/g) ?? []).length, 1, r.show_to_builder);
+    const more = await find(id, { more: true }, { sharedClient: true });
+    assert.doesNotMatch(more.show_to_builder, /Sign in with X/);
+    // v3 ruling: the move_up agent note ("serves many builders") is dropped; the signed_out reply carries the sign-in step instead.
   }),
 );
 

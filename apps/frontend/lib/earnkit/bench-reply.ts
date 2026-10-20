@@ -1,6 +1,7 @@
 import { siteUrl } from './entry-text';
 import { pagePath, pageUrl } from './reserved-routes';
 import { scoreLine } from './rank';
+import { POINTS_LINE } from './points';
 
 /**
  * v2.13 spec "2a", "2b", "5. Ways to get funded", "The last line", v2.14 spec 4: the reply in three parts
@@ -16,26 +17,50 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** R8: `ship` is the ranked state's one step; `suggest` stays for a project the App can't count (app_off). */
 /** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
 /** Launch ready L6: `share`, the weekly moment's share link and question (ranked, once a week). */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share';
-export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string };
+/** v3 Stage 1: `connect`, the backfilled weeks' one yes after the App connects a repo (ranked, once a person). */
+/** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS (ranked, once a program). */
+/** v3 Stage 2: `backing`, the backing offer after the first approved week with code (ranked, once a project, EARNKIT_RAISING on). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply';
+/** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
+export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   /** R12: a program that fits: its award, its deadline ("closes Oct 30" or "rolling") and why it fits. */
   | { kind: 'fits'; title: string; prize: string; when: string; why: string }
   | { kind: 'idea'; who: string; prize: string; for: string }
   /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
-  | { kind: 'needs'; title: string; prize: string | null; needs: string };
+  | { kind: 'needs'; title: string; prize: string | null; needs: string }
+  /** v3 Stage 1: the ranked builder's points so far (points.ts), last under Ways to get funded. */
+  | { kind: 'points'; total: number }
+  /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
+  | { kind: 'upcoming'; title: string; prize: string; note: string }
+  /** v3 Stage 2: backing is open on the one project (EARNKIT_RAISING on): its backers and fees earned, and the page. A statement, never a step. */
+  | { kind: 'backing'; backers: number; earned_usd: number; page: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 export const NOT_ON_BENCH = "You're not on the leaderboard yet.";
+/** v3 Stage 2: "Base Batches 005: up to $100K, not open yet. <note>" (a statement, never a link or a question). Pure. */
+export const upcomingLine = (title: string, prize: string, note: string) => `${title}: ${prize}, not open yet. ${note}`;
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): the backing fund line, "Backing: 3 backers, $12 in fees. Your page: ..."; with none of
+ * either yet, "Backing open. Your page: ...". Pure.
+ */
+export const backingLine = (backers: number, earned: number, page: string) =>
+  backers === 0 && earned === 0 ? `Backing open. Your page: ${page}` : `Backing: ${backers} ${backers === 1 ? 'backer' : 'backers'}, $${earned.toLocaleString('en-US')} in fees. Your page: ${page}`;
 export const NO_MONEY_LINE = "No program is open right now. I'll look again next week.";
 /** R12: a ranked project no open program fits (only fits are named for it). */
 export const noFitLine = (name: string) => `No open program fits ${name} yet. I'll look again next week.`;
 /** R8: the ranked state's one next step when no weekly target can be worked out (no Shipping row yet). */
 export const SHIP_STEP = 'Ship this week to climb.';
+/** v3 Stage 1 (spec 5.1): the connect weeks' one question (ranked, once a person); the page stays the link. */
+export const CONNECT_ASK = 'Does this look right? Yes posts them.';
+/** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
+export const APPLY_WINDOW_DAYS = 30;
+/** v3 Stage 2: the apply step's one question; `when` is the deadline's day as fundWhen gives it, without "closes" ("Nov 18"). */
+export const applyAsk = (title: string, when: string) => `${title} closes ${when}. Want me to draft your application from your ship log?`;
 /** Launch ready L6: the weekly moment's one next step, in place of the target (one link, one question). */
 export const shareAsk = (link: string) => `Share your week on X: ${link}\nDoes last week look right?`;
 /**
- * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders this week."
+ * R16c: the ranked stand line is the score line: "EarnKit: Shipping 72 · #3 of 40 builders."
  * Before its first Shipping score (no row yet, or one from an older formula): the project is counted.
  */
 export const shippingStand = (name: string, score: number | null, rank: string | null) =>
@@ -81,6 +106,8 @@ export const STATE_COPY = {
     ask: (target: string | null = null) => target ?? SHIP_STEP,
   },
 } as const;
+/** v3 Stage 2 (spec 5.2): "Earned $340." after the ranked score line, only from $1 (a statement, never a step). Pure. */
+export const earnedWords = (usd: number) => `Earned $${Math.round(usd).toLocaleString('en-US')}.`;
 /** Scoring and clarity R3: "Originality 72." beside the score line (computed only; never a rank). Pure. */
 export const originalityWords = (n: number) => `Originality ${n}.`;
 /** A15: not counted, when the install link can't help. */
@@ -112,6 +139,8 @@ export type BenchView = {
   share: string | null;
   /** Scoring and clarity R3: Originality (0 to 100, never ranked), after the score line when ranked; null until computed. */
   originality: number | null;
+  /** v3 Stage 2 (spec 5.2): Earned (earned.ts paid_usd: fees claimed plus announced prizes), after the ranked score line from $1. */
+  earned?: number;
   /** The person's page handle (null: signed out, or no page to name, as with X off). */
   handle: string | null;
   /** The state's action link: the sign-in link (signed_out), the repo picker (no_project), the install link (not_counted, no variant) or the share link (ranked, the weekly moment). */
@@ -121,16 +150,24 @@ export type BenchView = {
   held: string | null;
 };
 
+/** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"). */
+export type ApplyPick = { program_id: string; title: string; when: string };
 /**
- * Each state's one next step (A16; signed out with no link: the retry). Ranked: the weekly moment's share ask once a
- * week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
+ * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
+ * (`connect`), the backing offer (`backing`, its line given), the drafted application (`apply`), the weekly moment's
+ * share ask once a week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
  */
-export function stateAsk(v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>>): BenchAsk {
+export function stateAsk(
+  v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { connect?: boolean; backing?: string | null; apply?: ApplyPick | null },
+): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
+  if (v.state === 'ranked' && v.connect) return { kind: 'connect', project_key: key, line: CONNECT_ASK };
+  if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
+  if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.when) };
   if (v.state === 'ranked')
     return v.share ? { kind: 'share', project_key: key, line: shareAsk(v.share) } : { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask(v.target ?? null) };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
@@ -144,7 +181,8 @@ function standLine(v: BenchView): string {
   if (v.state === 'not_counted' && v.variant) return VARIANT_COPY[v.variant].stand(name);
   if (v.state === 'signed_out' || v.state === 'no_project') return NOT_ON_BENCH;
   if (v.state === 'not_counted') return STATE_COPY.not_counted.stand(name);
-  const line = STATE_COPY.ranked.stand(name, v.score, v.rank);
+  const stand = STATE_COPY.ranked.stand(name, v.score, v.rank);
+  const line = Math.round(v.earned ?? 0) > 0 ? `${stand} ${earnedWords(v.earned!)}` : stand;
   return v.originality !== null && v.score !== null ? `${line} ${originalityWords(v.originality)}` : line;
 }
 function fundLines(v: BenchView): string[] {
@@ -165,11 +203,20 @@ export function benchReply(v: BenchView): string {
   const stand = [BENCH_HEADS.stand, standLine(v), ...why, ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const none = v.state === 'ranked' && v.project ? noFitLine(v.project.name) : NO_MONEY_LINE;
-  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none])];
+  // v3 Stage 1: the points statement is last, and never stands in for the no-fit line.
+  const pts = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'points' && f.total > 0 ? [POINTS_LINE(f.total)] : [])) : [];
+  // v3 Stage 2: at most one upcoming line, after the fits (or the no-fit line) and before the points.
+  const soon = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'upcoming' ? [upcomingLine(f.title, f.prize, f.note)] : [])).slice(0, 1) : [];
+  // v3 Stage 2: the backing line, a statement after the upcoming line; its page is the reply's link only when no other is.
+  const backing = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'backing' ? [backingLine(f.backers, f.earned_usd, page || linked ? pageUrlOf(f.page) : f.page)] : [])).slice(0, 1) : [];
+  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...soon, ...backing, ...pts];
   // Fix round 1 (ruling 4): signed out, the sign-in step always wins.
   const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
   return [stand, money, up].map((x) => x.join('\n')).join('\n\n');
 }
+
+/** A page link without its scheme ("earnkit.com/maya"), as a reply names it beside its one https link. Pure. */
+const pageUrlOf = (u: string) => u.replace(/^https?:\/\//i, '');
 
 /** "tip-jar" -> "Tip Jar". Pure. */
 const titleCase = (s: string) =>

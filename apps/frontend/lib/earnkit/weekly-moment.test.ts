@@ -43,7 +43,8 @@ const noHostile = (s: string) => assert.ok(!/ignore previous|instructions|wtana|
 async function builder(tag: string, name: string, ages: number[]) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
-  const id = await person({ main: key, claimed: handle, ranked: true, projects: [{ key, name: 'App', confirmed: true }] });
+  // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
   await setWeeks(id, ages);
   return { id, key, handle };
@@ -70,7 +71,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await builder('wtbo', 'Bo', [3]);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.match(s, /^App: Shipping 35 · #2 of 3 builders this week\.$/m, s);
+  assert.match(s, /^App: Shipping 35 · #2 of 3 builders\.$/m, s);
   assert.match(s, /^Code in 3 of the last 12 weeks, 3 of the last 4\.$/m, 'the why: the weeks with code, no step of its own');
   assert.ok(s.endsWith('How to move up\nShip code this week: +13 points, enough to pass #1.'), s);
   assert.equal(links(s).length, 1, s);
@@ -205,7 +206,12 @@ test('L6.4 the moment through score, once per installation (another agent of the
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
 
-  // A second agent of the same person: its own first reply of the week has the moment, once.
+  // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never asked about again, by any agent.
+  const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
+  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Last week|Share your week/, 'the approved week is not asked again');
+  // A second agent of the same person, last week not yet confirmed (the approval removed): its own first reply of
+  // the week has the moment, once.
+  await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
   assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week')).length, 1, 'two replies at once: one moment');

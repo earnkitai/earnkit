@@ -1,21 +1,21 @@
 import Link from 'next/link';
 import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
+import { COLUMN } from './Panel';
 import { DOCS } from '../../lib/links';
 
-const LINK =
-  'inline-flex min-h-11 items-center px-2 font-funnel-sans text-sm font-medium text-ek-muted transition-colors hover:text-ek-text';
+const LINK = 'inline-flex min-h-11 items-center px-2 font-funnel-sans text-sm font-medium text-ek-muted transition-colors hover:text-ek-text md:px-3 md:text-base';
 
 /**
- * R18: the one site header on every page (it was the profile's slim top bar): the wordmark, quiet
- * links, "Add to your agent" (the install modal), a hairline under it. Sticky, on the page's glass.
- * On a phone: the wordmark, Leaderboard and the install; Programs, Feed and Docs from sm (and in the footer).
- * Launch ready L10: Programs (the money) in the header too.
+ * R18, v3 Stage 3 (spec 5.6): the one site header on every page: the wordmark, Leaderboard, Feed, Programs, Docs
+ * (/docs), and the one primary action, "Add to your agent" (the install sheet).
+ * Sticky on the page's glass with a hairline under it, in the page column. On a phone: the wordmark, Leaderboard and
+ * the button; Feed, Programs and Docs from sm (and in the footer).
  */
 export default function Header() {
   return (
     <header data-ek-header="" className="sticky top-0 z-40 border-b border-ek-line bg-ek-glass backdrop-blur">
-      <nav aria-label="Site" className="mx-auto flex h-14 w-full max-w-6xl items-center gap-1 px-4 md:px-8">
+      <nav aria-label="Site" className={`${COLUMN} flex h-14 items-center gap-1 md:h-16`}>
         <Link href="/" className="mr-auto inline-flex min-h-11 items-center text-ek-text">
           <Wordmark className="h-[18px] w-auto md:h-5" />
         </Link>
@@ -28,10 +28,10 @@ export default function Header() {
         <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
           Programs
         </Link>
-        <a href={DOCS} target="_blank" rel="noopener noreferrer" className={`${LINK} hidden sm:inline-flex`}>
+        <Link href={DOCS} className={`${LINK} hidden sm:inline-flex`}>
           Docs
-        </a>
-        <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-blue-bright px-4 font-funnel-sans text-sm font-medium text-ek-page transition-colors hover:bg-ek-blue-soft md:h-9" />
+        </Link>
+        <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-brand px-4 font-funnel-sans text-sm font-medium text-ek-text transition-colors hover:bg-ek-accent md:ml-3 md:px-5" />
       </nav>
     </header>
   );

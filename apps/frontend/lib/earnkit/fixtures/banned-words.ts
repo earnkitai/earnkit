@@ -12,7 +12,7 @@ export function bannedIn(text: string, exempt: string[]): string[] {
 }
 
 /**
- * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc", now "Top 1% of builders on Base this week") may name a chain, and a fact
+ * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc", now "Top 1% of builders on Base") may name a chain, and a fact
  * chip may count commits ("12 commits"); both are stripped before the check. BENCH_PITCH_ALLOWED
  * (F10): the program pitch "who" names ("Arc pays up to $10K for payment apps.") and the starter
  * offer ("a tip jar on Arc"); Task 8 extends this list. BENCH_EXTRA: words the v2.13 surfaces
@@ -30,16 +30,23 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /EarnKit can only see public repos right now\./g,
   // Launch ready L2: the owner's own repo picker line ("Install the read-only EarnKit app on the repo you want ranked").
   /\bon the repo you want ranked\b/g,
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer's own risk words ("People can back X onchain.", "a tradable token on Base").
+  /(?<=^|\. )People can back .{1,80}? onchain(?=\. EarnKit launches a )/g,
+  /\bIt is a tradable token on Base and can go to zero\./g,
+  // Its "Your coin stays onchain." (RAISE_LINES.off).
+  /\bYour coin stays onchain\./g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,
-  // Scoring and clarity: the chain's rank line ("Top 1% of builders on Base this week", "#2 of 12 builders on Arc this week").
-  /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain) this week\b/g,
+  // Scoring and clarity, v3 Stage 3 (never "this week"): the chain's rank line ("Top 1% of builders on Base", "#2 of 12 builders on Arc").
+  /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain)\b/g,
   /\b\d[\d,]* commits?\b/g,
+  // v3 Stage 3 (spec 5.6): the landing's one line says where the ship log comes from.
+  /\bfrom real commits\b/g,
   ...BENCH_PITCH_ALLOWED,
 ];
-/** Owner ruling B (v2.13.3): "community round", never raise, raising or fundraise, in builder text under the Bench. */
-export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i, /\braise\b/i, /\braising\b/i, /\bfundrais/i];
+/** v3 Stage 2 (spec 5.3 Route 2): "Backing", never "community round", raise, raising or fundraise, in builder text under the Bench. */
+export const BENCH_EXTRA: RegExp[] = [/\bsignals?\b/i, /written by/i, /\bbonus\b/i, /\braise\b/i, /\braising\b/i, /\bfundrais/i, /community round/i];
 export function bannedInBench(text: string, exempt: string[]): string[] {
   let t = text;
   for (const r of BENCH_ALLOWED) t = t.replace(r, ' ');

@@ -5,23 +5,30 @@ import { raisingEnabled } from './builder-score-flag';
 import { readFitRepos } from './installations';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { readOriginality } from './originality';
-import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects } from './page-data';
+import { pointsTotal } from './points';
+import { backersOfCoin } from './backers';
+import { NO_EARNED, earnedUsd } from './earned';
+import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
-import { pillOf, raisingCoin } from './raising';
+import { pillCoin, pillOf, raisingCoin } from './raising';
 import { BENCH_CHAINS, rankLine, type BenchChain } from './rank';
 import { scoreWhy, storedShipping } from './score-v2';
 import { targetFor } from './weekly-target';
 import { earnPrize, earnWhen, showable } from './stand-view';
+import { fitWhy, whyFacts } from './bench-find';
 import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { shownUrl } from './untrusted-text';
 import { factChips, hasFacts, startedChips, startedLine, type WeekFacts } from './week-facts';
 import { last52, streakOf, weekOfMonday } from './weeks';
 
-/** v2.13 spec "The Bench": its rows and its URL filters (R9). Launch-ready L3: no community round filter. */
-export type BenchFilter = { chain: BenchChain | null; weekly: boolean };
+/**
+ * v2.13 spec "The Bench": its rows and its URL filters (R9). v3 Stage 2: `backed`, builders with backing open
+ * (`?backed=1`, only while EARNKIT_RAISING is on).
+ */
+export type BenchFilter = { chain: BenchChain | null; weekly: boolean; backed?: boolean };
 /** "Shipping every week": a streak (commit weeks in a row, builder_projects.streak) of at least this many weeks. */
 export const WEEKLY_STREAK = 4;
 export const BENCH_MAX = 100;
@@ -29,12 +36,12 @@ export const BENCH_MAX = 100;
 const one = (v: string | string[] | undefined) => (typeof v === 'string' ? v : undefined);
 
 /**
- * Pure. Anything but one known value per key is ignored, so at most 4 x 2 = 8 variants exist. Launch-ready L3: an old
- * link's ?raising=1 is ignored too (the unfiltered board).
+ * Anything but one known value per key is ignored, so at most 4 x 2 x 2 = 16 variants exist. Launch-ready L3: an old
+ * link's ?raising=1 is ignored too (the unfiltered board). v3 Stage 2: `?backed=1` only with EARNKIT_RAISING on.
  */
-export function parseBenchFilter(q: Record<string, string | string[] | undefined>): BenchFilter {
+export function parseBenchFilter(q: Record<string, string | string[] | undefined>, raising = raisingEnabled()): BenchFilter {
   const c = one(q.chain)?.toLowerCase();
-  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, weekly: one(q.weekly) === '1' };
+  return { chain: (BENCH_CHAINS as readonly string[]).includes(c ?? '') ? (c as BenchChain) : null, weekly: one(q.weekly) === '1', backed: raising && one(q.backed) === '1' };
 }
 
 /** Pure. The one URL of a filter variant (also its cache key). */
@@ -42,6 +49,7 @@ export function filterHref(f: BenchFilter): string {
   const p = new URLSearchParams();
   if (f.chain) p.set('chain', f.chain);
   if (f.weekly) p.set('weekly', '1');
+  if (f.backed) p.set('backed', '1');
   const s = p.toString();
   return s ? `/leaderboard?${s}` : '/leaderboard';
 }
@@ -53,8 +61,8 @@ export function bestFact(p: { streak: number; weeks_shipping: number; shipped: b
   return p.shipped ? 'Live' : 'Building';
 }
 
-/** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. */
-export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; raising: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
+/** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. v3 Stage 2: `backing`, the Backing pill's coin. */
+export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
 
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
@@ -82,6 +90,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       ORDER BY x.coin_launched_at DESC NULLS LAST, x.id DESC LIMIT 1) c ON true
     WHERE (${f.chain}::text IS NULL OR ${f.chain}::text = ANY(b.chains))
       AND (NOT ${f.weekly}::boolean OR b.streak >= ${WEEKLY_STREAK})
+      AND (NOT ${Boolean(f.backed && raisingOn)}::boolean OR (c.token_status = 'launched' AND c.raising_at IS NOT NULL))
     ORDER BY r.score DESC, lower(p.x_handle) LIMIT ${Math.min(BENCH_MAX, o.limit ?? BENCH_MAX)}`;
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
   const pools = await chainPools(o);
@@ -98,7 +107,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       handle: r.handle,
       name: displayName(r.x_name, r.handle),
       avatar: avatarUrl(r.avatar),
-      raising: pill(r),
+      backing: pill(r),
       chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
       project: nameOf(r.builder_id, r.key),
       best: bestFact(r),
@@ -110,14 +119,40 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
 /** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null };
+export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean };
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
-  coin: { symbol: string; url: string } | null; programs: { title: string; won: boolean }[]; funds: string[]; confirmed: boolean;
+  coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
 };
+/** v3 Stage 3 (spec 5.6): one open program the project can win now (fundFits): its guide's path in `href`. */
+export type MoneyFit = { title: string; prize: string; when: string; why: string; href: string };
+/**
+ * v3 Stage 3 (spec 5.6): the Money tab. `fits`: the open programs the project can win now; `applied`: the programs
+ * it applied to or won (page-data projectPrograms, confirmed only); `backing`: as ProfileData.backing (null while
+ * closed or EARNKIT_RAISING is off); `points`: as ProfileData.points.
+ */
+export type MoneyTabData = {
+  fits: MoneyFit[];
+  applied: { title: string; status: 'applied' | 'won' }[];
+  backing: ProfileData['backing'];
+  points: number;
+};
+/** Whole dollars, "$1,240". Pure. */
+export const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
 export type ProfileData = {
-  handle: string; name: string; avatar: string | null; initials: string; raising: { symbol: string; url: string } | null; bench: string | null;
-  /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders this week"), null while unranked. */
+  handle: string; name: string; avatar: string | null; initials: string;
+  /**
+   * v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on): its backers (backers.ts, distinct wallets
+   * that received the coin) and the creator fees claimed from it, whole USD (earned.ts fees_usd).
+   */
+  backing: { symbol: string; url: string; backers: number; earned_usd: number } | null;
+  /**
+   * v3 Stage 2 (spec 5.2): Earned, the third number (earned.ts earnedUsd): fees claimed plus announced prizes, and the
+   * fees still waiting in the FeeLocker (shown as "and $X waiting", never summed in). Shown with EARNKIT_RAISING off too.
+   */
+  earned: { paid_usd: number; waiting_usd: number };
+  bench: string | null;
+  /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders"), null while unranked. */
   line: string | null;
   chainLines: { chain: BenchChain; label: string; line: string }[];
   /** Shipping, 0 to 100 (null: no rank line, so no score shown), and why it is what it is (score-v2.ts scoreWhy). */
@@ -126,7 +161,11 @@ export type ProfileData = {
   target: string | null;
   /** Scoring and clarity R3: Originality, 0 to 100, shown small beside Shipping (never ranked); null until computed or while no score shows. */
   originality: number | null;
+  /** v3 Stage 1: points awarded for approved weeks (points.ts); shown under Originality when above 0. */
+  points: number;
   grid: { week: string; on: boolean }[]; streak: number; log: ProfileCard[]; project: ProjectTabData | null;
+  /** v3 Stage 3 (spec 5.6): the Money tab's groups. */
+  money: MoneyTabData;
 };
 
 /** The Ship log reads at most this many weeks. */
@@ -135,7 +174,7 @@ const LOG_MAX = 60;
 const FUNDS_MAX = 3;
 
 /** The project's live site: its link, never its GitHub page (that is the code link). Pure. */
-const liveSite = (link: string | null) => {
+export const liveSite = (link: string | null) => {
   const u = shownUrl(link);
   return u && !/(^|\.)github\.com$/i.test(new URL(u).hostname) ? u : null;
 };
@@ -168,7 +207,7 @@ export function logCards(rows: { week: string; text: string | null; summary?: st
       // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
       const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
       const start = facts.started ? [STARTED_CHIP, ...own] : [];
-      out.push({ week: r.week, text: r.text, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+      out.push({ week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;
@@ -189,12 +228,16 @@ export function gridWeeks(commitWeeks: string[], rows: { week: string; facts: We
   return weeks;
 }
 
+/** A fit as the Project tab's "Ways to get funded" line: "X pays up to $10K; it's open all year.". Pure. */
+export const fundLine = (f: MoneyFit) => `${f.title} pays ${f.prize}; ${f.when === 'open all year' ? "it's open all year" : `it ${f.when}`}.`;
+
 /**
- * "Ways to get funded": the open curated programs the project `key` can win now, by find's rules
- * without a GitHub read (stand-view.ts scoreEarn: alerts.ts repoCanWin over the fits find last saw),
- * biggest prize first, entered ones left out. Never throws (no lines on an error).
+ * "Ways to get funded" and the Money tab's "Programs that fit": the open curated programs the project `key` can
+ * win now, by find's rules without a GitHub read (stand-view.ts scoreEarn: alerts.ts repoCanWin over the fits find
+ * last saw), biggest prize first, entered ones left out; why each fits in bench-find's words (fitWhy) and its guide's
+ * path. Never throws (none on an error).
  */
-async function fundLines(builderId: number, key: string, now: Date): Promise<string[]> {
+async function fundFits(builderId: number, key: string, now: Date): Promise<MoneyFit[]> {
   try {
     const [programs, fits, rows, entered] = await Promise.all([
       listPrograms(),
@@ -207,12 +250,13 @@ async function fundLines(builderId: number, key: string, now: Date): Promise<str
     if (mine.length === 0) return [];
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
     const skip = new Set(entered.map((e) => e.program_id));
-    const out: string[] = [];
-    for (const c of (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean })[]).filter((x) => showable(x, now, skip)).sort(byPrize)) {
+    const out: MoneyFit[] = [];
+    for (const c of (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean })[]).filter((x) => showable(x, now, skip) && !x.in_person).sort(byPrize)) {
+      // v3 Stage 2 final review: an in-person program is never a way to get funded (it stays on /programs).
       const np = byId.get(c.id);
-      if (!np || !mine.some((f) => repoCanWin(np, f))) continue;
-      const when = earnWhen(c);
-      out.push(`${c.title} pays ${earnPrize(c)}; ${when === 'open all year' ? "it's open all year" : `it ${when}`}.`);
+      const repo = np ? mine.find((f) => repoCanWin(np, f)) : undefined;
+      if (!repo) continue;
+      out.push({ title: c.title, prize: earnPrize(c), when: earnWhen(c), why: fitWhy(c, whyFacts(repo)), href: `/programs/${c.id}` });
       if (out.length >= FUNDS_MAX) break;
     }
     return out;
@@ -234,7 +278,15 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null; titles_on: boolean }[]>`
     SELECT x_handle, x_name, x_avatar_url, main_project_key AS main, (ship_titles_at IS NOT NULL) AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
-  const [lines, pill] = await Promise.all([rankLines(builderId, o), pillOf(builderId)]);
+  const [lines, pill, earned] = await Promise.all([
+    rankLines(builderId, o),
+    pillCoin(builderId),
+    earnedUsd(builderId, now).catch((err: unknown) => {
+      console.error('[profile] earned', err instanceof Error ? err.name : 'error');
+      return NO_EARNED;
+    }),
+  ]);
+  const backers = pill ? await backersOfCoin(pill.coin) : 0;
   const [live] = await db<{ score: number; parts: unknown }[]>`
     SELECT score::float8 AS score, parts FROM builder_live WHERE builder_id = ${builderId}`;
   const scored = lines.bench !== null && live;
@@ -243,7 +295,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     name: displayName(p.x_name, p.x_handle),
     avatar: avatarUrl(p.x_avatar_url),
     initials: initialsOf(p.x_handle),
-    raising: pill,
+    backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
+    earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },
     bench: lines.bench,
     line: lines.line,
     chainLines: lines.chains,
@@ -252,8 +305,15 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     why: scored ? scoreWhy(live.parts, now) : null,
     target: scored ? await targetFor(builderId, live.parts, now, { only: o.only, voice: 'page' }) : null,
     originality: scored ? await readOriginality(builderId, p.main) : null,
+    points: await pointsTotal(builderId),
   };
-  const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null };
+  const money = (fits: MoneyFit[], programs: ProgramLabel[]): MoneyTabData => ({
+    fits,
+    applied: programs.map((g) => ({ title: g.title, status: g.won ? 'won' : 'applied' })),
+    backing: base.backing,
+    points: base.points,
+  });
+  const empty = { ...base, grid: last52(now).map((week) => ({ week, on: false })), streak: 0, log: [], project: null, money: money([], []) };
   if (!p.main) return empty;
   const [b] = await db<{ chains: string[]; commit_weeks: string[]; confirmed: boolean }[]>`
     SELECT b.chains, b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
@@ -273,9 +333,12 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const weeks = confirmed ? gridWeeks(b.commit_weeks, updates) : new Set<string>();
   const coin = confirmed ? await raisingCoin(builderId) : null;
   const repoKey = norm(p.main);
-  const [programs, funds] = await Promise.all([projectPrograms(builderId, p.main), confirmed ? fundLines(builderId, p.main, now) : Promise.resolve([])]);
+  const [programs, fits] = await Promise.all([projectPrograms(builderId, p.main), confirmed ? fundFits(builderId, p.main, now) : Promise.resolve([])]);
+  const funds = fits.map(fundLine);
   return {
     ...base,
+    // Fix round 1 (the Project tab's rule): until the project is confirmed, no programs on the Money tab either.
+    money: money(fits, confirmed ? programs : []),
     grid: last52(now).map((week) => ({ week, on: weeks.has(week) })),
     // Final follow-ups 1: the streak is read off the grid's own weeks, so the header never contradicts it.
     streak: confirmed ? streakOf(weeks, now) : 0,
@@ -286,7 +349,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
       live: liveSite(shown.link),
       repo: REPO_KEY.test(repoKey) && !shown.hiddenRepo ? `https://github.com/${p.main}` : null,
       chains: confirmed ? BENCH_CHAINS.filter((c) => b.chains.includes(c)) : [],
-      coin: coin && coin.status === 'launched' ? { symbol: coin.symbol, url: coin.url } : null,
+      // v3 Stage 2: the "$SYM on tokens.fun" line is coin-facing, so only with EARNKIT_RAISING on.
+      coin: raisingEnabled() && coin && coin.status === 'launched' ? { symbol: coin.symbol, url: coin.url } : null,
       programs,
       funds,
       confirmed,
@@ -295,14 +359,23 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
 }
 
 /** v2.13 spec "Card (OG image)": what the share card shows. */
-export type BenchCardFacts = { handle: string; name: string; avatar: string | null; bench: string | null; project: string | null; streak: number; raising: string | null };
+/**
+ * v3 Stage 3 Task 6: `score`, the Shipping number while ranked (the score line's; null without a rank, as the line);
+ * `earned`, Earned in whole dollars from $1 while ranked (earned.ts paid_usd), else null, so the card never shows "$0".
+ */
+export type BenchCardFacts = {
+  handle: string; name: string; avatar: string | null; bench: string | null; project: string | null; streak: number; raising: string | null;
+  score: number | null; earned: number | null;
+};
 
 /**
  * The card's facts from stored rows, lighter than profileData (no log, no programs): the Bench line
  * (none outside the top half), the one project's shown name (page-data shownProjects: never a
  * private repo's), its streak while the Bench counts it confirmed, the pill's coin. Null without a claim.
+ * Task 7: `money: false` skips the Earned read (earnedUsd) where the caller never draws it (/share reads only the
+ * share text; the landing reads Earned from profileData); `earned` is then null.
  */
-export async function benchCardFacts(builderId: number): Promise<BenchCardFacts | null> {
+export async function benchCardFacts(builderId: number, o: { money?: boolean } = {}): Promise<BenchCardFacts | null> {
   const db = sql();
   const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null }[]>`
     SELECT x_handle, x_name, x_avatar_url, main_project_key AS main FROM builder_profiles WHERE builder_id = ${builderId}`;
@@ -320,8 +393,22 @@ export async function benchCardFacts(builderId: number): Promise<BenchCardFacts 
       streak = b.confirmed ? b.streak : 0;
     }
   }
-  // R16c: the card's line is the score line.
-  return { handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.line, project, streak, raising: pill?.symbol ?? null };
+  // R16c: the card's line is the score line. Task 6: its number and Earned, only while ranked (no bare score without a rank).
+  const [score, earned] = lines.line
+    ? await Promise.all([
+        db<{ score: number }[]>`SELECT score::int AS score FROM builder_live WHERE builder_id = ${builderId}`.then((r) => r[0]?.score ?? null),
+        o.money === false
+          ? NO_EARNED
+          : earnedUsd(builderId).catch((err: unknown) => {
+              console.error('[card] earned', err instanceof Error ? err.name : 'error');
+              return NO_EARNED;
+            }),
+      ])
+    : [null, NO_EARNED];
+  return {
+    handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.line, project, streak, raising: pill?.symbol ?? null,
+    score, earned: earned.paid_usd > 0 ? Math.round(earned.paid_usd) : null,
+  };
 }
 
 /**

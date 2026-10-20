@@ -188,8 +188,10 @@ export const difficultyBasis = (d: Difficulty) => {
 export const difficultyText = (d: Difficulty) => (d.rated ? difficultyLabel(d) : `${difficultyLabel(d)}. ${difficultyBasis(d)}`);
 
 export type Guide = {
-  /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14". */
+  /** "Arc Microgrants · 500 USDC × 20 grants · ends Oct 14" ("· not open yet" for an upcoming program). */
   header: string;
+  /** v3 Stage 2: an upcoming program's one line under the header (program file opens_note), else null. */
+  opens_note: string | null;
   difficulty: Difficulty;
   /**
    * Theme lines, then example lines, without "- ". `own`: the program's newest own round ("What
@@ -232,15 +234,19 @@ function wonLines(r: PastRound): string[] {
 
 /** v2.7 §2: the guide for one curated program. Pure. */
 export function programGuide(
-  p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status'>,
+  p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status' | 'opens_note'>,
   now = new Date(),
 ): Guide {
-  const closed = p.status !== 'active' || (p.ends_at !== null && p.ends_at <= now);
+  const past = p.ends_at !== null && p.ends_at <= now;
+  // v3 Stage 2: an upcoming program isn't open yet: "not open yet" and its note.
+  const upcoming = p.status === 'upcoming' && !past;
+  const closed = !upcoming && (p.status !== 'active' || past);
   const ends = endsOf(p);
-  const end = closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
+  const end = upcoming ? 'not open yet' : closed ? 'closed' : ends === 'rolling' ? 'rolling' : `ends ${ends}`;
   const won = wonRound(p);
   return {
     header: `${p.title} · ${prizeOf(p)} · ${end}`,
+    opens_note: upcoming ? (p.opens_note ?? null) : null,
     difficulty: difficultyOf(p),
     won: won
       ? { own: lastOwn(p, won), event: lastOwn(p, won) ? null : `in ${won.label}`, lines: wonLines(won), source_url: won.source_url }
@@ -308,7 +314,7 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
  */
 export function guideText(g: Guide): string {
   const sections = [
-    `${g.header}\nDifficulty: ${difficultyText(g.difficulty)}`,
+    [g.header, ...(g.opens_note ? [g.opens_note] : []), `Difficulty: ${difficultyText(g.difficulty)}`].join('\n'),
     g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     // v2.10 item 3: only sourced parts; the rules fallback, one per line.

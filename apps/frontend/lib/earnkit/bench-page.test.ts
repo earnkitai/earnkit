@@ -32,10 +32,13 @@ after(async () => {
   await sql().end();
 });
 
-test('10.1 filters come from the URL; anything unknown is ignored (8 variants at most); launch-ready L3: ?raising=1 is ignored', () => {
-  assert.deepEqual(parseBenchFilter({ chain: 'base', raising: '1', weekly: '1' }), { chain: 'base', weekly: true });
-  assert.deepEqual(parseBenchFilter({ chain: 'monad', raising: 'yes', weekly: ['1', '1'], page: '9' }), { chain: null, weekly: false });
-  assert.deepEqual(parseBenchFilter({ chain: 'Robinhood' }), { chain: 'robinhood', weekly: false });
+test('10.1 filters come from the URL; anything unknown is ignored (16 variants at most); launch-ready L3: ?raising=1 is ignored; v3: ?backed=1 only with EARNKIT_RAISING', () => {
+  assert.deepEqual(parseBenchFilter({ chain: 'base', raising: '1', weekly: '1' }), { chain: 'base', weekly: true, backed: false });
+  assert.deepEqual(parseBenchFilter({ chain: 'monad', raising: 'yes', weekly: ['1', '1'], page: '9' }), { chain: null, weekly: false, backed: false });
+  assert.deepEqual(parseBenchFilter({ chain: 'Robinhood' }), { chain: 'robinhood', weekly: false, backed: false });
+  assert.deepEqual(parseBenchFilter({ backed: '1' }, false), { chain: null, weekly: false, backed: false });
+  assert.deepEqual(parseBenchFilter({ backed: '1' }, true), { chain: null, weekly: false, backed: true });
+  assert.equal(filterHref({ chain: 'base', weekly: true, backed: true }), '/leaderboard?chain=base&weekly=1&backed=1');
   assert.equal(filterHref({ chain: 'base', weekly: false }), '/leaderboard?chain=base');
   assert.equal(filterHref({ chain: 'base', weekly: true }), '/leaderboard?chain=base&weekly=1');
   assert.equal(filterHref({ chain: null, weekly: false }), '/leaderboard');
@@ -77,34 +80,35 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
   assert.equal(all.count, 11);
   assert.deepEqual(all.chips, ['base', 'arc'], 'arc has 1: its chip shows (R16e)');
   assert.deepEqual(all.rows.map((r) => r.rank), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-  assert.equal(all.rows[0].line, '#1 of 11 builders this week');
-  assert.equal(all.rows[10].line, '#11 of 11 builders this week', 'every ranked builder sees a rank');
+  assert.equal(all.rows[0].line, '#1 of 11 builders');
+  assert.equal(all.rows[10].line, '#11 of 11 builders', 'every ranked builder sees a rank');
   // The pill only through pillOf's result.
   for (const [i, id] of ids.entries()) {
     const row = all.rows.find((r) => r.handle === `bn${RUN}${id}`)!;
-    assert.deepEqual(row.raising, await pillOf(id), `row ${i}`);
+    assert.deepEqual(row.backing, await pillOf(id), `row ${i}`);
   }
   const base = await benchRows({ chain: 'base', weekly: false }, { only: ids });
   assert.equal(base.rows.length, 10);
   assert.ok(base.rows.every((r) => r.chains.includes('base')));
   assert.equal(base.rows[0].rank, 2, 'the rank is on the whole Bench (the Arc builder is first)');
-  assert.deepEqual(base.rows.filter((r) => r.raising).map((r) => r.raising?.symbol), ['RECIPE'], 'the pill stays on its row');
+  assert.deepEqual(base.rows.filter((r) => r.backing).map((r) => r.backing?.symbol), ['RECIPE'], 'the pill stays on its row');
   // Stop raising: the pill goes, the coin stays.
   await sql()`UPDATE projects SET raising_at = NULL WHERE installation_id = ${ids[9]}`;
-  assert.ok((await benchRows({ chain: null, weekly: false }, { only: ids })).rows.every((r) => r.raising === null));
+  assert.ok((await benchRows({ chain: null, weekly: false }, { only: ids })).rows.every((r) => r.backing === null));
   const weekly = await benchRows({ chain: null, weekly: true }, { only: ids });
   assert.equal(weekly.rows.length, 2);
 });
 
 test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "#N" on the right (R18 fix 1; the rank line to screen readers); the header count line', () => {
-  const row = { rank: 2, line: 'Top 4% of builders this week', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, raising: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 2, line: 'Top 4% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
   const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, weekly: false } }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Community round $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders this week', '25 builders this week. Ranked by Shipping points.', FILTER_WEEKLY])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders', '25 builders. Ranked by Shipping.', FILTER_WEEKLY])
     assert.ok(html.includes(s), s);
   assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
   assert.match(html, /href="\/leaderboard\?chain=base"/);
-  // Launch-ready L3: no community round chip.
+  // Launch-ready L3: no community round chip; v3 Stage 2: the Backed chip (EARNKIT_RAISING is on in this file).
   assert.doesNotMatch(html, /raising=1|>Community round</);
+  assert.match(html, /href="\/leaderboard\?backed=1">Backed</);
   assert.match(html, /href="\/leaderboard\?weekly=1"/);
   assert.doesNotMatch(html, /<form/, 'filters are links');
   // A filter that is on links back to the Bench without it, and says so.

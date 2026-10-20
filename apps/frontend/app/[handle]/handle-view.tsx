@@ -12,13 +12,13 @@ import { resolveHandle } from '../../lib/earnkit/profiles';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
-import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
+import BenchProfileView, { BenchProfileSkeleton, type ProfileTab } from './BenchProfileView';
 
-export type ProfileTab = 'log' | 'project';
-/** `?tab=project`, else the Ship log (the default, the plain URL). Pure. */
+export type { ProfileTab };
+/** `?tab=project`, `?tab=money` (v3 Stage 3), else the Ship log (the default, the plain URL). Pure. */
 export const tabOf = (
   q: Record<string, string | string[] | undefined> | undefined,
-): ProfileTab => (q?.tab === 'project' ? 'project' : 'log');
+): ProfileTab => (q?.tab === 'project' ? 'project' : q?.tab === 'money' ? 'money' : 'log');
 
 /** v2.13: the whole Bench profile, after a fresh read of the person's sources when the last is over a day old (pageViewRefresh, under the hourly caps). */
 async function BenchPage({ id, tab }: { id: number; tab: ProfileTab }) {
@@ -67,7 +67,7 @@ export async function handleMetadata(handle: string): Promise<Metadata> {
   const h = await pageHead(r.builderId);
   const card = `${pagePath(r.handle)}/card.png`;
   const title = `${h.name} on EarnKit`;
-  // The score line ("Shipping 62 · Top 4% of builders this week") describes the page; without one, the v2.12.1 top line.
+  // The score line ("Shipping 62 · Top 4% of builders") describes the page; without one, the v2.12.1 top line.
   const description = (await rankLines(r.builderId)).line ?? h.topLine;
   return {
     title,

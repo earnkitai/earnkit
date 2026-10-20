@@ -5,7 +5,8 @@ import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
-import { COIN_PROGRAM } from './policy-constants';
+import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
+import { hasFacts, type WeekFacts } from './week-facts';
 import { DECLINES_MAX, declines, offerIdentity, offerKey, readShownOffer, recordDecline, saveOffer } from './token-offers';
 import { proposeToken, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { tokenLaunchesAvailable } from './tokens';
@@ -19,7 +20,8 @@ import { earnkitOwnRepo } from './own-brand';
  * shared clients or held profiles. first_five, has_people and streak_five are kept for offers already made.
  */
 export { COIN_PROGRAM };
-export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five';
+/** v3 Stage 2 (spec 5.3 Route 2): `first_week`, the backing offer after the first approved week with code (backingOffer). */
+export type Moment = 'built_live' | 'countable' | 'first_five' | 'has_people' | 'streak_five' | 'first_week';
 export type Coin = { name: string; symbol: string };
 
 /**
@@ -28,9 +30,14 @@ export type Coin = { name: string; symbol: string };
  */
 const coinFees = (wallet: string | null) => `A coin pays you 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}.`;
 
-/** v2.13 spec "4. Optional: raise" (owner ruling B, v2.13.3: "a community round"): the coin is named before the yes; the wallet is shown when known (plan B13). Pure. */
-export const raiseLine = (name: string, symbol: string, wallet: string | null) =>
-  `I'll launch $${symbol} on tokens.fun and you get 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. Want to open a community round for ${name}?`;
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): the backing offer, the one question of the first ranked reply after the first approved
+ * week with code. The coin is named and the wallet shown when known, before the yes. Pure.
+ */
+export const BACKING_OFFER = (name: string, symbol: string, wallet: string | null) =>
+  `People can back ${name} onchain. EarnKit launches a $${symbol} coin on tokens.fun for it; you keep 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. It is a tradable token on Base and can go to zero. Want to open backing for ${name}?`;
+/** v2.13's offer line under EARNKIT_RAISING (tell token: 'ask'); v3 Stage 2: the backing offer's words. Pure. */
+export const raiseLine = (name: string, symbol: string, wallet: string | null) => BACKING_OFFER(name, symbol, wallet);
 
 /**
  * The offer line for a moment: the coin that launches named (fix round 1, ruling 5: v2.8.1 A2, the
@@ -39,14 +46,14 @@ export const raiseLine = (name: string, symbol: string, wallet: string | null) =
  * (ruling 6). One question. Pure.
  */
 export function coinLine(moment: Moment, name: string, wallet: string | null, coin: Coin | null = null): string {
-  // v2.13: every project moment is the raise line (built_live keeps its own);
+  // v2.13: every project moment is the backing offer (built_live keeps its own);
   // final fix: only with EARNKIT_RAISING on, else v2.12.1's coin line.
-  if (raisingEnabled() && moment !== 'built_live' && coin) return raiseLine(name, coin.symbol, wallet);
+  if (raisingEnabled() && moment !== 'built_live' && coin) return BACKING_OFFER(name, coin.symbol, wallet);
   const a = coin ? `a coin, $${coin.symbol} (${coin.name}),` : 'a coin';
   // v2.13.3 review: one question, last.
   if (moment === 'built_live') return `It's live, and your entry is ready either way. ${coinFees(wallet)} Want to launch ${a} for it?`;
   if (moment === 'first_five') return `5 people have used ${name}. ${coinFees(wallet)} Want to launch ${a} for it?`;
-  if (moment === 'countable' || moment === 'streak_five') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
+  if (moment === 'countable' || moment === 'streak_five' || moment === 'first_week') return `${coinFees(wallet)} Want to launch ${a} for ${name}?`;
   return `${name} has people using it. ${coinFees(wallet)} Want to launch ${a} for it?`;
 }
 
@@ -86,6 +93,9 @@ async function confirmedLinks(builderId: number, projectKey: string): Promise<{ 
 }
 
 const REPO_KEY = /^[a-z0-9-]+\/[a-z0-9._-]+$/i;
+/** v3 Stage 2: a project key (owner/repo or its GitHub link) in BACKING_EXCLUDED_REPOS, compared lowercase. Pure. */
+export const backingExcluded = (projectKey: string) =>
+  (BACKING_EXCLUDED_REPOS as readonly string[]).includes(projectKey.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '').replace(/(\.git)?\/*$/, ''));
 
 /**
  * Whether a coin may be offered for this project now: launches available, not a
@@ -95,6 +105,8 @@ const REPO_KEY = /^[a-z0-9-]+\/[a-z0-9._-]+$/i;
  * token offer for its repo (token_declines, the existing rule).
  */
 export async function coinAllowed(builderId: number, projectKey: string): Promise<boolean> {
+  // v3 Stage 2 review: EarnKit's own repo is never offered a coin or backing, by any entry point (offerCoin, openCoinLine, coinYes).
+  if (backingExcluded(projectKey)) return false;
   if (!tokenLaunchesAvailable() || (await sharedGroup(builderId))) return false;
   const [r] = await sql()<{ ok: boolean }[]>`
     SELECT NOT p.held
@@ -110,6 +122,7 @@ export async function coinAllowed(builderId: number, projectKey: string): Promis
   const { repo_url } = await confirmedLinks(builderId, projectKey);
   const url = repo_url ?? (REPO_KEY.test(projectKey) ? `https://github.com/${projectKey}` : null);
   if (!url) return true;
+  if (backingExcluded(url)) return false;
   const key = repoKey({ url, name: '' });
   return ((await declines(builderId, [key])).get(key) ?? 0) < DECLINES_MAX;
 }
@@ -161,7 +174,7 @@ export async function offerCoin(
   builderId: number,
   projectKey: string,
   moment: Exclude<Moment, 'built_live'>,
-  deps: { check?: TickerCheck } = {},
+  deps: { check?: TickerCheck; late?: () => boolean } = {},
 ): Promise<{ line: string; wallet: string | null } | null> {
   if (!(await coinOfferable(builderId, projectKey))) return null;
   const [p] = await sql()<{ name: string; project_key: string }[]>`
@@ -171,9 +184,49 @@ export async function offerCoin(
   const wallet = await coinWallet(builderId);
   const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   const coin = { name: pair.name, symbol: pair.symbol };
+  if (deps.late?.()) return null;
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
   await saveOffer(builderId, COIN_PROGRAM, offerKey(repo_url, p.name), coin, false, wallet);
+  // The reply stopped waiting while the moment was claimed: release it (never spent unshown). The last step before return.
+  if (deps.late?.()) {
+    await sql()`DELETE FROM coin_moments WHERE builder_id = ${builderId} AND project_key = ${p.project_key} AND moment = ${moment} AND answer IS NULL`;
+    return null;
+  }
   return { line: coinLine(moment, p.name, wallet, coin), wallet };
+}
+
+/**
+ * v3 Stage 2 (spec 5.3 Route 2): whether backing may be offered for this project now: EARNKIT_RAISING on, a coin
+ * offerable (coinOfferable: launches available, not shared or held, never offered for it, no coin, under the declines,
+ * a confirmed repo read public), never EarnKit's own repo (BACKING_EXCLUDED_REPOS), and a week of it approved by the
+ * builder with code in it (project_updates facts.approved and hasFacts). A failed read is no.
+ */
+export async function backingOfferable(builderId: number, projectKey: string): Promise<boolean> {
+  if (!raisingEnabled() || backingExcluded(projectKey)) return false;
+  if (!(await coinOfferable(builderId, projectKey))) return false;
+  return approvedCodeWeek(builderId, projectKey);
+}
+
+/** v3 Stage 2: a week of the project the builder approved, with code in it (project_updates facts.approved and hasFacts). */
+export async function approvedCodeWeek(builderId: number, projectKey: string): Promise<boolean> {
+  const rows = await sql()<{ facts: WeekFacts }[]>`
+    SELECT facts FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${projectKey}) AND NOT hidden
+      AND COALESCE((facts->>'approved')::boolean, false)`;
+  return rows.some((r) => hasFacts(r.facts ?? {}));
+}
+
+/**
+ * v3 Stage 2: the backing offer (moment `first_week`), as offerCoin: the moment claimed (once a project), the name and
+ * ticker proposed and saved as the shown offer, so the yes launches exactly it. Null when backingOfferable is not.
+ * `late` (review fix): the reply stopped waiting; the moment is then never claimed (or is released), so it is offered later.
+ */
+export async function backingOffer(
+  builderId: number,
+  projectKey: string,
+  deps: { check?: TickerCheck; late?: () => boolean } = {},
+): Promise<{ line: string; wallet: string | null } | null> {
+  if (!(await backingOfferable(builderId, projectKey))) return null;
+  return offerCoin(builderId, projectKey, 'first_week', deps);
 }
 
 /**
@@ -183,7 +236,7 @@ export async function offerCoin(
  */
 export async function openCoinLine(builderId: number, projectKey: string, deps: { check?: TickerCheck } = {}): Promise<{ line: string; wallet: string | null } | null> {
   const m = await momentOf(builderId, projectKey);
-  if (!m || m.answer !== null || m.moment === 'built_live') return null;
+  if (!m || m.answer !== null || m.moment === 'built_live' || backingExcluded(m.project_key)) return null;
   const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   if (!p) return null;
   const { repo_url } = await confirmedLinks(builderId, m.project_key);
@@ -217,7 +270,7 @@ export async function coinYes(
 ): Promise<{ project_id: number; token: Coin; wallet: string | null; agent_note: string } | { show_to_builder: string; agent_note?: string }> {
   if (!(await guards(builderId))) return { show_to_builder: NOTED };
   const m = await momentOf(builderId, projectKey);
-  if (!m || m.answer === 'no' || m.moment === 'built_live') return { show_to_builder: NOTED };
+  if (!m || m.answer === 'no' || m.moment === 'built_live' || backingExcluded(m.project_key)) return { show_to_builder: NOTED };
   const [p] = await sql()<{ name: string }[]>`SELECT name FROM builder_projects WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   if (!p) return { show_to_builder: NOTED };
   const links = await confirmedLinks(builderId, m.project_key);
