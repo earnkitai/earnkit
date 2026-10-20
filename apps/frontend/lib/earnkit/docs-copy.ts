@@ -12,10 +12,10 @@ export const DOCS_INSTALL_SUB = 'Free. Sign in with X once. Then ask your agent:
 export const DOCS_DO_TITLE = 'What your agent can do';
 export const DOCS_DO_SUB = 'Five tools: find, prepare, confirm, tell, score.';
 export const DOCS_DO: { label: string; text: string }[] = [
-  { label: 'Where you stand', text: 'Your three numbers, any time you ask. (score)' },
-  { label: 'Your ship log', text: 'Written from your commits. You never type it. (tell)' },
-  { label: 'Programs that fit', text: 'The open ones that match what you build, and a drafted application for each. (find, prepare)' },
-  { label: 'Backing', text: 'Offered once, after your first confirmed week. It never changes your rank. (confirm)' },
+  { label: 'Where you stand', text: 'Your three numbers, any time you ask.' },
+  { label: 'Your ship log', text: 'Written from your commits. You never type it.' },
+  { label: 'Programs that fit', text: 'The open ones that match what you build, and a drafted application for each.' },
+  { label: 'Backing', text: 'Offered once, after your first confirmed week. It never changes your rank.' },
   { label: 'Points', text: 'Every confirmed week earns points. Points convert to $EARN in proportion.' },
 ];
 

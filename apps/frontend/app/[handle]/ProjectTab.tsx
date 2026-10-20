@@ -74,7 +74,7 @@ export default function ProjectTab({
             return label ? (
               <li
                 key={g.title}
-                className={`break-words ${LINE} ${g.won ? 'font-medium text-ek-accent' : 'text-ek-body'}`}
+                className={`break-words ${LINE} ${g.won ? 'font-medium text-ek-text' : 'text-ek-body'}`}
               >
                 {label}
               </li>

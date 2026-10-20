@@ -22,6 +22,8 @@ test('1.2 reserved checks ignore case', () => {
   assert.equal(isReserved('LEADERBOARD'), true);
   assert.equal(isReserved('lee_builds'), false);
   assert.ok(RESERVED_ROUTES.has('x') && RESERVED_ROUTES.has('claim') && RESERVED_ROUTES.has('b'));
+  // Final review: public/videos is gone, so "videos" is a handle again.
+  assert.equal(isReserved('videos'), false);
 });
 
 test('1.3 a reserved handle lives under /b/, every other at the root, in its own case', () => {

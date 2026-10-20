@@ -144,7 +144,7 @@ Before you test, know what to expect on earnkit.com after the Stage 3 deploy:
 2. **Three numbers on every profile.** Shipping (the ring), Rank ("#3" over "of 40 builders") and Earned ("$340",
    only once money reached you). Under them the streak grid and the tabs Ship log, Project, Money.
 3. **The Money tab.** Programs that fit (with why), your applications (Won or Applied), Backing (the pill and
-   "N backers, $X earned", only while `EARNKIT_RAISING=on`), then your points line.
+   "N backers, $X in fees", only while `EARNKIT_RAISING=on`), then your points line.
 4. **Docs at earnkit.com/docs.** One page: install per agent (the same steps as the install sheet), what the
    agent can do, the three numbers, how the week works, a section for program selectors at `/docs#selectors`.
    docs.earnkit.com is no longer linked from the site.
@@ -152,5 +152,8 @@ Before you test, know what to expect on earnkit.com after the Stage 3 deploy:
    line as the headline, Shipping and Earned, your project and streak, the page URL; the Share button on your
    page opens the X post with it. The README badge is black and Base blue.
 
+On day one the landing shows your card with Shipping and Rank and no ship log lines until a week is approved;
+that is expected, not a bug. The Feed section is absent from the landing until the first week posts; also expected.
+
 Nothing in the agent replies changed in Stage 3 beyond words: "Shipping 72 · #3 of 40 builders" (no "this
-week"), "points" (never "EARN points"), "Backing" (never a raise).
+week"), "points" (never "EARN points"), "Backing" (never a raise), and the backing line reads "Backing: N backers, $X in fees".

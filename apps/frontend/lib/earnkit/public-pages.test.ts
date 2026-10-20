@@ -254,9 +254,11 @@ test('3.2 v2.8, v3 Stage 3: each row: logo, title, the award, per-winner line, d
     assert.deepEqual(chipsOf(c), [tl.days_left.charAt(0).toUpperCase() + tl.days_left.slice(1), ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
     assert.doesNotMatch(ct, /\(estimate\)/, tl.id);
     assert.ok(!ct.includes('Builder bonus'), tl.id);
-    // The whole card's name: "<title>, <prize>".
-    const label = c.match(/<a [^>]*aria-label="([^"]*)"/)?.[1]?.replace(/&#x27;/g, "'");
-    assert.equal(label, `${tl.title}, ${tl.prize}`, tl.id);
+    // The whole card's name: "<title>, <prize>", now by aria-labelledby (the title and the award), so the row's content stays readable.
+    assert.doesNotMatch(c, /<a [^>]*aria-label=/, tl.id);
+    const ids = c.match(/<a [^>]*aria-labelledby="([^"]*)"/)?.[1]?.split(' ') ?? [];
+    const byId = (id: string) => c.match(new RegExp(`<[a-z0-9]+ [^>]*id="${id}"[^>]*>([^<]*)<`))?.[1]?.replace(/&#x27;/g, "'");
+    assert.equal(ids.map(byId).join(', '), `${tl.title}, ${tl.prize}`, tl.id);
     assert.doesNotMatch(ct, /\bcoins?\b|\u2014/i, tl.id);
   }
   // Colosseum: Hard (never "(estimate)"); Program Six: no difficulty chip.
@@ -611,6 +613,8 @@ test('L10 the site 404 (never Next\'s white default): title, one line, the way t
   assert.ok(h.includes(NOT_FOUND_TITLE) && h.includes(NOT_FOUND_LINE), h);
   assert.match(h, /href="\/leaderboard"/);
   assert.match(h, /href="\/"/);
+  // Final review: one primary per view (the header's); both 404 links are secondary.
+  assert.doesNotMatch(h, /<a [^>]*class="[^"]*bg-ek-brand/);
 });
 
 test('L10 the header names Programs (the money); the install modal: no "no account", numbers only for two steps or more', () => {

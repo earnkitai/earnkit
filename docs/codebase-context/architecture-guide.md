@@ -6777,7 +6777,7 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
   stand line ends "Earned $340." from $1 (`bench-reply.ts earnedWords`, a statement). `ProfileData.earned` and
   `BuilderJson.earned` (`{ paid_usd, waiting_usd }`) with the flag off too. With `EARNKIT_RAISING` on and backing
   open (`raising.ts pillCoin`): `backing.backers` (`backersOfCoin`) and `backing.earned_usd` (the credited fees, whole
-  USD) on the page, the JSON and the reply's "Backing: N backers, $X earned." line.
+  USD) on the page, the JSON and the reply's "Backing: N backers, $X in fees." line (final review: "in fees", never "earned"; the header Earned is prizes plus fees).
 - **Stats.** `earned_usd` (credited fees over non-test coins at the WETH price, plus `builders_won_usd`),
   `backing_open` (launched coins with `raising_at`, non-test) and `backers` (their coins' backers); the last two are
   always present and 0 while the flag is off. Test: `v3-earned.test.ts`.
@@ -6899,7 +6899,7 @@ Test: `v3-landing.test.ts` ((a) order, (b) two buttons, (c) no old kit, (d) feat
   fit" (rows linking to the guide: title and why left, prize and when right), "Applications" (title, Won in
   accent or Applied muted), "Backing" only when `backing` is set (EARNKIT_RAISING on and open): the
   `RaisingPill` at its new `lg` 44px size (the coin's one link here; the pill left the header) with "N
-  backers, $X earned"; then `pointsLine(points)` + `POINTS_PAGE_LINE`. Empty groups invite (`FITS_EMPTY`,
+  backers, $X in fees"; then `pointsLine(points)` + `POINTS_PAGE_LINE`. Empty groups invite (`FITS_EMPTY`,
   `APPLIED_EMPTY`).
 - **Rows and parts.** `UpdateCard` long shape is a row: a hairline on top, the week (and the person in the
   feed) in a left column from sm (`9rem`, `11rem` from md), the summary (18px from md), the note as a
@@ -7033,7 +7033,7 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   is open), the three numbers between hairlines (the Shipping ring, Rank as "#N" over "of M builders", Earned from
   $1), the quiet lines under them (why and target, chain lines with `ChainLogo`, Originality, the points line), the
   52-week grid, the tabs Ship log / Project / Money. `MoneyTab` lists programs that fit, applications with Won or
-  Applied, Backing with the pill and "N backers, $X earned", then the points line. `ShareButton` links to
+  Applied, Backing with the pill and "N backers, $X in fees", then the points line. `ShareButton` links to
   `/<handle>/share`. Empty states (confirming, no project) keep the header and the numbers row with three dashes.
 - **The list pages (Task 4).** `/leaderboard` (`BenchView`: "N builders. Ranked by Shipping.", hairline chips,
   `BenchRowItem` rows with a 3rem rank column at every width so "#100" fits), `/feed` (`FeedView`: an H2 per

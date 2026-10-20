@@ -1,4 +1,5 @@
 import { BTN_SECONDARY } from '../components/common/Button';
+import { pagePath } from '../../lib/earnkit/reserved-routes';
 
 export const SHARE_LABEL = 'Share';
 
@@ -8,7 +9,7 @@ export const SHARE_LABEL = 'Share';
  */
 export default function ShareButton({ handle }: { handle: string }) {
   return (
-    <a href={`/${handle}/share`} className={BTN_SECONDARY}>
+    <a href={`${pagePath(handle)}/share`} className={BTN_SECONDARY}>
       {SHARE_LABEL}
     </a>
   );

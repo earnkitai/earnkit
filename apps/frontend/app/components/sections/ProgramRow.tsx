@@ -17,12 +17,12 @@ export default function ProgramRow({ tile: t }: { tile: Tile }) {
   return (
     <Link
       href={`/programs/${t.id}`}
-      aria-label={`${t.title}, ${t.prize}`}
+      aria-labelledby={`program-${t.id}-title program-${t.id}-prize`}
       className="group grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-3 border-t border-ek-line py-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:gap-x-6 md:py-5"
     >
       <ProgramLogo logo={t.logo} title={t.title} size={40} />
       <div className="min-w-0">
-        <h3 className="font-funnel-display text-lg font-medium leading-tight text-ek-text underline-offset-4 [overflow-wrap:break-word] group-hover:underline">{t.title}</h3>
+        <h3 id={`program-${t.id}-title`} className="font-funnel-display text-lg font-medium leading-tight text-ek-text underline-offset-4 [overflow-wrap:break-word] group-hover:underline">{t.title}</h3>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {/* Launch ready L10: chips start with a capital, as the difficulty chip does ("Rolling", "12 days left"). */}
           <span className={CHIP}>{t.days_left.charAt(0).toUpperCase() + t.days_left.slice(1)}</span>
@@ -33,7 +33,7 @@ export default function ProgramRow({ tile: t }: { tile: Tile }) {
         </div>
       </div>
       <div className="col-start-2 min-w-0 md:col-start-3 md:text-right">
-        <p className={`${NUM} text-lg font-medium leading-tight text-ek-text md:text-xl`}>{t.prize}</p>
+        <p id={`program-${t.id}-prize`} className={`${NUM} text-lg font-medium leading-tight text-ek-text md:text-xl`}>{t.prize}</p>
         {t.prize_note ? <p className="mt-0.5 font-funnel-sans text-sm text-ek-muted">{t.prize_note}</p> : null}
       </div>
     </Link>

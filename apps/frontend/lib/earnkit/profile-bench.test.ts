@@ -79,6 +79,9 @@ test('11.4 the Project tab: name, what, links, chains, the coin, programs entere
     assert.ok(h.includes(s), s);
   assert.doesNotMatch(h, /people use it| earned/);
   assert.match(h, /aria-current="page"[^>]*>Project/);
+  // Final review: "Won" is text weight, never the accent (it would read as a link).
+  assert.match(h, /<li class="[^"]*font-medium text-ek-text[^"]*">Won Base Builder Grants</);
+  assert.doesNotMatch(h, /text-ek-accent[^"]*">Won/);
 });
 
 test('11.5 the photo falls back to the initials when it fails to load', async () => {

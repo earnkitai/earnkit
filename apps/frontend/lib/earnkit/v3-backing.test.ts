@@ -252,7 +252,7 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.equal(links(r).length, 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.equal(backingLine(0, 0, 'earnkit.com/x'), 'Backing open. Your page: earnkit.com/x');
-  assert.equal(backingLine(3, 12, 'earnkit.com/x'), 'Backing: 3 backers, $12 earned. Your page: earnkit.com/x');
+  assert.equal(backingLine(3, 12, 'earnkit.com/x'), 'Backing: 3 backers, $12 in fees. Your page: earnkit.com/x');
 
   // The builder JSON, for the tokens.fun coin page.
   const j = (await builderJson(b.handle, new Date()))!;

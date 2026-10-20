@@ -27,7 +27,6 @@ export default function FeaturedCard({ f, rank, log, points, earned }: FeaturedD
     <a
       href={pagePath(f.handle)}
       data-featured=""
-      aria-label={`${f.name}'s page on EarnKit`}
       className="group block w-full border-b border-t border-ek-line font-funnel-sans"
     >
       <div className="flex items-center gap-3 py-4">

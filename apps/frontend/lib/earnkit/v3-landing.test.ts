@@ -106,6 +106,8 @@ test('(f) FeaturedCard: the handle and name, the three numbers, the streak, two 
   for (const s of ['72', 'Shipping', '#3', 'Rank', '$1,240', 'Earned', '6 weeks in a row', 'Shipped the weekly ship log', 'Added the Money tab']) assert.ok(t.includes(s), s);
   assert.equal((h.match(/<a /g) ?? []).length, 1, 'one link');
   assert.match(h, /<a [^>]*href="\/jenilt"/);
+  // Final review: the link's name is its content (the name first); no aria-label hiding it.
+  assert.doesNotMatch(h, /<a [^>]*aria-label=/);
   assert.match(h, /<ul class="grid[^"]*grid-cols-3/);
   // Review round 1: nothing earned (null) means no Earned number, never "$0", and a two-column grid.
   const twoHtml = html(React.createElement(FeaturedCard, { ...FEATURED, earned: null }));
@@ -144,6 +146,10 @@ test('(i) the install modal: a flat sheet, a bottom sheet on phones, hairline ta
   // Tabs: a hairline row, the active tab marked by a bottom line, 44px tall.
   const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*class="([^"]*)"/g)].map((m) => m[1]);
   assert.equal(tabs.length, 6);
+  // Final review: one row that scrolls on a phone (bleeding to the gutter), never wrapping under the rail line.
+  const rail = h.match(/<div role="tablist"[^>]*class="([^"]*)"/)?.[1] ?? '';
+  assert.doesNotMatch(rail, /(^| )flex-wrap( |$)/, rail);
+  for (const c of ['flex-nowrap', 'overflow-x-auto', 'no-scrollbar', '-mx-4', 'px-4', 'border-b']) assert.match(rail, new RegExp(`(^| )${c}( |$)`), c);
   for (const c of tabs) assert.match(c, /min-h-11/);
   assert.doesNotMatch(h, /rounded-full pl-3 pr-4/, 'no pill tabs');
   // The link's Copy is the primary button.
@@ -161,8 +167,11 @@ test('(j) ProgramRow: one link per row with the title, the award and the chips i
   const h = html(React.createElement(ProgramRow, { tile }));
   assert.equal((h.match(/<a /g) ?? []).length, 1);
   assert.match(h, /<a [^>]*href="\/programs\/colosseum-worlds-fair"/);
-  assert.match(h, /<a [^>]*aria-label="Crypto World's Fair Hackathon, \$840K in prizes"/);
-  assert.match(h, /<h3[^>]*>Crypto World's Fair Hackathon<\/h3>/);
+  // Final review: named by its title and award (aria-labelledby), never an aria-label that hides the row's content.
+  assert.doesNotMatch(h, /<a [^>]*aria-label=/);
+  assert.match(h, /<a [^>]*aria-labelledby="program-colosseum-worlds-fair-title program-colosseum-worlds-fair-prize"/);
+  assert.match(h, /<h3 id="program-colosseum-worlds-fair-title"[^>]*>Crypto World's Fair Hackathon<\/h3>/);
+  assert.match(h, /<p id="program-colosseum-worlds-fair-prize"[^>]*>\$840K in prizes<\/p>/);
   const chips = [...h.matchAll(/<span class="ek-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
   assert.deepEqual(chips, ['Not open yet', 'In person', 'Hard']);
   assert.ok(text(h).includes('$840K in prizes') && text(h).includes('up to $30,000 per winner'));

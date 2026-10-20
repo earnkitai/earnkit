@@ -69,7 +69,7 @@ export default function MoneyTab({ money: m }: { money: MoneyTabData }) {
             {m.applied.map((a) => (
               <li key={a.title} className={ROW}>
                 <span className="min-w-0 break-words font-funnel-sans text-base text-ek-text md:text-lg">{a.title}</span>
-                <span className={`font-funnel-sans text-sm md:text-base ${a.status === 'won' ? 'font-medium text-ek-accent' : 'text-ek-muted'}`}>
+                <span className={`font-funnel-sans text-sm md:text-base ${a.status === 'won' ? 'font-medium text-ek-text' : 'text-ek-muted'}`}>
                   {STATUS_WORD[a.status]}
                 </span>
               </li>
@@ -87,7 +87,7 @@ export default function MoneyTab({ money: m }: { money: MoneyTabData }) {
               {/* v2.13 R8: the coin's pill (the one link to its tokens.fun page here; the Back button is the header's). */}
               <div><RaisingPill symbol={m.backing.symbol} url={m.backing.url} size="lg" /></div>
               <p className="font-funnel-sans text-base text-ek-body">
-                {backersWords(m.backing.backers)}, {dollars(m.backing.earned_usd)} earned
+                {backersWords(m.backing.backers)}, {dollars(m.backing.earned_usd)} in fees
               </p>
             </div>
           </div>

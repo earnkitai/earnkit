@@ -27,6 +27,10 @@ test('a: /docs renders the six H2s in order and the six agent names', () => {
   assert.match(html, /\/badge\/&lt;handle&gt;\.svg/);
   assert.match(html, /mailto:j@earnkit\.com/);
   assert.doesNotMatch(text, /EARN points/);
+  // Final review: the SUB line names the five tools; the rows carry no "(score)" style parentheticals.
+  assert.match(text, /Five tools: find, prepare, confirm, tell, score\./);
+  assert.doesNotMatch(text, /\((?:score|tell|find, prepare|confirm)\)/);
+  assert.match(text, /Your three numbers, any time you ask\. /);
   assert.match(text, /Money that reached you through EarnKit: backing fees paid and program prizes\./);
   assert.match(text, /money that reached you, each linked/);
   assert.doesNotMatch(text, /money you won/);

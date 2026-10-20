@@ -27,7 +27,7 @@ export default function BadgeCopy({ markdown: md, handle }: { markdown: string; 
   return (
     <div className="mt-6 md:mt-8">
       {/* eslint-disable-next-line @next/next/no-img-element -- the site's own SVG, its width set by its text */}
-      <img src={`/badge/${handle}.svg`} alt="" height={20} className="block h-5 w-auto" />
+      <img src={`/badge/${handle}.svg`} alt="EarnKit badge" height={20} className="block h-5 w-auto" />
       <details className="mt-3">
         {/* The site's text link look says it opens; the native marker is dropped with it. */}
         <summary className={`${TEXT_LINK} cursor-pointer list-none [&::-webkit-details-marker]:hidden`}>

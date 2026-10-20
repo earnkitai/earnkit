@@ -71,11 +71,13 @@ test('(b) the Money tab: Programs that fit, Applications, Backing (open only), t
   assert.match(h, /<a[^>]*href="\/programs\/avalanche-team1-mini-grants"[^>]*>[\s\S]*?Avalanche Team1 Mini Grants[\s\S]*?It fits your project\.[\s\S]*?up to \$10K[\s\S]*?open all year/);
   assert.ok(h.includes('Base Builder Grants') && h.includes('Arc Builder Grants'));
   assert.match(h, /Base Builder Grants[\s\S]{0,300}>Won</);
+  // Final review: "Won" is text weight, never the accent (it would read as a link).
+  assert.match(h, /class="[^"]*font-medium text-ek-text[^"]*">Won</);
   assert.match(h, /Arc Builder Grants[\s\S]{0,300}>Applied</);
   const t = text(h);
-  // The coin's pill (Stage 2's "Backing · $SYM", the one link to tokens.fun here) with its backers and the fees earned.
+  // The coin's pill (Stage 2's "Backing · $SYM", the one link to tokens.fun here) with its backers and "$X in fees" (never "earned": the header Earned is prizes plus fees).
   assert.match(h, /data-pill="backing"[^>]*>Backing · \$RECIPE</);
-  assert.ok(t.includes('2 backers') && t.includes('$200 earned'), t);
+  assert.ok(t.includes('2 backers') && t.includes('$200 in fees') && !t.includes('$200 earned'), t);
   assert.ok(t.includes('1,200 points') && t.includes(POINTS_PAGE_LINE), t);
   assert.ok(h.indexOf(BACKING_TITLE) < h.indexOf(POINTS_PAGE_LINE), 'points last');
   // Backing closed (or the flag off): no Backing group; empty fits and applications say what shows here.
@@ -95,6 +97,8 @@ test('(c) the share button on the page itself: a secondary link to /<handle>/sha
   assert.match(h, /<a[^>]*href="\/maya_makes\/share"[^>]*>Share<\/a>/, h.slice(0, 1500));
   const b = html(React.createElement(ShareButton, { handle: 'maya_makes' }));
   assert.match(b, /href="\/maya_makes\/share"/);
+  // Final review: a reserved handle shares from its own page path, /b/<handle>/share.
+  assert.match(html(React.createElement(ShareButton, { handle: 'terms' })), /href="\/b\/terms\/share"/);
   assert.match(b, /border-ek-line-strong/, 'secondary');
   // The Back button beside it when backing is open; neither is the primary.
   assert.match(h, /data-ek-back[^>]*>Back Recipe planner</);
@@ -153,6 +157,7 @@ test('(h) the badge: one line that expands to the markdown and Copy; the image a
   assert.match(h, /<details[^>]*>\s*<summary[^>]*>[^<]*Badge for your README/);
   assert.ok(h.includes('https://earnkit.com/badge/maya_makes.svg)'), 'the markdown');
   assert.match(h, /<img[^>]*src="\/badge\/maya_makes\.svg"/, 'the image');
+  assert.match(h, /<img[^>]*src="\/badge\/maya_makes\.svg"[^>]*alt="EarnKit badge"|<img[^>]*alt="EarnKit badge"[^>]*src="\/badge\/maya_makes\.svg"/, 'a meaningful alt');
   assert.ok(h.indexOf('<img') < h.indexOf('<details') || h.indexOf('src="/badge/') < h.indexOf('<details'), 'the image is outside the fold');
   const un = html(React.createElement(BenchProfileView, { data: NO_PROJECT, tab: 'log' }));
   assert.doesNotMatch(un, /badge/i);

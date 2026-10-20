@@ -102,7 +102,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" primary />
         </div>
 
-        <div role="tablist" aria-label="Your agent" className="mt-6 flex flex-wrap border-b border-ek-line">
+        <div role="tablist" aria-label="Your agent" className="no-scrollbar -mx-4 mt-6 flex flex-nowrap overflow-x-auto border-b border-ek-line px-4">
           {AGENTS.map((a, i) => (
             <button
               key={a.name}

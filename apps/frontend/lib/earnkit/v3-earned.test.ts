@@ -341,11 +341,11 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
 
   const r = show(await find(b));
   assert.match(standLine(r), /\. Earned \$200\.$/, r);
-  assert.ok(r.includes(`Backing: 2 backers, $200 earned. Your page: earnkit.com/${b.handle}`), r);
+  assert.ok(r.includes(`Backing: 2 backers, $200 in fees. Your page: earnkit.com/${b.handle}`), r);
   assert.equal(links(r).length, 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.doesNotMatch(r, /—/);
-  assert.equal(backingLine(1, 0, 'earnkit.com/x'), 'Backing: 1 backer, $0 earned. Your page: earnkit.com/x');
+  assert.equal(backingLine(1, 0, 'earnkit.com/x'), 'Backing: 1 backer, $0 in fees. Your page: earnkit.com/x');
 
   // The builder JSON carries Earned and the backing counts.
   const j = (await builderJson(b.handle, new Date()))!;
