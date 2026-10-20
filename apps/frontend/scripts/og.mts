@@ -12,12 +12,14 @@ import * as React from 'react';
 import { ImageResponse } from 'next/og';
 import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } from '../app/components/sections/Hero';
 import { CardWordmark, loadFonts } from '../app/[handle]/card-response';
-import { siteUrl } from '../lib/earnkit/entry-text';
 import { THEME as T } from '../lib/earnkit/theme';
 
 // The card's JSX compiles to React.createElement under tsx (the tests do the same).
 (globalThis as { React?: typeof React }).React = React;
 const h = React.createElement;
+
+/** The foot of the image: public/og.png is committed, so it names the production host whatever EARNKIT_URL says here. */
+export const OG_HOST = 'earnkit.com';
 
 /** The OG page: the wordmark, the title in two lines, the subline, the host. Pure. */
 export function ogCard() {
@@ -33,7 +35,7 @@ export function ogCard() {
       second ? h('div', { style: { display: 'flex', fontSize: 104, fontWeight: 500, lineHeight: 1.02, letterSpacing: -4 } }, second) : null,
       h('div', { style: { display: 'flex', marginTop: 32, maxWidth: 1000, fontSize: 30, fontWeight: 500, lineHeight: 1.35, color: T.body } }, BENCH_HERO_SUBTITLE),
     ),
-    h('div', { style: { display: 'flex', fontSize: 30, fontWeight: 500, color: T.muted } }, new URL(siteUrl()).host),
+    h('div', { style: { display: 'flex', fontSize: 30, fontWeight: 500, color: T.muted } }, OG_HOST),
   );
 }
 

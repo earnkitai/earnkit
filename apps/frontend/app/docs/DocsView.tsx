@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { COLUMN, H1, H2, LEDE, ROW, ROWS, SUB } from '../components/common/Panel';
-import { TEXT_LINK } from '../components/common/Button';
+import { INLINE_LINK, TEXT_LINK } from '../components/common/Button';
 import { AGENTS, Command, MCP_URL } from '../components/sections/agents';
 import {
   DOCS_CONTACT, DOCS_CONTACT_LEAD, DOCS_DO, DOCS_DO_SUB, DOCS_DO_TITLE, DOCS_INSTALL_SUB, DOCS_INSTALL_TITLE, DOCS_LEDE,
@@ -97,7 +97,7 @@ export default function DocsView() {
           </div>
           <p className="mt-4 font-funnel-sans text-base text-ek-body">
             {DOCS_CONTACT_LEAD}{' '}
-            <a href={`mailto:${DOCS_CONTACT}`} className="text-ek-text underline underline-offset-4">
+            <a href={`mailto:${DOCS_CONTACT}`} className={INLINE_LINK}>
               {DOCS_CONTACT}
             </a>
           </p>

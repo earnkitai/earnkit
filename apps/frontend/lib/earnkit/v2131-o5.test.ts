@@ -298,7 +298,7 @@ test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder wh
   // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
   assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
   assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
-  const cards = html(React.createElement(ProgramCards, { tiles: [], bench: true }));
+  const cards = html(React.createElement(ProgramCards, { tiles: [] }));
   assert.ok(cards.includes('Money open now'), cards);
   assert.ok(!cards.includes('Grants open now'));
 });

@@ -4,7 +4,7 @@ import { cachedBench } from './bench-load';
 
 /** Rendered per request (EARNKIT_RAISING is read at run time); each filter variant is one cached read per minute (bench-load.ts). */
 export const dynamic = 'force-dynamic';
-export const metadata = { title: `${BENCH_TITLE} · EarnKit`, description: 'Builders who ship every week, ranked by Shipping points.' };
+export const metadata = { title: `${BENCH_TITLE} · EarnKit`, description: 'Builders who ship every week. Ranked by Shipping.' };
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 /** v2.13 spec "The Bench": filters are links (R9). */

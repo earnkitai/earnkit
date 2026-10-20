@@ -16,7 +16,7 @@ export type BuilderJson = {
   handle: string; name: string; page: string;
   /** Shipping (0 to 100), null while unranked. */
   shipping: number | null;
-  /** The leaderboard rank, null while not listed; `total`, the builders ranked this week. */
+  /** The leaderboard rank, null while not listed; `total`, every ranked builder (the "of N builders" count). */
   rank: number | null; total: number;
   streak: number; points: number;
   /** Last finished week's ship-log card (its Monday and what it shipped), null with none. */

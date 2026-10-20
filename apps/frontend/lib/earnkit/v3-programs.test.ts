@@ -205,7 +205,7 @@ test('(f) the guide page for an upcoming program shows not open yet, the note an
   assert.equal(page.guide.opens_note, NOTE);
   const h = renderToStaticMarkup(React.createElement(GuideView, { page }));
   assert.ok(h.includes(NOTE), 'the note under the header');
-  assert.match(h.replace(/<[^>]+>/g, ''), /not open yet/);
+  assert.match(h.replace(/<[^>]+>/g, ''), /Not open yet/); // Task 7: the page capitalises each fact, as the row chips do; get_program keeps "not open yet"
   const all: React.ReactElement[] = [];
   const walk = (n: unknown) => {
     if (Array.isArray(n)) n.forEach(walk);

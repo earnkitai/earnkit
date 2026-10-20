@@ -7007,3 +7007,61 @@ The four surfaces outside React draw the flat system from `THEME` (no hex of the
 Test: `v3-shells.test.ts` (T6.1 every shell page is the flat system and its CSS hex set is a subset of THEME;
 T6.2 the unsubscribe pages; T6.3 the card's composition, numbers and hex set; T6.4 the badge; T6.5 the OG PNG's
 IHDR is 1200x630). Pins updated: `badge.test.ts` (black label, brand value), `v3-landing.test.ts` (the fixture).
+
+## v3 Stage 3: the site
+
+The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user`. The one-page rulebook is
+`apps/frontend/DESIGN.md`; this section is the map of what each page is made of.
+
+- **Tokens and primitives (Task 1).** `lib/earnkit/theme.ts THEME` is the one colour source (black page, white
+  text, `body` `#C9CDD6`, `muted` `#7E8694`, `brand` `#0052FF` as a fill, `accent` `#3D7BFF` as blue text,
+  white-alpha hairlines and chips); `globals.css` mirrors each as `--ek-p-*` (tested), `tailwind.config.ts` reads the
+  variables as `ek-*` and holds no hex. `Panel.tsx` is the layout and type scale (`COLUMN` 1120px, `SECTION`,
+  `H1`/`H2`/`LEDE`/`SUB`, `NUM`, `ROWS`/`ROW`, a flat `SURFACE`); `Button.tsx` the four link looks (`BTN_PRIMARY`,
+  `BTN_SECONDARY`, `TEXT_LINK`, `INLINE_LINK`). No gradient but the profile ring, no glow, shadow, decoration,
+  emoji, em dash or uppercase anywhere (`v3-tokens.test.ts`, `v3-landing.test.ts` (i) scans every colour utility
+  under `app/` for a `/NN` opacity modifier, which the var() tokens cannot carry).
+- **Landing (Task 2).** `HomeView`: Hero (`BENCH_HERO_TITLE`, `BENCH_HERO_SUBTITLE`, one `InstallButton`, the
+  `FeaturedCard` right of the words from md), the Leaderboard top 10 (`BenchTop`, `BenchRowItem` rows), the Feed
+  (`FeedRows`, the last finished week), Money open now (`ProgramCards` over `ProgramRow`), Backed by (a static
+  row of ten lazy logos at 60%), Footer. The featured card is `Landing.featured` (`landing.ts readFeatured`: the
+  `LANDING_FEATURED_HANDLE` profile, default `jenilt`, through `resolveHandle`, `benchCardFacts({ money: false })`
+  and `profileData`; null when hidden, held, unranked or missing, and a failing read is logged and leaves it
+  null). The landing cache key is `landing-v3-<featured handle>[-raising]` (`app/lib/landing-cache.ts`); the guide
+  cache key is `guide-v3` (bumped in Task 7 for `GuidePage.chain`).
+- **Profile (Task 3).** `BenchProfileView`: the header (photo, name, @handle, Share, Back <project> while backing
+  is open), the three numbers between hairlines (the Shipping ring, Rank as "#N" over "of M builders", Earned from
+  $1), the quiet lines under them (why and target, chain lines with `ChainLogo`, Originality, the points line), the
+  52-week grid, the tabs Ship log / Project / Money. `MoneyTab` lists programs that fit, applications with Won or
+  Applied, Backing with the pill and "N backers, $X earned", then the points line. `ShareButton` links to
+  `/<handle>/share`. Empty states (confirming, no project) keep the header and the numbers row with three dashes.
+- **The list pages (Task 4).** `/leaderboard` (`BenchView`: "N builders. Ranked by Shipping.", hairline chips,
+  `BenchRowItem` rows with a 3rem rank column at every width so "#100" fits), `/feed` (`FeedView`: an H2 per
+  week over long `UpdateCard` rows; `FEED_EMPTY` with one secondary button), `/programs` (`ProgramCards` as the
+  page, PROGRAMS_TITLE "Money open now"), the guide (`GuideView`: the logo beside the H1, the facts as separate
+  spans that start with a capital like the row chips, the parts as hairline rows). The wording rule: "of N
+  builders" (`rank.ts rankLine`), never "this week" after a 12-week score; the chain line reads "#2 of 12
+  builders on Arc".
+- **Docs (Task 5).** `/docs` (`DocsView`, every string in `lib/earnkit/docs-copy.ts`, the agents' install steps
+  from `app/components/sections/agents.tsx`, shared with the install sheet): install per agent, what the agent can
+  do, the three numbers, how the week works, for program selectors (`#selectors`), the terms link. Header and
+  footer link to it; docs.earnkit.com is gone from the site.
+- **Shell pages, card, badge, OG (Task 6).** `brand-page.ts brandShell` draws the same header, column, type and
+  button from THEME for every route-handler page (sign-in, GitHub, setup, week, wallet, unsubscribe), with Funnel
+  Sans and Funnel Display 500 embedded as data: fonts. `card-response.tsx benchCard` is the share card (rank line
+  as the headline, Shipping and Earned, 28px labels); `badge.ts` the README badge (label on the page, value on
+  brand, white text; the not-found value is muted text on the raised spot, 4.8:1); `scripts/og.mts` writes
+  `public/og.png` from the hero words with `earnkit.com` at the foot whatever `EARNKIT_URL` says.
+- **Copy rules (Task 7).** `copy-review.test.ts` scans every builder-facing string and, through `humanStrings`,
+  every literal under `app/` (page metadata included) for "Shipping points", "EARN points", "What builders
+  shipped", "the Bench", "community round", a raise, and "this week" after "builders"; `human-text.test.ts` for
+  em dashes. The terms' risk disclosure keeps its words and numbering with the headings in sentence case. Links
+  inside running text use `INLINE_LINK` (a 44px hit area without changing the line's height). `ChainLogo` is round
+  at every size; `public/images/chains/base.svg` is a solid Base-blue circle drawn inline (Arc and Robinhood stay
+  monograms until the owner supplies the files).
+- **Visual check.** Every page at 1440x900 and 390x844 (the landing with the install sheet open, the leaderboard's
+  four filters including an empty one, the feed with rows and empty, the three guide states, a ranked profile's
+  three tabs, a confirming and a no-project profile, docs, terms, the 404, the week page with its moment lines, a
+  sign-in page, the GitHub confirm page, two share cards, the badge) lives under the SDD workspace of the stage
+  (`.superpowers/sdd/v3-power-user-plan-stage3/shots/task-7/`, with `measurements.txt`: no horizontal scroll, no
+  target under 44px, the fonts, no em dash or caps).

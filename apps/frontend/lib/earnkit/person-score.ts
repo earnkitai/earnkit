@@ -514,8 +514,7 @@ export const benchPool = (only?: number[]) => {
 
 /**
  * Where the person stands: their public live score and rank on the Bench (benchPool, the leaderboard's
- * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "M builders
- * this week"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
+ * own pool: 1 + those with a higher score; ties share a number; the total is the leaderboard's "of M builders"). A ranked person outside that pool (not claimed yet, or held) is counted in as well, so their
  * reply still has a place; `listed` says whether they are in it (a public rank shows only then: bench-rank rankLines).
  */
 export async function standingOf(id: number, o: { only?: number[] } = {}): Promise<Standing & { score: number; shipped: number; people: number; claimed: boolean; handle: string | null; listed: boolean }> {

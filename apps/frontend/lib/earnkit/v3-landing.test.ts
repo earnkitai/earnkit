@@ -153,7 +153,7 @@ test('(i) the install modal: a flat sheet, a bottom sheet on phones, hairline ta
   const overlay = h.match(/<div role="dialog"[^>]*class="([^"]*)"/)?.[1] ?? '';
   assert.match(overlay, /(^| )bg-ek-glass( |$)/);
   const files = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? files(p) : /\.tsx?$/.test(n) ? [p] : []; });
-  for (const f of files(join(FRONTEND, 'app'))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b(?:bg|text|border|ring|from|to)-ek-[a-z-]+\/\d/, f);
+  for (const f of files(join(FRONTEND, 'app'))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b(?:bg|text|border|divide|fill|stroke|outline|shadow|ring|from|via|to)-ek-[a-z-]+\/\d/, f);
 });
 
 test('(j) ProgramRow: one link per row with the title, the award and the chips in order', () => {

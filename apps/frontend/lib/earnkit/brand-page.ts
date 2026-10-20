@@ -42,7 +42,8 @@ export function sansFile(): Buffer | null {
 let faces: string | null = null;
 const fontFaces = () => {
   if (faces !== null) return faces;
-  const display = ([500, 700] as const)
+  // Task 7: the CSS sets Funnel Display at weight 500 only, so that is the one Display face embedded.
+  const display = ([500] as const)
     .map((w) => {
       const f = fontFile(w);
       return f ? `@font-face{font-family:"Funnel Display";font-weight:${w};font-style:normal;font-display:swap;src:url(data:font/woff;base64,${f.toString('base64')}) format("woff")}` : '';

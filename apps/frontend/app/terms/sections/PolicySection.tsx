@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Panel } from '../../components/common/Panel';
+import { INLINE_LINK } from '../../components/common/Button';
 import { X } from '../../lib/links';
 import { raisingEnabled } from '../../../lib/earnkit/builder-score-flag';
 import {
@@ -26,7 +27,7 @@ import {
   feeTable,
 } from '../../../lib/earnkit/policy';
 
-const link = 'text-ek-text underline underline-offset-4 transition-colors hover:text-ek-text';
+const link = INLINE_LINK;
 
 /** `aside` sits beside the heading. */
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -123,7 +124,7 @@ export default function PolicySection() {
               href={`https://basescan.org/address/${SAFE_ADDRESS}`}
               target="_blank"
               rel="noopener noreferrer"
-              className={`block break-all font-funnel-sans text-sm md:text-base ${link}`}
+              className={`block break-all font-funnel-sans text-sm md:text-base ${link} after:-inset-y-2`}
             >
               {SAFE_ADDRESS}
             </a>

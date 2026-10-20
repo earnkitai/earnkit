@@ -111,7 +111,7 @@ function CardNumber({ value, label }: { value: string; label: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', fontSize: 56, fontWeight: 500, lineHeight: 1, letterSpacing: -1.5, color: T.text }}>{value}</div>
-      <div style={{ display: 'flex', marginTop: 10, fontSize: 24, fontWeight: 500, color: T.muted }}>{label}</div>
+      <div style={{ display: 'flex', marginTop: 10, fontSize: 28, fontWeight: 500, color: T.muted }}>{label}</div>
     </div>
   );
 }
@@ -194,8 +194,8 @@ export async function cardResponse(handle: string, path: string): Promise<Respon
 export async function shareResponse(handle: string, path: string): Promise<Response> {
   const who = await live(handle, path, 'share');
   if (who instanceof Response) return who;
-  // v2.13: the post says what the card shows (benchShareText).
-  const f = await benchCardFacts(who.builderId);
+  // v2.13: the post says what the card shows (benchShareText). Task 7: no Earned read here; the text never carries it.
+  const f = await benchCardFacts(who.builderId, { money: false });
   if (!f) return notFound();
   const location = shareIntentText(who.handle, benchShareText(f));
   const day = new Date().toISOString().slice(0, 10);

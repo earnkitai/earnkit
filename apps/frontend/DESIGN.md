@@ -87,7 +87,7 @@ The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the 
 | `SECTION` | A section's vertical rhythm (56px, 96px from md) |
 | `ROWS`, `ROW` | A list: each row opens with a hairline, the list closes with one; 16 to 20px of padding |
 | `FilterChip.tsx Chip` | A filter: a hairline pill, 44px on a phone (36px from md), `aria-pressed`; on, it inverts to white with black text |
-| `ProgramLogo` | A program's mark at 70% on a white disc (`ek-text`), so dark marks read on the page; the monogram on the raised disc |
+| `ProgramLogo`, `ChainLogo` | A program's mark at 70% on a white disc (`ek-text`), so dark marks read on the page, or the monogram on the raised disc; a chain's mark, always a circle (Base a solid brand-blue disc; Arc and Robinhood monograms until the owner supplies their files) |
 | `SURFACE` | A flat block that opens with a hairline. Kept for callers; no radius, no gradient |
 
 ## Buttons (`Button.tsx`)
@@ -96,9 +96,17 @@ The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the 
 |---|---|
 | `BTN_PRIMARY` | Pill, 48px, `ek-brand` fill, white text, `ek-accent` on hover |
 | `BTN_SECONDARY` | Pill, 48px, `ek-line-strong` outline, white text, `ek-chip` on hover |
+| `TEXT_LINK`, `INLINE_LINK` | A quiet link beside a section title (the accent, 44px tall); a link inside running text (white, underlined, a 44px hit area from an invisible box above and below the words) |
 
 The brandShell pages (`lib/earnkit/brand-page.ts`) read the same THEME and draw the same button, header and
-type; so do the share card (`card-response.tsx`), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`).
+type; so do the share card (`card-response.tsx`), the README badge (`badge.ts`: label on the page, value on brand,
+white text; a not-found value is muted text on the raised spot) and the OG image (`scripts/og.mts`, always
+`earnkit.com` at the foot).
+
+## Words on a page
+
+Sentence case everywhere, the legal text included; a chip or fact span starts with a capital. "Shipping", "Rank", "Earned";
+"#3 of 40 builders" (never "this week"); "Ranked by Shipping" (never "Shipping points"); "Feed"; "Backing" (never a raise).
 
 ## Motion
 

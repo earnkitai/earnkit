@@ -12,14 +12,14 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
  * with the name (its link is the whole row's hit area, at least 44px) and the @handle, chain logos and the Backing
  * pill under it, the project with its best fact under it (two lines, no dotted pair), then the Shipping number (R17).
  * From md the four columns sit on one line (3rem | 1fr | 1fr | 5rem); on a phone the project and fact drop to a
- * second line under the name. R11: names are never cut; long ones wrap at spaces.
+ * second line under the name (the rank column is 3rem there too, so "#100" fits). R11: names are never cut; long ones wrap at spaces.
  */
 export default function BenchRowItem({ r }: { r: BenchRow }) {
   const handleShown = r.name !== `@${r.handle}`;
   return (
     <li
       data-row={r.handle}
-      className="relative grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-t border-ek-line py-4 md:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5rem] md:gap-x-6 md:py-5"
+      className="relative grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-t border-ek-line py-4 md:grid-cols-[3rem_minmax(0,1fr)_minmax(0,1fr)_5rem] md:gap-x-6 md:py-5"
     >
       {/* On a phone the row is two lines: the rank and the number sit on the first, level with the photo. */}
       <span data-rank="" className="mt-2.5 self-start md:mt-0 md:self-center">

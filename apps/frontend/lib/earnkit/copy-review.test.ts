@@ -6,7 +6,7 @@ import {
 import { WEEK_TEXT } from './week-links';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
 import { test } from 'node:test';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -1221,6 +1221,29 @@ test('v3 Stage 3 (spec 5.2): never "this week" within 20 characters after "build
   const all = [...builderFacing, ...agentFacing, ...(await gatherGateReasons()), ...(await gatherGateAgentNotes())];
   for (const [label, text] of all) assert.doesNotMatch(text, /builders.{0,20}this week/, label);
   assert.ok(builderFacing.some(([, text]) => /of \d+ builders/.test(text)), 'the scan sees a rank line');
+});
+
+test('v3 Stage 3 Task 7 (spec 5.2, 5.5): the three numbers keep their names in every builder-facing string and page: never "Shipping points", "EARN points", "What builders shipped" or "the Bench"; Backing words, never a raise or a community round', async () => {
+  const all = [...builderFacing, ...(await gatherGateReasons())];
+  assert.ok(all.length > 100, 'the scan sees the replies');
+  for (const [label, text] of all) {
+    assert.doesNotMatch(text, /Shipping points/i, label);
+    assert.doesNotMatch(text, /EARN points/, label);
+    assert.doesNotMatch(text, /What builders shipped/i, label);
+    assert.doesNotMatch(text, /\bthe Bench\b/, label);
+    assert.doesNotMatch(text, /community round|\braise\b|\braising\b|\bfundrais/i, label);
+  }
+  // The pages too: every string literal and JSX text under app/ (the page metadata included), through humanStrings.
+  const APP = join(import.meta.dirname, '../../app');
+  const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const p = join(d, n); return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) ? [p] : []; });
+  const pages = walk(APP);
+  assert.ok(pages.length > 40, 'walked app/');
+  for (const f of pages)
+    for (const { text, line } of humanStrings(f, readFileSync(f, 'utf8'))) {
+      const at = `${f.slice(APP.length)}:${line}`;
+      assert.doesNotMatch(text, /Shipping points|EARN points|What builders shipped|\bthe Bench\b|community round/i, at);
+      assert.doesNotMatch(text, /builders.{0,20}this week/, at);
+    }
 });
 
 test('v2.9 Task 12: never an em dash in builder-facing text', async () => {

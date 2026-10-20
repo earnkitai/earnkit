@@ -80,9 +80,10 @@ export default function GuideView({ page }: { page: GuidePage }) {
             <h1 className={`${H1} min-w-0 [overflow-wrap:break-word]`}>{page.title}</h1>
           </div>
           <p className="mt-5 flex flex-col gap-y-1 font-funnel-sans text-base text-ek-muted md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:text-lg">
+            {/* Task 7: each fact starts with a capital, as the row chips do ("Rolling", "Not open yet"); keyed by position, two facts can read alike. */}
             {facts.map((f, i) => (
-              <span key={f} className={i > 0 ? 'md:border-l md:border-ek-line md:pl-4' : ''}>
-                {f}
+              <span key={i} className={i > 0 ? 'md:border-l md:border-ek-line md:pl-4' : ''}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
               </span>
             ))}
           </p>

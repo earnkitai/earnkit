@@ -109,6 +109,10 @@ apps/frontend/
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
+  app/docs/{page,DocsView}.tsx  v3 Stage 3 T5 (spec 5.6): /docs, one page, every string in lib/earnkit/docs-copy.ts and the
+                               agents' steps from sections/agents.tsx: install per agent (the MCP link as a Code block),
+                               what the agent can do, the three numbers, how the week works, for program selectors
+                               (#selectors; the page, the JSON, the badge, the contact as an INLINE_LINK), the terms link
   app/programs/page.tsx        v2.7 Ruling 22, v3 Stage 3 T4: /programs is the landing's Money section as a page:
                                ProgramCards with heading h1 (PROGRAMS_TITLE "Money open now", figure = landing.open_text,
                                more = landing.open_more); getLanding() null → "Programs are unavailable…"
@@ -140,10 +144,11 @@ apps/frontend/
                                /programs/<id> (aria-label "<title>, <prize>"): logo, title with the days-left / In person /
                                difficulty chips under it, the award (and per-winner line) on the right from md; no buttons
   app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
-                               arrowState (prev/next enabled; both off when nothing overflows);
-                               HowItWorks exports HOW_TITLE "How you earn" and STEPS, a Panel with a
-                               visible h2 #how-it-works and steps #how-you-earn-1..3. StatsStrip.tsx is
-                               gone (v2.7.1); BuilderBonus.tsx ("Win twice") is gone (v2.8)
+                               arrowState (prev/next enabled; both off when nothing overflows); v3 Stage 3: no caller
+                               (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
+                               BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
+  app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
+                               /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
   app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
                                the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
@@ -1611,8 +1616,8 @@ apps/frontend/
     sources.ts (fix round 2)   anti-backdating: withPastWeeks/withPastCounts (only this and last week new after a
                                reading), storedCommits (pushes_checked), needsPushCheck, pushedWeeks, readPushes, firstPushes
                                (/activity until verified: newest page, then the oldest page when full; unbacked weeks only in the gap between two full pages), previousRepoSignals (rename: repo id, else owner + created_at)
-    rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
-                               "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
+    rank.ts(+test)             scoring and clarity, v3 Stage 3 (spec 5.2: never "this week"): rankLine (the one rank phrase:
+                               "#N of M builders", from 20 "Top P% of builders" in the top half; chains named), scoreLine ("Shipping 72 ·
                                <rank line>"; thousands separators), benchPercent, BENCH_CHAINS; rankSplit (lead number and
                                words, for the profile and the leaderboard rows)
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
@@ -1665,6 +1670,16 @@ apps/frontend/
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
+    docs-copy.ts               v3 Stage 3 T5: every string on /docs (DOCS_TITLE, DOCS_LEDE, the section titles and rows, DOCS_SELECTORS,
+                               DOCS_CONTACT, DOCS_DESCRIPTION); pinned by v3-docs.test.ts (under 600 words, no em dash, no emoji)
+    v3-tokens.test.ts          v3 Stage 3 T1: THEME values and the globals.css mirror, contrast, no gradient/shadow/marquee, the
+                               primitives and buttons, PART_COLORS kept, the shell button, DESIGN.md as the one-page rulebook
+    v3-landing.test.ts         v3 Stage 3 T2: HomeView order, two "Add to your agent" buttons, no video/gradient/uppercase, the
+                               featured read (hidden/missing is null), empty landing, FeaturedCard, the install sheet, the /NN scan
+    v3-profile.test.ts         v3 Stage 3 T3: the three numbers row, the grid, the tabs, the Money tab rows, Share, the badge line, empty states
+    v3-pages.test.ts           v3 Stage 3 T4 (T7: a rank 100 row, the 3rem phone rank column, capitalised guide facts): the
+                               leaderboard, the chips, the feed, ProgramCards/ProgramRow/ProgramLogo, the guide states, the 404, rankLine
+    v3-docs.test.ts            v3 Stage 3 T5: the Docs page's sections, the agents' steps shared with the sheet, the word budget
     brand-page.ts              v2.12.1 T11, v3 Stage 3 Task 6: the flat shell of every route-handler page (CSS from THEME: black page, the slim header, no panel, hairline rows, BTN_PRIMARY button; Funnel Display woffs via fontFile and Funnel Sans woff2 via sansFile as data: fonts), X_ICON, GITHUB_ICON; the unsubscribe pages (digest.ts) and the week page use it too
                                Scoring and clarity R14: the one shell for every sign-in and verify page (verifyPage, signinPage, the 404s, OAuth authorize 429/400, wallet 405); page-shells.test.ts checks each carries the slim top bar
     stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, standingNews, NOTED_LINE
@@ -2001,3 +2016,12 @@ candidates include an open investment, never a fit line), `stand-view.ts` (`scor
 "investment"), `alerts.ts` (`repoCanWin(..., { apply })`), `bench-data.ts` (`fundLines` skips in person), `pool.ts`
 (`openMoneyWords` hackathon rule: in person, pool or prize text, never summed; `OpenMoneyRow.in_person`, `reward`),
 `stats.ts` (`testProject`: backing_open, backers, earned_usd group-aware). `ethglobal-mumbai` has no `max_award_usd`.
+
+v3 Stage 3 Task 7 (copy pass, the visual check and the docs; see the architecture guide's "v3 Stage 3: the site"): `ChainLogo`
+round at every size and `public/images/chains/base.svg` a solid Base-blue circle; `BenchRowItem` phone rank column 3rem;
+`landing-cache.ts` guide key `guide-v3`; `ProgramCards` without the dead `bench` prop; `GuideView` facts capitalised and keyed by
+position; `brand-page.ts` embeds Funnel Display 500 only; `card-response.tsx` 28px number labels and `/share` without the Earned
+read (`benchCardFacts(id, { money: false })`, as `landing.ts readFeatured`); `scripts/og.mts` `OG_HOST`; `badge.ts` not-found value
+as muted text on the raised spot; `Button.tsx INLINE_LINK` on the terms and Docs links; the terms' risk headings in sentence case;
+`app/leaderboard/page.tsx` description "Ranked by Shipping."; `copy-review.test.ts` Task 7 rule (builder strings and every literal
+under `app/`); `v3-landing.test.ts` (i) scans divide/fill/stroke/outline/shadow/via too.

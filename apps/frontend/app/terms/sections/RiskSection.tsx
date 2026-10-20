@@ -1,4 +1,5 @@
 import { Panel } from '../../components/common/Panel';
+import { INLINE_LINK } from '../../components/common/Button';
 
 /**
  * Tokenfi Inc.'s risk disclosure for tokens.fun, Minidev and related services (/terms#risk-disclosure
@@ -42,7 +43,7 @@ export default function RiskSection() {
         {/* Section 1 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            1. GENERAL NATURE OF THE PLATFORMS
+            1. General nature of the platforms
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             tokens.fun is a{' '}
@@ -92,7 +93,7 @@ export default function RiskSection() {
         {/* Section 2 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            2. RISK OF TOTAL LOSS
+            2. Risk of total loss
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             Digital assets are highly speculative. You may lose{' '}
@@ -132,7 +133,7 @@ export default function RiskSection() {
         {/* Section 3 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            3. SMART CONTRACT RISK
+            3. Smart contract risk
           </h3>
           <p className="text-ek-body mb-4 font-medium">
             Smart contracts are experimental technology and may contain:
@@ -185,7 +186,7 @@ export default function RiskSection() {
         {/* Section 4 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            4. THIRD-PARTY PROTOCOL RISK
+            4. Third-party protocol risk
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             Trading and liquidity for Tokens occurs through{' '}
@@ -224,7 +225,7 @@ export default function RiskSection() {
         {/* Section 5 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            5. IRREVERSIBLE TRANSACTIONS
+            5. Irreversible transactions
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             Blockchain transactions are{' '}
@@ -260,7 +261,7 @@ export default function RiskSection() {
         {/* Section 6 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            6. MARKET MANIPULATION & MEV
+            6. Market manipulation & MEV
           </h3>
           <p className="text-ek-body mb-4 font-medium">
             Token markets may be subject to:
@@ -300,7 +301,7 @@ export default function RiskSection() {
         {/* Section 7 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            7. LIQUIDITY & PRICING RISK
+            7. Liquidity & pricing risk
           </h3>
           <p className="text-ek-body mb-4 font-medium">Tokens may:</p>
           <ul className="space-y-3 mb-6">
@@ -328,7 +329,7 @@ export default function RiskSection() {
         {/* Section 8 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            8. TOKEN CREATOR RISK
+            8. Token creator risk
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             Tokens created on the Platforms are{' '}
@@ -384,7 +385,7 @@ export default function RiskSection() {
         {/* Section 9 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            9. REGULATORY & LEGAL RISK
+            9. Regulatory & legal risk
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             Digital asset laws are uncertain and evolving.
@@ -422,7 +423,7 @@ export default function RiskSection() {
         {/* Section 10 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            10. NO INVESTMENT ADVICE
+            10. No investment advice
           </h3>
           <p className="text-ek-body mb-4 font-medium">
             The Platforms do{' '}
@@ -455,7 +456,7 @@ export default function RiskSection() {
         {/* Section 11 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            11. TECHNOLOGY & NETWORK RISK
+            11. Technology & network risk
           </h3>
           <p className="text-ek-body mb-4 font-medium">
             Risks include:
@@ -487,7 +488,7 @@ export default function RiskSection() {
         {/* Section 12 - NEW */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            12. AI-GENERATED APPLICATION RISKS
+            12. AI-generated application risks
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             If you use Minidev to generate applications:
@@ -580,7 +581,7 @@ export default function RiskSection() {
         {/* Section 13 - NEW */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            13. AI AGENT RISKS
+            13. AI agent risks
           </h3>
           <p className="text-ek-body leading-relaxed mb-6">
             If you deploy AI agents using the Agent Template:
@@ -792,7 +793,7 @@ export default function RiskSection() {
         {/* Section 14 - NEW */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            14. TOKEN BURN RISKS
+            14. Token burn risks
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             Certain agent or platform mechanics may result in automatic token
@@ -825,7 +826,7 @@ export default function RiskSection() {
         {/* Section 15 - NEW */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            15. HOSTING & AVAILABILITY RISKS
+            15. Hosting & availability risks
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             The Platforms provide hosting for applications and agents.
@@ -858,7 +859,7 @@ export default function RiskSection() {
         {/* Section 16 - NEW */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            16. CREDIT & PAYMENT RISKS
+            16. Credit & payment risks
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             Credits purchased for the Platforms:
@@ -888,7 +889,7 @@ export default function RiskSection() {
         {/* Section 17 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            17. NO GUARANTEES
+            17. No guarantees
           </h3>
           <p className="text-ek-body mb-4 font-medium">
             The Platforms make{' '}
@@ -923,7 +924,7 @@ export default function RiskSection() {
         {/* Section 18 */}
         <section className="mb-10">
           <h3 className="text-2xl font-medium mb-6 text-ek-text font-funnel-display">
-            18. ASSUMPTION OF RISK
+            18. Assumption of risk
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             By using the Platforms, you expressly acknowledge and agree that:
@@ -957,7 +958,7 @@ export default function RiskSection() {
         {/* Final Notice */}
         <section className="mt-10 mb-20">
           <h3 className="text-2xl md:text-3xl font-medium mb-6 text-ek-text font-funnel-display">
-            FINAL NOTICE
+            Final notice
           </h3>
           <p className="text-ek-body leading-relaxed mb-4">
             Digital assets and AI tools are{' '}
@@ -970,7 +971,7 @@ export default function RiskSection() {
           </p>
           <p className="text-ek-body">
             <span className="font-semibold text-ek-text">
-              NEVER INVEST MORE THAN YOU CAN AFFORD TO LOSE.
+              Never invest more than you can afford to lose.
             </span>
           </p>
         </section>
@@ -984,7 +985,7 @@ export default function RiskSection() {
               href="mailto:j@earnkit.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="underline hover:text-ek-text"
+              className={INLINE_LINK}
             >
               j@earnkit.com
             </a>

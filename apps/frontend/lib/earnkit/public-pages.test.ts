@@ -129,9 +129,9 @@ test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent
   const h = guideHtml(emptyGuide);
   const t = text(h);
   assert.match(h, /<h1[^>]*>Circle Developer Grants<\/h1>/);
-  // v3 Stage 3 Task 4: the facts are separate spans (the award, "rolling"), not one dotted string.
-  assert.match(h, /<span[^>]*>milestone-based USDC grants<\/span>/);
-  assert.match(h, /<span[^>]*>rolling<\/span>/);
+  // v3 Stage 3 Task 4: the facts are separate spans (the award, "Rolling"; Task 7: each starts with a capital, as the row chips do), not one dotted string.
+  assert.match(h, /<span[^>]*>Milestone-based USDC grants<\/span>/);
+  assert.match(h, /<span[^>]*>Rolling<\/span>/);
   assert.ok(!t.includes('grants · rolling'));
   assert.ok(t.includes('Difficulty: Medium (estimate). No past results yet.'));
   assert.doesNotMatch(h, /<h2/);
@@ -146,7 +146,7 @@ test('Ruling 22 (plan): a closed program still renders, "· closed", with no "As
   const h = guideHtml(closedGuide);
   const t = text(h);
   assert.match(h, /<span[^>]*>500 USDC × 20 grants<\/span>/);
-  assert.match(h, /<span[^>]*>closed<\/span>/);
+  assert.match(h, /<span[^>]*>Closed<\/span>/);
   assert.ok(!t.includes('grants · closed'));
   assert.doesNotMatch(t, /Ask your agent/);
   assert.deepEqual(asks(closedGuide), []);
@@ -168,7 +168,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(index.includes('Programs are unavailable right now.'));
   assert.doesNotMatch(index, /limit=/);
   const cache = read('app/lib/landing-cache.ts');
-  assert.match(cache, /\['guide-v271'\], \{ revalidate: 600 \}/); // review #7: bumped with the GuidePage shape
+  assert.match(cache, /\['guide-v3'\], \{ revalidate: 600 \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
   assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
   assert.match(cache, /gatedGuidePage\(id, cachedIds, cachedGuide\)/);
   assert.match(cache, /export const getGuidePage = cache\(/);
@@ -293,7 +293,7 @@ test('3.6 v2.8, R18, v3 Stage 3: /programs is the same rows under an h1, with no
   assert.doesNotMatch(h, /Previous programs|Next programs|snap-x|overflow-x-auto/);
   assert.ok(!h.includes('Ask your agent'));
   // The same rows as the landing: same links, same text.
-  const landing = cardsOf(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, bench: true })));
+  const landing = cardsOf(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })));
   assert.deepEqual(cardsOf(h).map((c) => text(c).trim()), landing.map((c) => text(c).trim()));
   for (const c of cardsOf(h)) assert.doesNotMatch(c, /<button/);
 });

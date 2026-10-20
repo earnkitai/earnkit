@@ -25,8 +25,6 @@ export default function ProgramCards({
   more?: string | null;
   /** v2.7 /programs: the rows are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
-  /** Kept for callers: the landing and /programs now share PROGRAMS_TITLE, so this changes nothing. */
-  bench?: boolean;
 }) {
   const Heading = heading;
   const title = PROGRAMS_TITLE;

@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 process.env.EARNKIT_RAISING = 'on';
 
-import BenchView, { BENCH_TITLE, benchLine } from '../../app/leaderboard/BenchView';
+import BenchView, { benchLine } from '../../app/leaderboard/BenchView';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import { Chip } from '../../app/leaderboard/FilterChip';
 import FeedView, { FEED_LINE, FEED_TITLE } from '../../app/feed/FeedView';
@@ -37,21 +37,23 @@ const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
 test('(a) the leaderboard: "Leaderboard", benchLine, hairline rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
-  const h = html(React.createElement(BenchView, { rows: [ROW, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }], count: 40, chips: ['base', 'arc'], filter: { chain: null, weekly: false } }));
+  const h = html(React.createElement(BenchView, { rows: [ROW, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false } }));
   assert.match(h, /<h1[^>]*>Leaderboard<\/h1>/);
-  assert.ok(h.includes(benchLine(40)) && benchLine(40) === '40 builders. Ranked by Shipping.');
+  assert.ok(h.includes(benchLine(120)) && benchLine(40) === '40 builders. Ranked by Shipping.');
   assert.doesNotMatch(h, /Shipping points/);
   assert.doesNotMatch(h, /builders?.{0,20}this week/, 'no "this week" after the rank (a best fact may say "31 people this week")');
-  assert.equal((h.match(/data-row="/g) ?? []).length, 2);
-  assert.equal((h.match(/data-rank=""/g) ?? []).length, 2);
-  assert.equal((h.match(/data-points=""/g) ?? []).length, 2);
-  assert.ok(h.includes('>#3<') && h.includes('>#4<'), 'the rank number');
+  assert.equal((h.match(/data-row="/g) ?? []).length, 3);
+  assert.equal((h.match(/data-rank=""/g) ?? []).length, 3);
+  assert.equal((h.match(/data-points=""/g) ?? []).length, 3);
+  assert.ok(h.includes('>#3<') && h.includes('>#4<') && h.includes('>#100<'), 'the rank number');
   // The list is ROWS (closes with a hairline); each row opens with one; no Panel wrapper, no middle dot in a row.
   assert.match(h, /<ol [^>]*class="[^"]*\bborder-b border-ek-line\b/);
   const rows = h.match(/<li data-row=[\s\S]*?<\/li>/g) ?? [];
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   for (const r of rows) {
     assert.match(r, /class="[^"]*\bborder-t border-ek-line\b/);
+    // Task 7: the phone rank column is 3rem, so "#100" fits on one line.
+    assert.match(r, /\bgrid-cols-\[3rem_minmax\(0,1fr\)_auto\]/);
     assert.doesNotMatch(r, /·/, 'the project and its best fact are two lines, not a dotted pair');
     assert.match(r, /md:grid-cols-\[3rem_minmax\(0,1fr\)_minmax\(0,1fr\)_5rem\]/);
     assert.match(r, /after:absolute after:inset-0/, 'the whole row is the link');
@@ -60,8 +62,8 @@ test('(a) the leaderboard: "Leaderboard", benchLine, hairline rows with data-ran
 });
 
 test('(a) the chips: hairline pills with aria-pressed, 44px on a phone, the on state inverted (never brand fill)', () => {
-  const off = html(React.createElement(Chip, { on: false, href: '/leaderboard?chain=base', children: 'Base' }));
-  const on = html(React.createElement(Chip, { on: true, href: '/leaderboard', children: 'Base' }));
+  const off = html(React.createElement(Chip, { on: false, href: '/leaderboard?chain=base' } as React.ComponentProps<typeof Chip>, 'Base'));
+  const on = html(React.createElement(Chip, { on: true, href: '/leaderboard' } as React.ComponentProps<typeof Chip>, 'Base'));
   assert.match(off, /aria-pressed="false"/);
   assert.match(on, /aria-pressed="true"/);
   for (const c of [off, on]) {
@@ -119,7 +121,7 @@ test('(c) /programs: H1 "Money open now", the money line and what it leaves out,
   assert.match(page, /more=\{landing\.open_more\}/);
   assert.doesNotMatch(page, /Open programs/);
   // The landing's section is the same heading (h2) with the same words.
-  assert.match(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, bench: true })), /<h2[^>]*>Money open now<\/h2>/);
+  assert.match(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })), /<h2[^>]*>Money open now<\/h2>/);
 });
 
 test('(c) a program logo sits on a light disc so a dark mark reads on the black page; the monogram keeps its raised disc', () => {
@@ -144,10 +146,10 @@ function elements(node: unknown, out: React.ReactElement[] = []): React.ReactEle
 }
 const asks = (page: Parameters<typeof GuideView>[0]['page']) => elements(GuideView({ page })).filter((e) => e.type === AskAgent);
 
-test('(d) an upcoming guide: "not open yet" as its own fact, the opens_note line, no Ask button', () => {
+test('(d) an upcoming guide: "Not open yet" as its own fact, the opens_note line, no Ask button', () => {
   const h = html(React.createElement(GuideView, { page: upcomingGuide }));
   assert.match(h, /<h1[^>]*>Base Batches 005<\/h1>/);
-  assert.match(h, /<span[^>]*>not open yet<\/span>/);
+  assert.match(h, /<span[^>]*>Not open yet<\/span>/);
   assert.ok(h.includes('Applications open in November. Build on Base now.'));
   assert.doesNotMatch(h, /Ask your agent/);
   assert.equal(asks(upcomingGuide).length, 0);
@@ -158,7 +160,8 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
   const h = html(React.createElement(GuideView, { page: fullGuide }));
   const [award, when] = fullGuide.guide.header.slice(fullGuide.title.length + 3).split(' · ');
   assert.match(h, new RegExp(`<span[^>]*>${award.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</span>`));
-  assert.match(h, new RegExp(`<span[^>]*>${when}</span>`));
+  // Task 7: each fact starts with a capital on the page ("Ends Oct 14"), as the row chips do; get_program's text is unchanged.
+  assert.match(h, new RegExp(`<span[^>]*>${when.charAt(0).toUpperCase() + when.slice(1)}</span>`));
   assert.match(h, /<span[^>]*>Arc<\/span>/, 'the chain is a fact of its own');
   assert.doesNotMatch(h, new RegExp(`${award.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} · `), 'no dotted facts string');
   assert.ok(text(h).includes('Difficulty: '));
@@ -170,10 +173,10 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
   // The parts are a ROWS list: it closes with a hairline, each part opens with one.
   assert.match(h, /<div class="[^"]*\bborder-b border-ek-line\b[^"]*"><section/);
   assert.equal((h.match(/<section [^>]*class="[^"]*\bborder-t border-ek-line\b/g) ?? []).length, 3);
-  // Any chain reads "Any chain"; the closed one says "closed".
+  // Any chain reads "Any chain"; the closed one says "Closed" (Task 7: facts start with a capital, as the row chips do).
   assert.match(html(React.createElement(GuideView, { page: { ...fullGuide, any_chain: true, chain: null } })), new RegExp(`<span[^>]*>${ANY_CHAIN}</span>`));
-  assert.match(html(React.createElement(GuideView, { page: closedGuide })), /<span[^>]*>closed<\/span>/);
-  assert.match(html(React.createElement(GuideView, { page: emptyGuide })), /<span[^>]*>rolling<\/span>/);
+  assert.match(html(React.createElement(GuideView, { page: closedGuide })), /<span[^>]*>Closed<\/span>/);
+  assert.match(html(React.createElement(GuideView, { page: emptyGuide })), /<span[^>]*>Rolling<\/span>/);
 });
 
 // ---- 404 -------------------------------------------------------------------------------------------

@@ -155,7 +155,8 @@ async function readFeatured(now: Date): Promise<FeaturedData | null> {
   let r = await resolveHandle(featuredHandle(), now);
   if (r && 'redirect' in r) r = await resolveHandle(r.redirect.replace(/^\/(b\/)?/, ''), now);
   if (!r || 'redirect' in r) return null;
-  const f = await benchCardFacts(r.builderId);
+  // Task 7: Earned comes from profileData below; the card facts skip their own read of it.
+  const f = await benchCardFacts(r.builderId, { money: false });
   if (!f?.bench) return null;
   const d = await profileData(r.builderId, now);
   if (!d || d.score === null) return null;

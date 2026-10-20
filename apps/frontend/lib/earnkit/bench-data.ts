@@ -372,8 +372,10 @@ export type BenchCardFacts = {
  * The card's facts from stored rows, lighter than profileData (no log, no programs): the Bench line
  * (none outside the top half), the one project's shown name (page-data shownProjects: never a
  * private repo's), its streak while the Bench counts it confirmed, the pill's coin. Null without a claim.
+ * Task 7: `money: false` skips the Earned read (earnedUsd) where the caller never draws it (/share reads only the
+ * share text; the landing reads Earned from profileData); `earned` is then null.
  */
-export async function benchCardFacts(builderId: number): Promise<BenchCardFacts | null> {
+export async function benchCardFacts(builderId: number, o: { money?: boolean } = {}): Promise<BenchCardFacts | null> {
   const db = sql();
   const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null }[]>`
     SELECT x_handle, x_name, x_avatar_url, main_project_key AS main FROM builder_profiles WHERE builder_id = ${builderId}`;
@@ -395,10 +397,12 @@ export async function benchCardFacts(builderId: number): Promise<BenchCardFacts 
   const [score, earned] = lines.line
     ? await Promise.all([
         db<{ score: number }[]>`SELECT score::int AS score FROM builder_live WHERE builder_id = ${builderId}`.then((r) => r[0]?.score ?? null),
-        earnedUsd(builderId).catch((err: unknown) => {
-          console.error('[card] earned', err instanceof Error ? err.name : 'error');
-          return NO_EARNED;
-        }),
+        o.money === false
+          ? NO_EARNED
+          : earnedUsd(builderId).catch((err: unknown) => {
+              console.error('[card] earned', err instanceof Error ? err.name : 'error');
+              return NO_EARNED;
+            }),
       ])
     : [null, NO_EARNED];
   return {

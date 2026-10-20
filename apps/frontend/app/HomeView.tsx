@@ -23,7 +23,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
       <div className={`${COLUMN} flex flex-col gap-14 md:gap-24`}>
         {bench ? <BenchTop rows={bench.rows} count={bench.count} /> : null}
         {bench ? <FeedRows cards={bench.cards} /> : null}
-        {landing ? <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} bench /> : null}
+        {landing ? <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} /> : null}
         <BackedBy />
       </div>
       <Footer />

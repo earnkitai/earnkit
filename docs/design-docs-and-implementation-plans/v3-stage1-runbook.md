@@ -132,3 +132,25 @@ Read this before you set `EARNKIT_RAISING=on`.
    Oct 27.
 4. **Stats for jenil.ai.** `/api/stats` has four new keys for `get_funnel`: `applications`, `backing_open`, `backers`
    and `earned_usd`. `backing_open` and `backers` read 0 while `EARNKIT_RAISING` is off.
+
+## Stage 3: what the site looks like now
+
+Before you test, know what to expect on earnkit.com after the Stage 3 deploy:
+
+1. **A black page.** Every page is black with white type and one blue (Base blue). Rows split by thin lines, no
+   cards, no gradients, no video. The header is the wordmark, Leaderboard, Feed, Programs, Docs and one blue
+   "Add to your agent" button; the hero shows your own live profile card (`LANDING_FEATURED_HANDLE`, default
+   `jenilt`) with your numbers and your last two ship log lines.
+2. **Three numbers on every profile.** Shipping (the ring), Rank ("#3" over "of 40 builders") and Earned ("$340",
+   only once money reached you). Under them the streak grid and the tabs Ship log, Project, Money.
+3. **The Money tab.** Programs that fit (with why), your applications (Won or Applied), Backing (the pill and
+   "N backers, $X earned", only while `EARNKIT_RAISING=on`), then your points line.
+4. **Docs at earnkit.com/docs.** One page: install per agent (the same steps as the install sheet), what the
+   agent can do, the three numbers, how the week works, a section for program selectors at `/docs#selectors`.
+   docs.earnkit.com is no longer linked from the site.
+5. **The share card.** `/<handle>/card.png` is black with the wordmark, your photo, name and @handle, the rank
+   line as the headline, Shipping and Earned, your project and streak, the page URL; the Share button on your
+   page opens the X post with it. The README badge is black and Base blue.
+
+Nothing in the agent replies changed in Stage 3 beyond words: "Shipping 72 · #3 of 40 builders" (no "this
+week"), "points" (never "EARN points"), "Backing" (never a raise).
