@@ -6,13 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "aws4fetch": "^1.0.20",
     "fflate": "^0.8.3",
-    "framer-motion": "^12.12.1",
     "next": "16.1.5",
     "ox": "0.14.45",
     "postgres": "^3.4.9",
@@ -27,7 +27,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.1.11",
+    "eslint-config-next": "16.1.5",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"

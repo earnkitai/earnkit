@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { tools, listProgramsInput } from './tools';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX as claimFx, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import * as React from 'react';
@@ -13,18 +13,16 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { FILTER_RAISING } from '../../app/bench/FilterChip';
 import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
-import { BENCH_STEPS } from '../../app/components/sections/BenchHowItWorks';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
-  BENCH_HEADS, NO_PROJECT_LINE, OTHER_PROJECT_ASK, START_ASK, privateLine, startBuildAsk, benchReply, cantSeeLine, checkingBranchLine,
-  benchStepKey, chooseAsk, claimAsk, claimLine, enterAsk, installAppAsk, needsLine, type BenchView,
+  BENCH_HEADS, NOT_ON_BENCH, STATE_COPY, benchReply,
+  SHIP_STEP, needsLine, stateAsk, type BenchView,
 } from './bench-reply';
-import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, coinAskBench, fundNeeds, needsPicks } from './bench-find';
+import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, fundNeeds, needsPicks } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
-import { coinLine, coinYes } from './coin-moments';
-import { coinBranchProof } from './proof-branch';
+import { coinLine, coinYes, offerCoin } from './coin-moments';
+import { proveByApp } from './repo-proof';
 import { appTokenFor } from './github-app';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
@@ -37,17 +35,16 @@ import { safeNames } from './page-data';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from './mcp';
 import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
+import { RANKED_STEP } from './fixtures/ranked-step';
 
 /**
- * v2.13.3, the owner's own production test (2026-10-17), all under EARNKIT_BENCH: (1) the older find
+ * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
  * fields (github_user, repos, local remotes, a live link) fill the Bench's identity instead of being
  * dropped; (2) "Ways to get funded" always shows; (3) the no-project reply leads with existing work;
  * (4) the claim link reads as a line; (5) private and org repos through the read-only GitHub App.
  */
 
 (globalThis as { React?: typeof React }).React = React; // the components' JSX under tsx
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2133-secret';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -59,7 +56,7 @@ after(async () => {
 const RUN = randomBytes(3).toString('hex');
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
+const ON = { EARNKIT_URL: undefined, ...X_ON };
 const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 const links = (t: string) => (t.match(/https?:\/\/\S+/g) ?? []).map((l) => l.replace(/[.,]$/, ''));
@@ -69,10 +66,6 @@ const OWN_FRESH = { deployOn: () => true, hostOn: true, canBuild: true, starters
 const profile = async (id: number) =>
   (await sql()<{ identity: { github_login?: string | null; projects?: { name: string; repo: string | null; live_url: string | null }[] }; reported: string | null; main: string | null }[]>`
     SELECT identity, reported_github AS reported, main_project_key AS main FROM builder_profiles WHERE builder_id = ${id}`)[0];
-const again = async (id: number, extra: Record<string, unknown>) => {
-  await sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
-  return find(id, {}, { ...NO_MATCH, ...extra });
-};
 const claimX = async (id: number) => {
   const r = await bindX(id, { id: `v2133${randomBytes(6).toString('hex')}`, username: uniq('maya').slice(0, 15), name: 'Maya', avatar: null }, new Date());
   assert.equal(r.ok, true);
@@ -105,24 +98,15 @@ test('1.1 pure: github_user, the first repo (else local remotes) and a live link
     assert.deepEqual(benchIdentity({ identity: plain, project: benchProject({}), local_git: localGitInput(undefined) }), { identity: plain, project: null });
   }));
 
-test('1.2 flag off (Bench off): the older fields fill nothing (today\'s)', () =>
-  withEnv({ ...ON, EARNKIT_BENCH: undefined }, async () => {
-    const i = listProgramsInput({ github_user: 'jenil04', repos: ['earnkitai/earnkit'] });
-    assert.equal(i.identity.github_login, null);
-    assert.equal(i.project, null);
-  }));
-
-test('1.3 the tester\'s shape (github_user + repos + a live link): identity and reported_github are stored, the repo is the one project and the proof flow runs to confirmed', dbTest, () =>
+test('1.3 the tester\'s shape (github_user + repos + a live link): identity and reported_github are stored, the repo is the one project, not counted until the App proves it', dbTest, () =>
   on(async () => {
     const login = uniq('jenil');
     const key = `${uniq('earnkitai')}/earnkit`;
-    const gh = fakeGitHub();
-    gh.repos[key] = { owner: { login: key.split('/')[0], type: 'Organization' } };
     const id = await install();
     const r = await find(id, {
       agent_can_build: true, github_user: login, repos: [key],
       local_repos: [{ name: 'earnkit', url: `https://github.com/${key}`, live_url: 'https://earnkit.com' }],
-    }, { ...NO_MATCH, proofBranchFetch: gh.f });
+    }, NO_MATCH);
     const p = await profile(id);
     assert.equal(p.reported, login.toLowerCase());
     assert.equal(p.main, key);
@@ -130,13 +114,12 @@ test('1.3 the tester\'s shape (github_user + repos + a live link): identity and 
     assert.deepEqual(p.identity.projects?.map((x) => [x.repo, x.live_url]), [[key, 'https://earnkit.com']]);
     const sources = await sql()<{ kind: string; ref: string }[]>`SELECT kind, ref FROM builder_sources WHERE builder_id = ${id} ORDER BY kind`;
     assert.deepEqual(sources.map((s) => `${s.kind}:${s.ref}`), [`repo:${key}`, 'site:https://earnkit.com']);
-    assert.equal(r.show_to_builder.split('\n')[1], checkingBranchLine('Earnkit'), r.show_to_builder);
-    const branch = (r.proof as { branch: string } | undefined)?.branch;
-    assert.ok(branch, 'the proof branch is given');
-    gh.push(key, branch!, login.toLowerCase());
-    const done = await again(id, { proofBranchFetch: gh.f });
-    const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
-    assert.deepEqual({ ...s }, { state: 'verified', proof: 'proof_branch' }, done.show_to_builder);
+    // v2.14 spec 2: not counted until the read-only App is installed (no proof branch).
+    // v2.14 T9: unsigned: not on the Bench yet (the sign-in link is the question).
+    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(r.proof, undefined);
+    const [s] = await sql()<{ state: string }[]>`SELECT state FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
+    assert.equal(s.state, 'proposed');
   }));
 
 test('1.4 the Bench find description asks for identity.project and identity.github_login, not the older fields (still accepted)', () =>
@@ -160,7 +143,8 @@ test('2.1 pure: what each program needs, in plain words; a chain program names i
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
   assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
   assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { project: null, rank: null, claimed: true, handle: 'm', claimLink: null, ask: null,
+  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, target: null, share: null, handle: null, link: null, due: [], held: null,
+    ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() },
     fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
   assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");
 });
@@ -179,32 +163,31 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
     assert.doesNotMatch(fund!, / fits /);
     // A project being checked (not confirmed): the same.
     const key = `${uniq('maya')}/recipes`;
-    const gh = fakeGitHub();
     const m = await install();
-    const rm = await find(m, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const rm = await find(m, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, NO_MATCH);
     const f2 = rm.show_to_builder.split('\n\n').find((p) => p.startsWith(BENCH_HEADS.fund));
     assert.ok(f2, rm.show_to_builder);
     assert.ok(f2!.split('\n').length - 1 <= 2);
     assert.doesNotMatch(f2!, / fits /);
-    assert.equal(links(rm.show_to_builder).length, 1, 'still one link');
+    // v2.14 T9: unsigned: the sign-in link is the one link (no App link before a page exists).
+    assert.equal(links(rm.show_to_builder).length, 1, rm.show_to_builder);
+    assert.match(links(rm.show_to_builder)[0], /\/signin\//);
   }));
 
 // ---- 3. No project: lead with existing work ------------------------------------------------------
 
-test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing work first; never the generic tip jar; a build only aimed at a program whose starter competes', dbTest, () =>
+test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and existing work first; never a build (v2.14 A18)', dbTest, () =>
   on(async () => {
-    assert.equal(NO_PROJECT_LINE, "You're not on the Bench yet.");
-    // Coordinator ruling (v2.13.3): one question, last.
-    assert.equal(START_ASK, "I'll put your work on the Bench and find money it can win. What's your GitHub, or a link to something you've made?");
-    assert.equal(startBuildAsk('a tip jar on Arc', 'Arc Microgrants'),
-      "I'll put your work on the Bench and find money it can win. What's your GitHub, a link to something you've made, or should I build a tip jar on Arc for Arc Microgrants?");
+    assert.equal(NOT_ON_BENCH, "You're not on the leaderboard yet.");
+    // v2.14 spec 4 (no_project): one question, last.
+    assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
     // No program with a starter that can compete open: the line, no build offer, money shown.
     const id = await install();
     await claimFx(id); // v2.13.4: unclaimed, X is the one ask; this is what follows it
     const r = await find(id, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
     const lines = r.show_to_builder.split('\n');
-    assert.equal(lines[1], NO_PROJECT_LINE, r.show_to_builder);
-    assert.equal(lines.at(-1), START_ASK);
+    assert.equal(lines[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(lines.at(-1), STATE_COPY.no_project.noApp());
     assert.equal(questions(r.show_to_builder), 1);
     assert.ok(r.show_to_builder.endsWith('?'));
     assert.doesNotMatch(r.show_to_builder, /tip jar/i);
@@ -219,40 +202,34 @@ test('3.1 no project (ruling A): "You\'re not on the Bench yet." and existing wo
     const c = await install();
     await claimFx(c);
     const rc = await find(c, { agent_can_build: false }, NO_MATCH);
-    assert.equal(rc.show_to_builder.split('\n')[1], NO_PROJECT_LINE);
-    assert.equal(rc.show_to_builder.split('\n').at(-1), START_ASK);
-    // An open program with its own starter: the build aimed at it, beside existing work; one question.
+    assert.equal(rc.show_to_builder.split('\n')[1], NOT_ON_BENCH);
+    assert.equal(rc.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.noApp());
+    // v2.14 A18: an open program with its own starter changes nothing: no build offered in find.
     const arc = { ...committedProgram('arc-microgrants'), id: `v2133-arc-${RUN}`, status: 'active', ends_at: new Date(Date.now() + 3 * 86_400_000).toISOString(), fresh_build: { starter: STARTER_ID } };
     await upsertProgram(ProgramFile.parse(arc));
     try {
       const b = await install();
       await claimFx(b);
       const rb = await find(b, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
-      assert.equal(rb.show_to_builder.split('\n').at(-1), startBuildAsk('a tip jar on Arc', arc.title), rb.show_to_builder);
-      // The build option is part of the same last question.
-      assert.ok(rb.show_to_builder.endsWith('?'));
+      assert.equal(rb.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.noApp(), rb.show_to_builder);
       assert.equal(questions(rb.show_to_builder), 1, 'one question mark in the whole reply (links stripped)');
-      assert.equal(rb.move_up?.kind, 'build');
-      assert.equal(rb.move_up?.agent_note, START_NOTE);
-      const by = (await tools.tell({ move_up: { kind: 'build', project_key: null, answer: 'yes' } }, { installationId: b } as never)) as { agent_note?: string };
-      assert.match(by.agent_note ?? '', new RegExp(`build: \\{ start: true, program_id: '${arc.id}'`));
+      assert.equal(rb.build_offer, undefined);
+      assert.equal(rb.move_up?.kind, 'start');
     } finally {
       await dropPrograms([arc.id]);
     }
   }));
 
-// ---- 4. The claim link is a line -----------------------------------------------------------------
+// ---- 4. (v2.14 T7: the claim link and the claim ask are gone) ----------------------------------------
 
-test('4.1 (v2.13.4: the claim is the one ask) the claim link, then one yes or no, last; one link', dbTest, () =>
+test('4.1 (v2.14 T7) an unsigned install with a project: no claim link, no claim ask; at most one link and one question, last', dbTest, () =>
   on(async () => {
-    const link = 'https://earnkit.com/claim/abcdefghijkl';
-    assert.equal(claimLine(link), `Your page: claim it with X at ${link}`);
     const id = await install();
     const key = `${uniq('maya')}/recipes`;
-    const r = await find(id, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, { ...NO_MATCH, proofBranchFetch: fakeGitHub().f });
-    assert.ok(r.claim?.link);
-    assert.ok(r.show_to_builder.endsWith(claimAsk(r.claim!.link, 'Recipe planner')), r.show_to_builder);
-    assert.equal(links(r.show_to_builder).length, 1);
+    const r = await find(id, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, NO_MATCH);
+    assert.equal((r as { claim?: unknown }).claim, undefined);
+    assert.doesNotMatch(r.show_to_builder, /claim/i);
+    assert.ok(links(r.show_to_builder).length <= 1);
     assert.equal(questions(r.show_to_builder), 1);
     assert.ok(r.show_to_builder.endsWith('?'));
   }));
@@ -310,26 +287,25 @@ const reader = (f: typeof fetch): ReaderDeps => {
     throw new Error('unexpected read');
   };
   return {
-    gh: no, ghGraphql: async <T,>() => ({ data: { r0: null } }) as T, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date(), ghFetch: f,
+    gh: no, ghGraphql: async <T,>() => ({ data: { r0: null } }) as T, probe: no, fetchText: no, json: no, contractOrigin: no,
+    walletCreations: no, now: new Date(), ghFetch: f,
   };
 };
 
-test('5.1 App off: a repo EarnKit can\'t see says "EarnKit can only see public repos right now." and asks for a different project', dbTest, () =>
+test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no proof step', dbTest, () =>
   on(async () => {
     const key = `${uniq('earnkitai')}/secret`;
-    const gh = privateGitHub(key);
     const id = await install();
     await claimFx(id);
-    const r = await find(id, named(key, uniq('jenil')), { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(cantSeeLine('secret'), "I can't see secret. EarnKit can only see public repos right now.");
-    assert.equal(r.show_to_builder.split('\n')[1], cantSeeLine('Secret'), r.show_to_builder);
-    assert.ok(r.show_to_builder.endsWith(OTHER_PROJECT_ASK));
+    const r = await find(id, named(key, uniq('jenil')), NO_MATCH);
+    assert.equal(r.show_to_builder.split('\n')[1], STATE_COPY.not_counted.stand('Secret'), r.show_to_builder);
+    // v2.14 A15: the App off: one small thing to ship, no install link.
+    assert.equal(r.move_up?.kind, 'suggest');
     assert.equal(r.proof, undefined);
     assert.doesNotMatch(r.show_to_builder, /github\/verify|Install EarnKit/);
   }));
 
-test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link); claimed, the one install link; installed, the branch is checked with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
+test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim ask); claimed, the one install link; installed, the setup URL proves it with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
     const logged: string[] = [];
     const was = { error: console.error, log: console.log, warn: console.warn };
@@ -342,39 +318,38 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       const key = `${uniq('earnkitai')}/earnkit`;
       const gh = privateGitHub(key);
       const id = await install();
-      // Unclaimed: the claim link is the one link (v2.13.4: the claim is the one ask); the install link comes next reply.
-      const r1 = await find(id, named(key, login), { ...NO_MATCH, proofBranchFetch: gh.f });
-      assert.equal(r1.show_to_builder.split('\n')[1], privateLine('Earnkit'), r1.show_to_builder);
+      // Unclaimed: no App link yet (S7: it names the page); v2.14 T9: the sign-in link is the one link and question.
+      const r1 = await find(id, named(key, login), NO_MATCH);
+      assert.equal(r1.show_to_builder.split('\n')[1], NOT_ON_BENCH, r1.show_to_builder);
       assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
-      assert.ok(r1.show_to_builder.endsWith(claimAsk(r1.claim!.link, 'Earnkit')), r1.show_to_builder);
+      assert.match(links(r1.show_to_builder)[0], /\/signin\//);
+      assert.equal(r1.move_up?.kind, 'sign_in');
       assert.equal(questions(r1.show_to_builder), 1);
       assert.ok(r1.show_to_builder.endsWith('?'));
-      assert.equal(r1.move_up?.kind, 'claim');
+      assert.notEqual(r1.move_up?.kind, 'install_app');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.
       await claimX(id);
-      const r2 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+      const r2 = await find(id, {}, NO_MATCH);
       const ls = links(r2.show_to_builder);
       assert.equal(ls.length, 1, r2.show_to_builder);
       assert.match(ls[0], /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-      assert.ok(r2.show_to_builder.endsWith(installAppAsk('Earnkit', ls[0])), r2.show_to_builder);
+      assert.ok(r2.show_to_builder.endsWith(STATE_COPY.not_counted.ask(ls[0])), r2.show_to_builder);
+      assert.ok(r2.show_to_builder.includes(`${STATE_COPY.not_counted.stand('Earnkit')}\nYour page: earnkit.com/`), r2.show_to_builder);
       assert.equal(r2.move_up?.kind, 'install_app');
       assert.equal(r2.move_up?.agent_note, INSTALL_APP_NOTE);
       assert.equal(questions(r2.show_to_builder), 1);
       assert.ok(r2.show_to_builder.endsWith('?'), 'the question is last');
       assert.equal(r2.proof, undefined, 'no branch before the App can read the repo');
-      // Installed: the next find reads the repo with the per-call token and gives the branch.
+      // Installed: the setup URL (appSetup's last step) reads the repo with the per-call token and proves it.
       await installApp(id, key, login);
-      const r3 = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-      assert.equal(r3.show_to_builder.split('\n')[1], checkingBranchLine('Earnkit'), r3.show_to_builder);
-      const branch = (r3.proof as { branch: string } | undefined)?.branch;
-      assert.ok(branch);
+      assert.equal((await proveByApp({ builderId: id, repoKey: key, githubInstallationId: 77 }, { fetch: gh.f })).ok, true);
       assert.ok(gh.minted.length > 0, 'a token was minted');
       assert.deepEqual(gh.minted[0], { repositories: ['earnkit'], permissions: { contents: 'read', metadata: 'read' } });
-      gh.push(key, branch!, login);
-      await again(id, { proofBranchFetch: gh.f });
       const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key}`;
-      assert.deepEqual({ ...s }, { state: 'verified', proof: 'proof_branch' });
+      assert.deepEqual({ ...s }, { state: 'verified', proof: 'github_app' });
+      const r3 = await find(id, {}, NO_MATCH);
+      assert.match(r3.show_to_builder.split('\n')[1], /^Earnkit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders) this week\.$/, r3.show_to_builder);
       const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
       assert.equal(live?.ranked, true, 'the project ranks');
       // Readings: the daily read and the live refresh read the private repo with the installation token.
@@ -385,7 +360,7 @@ test('5.2 App on, a private org repo: unclaimed, the X claim first (no App link)
       assert.equal(reading?.ok, true, JSON.stringify(reading));
       assert.equal(reading.signals.private, true);
       assert.equal(Object.values(reading.signals.commit_counts ?? {}).reduce((a, b) => a + b, 0), 1);
-      assert.equal(reading.signals.contributors?.length, 1);
+      assert.deepEqual(reading.signals.contributors, [], 'R16b: no contributors call for an org repo');
       await sql()`DELETE FROM source_live WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${id})`;
       await readPersonLive(id, new Date(), { deadline: Date.now() + 10_000, reader: reader(gh.f) });
       const [lv] = await sql()<{ ok: boolean }[]>`SELECT l.ok FROM source_live l JOIN builder_sources b ON b.id = l.source_id WHERE b.builder_id = ${id} AND b.kind = 'repo'`;
@@ -413,52 +388,45 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
     const other = await install();
     await installApp(other, key, login);
     const id = await install();
-    await find(id, named(key, login), { ...NO_MATCH, proofBranchFetch: gh.f });
+    await find(id, named(key, login), NO_MATCH);
     await claimX(id);
-    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
+    const r = await find(id, {}, NO_MATCH);
     assert.equal(r.proof, undefined, r.show_to_builder);
     assert.equal(gh.minted.length, 0, 'no token for a proof that is not this person\'s');
-    assert.match(r.show_to_builder, /Earnkit is private, so I can't count it yet\. Install the read-only EarnKit app on it \(one click\): /);
+    assert.match(r.show_to_builder, /^Earnkit isn't counted yet\.$/m);
+    assert.match(r.show_to_builder, /Install the read-only EarnKit app on it \(one click\): https:\/\/\S+\nWant me to count it once that's done\?$/);
   }));
 
 // ---- Owner rulings A and B (2026-10-17) ----------------------------------------------------------
 
-test('A.1 pure: a project is asked to enter its best fit first, else a community round, before the Bench\'s own steps', () => {
+test('A.1 pure (R8 supersedes owner ruling A): a ranked project moves up by shipping, never an entry or a community round; one that can\'t join asks for another project', () => {
   const p = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: false, weeks: 0 };
-  const enter = { kind: 'enter' as const, project_key: p.key, program_id: 'x', line: enterAsk('Base Builder Grants') };
-  const coin = { kind: 'coin' as const, project_key: p.key, line: raiseLine('Recipe planner', 'RECIPE', null) };
-  const base = { project: p, canHost: true, updatesOn: false, postedThisWeek: false, scheduled: false, build: null, declined: [] as string[], claimed: true };
-  assert.equal(chooseAsk({ ...base, coin, enter })?.kind, 'enter');
-  assert.equal(chooseAsk({ ...base, coin, enter: null })?.kind, 'coin');
-  assert.equal(chooseAsk({ ...base, coin: null, enter: null })?.kind, 'go_live', 'nothing to win yet: the Bench steps as before');
-  assert.equal(chooseAsk({ ...base, coin, enter, declined: [benchStepKey('enter', p.key)] })?.kind, 'coin');
-  // A project that can't join still asks for a different project first.
-  assert.equal(chooseAsk({ ...base, project: { ...p, confirmed: false }, other: true, coin, enter })?.kind, 'other_project');
+  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: p, link: null }), { kind: 'ship', project_key: p.key, line: SHIP_STEP });
+  // A project that can't join (v2.14: not counted, taken) asks for a different project, never an entry.
+  assert.equal(stateAsk({ state: 'not_counted', variant: 'taken', project: { ...p, confirmed: false }, link: null }).kind, 'other_project');
 });
 
-test('A.2 through find: a project with a fit names it in Ways to get funded and asks to enter it', dbTest, () =>
+test('A.2 through find (R8, R12): a project with a fit names it in Ways to get funded with its deadline and why; the step is still to ship', dbTest, () =>
   on(async () => {
     const prog = await avalanche();
     const key = `${uniq('maya')}/recipes`;
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
-    assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} pays up to \\$10K and fits Recipe planner`, 'm'), r.show_to_builder);
-    assert.equal(r.show_to_builder.split('\n').at(-1), enterAsk(prog.title));
-    assert.equal(r.move_up?.kind, 'enter');
+    assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: up to \\$10K, rolling\\. `, 'm'), r.show_to_builder);
+    assert.match(r.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
+    assert.equal(r.move_up?.kind, 'ship');
   }));
 
 test('B.1 "community round", never raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), "I'll launch $RECIPE on tokens.fun and you get 40% of its trading fees. Want to open a community round for Recipe planner?");
-  assert.equal(FILTER_RAISING, 'Community round');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Community round \$RECIPE</);
-  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, ...BENCH_STEPS, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
+  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
   assert.notDeepEqual(bannedInBench('Want to raise for it?', []), []);
   assert.notDeepEqual(bannedInBench('Raising $X', []), []);
   assert.notDeepEqual(bannedInBench('Start a fundraise', []), []);
   // The needs lines name their chain and pass the copy check.
   assert.deepEqual(bannedInBench(needsLine('Grants', 'up to $5K', "for a Base app, once it's live"), ['Grants']), []);
-  assert.deepEqual(bannedInBench(cantSeeLine('secret'), ['secret']), []);
 });
 
 // ---- Review fix round (v2.13.3) -----------------------------------------------------------------
@@ -492,12 +460,11 @@ test('R2 (I1) no community round for a repo not read public; once public it is o
   withEnv({ ...ON, EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'test' }, async () => {
     const key = `${uniq('earnkitai')}/secret`;
     const id = await confirmedRepo(key);
-    const p = { key, name: 'secret', confirmed: true, live: true, weeks: 1, people: 0, has_coin: false, streak: 0, shipped: true };
-    assert.equal(await coinAskBench(id, p, {}, { check: async () => true }), null, 'private: no offer');
+    // R8: the offer a builder asked for (tell token, moment countable).
+    assert.equal(await offerCoin(id, key, 'countable', { check: async () => true }), null, 'private: no offer');
     assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0, 'no moment used up');
     await markPublic(id);
-    const ask = await coinAskBench(id, p, {}, { check: async () => true });
-    assert.equal(ask?.kind, 'coin');
+    const ask = await offerCoin(id, key, 'countable', { check: async () => true });
     assert.match(ask!.line, /\. Want to open a community round for secret\?$/);
     // The repo goes private after the offer: the yes makes the coin under the safe name, with no repo link.
     await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${id} AND kind = 'repo'`;
@@ -507,38 +474,18 @@ test('R2 (I1) no community round for a repo not read public; once public it is o
     assert.deepEqual({ ...x }, { name: 'Private project', repo_url: null });
   }));
 
-test('R2b the coin gate reads a private repo with the App token (no re-push loop); R5 App on and not installed: the install ask, never "public repos only"', dbTest, () =>
-  withEnv({ ...ON, ...APP }, async () => {
-    const key = `${uniq('earnkitai')}/secret`;
-    const gh = privateGitHub(key);
-    const id = await confirmedRepo(key);
-    const login = uniq('jenil').toLowerCase();
-    const off = await coinBranchProof(id, key, new Date(), { ghFetch: gh.f });
-    assert.ok('line' in off, JSON.stringify(off));
-    const line = (off as { line: string }).line;
-    assert.match(line, /^Secret is private, so I can't count it yet\. Install the read-only EarnKit app on it \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nWant me to count it once that's done\?$/);
-    assert.doesNotMatch(line, /public repos/);
-    await installApp(id, key, login);
-    assert.deepEqual(await coinBranchProof(id, key, new Date(), { ghFetch: gh.f }), { ok: true }, 'controlProvenMain read it with the App token');
-  }));
-
 test('R4 (M1) a slow App token mint never holds the reply: find answers in time and the install ask stands', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
     const key = `${uniq('earnkitai')}/slow`;
-    const gh = privateGitHub(key);
-    const slow = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (new URL(String(input)).pathname.startsWith('/app/') || new URL(String(input)).pathname.endsWith('/installation'))
-        await new Promise<void>((_, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
-      return gh.f(input, init);
-    }) as typeof fetch;
     const id = await install();
-    await find(id, named(key, uniq('jenil')), { ...NO_MATCH, proofBranchFetch: slow });
+    await find(id, named(key, uniq('jenil')), NO_MATCH);
     await installApp(id, key, uniq('jenil').toLowerCase());
     const t0 = Date.now();
-    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: slow });
+    const r = await find(id, {}, NO_MATCH);
     const ms = Date.now() - t0;
     assert.ok(ms < 3000, `find took ${ms} ms`);
-    assert.equal(r.show_to_builder.split('\n')[1], privateLine('Slow'), r.show_to_builder);
+    // Unsigned (v2.14 T9): not on the Bench yet; the reply came in time.
+    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
     assert.equal(r.proof, undefined);
   }));
 

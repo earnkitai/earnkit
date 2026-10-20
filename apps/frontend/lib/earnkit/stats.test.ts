@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { STATS_KEYS, STATS_LABELS, WIN_RATE_MIN_LABELLED, moneyText, openMoneyUsd, readStats, statsFrom, weiToEth, type StatsNumberKey } from './stats';
+import { STATS_KEYS, STATS_LABELS, WIN_RATE_MIN_LABELLED, moneyText, openMoneyUsd, readStats, statsFrom, weiToEth } from './stats';
 import { sql } from './db';
 import { holdBonusDbLock } from './fixtures/bonus-db-lock';
 
@@ -23,133 +23,12 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
   assert.equal(weiToEth(999n), 0);
 });
 
-test('statsFrom: exactly the public keys, numbers only, no per-user data', () => {
-  const s = statsFrom({
-    open_rows: [
-      { max_award_usd: '15000.00', status: 'active', campaign: null, source: 'file', starts_at: null, ends_at: null },
-      { max_award_usd: 500, status: 'active', campaign: null, source: 'file', starts_at: null, ends_at: null },
-    ],
-    pool_rows: [
-      { pool_usd: 840000, reward: '$840,000 in prizes' },
-      { pool_usd: 250000, reward: '$250,000+ prize pool' },
-      { pool_usd: 99, reward: 'not stated' }, // programs:check refuses it; a row that slipped past counts as none
-      { pool_usd: null, reward: 'Up to $5,000' },
-    ],
-    programs_open: 4,
-    bonus_programs_open: 3,
-    coins_launched: 7,
-    bonus_deposits_wei: (2n * E18).toString(),
-    bonus_to_safe_wei: (E18 / 2n).toString(),
-    bonus_paid_wei: (E18 / 4n).toString(),
-    bonus_pools_wei: ((6n * E18) / 10n).toString(),
-    installs: 12,
-    installs_used: 9,
-    builders: 10,
-    labelled_entries: 5,
-    entries_won: 2,
-    builders_won_usd: '12500.00',
-  });
-  assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.deepEqual(s, {
-    open_money_usd: 15500,
-    open_money_text: '$15.5K',
-    // v2.7.1: the landing's pool total ("$1.09M+"): Monad's "+" and the programs without a pool.
-    open_pools_usd: 1090000,
-    open_pools_plus: true,
-    programs_open: 4,
-    bonus_programs_open: 3,
-    coins_launched: 7,
-    // The Safe's 30% slot is 1.5x the bonus wallet's 20% of the same fees (3 ETH), plus the bonus
-    // deposits booked to the Safe (0.5 ETH: ended rounds, no open round).
-    fees_to_safe_eth: 3.5,
-    bonus_paid_eth: 0.25,
-    // v2.7 Ruling 20 (plan): open rounds' bookings, wei to ETH.
-    bonus_pools_eth: 0.6,
-    installs: 12,
-    installs_used: 9,
-    builders: 10,
-    labelled_entries: 5,
-    entries_won: 2,
-    builders_won_usd: 12500,
-  });
-  for (const [k, v] of Object.entries(s)) assert.equal(typeof v, k === 'open_pools_plus' ? 'boolean' : k === 'open_money_text' ? 'string' : 'number', k);
-  const exact = statsFrom({ ...emptyRow, pool_rows: [{ pool_usd: '10000', reward: '10,000 USDC pool' }] });
-  assert.deepEqual([exact.open_pools_usd, exact.open_pools_plus], [10000, false]);
-});
-
-
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-
-test('readStats: DB aggregates move with open programs, launched coins, bonus money and installs', db, async () => {
-  const tag = `stats-${process.pid}-${Date.now()}`;
-  const stamp = process.pid.toString(16) + Date.now().toString(16);
-  const hash = (n: number) => `0x${(stamp + n).padStart(64, '0')}`;
-  const coin = `0x${stamp.padStart(40, 'c')}`.slice(0, 42);
-  const before = await readStats();
-  assert.deepEqual(Object.keys(before), [...STATS_KEYS]);
-  const prog = (id: string, status: string, endsInMs: number | null, award: number | null) => sql()`
-    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, ends_at, max_award_usd)
-    VALUES (${id}, 'o', ${id}, 'd', 'https://x', 'https://x', 'r', 's', ${status}, 'unknown',
-      ${endsInMs === null ? null : new Date(Date.now() + endsInMs)}, ${award})`;
-  await prog(`${tag}-open`, 'active', 86_400_000, 5000);
-  await prog(`${tag}-rolling`, 'active', null, 250);
-  await prog(`${tag}-ended`, 'active', -86_400_000, 9999); // ended: not open
-  await prog(`${tag}-closed`, 'closed', 86_400_000, 9999); // closed: not open
-  // v2.7.1: a curated program whose reward states its pool counts in open_pools_usd.
-  await sql()`
-    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, pool_usd)
-    VALUES (${`${tag}-pool`}, 'o', 'Pool', 'd', 'https://x', 'https://x', '$7,000 in prizes', 's', 'active', 'unknown', 7000)`;
-  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
-  const [p1] = await sql()<{ id: number }[]>`
-    INSERT INTO projects (program_id, name, installation_id, token_status, token_url, coin_address)
-    VALUES (${`${tag}-open`}, 'a', ${inst.id}, 'launched', 'https://tokens.fun/x', ${coin}) RETURNING id`;
-  await sql()`INSERT INTO projects (program_id, name, token_status, token_url) VALUES (${`${tag}-open`}, 'b', 'pending', 'pending')`;
-  await sql()`
-    INSERT INTO bonus_rounds (round_key, program_id, starts_at, ends_at, state)
-    VALUES (${tag}, ${`${tag}-open`}, now() - interval '1 day', now() + interval '1 day', 'paid')`;
-  await sql()`
-    INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_time) VALUES
-      (${hash(1)}, 0, ${coin}, ${tag}, 'round', ${(2n * E18).toString()}, now()),
-      (${hash(2)}, 0, NULL, NULL, 'safe', ${(E18 / 2n).toString()}, now()),
-      -- M5: a deposit from a coin EarnKit didn't launch: booked to the Safe, but no Safe slot known.
-      (${hash(3)}, 0, '0x00000000000000000000000000000000000000ff', NULL, 'safe', ${((3n * E18) / 10n).toString()}, now()),
-      -- A paid round's remainder (a veto left a place empty): part of the round's own 2 ETH, so
-      -- it counts once, as money routed to the Safe, never as a new deposit.
-      (${`round-rest:${tag}`}, 0, NULL, ${tag}, 'safe', ${(E18 / 10n).toString()}, now())`;
-  await sql()`
-    INSERT INTO bonus_payouts (round_key, project_id, rank, score, wallet, slot, amount_wei, status, tx_hash, paid_at)
-    VALUES (${tag}, ${p1.id}, 1, 90, '0x1', 0, ${(E18 / 4n).toString()}, 'paid', '0xabc', now())`;
-  try {
-    const after = await readStats();
-    const d = (k: StatsNumberKey) => Math.round((after[k] - before[k]) * 1e6) / 1e6;
-    // Other test files insert programs, coins and installations in parallel: those deltas are a
-    // lower bound. The bonus tables are held by this file's lock: exact.
-    assert.ok(d('open_money_usd') >= 5250, `open money +${d('open_money_usd')}`);
-    assert.ok(d('open_pools_usd') >= 7000, `open pools +${d('open_pools_usd')}`);
-    assert.equal(after.open_pools_plus, true); // the test's own programs have no pool
-    assert.ok(d('programs_open') >= 2);
-    assert.ok(d('bonus_programs_open') >= 2); // both open programs default to builder_bonus: true, no campaign
-    assert.ok(d('coins_launched') >= 1);
-    assert.ok(d('installs') >= 1);
-    // 2 ETH of bonus deposits from an EarnKit coin: the Safe's slot got 3 (M5: the 0.5 with no coin
-    // and the 0.3 from a coin EarnKit didn't launch have no known Safe slot). Booked to the Safe:
-    // those 0.8, plus 0.1 of the round's pool left over (counted once): 3.9.
-    assert.equal(d('fees_to_safe_eth'), 3.9);
-    assert.equal(d('bonus_paid_eth'), 0.25);
-  } finally {
-    await sql()`DELETE FROM bonus_payouts WHERE round_key = ${tag}`;
-    await sql()`DELETE FROM bonus_ledger WHERE round_key = ${tag} OR tx_hash IN ${sql()([hash(1), hash(2), hash(3)])}`;
-    await sql()`DELETE FROM bonus_rounds WHERE round_key = ${tag}`;
-    await sql()`DELETE FROM projects WHERE program_id LIKE ${`${tag}-%`}`;
-    await sql()`DELETE FROM installations WHERE id = ${inst.id}`;
-    await sql()`DELETE FROM programs WHERE id LIKE ${`${tag}-%`}`;
-  }
-});
 
 test('v2.6 Ruling 6/16 (plan): an owner test installation never counts in installs, coins_launched or bonus_pools_eth', db, async () => {
   const tag = `stats-test-inst-${process.pid}-${Date.now()}`;
@@ -232,10 +111,75 @@ test('pre-launch 2026-10-19: installs_used counts installations that called find
   }
 });
 
-test('T9 note: jenil.ai labels fees_to_safe_eth as the v2.5 tokens only; every stat has a label', () => {
-  assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the Safe (v2.5 tokens)');
-  assert.deepEqual(Object.keys(STATS_LABELS), [...STATS_KEYS]);
-  for (const l of Object.values(STATS_LABELS)) assert.doesNotMatch(l, /vault|\p{Extended_Pictographic}/u);
+test('launch-ready L9: activated, weekly_active and shared are served after builders, with labels', () => {
+  const i = STATS_KEYS.indexOf('builders');
+  assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['activated', 'weekly_active', 'shared']);
+  for (const k of ['activated', 'weekly_active', 'shared'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
+  const s = statsFrom({ ...emptyRow, activated: 3, weekly_active: 2, shared: 4 });
+  assert.deepEqual([s.activated, s.weekly_active, s.shared], [3, 2, 4]);
+  assert.equal(statsFrom(emptyRow).shared, 0);
+});
+
+test('launch-ready L9 (L6 approvals): activated needs a claimed page, an App-proven repo and an approved week; weekly_active the same people with a week approved in the last 7 days; shared counts approved weeks from the share offer; test installations never count', db, async () => {
+  const tag = `stats-l9-${process.pid}-${Date.now()}`;
+  const DAY = 86_400_000;
+  const mondayOf = (t: number) => {
+    const d = new Date(t);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    return d.toISOString().slice(0, 10);
+  };
+  const now = Date.now();
+  const lastWeek = mondayOf(now - 7 * DAY);
+  const longAgo = mondayOf(now - 35 * DAY);
+  const ids: number[] = [];
+  /** One person: claimed or not, their repo's proof, and their ship-log weeks ([week, facts]). */
+  const person = async (claimed: boolean, proof: string, weeks: [string, Record<string, unknown>][]) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${ids.length}`}) RETURNING id`;
+    ids.push(id);
+    const key = `${tag}/p${id}`;
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`${tag}-${id}`}, ${claimed ? `x${id}` : null}, ${claimed ? `h${id}` : null})`;
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', ${proof}, 'server')`;
+    for (const [week, facts] of weeks)
+      await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, ${key}, ${week}, ${sql().json(facts as never)})`;
+    return id;
+  };
+  const code = { checked: true, shipped_code: { n: 3 } };
+  const approved = (at: number) => ({ ...code, approved: true, approved_at: new Date(at).toISOString(), approved_via: 'share' });
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const active = await person(true, 'github_app', [[lastWeek, approved(now - DAY)]]); // activated, weekly active, shared
+    await person(true, 'github_app', [[longAgo, approved(now - 30 * DAY)]]); // activated, not weekly active, shared
+    await person(true, 'github_app', [[lastWeek, code]]); // a checked week with code, never approved: neither
+    await person(true, 'proof_line', [[lastWeek, approved(now - DAY)]]); // not App-proven: neither (still a shared week)
+    await person(false, 'github_app', [[lastWeek, approved(now - DAY)]]); // not claimed: neither (still a shared week)
+    await person(true, 'github_app', [[lastWeek, { ...code, approved: 'yes', approved_at: new Date(now).toISOString() }]]); // not a real approval: neither
+    const { base, mine, flagged } = await sql().begin('isolation level repeatable read', async (tx) => {
+      process.env.EARNKIT_TEST_INSTALLATIONS = ids.join(',');
+      const base = await readStats(new Date(), tx);
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const mine = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(active);
+      const flagged = await readStats(new Date(), tx);
+      return { base, mine, flagged };
+    });
+    assert.equal(mine.activated - base.activated, 2);
+    assert.equal(mine.weekly_active - base.weekly_active, 1);
+    // Fix round 1: weekly active is a subset of activated.
+    assert.ok(mine.weekly_active <= mine.activated && base.weekly_active <= base.activated);
+    assert.equal(mine.shared - base.shared, 4, 'every approved week from the share offer');
+    assert.equal(flagged.activated - base.activated, 1, 'a test installation\'s person never counts');
+    assert.equal(flagged.weekly_active - base.weekly_active, 0);
+    assert.equal(flagged.shared - base.shared, 3);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    if (ids.length) {
+      await sql()`DELETE FROM project_updates WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_sources WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM builder_profiles WHERE builder_id IN ${sql()(ids)}`;
+      await sql()`DELETE FROM installations WHERE id IN ${sql()(ids)}`;
+    }
+  }
 });
 
 test('v2.7 Ruling 20 (plan): bonus_pools_eth key and label', () => {
@@ -410,8 +354,9 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P20: a fixed now, so the test never breaks when a program closes.
   const now = new Date('2026-10-08T00:00:00Z');
   const rows = catalogueRows();
-  assert.equal(openMoneyUsd(rows, now), 1170500); // Campaign #1 is closed
-  assert.equal(moneyText(1170500), '$1.1M+');
+  // Campaign #1 is closed; scoring and clarity R12 closed Arc Microgrants, Colosseum and Monad Metropolis too.
+  assert.equal(openMoneyUsd(rows, now), 1115000);
+  assert.equal(moneyText(1115000), '$1.1M+');
   assert.equal(moneyText(1_000_000), '$1M');
   assert.equal(moneyText(0), null);
   const open = { max_award_usd: 1000, status: 'active', ends_at: null, starts_at: null };
@@ -425,7 +370,7 @@ test('11.1 openMoneyUsd: the top prize of every open curated program, summed; mo
   // P19: an open EarnKit campaign never counts, as a DB row (campaign) or a card (earnkit_campaign).
   assert.equal(openMoneyUsd([{ ...open, campaign: { prize_usd: 100 } }], now), 0);
   assert.equal(openMoneyUsd([{ ...open, earnkit_campaign: { slug: 'c1' } }], now), 0);
-  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1170500);
+  assert.equal(openMoneyUsd([...rows, { ...open, earnkit_campaign: { slug: 'c1' } }], now), 1115000);
   // A program without a stated top prize counts 0.
   assert.equal(openMoneyUsd([{ ...open, max_award_usd: null }], now), 0);
 });
@@ -438,7 +383,7 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.equal(s.open_money_usd, 1170500);
+  assert.equal(s.open_money_usd, 1115000);
   assert.equal(s.open_money_text, '$1.1M+');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });

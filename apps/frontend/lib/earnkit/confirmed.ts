@@ -7,5 +7,7 @@
  */
 export const CONFIRMED_PROOFS: ReadonlySet<string> = new Set([
   'github_signin', 'proof_line', 'repo_owner', 'repo_link', 'deployer', 'deploy_wallet', 'wallet_signed', 'earnkit_hosted', 'x_match', 'proof_branch',
+  // v2.14 spec 2: the read-only GitHub App's install (repo-proof.ts proveByApp), the only new repo proof.
+  'github_app',
 ]);
 export const isConfirmedProof = (p: string | null | undefined): boolean => p != null && CONFIRMED_PROOFS.has(p);

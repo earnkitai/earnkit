@@ -707,7 +707,7 @@ export async function deployToken(
     const coin = chain === 'base' && outcome.token_address && /^0x[0-9a-fA-F]{40}$/.test(outcome.token_address)
       ? outcome.token_address.toLowerCase()
       : null;
-    // v2.13 T9: the launch's tx and chain (internal; written with the Bench flag off too, nothing reads them there).
+    // v2.13 T9: the launch's tx and chain (internal).
     const launched = (withCoin: boolean) => sql()`
       UPDATE projects SET token_url = ${outcome.tokens_fun ?? null}, token_status = 'launched', token_note = NULL,
         coin_tx = ${outcome.tx_hash ?? null}, coin_chain_id = ${chainId ?? CHAIN_IDS[chain]}

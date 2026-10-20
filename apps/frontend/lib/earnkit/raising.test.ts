@@ -3,13 +3,11 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
-import { RAISE_LINES, pillOf, raiseAsk, raisingCoin, setRaising, showRaisingLine } from './raising';
+import { RAISE_LINES, pillOf, raisingCoin, setRaising, showRaisingLine } from './raising';
 import { raiseLine } from './coin-moments';
 
-/** v2.13 T9 (spec "4. Optional: raise", R8): the raising flag on the one project's coin, the pill, the ask for an old coin. */
+/** v2.13 T9 (spec "4. Optional: raise"): the raising flag on the one project's coin, the pill, and (scoring and clarity R8) the line for an old coin, only when the builder asks about a token. */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 // Final fix: the Raising pill and asks are behind EARNKIT_RAISING (raisingEnabled); these cases are the flag on.
 process.env.EARNKIT_RAISING = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
@@ -64,26 +62,18 @@ test('9.3 the pill shows only while the coin is launched and raising_at is set',
   assert.deepEqual(await setRaising(id, true), { show_to_builder: RAISE_LINES.notLaunched });
 });
 
-test('9.4 the raise ask for an old coin comes once per project', dbTest, async () => {
-  const { id, key } = await withCoin();
-  const ask = await raiseAsk(id, key, {});
-  assert.deepEqual(ask, { kind: 'raise', project_key: key, line: showRaisingLine('RECIPE') });
-  assert.equal(await raiseAsk(id, key, { raise_asked: { [key]: new Date().toISOString() } }), null);
+test('9.4 R8: the community-round line for an old coin comes only when the builder asks (tell token), as often as asked, until it shows', dbTest, async () => {
+  const { id } = await withCoin();
+  const { tokenAsk, RAISE_NOTE } = await import('./bench-find');
+  assert.deepEqual(await tokenAsk(id), { show_to_builder: showRaisingLine('RECIPE'), agent_note: RAISE_NOTE });
+  assert.deepEqual(await tokenAsk(id), { show_to_builder: showRaisingLine('RECIPE'), agent_note: RAISE_NOTE }, 'asked again: the same line');
   await setRaising(id, true);
-  assert.equal(await raiseAsk(id, key, {}), null, 'already raising');
+  assert.equal((await tokenAsk(id)).show_to_builder, 'Your coin is already live.', 'already showing');
 });
 
-test('9.5 tell coin { raising } through the tool turns raising on; flag off it is ignored', dbTest, async () => {
+test('9.5 tell coin { raising } through the tool turns raising on', dbTest, async () => {
   const { id } = await withCoin();
   const { tools } = await import('./tools');
-  delete process.env.EARNKIT_BENCH;
-  try {
-    const off = (await tools.tell({ coin: { raising: true } }, { installationId: id } as never)) as { show_to_builder: string };
-    assert.equal(off.show_to_builder, 'Okay.');
-    assert.equal((await raisingCoin(id))?.raising, false, 'flag off: nothing changed');
-  } finally {
-    process.env.EARNKIT_BENCH = 'on';
-  }
   const on = (await tools.tell({ coin: { raising: true } }, { installationId: id } as never)) as { show_to_builder: string };
   assert.equal(on.show_to_builder, RAISE_LINES.on('RECIPE'));
   assert.equal((await raisingCoin(id))?.raising, true);
@@ -92,36 +82,35 @@ test('9.5 tell coin { raising } through the tool turns raising on; flag off it i
   assert.equal((await raisingCoin(id))?.raising, false);
 });
 
-test('9.6 the Bench asks an old coin once (raise_asked), and the move_up yes to it turns raising on', dbTest, async () => {
-  const { id, key } = await withCoin();
-  const { coinAskBench } = await import('./bench-find');
-  const p = { key, name: 'Recipe planner', confirmed: true, live: true, weeks: 2, people: 3, has_coin: true, streak: 0, shipped: true };
-  assert.deepEqual(await coinAskBench(id, p, {}), { kind: 'raise', project_key: key, line: showRaisingLine('RECIPE') });
-  const [s] = await sql()<{ seen: { raise_asked?: Record<string, string> } }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.ok(s.seen.raise_asked?.[key], 'marked as asked');
-  assert.equal(await coinAskBench(id, p, s.seen), null, 'once per project');
-  // The reply stored the ask; the yes is answered as asked.
-  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'raise', 'key', ${key}::text)) WHERE builder_id = ${id}`;
+test('9.6 R8: find never asks about an old coin; tell token: \'ask\' does, and tell coin { raising: true } turns it on', dbTest, async () => {
+  const { id } = await withCoin();
   const { tools } = await import('./tools');
-  const yes = (await tools.tell({ move_up: { kind: 'raise', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string };
+  const asked = (await tools.tell({ token: 'ask' }, { installationId: id } as never)) as { show_to_builder: string; agent_note?: string };
+  assert.equal(asked.show_to_builder, showRaisingLine('RECIPE'));
+  assert.match(String(asked.agent_note), /coin: \{ raising: true \}/);
+  const yes = (await tools.tell({ coin: { raising: true } }, { installationId: id } as never)) as { show_to_builder: string };
   assert.equal(yes.show_to_builder, RAISE_LINES.on('RECIPE'));
   assert.deepEqual(await pillOf(id), { symbol: 'RECIPE', url: `https://tokens.fun/coin/${id}` });
+  // An old reply's stored raise ask: a yes to it is "Okay." (retired), nothing changes.
+  await sql()`UPDATE projects SET raising_at = NULL WHERE installation_id = ${id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'raise', 'key', (SELECT main_project_key FROM builder_profiles WHERE builder_id = ${id}))) WHERE builder_id = ${id}`;
+  const [{ key }] = await sql()<{ key: string }[]>`SELECT main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
+  const old = (await tools.tell({ move_up: { kind: 'raise', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as { show_to_builder: string };
+  assert.equal(old.show_to_builder, 'Okay.');
+  assert.equal((await raisingCoin(id))?.raising, false);
 });
 
-test('9.10 a Confirming project with a launched coin: no raise ask, setRaising(true) changes nothing, no pill; once confirmed all three work', dbTest, async () => {
+test('9.10 a Confirming project with a launched coin: no community-round line, setRaising(true) changes nothing, no pill; once confirmed all three work', dbTest, async () => {
   const { id, key } = await withCoin({ confirmed: false });
-  const { coinAskBench } = await import('./bench-find');
-  const p = { key, name: 'Recipe planner', confirmed: false, live: true, weeks: 2, people: 3, has_coin: true, streak: 0, shipped: true };
-  assert.equal(await coinAskBench(id, p, {}), null);
-  const [s0] = await sql()<{ seen: { raise_asked?: Record<string, string> } | null }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${id}`;
-  assert.equal(s0.seen?.raise_asked?.[key], undefined, 'not marked as asked');
+  const { tokenAsk, TOKEN_NOT_YET } = await import('./bench-find');
+  assert.deepEqual(await tokenAsk(id), { show_to_builder: TOKEN_NOT_YET });
   assert.deepEqual(await setRaising(id, true), { show_to_builder: 'Okay.' });
   assert.equal((await raisingCoin(id))?.raising, false, 'nothing changed');
   await sql()`UPDATE projects SET raising_at = now() WHERE installation_id = ${id}`;
   assert.equal(await pillOf(id), null, 'no pill while Confirming, even with raising_at set');
   await sql()`UPDATE projects SET raising_at = NULL WHERE installation_id = ${id}`;
   await confirm(id, key);
-  assert.deepEqual(await coinAskBench(id, { ...p, confirmed: true }, {}), { kind: 'raise', project_key: key, line: showRaisingLine('RECIPE') });
+  assert.equal((await tokenAsk(id)).show_to_builder, showRaisingLine('RECIPE'));
   assert.deepEqual(await setRaising(id, true), { show_to_builder: RAISE_LINES.on('RECIPE') });
   assert.deepEqual(await pillOf(id), { symbol: 'RECIPE', url: `https://tokens.fun/coin/${id}` });
 });

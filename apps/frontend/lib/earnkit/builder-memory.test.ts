@@ -147,13 +147,6 @@ test('Ruling G6: a shared client has no memory key; an installation of its own d
   assert.deepEqual(memoryKey({ installationId: 7, sharedClient: false }), { installationId: 7, login: '' });
 });
 
-test('v2.9 B9 (G6, G9): a shared client keys memory by the verified login of its pasted code; never on its own installation', () => {
-  assert.deepEqual(memoryKey({ installationId: 7, sharedClient: true, verifiedLogin: 'Alice' }), { installationId: 7, login: 'alice' });
-  assert.equal(memoryKey({ installationId: 7, sharedClient: true, verifiedLogin: null }), null);
-  // Not shared: the installation is the identity, whatever login is passed.
-  assert.deepEqual(memoryKey({ installationId: 7, verifiedLogin: 'alice' }), { installationId: 7, login: '' });
-});
-
 test('v2.11 T3 review I1: a tell that rolls back leaves no self-report event; one that commits writes it after', dbTest, () =>
   withEventLog(async () => {
     const stamp = `${process.pid}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

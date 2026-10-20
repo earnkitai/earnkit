@@ -2,9 +2,10 @@
 
 import { useCallback, useState } from 'react';
 import AddToAgent from '../../components/sections/AddToAgent';
+import { BTN_PRIMARY } from '../../components/common/Button';
 
-/** The guide's one primary action: the install modal, ending with the program's own question. `bench`: the Bench flag (no bonus pill). */
-export default function AskAgent({ prompt, bench = false }: { prompt: string; bench?: boolean }) {
+/** The guide's one primary action: the install modal, ending with the program's own question. */
+export default function AskAgent({ prompt }: { prompt: string }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   return (
@@ -12,11 +13,11 @@ export default function AskAgent({ prompt, bench = false }: { prompt: string; be
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex min-h-12 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-7 py-3 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+        className={BTN_PRIMARY}
       >
         Ask your agent
       </button>
-      {open && <AddToAgent onClose={close} prompt={prompt} bench={bench} />}
+      {open && <AddToAgent onClose={close} prompt={prompt} />}
     </>
   );
 }

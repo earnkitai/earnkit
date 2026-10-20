@@ -1,4 +1,4 @@
-import { mixedScriptProblem, plainLettersProblem, reservedBrands } from './sponsor-identity';
+import { mixedScriptProblem, plainLettersProblem, reservedBrands, type Brand } from './sponsor-identity';
 import { UntrustedTextError, cleanText } from './untrusted-text';
 import { tokensFunUrl } from './tokens';
 
@@ -8,6 +8,18 @@ import { tokensFunUrl } from './tokens';
  * image is uploaded.
  */
 
+
+/**
+ * Scoring and clarity (Task 3 carry, fix round 1): EarnKit's own brand is reserved for everyone but EarnKit.
+ * `ownEarnkit` is true only when the caller verified it (own-brand.ts earnkitOwnRepo: the repo is a
+ * github_app-proven source of this builder and its owner is an EarnKit org, "earnkitai"); a link alone never is.
+ * Then the owner's own project gets $EARNKIT. Every other brand stays reserved for every repo. Absent: false.
+ */
+export type OwnBrand = { ownEarnkit?: boolean };
+/** Whether brand `b` is this caller's own (only EarnKit's, and only when verified). Pure. */
+const ownBrand = (b: Brand, o: OwnBrand) => b === 'earnkit' && o.ownEarnkit === true;
+/** The reserved tickers that are EarnKit's own brand (allowed only with a verified ownEarnkit). */
+const OWN_TICKERS: readonly string[] = ['EARNKIT'];
 
 /** Tickers that read as a brand's or a major asset's own (v2.3 §2). */
 export const TICKER_RESERVED = [
@@ -23,7 +35,7 @@ export const TICKER_RESERVED = [
  * never echo back the raw, un-normalized input. Pure; shared by `tokenNameProblem` and
  * `proposeToken`.
  */
-export function cleanTokenName(name: string): { name: string } | { problem: string } {
+export function cleanTokenName(name: string, o: OwnBrand = {}): { name: string } | { problem: string } {
   let clean: string;
   try {
     clean = cleanText(name, { max: 50, singleLine: true, field: 'name' });
@@ -33,7 +45,7 @@ export function cleanTokenName(name: string): { name: string } | { problem: stri
   }
   if (clean.length === 0)
     return { problem: 'name: only unsupported characters; use plain words.' };
-  if (reservedBrands(clean).length > 0)
+  if (reservedBrands(clean).some((b) => !ownBrand(b, o)))
     return { problem: `name: "${clean}" uses a brand's name; tokens are public and permanent, so pick another name.` };
   // mixedScriptProblem/plainLettersProblem only know the sponsor_name/title fields; their message
   // already names the field, so it's rewritten to say "name" instead.
@@ -45,36 +57,49 @@ export function cleanTokenName(name: string): { name: string } | { problem: stri
 }
 
 /** Why `name` can't be a token name, or null. Pure; exported for tests. */
-export function tokenNameProblem(name: string): string | null {
-  const r = cleanTokenName(name);
+export function tokenNameProblem(name: string, o: OwnBrand = {}): string | null {
+  const r = cleanTokenName(name, o);
   return 'problem' in r ? r.problem : null;
 }
 
+/**
+ * R11 (names are never cut): a ticker is 3 to 10 capital letters or digits. 10 is tokens.fun's own
+ * limit ("Token symbol must be 10 characters or less"), the longest a launch accepts.
+ */
+export const TICKER_MAX = 10;
+export const TICKER_SHAPE = /^[A-Z0-9]{3,10}$/;
+/** A numbered variant: the base's first TICKER_MAX - 1 letters plus a digit (EARNKIT2, RECIPEPLA2). Pure. */
+const numbered = (base: string, d: number) => `${base.slice(0, TICKER_MAX - 1)}${d}`;
+
 /** Why `symbol` can't be a ticker, or null. Pure; exported for tests. */
-export function tickerProblem(symbol: string): string | null {
+export function tickerProblem(symbol: string, o: OwnBrand = {}): string | null {
   // v2.7 §4 fix round 1 (Minor): CLANKER is reserved like any other brand ticker, but never echoed
-  // back (Ruling 18 (plan): no builder- or agent-facing text names Clanker) — checked before the
-  // shape rule below, since at 7 letters it would otherwise always fail that generic check first,
-  // leaving this reservation unreachable (as EARNKIT, COINBASE and ROBINHOOD still are below).
+  // back (Ruling 18 (plan): no builder- or agent-facing text names Clanker), so it is checked first,
+  // before the generic reserved message below (which names the ticker). Every other reserved ticker
+  // (EARNKIT, COINBASE, ROBINHOOD) fits the 3-to-10 shape and gets that message.
   if (symbol === 'CLANKER') return 'symbol: that ticker is reserved; pick another.';
-  if (!/^[A-Z0-9]{3,6}$/.test(symbol)) return 'symbol: 3 to 6 capital letters or digits.';
-  if ((TICKER_RESERVED as readonly string[]).includes(symbol) || reservedBrands(symbol).length > 0)
+  if (!TICKER_SHAPE.test(symbol)) return `symbol: 3 to ${TICKER_MAX} capital letters or digits.`;
+  const own = o.ownEarnkit === true && OWN_TICKERS.includes(symbol);
+  if ((!own && (TICKER_RESERVED as readonly string[]).includes(symbol)) || reservedBrands(symbol).some((b) => !ownBrand(b, o)))
     return `symbol: ${symbol} reads as a brand's or a major asset's ticker; pick another.`;
   return null;
 }
 
-/** Ticker candidates in order (v2.3 §2). Pure; exported for tests. */
+/**
+ * Ticker candidates in order (v2.3 §2, R11): the whole first word when it is 3 to 10 letters
+ * ("EarnKit" gives EARNKIT; a first word under 3 letters joins the words: "Go Kit" gives GOKIT), a
+ * first word over 10 letters its first 10 ("Supercalifragilistic" gives SUPERCALIF, never initials),
+ * else the words' first letters (3 words or more); then their numbered variants. Pure; exported for tests.
+ */
 export function tickerCandidates(name: string): string[] {
   const words = name.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
   if (words.length === 0) return [];
-  const out: string[] = [];
-  if (words.length >= 3) out.push(words.map((w) => w[0]).join('').slice(0, 6));
-  const first = words[0].length >= 3 ? words[0] : words.join('');
-  if (first.length >= 3) {
-    out.push(first.slice(0, 6));
-    for (let d = 2; d <= 9; d++) out.push(`${first.slice(0, 5)}${d}`);
-  }
-  return [...new Set(out)].filter((c) => /^[A-Z0-9]{3,6}$/.test(c));
+  const first = (words[0].length >= 3 ? words[0] : words.join('')).slice(0, TICKER_MAX);
+  const initials = words.length >= 3 ? words.map((w) => w[0]).join('') : '';
+  const bases = [first, initials].filter((c) => TICKER_SHAPE.test(c));
+  const out = [...bases];
+  for (const b of bases) for (let d = 2; d <= 9; d++) out.push(numbered(b, d));
+  return [...new Set(out)].filter((c) => TICKER_SHAPE.test(c));
 }
 
 export type TickerCheck = (symbol: string) => Promise<boolean | null>;
@@ -111,8 +136,8 @@ export function initialsCandidates(name: string): string[] {
   const words = name.toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
   if (words.length === 0) return [];
   const initials = words.map((w) => w[0]).join('');
-  const base = (initials.length >= 3 ? initials : words.join('').slice(0, 3).padEnd(3, 'X')).slice(0, 6);
-  return [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => `${base.slice(0, 5)}${d}`)];
+  const base = (initials.length >= 3 ? initials : words.join('').slice(0, 3).padEnd(3, 'X')).slice(0, TICKER_MAX);
+  return [base, ...[2, 3, 4, 5, 6, 7, 8, 9].map((d) => numbered(base, d))];
 }
 
 /** "Tip Jar" from "tip jar": each word's first letter capitalised (a repo name used as a token name). Pure. */
@@ -133,20 +158,22 @@ const UNCHECKED = 'ticker not checked for duplicates';
  * EarnKit's proposed token (v2.3 §2 + v2.7 Ruling 16 (plan)); never null. The name: the project
  * name, "<name> Token", the repo name, then "<TICKER> Token". The ticker groups: v2.3's candidates
  * from the project name, then the repo name, then initials, then ENTRY…; every group's unnumbered
- * candidates are checked before any numbered variant (TIPJA2). At most 12 checks; then the next candidate,
+ * candidates are checked before any numbered variant (TIPJAR2). At most 12 checks; then the next candidate,
  * never checked, with a note. A ticker found taken is never proposed (C6).
  */
 export async function proposeToken(
   projectName: string,
   check: TickerCheck = tokensFunTickerCheck,
   repoUrl?: string,
+  own: OwnBrand = {},
 ): Promise<Proposal> {
-  const trimmed = projectName.trim().slice(0, 50);
+  // R11: the name is never cut; a name over the 50-character limit fails cleanTokenName and the next candidate is used.
+  const trimmed = projectName.trim();
   const repo = repoNameOf(repoUrl);
   // The name first (v2.8.1 §A2): the project name, "<name> Token", the repo name, then the name with
   // its brand words dropped ("ArcPay" → "Pay Token"); "<TICKER> Token" only when none of them pass.
   const readable = nameCandidates(trimmed, repo)
-    .map((n) => cleanTokenName(n))
+    .map((n) => cleanTokenName(n, own))
     .find((r): r is { name: string } => 'name' in r)?.name;
   // A fallback name leads the tickers too ("Pay Token" → $PAY, never $ARCPA2).
   const lead = readable && readable !== trimmed ? [tickerCandidates(readable), initialsCandidates(readable)] : [];
@@ -157,10 +184,10 @@ export async function proposeToken(
     initialsCandidates(trimmed),
     repo ? initialsCandidates(repo) : [],
     LAST_RESORT,
-  ].map((g) => g.filter((c) => !tickerProblem(c)));
-  // A numbered variant is an earlier candidate's first five letters plus a digit (TIPJA2 of TIPJAR).
+  ].map((g) => g.filter((c) => !tickerProblem(c, own)));
+  // A numbered variant is an earlier candidate's first nine letters plus a digit (TIPJAR2 of TIPJAR).
   const variant = (g: string[], c: string, i: number) =>
-    g.slice(0, i).some((b) => /^\d$/.test(c.slice(-1)) && c.slice(0, -1) === b.slice(0, 5));
+    g.slice(0, i).some((b) => /^\d$/.test(c.slice(-1)) && c.slice(0, -1) === b.slice(0, TICKER_MAX - 1));
   const bases = groups.flatMap((g) => g.filter((c, i) => !variant(g, c, i)));
   const candidates = [...new Set([...bases, ...groups.flat(), ...OVERFLOW])];
   let symbol = candidates[MAX_CHECKS];
@@ -196,7 +223,8 @@ export function nameCandidates(projectName: string, repo: string | null): string
   };
   return [
     projectName,
-    projectName ? `${projectName.slice(0, 44)} Token` : '',
+    // R11: never a cut name: "<name> Token" only when it fits the 50-character limit.
+    projectName && projectName.length <= 44 ? `${projectName} Token` : '',
     repoTitle,
     ...rest(projectName),
     ...(repoTitle ? rest(repoTitle) : []),

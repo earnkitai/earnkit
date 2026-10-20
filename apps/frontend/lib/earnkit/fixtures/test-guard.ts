@@ -8,9 +8,10 @@
  * - v2.10 final fix I3: `https.request`, `https.get`, `http.request`, `http.get` (safe-fetch's
  *   transport) and the dns lookups and c-ares queries (safe-fetch's resolver) refuse the same outside hosts, so no
  *   safeFetch caller (the submission-proof page, the logo reads, the link probe) leaves the machine.
- * The one opt-in network test (`LINK_CHECK=1`, footer-links.test.ts) keeps the real network.
+ * The opt-in network tests (`LINK_CHECK=1`, footer-links.test.ts; `EARNKIT_MODEL_TEST=1`, originality.test.ts) keep the real network.
  */
 import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { perFileDatabase } from './test-db';
 const CLEARED = [
   'TOKENSFUN_DEPLOY_API_KEY',
   'RESEND_API_KEY',
@@ -30,8 +31,7 @@ const CLEARED = [
   'DEPLOY_CHAINS',
   // v2.11 Task 2: the builder event log (a test that needs it on sets it).
   'EARNKIT_EVENT_LOG',
-  // v2.12: the builder score and the four archive flags (a test that needs one on sets it).
-  'EARNKIT_BUILDER_SCORE',
+  // v2.12: the four archive flags (a test that needs one on sets it).
   'EARNKIT_SPONSOR_CAMPAIGNS',
   'EARNKIT_STARTER_REGISTRY',
   'EARNKIT_PROGRAM_LEADERBOARDS',
@@ -40,12 +40,16 @@ const CLEARED = [
   'X_CLIENT_ID',
   'X_CLIENT_SECRET',
   'EARNKIT_BASE_AGENT_CODES',
-  // v2.13: the Bench (a test that needs it on sets it, with EARNKIT_BUILDER_SCORE).
-  'EARNKIT_BENCH',
-  // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it, with the Bench flags).
+  // v2.13 final fix: the Raising pill and asks (a test that needs it on sets it).
   'EARNKIT_RAISING',
 ];
 for (const name of CLEARED) delete process.env[name];
+// Scoring and clarity R3: Originality's local model is never loaded (or downloaded) in a test; a test passes a fake
+// embedder. The one opt-in model test (EARNKIT_MODEL_TEST=1, originality.test.ts) keeps it.
+if (process.env.EARNKIT_MODEL_TEST === '1') delete process.env.EARNKIT_EMBED_OFF;
+else process.env.EARNKIT_EMBED_OFF = '1';
+// v2.14 T2: one database per test file (fixtures/test-db.ts); a no-op outside a test-runner child.
+perFileDatabase();
 
 const LOCAL = new Set(['localhost', '127.0.0.1', '[::1]']);
 for (const url of [process.env.BONUS_ANVIL_URL]) {
@@ -83,7 +87,8 @@ const refuse = (what: string, host: string) => {
   return new Error(`test guard: no network in tests (${what} ${host}); inject a fake`);
 };
 
-if (process.env.LINK_CHECK !== '1') {
+// The opt-in model test (EARNKIT_MODEL_TEST=1) downloads the model from Hugging Face once, so it keeps the network too.
+if (process.env.LINK_CHECK !== '1' && process.env.EARNKIT_MODEL_TEST !== '1') {
   const real = globalThis.fetch;
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     const host = hostOf(input);

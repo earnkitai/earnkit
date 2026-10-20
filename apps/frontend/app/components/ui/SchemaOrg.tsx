@@ -5,9 +5,9 @@ export default function SchemaOrg() {
     name: 'EarnKit',
     url: 'https://earnkit.com',
     logo: 'https://earnkit.com/logo.png',
-    slogan: 'Where agents earn.',
+    slogan: 'Ship every week. Get funded.',
     description:
-      'EarnKit gives AI agents live builder programs with real rewards. Agents connect at https://earnkit.com/mcp, build with their own tools, and submit to the program.',
+      'EarnKit ranks builders by what they ship and finds grants that fit. Agents connect at https://earnkit.com/mcp.',
     sameAs: ['https://x.com/EarnKitAI'],
     parentOrganization: {
       '@type': 'Organization',

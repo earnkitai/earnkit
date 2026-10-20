@@ -12,7 +12,7 @@ export function bannedIn(text: string, exempt: string[]): string[] {
 }
 
 /**
- * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc") may name a chain, and a fact
+ * v2.13 plan B17: a rank line ("Top 1% on Base", "#3 of 12 on Arc", now "Top 1% of builders on Base this week") may name a chain, and a fact
  * chip may count commits ("12 commits"); both are stripped before the check. BENCH_PITCH_ALLOWED
  * (F10): the program pitch "who" names ("Arc pays up to $10K for payment apps.") and the starter
  * offer ("a tip jar on Arc"); Task 8 extends this list. BENCH_EXTRA: words the v2.13 surfaces
@@ -24,11 +24,17 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").
   /\bfor an? (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche) app\b/g,
   /\bfor an app on (?:(?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)(?:, | or )?)+/g,
+  // Scoring and clarity R12: why a program fits names the chain ("You deployed on Base", "you build for Arc").
+  /\b[Yy]ou (?:deployed on|deploy to|build for) (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)\b/g,
   // v2.13.3 (5): the owner's honest line while the read-only GitHub App is off.
   /EarnKit can only see public repos right now\./g,
+  // Launch ready L2: the owner's own repo picker line ("Install the read-only EarnKit app on the repo you want ranked").
+  /\bon the repo you want ranked\b/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,
+  // Scoring and clarity: the chain's rank line ("Top 1% of builders on Base this week", "#2 of 12 builders on Arc this week").
+  /(?<![\w#])(?:Top \d+(?:\.\d)?% of builders|#\d+ of \d+ builders?) on (?:Base|Arc|Robinhood Chain) this week\b/g,
   /\b\d[\d,]* commits?\b/g,
   ...BENCH_PITCH_ALLOWED,
 ];

@@ -107,8 +107,10 @@ sponsor funds an escrow and picks winners; EarnKit's score is shown as a guide o
 agent (Grok Bot, Muse, Claude, Cursor…) ──HTTPS──> /mcp
   first connect: 401 + WWW-Authenticate -> /.well-known/oauth-protected-resource/mcp
     -> /.well-known/oauth-authorization-server -> POST /oauth/register
-    -> GET /oauth/authorize (approves instantly, no account) -> POST /oauth/token
-    -> token = installation row; the client stores the token
+    -> GET /oauth/authorize (v2.14: Sign in with X; x-install.ts) -> X -> GET /x/callback
+    -> the client's redirect with a code carrying the X user (signed) -> POST /oauth/token
+    -> token = installation row, bound to the X account (attachToX); the client stores the token
+    (a client serving many builders, or X unset: approved at once, anonymous, as before v2.14)
   then: Bearer token -> /mcp (old tool names rewritten: aliases.ts) -> lib/earnkit/mcp.ts
         -> lib/earnkit/tools.ts (find, prepare, confirm, tell -> handlers) -> Postgres
 stdio-only clients: npx mcp-remote https://earnkit.com/mcp
@@ -3458,8 +3460,8 @@ the map; the detail lives in the sections it names.
 - **4 tools (item 4).** `find`, `prepare`, `confirm`, `tell` (`tools.ts tools`) dispatch to the v2.9
   `handlers`; the table and the alias map are in "The 4 builder tools and the 30-day aliases". Old
   names are rewritten in `app/mcp/route.ts` until `ALIASES_UNTIL` (2026-11-09T00:00Z) and logged as
-  `[mcp] alias <old> -> <new>`; `tools/list` shows only the 4 (v2.12: plus `score` with
-  `EARNKIT_BUILDER_SCORE=on`; `sponsor_campaign` is archived and never listed).
+  `[mcp] alias <old> -> <new>`; `tools/list` shows only the 4 (v2.12: plus `score`, always
+  since v2.14; `sponsor_campaign` is archived and never listed).
 - **The first reply and `more` (item 2).** One line each for news, "Your entries", the deadline
   line and the private/can't-see lines, then one lead line with its question ("Your TipJar can win
   500 USDC on Arc by Oct 14. Want me to finish it?"). `find { more: true }` renders the v2.9 tables.
@@ -3572,7 +3574,7 @@ real `deployToken`) and the deployer's chain (`DeployChain`). Nothing else may t
 
 ## The 4 builder tools and the 30-day aliases (v2.10 item 4, R15 to R17, Task 9)
 
-The server lists 4 builder tools, plus `score` with `EARNKIT_BUILDER_SCORE=on` (v2.12; until v2.12,
+The server lists 5 builder tools, `score` included (v2.12; always since v2.14; until v2.12,
 `sponsor_campaign` once the escrow was configured, now archived). Each is a
 thin dispatcher in `tools.ts tools` over the v2.9 functions, which live on unchanged in
 `tools.ts handlers` (only their agent notes now name the new tools). Most of this guide still names
@@ -4356,7 +4358,7 @@ Spec: `docs/design-docs-and-implementation-plans/v2.12-builder-score.md`; plan:
 `v2.12-builder-score-plan.md` (its plan rulings R1 to R26 and owner rulings D1 to D7 are cited
 below). Every person who installs gets a public profile at `earnkit.com/b/<slug>` with a 0 to 100
 score and a percentile computed only from verified outcomes (people who used what they shipped).
-All of it sits behind one flag, `EARNKIT_BUILDER_SCORE=on` (`builder-score-flag.ts
+All of it sat behind one flag (retired in v2.14, see "v2.14 One account: retired switches"), `EARNKIT_BUILDER_SCORE=on` (`builder-score-flag.ts
 builderScoreEnabled`; default off, cleared by `fixtures/test-guard.ts`). Off: no profile is made,
 no cron step runs, `/b/*` and `/leaderboard` are 404, `score` is not listed, and `find`, `confirm`
 and odds are v2.11 byte for byte, and `/terms` has no builder-profiles section (it renders, with
@@ -4761,6 +4763,11 @@ behind `EARNKIT_BUILDER_SCORE=on`: **flag off is production (v2.11 replies, no p
 
 ### Identity: X claim, pages, joins
 
+Replaced in v2.14: see 'v2.14 One account'.
+
+> **v2.14 Task 7:** the claim page, claim codes, proven-tie joins, pickups, login contests and group merges described
+> here are gone (tables kept). The person is the X account; see the v2.14 sections at the end.
+
 - **Sign in with X** (`x-oauth.ts`: OAuth 2.0 PKCE S256, scopes `users.read tweet.read`, one
   `GET /2/users/me` per sign-in, about $0.01; the token is never stored). `claim.ts`: the claim code
   is deterministic per person (S13, `HMAC(EARNKIT_AUTH_SECRET, 'claim:v1:<id>')`, 12 base32 chars;
@@ -4834,7 +4841,10 @@ unchanged.
 
 ### The score v2 and the rank (`score-v2.ts`, `rank.ts`, `person-score.ts`)
 
-- `computeScoreV2` (formula `v2`, pure): Shipped 20 (front-loaded, keeps at least half forever),
+> Superseded in part by "Scoring and clarity (Task 1)" at the end of this guide: one Shipping score, the
+> ranked rule R4, the rank line and the score line. The four-part formula below is history.
+
+- `computeScoreV2` (formula `v2`, pure, until scoring and clarity): Shipped 20 (front-loaded, keeps at least half forever),
   Used 40 (distinct people; callers, tagged calls, coin buys from a trade venue, package downloads
   / 50 capped at 100 a package, stars and forks by others capped at 5), Earned 20 (1% of counted
   caller value, coin creator fees, prizes won), Consistency 20 (weeks with a ship or use). Used and
@@ -4874,7 +4884,21 @@ repos) plus aliased by-name calls (25 a call) for tracked repos outside it and o
 REST contributors call each). npm downloads in bulk batches of 128 (`readNpmBulk`; scoped names
 keep `readNpm`). Blockscout once per contract per day (since its last daily read). One HEAD per
 site per day. A source that errors writes a failed reading once that day and is not retried; the
-page keeps the last good number. Every read is counted per provider (`read-usage.ts countingDeps`,
+page keeps the last good number. The failed reading's `error` is the error's class and message
+(`source-readers.ts readError`; a refused GraphQL answer names GitHub's type, path and message,
+`graphqlErrors`), and the read logs it as `[read] failed <source ids> <error>`. Hotfix 2026-10-19:
+repo queries never name a field GitHub refuses to EarnKit's fine-grained token or the App's
+installation token (`stargazers`, `forks`): one FORBIDDEN field fails the whole answer
+(`graphqlUsable`), so every repo read failed (`repo-read-forbidden.test.ts`).
+Hotfix 2026-10-19 (busy repos): the by-name query reads the newest 100 commits plus the 52 weeks' `totalCount`; when
+that is more, one more call (`person-github.ts weeklyCommitsQuery`, one `history(since, until) { totalCount }` alias a
+week, cost 1) gives every week's count. Repo readings carry `reader` (`sources.ts REPO_READER` = 2): an older reading
+is no rule 3 baseline, so the next read re-takes it once under rule 4 (push-backed weeks only). Ship-log weeks carry
+the same `reader`; the backfill writes only from a current reading and redoes a week written from an older one once
+(`busy-repo-weeks.test.ts`, `backfill.test.ts`). A public rank (`bench-rank.ts rankLines`, `page-data.ts personFacts`)
+shows only inside the leaderboard pool (`standingOf().listed`); a rescore that moves the pool and a written ship-log
+week call `profile-cache.ts poolChanged`, which expires the landing, feed and leaderboard caches (all tagged
+`PROFILE_TAG`) and paths. Every read is counted per provider (`read-usage.ts countingDeps`,
 `read_usage` table) against `FREE_LIMITS`, printed by the metric script. No new schedule: the cron
 slice is `SCORE_SLICE` = 0.4 of the hourly run.
 
@@ -5082,6 +5106,8 @@ by the builder's own agent, public filters for the capital side, and an optional
 
 ### One project and its proof
 
+Replaced in v2.14: see 'v2.14 One account'.
+
 - `builder_profiles.main_project_key` (`main-project.ts mainProjectOf`, `setMainProject`). A later
   project from the same builder is identity only; it is not shown and not scored.
 - **The lazy pick (B2, final fix I2).** `pickMainProject` (run by every rescore under the flag) fills
@@ -5163,6 +5189,9 @@ feeds `shipped_code`. The X photo refreshes at sign-in only; `Avatar` falls back
 
 ### Rank
 
+> Superseded by "Scoring and clarity (Task 1)": `rank.ts rankLine` and `scoreLine`, every ranked builder sees a
+> rank, chain lines from one ranked project.
+
 `rank.ts`: P = 100 * rank / total. "Top P%" only when the pool has `BENCH_PERCENT_FROM` 20 or more and
 P is 50 or less (1 or more: rounded up whole; under 1: rounded up to one decimal, never below 0.1).
 Under 20: "#N of M" in the top half only. `rank.ts benchRank` and `bench-rank.ts` (`rankLines`,
@@ -5173,11 +5202,12 @@ contract, an EarnKit deploy, a launched coin or a program entry naming it. "Perc
 ### Raising
 
 **Its own switch (final fix, controller ruling): `EARNKIT_RAISING=on`** (`builder-score-flag.ts
-raisingEnabled` = `benchEnabled()` and `EARNKIT_RAISING === 'on'`; off by default, cleared by
+raisingEnabled` = `EARNKIT_RAISING === 'on'` (v2.14: the Bench is always on); off by default, cleared by
 `fixtures/test-guard.ts`). Off under the Bench: `pillOf` is null (no pill on the profile, the Bench, the
 card, the landing; no Raising chip on update cards), `raiseAsk` and `setRaising` do nothing, coin moments
 say v2.12.1's coin line (`coinLine`) and a coin yes does not set `raising_at`, the "Raising" filter chip
-is hidden on `/bench` and the landing (`?raising=1` is ignored, `parseBenchFilter`), tell's `coin` is
+is hidden on `/bench` and the landing (`?raising=1` is ignored, `parseBenchFilter`; removed for good in launch-ready
+L3, flag on or off), tell's `coin` is
 v2.12.2's (no `{ raising }`, `TELL_DESCRIPTION_BENCH_NO_RAISING`), and `/llms.txt` names no raising.
 On: everything below, as built. The `/bench` and landing cache keys name the flag.
 
@@ -5207,13 +5237,14 @@ you're raising with $X?"). The launch now stores `projects.coin_tx` and `coin_ch
   week whose facts carry checked commits (`gridWeeks`), so the card and its square agree.
 - With `EARNKIT_RAISING` off the landing hero subtitle and How it works drop raising (v2.13.1 O3).
 - The landing (`HomeView`): hero "Ship every week. Get funded.", `BenchTop`, `UpdateCarousel`, grants,
-  `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_BENCH` and `EARNKIT_RAISING`
-  (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt` under the flag,
-  `v212.txt` off). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
+  `BenchHowItWorks`, Backed by. The landing cache key names `EARNKIT_RAISING` (v2.14: `landing-v214`, `-raising` when on)
+  (`landing-cache.ts landingCacheKey`, final fix M4). `/llms.txt` is a route (`lib/earnkit/llms/v213.txt`; v2.14 deleted
+  `v212.txt`). Chain logos: `public/images/chains/{base,arc,robinhood}.svg`.
 
 
 ### The builder bonus (T13, B16, R16)
 
+- v2.14 retired the flag and deleted this path (see "v2.14 One account: retired switches").
 - `bonus-rounds.ts bonusOn` is false under `benchEnabled()`, so every card, guide, reply line, round and
   `bookingFor` target follows: every bonus deposit books to the Safe. Nothing is deleted while the flag
   can go off (plan B16); the removal list for when the flag is retired is the comment above `bonusOn`.
@@ -5360,6 +5391,9 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   whenever nothing before it is an entry, a different project or the install ask. `coinAskBench` offers a confirmed
   project with no moment yet a community round once (moment `countable`), so a project with nothing that fits gets one.
 - **4. The claim link is a line:** `claimLine` "Your page: claim it with X at <link>".
+
+Replaced in v2.14 (item 5 below): see 'v2.14 One account'.
+
 - **5. Private and org repos (the read-only GitHub App).** When the one project's repo probes 404 and
   `githubAppEnabled()`: the view's branch is `private` ("EarnKit can't see <project> yet."); claimed, the ask is
   `install_app` with `installAppAsk(name, link)` ("Install EarnKit on <project> (read-only) here: <link>. Want me to add it once that's done?": the question last; the v2.10 App proof link, `createVerifyLink` purpose `app`: the sign-in
@@ -5375,7 +5409,7 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   `person-score.ts readPersonLive` (Bench only). Tokens are never stored or logged. Pages keep the I1 rule: a private
   repo reads "Private project" unless the builder's own agent named it.
 - **Ruling B, "community round".** Builder text never says raise or raising: the pill "Community round $X"
-  (`RaisingPill`, the share card), the chip (`FILTER_RAISING`), the week chip, `raiseLine` ("Want to open a community
+  (`RaisingPill`, the share card), the chip (`FILTER_RAISING`; removed in launch-ready L3), the week chip, `raiseLine` ("Want to open a community
   round for <project>? I'll launch $X on tokens.fun and you get 40% of its trading fees."), `showRaisingLine`,
   `RAISE_LINES`, the hero and How it works, tell's description, `/llms.txt`. Internal names (`raising_at`,
   `EARNKIT_RAISING`, `{ raising }`) stay. `fixtures/banned-words.ts BENCH_EXTRA` bans raise, raising and fundraise;
@@ -5398,6 +5432,12 @@ Brief: `.superpowers/sdd/v2.13.3/brief.md`, plus owner rulings A, B, C sent the 
   names programs with no known award, without a dollar figure (`needsLine` with a null prize).
 
 ## v2.13.4 Value after the X claim and nothing else (2026-10-17)
+
+Replaced in v2.14: see 'v2.14 One account'.
+
+> **Removed in v2.14 Task 7** (see "v2.14 One account: claims, joins and probation removed" below): the claim ask, the
+> claim page and its one-click join (R1), the join notice and detach (R6), probation (R7), pending joins and the
+> JOIN_TABLES registry. What follows is history; the tables stay.
 
 Brief: `.superpowers/sdd/v2.13.4/brief.md` (the owner's spec, verbatim, and controller rulings R1 to R5). Everything sits
 under `EARNKIT_BENCH`; flag off (and score-only) is unchanged. Tests: `v2134-onboarding.test.ts` (the owner's acceptance
@@ -5565,3 +5605,943 @@ test a to g, the security review S.a to S.f, R6.1, R7.0 to R7.5, R8.1 to R8.8, R
   `claim_codes.minted_by` (additive); `page_joined` and `page_detached` in both
   `builder_events_type_check` lists. `db:check` covers them.
 
+## v2.14 One account (Tasks 1 to 12)
+
+Spec: `docs/design-docs-and-implementation-plans/v2.14-one-account.md`. Plan and per-task reports:
+`.superpowers/sdd/v2.14-one-account-plan/`. Owner runbook: `v2.14-acceptance-runbook.md`. Client preflight:
+`v2.14-client-preflight.md`. Branch `v2.14` from main ff8c46b6. Task 12 (D3, D4) lands after this section and
+amends it.
+
+### 1. Why and what went
+
+Most of v2.12 to v2.13.4's bugs came from bolting identity on after an anonymous install (claim links, page groups,
+merges, joins, probation) and from two proof paths. v2.14 makes the X account the person, the read-only GitHub App
+the only proof, and the ship log something EarnKit writes itself. Cost: nothing new (per-installation GitHub
+tokens, the existing X app, no AI).
+
+| Went | Why | Where it is described |
+|---|---|---|
+| `EARNKIT_BUILDER_SCORE`, `EARNKIT_BENCH` and every flag-off path | The Bench has been on in production | 7 |
+| Claim page, claim codes, joins, probation, notices, detach, group merges, contested logins, pickup | The person is the X account | 2, 3 |
+| Proof branch, earnkit.txt proof line, owned-repo discovery, x_match and top-contributor clues, GitHub sign-in proof | The App is the only proof | 4 |
+| The updates yes, the weekly-task note, the week's-post ask | The ship log writes itself | 5 |
+| Builder bonus payout side, tip-jar starter offer, grants and build asks | Production owes nothing; one question per reply | 6, 7 |
+| Google Fonts at build | Self-hosted (`app/fonts`, `next/font/local`) | 9 |
+
+Tables and columns all stay (no destructive migration; CHECK lists unchanged). `app/claim/wallet` stays (A21).
+
+### 2. X at install
+
+- **Authorize.** `oauth-routes.ts authorizeGet` runs `oauth.ts checkAuthorize` (unknown client or unregistered
+  redirect: our 400 page, never a redirect). X unset (`xSignInEnabled`: `X_CLIENT_ID` and `X_CLIENT_SECRET`) or a
+  client serving many builders (`servesMany`: a hosted bot's name, or a redirect under grok.com, x.ai, x.com,
+  meta.ai) gets the anonymous code at once (`issueCode(req, null, iss)`). Otherwise `x-install.ts
+  startInstallSignIn` stores the request in `x_signins` (purpose 'install', the client's state and PKCE challenge,
+  EarnKit's own PKCE verifier, sha256 of a 32-byte state, sha256 of a csrf held in a `__Host-eki-<16 hex>` cookie,
+  15 minutes) and goes to X.
+- **The warning page.** `redirectClass` decides whether a page naming the host comes first. Straight to X: the three
+  exact documented callbacks (`AGENT_REDIRECT_URIS`: claude.ai `/api/mcp/auth_callback`, chatgpt.com
+  `/connector_platform_oauth_redirect`, www.cursor.com `/agents/mcp/oauth/callback`), loopback http on any port,
+  and the app-scheme allowlist (`AGENT_APP_SCHEMES`: cursor, vscode, vscode-insiders, windsurf, claude). Every
+  other redirect, including browser-trampoline and unknown schemes, sees "You're connecting EarnKit to <host:port>."
+  with the full redirect URI and "Only continue if you started this from your own agent." (S6: a forwarded
+  authorize URL is the phishing vector).
+- **Callback.** `app/x/callback/route.ts` runs `xSignInCallback` (404 when the state is not an `x_signins` row).
+  The row is deleted only with this browser's cookie (else 403 before any X call), X's token is used for one
+  `/2/users/me` and never stored, an owner-cleared X gets 403, and the client's registered redirect gets a code
+  with `x` (id, username, name, avatar) inside the HMAC-signed payload plus RFC 9207 `iss` (A22; metadata says
+  `authorization_response_iss_parameter_supported`). Rate limit `xSignIn` 30/hour per IP. Production needs
+  `EARNKIT_URL` (the authorize redirect carries `iss`).
+- **Token.** `exchangeCode` returns `x` (ignored for a servesMany client). The installation key is per registration
+  AND X account (`clientKeyOf(client_id + "\nx:" + id)`, A2), so another X on the same registration is another
+  installation; `shared` is false for an X-signed token (A1). `tokenPost` calls `attachToX`; a refusal answers
+  `invalid_grant` (400) and issues no token. A known installation keeps its token (`saveInstallation(..., {
+  keepToken: true })`) until `attachToX` succeeds, then `setInstallationToken`: a refused re-authorization never
+  kills the token the agent already holds.
+- **attachToX (one transaction, S5).** Locks `x_attach:<id>`, `x_user:<id>`, `x_handle:<h>`, `person:<root>`
+  (installation's root and the X's page, ascending), then the installation and its members' rows by id. Refuses
+  `other_x` (installation, group root or page profile bound to another X), `owner_cleared`, `shared`. If a page
+  holds the X: the installation alone gets `builder_id = page root`; nothing merges, its data and old members stay
+  behind. Else a page is made on the installation itself (`ensureProfile` in the transaction; a member of another
+  root has `builder_id` cleared first). Unless it already is the page, its own members are detached first
+  (`builder_id` NULL, each its own anonymous root, nothing deleted). `bindXIn` writes handle, name, photo;
+  `installations.x_user_id` is set last, aborting unless exactly its row changed. `afterBind` (events, discovery,
+  profile cache dropped in a `finally`) runs after commit. Lock order is documented on `identity.ts lockPerson`: the
+  `x_*` locks (or proveByApp's `repo_hold:<key>`), `person:<root>` ascending, `source_proof:<id>`, installation
+  rows by id, profile rows.
+- **Who is the caller.** `connectInstallation` returns the page holding the token's `x_user_id` first, then
+  `builder_id`, then itself; `Caller.x` carries the X id (the final fix removed the unread `ToolContext.xUserId`).
+  `events-redact.mts --login` unbinds the person's installations and deletes their `x_signin_links`.
+- **Migration markers.** `-- v2.14 bind:start/end` in `schema.sql`: S4 first moves the members of every one-click join no
+  installation answered back to `from_root`, hides their updates since the join and stamps `detached_at` (no
+  deletes); then the bind UPDATE binds every non-shared installation of a claimed page (x_handle set), filling
+  only NULLs. Both are no-ops on rerun (on production: open joins 0).
+- **No merge (A7 superseded).** Any installation signing in with an X that already has a page attaches ALONE. A
+  pre-v2.14 anonymous agent that reconnects with X is a new installation and starts fresh (D11, accepted).
+
+### 3. The fallback link
+
+For a client that can't finish a browser step, and installations from before v2.14.
+
+- **The link.** `x-link.ts signInLink(own, now)`: null when X is off, the installation is shared or already bound.
+  The code is `HMAC(EARNKIT_AUTH_SECRET, "signin:v1:" + seed)` (16 bytes, base64url); `x_signin_links` keeps the
+  seed and `sha256(code)` only. An open link with an hour or more left is shown again; else a new one (24 hours).
+  Expired rows older than a day are deleted on mint. It is minted for the caller's own installation
+  (`ctx.ownInstallationId ?? installationId`) on both find and score.
+- **The page.** `GET /signin/<code>` (`app/signin/[code]/route.ts`, `'signin'` reserved, rate limit `signinLink`
+  30/h per IP before any read): "This link is for an agent that calls itself "<name>", connected <ago>." (the
+  client's own DCR claim, escaped, never presented as verified; S2), "Only continue if your own agent gave you this
+  link.", one Continue with X (`x-install.ts newSignin` purpose 'link'). Anything else is 410.
+- **The callback.** `linkSignedIn` puts the X user and `sha256` of a fresh paste code (12 chars of
+  `ABCDEFGHJKMNPQRSTUVWXYZ23456789`, `crypto.randomInt`) on exactly the link named by `x_signins.link_hash`, 15
+  minutes. Nothing is bound. The page shows "Signed in as @handle." and the code as `XXXX-XXXX-XXXX` with "Anyone you
+  give this code to can act as your EarnKit page. Paste it only into the agent you are using right now." (S2).
+- **The bind.** `find { sign_in_code }` (string, at most 40) is read first in `tools.find`; a shared client's is
+  ignored. `bindFromPaste` claims the row in one `UPDATE ... used_at IS NULL ... RETURNING` keyed by the code's hash
+  AND `installation_id = own` (A7: a forwarded link's code is useless to any other agent), then `attachToX`. A
+  thrown error gives the code back; a refused one is used up. Success logs `signed_in_by_code` (never the code).
+
+### 4. One proof
+
+Spec 2: "Install EarnKit on your repo (read-only, one click)" is the only way a repo is proven, public or private,
+personal or org. Existing verified sources stay verified and keep counting on the Bench.
+
+- **The flow.** A reply for an unproven repo asks the App install (`repo-proof.ts installLink`, a v2.10 `app`
+  nonce), only for a person with a page (S7), and the confirm page names the destination ("This adds
+  github.com/<repo> to earnkit.com/<handle>. Only continue if that is your page."). GitHub's setup URL
+  (`github-app.ts appSetup`) checks `appProof` (the installation lists the repo; the installer owns the account or
+  administers the repo), writes the `via = 'app'` verification, then `proveByApp` for the person's root.
+- **proveByApp (S8).** GitHub must name this very installation for the repo; one read of `/repos/{key}` with a
+  per-call installation token; a fork or template (ever) rejects the source `derived`. Then ONE transaction:
+  `repo_hold:<key>` lock, `person:<root>`, `source_proof:<id>`, builder id still a root, `heldByOther`, then the
+  source verified `github_app` with gh ids, `app_checked_at`, `public_at`. An App proof replaces another person's
+  discovery-derived (non-App) hold (that row goes to proposed, `replaced_by_app`); only an App hold gives `taken`.
+- **What counts where.** The Bench counts any confirmed proof (`CONFIRMED_PROOFS` includes `github_app`). Actions (a
+  coin via `token-gate.ts tokenGate`, a deploy, a hosted site, a build's deploy) take only `repoProof(..., {
+  forAction: true })`: a `github_app` source GitHub confirmed within `APP_PROOF_FRESH_MS` (a day plus two hours),
+  else checked live (`appProofLive`: GitHub names an installation, it is one this person proved, and for an org
+  repo the prover is still admin; held passes, gone or unknown refuses). A pre-v2.14 proof counts on the Bench but
+  never launches, deploys or hosts: the install link is asked. A shared client has no person: no App link, no
+  deploy, no hosting, no coin (the token gate's `login` is null there; the final fix removed `sharedAppProven` and the
+  pasted sign-in code it relied on). Deploy caps are per repo owner.
+- **Staying true.** The cron's `app_check` step (`appCheckStep`, daily per source, 50 a run) uses `appProofLive`
+  through `recheckAppSource`: gone demotes (`app_removed`) and rescores at once. The 90-day org expiry stays for old
+  `proof_branch` rows; their re-proof is the App.
+- **Readings (A10).** `sources.ts readAll` and `person-score.ts readPersonLive` read App-proven repos with their
+  installation token (`readAppRepos`); EarnKit's `GITHUB_TOKEN` reads only what isn't installed. Tokens are minted
+  per call, never stored or logged.
+- **What discovery still does.** Local git remotes and live URLs are proposed as unproven sources; the
+  clue 3 scan covers App-proven repos with `appClient`. `discovery.ts provenLogin` is the App installer's login
+  (one across the group). The proof-branch module, the earnkit.txt proof line, owned-repo discovery and the
+  x_match / top-contributor clues are gone (tables `proof_branches`, `proof_line_issues` stay, unused). The I1
+  private-name rule stays (`page-data.ts safeNames`, `shownProjects`).
+- **Copy.** "<name> isn't counted yet."; `OWNERSHIP_FOR_TOKEN`: "A token needs a repo proven yours; EarnKit gives you
+  the install link when it needs one."; tell has no `proof` field.
+
+### 5. The ship log
+
+Free: no AI, no new cron, no paid service.
+
+- **Composed every Monday.** `week-facts.ts weeklyFactsStep` (the existing weekly step, now given `ghFetch`) reads,
+  for each due project whose repo is a verified `github_app` source and only for a week with a `shipped_code` fact,
+  the week's commit and merged-PR titles through `repo-proof.ts appClient` (2 GitHub calls a project).
+  `ship-titles.ts` cleans them (pure): no merges, wip, bot authors, version bumps, dependency bumps or duplicates
+  (NFKC lower case key); conventional prefixes and a squash `(#N)` stripped; 80 characters; each through
+  `update-text.ts checkUpdate` or dropped; at most 3, PRs first, newest first. `upsertWeekFacts(..., titles)` stores
+  them on `project_updates.titles` (replaced only by a non-empty list); an error leaves titles empty and the facts
+  still written.
+- **Private repos: facts only.** A repo that doesn't read public (`repo-public.ts repoReadPublic`) is not read for
+  titles until `tell updates { titles: true }` (`updates.ts setShipTitles`, sets `builder_profiles.ship_titles_at`;
+  false clears it; needs the main project's own repo App-proven, else `TITLES_NO_APP_NOTE`). An older agent's
+  `updates { on, scheduled }` gets `UPDATE_LINES.auto` and changes nothing.
+- **Read-time filter (S9, I1).** `ship-titles.ts titlesShown`: a public repo shows all titles; a hidden repo none
+  unless `ship_titles_at` is set, and never a title naming the repo. `feed.ts` (`FeedCard.titles`) and
+  `bench-data.ts profileData` apply it; turning titles off hides stored titles at once with no delete. A week with
+  titles only (no facts, no agent line) stays off the feed. The share card and OG image show no log text.
+- **No asks.** The updates yes, the week's-post ask, `WEEKLY_UPDATE_NOTE`, `SCHEDULED_NOTE` and the `updates` /
+  `post_update` ask kinds are gone (columns stay). `tell update { text }` stays as the agent's one added line;
+  `{ hide }` hides a week; the text filter applies to both. A yes to a stored old ask is answered
+  `UPDATE_LINES.auto`.
+
+### 6. Replies
+
+`find` and `score` share `bench-find.ts benchView`, so both answer in the same four states (scoring and clarity R16a:
+v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one table, `bench-reply.ts STATE_COPY`
+(plus `VARIANT_COPY`); `benchReply` is pure. Current wording: "the leaderboard" (R9).
+
+| State | When | Stand line | The one link | The one question |
+|---|---|---|---|---|
+| `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
+| `no_project` | signed in, no one project | the same + "Your page: earnkit.com/..." | the repo picker's install link (launch ready L2) | "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" + "Want me to rank it once that's done?" (App off: "What's your GitHub, or a link to something you've made?", the page the link) |
+| `not_counted` | a project not confirmed | "<Project> isn't counted yet." | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
+| `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page (the weekly moment: the X share link) | the weekly target (launch ready L5, e.g. "Ship code this week: +14 points, enough to pass #2."; "Ship this week to climb." only without a Shipping row), or once a week the share ask (L6); never an entry, coin, community round or going live |
+
+- **Variants (A15).** `taken`, `copy`: "Want to use a different project?"; `no_repo`: "Where does <Project> live on
+  GitHub?"; `app_off`: one small thing to ship. A taken project still names the open programs (D6).
+- **Money always shows**, signed out included; with nothing open: "No program is open right now. I'll look again next week."
+- **One link (A14, D5).** The action link is the one https link and the page is named beside it without https;
+  otherwise the page is the link. No page to name means no link (a shared client gets zero links).
+- **One next step (A16, A17, R8).** States 1 to 3 always ask their fixed question; `ranked` says the weekly target line
+  (launch ready L5, `weekly-target.ts weeklyTarget`: "Ship code this week: +14 points, enough to pass #2." / "..., 7 short
+  of #2." / "... to hold #1." / "Done this week: +14 points. Next week adds up to 13 more."; "Ship this week to climb."
+  only without a Shipping row; no question), or once a week the share ask (L6). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
+  the state's question, except signed out, where the sign-in question wins (`signedOutNow`).
+- **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it starts with
+  "Signed in as @<handle>." and clears it (`takeSignedIn` clears it only with a handle, so a failed read never eats it).
+- **Yeses.** `benchMoveUp` answers `sign_in`, `start`, `install_app`, `other_project`, `repo_behind`, `ship`,
+  `suggest`; an open coin offer stays in tools.ts. Stored `build`, `grants`, `grants_later`, `enter`, `coin`, `raise`
+  and `go_live` asks are answered "Okay.". `build_offer` still uses the v2.11 short reply (shared clients and pre-profile); the rest of A18
+  is an owner question.
+
+### 7. Flags
+
+Retired and deleted with every flag-off path: `EARNKIT_BUILDER_SCORE`, `EARNKIT_BENCH` (`flags-retired.test.ts`: no
+source reads either name, the five tools are always listed, `/leaderboard` is a permanent redirect to `/bench`).
+`builder-score-flag.ts` keeps `archiveFlag` (SPONSOR_CAMPAIGNS, STARTER_REGISTRY, ...), `xSignInEnabled`,
+`RAISING_FLAG` and `raisingEnabled` (`EARNKIT_RAISING === 'on'` alone, the legal switch, off by default).
+
+- **Deleted.** The builder bonus payout side (`bonus-rounds.ts`, `bonus-board.ts`, `bonus-payout.ts`, `/bonus/*`,
+  `/admin/bonus/*`, `BonusPill`, `submission-proof.ts`); `bookDeposit` always books to the Safe (`round_key` NULL);
+  `lockRound`, `rolloverRound`, `collectNearEnd`, `roundsCovered` and the `rounds` hook are gone. Also the v2.12 and
+  v2.12.1 views (`ProfileView`, `ProjectCards`, `LeaderboardView`, `HowItWorks`, `where-you-stand.ts` whose kept parts
+  are `stand-text.ts`), `make-countable.ts`, the pickup subsystem, the Bench build offer and tip-jar starter offer,
+  `llms/v212.txt`.
+- **Kept on purpose.** `bonus-ledger.ts` (indexing, claiming, sweeping), `traction.ts`, `veto.ts` (campaign vetoes only
+  after the final fix), `bonusLive` (coins only after the final fix),
+  `main-project.ts fillGithubUser`, `ToolContext.repoCoins`.
+- **Bugs found while deleting** (both lived in the bonus branch): `recordSubmission` stamps `submission_confirmed_at`
+  on `builder_submitted: true`; the `entered` event carries the wallet.
+- **Owner step.** Remove `EARNKIT_BUILDER_SCORE` and `EARNKIT_BENCH` from Railway after deploy.
+
+### 8. Tests
+
+- One database per test file (`fixtures/test-guard.ts`, `test-db.ts`); ids and handles keep a per-run suffix.
+- Agent-input tests go through the real MCP layer (`fixtures/mcp-call.ts mcpCall`, `tools/call`); `test-foundations.test.ts`
+  2.6 enforces it for every `v214-*.test.ts`, 2.7 pins these docs and the runbook.
+- Tests that need X set `X_CLIENT_ID=cid`, `X_CLIENT_SECRET=sec`; tests that need the App use `fixtures/app-install.ts
+  appEnv()` and `fixtures/fake-github.ts`. No test sets either retired flag.
+- v2.14 files: `v214-x-install`, `v214-signin-link`, `v214-app-proof`, `v214-removed`, `v214-ship-log`,
+  `v214-replies`, `v214-journey`, `reply-states`, `ship-titles`, `flags-retired`, `fonts`, `schema-rerun`.
+- The journey (Task 12, `v214-journey.test.ts`): acceptance 1 to 5 as one brand-new builder lives them, through the real
+  routes (authorize, the X callback, token, the App setup URL, `/signin/<code>`) and `mcpCall`: Signed in as @handle then
+  no project; the repo named, not counted with the install link; the App on an org repo, on the Bench with a rank and the
+  page; the Monday run puts the week's titles on the rendered profile (bots left out, nothing scheduled); a fallback
+  client goes signed out, the link page, the paste code through find, signed in. Every reply: one https link, the money
+  section, exactly one question and last, never "raise". No network (D3): `globalThis.fetch` throws for the whole file
+  and records each attempt (asserted empty), and `fakeGitHub` records `routed` on every call (asserted all true). Keys,
+  repo and installation ids carry a per-run suffix (D4: `earnkitai<run>/earnkit`). The daily repo reading is the one
+  step faked by a `source_live` row (the reader needs routes the fake doesn't have).
+
+### 9. Env vars and owner go-live
+
+| Variable | Needed for |
+|---|---|
+| `EARNKIT_URL` | The authorize redirect (`iss`), every public link |
+| `X_CLIENT_ID`, `X_CLIENT_SECRET` | Hard prerequisite: Sign in with X at install (unset: anonymous install, and the cron alerts `env-missing:<VAR>`) |
+| `EARNKIT_AUTH_SECRET` | The fallback link and the signed-out state |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` | Hard prerequisite: the only proof; GitHub App "Redirect on update" on (the cron alerts when unset or the key doesn't parse) |
+| `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET` | Hard prerequisite: the sign-in hop of the App install |
+| `EARNKIT_RAISING` | Legal switch for "community round" (off) |
+
+Go-live and rollback are in `v2.14-acceptance-runbook.md`. `app/layout.tsx` loads Funnel Display and Funnel Sans
+through `next/font/local` from `app/fonts/*.woff2` (OFL), so a build never fetches Google Fonts; `'fonts'` is a
+reserved route.
+
+### 10. Owner questions
+
+- A21: `/claim/wallet` is reachable but linked from nowhere. Link it, or leave it.
+- Shared clients (Grok Bot) get no App links and cannot launch coins. Overrule?
+- Whether to turn on CIMD for Claude and ChatGPT (preflight).
+- Confirm D11: pre-v2.14 agents that reconnect start fresh.
+- `build_offer` is still the v2.11 short reply; the rest of A18.
+- Lawyer review of "community round" (`EARNKIT_RAISING`), and of the changed terms (`PROFILES_POINTS`).
+- Arc and Robinhood Chain brand SVGs.
+- The human checks of Task 1 (runbook section 0).
+
+### 11. Final fix (whole-branch review)
+
+- **Terms and agent docs.** `policy.ts PROFILES_POINTS` and `RECORDS_WITH` describe v2.14: the page is made at the X
+  sign-in (install, or the one-time link) and public from then on; the same X is the same page (attached with no
+  question, nothing merged); the read-only App is the only proof, and App repos (private too) are read with
+  short-lived installation tokens never stored; commit and PR titles are stored weekly, a private repo shows facts
+  only until titles are on and turning them off hides (never deletes) them; no GitHub login or repo file is proof.
+  `llms/v213.txt` and the MCP descriptions say the same. `v214-removed.test.ts` 7.7 refuses "claim", "earnkit.txt",
+  "Sign in with GitHub", "proof branch", "only public data" and `signed_in` in all of them (the copy-review 12.1 test
+  lets the legal text say "repo" and "commit").
+- **Shared clients (Ruling T6-2).** Shared clients never get an App link, so the pasted GitHub sign-in code was dead:
+  `signed_in` (tool inputs, aliases, TellInput, LaunchTokenInput, record_submission), `tools.ts sharedLogin`,
+  `github-verify.ts callerLogin` and the code helpers (`codeLine`, `formatCode`, `normalizeCode`), the paste code in
+  `saveVerification` and the App setup page, `repo-proof.ts sharedAppProven` (and `appProofLive`'s login option),
+  `token-gate.ts GateInput.verifiedLogin` (token-launch passes `sharedClient` instead, only to delay keeping a
+  wallet), `DeployDeps.callerLogin`, `SIGN_IN_CODE_NOTE` and `EMAIL_SHARED_NOTE` are gone. A shared client keeps no
+  memory, no per-builder entries, deadline line or weekly email (`EMAIL_SIGN_IN`: "The weekly email isn't available
+  on this agent."), and `tell submitted` / `confirm { project_id }` are noted only. confirm and tell are strict, so
+  they still accept an older agent's `signed_in` ("Not used any more; ignored.") and `mcp.ts run` drops it.
+- **Dead bonus admin.** `veto.ts` keeps campaign vetoes only (no `round` branch, `bonusVetoKey`, `bonusReviewLink`,
+  `vetoBonusEntry`); `pnpm campaign bonus-link` is gone; `cron.ts bonusLive` is true only while an EarnKit coin
+  exists (fees to index and claim), so `BONUS_WALLET_UNSET` no longer fires for builder-bonus programs or rounds.
+- **Unused exports.** `sources.ts repoOwned`, `oauth.ts authorize()` (tests compose `checkAuthorize` + `issueCode`
+  as `authorizeGet` does; `oauth-limits.test.ts` uses the route), `ToolContext.xUserId`. `bindX` stays, marked
+  test-only (production binds through `attachToX`).
+- **No App link without a page.** `tools.ts list_programs` checks `pageHandle` once before `createVerifyLink`, so an
+  anonymous caller's unseen repo never logs an expected refusal as an error.
+- **GitHub budget (fix 8).** `source-readers.ts defaultReaderDeps.ghFetch` skips `GH_RUN_CAP` and the rate watch for
+  a request with an App credential (`appCredential`: `Bearer ghs_...` or the App JWT), so App reads spend the
+  installation's own limit and one installation's headers never stop the run.
+- **Hard prerequisites (fix 9).** `cron.ts missingPrerequisites` (`PREREQ_VARS`): each unset X or GitHub App variable
+  is a `needs_owner` line `env-missing:<VAR>` (or `env-invalid:GITHUB_APP_PRIVATE_KEY`), alerting, on a full run.
+- **Parked minors.** `recordSubmission` writes no `payout_wallet` / `installation_wallets` for a shared client
+  (`keepWallet` false); `takeSignedIn` clears only with a handle; `signedOutNow` reads a database error as signed out
+  (the retry question); `ship-titles.ts cleanTitle` counts letter and digit code points (a CJK character 2), so
+  "修复" survives and "ok" does not; the journey's one-link rule counts bare `earnkit.com/...` links and 12.2 checks
+  two distinct own installations.
+
+## Scoring and clarity (Task 1)
+
+Spec: `docs/design-docs-and-implementation-plans/scoring-and-clarity.md` (R1 to R7 as amended by the owner on
+2026-10-19 to one Shipping score, R16c to R16e). Branch `scoring-and-clarity`.
+
+- **One score, Shipping, 0 to 100** (`score-v2.ts computeScoreV2`, formula id still `v2`): round(90 x sum(w_i x
+  active_i) / 78) + 10 when any live ship exists. i = 0..11 is the ISO week's age (0 = this week), active_i = commits
+  that week (the one project's confirmed repo readings, `commit_weeks`), w_i = 12 - i. A live ship is a live site
+  (EarnKit-hosted, or a confirmed site on a confirmed repo), a contract deploy (EarnKit's or a verified contract) or
+  a published package; a coin is not one. `builder_live.parts` is `{ shipping: { points, raw: { mask, weeks, recent,
+  live_ships } } }`, with room for a separate `originality` later (never summed in). `storedShipping` reads it and
+  ignores an older row's `shipped`, `used`, `earned` and `consistency` keys. `builder_live.shipped` is the number of
+  distinct live ships.
+- **People and money are not scored.** `countUse` (the old Used and Earned counting, ring and anti-farming
+  included) still fills `builder_projects.people` and `money_usd`; nothing destructive. The review hold keeps the
+  30-point jump only, against a ranked history row (`builder_scores.ranked`, written by the cron) of the live
+  calibration `v2-shipping` (`score-calibration.ts`) from the last 12 weeks, so the first Shipping day is never a
+  jump from a four-part score or from a day the builder was unranked (the first App connect is never held), while
+  losing and regaining the rank (the App removed and reinstalled) keeps the ranked baseline and never skips the
+  hold (fix round 2). The one-source rule no longer applies.
+- **Anti-backdating** (fix round 2; commit dates are the committer's to set):
+  1. *Creation floor* (`personInputsV2`): a commit week before the ISO week of the repo's GitHub `created_at`
+     (in every reading) never counts, for the score, the grid or the streak.
+  2. *No new past weeks* (`sources.ts withPastWeeks`, `withPastCounts`): once a source has a previous good
+     reading (daily or live, `previousRepoSignals`), a new reading may add only this week and last week; older
+     weeks keep their stored values.
+  3. *Server push times* (`sources.ts storedCommits`, `pushedWeeks`, `readPushes`, `firstPushes`; fix rounds 2 to
+     5): until a source has a verified reading, each reading makes one activity check: GET
+     /repos/{o}/{r}/activity?per_page=100 (newest first; the App's installation client when installed, else
+     EarnKit's reader; every call aborted at the connect budget). When that page is full (100 events), one more
+     call (`direction=asc&per_page=100`) reads the oldest 100 GitHub keeps (GitHub documents cursor paging, so
+     EarnKit reads one page each way). A past week counts when a landing event (push, force push, branch creation,
+     PR merge, merge queue merge; the endpoint filters one type a call, so the types are kept client-side) on either
+     page is in that week or the next. An unbacked week counts only inside a real gap between two full pages:
+     strictly after the oldest page's newest event and strictly before the newest page's oldest event (fix round 5).
+     So one old retained push plus a flood never admits backdated weeks, while a busy repo whose events outrun both
+     pages keeps its middle weeks. The reading is then `pushes_checked: true` and is rule 2's baseline.
+     When EarnKit can't verify (the call failed, listed no landing, the oldest page could not be read, or the
+     deadline cut or skipped the check) the reading is stored `pushes_checked: false`: the score counts only its
+     last 4 weeks (never zero), it is no rule 2 baseline, and every later read checks again (one check a read)
+     until one verifies it. There is no fallback to all weeks (fix round 4). A rename or a new
+     ref of the same repo finds the earlier reading (`previousRepoSignals`: the builder's repo sources with the same
+     GitHub repo id, else the same owner and created_at), so it never gets a fresh first read.
+  Known residual (parked): a dormant repo with 100+ old retained events can, on its first verified reading only,
+     get backdated middle weeks counted by pushing them and flooding 100+ events the same day (the gap then spans
+     the old events to today). Later readings add only this week and last week. The fix is to follow the Link
+     header for a few more activity pages within the connect budget, so real gaps get backed instead of trusted.
+  Accepted costs: an imported or recreated repo loses its pre-creation history; a long-lived branch merged after
+  the first verified reading keeps its old commit weeks uncounted (only this week and last can be new); a
+  contributor who lands work only through fork PRs in a quiet repo gets the merge week, not the commit weeks.
+- **Deploy catch-up** (fix round 1): `listedRanked` and `standingOf` count only `builder_live` rows of the live
+  calibration, so a four-part row is unranked (and shows no Shipping number) until rescored; `scorePeopleV2` takes
+  every live row of an older calibration first, even when today already has a history row, within its deadline.
+- **Ranked (R4)** (`rescorePerson`): the one project is confirmed (`bench_confirmed`) and a confirmed repo of it has
+  at least one good reading (`ProjectRow.repo_read`, daily or live). No commits ranks at 0. The ring no longer gates
+  the rank. A package-only project has no repo reading, so it is unranked.
+- **Scored at connect (R5)** (`repo-proof.ts proveByApp`): after the verify, `readPersonLive(..., { only: [the
+  source], soft: true })` (each fetch aborted at the 8 s budget by `budgetedFetch`) reads the proved repo once with the installation token (the refresh's reader, which writes
+  `commit_weeks` and `commit_counts`), then rescores. `only` reads even inside the 10-minute guard; `soft` writes
+  nothing on a failure, so the proof stands, an earlier good reading still counts and the next refresh reads it.
+- **Rank line (R6, R16d)** (`rank.ts rankLine`, the only rank phrase helper): under 20 ranked, "#N of M builders this
+  week" ("#1 of 1 builder this week"); from 20, "Top P% of builders this week" in the top half and "#N of M builders
+  this week" for the rest. A chain names itself ("#2 of 12 builders on Arc this week") and shows from one ranked
+  project (R16e; the leaderboard's chain chips too, `CHAIN_CHIP_MIN` is gone). Numbers carry thousands separators. `rankWords` and `benchRank` are gone;
+  `stand-text.ts standingNews` says "You moved up to <rank line>." and no longer reports new people.
+- **Score line (R16c)** (`rank.ts scoreLine`): "Shipping 72 · #3 of 40 builders this week". `bench-rank.ts rankLines`
+  returns `{ bench (the rank line), line (the score line), chains }`. Used by the profile header (screen reader line),
+  the MCP ranked stand line ("EarnKit: Shipping 72 · ... ." via `bench-reply.ts shippingStand`), the card and share
+  text (`benchCardFacts.bench`) and the page meta (`handle-view.tsx`).
+- **Why sentence (R7)** (`score-v2.ts scoreWhy`, pure): "Code in 7 of the last 12 weeks, 3 of the last 4. Ship code
+  this week to add up to 14 points." The points are what an active week adds by the formula: this week while it has
+  none, else next week over next week without code. `raw.monday` dates the mask, and `scoreWhy(parts, now)` shifts it
+  by the weeks since, so an older row never calls last week "this week". Shown under the profile's rank and under the ranked stand line
+  in find and score (`BenchView.why`, one statement, never a question).
+- **Profile** (`app/[handle]/BenchProfileView.tsx`, on PR #46's look): one hero ring (`ScoreRing`, caption
+  "Shipping", label "Shipping N of 100") beside the rank, its words and the why; no per-part rings (`ScoreParts.tsx`
+  is gone; `SURFACE` lives in `score-colors.ts`, whose hue families now tint facts: `ship`, `weeks`, `wins`). The
+  Project tab shows no people or money.
+- **Chips** (`week-facts.ts factChips`): Went live, Won X, N commits, N weeks in a row. No "+N people", "$ earned"
+  or "Community round" chip (the facts stay stored); `startedChips` drops "people use it"; `hasFacts` counts code,
+  going live and wins only.
+- **Tests:** `score-v2.test.ts` (formula, edge cases, why, stored rows), `rank.test.ts`, `person-score.test.ts` 4.2b
+  (ranked rule) and 4.15c (hold baseline), `v214-app-proof.test.ts` 6.2b and 6.2c (scored at connect, fail soft).
+  `fixtures/fake-github.ts` answers the reading's GraphQL query and an org repo's contributors.
+
+
+## Scoring and clarity (Task 2): Originality
+
+Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, as the Task 2 brief made it concrete.
+
+- **What it is.** A separate 0 to 100 value per main project (`originality.ts`), shown next to Shipping and never
+  ranked, summed or held. It is not stored in `builder_live.parts` (rescorePerson owns that); it lives in
+  `project_embeddings` and is read by `readOriginality(builderId, key)`.
+- **Text and model.** The text is the project's description (`builder_projects.what` plus GitHub's description from the
+  newest good repo reading, each once) followed by the README (GET /repos/{key}/readme with the App's installation
+  client, `repo-proof.ts appClient`; at most 64 KB decoded, cut to 4,000 characters before any pattern runs, then
+  markdown stripped with patterns that never backtrack across lines; a 200 KB pathological input strips in milliseconds). MiniLM reads about 512 tokens, so the
+  description goes first. The model is `Xenova/all-MiniLM-L6-v2`, quantized (q8), through `@huggingface/transformers`
+  (in the worker, see fix round 2): mean pooling, normalized, 384 numbers. It loads in the child process, after a one-time
+  download of about 23 MB from Hugging Face into `EARNKIT_MODEL_DIR` (default `<os tmpdir>/earnkit-models`). There is no
+  API key and no paid service.
+  Fix round 2: the model never loads in the web process. `workerEmbed` spawns `lib/earnkit/embed-worker.mjs` (plain
+  ESM, no app imports) with `process.execPath`, once a step, for every changed text plus the known ideas not yet cached:
+  texts as JSON on stdin, vectors as JSON on stdout, then it exits. The worker embeds in batches of 4 (one big batch
+  pads every text to 512 tokens and peaked at 2.5 GB; batches of 4 peak at about 440 MB for about a second). The child
+  gets only PATH, HOME, temp and proxy variables and EARNKIT_MODEL_DIR, never the app's secrets. It is killed (SIGKILL)
+  at the run's deadline (`EmbedDeadline`); a nonzero exit or bad output rejects, and nothing is written or stamped, so
+  the projects are due again next hour. The script is found from `process.cwd()` (`next start` runs in apps/frontend;
+  tests run from the repo root) or `EARNKIT_EMBED_WORKER`; `next start` is not standalone, so the file and
+  node_modules are on disk (the build's trace lists it too). Each project is written as soon as the vectors are back;
+  one write failure is logged and the others continue. `boundedEmbed` still bounds an injected embedder. A 404 README (`appClient`'s `on404`) is ''
+  and re-embeds from the description alone; a failed read is null and keeps the vector. The repo-root `.npmrc` sets
+  `onnxruntime-node-install=skip` (read by its postinstall as `npm_config_onnxruntime_node_install`), so a linux x64
+  install never downloads the CUDA binaries from NuGet.
+- **When.** A step in the hourly cron (`builder-score.ts runScoreSteps`, `originality`, after `empty`), never in a
+  request. `originalityStep` only runs while the App is on. A project is due when its main project is Bench-confirmed
+  with an App-proven repo of the same key, and one of these holds: it has no row; its row belongs to another builder
+  (that row is dropped); its description hash changed; it has a vector but the README was not checked in 7 days; or it
+  has no vector and was last tried over 6 hours ago. At most 20 projects a run, inside the run's deadline. The text hash
+  (sha256 of the model name and the text) decides: the same text is never embedded again. A README read that fails
+  while the description stayed the same keeps the vector. So a new project gets Originality within an hour.
+- **Score.** maxSim is the highest cosine similarity against every other builder's stored project vector (the
+  builder's own projects are left out) and every known idea. Originality = clamp(round(100 x (0.9 - maxSim) / (0.9 -
+  0.35)), 0, 100): 0.35 or lower gives 100, 0.9 or higher gives 0. Known ideas are in `programs/ideas/known-ideas.json`
+  (62 generic public ideas). It sits in a subfolder because programs-sync treats every `programs/*.json` as a program.
+  The ideas are embedded once and cached in `known_idea_embeddings` (keyed by text hash). Cosine runs in JS, with no
+  pgvector. After the changed projects are written, any other project is recomputed in the same step when a changed
+  vector would enter its top 3, or when its nearest list named a changed project. So an earlier project drops when a
+  near copy arrives, and recovers when that copy moves away.
+- **Privacy.** The text is never stored. Only `text_hash`, `desc_hash`, the vector, the score and `nearest` (top 3) are
+  kept. `nearest` holds `{ kind: 'project', key, similarity }` (other projects by key, never a name or text) or
+  `{ kind: 'idea', title, similarity }`, and nothing renders it. `events-redact.mts` lists `project_embeddings.project_key`,
+  deletes the person's rows with `--apply`, and empties other rows' nearest lists that name the login's repos. The terms
+  (`policy.ts PROFILES_POINTS`) say so.
+- **Shown.** On the profile, one small line under the Shipping ring ("Originality 72"; `bench-data.ts profileData.originality`,
+  only while the score shows). In find and score replies, it is appended to the ranked stand line
+  (`bench-reply.ts originalityWords`: "... this week. Originality 72."), only once computed. It is not shown on the
+  feed, the leaderboard or the card.
+- **Tests.** `originality.test.ts` covers the pure formula, the text and the nearest list. It runs the step with a fake
+  embedder through the real App connect: a later near copy lowers the earlier project, the same text is not embedded
+  again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
+  profile and reply lines. The test guard sets `EARNKIT_EMBED_OFF=1`, so no test spawns the model worker (O7d runs fake worker scripts). The one real-model
+  test runs only with `EARNKIT_MODEL_TEST=1`, which also lifts the network guard for the download.
+
+## Scoring and clarity (Task 2b): Backfill on connect
+
+Spec: R13 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
+
+- **One per-week body.** `week-facts.ts writeWeek(project, monday, now, deps)` is what the weekly job did per project:
+  `weekFactsFor`, `weekTitles` for a week with shipped code, `upsertWeekFacts` with `facts.checked`, then one dated
+  event per fact (dedupe key `<type>:<project_key>:<week>`). `weeklyFactsStep` calls it with `{ ghFetch }` only, so
+  its rows are unchanged apart from the shared week rule below. The backfill passes two more options: `deadline`
+  (titles only before it) and `mark` (a completed titles read is stamped `facts.titles_read`: a titles call on the
+  repo, GET /repos/{key} or its commits and pulls, answered ok and none failed; a null token with no such call is not
+  completed).
+- **At connect.** `repo-proof.ts proveByApp` notes inside its transaction whether this is the builder's first App proof
+  of the source (its proof was not `github_app` before; a re-prove after a removal keeps `github_app`, so it doesn't
+  count). After the connect read and the rescore, a first proof calls `backfillOnConnect`, which acts only when the
+  repo is the confirmed one project (shared clients never). `backfillWeeks` writes the 3 most recent finished weeks
+  (`backfillMondays`: lastFinishedMonday and the 2 before it), newest first, from the reading just taken, with the same
+  deadline and `budgetedFetch` as the connect read. Facts are database work. Titles cost 2 GETs a week (commits and pulls), plus the
+  installation lookup and token mint, plus one GET /repos for a repo not read public lately. They are fetched only
+  while the budget lasts.
+- **Anti-backdating.** Facts come from the newest good repo reading (`weekFactsFor`'s). Nothing is written while that
+  reading is unverified (`pushes_checked: false`), or when there is no reading at all. Fix round 1: one week rule for
+  both the weekly job and the backfill, inside `weekFactsFor`: a week gets `shipped_code` from `commit_counts` only
+  when `person-score.ts weekCounts` passes (at or after the repo's creation week; an unverified reading, its last 4
+  weeks; a verified reading's counts are already push-backed by `storedCommits`). It never reads `commit_weeks`
+  membership, since GitHub's stats endpoint can lag (202 gives []). `countedCommitWeeks` (the score) uses the same
+  `weekCounts`. A week before the repo existed gets a checked row with no commit fact.
+- **No commits, no card.** As in the weekly job, a finished week with no commits gets a `{ checked: true }` row and no
+  card (`bench-data.ts logCards` shows a week only with text, titles or facts). The Started card is a different week and
+  stays.
+- **Catch-up.** `backfillStep` is the cron step `backfill`, right after `weekly` (`builder-score.ts runScoreSteps`). It
+  picks Bench-confirmed one projects with an App-proven repo of the same key and a good verified reading, where one
+  of the backfill weeks has no row, or has a checked row with shipped code, no titles and no `titles_read`. A week
+  another builder's row holds is never due. The step takes at most `BACKFILL_PER_RUN` (20) projects a run, inside the
+  deadline. Each project is tried at most `BACKFILL_TRIES_A_DAY` (3) times a UTC day (`rate_windows` key
+  `backfill:<id>`), so a repo whose titles keep failing can't take every run's slots. On a Monday before
+  `WEEKLY_HOUR_UTC`, the newest week is left to the weekly job.
+- **Idempotent.** The guards are `UNIQUE(project_key, week)` (the upsert merges facts and keeps stored titles unless new
+  ones come), `facts.checked` and `titles_read` (a done week is skipped), and the event dedupe keys. Running the
+  connect or the catch-up again writes no new rows, events or titles.
+- **Private repos.** Titles follow `weekTitles`' existing rule. A private repo with titles off reads no commits or
+  pulls (one GET /repos check), so it gets facts only. That read counts as completed, so `titles_read` is set and the
+  catch-up doesn't come back. Turning titles on (`updates.ts setShipTitles`) clears `titles_read` on the backfill
+  weeks' rows that have no titles, so the catch-up reads them once.
+- **Tests.** `backfill.test.ts` covers these cases through the real App connect:
+  - 3 rows in the weekly job's format: the newest row equals `weeklyFactsStep`'s apart from `titles_read`.
+  - A re-prove, the backfill and the catch-up run again: no duplicates.
+  - A week without commits gets no card.
+  - A private repo gets facts only.
+  - Titles cut at connect: the catch-up fills them once.
+  - No budget at connect: the catch-up writes all 3 weeks.
+  - The creation floor holds, and an unverified reading waits until a read verifies it.
+
+  `v214-ship-log.test.ts provenPerson` drops the rows the connect backfilled, so those tests drive the weekly step
+  alone.
+
+
+## Scoring and clarity (Task 2c): Stop the unused reads
+
+Spec: R16b of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`. No score uses stars, forks, users,
+traction or money any more, so EarnKit stops reading and counting them. Program wins stay as facts.
+
+- **GitHub.** `person-github.ts REPO_FIELDS` no longer asks for `stargazerCount forkCount stargazers(last: 10) forks(first: 10)`.
+  The same one call per 25 repos remains, but each repo no longer pulls up to 20 star and fork nodes and their account
+  ages. `repoFrom` writes `stargazers: [], forkers: [], partial: false` (old readings keep theirs, unread). An
+  organization's repo no longer reads `/contributors` (one REST call each, daily and in `readAppRepos`; it fed only the
+  org-member rule of people counting).
+- **Sources not read.** `sources.ts dueSources` and `person-score.ts readPersonLive` skip `contract`, `coin` and
+  `merged_pr` sources. Those reads (Blockscout pages of a contract's callers and a coin's transfers, the native price,
+  Arc logs and senders, a merged PR's target stars and the PR) fed only Used and Earned. The refresh no longer reads
+  proposed contracts for "past users" (it fed `untracked_contract`, now always NULL, so stand-view's "count past users"
+  step never fires). A confirmed contract is still a live ship without a reading. Sites, packages and repos are read as
+  before; the push check (anti-backdating), originality, titles and matching keep their own reads.
+- **Code removed.** `source-readers.ts readRepo`, `knownAges`, `readContract`, `readCoin`, `readMergedPrs`, the
+  `ReaderDeps` fields `baseTxs`, `tokenTransfers`, `arcLogs`, `arcHead`, `arcSender`, `usdPerNative`; `sources.ts readPr`
+  and `prRef`; `score-v2.ts countUse` (and `fade`); `builder-score.ts scoreContext`, `ringEdges`, `verifiedProject`;
+  `person-score.ts` ring storage (`storedRing`, `ringToJson`, `ownersOf`). `traction.ts` (the token builder bonus) and the
+  fee and token code are untouched.
+- **No counting.** `personInputsV2(id, now, db, { scope })` returns `{ input: { ships, commitWeeks }, projects, shipWeeks,
+  chains }`: no touches, people, money, ring, `perSource` or `newPeople`, and it no longer queries token fees, prizes or
+  wallets. `rescorePerson(id, now, { cron })` takes the cron flag instead of a ring (the cron still rescores a newer row
+  at its own time); `scorePeopleV2` no longer loads everyone's accounts and edges. Columns stay (nothing destructive):
+  `builder_projects.people`, `people_week`, `money_usd` are written 0, `tagged` false, `untracked_contract` NULL,
+  `builder_live.people` 0, and `builder_profiles.ring` is no longer written (old values stay, unread).
+- **Ship log and feed.** `week-facts.ts weekFactsFor` no longer writes `users_up` or `earned` (and no longer runs a whole
+  `personInputsV2` per project and week); `won` stays. `feed.ts pointsOf` counts went live 40, a win 40, commits 10,
+  the streak up to 10; an old row's people and money count nothing; ties go to the builder's Shipping score (the
+  existing `l.score DESC`). `bench-data.ts bestFact` never says "N people this week".
+- **Matching.** `prepare` no longer passes `verified` (counted users and money) to matching, so odds use matching's own
+  facts (tx count, live, commits). `MatchDeps.verified` stays in the matching API, unused by EarnKit's own calls.
+- **Calls saved (read-cost.test.ts).** One person with a repo, an organization's repo, a site, an npm package, a
+  verified Base contract, a coin, a merged PR and a proposed contract, each read answering one page:
+
+  | | before | after |
+  |---|---|---|
+  | daily read: GitHub | 6 (1 GraphQL, 2 push checks, 1 contributors, 2 PR) | 3 (1 GraphQL, 2 push checks) |
+  | daily read: Blockscout and price | 3 | 0 |
+  | daily read: total | 11 | 5 |
+  | refresh: GitHub | 3 | 3 |
+  | refresh: Blockscout and price | 6 | 0 |
+  | refresh: total | 11 | 5 |
+
+  These are floors: a busy contract or coin read up to 20 Blockscout pages a day, and an Arc contract up to 200
+  senders (two RPC calls each). The push checks happen only until a repo's reading is verified.
+
+## Scoring and clarity (Task 3): The leaderboard and consistent messages
+
+Spec: R6, R9, R10, R11 and R17 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`.
+
+- **The leaderboard (R9).** Every user-visible "the Bench" now says "the leaderboard" ("Leaderboard" as a title):
+  the page h1 and metadata, the slim top bar and the brand page nav, the landing (Hero, BenchTop, BenchHowItWorks,
+  UpdateCarousel), the feed ("This week on the leaderboard"), the profile's confirming card, the reply copy
+  (`bench-reply.ts NOT_ON_BENCH`, the sign-in ask, `VARIANT_COPY.taken`), `tools.ts BUILD_BRANCH_TAKEN_NOTE`,
+  `llms/v213.txt` and the terms (`policy.ts`). Internal identifiers (`bench_*`, `benchView`, `BENCH_*`, `BenchRow`,
+  DB columns, test names) stay. `leaderboard-clarity.test.ts` scans `app/` and `lib/` (comments stripped) and fails on
+  the word "Bench" on its own or a `/bench` link.
+- **Routes.** `app/leaderboard/` holds the page (moved from `app/bench/`: page, BenchView, BenchRowItem, FilterChip,
+  bench-load). `app/bench/page.tsx` is `permanentRedirect('/leaderboard')` (308). `filterHref` builds
+  `/leaderboard?...`; the sitemap lists `/leaderboard`. `bench` stays a reserved handle.
+- **Points column (R17).** `BenchRow.points` is the builder's `builder_live.score` (Shipping, 0 to 100).
+  `BenchRowItem` shows it as a compact tabular column ("72" over a small "Shipping") before the rank, and the rank as
+  `rank.ts rankSplit` of the row's `rankLine` (the number large, "of 40 builders this week" small), so the row reads
+  the same rank words as everywhere else (R6). `rankSplit` moved from the profile into `rank.ts` and now reads
+  thousands separators ("#1,204").
+- **No rank unless ranked (R10).**
+  - `bench-rank.ts rankLines` returns no rank, score line or chain lines unless the one project counts as confirmed
+    now (`benchConfirmedSql`, read live). `builder_live.ranked` is only refreshed at a rescore, so before this a
+    project whose proof went showed its old rank beside "isn't counted yet" on the profile, the card and the page meta.
+  - `bench-reply.ts rankedState(state)`: only the ranked state (then `proven` and `shipping`, merged in Task 4) shows a rank. `bench-find.ts benchView` sets
+    `rank_lines` to `[]` and `view.rank` to null in every other state (a signed-out or anonymous ranked row once
+    carried "#1 of 1" under "You're not on the leaderboard yet.").
+  - The move-up news ("Since you last checked: You moved up to ...") shows only when the reply shows a rank. It is
+    still taken and recorded otherwise, so it never comes back later as stale news.
+  - The profile's confirming card never shows a rank beside it.
+  - Each reply has one status line and one next step (one question). `leaderboard-clarity.test.ts` checks every reply
+    it makes through `mcpCall`.
+- **Names never cut (R11).**
+  - Tickers: `token-proposal.ts TICKER_SHAPE` is `^[A-Z0-9]{3,10}$`. `TICKER_MAX` 10 is tokens.fun's own limit ("Token
+    symbol must be 10 characters or less"), the longest a launch accepts. Nothing else in the code (no DB CHECK, no
+    contract) limits the length. `tickerCandidates` gives the whole first word when it is 3 to 10 letters ("EarnKit"
+    gives EARNKIT), else the initials of 3+ words, then numbered variants (the first 9 letters plus a digit).
+    `initialsCandidates` caps at 10. The token-image route uses `TICKER_SHAPE`, and the launch note says "3 to 10".
+    EARNKIT itself stays reserved as a brand (refused whole, never shortened).
+  - Token names: `proposeToken` no longer cuts the project name to 50. An over-long name fails `cleanTokenName` and
+    the next candidate is used; "<name> Token" is offered only when it fits.
+  - Project names: identity names keep up to 60 characters (`identity-input.ts NAME_MAX`, was 40) and whole words
+    (`untrusted-text.ts wholeWords`). `person-score.ts` uses the same rule for the stored name.
+  - CSS: `truncate` is gone from names and projects in leaderboard rows, update cards and the profile header; they
+    wrap (`break-words`). The square carousel's update text keeps its 3-line clamp, since it is body text, not a name.
+
+## Scoring and clarity (Task 4): Move up, funding matches, four states
+
+Spec: R8, R12 and R16a of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, plus the Task 3 review's
+carry-overs. Owner rule: no token, coin or community round step in find or score; moving up is shipping more and
+ranking higher.
+
+- **Four reply states (R16a).** `bench-reply.ts ReplyState` is `signed_out | no_project | not_counted | ranked`;
+  proven and shipping merged into `ranked` (the streak lives in the Shipping score, so the stand line is the score
+  line alone; the reply still carries `streak`). `STATE_COPY` is the one copy table: each state has one stand line
+  and one next step (`stateAsk`, now total). `rankedState` is `state === 'ranked'`.
+- **Move up (R8).** The ranked state's one next step was "Ship this week to climb." (`SHIP_STEP`, ask kind
+  `ship`); since launch ready L5 it is the weekly target line (`SHIP_STEP` only without a Shipping row). It is a statement, so a ranked reply has no question at all; its `move_up.agent_note` is
+  `bench-find.ts SHIP_STEP_NOTE` (a yes: one small, real thing to ship this week from the repo). A `tell move_up
+  { kind: 'ship', answer: 'yes' }` returns `SHIP_NOTE` once. The other states keep their steps (sign in, name a repo,
+  install the App; app_off keeps "Want me to suggest one small thing to ship...", kind `suggest`).
+  - Gone from the default path: the entry ask (`enterAsk`), the coin and community round (`coinAskBench`,
+    `raising.ts raiseAsk/markRaiseAsked`, `offerCoin` from find), going live (`goLiveAsk`, and `tools.ts goLiveYes`
+    with its notes, now unreachable), `nextStepAsk`. Programs show only in "Ways to get funded" (find still returns
+    `lead` with `EARN_NOTE` for a builder who picks one). An ask an older reply stored (`enter`, `coin`, `raise`,
+    `go_live`) is a retired kind: a yes is "Okay.".
+  - **A token only when asked.** `tell { token: 'ask' }` (tools.ts `TellToolInput`, mcp.ts tell schema and
+    description: "only when they ask about a token") runs `bench-find.ts tokenAsk`: for the confirmed one project, a
+    launched coin not shown yet is the community-round line (`showRaisingLine`, EARNKIT_RAISING on; its yes is `tell
+    coin { raising: true }`); a coin out or launching says so; an open offer is shown again (`coin-moments.ts
+    openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
+    off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
+    { project_id }`; `confirm` and `launch` are unchanged; the build path no longer offers a coin (fix round 1).
+- **One fit order (fix round 1).** find and score name the same fits in the same order: `present.ts byDeadline`
+  (the soonest `ends_at` first, rolling last, then the bigger `max_award_usd`, then the id). find sorts its qualifying
+  rows with it before taking 3, so `lead` and `recordShown` use those same 3; `scoreFits` sorts with it too.
+- **No coin on the build path (fix round 1).** v2.12.1's built_live moment is gone: `coin-moments.ts coinPitchAllowed`
+  allows only the coin program's own entry (an accepted offer), so a build entry's prepare and confirm never pitch or
+  launch a token (`BUILD_ENTRY_NO_TOKEN_NOTE`, the live reply ends "Ready to submit?"). `showBuiltLive`,
+  `builtLiveAnswer`, `BUILD_COIN_NOTE` and tools.ts `buildEntryKey` were removed. The `built_live` moment type stays for
+  old rows. prepare's description says "the confirm line (no token unless the builder asked for a coin)".
+- **Closed programs keep results tracking.** `outcomes.ts outcomeToAsk` reads `results.expected`, never `status`, and
+  `syncOutcomeFile` labels a closed program's entries; `programs/README.md` says closing keeps the results check until
+  results land (arc-microgrants: results expected 2026-10-21). `outcomes.test.ts` covers it.
+- **Funding matches (R12).** "Ways to get funded" names at most 3 programs the matcher fits, each as `fitsLine`:
+  "<title>: <award>, <closes Oct 30 | rolling>. <why>." (`stand-view.ts fundWhen`). The why is `bench-find.ts fitWhy`
+  from the matcher's facts: the program's chain where the repo has a deployed contract ("You deployed on Base"), a
+  deploy config naming its mainnet ("You deploy to Arc"), else code for it ("You build for Monad"); "It takes any
+  chain"; and "your app is live" for a program that needs a live product. The words avoid "contract" and "repo" (the
+  v2.12.1 copy rule); the chain phrases are allowed in `fixtures/banned-words.ts BENCH_PITCH_ALLOWED`.
+  - find: `layout` rows that `qualifies` (good odds) for the one repo, their facts from the match. score:
+    `stand-view.ts scoreFits`, the open programs (byDeadline) whose `alerts.ts repoCanWin` passes for the one repo as
+    find last matched it (`installations.fit_repos`), at most `FITS_MAX` 3 (it used to name one).
+  - A ranked project gets only fits: no open-all-year pick (`rollingPick` is gone) and no "what it needs" lines;
+    with none it says `noFitLine` ("No open program fits Kit yet. I'll look again next week."). Not counted, no project
+    and taken keep `needsPicks` and the no-project idea as before.
+  - Closed programs never show: `listPrograms` filters `status = 'active'`, and arc-microgrants,
+    colosseum-worlds-fair and monad-metropolis are `"status": "closed"` in `programs/` (past their deadlines).
+- **Dead code removed.** `stand-view.ts`: the projects read in `standBase` (and its count-past and tip-jar steps,
+  `tipsPick`, `TIPJAR`, `hostFor`, `declinedNow`, `DECLINE_MS`), `scoreEarn`, `moneyFallback`, `rollingPick`,
+  `byLazy`; `StandBase` is now `{ standing, claimed, handle, signInLink }`. `stand-text.ts`: the step, project, view
+  and money-line types and helpers. `person-score.ts trackingHeld`. `week-facts.ts`: the users_up event branch
+  (R16b never sets the fact). `score-tool.ts`/`benchScore` no longer take `fresh`, and `benchFind` no `agentCanBuild`.
+- **Carry-overs from Task 3.** `token-proposal.ts tickerCandidates`: a first word over 10 letters gives its first 10
+  ("Recipeplanner" is RECIPEPLAN), never 3-letter initials first. EarnKit's own brand is allowed only on verified
+  ownership (fix round 1): `OwnBrand { ownEarnkit }` on `tickerProblem`, `cleanTokenName`, `tokenNameProblem`,
+  `proposeToken`, and `token-launch.ts decideToken`/`editsOf`/`storedProposal`, default false. `own-brand.ts
+  earnkitOwnRepo(id, repoUrl)` sets it: the repo's owner (campaigns.ts githubRepo, so http://, www. and .git forms
+  read the same) is an EarnKit org (`earnkit-orgs.ts`, "earnkitai") AND the repo is a `github_app`-proven, verified
+  source of this builder. `runTokenFlow` computes it once (`TokenFlowDeps.ownEarnkit` for tests); coin offers
+  (`offerCoin`, `openCoinLine`, `coinYes`) compute it too; prepare's proposal never sets it. A link alone never
+  gives $EARNKIT; every other brand stays reserved. `untrusted-text.ts
+  wholeWords` never ends a cut on a comma, dash, colon or the like. `app/bench/page.tsx` redirects (308) to
+  `/leaderboard` with the same query string. The stale reserved-ticker comment in `tickerProblem` is fixed.
+- **Tests.** `move-up.test.ts` (through `mcpCall`): the ranked find and score replies (score line, why, at most 3 fit
+  lines with deadline and why, "Ship this week to climb.", no coin words, closed programs never shown), `tell token`
+  returning the offer (and find and score staying clean with it open), the four states' copy and steps, and a positive
+  real-matcher fit (transactions, a live link and commits on Base and Arc give good-odds fits; a low-odds repo none).
+  `reply-states`, `bench-reply`, `coin-moments`, `raising`, `v213-*`, `v2131-*`, `v2133-owner-test` and `v214-*` tests
+  were updated for R8, R12 and R16a.
+
+### Scoring and clarity: page shells and lint (R14, R15)
+
+- Every sign-in and verify response is `brand-page.ts brandShell` (dark page, slim top bar): the GitHub verify and App setup pages (their 404 is `notFoundPage`), `signinPage` (X sign-in, the `/x/callback` 404), the OAuth authorize 429 and 400 (status and Retry-After kept), and the wallet 405 (frame-ancestors CSP kept). Redirects and the wallet POST JSON are unchanged. `page-shells.test.ts` asserts text/html plus the top bar for each.
+- `pnpm lint` runs `eslint .` in `apps/frontend` (flat config, `eslint-config-next` 16.1.5; `.next/` and other build output ignored; `_`-prefixed unused names allowed). It exits 0.
+
+## Scoring and clarity (Task 5b): One design system, a simpler site (R18)
+
+- **One set of tokens.** `lib/earnkit/theme.ts THEME` is the source of truth for the page, the card
+  surface, hairlines and the three text roles. `app/globals.css` defines them as `--ek-p-*` (tested to
+  match) and sets the deep navy page with its top glow on `body`, so every page has it.
+  `tailwind.config.ts` reads them as `ek-page`, `ek-surface`, `ek-surface-top`, `ek-raised`, `ek-chip`,
+  `ek-line`, `ek-line-strong`, `ek-text`, `ek-body`, `ek-muted`, `ek-accent`. The brand palette (`ek-blue-*`,
+  `ek-navy`, ...) stays; `ek-blue-bright` is the one primary button color (React and `brand-page.ts`).
+  The `.ek-premium` / `data-ek-premium` scoping and `SlimTopBar` are gone.
+- **Shared parts.** `Panel.tsx`: `SURFACE` (24px radius, hairline border, the surface gradient), `COLUMN`
+  (max-w-6xl, 16px gutter, 32px from md), `H1`, `H2`, `LEDE`, `Panel`. `Button.tsx`: `BTN_PRIMARY`,
+  `BTN_SECONDARY`. `Header.tsx` is the one sticky header (layout.tsx); `Footer.tsx` is one quiet row.
+  `UpdateCard` draws its own surface and the hue dot on its first chip (no CSS overrides).
+- **Simpler pages.** Landing: hero (no coins, no community round), leaderboard top 10 (no chips), "Shipped
+  this week", "Money open now" (no button; each card opens its guide), Backed by. How it works removed.
+  Leaderboard: title, one line, chips, one card of rows. Feed: "What builders shipped". Profile: no
+  eyebrows; the Ship log cards sit on the page (no card in a card). Guide: one Ask your agent, the parts
+  on one card split by hairlines. Terms: the same column and surface. brandShell: no accent bar, header
+  as wide as the React one.
+- Dead code removed: Positioning, EcosystemHero, BuilderBanner, CampaignTypes, EcosystemValue, FinalCta,
+  CoinsField, ViewportHeightSetter, the unused globals.css classes.
+
+### Task 5b fix round 1
+
+- Leaderboard rows show "#N" alone (the full rank line in an sr-only span); `BenchTop.tsx benchLine` is the one
+  header line ("N builders this week. Ranked by Shipping points.") on /leaderboard and under the landing's title,
+  from `Landing['bench'].count` (every ranked builder). The landing cache key moved to `landing-r18`.
+- The profile grid reads `builder_projects.commit_weeks` (new column, written by `rescorePerson` from the counted
+  repo commit weeks, the same floor as the score) plus checked `shipped_code` weeks (`bench-data.ts gridWeeks`);
+  `ship_weeks` (commits, deploys, sites) still drives the week facts' streak chip (the stored streak is commit
+  weeks since the final follow-ups, below).
+- Colors: #46's `PART_COLORS` (score-colors.ts) stay as the profile's accent palette (owner); UpdateCard's chip dot
+  reads them. THEME gained `brand` (#579DFF), the primary button in React and brand-page.ts; Tailwind keeps only
+  `ek-blue-bright`, `ek-blue-soft`, `ek-score-orange` and the page tokens (plus `ek-glass` for the header).
+  framer-motion removed. `apps/frontend/DESIGN.md` rewritten for R18.
+
+### Final follow-ups
+
+- Streak vs grid: `builder_projects.streak` is `streakOf(commit weeks)` (the counted repo commit weeks, same
+  anti-backdating rule as the score and the grid), so the leaderboard's "Shipping every week" filter (streak 4+),
+  the card and the reply read commit weeks. The profile's "N weeks in a row" is `streakOf` over the grid's own
+  weeks (`bench-data.ts profileData`), so the header never contradicts the grid.
+- One rank pool: `benchPool` moved to `person-score.ts` (re-exported from `bench-rank.ts`); `standingOf` ranks and
+  counts over it (listed, ranked, the one project confirmed now), so every "#N of M" matches the leaderboard
+  header's "M builders this week". A ranked person outside the pool is still counted in for their own reply.
+- `mcp.ts SCORE_DESCRIPTION` names the Shipping score and says every ranked builder sees a rank.
+- `BenchRowItem` has fixed-width points and rank columns (`grid-cols-[auto_minmax(0,1fr)_3.25rem_3rem]`), so rows
+  line up from #1 to #100.
+
+## Launch ready (Task 1): installs, the badge, funnel numbers, hotfix carry-overs
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (rulings L1, L3, L8, L9).
+
+- **L1 installs.** Claude Code's line is `claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp`
+  everywhere (the modal `AddToAgent.tsx AGENTS`, README, `llms/v213.txt`), then `/mcp`, pick earnkit, Authenticate.
+  One-click links only where the agent documents one: Cursor's
+  `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=<url-encoded base64 of {"url": ...}>`, the
+  first thing in its tab. No other agent gets a made-up link.
+- **L3.** The leaderboard's "Community round" chip is gone: `bench-data.ts BenchFilter` is `{ chain, weekly }` (at
+  most 8 variants); an old `?raising=1` link shows the unfiltered board. The coin pill on a row still follows
+  `EARNKIT_RAISING` (the bench cache key still carries it).
+- **L8 README badge.** `GET /badge/<handle>.svg` (`app/badge/[file]/route.ts` over `badge.ts badgeFor`): "EarnKit |
+  Shipping 72 · #3" (or "· Top 4%"), shields-like, navy label, `#579DFF` value, text XML-escaped. The value is the
+  profile header's (`page-data.ts personFacts`): a rank only inside the pool, never a bare score, so outside it
+  "not ranked". Unknown, unclaimed or hidden: "EarnKit | not found", answered 200 (owner ruling, fix round 1: GitHub's
+  image proxy shows it in a README). Another case or a rename serves the same person's badge. `Cache-Control`
+  `public, max-age=3600, s-maxage=3600` (not found: 600); the read itself is `unstable_cache`d per file for an hour
+  under `PROFILE_TAG` (`app/badge/[file]/badge-load.ts`). `IMAGE_CSP` on
+  `/badge/:file` (next.config.ts). `badge` is in `RESERVED_ROUTES`. The profile (`BenchProfileView`, under the
+  sources line, for everyone: the owner can't be told from a visitor on the web) shows "Add the badge to your
+  README", the markdown `[![EarnKit](https://earnkit.com/badge/<h>.svg)](https://earnkit.com/<pagePath>)` and a
+  Copy button (`app/[handle]/BadgeCopy.tsx`, given the markdown so the client never loads `badge.ts`; "Copy failed"
+  when the clipboard refuses; its reset timer is cleared on unmount).
+- **L9 funnel numbers** (`stats.ts`, `/api/stats`, cache key `public-stats-l9`), after `builders`:
+  - `activated`: claimed people (`x_user_id`) with a repo source verified by the App (`proof = 'github_app'`) and at
+    least one checked ship-log week with a fact (`factWeek`: `facts.checked` plus code shipped, went live or a win,
+    `hasFacts`' SQL twin). Until the weekly moment's approvals (L6) exist, that stands in for "first approved week".
+  - `weekly_active`: activated people (the same base, so never above `activated`) with such a week that ended in
+    the last 7 days (`week > now - 14 days`).
+  - `shared`: 0, documented, until Task 3 counts share links.
+  - A test installation's group (`EARNKIT_TEST_INSTALLATIONS`) counts in neither.
+- **Hotfix carry-overs (repo reads).**
+  - `person-github.ts readGithubRepos` returns `{ repos, failed }`. A busy repo's 52-week call that fails puts only
+    that repo in `failed` (`sources.ts readAll` writes its failed reading with the message; `person-score.ts
+    readPersonLive` writes a failed live row). The deadline or a spent budget still stops the whole read.
+  - `needsAllWeeks`: the extra call runs only when the source has no verified reader-2 baseline, or the commits read
+    don't reach before last week's Monday. Fix round 1: the baseline is asked (`RepoReadOptions.baseline(key, r)`)
+    only for a short read, with the repo as read, so it is the write's own lookup (`previousRepoSignals(id, r)`); a
+    ref read once for several sources has a baseline only when every one has.
+  - Fix round 1, one refused repo: `readGithubRepos` asks `ghGraphql(..., { aliasErrors: true })`, so
+    `graphqlUsable` accepts an answer whose every non-NOT_FOUND error has a path starting at an `rN` alias
+    (`source-readers.ts aliasOf`). That repo goes to `refused` (GitHub's message) and is left unread: the App
+    fallback tries it, and the message is its failed reading only if the App can't read it either. An error without
+    such a path still fails the batch.
+  - `ReaderDeps.deadline` (set by `defaultReaderDeps`): no weekly call starts past it (ScoreDeadline, the source
+    stays due).
+  - `week-facts.ts shipReading`, one LATERAL for `weekFactsFor`, `readingOf` and the catch-up's due query: the
+    newest good reading, preferring one of the current reader (`REPO_READER`).
+  - `rescorePerson` returns `changed`: true only when the public row moved (score, rank, or a hold starting or
+    ending). A builder who stays held expires no cache on every refresh.
+
+## Launch ready (Task 2): the repo picker on install (L2)
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (ruling L2). Tests: `repo-picker.test.ts`
+(through `mcpCall`, the fake GitHub and the real setup URL).
+
+- **The reply.** A signed-in builder with no one project (`no_project`) is never asked for a GitHub URL. The one step
+  is "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" then "Want me to rank it
+  once that's done?" (`bench-reply.ts STATE_COPY.no_project.ask`, kind `pick_repo`, `PICK_REPO_NOTE`; the yes is
+  `PICK_REPO_YES_NOTE`). The page is named beside it without https (A14). Only while the link can't be made (the App
+  off) is the old question asked (`noApp()`, kind `start`). Naming a repo still works (find's `identity.project`:
+  `not_counted` with that repo's own install link). The copy rule lets "on the repo you want ranked" through
+  (`fixtures/banned-words.ts`, the owner's line).
+- **The link.** `repo-proof.ts pickLink` is `createVerifyLink` with `repoKey: null`, stored as
+  `github-verify.ts PICK_REPOS` (`'*'`, never a real key: no schema change). Everything else is the App link's: an
+  `app` nonce, refused without the person's page (S7), the confirm page and its `__Host-ekv-` cookie, 15 minutes,
+  single use, the GitHub sign-in hop naming the installer, then GitHub's install page (`installUrl`), whose own
+  picker chooses the repos. The confirm page says "This connects your repos to earnkit.com/<handle>. Only continue
+  if that is your page." (`appPickDestination`), with "Repos: The ones you pick on GitHub".
+- **The setup URL** (`github-app.ts appSetup` -> `pickSetup` for a `PICK_REPOS` nonce, after the same cookie,
+  installation id and `takeNonce` checks). One deadline, `PICK_BUDGET_MS` (25 s) from the top of the handler
+  (fix round 1, I3): every GitHub call of the setup goes through `repo-proof.ts budgetedFetch` with it.
+  `pickedRepos`: the installation (its account), one installation token for the list (`installationToken(id, null)`:
+  metadata read), `GET /installation/repositories` (pages of 100, the first `PICK_LIST_MAX` = 100 listed), newest
+  `pushed_at` first; a repo passes R8 as `appProof` does for one: the installation is the installer's own account and
+  the repo is on it, or the installer is the repo's admin (at most `PICK_ADMIN_CHECKS` = 30 admin checks,
+  `PICK_ADMIN_BATCH` = 5 at a time, until `PICK_PROVE_MAX` = 20 passed). Final fix I2 (ruling): `pickedRepos` also
+  returns `org` (the installation's account is an Organization, or isn't the installer's own); on an org installation
+  `pickSetup` proves and holds only the repo that becomes the one project (the current one project when it was picked,
+  else the most recently pushed one that proves), so the org's other repos stay free for their own builders; a user
+  account (the builder's own repos) still proves up to 20. The success page then says "this repo". Each passing repo goes through `proveOne`
+  (every proveByApp rule: GitHub names this installation, a fork or template is `derived`, `repo_hold:<key>` then the
+  person's and source locks, another person's App hold is `taken`, a non-App hold replaced); only a proven repo then
+  gets its `via = 'app'` verification (fix round 1, M2: a taken repo or a copy gets none, so `appTokenFor` never mints
+  a token for it; the single-repo path now does the same: `proveOne`, then the verification, then `connectProven`).
+- **The one project (fix round 1, I1).** It stays when it is one of the proven repos. Otherwise `setMainProject` with
+  the newest proven repo: that replaces an unconfirmed one project (a named repo the builder never installed on) and
+  keeps a confirmed one. "Newest" is among the first 100 listed repos. Then `connectProven` once within what is left
+  of the deadline (at most `REFRESH_BUDGET_MS`): replaced people rescored, the events, one connect read of every proven
+  repo with the installation token, the rescore, R13's 3-week backfill for the one project (the hourly catch-up
+  finishes the rest).
+- **The setup page** (`PICK_PAGE`, fix round 1, I1, I2): always names whatever the one project is now and its page:
+  "Done. EarnKit now ranks github.com/<repo> on earnkit.com/<handle>.", then (L10) `PICK_PAGE.next` "Go back to your
+  agent and say yes. To rank a different repo, tell your agent.", then "Not your page? Remove the EarnKit app from these repos in your GitHub settings:
+  https://github.com/settings/installations" (the one link; `github-verify.ts pageWith`; the daily `app_check` then
+  takes removed repos off the page). The single-repo success page says the same way out, after "Done. Go back to your
+  agent and say yes." (L10; was "say go") and "This adds github.com/<repo> to earnkit.com/<handle>.". Refusals: nothing picked or not the
+  installer's (403), none could count (403: forks, templates, taken), every proof failed at GitHub (502, M3).
+- **proveByApp split.** `proveByApp` = `proveOne` (the checks and the S8 transaction, returning `Proven`) +
+  `connectProven(builderId, proven, deps, { deadline? })` (the connect read, rescore and backfill).
+- **Switching (tell `main_project`).** `setMainProject` stays set once after confirmation (find's `identity.project`
+  is the folder the agent is in, so it must not move a confirmed project). `tell { main_project: "owner/repo" }`
+  (`bench-find.ts rankAnswer`, `main-project.ts rankRepo`) moves the one project, even a confirmed one, only to a
+  repo this person proved with the App (a verified `github_app` source of their own), then rescores: "EarnKit now
+  ranks github.com/<repo>.". The switch counts at once; the new one project's 3-week backfill comes from the hourly
+  catch-up. Switching after a coin or an entry is allowed: entries and coins stay tied to their own repos. A repo not
+  proven is not changed to; the reply offers that repo's own install link (`installLink`, fix round 1, M5: "... isn't
+  connected yet. Install the read-only EarnKit app on it (one click): <link>") and the agent calls tell again after
+  the install. The tell description names it ("main_project: owner/repo to rank instead."), under 800 characters.
+- **Limits.** The first 100 listed repos, at most 30 admin checks and 20 proofs per setup, newest push first; the rest
+  (and any past the deadline) are not proven at that setup (owner question: raise the caps if builders pick more).
+  GitHub's "Redirect on update" must stay on, so an installation that already exists (the builder adds repos to it)
+  reaches the setup URL too.
+
+## Launch ready (Task 3): one weekly target and one weekly moment (L5, L6, L9)
+
+Design doc: `docs/design-docs-and-implementation-plans/launch-ready.md` (L5, L6, L9). Owner: WHOOP-style and very
+simple: one number (Shipping), one target this week, one weekly moment.
+
+- **The weekly target (L5).** `score-v2.ts weekGains(parts, now)` reads the stored mask as of now's week (shifted like
+  the why) and returns `{ active, gain, next }`: what this week adds (or added, once it has commits) and what next week
+  adds. `weekly-target.ts poolPlace` reads the leaderboard's own pool (`benchPool`): the person's rank (1 + those
+  scoring higher) and the score and rank just above (the lowest higher score). Never a name or handle: another
+  builder's X name is text they control, and putting it in an MCP reply is a prompt-injection path (security ruling
+  during Task 3; `weekly-moment.test.ts` L5.6 checks a hostile name never reaches find, score, the moment or the share
+  link). `weeklyTarget` (pure):
+  - not active, someone above, score + gain > theirs: "Ship code this week: +14 points, enough to pass #2."
+    (not enough, and a tie is not a pass: "Ship code this week: +14 points, 20 behind #2.", the points between them);
+  - #1 (no one higher, ties included): "Ship code this week: +14 points to hold #1.";
+  - this week done: "Done this week: +14 points. Next week adds up to 13 more." (no question; L10 added the units);
+  - outside the pool (held, hidden): "Ship code this week: +14 points."; a week worth 0 points (impossible with
+    today's weights: a week adds at least 13) reads "Ship code this week to hold #k." / "Done this week.".
+  `targetFor` never throws (null: the caller keeps `SHIP_STEP`). Replies (`benchView`, find and score) put it as the
+  ranked state's one next step (kind `ship`, the yes still `SHIP_NOTE`). The profile (`bench-data.ts
+  profileData.target`) shows the same math under the why in the page's voice (L10, `voice: 'page'`; see the UX pass).
+  The why sentence (`scoreWhy`) now holds only the weeks with code ("Code in 7 of the last 12 weeks, 3 of the last
+  4."), so the step is never said twice. L5 said "owner view only" on the profile, but L7 rules the owner can't be
+  told from a visitor on the web; the brief shows it to everyone with the rank only.
+- **The weekly moment (L6).** In `benchView`, ranked, with a page and no held question, `weeklyMoment`: `momentDue`
+  (the caller's own installation's `installations.moment_week` is not this ISO week), then `lastWeekOf` (the
+  builder's last ranked, unheld `builder_scores` row of last week, its rank among that day's other ranked, unheld rows
+  whose page is listed now; the same for the week before for the deltas; last week's `project_updates.titles` through
+  `titlesShown`, so a private repo's titles only with titles on), then `momentReady` (fix round 1: last week's row is
+  `facts.checked`, or this week's Monday 15:00 UTC, `WEEKLY_HOUR_UTC`, has passed; before that no moment and the week
+  stays unclaimed, so a Monday-morning reply never uses up a moment without its titles), then `takeMoment` (`UPDATE
+  installations SET moment_week = <week> WHERE moment_week IS DISTINCT FROM <week> RETURNING 1`: two replies at once
+  show it once). No ranked day last week: no moment and the week stays unclaimed. The lines lead show_to_builder
+  (after "Signed in as"): "Last week you finished at Shipping 50 (+6), #2 (up 1)." ("Last week you finished at
+  Shipping 30, #1." with no week before; "(same)" for no change), up to 2 titles joined by " · " (the builder's own
+  commit titles, checked again with `update-text.ts checkUpdate` at read, and dropped when they hold a link or a host
+  name, `titleHasLink`), then the new week's line from the same target (`weekly-target.ts weekStartLine`: "This week
+  starts empty: ship code to add +13 points, 17 behind #1." / "..., enough to pass #2." / "... to hold #1."; none
+  once this week has code). Only the builder's own data is in the moment and the share text. The share link (`shareLink`: `page-data.ts shareIntentText`, `https://x.com/intent/post`
+  with `text` "My week on EarnKit: Shipping 50 · #2 of 3 builders" and `url` the profile; no X
+  API, no scope) becomes the ranked reply's one link (the page is then named without https) and its step: "Share your
+  week on X: <link>" + "Does last week look right?" (kind `share`, `SHARE_NOTE`). Showing it opens the offer in
+  `standing_seen.share_open = { key, week, shown_week }` (`openShare`), apart from the stored ask, so later replies
+  that week don't close it (`takeNews` keeps the key). Per installation: another agent of the same person sees its own
+  moment once.
+- **The yes (L6, L9).** `benchMoveUp` routes kind `share` to `answerShare` (fix round 1): one UPDATE removes
+  `share_open` and returns it, only while `isoWeekOf(now)` is its `shown_week` and for its project, so it is answered
+  once, any time that week. A yes runs `approveWeek`: the builder's existing row for that week, matched
+  case-insensitively, gets `facts.approved = true`, `approved_at`, `approved_via = 'share'` merged in; with none, one is
+  inserted (the weekly job's later upsert merges too, so nothing is lost). A row holding only the approval shows nowhere (no facts,
+  text or titles: `logCards`, the feed's `hasFacts`). "Thanks. Last week is confirmed." A no is the usual decline.
+- **Funnel numbers (L9).** `stats.ts approvedWeek`: activated = claimed + App-proven repo + an approved week;
+  weekly_active = the same people with `approved_at` in the last 7 days; shared = approved weeks with
+  `approved_via = 'share'` (weeks, not people). Test installations' groups never count. The old fact-week stand-in
+  (`factWeek`) is gone.
+- **Schema.** `installations.moment_week text` (additive, idempotent).
+- **Tests.** `weekly-target.test.ts` (pure: gains, every target shape and boundary, moment lines, share link encoding),
+  `weekly-moment.test.ts` (mcpCall: the target through find and score, the public profile target, #1 and ties, the
+  moment once per installation, deltas, titles public and private, the share link, the yes and its row, two replies at
+  once, the stats deltas), `stats.test.ts` (approvals), and the ranked-step tests now use `fixtures/ranked-step.ts`.
+- **Accepted limits.** Last week's rank is read from the daily history (the cron's first run each day); a builder whose
+  row is missing that day is left out of that day's count. `STATS_LABELS.shared` is "weeks confirmed at the weekly
+  share offer": a yes doesn't prove a post.
+
+## Launch ready (UX pass, L10): the site and the replies as a new builder sees them
+
+Walked every page (desktop 1440x900, phone 390x844) and the agent replies through `mcpCall` as a brand-new builder
+and as a designer. Screenshots and the rendered replies: `docs/screenshots/launch-ready/{before,after}/`,
+`replies.md` (after) and `replies-before.md`. The full issue table is in `.superpowers/sdd/launch-ready/task-ux-report.md`.
+
+- **404.** `app/not-found.tsx`: the site's own page ("Page not found", the leaderboard and home) for any unknown path
+  or handle; before, Next's white default.
+- **Header.** `Header.tsx` and `brand-page.ts brandShell` link Programs (from 640px, after Feed; the footer's order).
+- **Install modal** (`AddToAgent.tsx`). `INTRO` "Free. Your agent connects with this link:" (not "no account": the agent
+  signs the builder in with X). One step is a plain line, two or more a numbered list (no "1. Or add this"). Codex's
+  `after` is "Then sign in:" above the login command (it was said twice). Focus rings on the tabs, Copy and close.
+- **Leaderboard.** `BenchRowItem`: on a phone the @handle and chain logos share one line and the project and its
+  best fact share one (three lines a row, was five). `BenchView`: an empty filtered view says `BENCH_EMPTY` "No builder
+  matches this filter yet." with `BENCH_SHOW_ALL` "Show everyone" (`/leaderboard`).
+- **Program cards.** The days chip starts with a capital ("Rolling", "Ends today"), as the difficulty chip does.
+- **Profile** (`BenchProfileView`). L7: every page ends with the visitor CTA (`VISITOR_CTA` "Want your own page? It is
+  free." and "Add to your agent"). `confirmingCardLine` says "a private project" for `PRIVATE_NAME` (was "is getting
+  Private project"). No project and no week with code: one calm line, `noProjectLine` "<name> has no project on the
+  leaderboard yet." (was "Code in 0 of the last 52 weeks" over an empty grid). The README badge line only with a rank
+  and not while confirming (else the badge reads "not ranked"). `BENCH_SOURCES_LINE` drops "from public data" (App
+  repos may be private). Project links are 44px on phones.
+- **The weekly target's two voices** (`weekly-target.ts weeklyTarget(t, voice)`). Replies (`'reply'`, the default)
+  are unchanged except the done line: "Done this week: +14 points. Next week adds up to 13 more.". The public page
+  (`'page'`, `targetFor(..., { voice: 'page' })` from `profileData`) states the math to a visitor: "Code this week adds
+  +14 points, enough to pass #2." / "..., 20 behind #2." / "... to hold #1." / "Shipped this week: +14 points. Next
+  week adds up to 13 more."; null when the week adds nothing. Ranks only, as before.
+- **Setup and sign-in pages.** `VERIFY_PAGE.done` "say yes" (the reply's question is "Want me to ... once that's
+  done?"); the picker's page adds `PICK_PAGE.next`. The paste code is its own unbreakable line (`.ek-code`; it broke
+  at a dash on phones): `LINK_TEXT.paste` is now the label "Paste this code to your agent:".
+- **OG card.** `public/og.png` is the current headline (was "Agents only ... Launching soon"); the alt text matches.
+- **Tests.** `public-pages` (404, header, modal), `bench-page` (Show everyone), `profile-bench` (L10 page states),
+  `weekly-target` (page voice), `v214-signin-link` (`.ek-code`), copy-review scans the page voice; updated pins in
+  `weekly-moment`, `v214-app-proof`, `repo-picker`, `github-app`, `install`, `leaderboard-clarity`, `fixtures/ranked-step.ts`.
+
+### Final fixes (coordinator's final review)
+
+- **I1 Command wrap.** `AddToAgent.tsx Command` splits on line breaks first, then wraps only between words (each word
+  `whitespace-nowrap`), so Cursor's multi-line mcp.json keeps its lines and a flag never splits at its hyphens.
+- **I2 Org picker.** See the picker section above: an organization's installation proves only the one project's repo.
+- **I3 Target copy.** Not passing reads "D short of #k", D = their score - (score + gain) + 1 (passing means strictly
+  above; a tie is 1 short): replies "Ship code this week: +14 points, 7 short of #2.", the page "Code this week adds
+  +14 points, 7 short of #2.", the moment's line likewise (`weekly-target.ts shortOf`).
+- **M1 Share yes.** `answerShare` with no `project_key` answers the one open offer.
+- **M2 Moment line.** "This week starts at Shipping S: ship code to add +G points, ..." (S the new week's score), so
+  the drop from last week's number reads as the new week.
+- **M6 Badge.** `badge.ts badgeFileOk` (X handle, 1 to 15 of `[A-Za-z0-9_]`, plus ".svg"); the route answers
+  `badgeMiss()` for anything else before `unstable_cache` or the database.

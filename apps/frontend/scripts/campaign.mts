@@ -26,7 +26,7 @@ import type { FrozenTerms } from '../lib/earnkit/payout';
 
 /**
  * Admin for EarnKit's own campaigns (golive, and the read-only rank|payout|veto-link <slug>: the
- * cron scores and pays them), the owner's review links (bonus-link <round>; v2.12 scores-link) and
+ * cron scores and pays them), the owner's review link (v2.12 scores-link) and
  * for sponsor campaigns (fallback|refund|sync <ref>; local use).
  * `pnpm campaign --help` lists every command (lib/earnkit/cli.ts USAGE). Sponsor signing keys
  * (OPERATOR_PRIVATE_KEY, GUARDIAN_PRIVATE_KEY) live only in the local shell, never on the server. Every error ends as one
@@ -46,7 +46,7 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'bonus-link', 'scores-link', 'fallback', 'refund', 'sync'];
+const COMMANDS = ['golive', 'rank', 'payout', 'veto-link', 'scores-link', 'fallback', 'refund', 'sync'];
 const FALLBACK = ['propose', 'execute', 'veto'];
 if (!command || ['help', '--help', '-h'].includes(command)) {
   console.log(USAGE);
@@ -76,16 +76,8 @@ if (command === 'scores-link') {
 }
 if (!slug && command !== 'sync')
   fail(
-    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a ${command === 'bonus-link' ? 'builder bonus round key' : `campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}`}.\n\n${USAGE}`,
+    `pnpm campaign ${command}${sub ? ` ${sub}` : ''} needs a campaign ${['golive', 'rank', 'payout', 'veto-link'].includes(command) ? 'slug' : 'ref'}.\n\n${USAGE}`,
   );
-// v2.5: a builder bonus round's review link (its own key; no database needed).
-if (command === 'bonus-link') {
-  const { bonusReviewLink } = await import('../lib/earnkit/veto');
-  const link = bonusReviewLink(process.env.EARNKIT_URL ?? 'https://earnkit.com', slug!);
-  if (!link) fail('Set ADMIN_VETO_SECRET in your local shell (the same value as on Railway, 32+ characters).');
-  console.log(link);
-  process.exit(0);
-}
 
 // Set inside main(), only for commands that need it: golive edits the program file directly and
 // must work with no DATABASE_URL (it runs before the owner provisions anything, v2.4 ruling 2).

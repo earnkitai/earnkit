@@ -1,4 +1,4 @@
-import { Eyebrow, Panel } from '../../components/common/Panel';
+import { Panel } from '../../components/common/Panel';
 
 const TERMS = [
   'Your deposit goes into its own escrow contract on Base. EarnKit cannot take it; the contract only pays it out as below.',
@@ -13,12 +13,11 @@ const TERMS = [
 /** The terms a sponsor agrees to on the fund page (/terms#sponsor-terms since v2.9 F22). */
 export default function SponsorTermsSection() {
   return (
-    <Panel className="mt-4 py-12 md:py-16" label="Sponsor terms">
-      <Eyebrow>Sponsors</Eyebrow>
-      <h2 id="sponsor-terms" className="mt-4 scroll-mt-32 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+    <Panel className="py-12 md:py-16" label="Sponsor terms">
+      <h2 id="sponsor-terms" className="scroll-mt-32 font-funnel-display text-2xl font-medium text-ek-text md:text-4xl">
         Sponsor terms
       </h2>
-      <ol className="mt-8 max-w-2xl list-decimal space-y-3 pl-5 font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+      <ol className="mt-8 max-w-2xl list-decimal space-y-3 pl-5 font-funnel-sans text-base font-light text-ek-body md:text-lg">
         {TERMS.map((t) => (
           <li key={t}>{t}</li>
         ))}

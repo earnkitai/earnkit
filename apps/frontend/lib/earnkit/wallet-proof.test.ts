@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { verifyMessage } from 'viem';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { WALLET_TEXT, proveWallet, upgradeToken, upgradeOf, walletGet, walletMessage, walletPost } from './wallet-proof';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
@@ -21,7 +21,6 @@ const KEY = generatePrivateKey();
 const NOW = new Date('2026-10-14T10:00:00Z');
 const viemVerify = (a: { address: string; message: string; signature: string }) =>
   verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` });
-const noLimit = { limit: async () => {} };
 
 /** A fresh installation with a profile, claimed with a fresh X id as `handle` (bindX clears it from any other profile). */
 async function claimed(handle: string): Promise<number> {
@@ -30,16 +29,6 @@ async function claimed(handle: string): Promise<number> {
   const r = await bindX(id, { id: `t7w${randomBytes(6).toString('hex')}`, username: handle, name: handle, avatar: null }, NOW);
   assert.equal(r.ok, true);
   return id;
-}
-async function withScore<T>(fn: () => Promise<T>): Promise<T> {
-  const old = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    return await fn();
-  } finally {
-    if (old === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = old;
-  }
 }
 
 test('7.1 an upgrade token names one person for 30 minutes', () => {
@@ -88,17 +77,15 @@ test('7.3 a signed message proves a wallet once; a wrong signer, an expired toke
   assert.deepEqual(await proveWallet({ token: tp, wallet: third.address, signature: sp }, NOW, viemVerify), { ok: false, line: WALLET_TEXT.expired });
 });
 
-test('7.5b (final fix wave) every non-200 answer of /claim/wallet carries frame-ancestors: 404, 410, JSON errors and 405', dbTest, async () => {
+// ---- Restored in v2.14 T3 fix round 1: the wallet page's security rules ----
+
+const run = <T>(fn: () => Promise<T>): Promise<T> => fn();
+const noLimit = { limit: async () => {} };
+
+test('7.5b (final fix wave) every non-200 answer of /claim/wallet carries frame-ancestors: 410, JSON errors and 405', dbTest, async () => {
   const frame = (r: Response) => assert.equal(r.headers.get('content-security-policy'), "frame-ancestors 'none'", `${r.status}`);
   const route = await import('../../app/claim/wallet/route');
-  // Flag off: the route is a 404 for every method, framed by no one.
-  frame(await walletGet(new Request('https://earnkit.com/claim/wallet?t=junk')));
-  for (const m of [route.PUT, route.PATCH, route.DELETE]) {
-    const r = await m();
-    assert.equal(r.status, 404);
-    frame(r);
-  }
-  await withScore(async () => {
+  await run(async () => {
     const gone = await walletGet(new Request('https://earnkit.com/claim/wallet?t=junk'));
     assert.equal(gone.status, 410);
     frame(gone);
@@ -119,11 +106,10 @@ test('7.5b (final fix wave) every non-200 answer of /claim/wallet carries frame-
   });
 });
 
-test('7.5 the wallet page: 404 with the flag off; one button and the message to sign; the POST checks Origin and answers a line', dbTest, async () => {
+test('7.5 the wallet page: one button and the message to sign; the POST checks Origin and answers a line', dbTest, async () => {
   const id = await claimed(`wp${randomBytes(4).toString('hex')}`);
   const t = upgradeToken(id, new Date())!;
-  assert.equal((await walletGet(new Request(`https://earnkit.com/claim/wallet?t=${encodeURIComponent(t)}`))).status, 404);
-  await withScore(async () => {
+  await run(async () => {
     const get = await walletGet(new Request(`https://earnkit.com/claim/wallet?t=${encodeURIComponent(t)}`));
     assert.equal(get.status, 200);
     const body = await get.text();

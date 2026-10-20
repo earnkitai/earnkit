@@ -6,7 +6,6 @@ import https from 'node:https';
 import { promises as dnsPromises } from 'node:dns';
 import { safeFetchText } from './safe-fetch';
 import './fixtures/no-network-checks';
-import { proofCheck } from './submission-proof';
 import type { AddressInfo } from 'node:net';
 
 // v2.9 Part 2 final review I3: `pnpm test` preloads fixtures/test-guard.ts.
@@ -57,10 +56,4 @@ test('final fix I3: https.request and http.request (safe-fetch\'s transport) thr
   } finally {
     server.close();
   }
-});
-
-test('final fix I3: with the test preloads, a submission link\'s page is never read from the real site', async () => {
-  const program = { id: 'arc-microgrants', submission_proof: { host: 'dorahacks.io', path_pattern: '^/buidl/\\d+$' } };
-  const o = await proofCheck(program, 'https://dorahacks.io/buidl/1', 'https://github.com/alice/tipjar', undefined);
-  assert.equal(o.kind, 'unreachable');
 });

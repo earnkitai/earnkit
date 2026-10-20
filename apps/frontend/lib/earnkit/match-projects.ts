@@ -773,7 +773,7 @@ export type MatchDeps = {
   appToken?: (fullName: string) => Promise<string | null>;
   /**
    * v2.12 spec 7: the person's verified users and money for a repo (by repo key, `owner/repo`), from
-   * their public builder score, else null. Absent (the score flag off): v2.10's traction.
+   * their public builder score, else null. Absent: v2.10's traction.
    */
   verified?: (repoKey: string) => Promise<{ users: number; money_usd: number } | null>;
 };

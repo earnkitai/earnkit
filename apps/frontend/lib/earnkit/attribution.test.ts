@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { codesIn } from './builder-code';
 import { attributionFor, attributionSuffix, baseBuilderCode, personCode } from './attribution';
 

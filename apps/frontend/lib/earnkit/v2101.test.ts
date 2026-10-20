@@ -360,7 +360,6 @@ test('v2.10.1 B5 (fix round 1, I3): a reply to an old tool name names each tool 
   // The old names accept the new argument words the reply uses.
   assert.deepEqual(aliasCall('confirm_entry', { project_id: 4, yes: true }, NOW), { name: 'confirm', args: { project_id: 4, yes: true } });
   assert.deepEqual(aliasCall('tell_earnkit', { submitted: { program_id: 'arc-microgrants' } }, NOW), { name: 'tell', args: { submitted: { program_id: 'arc-microgrants' } } });
-  assert.deepEqual(aliasCall('pick_up_entries', { pickup: 'yes' }, NOW), { name: 'tell', args: { pickup: 'yes' } });
   // Only old names count as aliased calls (by JSON-RPC id).
   assert.deepEqual(
     [...aliasedIds([{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'find' } }, { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'confirm_entry' } }], NOW)],

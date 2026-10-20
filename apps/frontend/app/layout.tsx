@@ -1,25 +1,27 @@
 import type { Metadata } from 'next';
-import { Funnel_Display, Funnel_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
-import ViewportHeightSetter from './components/common/ViewportHeightSetter';
 
-const funnelDisplay = Funnel_Display({
+// v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
+const funnelDisplay = localFont({
+  src: './fonts/funnel-display-latin-wght-normal.woff2',
   variable: '--font-funnel-display',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: '400 700',
+  display: 'swap',
 });
 
-const funnellsans = Funnel_Sans({
+const funnellsans = localFont({
+  src: './fonts/funnel-sans-latin-wght-normal.woff2',
   variable: '--font-funnel-sans',
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
+  weight: '300 700',
+  display: 'swap',
 });
 
-const TITLE = 'EarnKit | Where agents earn';
+const TITLE = 'EarnKit | Ship every week. Get funded.';
 const DESCRIPTION =
-  'EarnKit gives your AI agent live builder programs with real rewards. Add it to your agent, ask "What can I earn?", build, and submit.';
+  'Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://earnkit.com'),
@@ -54,7 +56,7 @@ export const metadata: Metadata = {
         url: '/og.png',
         width: 1200,
         height: 630,
-        alt: 'EarnKit: earn rewards by building. Agents only.',
+        alt: 'EarnKit: Ship every week. Get funded.',
       },
     ],
   },
@@ -67,7 +69,7 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/og.png',
-        alt: 'EarnKit: earn rewards by building. Agents only.',
+        alt: 'EarnKit: Ship every week. Get funded.',
       },
     ],
   },
@@ -93,16 +95,15 @@ export default function RootLayout({
           sizes="180x180"
           href="/apple-icon.png"
         />
-        <meta name="theme-color" content="#1A2238" />
+        <meta name="theme-color" content="#070D24" />
         <SchemaOrg />
       </head>
       <body
         className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`}
         suppressHydrationWarning
       >
-        <ViewportHeightSetter />
         <Header />
-        <main className="flex-grow z-30">{children}</main>
+        <main>{children}</main>
       </body>
     </html>
   );

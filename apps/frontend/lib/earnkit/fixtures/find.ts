@@ -57,7 +57,8 @@ export async function person(o: { projects: Seed[]; score?: number; ranked?: boo
     VALUES (${id}, ${`v2121f-${id}`}, ${sql().json((o.seen ?? {}) as never)}, ${o.main ?? null}, ${o.claimed ? `x${id}` : null}, ${o.claimed ?? null})`;
   await sql()`
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
-    VALUES (${id}, ${o.score ?? 0}, '{}'::jsonb, ${o.ranked ?? false}, ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-launch', now(), now())`;
+    VALUES (${id}, ${o.score ?? 0}, ${sql().json({ shipping: { points: o.score ?? 0, raw: { mask: 0, live_ships: 0 } } } as never)}, ${o.ranked ?? false},
+      ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-shipping', now(), now())`;
   for (const [i, p] of o.projects.entries()) {
     await sql()`
       INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, people, sends_tx, untracked_contract, last_active_at, weeks_shipping, streak)
@@ -98,7 +99,7 @@ export const fitsFor = (programId: string, key = 'lee/tipjar') => [
 ];
 
 export type Found = {
-  programs: { title: string }[]; show_to_builder: string; claim?: { link: string }; move_up?: { kind: string; project_key: string | null; agent_note?: string };
+  programs: { title: string }[]; show_to_builder: string; move_up?: { kind: string; project_key: string | null; agent_note?: string };
   lead?: { program_id: string }; note: string;
   proof?: { line?: string; sign_in?: string }; schedule_daily_check?: string; schedule_weekly_update?: string;
   build_offer?: { program_id: string; starter_id: string }; rank_lines?: string[]; streak?: number;
@@ -107,11 +108,11 @@ export const find = (id: number, input: Record<string, unknown> = {}, extra: Rec
   tools.find(input, { installationId: id, ...extra } as never) as Promise<Found>;
 
 /**
- * v2.13.4: under the Bench an unclaimed person's one ask is the X claim; a test about what comes after
- * it claims first (a unique X account, as the claim page's sign-in binds it).
+ * A person signed in with X (a unique X account, as x-install.ts bindX writes it), for tests of what a page
+ * signed in with X sees.
  */
 export async function claimX(id: number): Promise<string> {
-  const { bindX } = await import('../claim');
+  const { bindX } = await import('../x-install');
   const { ensureProfile } = await import('../profiles');
   await ensureProfile(id, new Date());
   const tag = randomBytes(5).toString('hex');

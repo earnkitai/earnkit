@@ -1,20 +1,16 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { Panel } from '../common/Panel';
-import AddToAgent from './AddToAgent';
 import CarouselRow from './CarouselRow';
 import ProgramCard from './ProgramCard';
+import { H1, H2, LEDE } from '../common/Panel';
 import type { Tile } from '../../../lib/earnkit/landing';
 
 /**
- * v2.8 Rulings 20, 21 (plan): "Open programs", the money figure ("$1.1M+ open right now", v2.9 F21), one "Ask
- * your agent" (the install modal with the starting phrase), then every open curated program as a
- * slim card (ProgramCard), sorted by pool (landing.ts byPool). Home: one row with native CSS scroll
- * snap (swipe on mobile; from md, two arrows that move one card and turn off at the ends).
- * /programs: the same cards in a grid (`layout="grid"`, heading h1), no arrows.
- * v2.13 (`bench`, the landing under the flag): the title is "Money open now" (O5 P10) and no card shows
- * the builder bonus pill. The row and arrows are CarouselRow, shared with UpdateCarousel.
+ * v2.8 Rulings 20, 21 (plan), R18: the title, the money figure ("$1.1M+ open right now", v2.9 F21),
+ * then every open curated program as a slim card (ProgramCard; each opens its guide, where the agent
+ * is one tap away), sorted by pool (landing.ts byPool). Home: one carousel row (CarouselRow).
+ * /programs: the same cards in a grid (`layout="grid"`, heading h1).
+ * v2.13 (`bench`, the landing): the title is "Money open now" (O5 P10).
  */
 export default function ProgramCards({
   tiles,
@@ -22,7 +18,6 @@ export default function ProgramCards({
   heading = 'h2',
   layout = 'carousel',
   bench = false,
-  bonus = true,
 }: {
   tiles: Tile[];
   /** The one money figure ("$1.1M+", landing.open_text), shown under the title; null hides the line. */
@@ -30,42 +25,25 @@ export default function ProgramCards({
   /** v2.7 /programs: the cards are the page, so their heading is its h1. */
   heading?: 'h1' | 'h2';
   layout?: 'carousel' | 'grid';
-  /** v2.13: the landing under the flag. */
+  /** v2.13: the landing (its title). */
   bench?: boolean;
-  /** v2.13 R16: false under the Bench flag (/programs): no builder bonus pill on a card or in the install modal. */
-  bonus?: boolean;
 }) {
   const Heading = heading;
-  const carousel = layout === 'carousel';
-  const [asking, setAsking] = useState(false);
-  const close = useCallback(() => setAsking(false), []);
   // v2.13.1 O5 (P10): the list includes investments (a16z speedrun), so "Money", not "Grants".
   const title = bench ? 'Money open now' : 'Open programs';
-  // v2.13 R16: no builder bonus pill under the flag (T13 also clears has_bonus at the source).
-  const noBonus = bench || !bonus;
-  const shown = noBonus ? tiles.map((t) => ({ ...t, has_bonus: false })) : tiles;
 
   const head = (
     <div>
-      <Heading className="font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">{title}</Heading>
-      {figure && (
-        <p className="mt-3 font-funnel-display text-2xl font-medium text-ek-blue-bright md:text-3xl">{figure} open right now</p>
-      )}
-      <button
-        type="button"
-        onClick={() => setAsking(true)}
-        className="mt-6 inline-flex min-h-12 items-center justify-center text-nowrap rounded-full bg-ek-blue-bright px-6 font-funnel-sans text-base font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
-      >
-        Ask your agent
-      </button>
+      <Heading className={heading === 'h1' ? H1 : H2}>{title}</Heading>
+      {figure && <p className={heading === 'h1' ? LEDE : 'mt-2 font-funnel-sans text-base text-ek-muted md:text-lg'}>{figure} open right now</p>}
     </div>
   );
 
   return (
-    <Panel id="open-programs" className="py-12 md:py-16">
-      {carousel ? (
-        <CarouselRow label={title} arrows="programs" head={head} count={shown.length}>
-          {shown.map((t) => (
+    <section id="open-programs" aria-label={title}>
+      {layout === 'carousel' ? (
+        <CarouselRow label={title} arrows="programs" head={head} count={tiles.length}>
+          {tiles.map((t) => (
             <li key={t.id} className="w-[85%] flex-shrink-0 snap-start sm:w-[48%] lg:w-[31.5%]">
               <ProgramCard tile={t} />
             </li>
@@ -73,9 +51,9 @@ export default function ProgramCards({
         </CarouselRow>
       ) : (
         <>
-          <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-6">{head}</div>
+          {head}
           <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 md:mt-10">
-            {shown.map((t) => (
+            {tiles.map((t) => (
               <li key={t.id}>
                 <ProgramCard tile={t} />
               </li>
@@ -83,8 +61,6 @@ export default function ProgramCards({
           </ul>
         </>
       )}
-
-      {asking && <AddToAgent onClose={close} bench={noBonus} />}
-    </Panel>
+    </section>
   );
 }

@@ -36,13 +36,13 @@ export default function Avatar({
         loading="lazy"
         decoding="async"
         onError={() => setFailedSrc(src)}
-        className={`shrink-0 rounded-full bg-ek-navy object-cover ring-1 ring-ek-blue-soft/20 ${className}`}
+        className={`shrink-0 rounded-full bg-ek-raised object-cover ring-1 ring-ek-line-strong ${className}`}
       />
     );
   return (
     <span
       aria-hidden="true"
-      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full bg-ek-navy font-funnel-display font-medium text-ek-blue-light ring-1 ring-ek-blue-soft/20 ${className}`}
+      className={`inline-flex shrink-0 select-none items-center justify-center rounded-full bg-ek-raised font-funnel-display font-medium text-ek-body ring-1 ring-ek-line-strong ${className}`}
     >
       {handle.replace(/^_+/, '').charAt(0).toUpperCase() || '?'}
     </span>

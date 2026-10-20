@@ -5,18 +5,17 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { withEnv } from './fixtures/find';
 import { benchRows, benchCardFacts, parseBenchFilter, profileData } from './bench-data';
 import { chainPools } from './bench-rank';
-import { benchReply, confirmingLine, confirmingSlowLine, type BenchView as View } from './bench-reply';
 import { carouselCards, feedWeeks, rankFeed } from './feed';
-import { PROOF_NOTE, SIGN_IN_OWNER_NOTE, mainProjectOf, pickMainProject, proofFor, setMainProject } from './main-project';
-import { RAISE_LINES, pillOf, raiseAsk, setRaising } from './raising';
+import { mainProjectOf, pickMainProject, setMainProject } from './main-project';
+import { RAISE_LINES, pillOf, setRaising, showRaisingLine } from './raising';
+import { tokenAsk } from './bench-find';
 import { coinLine, raiseLine } from './coin-moments';
 import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
 import { TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, toolDescriptions } from './mcp';
-import BenchView, { FILTER_RAISING } from '../../app/bench/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import BenchTop from '../../app/components/sections/BenchTop';
 import { GET as llms } from '../../app/llms.txt/route';
 
@@ -24,8 +23,6 @@ import { GET as llms } from '../../app/llms.txt/route';
  * v2.13 final fix wave (final-review.md I1, I2, I3, M1, M2, M4, M7 and the EARNKIT_RAISING ruling).
  * Every row this file writes carries a per-run key and goes in `after`.
  */
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v213-final-fix-secret';
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -81,7 +78,7 @@ async function listed(o: { name?: string; public?: boolean; chains?: string[]; r
   const id = await installation();
   const key = `fx${RUN}/repo${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213fx-${id}`}, ${key}, ${`fxx${id}`}, ${`fx${RUN}${id}`}, 'Maya')`;
-  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-launch', now())`;
+  await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${o.score ?? 50}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
   await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains) VALUES (${id}, ${key}, ${o.name ?? `repo${id}`}, 'app', true, true, ${o.chains ?? []})`;
   const [{ sid }] = await sql()<{ sid: number }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent') RETURNING id::int AS sid`;
@@ -100,7 +97,7 @@ test('F1 a private main repo shows the safe name on /bench, /feed and the carous
   await sql()`UPDATE builder_projects SET name = ${secret.key.split('/')[1]} WHERE builder_id = ${secret.id}`;
   const open = await listed({ name: 'Open app', public: true, update: true, score: 40 });
   const only = [secret.id, open.id];
-  const bench = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const bench = await benchRows({ chain: null, weekly: false }, { only });
   assert.deepEqual(bench.rows.map((r) => r.project), ['Private project', 'Open app']);
   await rankFeed(NOW);
   const feed = (await feedWeeks(NOW, { only })).flatMap((w) => w.cards);
@@ -134,83 +131,15 @@ test('F2 the lazy pick: nothing Bench-confirmed leaves it unset; a confirmed row
   assert.equal(await pickMainProject(other, sql()), k('proven'));
 });
 
-test('F3 the proof names the exact repo the line goes to, and the note tells the agent to use it (flag off; the flag gives none)', dbTest, async () => {
-  const id = await installation();
-  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v213fx-${id}`})`;
-  const key = `own${RUN}/app${id}`;
-  await setMainProject(id, { name: 'App', what: null, repo: key, live_url: null, package: null, contracts: [] });
-  assert.equal(await proofFor(id, id, { canPush: true, now: new Date() }), null, 'flag on: no line to push');
-  const p = await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now: new Date() }));
-  assert.ok(p && 'line' in p, JSON.stringify(p));
-  assert.equal(p.repo, key);
-  assert.equal(p.agent_note, PROOF_NOTE);
-  assert.match(PROOF_NOTE, /proof\.repo/);
-});
-
-// ---- I3: a line that can't confirm the repo gets the sign-in link; no "a minute or two" forever ---
-
-test('F4 an agent that can push gets the sign-in link when the owner is not the builder\'s login, an organization, or the hour passed', dbTest, async () => {
-  const saved = { id: process.env.GITHUB_OAUTH_CLIENT_ID, secret: process.env.GITHUB_OAUTH_CLIENT_SECRET };
-  process.env.GITHUB_OAUTH_CLIENT_ID = 'fake-client';
-  process.env.GITHUB_OAUTH_CLIENT_SECRET = 'fake-secret';
-  try {
-    const now = new Date();
-    const at = async (owner: string, githubUser: string | null, o: { issuedAgo?: number; type?: 'User' | 'Organization' } = {}) => {
-      const id = await installation();
-      await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v213fx-${id}`})`;
-      const key = `${owner}/app${id}`;
-      await setMainProject(id, { name: 'App', what: null, repo: key, live_url: null, package: null, contracts: [] });
-      await sql()`UPDATE installations SET github_user = ${githubUser} WHERE id = ${id}`;
-      if (o.type)
-        await sql()`INSERT INTO url_checks (key, ok, checked_at, note) VALUES (${`ghuser:${owner}`}, true, now(), ${JSON.stringify({ type: o.type, created_at: '2020-01-01T00:00:00Z', public_repos: 2 })})
-          ON CONFLICT (key) DO UPDATE SET ok = EXCLUDED.ok, checked_at = EXCLUDED.checked_at, note = EXCLUDED.note`;
-      if (o.issuedAgo !== undefined) await sql()`INSERT INTO proof_line_issues (installation_id, repo_key, first_at) VALUES (${id}, ${key}, ${new Date(now.getTime() - o.issuedAgo)})`;
-      return { key, p: await withEnv({ EARNKIT_BENCH: undefined }, () => proofFor(id, id, { canPush: true, now })) };
-    };
-    const signIn = (r: Awaited<ReturnType<typeof at>>, why: string) => {
-      assert.ok(r.p && 'sign_in' in r.p, `${why}: ${JSON.stringify(r.p)}`);
-      assert.match(r.p.sign_in, /\/github\/verify\?n=/);
-      assert.equal(r.p.agent_note, SIGN_IN_OWNER_NOTE);
-      assert.equal(r.p.repo, r.key);
-    };
-    signIn(await at(`team${RUN}`, `maya${RUN}`, { type: 'User' }), 'reported login is not the owner');
-    signIn(await at(`team${RUN}`, null, { type: 'User' }), 'no login matches the owner');
-    signIn(await at(`org${RUN}`, `org${RUN}`, { type: 'Organization' }), 'an organization owns it');
-    signIn(await at(`late${RUN}`, `late${RUN}`, { type: 'User', issuedAgo: 2 * 3_600_000 }), 'the hour passed');
-    const fresh = await at(`maya${RUN}`, `maya${RUN}`, { type: 'User', issuedAgo: 5 * 60_000 });
-    assert.ok(fresh.p && 'line' in fresh.p, 'the owner\'s own repo within the hour: the line');
-    // With sign-in off there is no link: the line stays the way.
-    delete process.env.GITHUB_OAUTH_CLIENT_ID;
-    const off = await at(`org2${RUN}`, `org2${RUN}`, { type: 'Organization' });
-    assert.ok(off.p && 'line' in off.p);
-  } finally {
-    for (const [k, v] of [['GITHUB_OAUTH_CLIENT_ID', saved.id], ['GITHUB_OAUTH_CLIENT_SECRET', saved.secret]] as const)
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-  }
-});
-
-test('F5 outside the hour of fast checks the reply promises no time; plain words, no em dash', () => {
-  const v: View = { project: { key: 'a/b', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 }, rank: null, claimed: true, handle: 'maya', claimLink: null, fund: [], ask: null };
-  assert.equal(benchReply(v).split('\n')[1], confirmingLine('Recipe planner'));
-  const slow = benchReply({ ...v, slow: true }).split('\n')[1];
-  assert.equal(slow, confirmingSlowLine('Recipe planner'));
-  assert.equal(slow, "Recipe planner joins the Bench once I've confirmed it's yours. I check again every day.");
-  assert.ok(!slow.includes('minute') && !slow.includes('—'));
-  assert.ok(benchReply({ ...v, slow: true, branch: 'checking' }).includes('temporary branch'));
-});
-
-// ---- M1: a project that stops being confirmed leaves the Bench, the chain pools and the feed at once
-
 test('F6 the Bench gate is read now: a lost repo proof leaves /bench, the chain pool and the feed before the next rescore', dbTest, async () => {
   const a = await listed({ public: true, chains: ['base'], update: true });
   const b = await listed({ public: true, chains: ['base'], update: true });
   const only = [a.id, b.id];
   await rankFeed(NOW);
-  assert.equal((await benchRows({ chain: null, raising: false, weekly: false }, { only })).count, 2);
+  assert.equal((await benchRows({ chain: null, weekly: false }, { only })).count, 2);
   // The repo source is rejected; builder_live.ranked is still true (no rescore yet).
   await sql()`UPDATE builder_sources SET state = 'rejected' WHERE id = ${b.sid}`;
-  const after = await benchRows({ chain: null, raising: false, weekly: false }, { only });
+  const after = await benchRows({ chain: null, weekly: false }, { only });
   assert.equal(after.count, 1);
   assert.deepEqual(after.rows.map((r) => r.rank), [1]);
   assert.equal((await chainPools({ only })).base, 1);
@@ -230,13 +159,12 @@ test('F7 tell update: at most 20 posts a person a day, then a plain note', dbTes
   assert.ok(!UPDATE_LIMIT_NOTE.includes('—'));
 });
 
-// ---- EARNKIT_RAISING: off under the Bench, no raising anywhere; on, everything as built -----------
+// ---- EARNKIT_RAISING: off, no raising anywhere; on, everything as built -----------
 
-test('F8 the flag: on only with the Bench and EARNKIT_RAISING=on', () => {
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on' }), false);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_RAISING: 'on' }), true);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_RAISING: 'on' }), false);
-  assert.equal(raisingEnabled({ EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_RAISING: 'yes' }), false);
+test('F8 the flag: on only with EARNKIT_RAISING=on (v2.14: the Bench is always on)', () => {
+  assert.equal(raisingEnabled({}), false);
+  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'on' }), true);
+  assert.equal(raisingEnabled({ EARNKIT_RAISING: 'yes' }), false);
 });
 
 test('F9 raising off: no pill on the Bench, the profile or the card, no filter; on: the pill as pillOf gives it', dbTest, async () => {
@@ -244,10 +172,8 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
   const only = [p.id];
   await withRaising(false, async () => {
     assert.equal(await pillOf(p.id), null);
-    assert.equal((await benchRows({ chain: null, raising: false, weekly: false }, { only })).rows[0].raising, null);
-    assert.equal(parseBenchFilter({ raising: '1' }).raising, false, '?raising=1 is ignored');
-    // A raising filter passed anyway filters nothing.
-    assert.equal((await benchRows({ chain: null, raising: true, weekly: false }, { only })).rows.length, 1);
+    assert.equal((await benchRows({ chain: null, weekly: false }, { only })).rows[0].raising, null);
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false }, '?raising=1 is ignored');
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
     assert.equal(d.raising, null);
     assert.ok(!JSON.stringify(d.log).includes('Community round'), 'no Community round chip on the update cards');
@@ -256,9 +182,10 @@ test('F9 raising off: no pill on the Bench, the profile or the card, no filter; 
   await withRaising(true, async () => {
     const pill = await pillOf(p.id);
     assert.deepEqual(pill, { symbol: 'RECIPE', url: `https://tokens.fun/c/${p.id}` });
-    const rows = await benchRows({ chain: null, raising: true, weekly: false }, { only });
+    const rows = await benchRows({ chain: null, weekly: false }, { only });
     assert.deepEqual(rows.rows[0].raising, pill, 'the row\'s pill is pillOf\'s, in the same read');
-    assert.equal(parseBenchFilter({ raising: '1' }).raising, true);
+    // Launch-ready L3: no raising filter even with EARNKIT_RAISING on (an old link shows the whole board).
+    assert.deepEqual(parseBenchFilter({ raising: '1' }), { chain: null, weekly: false });
     const d = (await profileData(p.id, new Date('2026-10-14T00:00:00Z'), { only }))!;
     assert.deepEqual(d.raising, pill);
     assert.equal((await benchCardFacts(p.id))!.raising, 'RECIPE');
@@ -271,7 +198,8 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     VALUES ('earnkit-coin', 'Recipe planner', ${`https://github.com/${p.key}`}, ${`github.com/${p.key}`}, ${p.id}, 'RECIPE', 'launched', ${`https://tokens.fun/c/${p.id}`})`;
   const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
   await withRaising(false, async () => {
-    assert.equal(await raiseAsk(p.id, p.key, {}), null);
+    // R8: asked about a token, a launched coin is just live (no community-round line while EARNKIT_RAISING is off).
+    assert.equal((await tokenAsk(p.id)).show_to_builder, 'Your coin is already live.');
     // v2.13.3 review: under the Bench the question is last.
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), 'Recipe planner has people using it. A coin pays you 40% of its trading fees. Want to launch a coin, $RECIPE (Recipe planner), for it?');
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: 'Okay.' });
@@ -279,21 +207,20 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
     assert.equal(row.raising, false);
   });
   await withRaising(true, async () => {
-    assert.ok(await raiseAsk(p.id, p.key, {}));
+    assert.equal((await tokenAsk(p.id)).show_to_builder, showRaisingLine('RECIPE'));
     assert.equal(coinLine('has_people', 'Recipe planner', null, coin), raiseLine('Recipe planner', 'RECIPE', null));
     assert.deepEqual(await setRaising(p.id, true), { show_to_builder: RAISE_LINES.on('RECIPE') });
   });
 });
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
-  const row = { rank: 1, line: '#1 of 2', handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
-  const filter = { chain: null, raising: false, weekly: false };
-  const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: false }));
-  assert.ok(!off.includes(FILTER_RAISING) && !off.includes('raising=1'));
-  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, raising: true }));
-  assert.ok(on.includes(FILTER_RAISING) && on.includes('raising=1'));
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], chips: [], raising: false })).includes(FILTER_RAISING));
-  assert.ok(renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], chips: [], raising: true })).includes(FILTER_RAISING));
+  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, raising: null, chains: [], project: 'Recipe planner', best: 'Live' };
+  const filter = { chain: null, weekly: false };
+  // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
+  const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));
+  assert.ok(!board.includes('Community round') && !board.includes('raising=1'));
+  // R18: the landing's top 10 has no filter chips at all (they live on /leaderboard).
+  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes('Community round'));
   await withRaising(false, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));
@@ -306,7 +233,7 @@ test('F11 raising off: the Bench, the landing top 10, tell\'s description and ll
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH);
     // Owner ruling B (v2.13.3): "community round", never raise or raising.
     const text = await (await llms()).text();
-    assert.match(text, /chain, community round and weekly filters/);
+    assert.ok(text.includes('with chain and weekly filters.'), 'launch-ready L3: no community round filter');
     assert.doesNotMatch(text, /\braise\b|\braising\b/i);
   });
 });

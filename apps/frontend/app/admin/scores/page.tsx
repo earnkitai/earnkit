@@ -1,7 +1,6 @@
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { heldForReview, partLines, scoresAdminKey } from '@/lib/earnkit/builder-score';
-import { loginContests } from '@/lib/earnkit/login-contests';
 import { oneParam, secretMatches } from '@/lib/earnkit/http';
 import { ownerClears, xHandleConflicts } from '@/lib/earnkit/profiles';
 import { RateLimitError, clientIp, enforce } from '@/lib/earnkit/rate-limit';
@@ -27,7 +26,7 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
     if (!(err instanceof RateLimitError)) throw err;
     return (
       <div className="w-full pt-4">
-        <p className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">{VETO_ERRORS['rate-limited']}</p>
+        <p className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">{VETO_ERRORS['rate-limited']}</p>
       </div>
     );
   }
@@ -37,27 +36,25 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
   const held = await heldForReview();
   // v2.12 T7 review: X handles two people's GitHub profiles list (self-declared): clear the holder's.
   const conflicts = await xHandleConflicts();
-  // v2.12.1 T5 fix round 2: GitHub logins two unlinked groups prove; confirmed for none until ruled.
-  const contests = await loginContests();
   // Final fix wave: X accounts the owner cleared claim nothing again until released here.
   const cleared = await ownerClears();
   return (
     <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 font-funnel-sans text-ek-blue-light md:px-16">
-        <h1 className="font-funnel-display text-3xl text-ek-white">Held scores</h1>
+      <section className="rounded-[24px] border border-ek-line bg-ek-surface px-6 py-12 font-funnel-sans text-ek-body md:px-16">
+        <h1 className="font-funnel-display text-3xl text-ek-text">Held scores</h1>
         <p className="mt-2 text-sm">
           A score that rose 30+ points in a day, or stands 60+ on one source, waits here. The public sees the last unheld score until you release it.
         </p>
-        {held.length === 0 ? <p className="mt-6 text-sm text-ek-white">Nothing is held.</p> : null}
+        {held.length === 0 ? <p className="mt-6 text-sm text-ek-text">Nothing is held.</p> : null}
         <table className="mt-6 w-full text-sm">
           <thead>
-            <tr className="text-left text-ek-blue-soft">
+            <tr className="text-left text-ek-muted">
               <th>Person</th><th>Held</th><th>Public</th><th>Parts</th><th>Top outcome</th><th />
             </tr>
           </thead>
           <tbody>
             {held.map((h) => (
-              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-navy align-top">
+              <tr key={`${h.formula}:${h.builder_id}`} className="border-t border-ek-line align-top">
                 <td className="py-2">{h.slug} (#{h.builder_id})</td>
                 <td className="py-2">{h.score} on {h.day}</td>
                 <td className="py-2">{h.shown ? `${h.shown.score} on ${h.shown.day}` : 'none yet'}</td>
@@ -82,14 +79,14 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
             ))}
           </tbody>
         </table>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handle conflicts</h2>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-text">X handle conflicts</h2>
         <p className="mt-2 text-sm">
           Another person&apos;s GitHub profile lists the same X handle. Clearing it takes the handle off the holder&apos;s profile; their old link still redirects to them.
         </p>
-        {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-white">No conflicts.</p> : null}
+        {conflicts.length === 0 ? <p className="mt-6 text-sm text-ek-text">No conflicts.</p> : null}
         <ul className="mt-6 text-sm">
           {conflicts.map((c) => (
-            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={`${c.handle}:${c.holder}:${c.claimant}`} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />
@@ -100,14 +97,14 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
             </li>
           ))}
         </ul>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">X handles you cleared</h2>
+        <h2 className="mt-10 font-funnel-display text-2xl text-ek-text">X handles you cleared</h2>
         <p className="mt-2 text-sm">
           The X account of a page you cleared can&apos;t claim a page again until you release it here.
         </p>
-        {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-white">None.</p> : null}
+        {cleared.length === 0 ? <p className="mt-6 text-sm text-ek-text">None.</p> : null}
         <ul className="mt-6 text-sm">
           {cleared.map((c) => (
-            <li key={c.builder_id} className="flex gap-4 border-t border-ek-navy py-2">
+            <li key={c.builder_id} className="flex gap-4 border-t border-ek-line py-2">
               <span>{c.line}</span>
               <form method="post" action="/api/admin/scores">
                 <input type="hidden" name="key" value={key} />
@@ -115,27 +112,6 @@ export default async function ScoresReviewPage({ searchParams }: { searchParams:
                 <input type="hidden" name="builder" value={c.builder_id} />
                 <button type="submit" className="underline">Release</button>
               </form>
-            </li>
-          ))}
-        </ul>
-        <h2 className="mt-10 font-funnel-display text-2xl text-ek-white">Contested GitHub logins</h2>
-        <p className="mt-2 text-sm">
-          Two or more agents that are not one person signed in as the same GitHub. It counts for none of them, unless one has the X that GitHub profile lists. Confirming it for one takes it off the others.
-        </p>
-        {contests.length === 0 ? <p className="mt-6 text-sm text-ek-white">No contests.</p> : null}
-        <ul className="mt-6 text-sm">
-          {contests.map((c) => (
-            <li key={c.login} className="flex flex-wrap gap-4 border-t border-ek-navy py-2">
-              <span>{c.line}</span>
-              {c.groups.map((g) => (
-                <form key={g} method="post" action="/api/admin/scores">
-                  <input type="hidden" name="key" value={key} />
-                  <input type="hidden" name="action" value="rule_login" />
-                  <input type="hidden" name="login" value={c.login} />
-                  <input type="hidden" name="builder" value={g} />
-                  <button type="submit" className="underline">Confirm for #{g}</button>
-                </form>
-              ))}
             </li>
           ))}
         </ul>

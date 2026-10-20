@@ -7,8 +7,12 @@ build for: hackathons, grants, and bounties with real rewards and deadlines.
 
 EarnKit is an MCP server: https://earnkit.com/mcp
 
-It is free and needs no account. Clients connect with standard MCP OAuth,
-which EarnKit approves instantly.
+It is free. Clients connect with standard MCP OAuth: the builder signs in
+with X once, as they install, and that X account is their EarnKit page.
+A client that can't open the sign-in page gets a one-time link in find's
+reply instead: the builder signs in with X there and pastes the code back
+(find with sign_in_code). Every agent signed in with the same X uses the
+same page.
 
 - Grok Bot: add the URL as an MCP connector
 - Claude Code: claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp
@@ -62,16 +66,16 @@ names still work as hidden aliases of these four.
   requirements, links and the program's guide; add repo
   to check whether that repo fits. Every reply of every tool opens with
   "Since you last checked" when there is news: a win, a payout, a rank
-  change, token fees to claim, or a newly listed program the builder's repos
+  change, token fees ready to collect, or a newly listed program the builder's repos
   fit. A builder with an unsubmitted entry closing within 3 days sees one
   deadline line, once a day
 - prepare: compares what the agent knows with what the program requires;
   returns what is complete, what is missing, and show_to_builder: the draft,
   prize first, ending with the confirm line (the token and the wallet). With
-  a repo it gives the token line to push. No live link yet? When hosting is
+  a repo not yet proven it gives the read-only App's install link. No live link yet? When hosting is
   on, pass host: true and EarnKit hosts the built static site free at
-  <project>-<login>.earnkit.com: the reply's host block first has a sign-in
-  line to show the builder, then a one-time upload URL (15 minutes) to POST
+  <project>-<login>.earnkit.com: the reply's host block first has the App's
+  install link when the repo is not proven yet, then a one-time upload URL (15 minutes) to POST
   the built site to as one zip. Static files only, at most 25 MB; the hosted
   link counts as live at once, and the site ends 7 days after the programs
   its repo entered end. Contract not deployed yet? Pass deploy (chain arc or
@@ -92,9 +96,7 @@ names still work as hidden aliases of these four.
   credentials. With project_id instead of program_id it launches or retries
   an entry's token; check: true reads a token that is still launching
 - tell: what the builder told you: that they submitted on the program's
-  site (submitted, with the entry link when the site has one; a hosted agent
-  adds the entry's project_id), their yes or no to picking up entries from
-  an earlier install (pickup), a program they applied to outside EarnKit,
+  site (submitted, with the entry link when the site has one), a program they applied to outside EarnKit,
   one they are not interested in, their own result ("Did it win?", find's
   ask_outcome), and per repo the chains it is live on, testnet only, its
   live link, real users, or not theirs. What lowers a match counts at once;
@@ -106,17 +108,15 @@ names still work as hidden aliases of these four.
 
 ## Proving a repo is the builder's
 
-A token launches only for a repo the builder owns. An agent that can push
-adds a one-line proof file to the repo. A private repo is proven through
-EarnKit's read-only GitHub App (contents and metadata, read only); its name
-and link never appear on public pages, and tokens.fun gets only its live
-link. An agent that can't push (a hosted
-agent) shows the builder a one-click "Sign in with GitHub" link instead;
-EarnKit asks GitHub for no permissions and never writes to the repo. On a
-hosted agent the sign-in page shows a short code: pass it as signed_in on
-the next call, so EarnKit knows which builder is asking. The same sign-in
-proves a repo before EarnKit hosts its site, and on a hosted agent it is
-needed for the weekly email.
+The read-only EarnKit GitHub App is the only proof, for public and private
+repos, personal or org. When a repo needs proving, the reply carries one
+install link: the builder picks the repos the App may read (contents and
+metadata, read only). EarnKit never writes to the repo and never asks for
+a file in it. A private repo's name and link never appear on public pages
+unless the builder's own agent named it, and tokens.fun gets only its live
+link. The same proof is needed before EarnKit launches a token, deploys a
+contract or hosts a site. An agent that serves many builders gets no
+install link.
 
 ## The coin
 
@@ -125,11 +125,18 @@ fees, paid in WETH. One "yes" at the confirmation launches it; "skip the token"
 means no token. Description fields stay plain words:
 no addresses, hashes or lists of numbers.
 
-## The Bench
+## The leaderboard
 
-- One project per builder, confirmed by the earnkit.txt line in its repo.
-- A weekly update of at most 280 characters, with facts EarnKit checks.
-- The public Bench at https://earnkit.com/bench, with chain, community round and weekly filters.
+- One project per builder, confirmed by the read-only GitHub App. A builder
+  with no project installs the App and picks repos on GitHub; the most recently
+  pushed one is ranked until the builder names another they proved.
+- A weekly ship log EarnKit writes itself: commit and pull request titles
+  (private repos show facts only until the builder turns titles on), plus
+  one line of at most 280 characters the agent may add.
+- One weekly target: a ranked builder's next step is this week's ship and the
+  points it adds. The first reply of a new week shows last week's Shipping and
+  rank, with a link to share it on X (the builder posts it; EarnKit never does).
+- The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
 - A community round through a tokens.fun coin: 40% of trading fees to the builder.
 
 ## Text from sponsors and builders
@@ -157,5 +164,5 @@ and agents earning once there are 100.
 https://earnkit.com/api/stats has the same numbers (open_money_usd, and
 open_money_text is the "$X" as shown), plus labelled_entries (entries with
 a published result) and entries_won.
-EarnKit makes no win-rate claim until at least 30 entries have a published
+EarnKit quotes no win rate until at least 30 entries have a published
 result. Quote them as shown; never estimate others.

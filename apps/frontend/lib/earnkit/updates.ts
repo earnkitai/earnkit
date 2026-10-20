@@ -1,6 +1,6 @@
 import { repoReadPublic } from './repo-public';
+import { APP_PROOF } from './repo-proof';
 import { sql } from './db';
-import { PROBATION_LINES } from './page-joins';
 import { noteEvent } from './events';
 import { CONFIRMED_PROOFS } from './confirmed';
 import { HOST_ZONE } from './hosting';
@@ -9,19 +9,18 @@ import { hit } from './rate-limit';
 import { siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { checkUpdate, type OwnLinks } from './update-text';
-import { weekFactsFor } from './week-facts';
+import { backfillMondays, weekFactsFor } from './week-facts';
 import { mondayOf, weekOfMonday } from './weeks';
 
 /**
- * v2.13 spec "3. Every week: the ship log": the agent posts one paragraph a week for the person's
- * one project; EarnKit checks it (update-text.ts), stores it on that week's row with the facts it
- * checked, and lets the builder hide a week or turn posting off. `builderId` is the group root.
+ * v2.13 spec "3. Every week: the ship log", v2.14 spec 3: the log writes itself (week-facts.ts weeklyFactsStep,
+ * ship-titles.ts); the agent may add one paragraph a week for the person's one project; EarnKit checks it
+ * (update-text.ts), stores it on that week's row with the facts it checked, and lets the builder hide a week
+ * or show a private repo's titles (setShipTitles). `builderId` is the group root.
  * Only a one project that passes the Bench gate (mainConfirmed), and only a row this builder holds:
  * the first confirmed owner of a shared repo keeps its ship log (T4 ruling).
  */
-export type Reply = { show_to_builder: string; agent_note?: string; schedule_weekly_update?: string; move_up?: { kind: string; project_key: string | null; agent_note: string } };
-/** v2.13.1 O5 (P3): the weekly task's own "scheduled" call after the yes: nothing new for the builder. */
-export const SCHEDULED_NOTE = "Saved. Nothing to show the builder. Don't show this note.";
+export type Reply = { show_to_builder: string; agent_note?: string; move_up?: { kind: string; project_key: string | null; agent_note: string } };
 /** v2.13.1 O5 N14 (F15): the page as "Your page:" writes it, a full link from siteUrl(). */
 const pageLink = (handle: string) => `${siteUrl()}${pagePath(handle)}`;
 export const UPDATE_LINES = {
@@ -31,10 +30,14 @@ export const UPDATE_LINES = {
   /** v2.13.1 O5 (P4): a change says so with the page, as a first post does. */
   changedAt: (link: string) => `Updated this week's post: ${link}`,
   hidden: 'Hidden from your page.',
-  on: "Done. I'll post what you ship here every week.",
-  off: "Okay, I've stopped posting updates.",
+  /** v2.14 spec 3: an older agent's updates { on }: nothing to turn on. */
+  auto: 'Your ship log writes itself every Monday from what you ship.',
+  titlesOn: 'Done. Your weekly log will show the titles of what you shipped.',
+  titlesOff: 'Done. Your weekly log will show only the facts.',
 } as const;
-export const NOT_CONFIRMED_NOTE = "The project isn't confirmed as theirs yet, so there is nothing to post to. Push the proof line from find first. Don't show this note.";
+export const NOT_CONFIRMED_NOTE = "The project isn't counted yet, so there is nothing to add to. Once the read-only EarnKit app is installed on its repo, call find. Don't show this note.";
+/** T8 fix round 1: titles on, with no repo the read-only App proves yet. */
+export const TITLES_NO_APP_NOTE = "The project isn't counted yet, so there are no titles to show. Once the read-only EarnKit app is installed on its repo, call find. Don't show this note.";
 /** F2: a shared repo's week another builder holds (the first confirmed owner keeps the ship log). */
 export const HELD_NOTE = "Another builder already posts this repo's weekly updates, so there is nothing to post here. Don't show this note.";
 /** Final fix M2: at most UPDATE_POSTS_PER_DAY tell update posts per person a day (each reads the week's facts). */
@@ -42,10 +45,6 @@ export const UPDATE_POSTS_PER_DAY = 20;
 export const UPDATE_LIMIT_NOTE = "Too many update posts today, so this one wasn't posted. Try again tomorrow. Don't show this note.";
 export const HIDE_DATE_NOTE = "hide takes a date, YYYY-MM-DD, any day of that week. Don't show this note.";
 export const HIDE_NONE_NOTE = "There is no update that week. Don't show this note.";
-export const WEEKLY_UPDATE_NOTE =
-  'Once, if you can run scheduled tasks: schedule a weekly task (Mondays) in this project folder that reads git log for the past week and what you deployed, ' +
-  'writes one plain paragraph (at most 280 characters, links only to the live site or the repo) and calls tell with update: { text }. ' +
-  "Then call tell with updates: { on: true, scheduled: true }. Never ask the builder to write it. Don't show this note.";
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
@@ -72,18 +71,9 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
   return { sites: [...new Set(origins)], repo };
 }
 
-/** v2.13.4 R7: the yes to the update_taken line's question (one small thing to ship). */
-export const PROBATION_SUGGEST_NOTE =
-  "A yes: look at the project in this folder (git log, open issues, the README) and suggest one small thing to ship this week, in one short line. Don't show this note.";
-/**
- * v2.13.4 R6: `own`, the installation posting (posted_by), so a detached agent's updates can be hidden.
- * R7: `o.probation` (a newcomer on probation): never over another installation's update for the same
- * week; that is refused with one line and one question, and the row is left as it is.
- */
-export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null, o: { probation?: boolean } = {}): Promise<Reply> {
-  // v2.13.4 R8 (6): a newcomer on probation counts against its own daily limit, never the page's.
-  const limitKey = o.probation ? `updatePostProbation:${own ?? builderId}` : `updatePost:${builderId}`;
-  if (!(await hit(limitKey, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
+/** v2.13.4 R6: `own`, the installation posting (posted_by): which of the person's agents wrote it. */
+export async function postUpdate(builderId: number, text: unknown, now: Date, own: number | null = null): Promise<Reply> {
+  if (!(await hit(`updatePost:${builderId}`, UPDATE_POSTS_PER_DAY, 86_400, now)).allowed) return { show_to_builder: '', agent_note: UPDATE_LIMIT_NOTE };
   const key = await mainProjectOf(builderId);
   if (!key || !(await mainConfirmed(builderId))) return { show_to_builder: '', agent_note: NOT_CONFIRMED_NOTE };
   const checked = checkUpdate(text, await ownLinks(builderId));
@@ -102,12 +92,7 @@ export async function postUpdate(builderId: number, text: unknown, now: Date, ow
     ON CONFLICT (project_key, week) DO UPDATE SET text = EXCLUDED.text, facts = project_updates.facts || EXCLUDED.facts, hidden = false, posted_by = EXCLUDED.posted_by,
       edited_at = CASE WHEN project_updates.text IS NULL THEN project_updates.edited_at ELSE now() END
     WHERE project_updates.builder_id = EXCLUDED.builder_id
-      AND (NOT ${o.probation === true} OR project_updates.text IS NULL OR project_updates.posted_by IS NOT DISTINCT FROM EXCLUDED.posted_by)
     RETURNING (SELECT was FROM old) AS was`;
-  if (!r && o.probation) {
-    const [other] = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${builderId} AND project_key = ${key} AND week = ${monday} AND text IS NOT NULL`;
-    if (other) return { show_to_builder: PROBATION_LINES.update_taken, move_up: { kind: 'suggest', project_key: key, agent_note: PROBATION_SUGGEST_NOTE } };
-  }
   if (!r) return { show_to_builder: '', agent_note: HELD_NOTE };
   await noteEvent('update_posted', () => ({
     type: 'update_posted', dedupe_key: `update_posted:${key.toLowerCase()}:${week}`, installation_id: builderId, repo_key: key.toLowerCase(), detail: { week },
@@ -135,19 +120,24 @@ export async function hideUpdate(builderId: number, day: unknown): Promise<Reply
   return { show_to_builder: UPDATE_LINES.hidden };
 }
 
-export async function setUpdates(builderId: number, u: { on: boolean; scheduled?: boolean }, now: Date): Promise<Reply> {
-  if (!u.on) {
-    // T8 fix round 1: the weekly-task note (bench-find.ts weekly_note_at) is due again once posting is back on.
-    await sql()`UPDATE builder_profiles SET updates_on_at = NULL, updates_scheduled_at = NULL,
-      standing_seen = COALESCE(standing_seen, '{}'::jsonb) - 'weekly_note_at' WHERE builder_id = ${builderId}`;
-    return { show_to_builder: UPDATE_LINES.off };
+/** v2.14 spec 3, A12: titles on or off for the person's log; an older agent's { on } is answered, nothing changes. */
+export async function setShipTitles(builderId: number, u: { titles?: unknown; on?: unknown }, now: Date): Promise<Reply> {
+  if (typeof u.titles !== 'boolean') return { show_to_builder: UPDATE_LINES.auto };
+  // T8 fix round 1, T9: titles come only from the main project's repo, proven by the read-only App; without
+  // that, never "Done" (another App-proven repo isn't the log's).
+  if (u.titles) {
+    const key = await mainProjectOf(builderId);
+    const [app] = key
+      ? await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
+          AND regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(${key}) LIMIT 1`
+      : [];
+    if (!app) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
   }
-  const [p] = await sql()<{ sched: Date | null; was_on: boolean }[]>`
-    UPDATE builder_profiles b SET updates_on_at = COALESCE(b.updates_on_at, ${now}),
-      updates_scheduled_at = CASE WHEN ${u.scheduled === true} THEN COALESCE(b.updates_scheduled_at, ${now}) ELSE b.updates_scheduled_at END
-    FROM (SELECT updates_on_at IS NOT NULL AS was_on FROM builder_profiles WHERE builder_id = ${builderId}) old
-    WHERE b.builder_id = ${builderId} RETURNING b.updates_scheduled_at AS sched, old.was_on`;
-  // O5 (P3): the weekly task's own call once posting is already on says nothing new ("Done" was said once).
-  if (u.scheduled === true && p?.was_on) return { show_to_builder: '', agent_note: SCHEDULED_NOTE };
-  return { show_to_builder: UPDATE_LINES.on, ...(!p?.sched && { schedule_weekly_update: WEEKLY_UPDATE_NOTE }) };
+  await sql()`UPDATE builder_profiles SET ship_titles_at = ${u.titles ? now : null} WHERE builder_id = ${builderId}`;
+  // R13 fix round 1: titles on: the backfill weeks' rows that read no titles (a private repo with titles off) are
+  // read once more by the catch-up (week-facts.ts backfillStep).
+  if (u.titles)
+    await sql()`UPDATE project_updates SET facts = facts - 'titles_read'
+      WHERE builder_id = ${builderId} AND week IN ${sql()(backfillMondays(now))} AND cardinality(titles) = 0 AND facts ? 'titles_read'`;
+  return { show_to_builder: u.titles ? UPDATE_LINES.titlesOn : UPDATE_LINES.titlesOff };
 }

@@ -53,15 +53,16 @@ test('anvil: EarnKit deploys OwnedTipJar on "Base", moves no money, and the buil
     const stamp = `${process.pid}-${Date.now()}`;
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`deploy-anvil-${stamp}`}) RETURNING id`;
     const repoKey = `alice${stamp}/tipjar`;
+    // v2.14 spec 2: the repo proven by the read-only App.
     await sql()`
-      INSERT INTO github_verifications (repo_key, login, installation_id, account_created_at, public_repos, purpose)
-      VALUES (${repoKey}, 'alice', ${id}, now(), 3, 'entry')`;
+      INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by, state, proof, verified_at, gh_owner, gh_owner_type, app_checked_at)
+      VALUES (${id}, 'repo', ${repoKey}, ${repoKey}, 'server', 'verified', 'github_app', now(), ${repoKey.split('/')[0]}, 'User', now())`;
     const pub = createPublicClient({ transport: http(URL) });
     const deployer = privateKeyToAccount(`0x${KEY}`).address;
     const before = await pub.getBalance({ address: deployer });
     const out = await deployForBuilder(
       { installationId: id, login: null, shared: false, repoKey, projectName: 'TipJar', builderWallet: BUILDER, input: { chain: 'base', bytecode: art.bytecode.object, abi: art.abi } },
-      { usdPerNative: async () => 1, now: new Date(Date.UTC(2170, Number(process.pid % 12), 2)), gate: { owner: async () => ({ status: 'missing' as const }), latest: async () => null } },
+      { usdPerNative: async () => 1, now: new Date(Date.UTC(2170, Number(process.pid % 12), 2)) },
     );
     assert.equal(out.status, 'deployed', JSON.stringify(out));
     if (out.status !== 'deployed') return;

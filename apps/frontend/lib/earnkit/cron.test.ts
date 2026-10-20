@@ -4,8 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { runScoreSteps } from './builder-score';
-import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, nextStep, runCron, scoreMaxAge } from './cron';
+import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, missingPrerequisites, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
@@ -514,7 +513,7 @@ test('the payout key unset or BASE_RPC_URL off Base mainnet wait on the owner (5
   }
 });
 
-test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out of gas, waits on the owner; other results do not', () => {
+test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim out of gas, waits on the owner; other results do not', () => {
   const ok = { index_failures: 0, sweep: { result: 'nothing to sweep' } };
   assert.equal(bonusWaitsOnOwner(undefined), false);
   assert.equal(bonusWaitsOnOwner(ok), false);
@@ -522,10 +521,9 @@ test('v2.9 D17 bonusWaitsOnOwner: a low gas balance, or a claim or collect out o
   assert.equal(bonusWaitsOnOwner({ ...ok, gas: { low: false, note: 'unread' } }), false, 'an unread balance never blocks');
   const gasOut = 'the payout wallet needs ETH for gas';
   assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'nothing to claim' }, { owner: '0x2', result: gasOut }] }), true);
-  assert.equal(bonusWaitsOnOwner({ ...ok, collect: [{ coin: '0x1', result: gasOut }] }), true);
   assert.equal(bonusWaitsOnOwner({ ...ok, claim_others: [{ owner: '0x3', result: 'next run' }, { owner: '0x4', result: gasOut }] }), true);
   assert.equal(bonusWaitsOnOwner({ ...ok, claim_others: [{ owner: '0x3', result: 'next run' }] }), false);
-  assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'failed' }], collect: 'waiting on a stored send' }), false);
+  assert.equal(bonusWaitsOnOwner({ ...ok, claim: [{ owner: '0x1', result: 'failed' }] }), false);
   // Unchanged: the sweep's TOP_UP note and INDEX_FAILED_RUNS failed index steps.
   assert.equal(bonusWaitsOnOwner({ ...ok, sweep: { result: `${gasOut}. ${TOP_UP}` } }), true);
   assert.equal(bonusWaitsOnOwner({ ...ok, index_failures: 6 }), true);
@@ -633,24 +631,20 @@ function fakeReader(): ReaderDeps {
   const no = async () => {
     throw new Error('unexpected');
   };
-  return { gh: no, ghGraphql: no, tokenTransfers: no, probe: no, fetchText: no, json: no, baseTxs: no, contractOrigin: no, arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: new Date() };
+  return { gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no, walletCreations: no, now: new Date() };
 }
 
-test('6.9 v2.12: with the flag off runCron has no builder_score key; on, the four step results come back and a failing read fails soft', db, async () => {
+test('6.9 v2.12: runCron runs the builder score steps only with their deps under `only`; the step results come back and a failing read fails soft', db, async () => {
   const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
   assert.equal('builder_score' in off, false);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
-    const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
-    // v2.12.1: no ranks step (the rank is read live from builder_live).
-    assert.deepEqual(Object.keys(on.builder_score!), ['discover', 'read', 'score', 'empty']);
-    assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
-    // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
-    assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
-  } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
-  }
+  const slow = { ...fakeReader(), probe: async () => { await new Promise((r) => setTimeout(r, 50)); throw new Error('timeout'); } };
+  const on = await runCron({ only: ['none'], budgetMs: 2_000, deps: { refreshFees: async () => 0, builderScore: { reader: slow, only: [] } } });
+  // v2.12.1: no ranks step (the rank is read live from builder_live). v2.13.1 O1: open proof branches
+  // are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
+  assert.deepEqual(Object.keys(on.builder_score!), ['proof_expiry', 'app_check', 'discover', 'read', 'score', 'empty', 'originality', 'weekly', 'backfill', 'feed']);
+  assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
+  // Without its deps, a run limited to other programs (tests, the e2e) skips the steps.
+  assert.equal('builder_score' in (await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } })), false);
 });
 
 test('6.9b needs_owner lists every current hold (quietly), not only the ones this run made', db, async () => {
@@ -660,72 +654,43 @@ test('6.9b needs_owner lists every current hold (quietly), not only the ones thi
   // Already scored (and held) today: this run scores no one.
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held)
     VALUES (${id}, ${today}, 80, 0, '{}', '{}', 'v1', 'v1-launch', true)`;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
   try {
     const on = await runCron({ only: ['none'], budgetMs: 5_000, deps: { refreshFees: async () => 0, builderScore: { reader: fakeReader(), only: [id] } } });
     assert.deepEqual((on.builder_score!.score as { held: number[] }).held, []);
     assert.ok(on.needs_owner.includes(`score-hold:${id}:quiet`), String(on.needs_owner));
     assert.deepEqual(on.needs_owner.filter((k: string) => !k.endsWith(':quiet')), []);
   } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
     await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
   }
 });
 
-test('4.8 the weekly step exists only under the flag (flag off: the v2.12.2 steps, nothing else)', db, async () => {
-  const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  const sliceEnd = Date.now() + 5_000;
-  const noReads = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : async () => { throw new Error('no reads'); }) }) as never;
-  delete process.env.EARNKIT_BENCH;
-  try {
-    const off = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
-    assert.deepEqual(Object.keys(off), ['discover', 'read', 'score', 'empty']);
-    process.env.EARNKIT_BENCH = 'on';
-    const on = await runScoreSteps(new Date('2026-10-19T15:30:00Z'), sliceEnd, { only: [], reader: noReads });
-    // v2.13.1 O1: open proof branches are checked first (an hour each at most). v2.13.2 (1): then org proofs expire.
-    assert.deepEqual(Object.keys(on), ['proof_branch', 'proof_expiry', 'discover', 'read', 'score', 'empty', 'weekly', 'feed']);
-  } finally {
-    delete process.env.EARNKIT_BENCH;
-    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = score;
-  }
-});
-
-test('13.7 under the flag the cron runs the ledger without rounds, no traction scoring, no proof re-check, no bonus: line; flag off: all of them', db, async () => {
-  const score = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  // The ledger's recording fake: whether the cron handed it the rounds step; its result names a round waiting on the owner.
+test('13.7 the cron runs the ledger without rounds: no traction scoring, no proof re-check, no bonus: line', db, async () => {
+  // The ledger's recording fake: whether the cron handed it a rounds step; its result names a round waiting on the owner.
   const ledgerCalls: { rounds: boolean }[] = [];
-  const ledger = async (d: { rounds?: unknown }) => {
-    ledgerCalls.push({ rounds: typeof d.rounds === 'function' });
+  const ledger = async (d: object) => {
+    ledgerCalls.push({ rounds: typeof (d as { rounds?: unknown }).rounds === 'function' });
     return { rounds: { needs_owner: ['t13-round'] } };
   };
-  const traced: string[] = [];
-  // No round key matches, so scoring reads nothing; the step still reports when it ran.
-  const traction = { only: ['t13-no-such-round'], score: async () => { traced.push('score'); return []; } };
-  const proofRecheck = { fetchText: async () => { throw new Error('no reads'); } };
-  const run = () => runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, proofRecheck, refreshFees: async () => 0 }, only: [] });
-  delete process.env.EARNKIT_BENCH;
-  try {
-    process.env.EARNKIT_BENCH = 'on';
-    const on = await run();
-    assert.deepEqual(ledgerCalls, [{ rounds: false }], 'the ledger runs (fee claims, the sweep), without the rounds step');
-    assert.equal((on as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'no traction scoring');
-    assert.equal((on as { proof_recheck?: unknown }).proof_recheck, undefined, 'no proof re-check');
-    assert.ok(!on.needs_owner.some((l) => l.startsWith('bonus:')), on.needs_owner.join());
-    assert.deepEqual(traced, []);
+  const on = await runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, refreshFees: async () => 0 }, only: [] });
+  assert.deepEqual(ledgerCalls, [{ rounds: false }], 'the ledger runs (fee claims, the sweep), without a rounds step');
+  assert.equal((on as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'no traction scoring');
+  assert.equal((on as { proof_recheck?: unknown }).proof_recheck, undefined, 'no proof re-check');
+  assert.ok(!on.needs_owner.some((l) => l.startsWith('bonus:')), on.needs_owner.join());
+});
 
-    // Flag off (production): the rounds step is handed over, scoring runs, a round waiting on the owner is listed.
-    delete process.env.EARNKIT_BENCH;
-    ledgerCalls.length = 0;
-    const off = await runCron({ now: new Date(), budgetMs: 5_000, deps: { bonus: {}, ledger, traction, refreshFees: async () => 0 }, only: [] });
-    assert.deepEqual(ledgerCalls, [{ rounds: true }]);
-    assert.notEqual((off as { bonus_scoring?: unknown }).bonus_scoring, undefined, 'traction scoring ran');
-    assert.ok(off.needs_owner.includes('bonus:t13-round'), off.needs_owner.join());
-  } finally {
-    delete process.env.EARNKIT_BENCH;
-    if (score === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = score;
-  }
+test('final fix 9: X sign-in and the GitHub App are hard prerequisites: each missing var is a needs_owner line naming it', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const full = {
+    X_CLIENT_ID: 'cid', X_CLIENT_SECRET: 'sec', GITHUB_APP_ID: '1', GITHUB_APP_SLUG: 'earnkitai', GITHUB_APP_PRIVATE_KEY: key,
+    GITHUB_OAUTH_CLIENT_ID: 'gh', GITHUB_OAUTH_CLIENT_SECRET: 'ghs',
+  };
+  assert.deepEqual(missingPrerequisites(full), []);
+  assert.deepEqual(missingPrerequisites({ ...full, X_CLIENT_SECRET: ' ' }), ['env-missing:X_CLIENT_SECRET']);
+  assert.deepEqual(missingPrerequisites({ ...full, GITHUB_APP_ID: undefined, X_CLIENT_ID: '' }), ['env-missing:X_CLIENT_ID', 'env-missing:GITHUB_APP_ID']);
+  assert.deepEqual(missingPrerequisites({ ...full, GITHUB_APP_PRIVATE_KEY: 'not a key' }), ['env-invalid:GITHUB_APP_PRIVATE_KEY']);
+  assert.equal(missingPrerequisites({}).length, 7);
+  // The cron lists them (alerting: no quiet suffix) on a full run; the source reads them from process.env.
+  const src = readFileSync(join(import.meta.dirname, 'cron.ts'), 'utf8');
+  assert.match(src, /if \(!opts\.only\) needs_owner\.push\(\.\.\.missingPrerequisites\(\)\);/);
 });

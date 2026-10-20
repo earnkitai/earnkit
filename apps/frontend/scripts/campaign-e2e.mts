@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- e2e script: reads untyped tool JSON and chain results */
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -361,27 +362,27 @@ ok(idA < idB && idB < idC, 'three entries recorded (B and C deployed from their 
 
 // ---- 3. activity on the chain, indexed by the mock explorer, and two days of cron ----
 const coded = concatHex([PING, Attribution.toDataSuffix({ codes: ['earnkit'] })]);
-async function use(user: HDAccount, app: Hex, at: Date, input: Hex = PING) {
+async function recordUse(user: HDAccount, app: Hex, at: Date, input: Hex = PING) {
   const hash = await send(user, app, input);
   add(direct, app, { from: lc(user), at, hash, input });
 }
 // Tip Jar: its payout and deployer wallets (never users), two EOAs with history (one through the
 // second contract), a newbie, the smart account through a UserOp, and the staged account: its own
 // UserOp and a fan-out through two clones.
-await use(PAYOUT_A, CA, h(1));
-await use(DEPLOYER_A, CA, h(1));
-await use(USERS[0], CA, h(2), coded);
-await use(USERS[1], CA2, h(3));
-await use(NEWBIE, CA, h(4));
+await recordUse(PAYOUT_A, CA, h(1));
+await recordUse(DEPLOYER_A, CA, h(1));
+await recordUse(USERS[0], CA, h(2), coded);
+await recordUse(USERS[1], CA2, h(3));
+await recordUse(NEWBIE, CA, h(4));
 add(internal, CA, { from: SMART, at: h(5), hash: await userOp(SMART, execute(CA, PING)) });
 add(internal, CA, { from: STAGED, at: h(6), hash: await userOp(STAGED, execute(CA, PING)) });
 const fan = await userOp(STAGED, encodeFunctionData({ abi: ABI.account, functionName: 'fanOut', args: [CLONES, CA, PING] }));
 for (const c of CLONES) add(internal, CA, { from: c, at: h(7), hash: fan });
 // Bounty Board and Carol One: EOAs only.
-await use(USERS[0], CB, h(8));
-await use(USERS[1], CB, h(9));
-await use(USERS[0], CC, h(10));
-await use(USERS[1], CC, h(11));
+await recordUse(USERS[0], CB, h(8));
+await recordUse(USERS[1], CB, h(9));
+await recordUse(USERS[0], CC, h(10));
+await recordUse(USERS[1], CC, h(11));
 
 const cron = async (at: Date, auth = `Bearer ${process.env.CRON_SECRET}`) => {
   setClock(at);
@@ -414,8 +415,8 @@ ok(
   'the payout wallet, the deployer, the newbie, the staged account (getNonce 0 at the start) and its fanned-out clones are not counted',
 );
 ok(((await score(idA)).code_share ?? 0) > 0, "the Builder Code share is kept as evidence");
-await use(USERS[2], CA, h(30));
-await use(USERS[2], CB, h(40));
+await recordUse(USERS[2], CA, h(30));
+await recordUse(USERS[2], CB, h(40));
 const day2 = await cron(h(47));
 show('cron day 2', day2.body);
 ok(day2.mine?.step === 'score' && (await score(idA)).score === 4 && (await score(idB)).score === 3 && (await score(idC)).score === 2, 'day 2 (last day, hourly rescoring): Tip Jar 4, Bounty Board 3, Carol One 2');

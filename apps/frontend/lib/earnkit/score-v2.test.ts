@@ -1,109 +1,84 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_V2, computeScoreV2, fade, type V2Input } from './score-v2';
-import { calibrationV2 } from './score-calibration';
+import { computeScoreV2, mondayDay, scoreWhy, shippingOf, storedShipping, weekMask, type Ship } from './score-v2';
+import { isoWeekOf } from './weeks';
 
-const NOW = new Date('2026-10-14T00:00:00Z');
+const NOW = new Date('2026-10-14T00:00:00Z'); // a Wednesday of 2026-W42
 const days = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
-const cal = calibrationV2('v2-launch');
-const empty: V2Input = { ships: [], touches: [], packages: [], earned: [], weeks: [] };
-const ship = (key: string, aliveDaysAgo = 0) => ({ key, at: days(400), alive_at: days(aliveDaysAgo) });
+/** The ISO weeks `ages` weeks before NOW's (0 = this week). */
+const weeks = (...ages: number[]) => ages.map((a) => isoWeekOf(days(7 * a)));
+const site: Ship = { key: 'site:a.earnkit.com', kind: 'site' };
+const score = (ages: number[], ships: Ship[] = []) => computeScoreV2({ ships, commitWeeks: weeks(...ages) }, NOW);
+const all12 = Array.from({ length: 12 }, (_, i) => i);
 
-test('2.1 the first ship lands half of Shipped; more ships add less each', () => {
-  assert.equal(computeScoreV2({ ...empty, ships: [ship('a')] }, cal, NOW).parts.shipped.points, 10);
-  assert.equal(computeScoreV2({ ...empty, ships: [ship('a'), ship('b')] }, cal, NOW).parts.shipped.points, 15);
-  assert.equal(computeScoreV2({ ...empty, ships: [ship('a'), ship('b'), ship('c')] }, cal, NOW).parts.shipped.points, 17.5);
+test('S1 Shipping: no commits is 0; any live ship adds the 10-point bonus once', () => {
+  assert.equal(score([]).score, 0);
+  assert.equal(score([], [site]).score, 10);
+  const three: Ship[] = [site, { key: 'contract:base:0x1', kind: 'contract' }, { key: 'package:package_npm:x', kind: 'package' }];
+  assert.equal(score([], three).score, 10, 'the bonus is 10 however many live ships');
+  assert.equal(score([], three).shipped, 3);
 });
 
-test('2.2 what they shipped keeps at least half its value forever', () => {
-  const old = computeScoreV2({ ...empty, ships: [ship('a', 1000)] }, cal, NOW).parts.shipped.points;
-  assert.equal(old, 5);
-  const ninety = computeScoreV2({ ...empty, ships: [ship('a', 90)] }, cal, NOW).parts.shipped.points;
-  assert.equal(ninety, 5); // 0.5^(90/90) = 0.5, the floor
-  const thirty = computeScoreV2({ ...empty, ships: [ship('a', 30)] }, cal, NOW).parts.shipped.points;
-  assert.ok(thirty > 5 && thirty < 10);
+test('S2 Shipping: this week only is round(90 x 12 / 78) = 14; 12 of 12 is 90, and 100 with a live ship', () => {
+  assert.equal(score([0]).score, 14);
+  assert.equal(score(all12).score, 90);
+  assert.equal(score(all12, [site]).score, 100);
 });
 
-test('2.3 ranked means at least one confirmed ship; use without a ship is not ranked', () => {
-  const touches = [{ project: 'p', actor: 'wallet:0x1', at: days(1), weight: 1, kind: 'caller' as const }];
-  assert.equal(computeScoreV2({ ...empty, touches }, cal, NOW).ranked, false);
-  assert.equal(computeScoreV2({ ...empty, ships: [ship('p')], touches }, cal, NOW).ranked, true);
+test('S3 Shipping: recent weeks weigh more (w = 12 - age); a week older than 12 counts nothing', () => {
+  assert.equal(score([11]).score, 1, 'the oldest week weighs 1 of 78');
+  assert.equal(score([1]).score, 13, '11 of 78');
+  assert.equal(score([12, 20, 40]).score, 0);
+  // 7 of the last 12, 3 of the last 4 (weeks 1-3), this week empty: weights 11+10+9+7+5+3+1 = 46 of 78.
+  assert.equal(score([1, 2, 3, 5, 7, 9, 11]).score, 53);
 });
 
-test('2.4 stars and forks by other people count at most 5 toward Used', () => {
-  const stars = Array.from({ length: 40 }, (_, i) => ({ project: 'p', actor: `gh:u${i}`, at: days(1), weight: 1, kind: 'star' as const }));
-  const s = computeScoreV2({ ...empty, ships: [ship('p')], touches: stars }, cal, NOW);
-  assert.equal(s.parts.used.raw.star_fork, 5);
-  assert.equal(s.parts.used.raw.U, 5); // the cap applies to the faded sum (40 x 0.99 > 5)
+test('S4 the parts keep { shipping } with its raw inputs; a malformed week is ignored', () => {
+  const s = computeScoreV2({ ships: [site], commitWeeks: [...weeks(0, 2), 'w', '2026-W99'] }, NOW);
+  assert.deepEqual(Object.keys(s.parts), ['shipping']);
+  assert.deepEqual(s.parts.shipping.raw, { mask: 0b101, monday: mondayDay(NOW), weeks: 2, recent: 2, live_ships: 1 });
+  assert.equal(new Date(mondayDay(NOW) * 86_400_000).toISOString(), '2026-10-12T00:00:00.000Z', 'NOW\'s Monday');
+  assert.equal(s.parts.shipping.points, s.score);
+  assert.equal(weekMask(weeks(0, 11, 12), NOW), 1 | (1 << 11));
 });
 
-test('2.5 one person counts once per project; Used fades with a 90-day half-life', () => {
-  const t = (at: Date) => ({ project: 'p', actor: 'wallet:0x1', at, weight: 1, kind: 'caller' as const });
-  const s = computeScoreV2({ ...empty, ships: [ship('p')], touches: [t(days(200)), t(days(90))] }, cal, NOW);
-  assert.ok(Math.abs(s.parts.used.raw.U - 0.5) < 1e-9);
-  assert.equal(s.perProject.get('p')!.people, 1);
+test('S5 shippingOf never passes 100 or reads a bad mask as points', () => {
+  assert.equal(shippingOf(0xffff, 5), 100);
+  assert.equal(shippingOf(Number.NaN, 0), 0);
+  assert.equal(shippingOf(1.5, 0), 0);
 });
 
-test('2.6 Earned adds coin fees, contract fees and prizes, unfaded; Consistency fades by week', () => {
-  const s = computeScoreV2({
-    ...empty, ships: [ship('p')],
-    earned: [{ project: 'p', usd: 4000, kind: 'prize' }, { project: 'p', usd: 1000, kind: 'coin_fees' }],
-    weeks: Array.from({ length: 13 }, (_, i) => ({ week: `2026-W${String(41 - i).padStart(2, '0')}`, at: days(7 * i) })),
-  }, cal, NOW);
-  assert.equal(s.parts.earned.points, MAX_V2.earned); // $5,000 is the v2-launch bar
-  // 13 weekly touches 0 to 84 days old fade to W = 9.60 of the 13-week bar: 20 x 9.60 / 13 = 14.77
-  assert.ok(s.parts.consistency.points > 14.5 && s.parts.consistency.points < 15);
+test('S6 the why sentence: the weeks with code (launch ready L5: what a week adds is the weekly target, weekly-target.test.ts)', () => {
+  const why = (ages: number[], ships: Ship[] = []) => scoreWhy(score(ages, ships).parts, NOW);
+  assert.equal(why([]), 'No code in the last 12 weeks.');
+  assert.equal(why([1, 2, 3, 5, 7, 9, 11]), 'Code in 7 of the last 12 weeks, 3 of the last 4.');
+  assert.equal(why([0]), 'Code in 1 of the last 12 weeks, 1 of the last 4.');
+  assert.equal(why(all12), 'Code in 12 of the last 12 weeks, 4 of the last 4.');
+  assert.equal(why(all12, [site]), 'Code in 12 of the last 12 weeks, 4 of the last 4.');
+  assert.equal(why([5]), 'Code in 1 of the last 12 weeks, 0 of the last 4.');
 });
 
-test('2.7 the score is a whole number from 0 to 100; nothing at all is 0', () => {
-  assert.equal(computeScoreV2(empty, cal, NOW).score, 0);
-  const s = computeScoreV2({ ...empty, ships: [ship('a')] }, cal, NOW);
-  assert.equal(s.score, 10);
+test('S7 stored parts: an older four-part row (shipped, used, earned, consistency) never breaks a read', () => {
+  const old = { shipped: { points: 10, raw: { S: 1 } }, used: { points: 24, raw: { U: 3 } }, earned: { points: 8, raw: { E: 120 } }, consistency: { points: 15, raw: { W: 4 } } };
+  assert.equal(storedShipping(old), null);
+  assert.equal(scoreWhy(old, NOW), null);
+  for (const bad of [null, {}, 'x', { shipping: { points: 'a', raw: { mask: 1 } } }, { shipping: { points: 5, raw: {} } }]) assert.equal(scoreWhy(bad, NOW), null);
+  // Shipping plus the old keys (or a later originality): the extra keys are ignored.
+  const s = score([0, 1], [site]);
+  assert.deepEqual(storedShipping({ ...old, ...s.parts, originality: { points: 40, raw: {} } }), { points: s.score, mask: 0b11, monday: mondayDay(NOW), liveShips: 1 });
 });
 
-test('2.7b invalid dates and numbers never produce NaN', () => {
-  const bad = new Date('nope');
-  assert.equal(fade(bad, NOW), 0);
-  assert.equal(fade(NOW, bad), 0);
-  const s = computeScoreV2({
-    ships: [{ key: 'a', at: bad, alive_at: bad }, { key: 'b', at: days(1), alive_at: null }],
-    touches: [{ project: 'p', actor: 'x', at: bad, weight: NaN, kind: 'caller' }],
-    packages: [{ project: 'p', users: NaN, at: bad }],
-    earned: [{ project: 'p', usd: NaN, kind: 'prize' }],
-    weeks: [{ week: '2026-W41', at: bad }],
-  }, cal, NOW);
-  assert.ok(Number.isInteger(s.score) && s.score >= 0 && s.score <= 100);
-  for (const p of Object.values(s.parts)) assert.ok(Number.isFinite(p.points));
+test('S8 the why of a row scored in an earlier week is read as of this week (never last week\'s "this week")', () => {
+  const last = computeScoreV2({ ships: [], commitWeeks: weeks(0, 1, 2) }, NOW).parts; // scored with code this week
+  const week = 7 * 86_400_000;
+  assert.equal(scoreWhy(last, NOW), 'Code in 3 of the last 12 weeks, 3 of the last 4.');
+  // A week later the row's "this week" is last week (weekly-target.test.ts L5.1 checks the gains read the same way).
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + week)), 'Code in 3 of the last 12 weeks, 3 of the last 4.');
+  // 11 weeks later only the newest week is still inside the 12; 12 weeks later none is.
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 11 * week)), 'Code in 1 of the last 12 weeks, 0 of the last 4.');
+  assert.equal(scoreWhy(last, new Date(NOW.getTime() + 13 * week)), 'No code in the last 12 weeks.');
+  // A row without its Monday (scored before it was stored) reads as this week's.
+  const { monday: _m, ...raw } = last.shipping.raw;
+  assert.equal(scoreWhy({ shipping: { ...last.shipping, raw } }, new Date(NOW.getTime() + week)), scoreWhy(last, NOW));
 });
 
-test('2.11 the same account starring and calling counts as a user, not a capped star', () => {
-  const at = days(1);
-  for (const order of [0, 1]) {
-    const t = [
-      { project: 'p', actor: 'GH:Bob', at, weight: 1, kind: 'star' as const },
-      { project: 'p', actor: 'gh:bob', at, weight: 1, kind: 'caller' as const },
-    ];
-    if (order) t.reverse();
-    const s = computeScoreV2({ ...empty, ships: [ship('p')], touches: t }, cal, NOW);
-    assert.equal(s.parts.used.raw.star_fork, 0);
-    assert.ok(Math.abs(s.parts.used.raw.people - fade(at, NOW)) < 1e-9);
-    assert.equal(s.perProject.get('p')!.people, 1);
-  }
-  const heavyStar = [
-    { project: 'p', actor: 'x', at, weight: 5, kind: 'star' as const },
-    { project: 'p', actor: 'x', at, weight: 1, kind: 'trader' as const },
-  ];
-  const r = computeScoreV2({ ...empty, ships: [ship('p')], touches: heavyStar }, cal, NOW);
-  assert.equal(r.parts.used.raw.star_fork, 0);
-});
-
-test('2.12 an invalid week date is skipped and never sticks as NaN', () => {
-  const good = { week: '2026-W41', at: days(1) };
-  for (const ws of [[{ week: '2026-W41', at: new Date('x') }, good], [good, { week: '2026-W41', at: new Date('x') }]]) {
-    const s = computeScoreV2({ ...empty, ships: [ship('p')], weeks: ws }, cal, NOW);
-    assert.ok(Number.isFinite(s.parts.consistency.raw.W) && s.parts.consistency.raw.W > 0.9);
-    assert.equal(s.parts.consistency.raw.weeks, 1);
-  }
-  const only = computeScoreV2({ ...empty, ships: [ship('p')], weeks: [{ week: 'w', at: new Date('x') }] }, cal, NOW);
-  assert.equal(only.parts.consistency.raw.weeks, 0);
-});

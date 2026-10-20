@@ -18,3 +18,20 @@ export function profileChanged(): void {
     // No Next request context.
   }
 }
+
+/**
+ * Hotfix 2026-10-19: the leaderboard pool changed (a rescore moved a score, a rank or a hold; a ship-log week was
+ * written): the landing's top 10 and carousel, the feed and the leaderboard are expired now, so the home page never
+ * says "Nobody on the leaderboard yet" while a profile shows a rank. Their caches carry PROFILE_TAG. Outside a Next
+ * request (tests, scripts) it does nothing and never throws.
+ */
+export function poolChanged(): void {
+  try {
+    revalidateTag(PROFILE_TAG, { expire: 0 });
+    revalidatePath('/');
+    revalidatePath('/feed');
+    revalidatePath('/leaderboard');
+  } catch {
+    // No Next request context.
+  }
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import BonusPill from '../ui/BonusPill';
+import { createPortal } from 'react-dom';
 
 const MCP_URL = 'https://earnkit.com/mcp';
 
@@ -48,6 +48,10 @@ export type Agent = {
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
  * (codex mcp add <name> --url <url>, then codex mcp login <name>).
+ * Launch-ready L1: Claude Code's line is user scope (EarnKit works in every folder). One-click links only where the
+ * agent documents one: Cursor's MCP install deep link (Cursor docs, "Add to Cursor" links:
+ * cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>), shown first in
+ * its tab. Claude Code, Codex, Grok Bot and Muse document none, so none is made up.
  */
 export const AGENTS: Agent[] = [
   {
@@ -68,7 +72,7 @@ export const AGENTS: Agent[] = [
   {
     name: 'Cursor',
     icon: '/images/agents/cursor.svg',
-    install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${btoa(JSON.stringify({ url: MCP_URL }))}`,
+    install: `cursor://anysphere.cursor-deeplink/mcp/install?name=earnkit&config=${encodeURIComponent(btoa(JSON.stringify({ url: MCP_URL })))}`,
     steps: ['Or add this to ~/.cursor/mcp.json:'],
     code: JSON.stringify(
       { mcpServers: { earnkit: { url: MCP_URL } } },
@@ -81,7 +85,7 @@ export const AGENTS: Agent[] = [
     icon: '/images/agents/codex.svg',
     steps: ['Run this in your terminal:'],
     code: `codex mcp add earnkit --url ${MCP_URL}`,
-    after: 'Then run codex mcp login earnkit.',
+    after: 'Then sign in:',
     afterCode: 'codex mcp login earnkit',
   },
   {
@@ -106,12 +110,15 @@ function CopyButton({ text, label }: { text: string; label: string }) {
         });
       }}
       aria-label={label}
-      className="flex-shrink-0 rounded-full bg-ek-blue-bright px-4 py-2 font-funnel-sans text-sm font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+      className="inline-flex min-h-11 flex-shrink-0 items-center rounded-full bg-ek-blue-bright px-4 font-funnel-sans text-sm font-medium text-ek-page transition-colors hover:bg-ek-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
   );
 }
+
+/** Launch ready L10: no "no account" (the agent signs the builder in with X once). */
+export const INTRO = 'Free. Your agent connects with this link:';
 
 /** v2.7: the starting phrase, everywhere (spec Decisions). */
 export const START_PROMPT = 'What can I earn?';
@@ -119,9 +126,8 @@ export const START_PROMPT = 'What can I earn?';
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
  * starting phrase, or a program's own ("What can I earn on Arc Microgrants?") from its card.
- * v2.13 R16 (`bench`, the Bench flag, passed by the server parent): no builder bonus pill.
  */
-export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = false }: { onClose: () => void; prompt?: string; bench?: boolean }) {
+export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
   const [active, setActive] = useState(0);
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
@@ -139,16 +145,19 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
     };
   }, [onClose]);
 
-  return (
+  // Rendered on document.body: an ancestor with backdrop-filter (the sticky header's blur) would
+  // otherwise become this fixed overlay's containing block and squeeze it into the header. The modal
+  // only opens in the browser; a server render (tests) gets it inline.
+  const dialog = (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-to-agent-title"
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-ek-black/85 p-4 backdrop-blur-sm sm:items-center"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-ek-page/85 p-4 backdrop-blur-sm sm:items-center"
       onClick={onClose}
     >
       <div
-        className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[32px] bg-ek-navy-deep p-6 text-left md:p-8"
+        className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[24px] border border-ek-line bg-gradient-to-b from-ek-surface-top to-ek-surface p-6 text-left md:p-8"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -156,7 +165,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-ek-navy text-ek-blue-light transition-colors hover:bg-ek-blue-strong hover:text-white"
+          className="absolute right-4 top-4 flex h-11 w-11 items-center justify-center rounded-full bg-ek-raised text-ek-text transition-colors hover:bg-ek-chip-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
         >
           <svg
             viewBox="0 0 24 24"
@@ -173,16 +182,16 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
 
         <h2
           id="add-to-agent-title"
-          className="pr-12 font-funnel-display text-2xl font-medium text-ek-white md:text-3xl"
+          className="pr-12 font-funnel-display text-2xl font-medium text-ek-text md:text-3xl"
         >
           Add EarnKit to your agent
         </h2>
-        <p className="mt-2 font-funnel-sans text-base font-light text-ek-blue-soft">
-          Free, no account. Your agent connects with this link:
+        <p className="mt-2 font-funnel-sans text-base text-ek-muted">
+          {INTRO}
         </p>
 
-        <div className="mt-5 flex items-center gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-          <code className="min-w-0 flex-1 truncate font-mono text-sm text-ek-white md:text-base">
+        <div className="mt-5 flex items-center gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+          <code className="min-w-0 flex-1 truncate font-mono text-sm text-ek-text md:text-base">
             {MCP_URL}
           </code>
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" />
@@ -200,10 +209,10 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
               role="tab"
               aria-selected={i === active}
               onClick={() => setActive(i)}
-              className={`inline-flex items-center gap-2 rounded-full py-2 pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors ${
+              className={`inline-flex min-h-11 items-center gap-2 rounded-full pl-3 pr-4 font-funnel-sans text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface ${
                 i === active
-                  ? 'bg-ek-blue-light text-ek-navy-deep'
-                  : 'bg-ek-navy text-ek-blue-light hover:bg-ek-blue-strong'
+                  ? 'bg-ek-text text-ek-page'
+                  : 'bg-ek-chip text-ek-body hover:bg-ek-chip-hover'
               }`}
             >
               {/* One color per state: an SVG mark is drawn dark on the light tab, light on the navy one; an app icon (PNG) keeps its colors. */}
@@ -224,25 +233,30 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
 
         <div
           role="tabpanel"
-          className="mt-5 font-funnel-sans text-base text-ek-blue-light"
+          className="mt-5 font-funnel-sans text-base text-ek-body"
         >
           {agent.install && (
             <a
               href={agent.install}
-              className="mb-4 inline-flex rounded-full bg-ek-blue-bright px-5 py-2.5 font-medium text-ek-navy-deep transition-colors hover:bg-ek-blue-soft"
+              className="mb-4 inline-flex min-h-11 items-center rounded-full bg-ek-blue-bright px-5 font-medium text-ek-page transition-colors hover:bg-ek-blue-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ek-blue-soft focus-visible:ring-offset-2 focus-visible:ring-offset-ek-surface"
             >
               Add to {agent.name}
             </a>
           )}
-          <ol className="list-decimal space-y-1.5 pl-5 font-light">
-            {agent.steps.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
+          {/* Launch ready L10: numbers only for two or more steps (never "1. Or add this"). */}
+          {agent.steps.length > 1 ? (
+            <ol className="list-decimal space-y-1.5 pl-5 font-light">
+              {agent.steps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="font-light">{agent.steps[0]}</p>
+          )}
           {agent.code && (
-            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
-                {agent.code}
+            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
+                <Command text={agent.code} />
               </pre>
               <CopyButton
                 text={agent.code}
@@ -252,28 +266,45 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT, bench = fal
           )}
           {agent.after && <p className="mt-3 font-light">{agent.after}</p>}
           {agent.afterCode && (
-            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-black/60 py-2 pl-4 pr-2">
-              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-white">
-                {agent.afterCode}
+            <div className="mt-3 flex items-start gap-3 rounded-2xl bg-ek-page/70 py-2 pl-4 pr-2">
+              <pre className="min-w-0 flex-1 whitespace-pre-wrap py-1.5 font-mono text-sm text-ek-text">
+                <Command text={agent.afterCode} />
               </pre>
               <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
             </div>
           )}
-          {/* v2.8 Ruling 19 (plan): the builder bonus pill under the steps (never under the Bench flag). */}
-          {!bench && (
-            <div className="mt-4">
-              <BonusPill size="sm" />
-            </div>
-          )}
         </div>
 
-        <p className="mt-7 border-t border-ek-navy pt-5 font-funnel-sans text-base text-ek-white">
+        <p className="mt-7 border-t border-ek-line pt-5 font-funnel-sans text-base text-ek-text">
           Then ask your agent:{' '}
-          <span className="text-ek-blue-bright">
+          <span className="text-ek-accent">
             &ldquo;{prompt}&rdquo;
           </span>
         </p>
       </div>
     </div>
+  );
+  return typeof document === 'undefined' ? dialog : createPortal(dialog, document.body);
+}
+
+/**
+ * A command or config that wraps only between words: a flag like --transport never splits at its hyphens. Lines
+ * first (final fix I1): a multi-line block (Cursor's mcp.json) keeps its line breaks and indentation.
+ */
+export function Command({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('\n').map((line, l) => (
+        <span key={l}>
+          {l > 0 && '\n'}
+          {line.split(' ').map((word, i) => (
+            <span key={i}>
+              {i > 0 && ' '}
+              <span className="whitespace-nowrap">{word}</span>
+            </span>
+          ))}
+        </span>
+      ))}
+    </>
   );
 }

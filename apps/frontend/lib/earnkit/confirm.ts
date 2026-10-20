@@ -5,18 +5,17 @@ export { SKIP_TOKEN };
 /**
  * v2.8 Part C, Rulings 4, 5, 7 and 31 (plan): the confirmation step. v2.10 item 5: the token is
  * pitched once, here, as one line inside the single yes ("Yes submits your entry and launches
- * $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. yes / skip the token"); "skip the
+ * $TIP (Tip Jar): 40% of its fees to you. yes / skip the token"); "skip the
  * token" submits without one. Pure: the offer text and the decision only.
  */
 
 export type OfferInput = {
-  hasBonus: boolean;
   /** v2.6 Ruling 25: the program this repo's token is entered in, or null. */
   coinIn: string | null;
   canPush: boolean;
   /**
-   * v2.9 B9 (Pre-flight P9): GitHub sign-in is on, so an agent that can't push still gets the token
-   * offer (the builder signs in after "yes"). Off: the CANT_PUSH line, as before.
+   * v2.14 spec 2 (was v2.9 B9's sign-in): the read-only App is on, so an agent that can't push still gets
+   * the token offer (the App proves the repo, not a push). Off: the CANT_PUSH line, as before.
    */
   signIn?: boolean;
   /** The wallet shown (given, the entry's own, or remembered on a non-shared client), or null: asked. */
@@ -32,7 +31,7 @@ export type OfferInput = {
   again?: boolean;
   /**
    * v2.12 spec 7 (R22), v2.12.1 T10: no token line here: the token is not pitched for this entry
-   * (coin-moments.ts coinPitchAllowed: with the flag on, only the build path's and the coin's own).
+   * (coin-moments.ts coinPitchAllowed: only the coin program's own entry).
    */
   belowScore?: boolean;
 };
@@ -40,12 +39,6 @@ export type OfferInput = {
 export const NO_WALLET_HINT = 'No wallet? Make one at keys.coinbase.com, then send me the address.';
 /** Only for an agent that said it can't push (agent.can_push: false); never after a proof-line miss. */
 export const CANT_PUSH = 'To launch your token, open this in Claude Code or Cursor.';
-/**
- * v2.8.1 §A3: the proof line still isn't on the repo after a second "go" (an agent that can push).
- * The entry is saved with the kit and the launch stays open: "go" again launches it.
- */
-export const proofLineWaiting = (branch?: string | null) =>
-  `Your entry is saved. Your token is waiting on a short proof line on your repo's ${branch ? `${branch} branch` : 'default branch'}; say go once I've pushed it.`;
 export const READY_TO_SUBMIT = 'Ready to submit?';
 /** Ruling 4 (plan): a `go` on an entry with no repo to prove. */
 export const NEEDS_REPO = 'Your token needs a public repo.';
@@ -56,28 +49,25 @@ export const NO_TOKEN_HERE = 'No token for this entry.';
  * Review Minor 5: after a "yes" that came without the wallet it showed, the question about the
  * wallet shown (short), so the builder confirms it in one word. Pure.
  */
-export const walletQuestion = (wallet: string, hasBonus: boolean) =>
-  `Use ${shortWallet(wallet.toLowerCase())} for ${hasBonus ? 'fees and any bonus' : 'fees'}, or tell me another?`;
+export const walletQuestion = (wallet: string) => `Use ${shortWallet(wallet.toLowerCase())} for fees, or tell me another?`;
 
 /** Review Minor 8: confirm_entry's builder line when a fixable problem has no note. */
 export const TOKEN_ERROR_CONFIRM = 'EarnKit hit an error launching the token; say go to try again.';
 
 /**
  * v2.10 item 5: the one pitch, inside the single yes, once per entry flow: "Yes submits your entry
- * and launches $TIP (Tip Jar): 40% of its fees to you, plus the builder bonus. Wallet: 0x12ab…9f3e.
- * yes / skip the token". Without a bonus, no ", plus the builder bonus"; `again` (said once
- * already) drops the earnings part. The wallet is shown short when known (on a shared client only
+ * and launches $TIP (Tip Jar): 40% of its fees to you. Wallet: 0x12ab…9f3e. yes / skip the token".
+ * `again` (said once already) drops the earnings part. The wallet is shown short when known (on a shared client only
  * one given in this flow, G13), else asked in the same line. Pure.
  */
 export function confirmLine(a: {
   proposal: { name: string; symbol: string } | null;
-  hasBonus: boolean;
   wallet: string | null;
   walletKnown: boolean;
   again?: boolean;
 }): string {
   const what = a.proposal ? `$${a.proposal.symbol} (${a.proposal.name})` : 'your token';
-  const why = a.again ? '' : `: 40% of its fees to you${a.hasBonus ? ', plus the builder bonus' : ''}`;
+  const why = a.again ? '' : ': 40% of its fees to you';
   const answer = a.walletKnown
     ? `${a.wallet ? `Wallet: ${shortWallet(a.wallet.toLowerCase())}. ` : ''}yes / ${SKIP_TOKEN}`
     : `Say yes with your wallet address / ${SKIP_TOKEN}`;
@@ -94,7 +84,7 @@ export function confirmOffer(a: OfferInput): string {
   if (a.belowScore) return READY_TO_SUBMIT;
   if (a.tokensOff) return READY_TO_SUBMIT;
   if (!a.canPush && !a.signIn) return `${CANT_PUSH}\n${READY_TO_SUBMIT}`;
-  return confirmLine({ proposal: a.proposal ?? null, hasBonus: a.hasBonus, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
+  return confirmLine({ proposal: a.proposal ?? null, wallet: a.wallet, walletKnown: a.wallet !== null, again: a.again });
 }
 
 export type ConfirmDecision =
@@ -102,15 +92,8 @@ export type ConfirmDecision =
   | { kind: 'skip' }
   | { kind: 'record_only'; note: string } // lasting reason: no token, kit returned ('' : nothing to say)
   | { kind: 'launch' }
-  // v2.9 B9: an agent that can't push, with GitHub sign-in on: the builder signs in, then it launches.
+  // v2.14: an agent that can't push, with the read-only App on: the gate checks the App proof, then it launches.
   | { kind: 'sign_in' };
-
-/**
- * v2.9 B9: the builder's one line with the sign-in link: "One click to prove TipJar is yours, then
- * $TIP launches: <link>". Pure.
- */
-export const signInLine = (project: string, symbol: string | null, link: string) =>
-  `One click to prove ${project} is yours, then ${symbol ? `$${symbol}` : 'your token'} launches: ${link}`;
 
 /** What a confirm_entry call does (Ruling 4 (plan)). Pure. */
 export function confirmDecision(a: {
@@ -121,7 +104,7 @@ export function confirmDecision(a: {
   hasRepo: boolean;
   policyOff: boolean;
   available: boolean;
-  /** v2.9 B9: GitHub sign-in is on (githubVerifyEnabled). */
+  /** v2.14: the read-only App is on (githubAppEnabled). */
   signIn?: boolean;
   /** v2.12 spec 7 (R22), v2.12.1 T10: no token pitched for this entry: a yes records the entry, no token. */
   belowScore?: boolean;

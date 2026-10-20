@@ -46,7 +46,7 @@ archive/                       v2.12 spec 9 (R18): archived features. The app ne
   tool-aliases/                EARNKIT_TOOL_ALIASES: README + MANIFEST only; aliases.ts moves on or after
                                2026-11-09 (scripted in the README)
   program-leaderboards/        EARNKIT_PROGRAM_LEADERBOARDS: README + MANIFEST only; /campaigns/[slug] and
-                               campaign-page-text.ts move at go-live, once EARNKIT_BUILDER_SCORE is on for good
+                               campaign-page-text.ts move at go-live
 programs/                      program files (+ README: how Claude Code adds programs/starters)
   programs/outcomes/           v2.8 Part G, Ruling 30: announced results, <program-id>.json (OutcomeFile;
                                README has the format); written by the weekly routine, validated by
@@ -60,35 +60,38 @@ apps/frontend/
                                "sr" mark from speedrun.a16z.com's apple-touch-icon)
   app/llms.txt/route.ts        v2.13: GET /llms.txt, the agent-readable summary (install, "What can I
                                earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
-                               (C9)): lib/earnkit/llms/v212.txt (the former public/llms.txt, byte for
-                               byte) with EARNKIT_BENCH off, lib/earnkit/llms/v213.txt (no builder bonus,
-                               "The Bench" section) with it on
-  app/bench/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  v2.13 T10: /bench (404
-                               flag off), the Bench: top 100, chain/raising/weekly filters as URL links, 16
-                               cached variants (unstable_cache, 60 s, PROFILE_TAG); /leaderboard is a 307 to it;
+                               (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The leaderboard" section, earnkit.com/leaderboard);
+                               v2.14 T3 deleted v212.txt with the Bench switch
+  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9):
+                               /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept): top 100, chain/raising/weekly
+                               filters as URL links (filterHref: /leaderboard?...), 16 cached variants (unstable_cache, 60 s,
+                               PROFILE_TAG). BenchRowItem: name and project wrap (R11, no truncate), the Shipping points column
+                               (R17, BenchRow.points) and the rank line split by rank.ts rankSplit (number large, words small);
                                v2.13.2: benchLine says BENCH_TOP_EMPTY at 0, "1 builder who ships", "N builders who ship";
-                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows)
+                               no rows panel at count 0 (BENCH_EMPTY only for a filtered view with no rows);
+                               launch ready L10: BENCH_EMPTY "No builder matches this filter yet." + BENCH_SHOW_ALL link;
+                               a phone row is three lines (handle with chain logos, project with its fact)
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12: /feed (404 flag off), the finished weeks' best updates as
                                long cards
-  app/[handle]/{BenchProfileView,ProjectTab,ScoreParts,ShipGrid}.tsx  v2.13 T11: the Bench profile (photo,
+  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid}.tsx  v2.13 T11: the Bench profile (scoring and clarity: one Shipping ring; photo,
                                rank lines, score parts, 52-week grid, Ship log tab, ?tab=project); Avatar falls
                                back to the initial; card-response and page.tsx branch under the flag;
                                v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
-                               and grid, Project tab shows name and what only
-  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow,BenchHowItWorks}.tsx  v2.13 T12: the landing's
-                               Bench top 10, update carousel, shared carousel row, three steps; HomeView, Hero,
-                               ProgramCards, Footer, Header, BackedBy branch under the flag (no bonus pill,
-                               sentence-case labels); v2.13.1 O3: with EARNKIT_RAISING off the hero and steps
-                               drop raising (BENCH_HERO_SUBTITLE_NO_RAISE, BENCH_STEPS_NO_RAISE)
+                               and grid, Project tab shows name and what only; launch ready L10: "a private project" in
+                               the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
+                               line only with a rank, BENCH_SOURCES_LINE without "public data"
+  app/components/sections/{BenchTop,UpdateCarousel,CarouselRow}.tsx  v2.13 T12: the landing's
+                               leaderboard top 10 (R18: no chips), "Shipped this week" carousel, shared carousel
+                               row. R18: BenchHowItWorks deleted; the hero has one subtitle (no raising variant)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
-                               long and square update cards
+                               long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
   app/HomeView.tsx             v2.7 §1, v2.8 Part A: the pure home render (Hero with stats_line,
-                               ProgramCards (every open program, carousel), HowItWorks, BackedBy, Footer);
+                               BenchTop, UpdateCarousel, ProgramCards, BackedBy, Footer; R18: no coins, no steps);
                                landing null (failed read) → hero without stats line, no cards (Ruling 21)
-  app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE, BonusPill lg → #how-you-earn-3, the
+  app/components/sections/Hero.tsx  v2.8: HERO_TITLE, HERO_SUBTITLE (the Bench text only since v2.14 T3), the
                                install and demo buttons, statsLine; nothing else
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
@@ -111,15 +114,15 @@ apps/frontend/
                                v2.8.1: grok-bot.png is Grok Bot's own app icon, shown in color, not
                                Grok's logomark; muse.svg is Muse's logo from muse.ai; SVG marks
                                take the tab's one color),
-                               `after` approve lines, <BonusPill size="sm" /> under the steps
-  app/components/sections/{ProgramCards,ProgramLogo,HowItWorks}.tsx  v2.7 §1 landing sections;
+                               `after` approve lines
+  app/components/sections/{ProgramCards,ProgramLogo}.tsx  v2.7 §1 landing sections (HowItWorks.tsx deleted in v2.14 T3);
                                ProgramLogo: local <img> (path re-checked) or the Ruling 1 monogram;
                                v2.8 ProgramCards: h2/h1, `figure` "open right now", one "Ask your agent",
                                then every tile as a ProgramCard: layout "carousel" (home: scroll-snap row,
                                md+ Previous/Next arrows) or "grid" (/programs); no eyebrow, no "See all";
   app/components/sections/ProgramCard.tsx  v2.8 Ruling 21: one slim card, a whole-card link to
                                /programs/<id> (aria-label "<title>, <prize>"): logo, title, big line,
-                               per-winner line, days-left and difficulty-word chips, BonusPill sm; no buttons
+                               per-winner line, days-left and difficulty-word chips; no buttons (BonusPill gone in v2.14 T3)
   app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
                                arrowState (prev/next enabled; both off when nothing overflows);
                                HowItWorks exports HOW_TITLE "How you earn" and STEPS, a Panel with a
@@ -129,10 +132,14 @@ apps/frontend/
                                v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
                                the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
                                Footer only
-  app/components/common/Footer.tsx  v2.8 Ruling 22: one rounded card (wordmark, FOOTER_TAGLINE, a
-                               grid of FOOTER_COLUMNS), the faded wordmark (v2.8.1: the navbar's
-                               ui/Logo.tsx Wordmark SVG, mark and letters, full width at 10%, decorative), the copyright
+  app/components/common/Footer.tsx  R18: a quiet footer under a hairline (wordmark, FOOTER_TAGLINE, the
+                               FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
                                line; renders from lib/earnkit/footer-links.ts; real links only
+  app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
+                               Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
+  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
+  app/components/common/Button.tsx  R18: BTN_PRIMARY, BTN_SECONDARY (the two button styles)
+  apps/frontend/DESIGN.md      R18: the design system (tokens, surfaces, text roles, buttons, the profile's accent palette)
   app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
                                a taken-down sponsor campaign or a closed EarnKit campaign with no
                                entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
@@ -147,46 +154,34 @@ apps/frontend/
                                v2.11 T12: a footer link to /terms#what-earnkit-records (RECORDS_HREF).
   app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
                                https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records; v2.12 T15: + Builder
-                               profiles, only with EARNKIT_BUILDER_SCORE=on: final review I1), then PolicySection
-                               (#policy), ProfilesSection (#builder-profiles, v2.12, flag on only; force-dynamic,
-                               generateMetadata's description names it only then),
+                               profiles), then PolicySection (#policy), ProfilesSection (#builder-profiles, always
+                               since v2.14 T3, which made the page static),
                                RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
                                /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
                                LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
   app/terms/sections/ProfilesSection.tsx  v2.12 T15 (spec 8): /terms#builder-profiles, a Panel laid out as
-                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (public sources
-                               only plus what the person links; profiles and the leaderboard are public; only
-                               verified use counts; say hide, hidden still counts in ranks; never posts, X only as
-                               GitHub lists it; the name may be the GitHub login and the address a short wallet
-                               form; the agent may propose local repos and live links; may transfer in a merger
-                               or acquisition; removal by email).
-                               Needs the owner's lawyer review before EARNKIT_BUILDER_SCORE goes on
+                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (v2.14 final fix: the page
+                               is made at the X sign-in (install or the one-time link) and public from then on; same X =
+                               same page, no question, nothing merged; the read-only App is the only proof; App repos,
+                               private too, read with short-lived installation tokens never stored; weekly commit and PR
+                               titles, a private repo facts only until titles are on, hidden not deleted when turned off;
+                               only confirmed counts; "hide my page"; X read at each sign-in; merger; removal by email).
+                               RECORDS_WITH: the login only as the App checked it (or a pre-App check).
   app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
                                text unchanged, restyled onto the site's panel and ek tokens
   app/terms/sections/SponsorTermsSection.tsx  sponsor terms (was app/sponsor-terms/page.tsx; the fund
                                page's checkbox links /terms#sponsor-terms)
-  app/terms/sections/PolicySection.tsx  (was app/policy/page.tsx) v2.5 Task 9: the public policy (matching, fee split table then MINI_LINE (v2.9 F24), builder bonus
-                               funding/eligibility/ranking/review/payout, coin optional, no
+  app/terms/sections/PolicySection.tsx  (was app/policy/page.tsx) v2.5 Task 9: the public policy (matching, fee split table then MINI_LINE (v2.9 F24), coin optional, no
                                affiliation, contact); numbers from lib/earnkit/policy.ts; v2.6: the
                                bonus on every program unless opted out, page / confirmation /
                                unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
-                               builder bonus heading has a BonusPill (md) beside it (Section aside);
+                               (v2.14 T3: the builder bonus section is gone);
                                v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
-  app/leaderboard/{page.tsx,LeaderboardView.tsx,leaderboard-load.ts}  v2.12.1 T11 (spec "Card and
-                               leaderboard"): one gapless list of the ranked population (page-data.ts boardRows:
-                               ranked, claimed with X, not hidden, not held; BOARD_MAX 100): rank, avatar, @handle
-                               (pagePath), best project in words; header BOARD_TITLE + boardLine; force-dynamic,
-                               every query parameter ignored (S11); cachedBoard 10 min under PROFILE_TAG. 404
-                               unless EARNKIT_BUILDER_SCORE=on
-  app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic; flag off 404); HandleView
+  app/bench/page.tsx           scoring and clarity T3 (R9): permanentRedirect('/leaderboard') (308)
+  app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic); HandleView
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
-                               pagePath) renders ProfileView with pageHead at once and the cards in Suspense
-                               after pageViewRefresh (a day old only, hourly caps; skeletons meanwhile);
+                               pagePath) renders BenchProfileView (v2.14 T3: ProfileView and ProjectCards deleted);
                                handleMetadata (title, og card)
-  app/[handle]/ProfileView.tsx  pure: avatar, X name and @handle, one h1 (topLine), ScoreRing + rank + people
-                               line only beside a rank that reads well, the cards, SOURCES_LINE, footer
-  app/[handle]/ProjectCards.tsx  pure: project cards (people/money when measured, programs, Not yet confirmed /
-                               Not tracked right now, NONE_CONFIRMED when all are unconfirmed); null = skeletons
   app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the orange-to-purple ring, SCORE_COLORS
                                (#FF7A1A, #9B6BFF, both 4.5:1+ on the navy panel), "N of 100" in words
   app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
@@ -194,44 +189,33 @@ apps/frontend/
                                picture with a 3 s timeout, headline of card_moments.latest, CARD_CACHE) and
                                shareResponse (card_shared once a day, 302 to the X intent); both check the live
                                row (no-store 404, 308 to pagePath)
-  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (flag off 404)
+  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
+  app/[handle]/BadgeCopy.tsx   launch-ready L8: "Add the badge to your README", the markdown and a Copy button (client)
+  app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
+                               cachedBadge (unstable_cache per file, 1 h, PROFILE_TAG)
   app/b/[slug]/page.tsx        v2.12.1: a reserved handle's page (HandleView at /b/<handle>); a claimed person's
-                               v2.12 slug (live or old) 308s to /<handle>; else 404 (flag off 404)
+                               v2.12 slug (live or old) 308s to /<handle>; else 404
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
                                cardResponse/shareResponse at /b/<handle>; a claimed v2.12 slug 308s to
                                pagePath(handle)/card.png or /share; else 404
-  app/claim/[code]/route.ts    v2.12.1 T6: GET claimGet (what is public, how to hide, one button; cookie +
-                               csrf), POST claimPost (303 to X); force-dynamic
   app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
                                PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
-  app/x/callback/route.ts      v2.12.1 T6: xCallback (state + this browser's cookie, then X, then bindX)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
                                404; veto rate limit): each held day's parts and top outcome beside the public
                                score, Release; v2.12.1: pending live rescores (builder_live.pending, released by
-                               version), contested GitHub logins with a per-group rule button; X handle conflicts
+                               version); X handle conflicts (v2.14 T7: the contested-logins list and rule_login are gone)
                                (v2.12 rows only) with Clear X handle; X handles you cleared
                                (x_owner_clears) with Release
   app/api/admin/scores/route.ts  v2.12 T6: POST -> builder-score.ts scoresPost (release a held day as a
                                score_releases row, or action=clear_x / release_x); wrong key 404; 303 back
-  app/bonus/[round]/{page.tsx,BoardView.tsx}  v2.5 Task 9: the public builder bonus leaderboard
-                               (bonus-board.ts data; BoardView is pure and markup-tested; Ext links
-                               only shownUrl https forms, tx links only 32-byte hashes); v2.6
-                               Ruling 12 (plan): the segment is the slug (<program>-<YYYY-MM-DD|
-                               YYYY-MM>) or the v2.5 ':' form, via bonus-rounds.ts
-                               resolveRoundParam (a malformed escape is a 404). v2.12 (D1): with
-                               EARNKIT_BUILDER_SCORE=on an open or empty round 307s to
-                               /leaderboard?program=<id> (bonus-rounds.ts boardRedirect; boardStays keeps
-                               frozen, review, paying and paid); /campaigns/<slug> too (D5; its file move is
-                               staged in archive/program-leaderboards/)
   app/api/stats/route.ts       v2.5 Task 9: GET public stats JSON (revalidate 600, prerendered when
                                the build has a DATABASE_URL; plus unstable_cache 600 s on the read,
                                for builds without one, where it renders per request); 503 no-store
                                on a failed read
-  app/components/common/Panel.tsx  Panel (the rounded navy section) and Eyebrow
-  app/components/ui/BonusPill.tsx  v2.8 Ruling 19: the builder bonus brand pill (BONUS_PILL_TEXT, bonusPillLabel, BONUS_PILL_COLORS; sm/md/lg, optional amount and href); cards and the guide page so far
-  app/sitemap.ts               force-dynamic: home, /terms (v2.9), every non-empty bonus round (v2.6: by
-                               boardSlug)
+  app/components/common/Panel.tsx  R18: SURFACE (the one card surface), COLUMN (the page column), H1, H2,
+                               LEDE (the type scale) and Panel (a section on the surface); Eyebrow removed
+  app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
   app/api/host/upload/route.ts  v2.9 C12: POST -> hostUploadPost (?t= one-time token, one zip, 503 when R2 off)
@@ -239,13 +223,6 @@ apps/frontend/
   app/api/digest/unsubscribe/route.ts  v2.9 E19: GET confirm page (POST button), POST one-click (RFC 8058) -> digest.ts
   app/api/admin/veto/route.ts  v2.4: POST only -> vetoPost (form: slug, key, entry, reason; v2.5: round
                                instead of slug for a builder bonus round)
-  app/admin/bonus/[round]/page.tsx  v2.5 Task 7: the owner's builder bonus round review (noindex,
-                               ?key= = bonusVetoKey, rate limited): pool, amounts, note, rank/project/
-                               score/signals/flags/place amount, a Remove form per entry; v2.6: a
-                               Submission column (page checked / unverified page / builder
-                               confirmed, from projects.submission_basis, with the entry page link),
-                               the unverified_page flag in words, and ": Test entry: not paid" on an
-                               owner test installation's row
   app/admin/veto/[slug]/page.tsx  v2.4: the owner's review (noindex, ?key= required, rate limited):
                                live balance, pause note, ranked entries with evidence, a Remove
                                form per entry
@@ -280,7 +257,10 @@ apps/frontend/
                                "[mcp] alias <old> -> <new>" (names only); imports lib/earnkit relatively (tests load it);
                                v2.10.1 B5 (fix round 1 I3): forOldNames answers an old-name call as plain JSON, each tool
                                named in both forms (forOldClient), with tools_note
-  app/oauth/{register,authorize,token}/   anonymous OAuth for MCP clients
+  app/oauth/{register,authorize,token}/   OAuth for MCP clients (v2.14 T4: authorize signs in with X,
+                               x-install.ts; authorize/route.ts calls authorizeGet(request) only)
+  app/x/callback/route.ts      v2.14 T4: xSignInCallback (install sign-in; T5: a link sign-in shows the paste code); else 404 (T7: the claim flow is gone)
+  app/signin/[code]/route.ts   v2.14 T5: the fallback sign-in link's page (x-link.ts signinGet)
   app/github/verify/(route, callback/route)  v2.9 B9: the sign-in link (GET confirm page, POST to GitHub) and
                                              GitHub's callback; re-export github-verify.ts handlers
   app/github/verify/app/route.ts  v2.10 item 7b: the read-only GitHub App's setup URL (github-app.ts appSetup);
@@ -318,6 +298,7 @@ apps/frontend/
                                chains and its needs_contract chain, tested_at set and at most 30 days before
                                verified_at, STARTER_TEST_MAX_AGE_DAYS)
     fresh-build.ts(+test)      v2.11 T7: the no-repo lead (pure). freshPick (Easy/Medium, <= $5,000, closes in
+                               v2.14 T6: buildKit(starter, fields, attribution?) carries no proof file, line or branch.
                                1 to 14 days or rolling, a tested starter on a chain EarnKit deploys to with
                                hosting on, or off with the starter's pages_fallback (T9); never a long shot, needs a live product, investment, hidden or
                                entered), contextLine ("$X in prizes is open right now across N programs."),
@@ -364,7 +345,8 @@ apps/frontend/
                                non-campaign programs, with submitted); v2.8 Task 8: startEntry (the entry at confirmation: ownEntry or insert,
                                confirmed_at/complete_at set once, "skip" never on a row with a token;
                                proof_line_missed, Ruling C24: the last "go" stopped at the proof line);
-                               recordSubmission (campaigns: no self-entry, required fields
+                               recordSubmission (v2.14 final fix 10: keepWallet false, a shared client, writes no
+                               installations.payout_wallet or installation_wallets row; campaigns: no self-entry, required fields
                                (missingAnswersProblem), sanctions, ownership proof; one entry per
                                repo and per contract, checked under a per-campaign advisory lock;
                                stores repo_key (unique index projects_campaign_repo_key) and
@@ -372,9 +354,8 @@ apps/frontend/
                                sameLiveLink) and the repo's GitHub dates;
                                remembers installations.payout_wallet); v2.5 §3: non-campaign
                                programs with submission_proof check external_submission_url via
-                               submission-proof.ts (never fails the entry; stores
-                               submission_proof_url/submission_proof_ok_at, a bonus_note on
-                               failure); bonusEligible (pure: coin_address and
+                               submission-proof.ts (deleted in v2.14 T3; the columns stay);
+                               bonusEligible (pure: coin_address and
                                submission_proof_ok_at both set, not a later same-repo entry; never
                                stored; SQL twin traction.ts eligibleSql); Ruling 13: stores
                                bonus_repo_key and, via verifiedBonusContracts, an external entry's
@@ -394,27 +375,6 @@ apps/frontend/
                                charge; coin_url returned); Ruling 10: a valid payout_wallet is the
                                installation's last wallet (givenWallet: an invalid one fails the
                                call, Ruling 22); owner test installations never block a repo
-    submission-proof.ts(+test) v2.6: proofCheck -> ProofOutcome (ok | unreachable: any fetch failure,
-                               non-2xx such as 405, oversize, Ruling 15 | refused, `loaded` when the
-                               page loaded without the link); recheckUpdate (pure, Ruling 4: page /
-                               no longer eligible + confirmation cleared / no change; a confirmed
-                               entry still unreachable becomes unverified_page); the daily re-check
-                               also re-reads unverified_page entries, only on active bonusOn
-                               programs with a pattern. v2.5 §3 builder bonus eligibility #3: proofProblem(program, url,
-                               repoUrl, liveUrl, deps) checks the url is https, on
-                               submission_proof.host, path matching path_pattern, then fetches it
-                               via safeFetchText (safe-fetch.ts LARGE_PAGE_MAX_BYTES, 512 KB) and
-                               looks for the entry's normalized repo link (required when the entry
-                               has a repo, Ruling 22) or, repo-less only, its live host unless
-                               sharedHost (proof host, platforms, code/social sites, hosting
-                               apexes: SHARED_SITES/SHARED_APEXES), case- and form-insensitive; any fetch failure reads as "couldn't check yet;
-                               we retry daily" (never throws; a malformed liveUrl is guarded with
-                               URL.canParse, fix round 1 I1); recheckSubmissionProofs(now, deadline,
-                               deps), called from cron.ts's runCron: the daily re-check of a failed
-                               proof (submission_proof_checked_at, at most once a day) while the
-                               program stays active and its round is open (roundFor,
-                               bonus-rounds.ts); ended or closed, it's skipped with no fetch;
-                               filtered in SQL, at most RECHECK_BATCH (50) a run (M11)
     ownership.ts(+test)        (final fix M6: fetchLinePusher's everDerived, github-verify.ts repoEverDerived,
                                url_checks ghrepo:<key>: once a fork or template, always refused)
                                builder ownership proof: earnkit.txt at the repo root (raw GitHub,
@@ -445,7 +405,7 @@ apps/frontend/
                                reject links incl. defanged/IP/confusable-dot/bare domains and HTML
                                entities; single-line fields also @ and 7+ digit runs; TEXT_LIMITS),
                                SponsorUrl, BuilderUrl/canonicalBuilderUrl/builderUrlProblem/
-                               shownUrl (builder links, canonical form), untrusted()
+                               shownUrl (builder links, canonical form), untrusted(); wholeWords (R11: a cap that keeps whole words)
                                (zod), cleanProject
                                (campaign entries), quoted() (sponsor names/titles in EarnKit's
                                sentences), SAFETY_LINES (server instructions + tool descriptions; the fourth
@@ -547,26 +507,32 @@ apps/frontend/
                                comma-separated ids, malformed parts dropped with one console.warn per
                                distinct value naming positions only, never the text;
                                v2.8.1 §E: connectInstallation (the group root to act as, the token's
-                               own id, shared_client), sharedGroup, saveInstallation(..., shared)
-    identity.ts(+test)         v2.8.1 §E18: findEarlier / offerPickup ("Pick up your N earlier
-                               entries?" from what this call states), answerPickup (yes needs this
-                               agent's proof line in an earlier entry's repo), linkInstallations
-                               (installations.builder_id, rows move to the oldest root); v2.9 T12 (G0):
-                               provedRepos picks the proof repo a group proved (N1), pickup.read caps
-                               earnkit.txt reads at one an hour (N2), the duplicate with the token stays (N3)
+                               own id, shared_client; v2.14 T4: x = the bound X id, id = the page holding it first), sharedGroup,
+                               saveInstallation(..., shared, name, { keepToken }) (v2.14: returns the id; T7 keepToken:
+                               a known client keeps its token_hash), setInstallationToken (T7: after the X bind)
+    identity.ts(+test)         rootOf (installations.builder_id, the group root); v2.14 T7: lockPerson (advisory
+                               `person:<root>`, taken by attachToX, proveByApp and discovery's verdicts) and the global
+                               lock order (x_* / repo_hold, then person:<root> sorted, then source_proof, then
+                               installation rows by id, then profiles). No pickup, no proven-tie or claim-page join,
+                               no group merge (linkInstallations, linkInTx and profiles.ts mergeProfiles deleted).
     oauth-routes.ts(+limits test) register + token + authorize handlers (app/oauth/* re-export them);
+                               v2.14 T4: authorizeGet(request, deps?) (X on and not servesMany: startInstallSignIn;
+                               else the anonymous code with iss); tokenPost binds an X-signed token (attachToX; refused: invalid_grant, no token;
+                               T7: the new token replaces a known installation's only after the bind, so a refusal keeps the old one);
                                logLimited; ipFloor (Ruling G25): a known hosted service's redirect
                                host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
-                               authorize, code -> token (+ shared, limitKey), metadata, clientKeyOf;
+                               code -> token (+ shared, limitKey), metadata, clientKeyOf (v2.14 final fix: authorize() gone;
+                               the route is authorizeGet, tests compose checkAuthorize + issueCode as it does);
+                               v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
+                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other), servesMany
+                               (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, plus score only with
-                               EARNKIT_BUILDER_SCORE=on (find gains local_git, tell gains profile, x_handle, card,
-                               and FIND_DESCRIPTION_SCORE / TELL_DESCRIPTION_SCORE and the instructions change, all
-                               only with the flag on; off is v2.11 byte for byte); sponsor_campaign is archived
+    mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
+                               with the Bench descriptions only; serverInstructions() takes no flag); sponsor_campaign is archived
                                (archive/sponsor-campaigns) and never registered.
                                v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow, until v2.12);
                                v2.10 item 13: prepare's deploy schema (chain, bytecode, abi, constructor_args, owner_wallet); readOnlyHint false.
@@ -605,12 +571,13 @@ apps/frontend/
                                final review M1: notHumanText skips .test.ts/.test.tsx/.test.mts, and walkDir never enters a fixtures directory
     no-cell.ts                 NO_CELL (''), the empty table cell or chip; import-free so the client ProgramCard shares it (final review M1); present.ts re-exports it
     v2101.test.ts              v2.10.1: the owner's 5 live bugs (B1 to B5), each with the owner's real project shapes
-                               (tokens.fun, earnkitai/earnkit, the tipjar starter); journey 11.5 in v210-journey.test.ts.
+                               (tokens.fun, earnkitai/earnkit, the tipjar starter).
                                v2.10.2 (v2.11 8a, 8b): tokens.fun without my_commits_90d (unknown, asked), the real
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
-    present.ts(+test)          v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
+    present.ts(+test)          scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
+                               ends_at, rolling last, then award, then id). v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
                                nothing else leads; context line + fresh lead), Card.winners_per_round.
                                v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
                                starter), usersAsk skips starters and a starter's lead yields to a product's question.
@@ -670,6 +637,8 @@ apps/frontend/
                                (relative path) and the hosting code
                                (Task 8: contentTypeFor moved here from the Worker, shared by both)
     hosting.ts(+test)          v2.9 C12-C15 (Task 8): HOST_LIMITS, STATIC_EXT, slugFor (P40/P41/G19),
+                               v2.14 T6: issueUpload proves with token-gate.ts proveRepo; the login is the App installer
+                               (appHost, basis 'app'); unproven: the App link as sign_in_url; a shared client is not hosted.
                                zipProblems, stripTopFolder, readZip (central directory + streaming
                                Inflate with byte caps), abuseFlags, usesStorage, withBadge, siteExpiry,
                                builder lines (liveLine, HOST_FULL, HOST_REVIEW, HOST_LINES); issueUpload
@@ -711,6 +680,8 @@ apps/frontend/
                                (projects.live_url via pagesLinkOf, a deployed contract, probe: false); M1 host basis
     pages-link.ts              v2.11 final fix: githubPagesOwner, pagesLinkOf (pure; tools.ts re-exports them)
     deploy.ts(+test, +anvil)   v2.10 item 13: EarnKit deploys the builder's contract on Arc or Base
+                               v2.14 T6: the repo proven by token-gate.ts proveRepo (a fresh App proof; never a shared
+                               client), its owner the per-owner cap key (contract_deploys.line_owner); DeployDeps.gate gone.
                                v2.11 T9: starter label (initcodeHash vs initcode_hash), lineOwner, beforeSend; caps per repo/wallet/pusher
                                final fix M8: settlePendingDeploy (an unknown build deploy settled read-only from its
                                receipt on the same call again; F1: only its row's starter + build wallet, the
@@ -799,6 +770,7 @@ apps/frontend/
                                forms, plus STALE_TOOLS_NOTE), aliasedIds (old names by JSON-RPC id); old names accept new args.
                                v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
                                yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
+                               v2.14 T7: pick_up_entries dropped from OLD_TOOL_NAMES (an unknown tool now).
     tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
@@ -828,7 +800,7 @@ apps/frontend/
                                v2.12: `tools` = find, prepare, confirm, tell, score (score-tool.ts scoreReply); find's
                                line 2 (score-tool.ts secondLine), the first find's profile, consent line and discovery
                                queue, tell's profile/x_handle/card, the token pitch gate (pitchAllowed) and odds from
-                               verifiedProject, all only with EARNKIT_BUILDER_SCORE=on; sponsor_campaign archived.
+                               verifiedProject (always since v2.14 T3, which deleted the flag-off find, pickup and bonus paths); sponsor_campaign archived.
                                v2.10 item 4: `tools` = find, prepare, confirm, tell, sponsor_campaign (until v2.12), thin dispatchers
                                over `handlers` (the v2.9 functions: list_programs ... launch_token); FindInput,
                                PrepareInput, ConfirmInput (R15), TellToolInput (R16), markSubmitted (tell.submitted),
@@ -836,11 +808,13 @@ apps/frontend/
                                T11 fix: `prepare` with `deploy` deploys first and adds the address to
                                project.contracts before the draft (its contract check sees it).
                                Fix round 2: confirmByProjectId (I-a shown pair and wallet via token-offers.ts
-                               readShownOffer/offered_wallet; I-b shared clients by verifiedEntryIds), projects.ts launchEntry.
+                               readShownOffer/offered_wallet; I-b shared clients: noted, CONFIRM_SHARED_NOTE), projects.ts launchEntry.
                                tool name -> handler + input validation (+ caller's installation);
                                v2.10 items 2, 3: list_programs more (pools only then), lead + LEAD_NOTE, one question (H10); prepare_submission prepends the guide on the first call
-                               v2.10: withAlerts(ctx, result, signedIn?) puts the deadline line first; ToolContext.roundPools;
-                               no firstTokenOffer/token_offer; prepare_submission takes signed_in.
+                               v2.10: withAlerts(ctx, result) puts the deadline line first (none on a shared client); ToolContext.roundPools;
+                               no firstTokenOffer/token_offer. v2.14 final fix: no signed_in anywhere (sharedLogin, SIGN_IN_CODE_NOTE gone);
+                               a shared client keeps no memory, entries, weekly email or wallet (memoryKey null); list_programs asks
+                               createVerifyLink only for a caller with a page (pageHandle).
                                v2.8.1 T7: prepare_submission leads the coach's questions with
                                needsRepoLine when the program needs a repo and none is known ("<X> needs a
                                public repo … No repo yet? <Y> doesn't need one", Y = present.ts
@@ -854,9 +828,9 @@ apps/frontend/
                                memory once (memoryOf), passes `said` to matchProjects and `hidden` to
                                presentFirstMessage, drops hidden programs from matches; Also
                                qualifies reads it too (TELL_SAVED_NOTE);
-                               v2.8.1 §E: ToolContext.ownInstallationId / sharedClient / pickupDeps;
-                               walletMemory (no remembered wallet on a hosted agent); list_programs'
-                               pick_up offer (PICKUP_NOTE); pick_up_entries (yesNo, PICKUP_TEXT);
+                               v2.8.1 §E: ToolContext.ownInstallationId / sharedClient;
+                               walletMemory (no remembered wallet on a hosted agent); v2.14 T7: no pick_up offer,
+                               pick_up_entries, withProbation / ToolContext.probation, join asks or tell pickup;
                                final review: record_submission's tokenElsewhere (I3: "Builder bonus
                                counts in <program>." for a later program's entry), confirm_entry's
                                C24 kit after a second proof-line miss, tokenLine with the ticker (M8);
@@ -869,10 +843,8 @@ apps/frontend/
                                token block (tokenProposalBlock) and the Token row; list_programs closes on bonusClose;
                                included sponsor_campaign (create/status/award; archived v2.12). ToolContext.tokenDeps
                                (gate/check/deploy fakes) is test and e2e injection only; the MCP
-                               route never sets it. ToolContext.roundPoolsWei overrides the builder
-                               bonus pools read (default bonus-rounds.ts roundPoolsWei; null = the
-                               round froze), ToolContext.repoCoins the repo-coin read (default
-                               tokens.ts repoCoinPrograms), ToolContext.matchProjects overrides the
+                               route never sets it. (v2.14 T3 removed the roundPoolsWei and repoCoins
+                               seams with the builder bonus), ToolContext.matchProjects overrides the
                                GitHub/local-repo matcher (default match-projects.ts matchProjects);
                                list_programs passes githubGiven (a GitHub user or repo list given
                                now or remembered) to presentFirstMessage for youCould (Ruling 11);
@@ -880,7 +852,7 @@ apps/frontend/
                                wallet, for the agent to echo as record_submission's payout_wallet;
                                record_submission never reads the remembered wallet)
                                v2.10 item 13: PrepareInput.deploy (DeployField, P9 owner_wallet), deployStep (the deployed line, reply.deploy), deployWalletLine.
-                               Final fix M3: deployStep on a shared client needs sign-in on and calls callerLogin directly (DeployDeps.callerLogin seam).
+                               Final fix M3, v2.14 final fix: deployStep on a shared client needs sign-in on and has no login (deployForBuilder refuses: no person, no proof).
                                v2.10.3: deployStep refuses a chain not in DEPLOY_CHAINS first (deployOffLine), before the wallet ask or any read.
                                v2.11 on v2.10.3: freshSwitches' deployOn is deployChainOn (a chain off in DEPLOY_CHAINS is never offered);
                                buildShip refuses a listed-off starter chain the same way (deployOffLine, deployOffNote).
@@ -910,7 +882,12 @@ apps/frontend/
                                with the launch, Base only (M9, Ruling 24); repoCoinPrograms
                                (Ruling 25: the program each repo's coin is entered in)
     token-proposal.ts(+test)   v2.3 proposal: cleanTokenName (text + brand rules), tickerProblem
-                               (3-6 A-Z0-9, TICKER_RESERVED, brands), tickerCandidates, proposeToken
+                               (TICKER_SHAPE 3-10 A-Z0-9, TICKER_MAX 10 = tokens.fun's limit; TICKER_RESERVED, brands),
+                               tickerCandidates (R11: the whole first word up to 10, a longer one its first 10, else initials), proposeToken
+                               (Task 4 fix 1: OwnBrand { ownEarnkit }, default false; tickerProblem, cleanTokenName, proposeToken
+                               and token-launch.ts decideToken/editsOf/storedProposal take it; set only by own-brand.ts),
+    own-brand.ts               Task 4 fix 1: earnkitOwnRepo(id, repoUrl): an EarnKit-org repo that is a github_app-proven,
+                               verified source of this builder (else false); the only way to EarnKit's own brand on a token
                                (tokens.fun check-ticker; unreachable -> first clean candidate, noted),
                                monogramFor (12-colour palette); v2.7 Ruling 16: proposeToken(projectName,
                                check, repoUrl) never null — name: project, "<name> Token", repo name (repoNameOf), v2.8.1
@@ -923,31 +900,15 @@ apps/frontend/
                                v2.9 B10: recordDecline, declines (token_declines, per login and
                                owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
                                saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
-    token-gate.ts(+test)       v2.10 item 13 (R19): repoOwnershipPasses (OwnershipDeps.repoVerified: sign-in or
-                               v2.11 T9 security fix: proofLineOwner, proveRepo (branded ProvenRepo), OwnershipDeps.pusher
-                               App rows; else the proof line; shared clients: the caller's login only).
-                               v2.10 item 7b: on "not found", GateDeps.appToken (default appTokenFor) reads the repo and
-                               earnkit.txt through the App token (ok: { private: true }); else, with the App on,
-                               GateDeps.appLink's "Allow read access" reason (P17). The launch proof is unchanged.
-                               tokenGate (v2.6 §3): policy, a public repo with code (codeProblem over
-                               match-projects.ts repoCodeFacts: commits, a fork only when ahead of
-                               its parent, Ruling 3), ownership (ownerProblem: earnkit.txt, read via
-                               the contents API (ownership.ts fetchOwnershipViaApi) or the dev/test
-                               override, must carry the agent's ticker-free "token: <code>":
-                               tokenCode/tokenLineFor(installationId, repoUrl), the first 16 hex of
-                               an HMAC of "token-line:v2:<installation>:<normalized repo>" under
-                               EARNKIT_AUTH_SECRET, TOKEN_CODE_LENGTH; the v2.5 "token: <SYMBOL>
-                               <code10>" line still counts for that ticker, legacyTokenLineCode,
-                               PROOF_LINE_PREFIX (Ruling C24: how the proof-line miss starts),
-                               Ruling 1; no wallet line needed), sanctions screen; no live-link
-                               check; first failure as a reason in plain builder words (never the
-                               file or the line) plus agent_note with the technical detail (final
-                               review M7: the exact line to write and push); repo/owner/screen
-                               injectable (GateDeps); v2.8.1 §A3: GateDeps.latest (the most recently
-                               pushed other branch, ownership.ts fetchOwnershipLatestBranch; off with
-                               an injected owner or the dev/test override), ownerProblem's agent note
-                               says what was found where, the reason names the default branch
-                               (GateResult.branch → TokenOutcome.proof_branch)
+    token-gate.ts(+test)       tokenGate (v2.6 §3, v2.14 T6): policy, a GitHub repo with code (codeProblem over
+                               match-projects.ts repoCodeFacts; on "not found" GateDeps.appToken reads it through the
+                               App, ok: { private: true }), then the App proof (GateDeps.appProven: off a shared client
+                               repo-proof.ts repoProof forAction; on one, none: v2.14 final fix removed GateInput.verifiedLogin),
+                               else appInstallReason with GateDeps.appLink (repo-proof.ts installLink), then the
+                               sanctions screen. proveRepo (branded ProvenRepo { installationId, repoKey, owner }) for
+                               builds, deploys and hosting. v2.14 T6 deleted the earnkit.txt token line (tokenCode,
+                               tokenLineFor, legacyTokenLineCode, ownerProblem, proofLineOwner, PROOF_LINE_PREFIX),
+                               repoOwnershipPasses, repoSignedIn, proveRepoByBranch, the sign-in reasons and OwnershipDeps.
     token-launch.ts(+test)     v2.8.1 §A: launchReplyMs (EARNKIT_LAUNCH_REPLY_MS, 40 s), withinReply
                                v2.10 item 5: TokenBlock has no earnings, terms, paired_with or say_to_builder.
                                (past it: LAUNCHING once deploying, else STILL_CHECKING /
@@ -1114,10 +1075,18 @@ apps/frontend/
                                (projects.product_score at confirmation), matchStats (pure, 30 labelled
                                minimum), updateMatchFloors (programs:sync: match_floor, match_precision)
     github-verify.ts(+test)    v2.9 B9: Sign in with GitHub. githubVerifyEnabled (both OAuth vars), createVerifyLink
+                               v2.14 T6: only the App link is made (createVerifyLink throws for other purposes; S7: not
+                               without the person's page handle, pageHandle); the confirm page names the page the repo is
+                               added to (appConfirmDestination, APP_CONFIRM_ONLY_YOURS); completeVerify serves only the
+                               App's sign-in hop (any other stored nonce: expired); saveVerification joins and queues
+                               nothing; entryVerifyLink, proofLineLogin, provenOwnerLogin, noteLineIssued, lineIssuedAt,
+                               takeHostVerification, ownershipPasses, OWNER_GATE deleted; loginBasisFor reads
+                               verifications only (no proof line); verifiedEntryIds kept for shared clients' old entries.
                                (github_verify_nonces, sha256 only, 15 min), peekNonce/takeNonce (atomic, single use),
                                nonceDetails, ownershipPasses, githubOAuth (exchange, user, repoPerms), completeVerify,
-                               verifiedFor, takeHostVerification (P11), callerLogin (G9 sign-in code), verifiedEntryIds,
-                               entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING, codeLine; route handlers
+                               verifiedFor, takeHostVerification (P11), verifiedEntryIds (v2.14 final fix: callerLogin,
+                               codeLine, formatCode, normalizeCode and the paste code gone; saveVerification returns nothing),
+                               entryVerifyLink (G11: needs the entry's wallet), VERIFY_PAGE (+ orgRepo), CONFIRM_WARNING; route handlers
                                verifyStart (confirm page + __Host- cookie), verifyConfirm (POST, 303 to GitHub),
                                verifyCallback (code + state + cookie only).
                                v2.10 item 7b: purpose 'app' (createVerifyLink refuses it while the App is off, no
@@ -1132,15 +1101,29 @@ apps/frontend/
                                v2.11 T3: loginBasisFor (a step's login and login_basis: signin, app, proof_line only for
                                the builder's own User account; shared clients only the caller's or the entry's sign-in),
                                githubUser (S9: GET /users/<login>, cached 24 h in url_checks ghuser:<login>)
+                               Launch ready L2: PICK_REPOS ('*', the repo picker's repo_key); createVerifyLink repoKey null
+                               makes it (same S7 page handle, cookie, expiry, single use); confirmPage for it: APP_PICK_LEAD,
+                               APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>."); pageWith
+                               (fix round 1: a setup success page with its one link)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
                                and metadata read; never stored or logged), appProof (R8: listed, and own account or
                                admin), appTokenFor (a via='app' proof scoped like verifiedFor, then a fresh token;
-                               null when off), installUrl, APP_PAGE, appSetup (the setup URL handler)
-    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts, signed_in; v2.9 E19 weekly_email
+                               null when off), installUrl, APP_PAGE, appSetup (the setup URL handler; v2.14 T6: then
+                               repo-proof.ts proveByApp for the person's root)
+                               Launch ready L2: installationToken(id, null) (the installation's repo list, metadata read);
+                               pickedRepos (GET /installation/repositories, PICK_LIST_MAX 100, newest push first; own account
+                               or admin, R8; PICK_ADMIN_CHECKS 30 in batches of PICK_ADMIN_BATCH 5; stops at PICK_PROVE_MAX 20; returns org: an organization's installation proves
+                               only the one project's repo, final fix I2);
+                               pickSetup (appSetup for a PICK_REPOS nonce, one PICK_BUDGET_MS 25 s deadline through
+                               budgetedFetch: repo-proof.ts proveOne per repo, the verification only for a proven one; the one
+                               project kept when picked, else setMainProject(newest proven); connectProven in what is left);
+                               PICK_PAGE (always names the one project and its page; remove line), GITHUB_INSTALLATIONS_URL;
+                               fix round 1: the single-repo path is proveOne, then the verification, then connectProven
+    builder-memory.ts(+test)   v2.9 A3: TellInput (strict; program_status, repo_facts; v2.9 E19 weekly_email
                                { answer yes/no, email? }, which alone is enough), BuilderMemory, MemoryKey
-                               (memoryKey: own installation login '', a shared client's verified login, else null),
+                               (memoryKey: own installation login '', a shared client null),
                                SaidRepo, readMemory (builder_program_status, builder_repo_facts),
                                tell (all checks first, then one transaction; outcomes via
                                saveSelfReport, lost = not_selected), roundLabel, hiddenPrograms,
@@ -1182,15 +1165,6 @@ apps/frontend/
                                exact; built, deployed, hosted, entered, submitted once each, proof_line);
                                13.2 a rerun writes nothing; 13.4 skip the token, the Pages fallback, fail
                                closed (v2.10.2 byte for byte); 13.3 the sweep; 13.5 v211-metric.mts
-    v210-journey.test.ts       v2.10 Task 11 DB-gated journeys through the 4 tools, in their own throwaway
-                               database: 11.0 the owner's run (private tokens.fun and EarnKit repos from the
-                               local view, a public tipjar, one lead line, the guide on the pick, the Arc
-                               deploy on a fake DeployChain, one confirm line with "40%" once, a refused
-                               description, the site's apple-touch-icon, the deadline line, "I submitted");
-                               11.1 a private repo through the read-only App (generated RSA key, fake App API,
-                               the sign-in hop, install and setup URL); 11.2 Grok Bot to a launched token
-                               (G10, G11, a second builder sees nothing); 11.3 an old confirm_entry through
-                               the MCP route (alias logged once, 4 tools listed); 11.4 the cross-reply sweep
     v29-journey.test.ts        v2.9 Task 12 (Part 1) DB-gated journeys in their own throwaway database: owned
                                repos and noise, Arc Easy and the first-reply token offer, Grok Bot with
                                GitHub sign-in on (the real verify routes, GitHub OAuth mocked) and off,
@@ -1200,16 +1174,7 @@ apps/frontend/
                                qualifies precision (12.6b), the won line (12.8), one money figure
                                (12.9), the weekly email (12.10, Resend recorded), /terms (12.11);
                                the cross-reply copy scan
-    v28-journey.test.ts        v2.8 Task 12 DB-gated journey in its own throwaway database: no repo,
-                               Arc's coach question, the draft and offer, confirm_entry "go" (fake
-                               deploy) and the copy-paste kit, record_submission with Also qualifies
-                               (Base), Base's prefilled link with no second token, then an announced
-                               outcome (syncOutcomeFile) and the win line; every reply scanned for em
-                               dashes, Clanker, "coin" and tool or field names
-    v27-journey.test.ts        v2.7 DB-gated journey in its own throwaway database (schema.sql, dropped
-                               after): real programs/*.json, "What can I earn?" (Difficulty, the bonus close with stubbed
-                               pools), get_program's guide, prepare_submission not ready ("Before you submit:", no token)
-                               then ready ("a token on Base", no Clanker); local fetch stub for the ticker check
+    v27/v28/v210-journey.test.ts  deleted in v2.14 T3 (every case was flag-off parity)
     campaign-page-text.ts      v2.7 §4: every human-facing string of app/campaigns/[slug]/page.tsx as pure
                                functions (campaignEyebrow, closesText, sponsorDisclosureParts, earnkitCampaignBlurb,
                                removedLine…), so copy-review scans them
@@ -1225,78 +1190,43 @@ apps/frontend/
                                needsOwner (the 503 notes); the page balance is funds.ts
     cron.ts(+test)             nextStep (the state machine), scoreMaxAge, runCron (one step per
                                v2.10 item 13: deployerGas (v2.10.3: only the chains in DEPLOY_CHAINS; deployer-gas:<chain> TOP_UP, deployer-price:<chain>, deploy-owner:<id>, deploy-unknown:<id>; H11: :quiet after 24 h, QUIET_OWNER, no 503 in cronPost); CronDeps.deployer.
-                               campaign under its lease, then builder bonus scoring (scoreOpenRounds),
-                               the ledger with its rounds step (bonus-payout advanceRounds), then the fee
+                               campaign under its lease, then the ledger (v2.14 T3: no bonus scoring, rounds,
+                               proof re-check or collect step; every deposit books to the Safe), then the fee
                                refresh, then v2.9 Task 8 expireSites (R2 on; `hosting` in the result),
                                then v2.9 Task 10 sendDigests (RESEND_API_KEY set; `digest` in the result);
                                needs_owner incl. host-review:<slug> (P46), PAY_FAILED_RUNS failed pay steps in a row
                                and bonusWaitsOnOwner (a MANUAL_CHECK or TOP_UP bonus sweep, failed
                                index runs, v2.9 D17 gas low or a claim/collect out of gas); BONUS_WALLET_UNSET when the ledger is
-                               skipped (key missing or malformed, off mainnet) while bonusLive,
+                               skipped (key missing or malformed, off mainnet) while bonusLive (v2.14 final fix: an EarnKit coin exists),
+                               v2.14 final fix: missingPrerequisites / PREREQ_VARS (env-missing:<VAR>, env-invalid:GITHUB_APP_PRIVATE_KEY
+                               on a full run: X sign-in and the GitHub App are hard prerequisites),
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
                                token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
                                v2.11 Task 11: the usage step after deployerGas (CronDeps.usage; `usage_checks` in the
                                result; never needs_owner)
-                               v2.12 T6: last, with EARNKIT_BUILDER_SCORE=on, builder-score.ts runScoreSteps
+                               v2.12 T6: last (always since v2.14 T3), builder-score.ts runScoreSteps
                                (CronDeps.builderScore: reader, login, only) inside scoreSliceEnd (40% of what
                                remains); `builder_score` in the result; needs_owner score-hold:<id> and X conflicts
-    bonus-rounds.ts(+test)     roundFor (windowed rounds keyed by start day, windowKey, Ruling 21;
-                               v2.10 item 1: roundPools (pool and token count in one grouped read); roundPoolsWei maps it (wei > 0).
-                               UTC-month rounds), bookingFor (round or Safe, with the reason; v2.6:
-                               the Safe only when !bonusOn, no open round or not active),
-                               roundPoolsWei (one grouped read, open rounds only; null = the round
-                               froze); v2.6: bonusOn (Ruling 7 (plan): active, builder_bonus !==
-                               false, not a campaign; SQL twin `g.status = 'active' AND
-                               g.builder_bonus AND g.campaign IS NULL`), boardSlug /
-                               roundKeyFromSlug / resolveRoundParam (Ruling 12 (plan)); v2.8.1 §D:
-                               rollsOver (the program ended: window passed or closed), rolloverRounds
-                               (earliest end first), rolloverPrograms (the repo's submitted, complete
-                               entries by the deposit time), currentBonusRound (the round a token's
-                               fees book to now; also the near-end collect's), bonusEntryProgram
-                               (its program, for every builder-facing bonus note)
+    bonus-rounds.ts            deleted in v2.14 T3 (with bonus-payout.ts and bonus-board.ts): every deposit books to the Safe
     bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
                                ClaimedRewards of the sending locker), bonusRpc, scanForward (adaptive
-                               getLogs), indexDeposits (cursor), bookDeposit (an open round follows
-                               the program window; v2.8.1 §D: once the coin's program is over, the
-                               repo's next open entry via rolloverRound, else the Safe; a booked
-                               deposit is never moved), lockRound, collectNearEnd (isRevert: only a revert skips a
-                               locker), claimFees (bonus wallet then Safe; M10: also when the sweep
+                               getLogs), indexDeposits (cursor), bookDeposit (v2.14 T3: always the Safe,
+                               round_key NULL, with the reason logged; a booked deposit is never moved), claimFees (bonus wallet then Safe; M10: also when the sweep
                                waits on it), v2.9 D16: claimForOthers (step claim_others after the
                                sweep, OTHERS_CLAIM_MS slice, MINI then creators newest first),
                                claimOwners (each owner once), feeRecipients (EARNKIT_SPLIT_BPS only,
                                cached on projects.fee_recipients); D18 fee_claims ops log,
                                v2.9 D17: GAS_LOW, gasMinWei, NEEDS_GAS, BonusRpc.rewardInfo/ethBalance,
                                sweepToSafe (payWinner + sweepStore), worthIt (10x gas),
-                               indexedThrough, roundsCovered, sendCall (run nonce floor, I5),
+                               indexedThrough, sendCall (run nonce floor, I5),
                                runBonusLedger (the cron step; v2.9: `gas` check first; a malformed key is a skip, Ruling 19;
-                               one `nonces` floor per run; `rounds` hook after the claims, before
-                               the sweep); v2.13.2: indexSafeFees + safeIndexStep (step safe_index, last,
-                               Bench flag only, SAFE_INDEX_MS 30 s slice, SAFE_INDEX_CALLS_PER_RUN 10: the
+                               one `nonces` floor per run; v2.14 T3: no rounds hook or near-end collect); v2.13.2: indexSafeFees + safeIndexStep (step safe_index, last,
+                               always since v2.14 T3, SAFE_INDEX_MS 30 s slice, SAFE_INDEX_CALLS_PER_RUN 10: the
                                Safe's own deposits from EarnKit coins into safe_fees, cursor 'safe';
                                BonusRpc.safeStoreLogs first, claimLogs only across their blocks, no
                                receipt reads; safe_index_failures -> cron bonusWaitsOnOwner;
                                test v2132-safe-fees.test.ts)
-    bonus-payout.ts(+test,     v2.5 Task 7: BONUS_SPLIT_BPS, splitPool, placesFor, freezeRound,
-      +anvil.test)             bonusPayoutStore (bonus_payouts), roundRows, advanceRounds (freeze,
-                               review, claim-before-pay (a pending claim is CLAIM_PENDING, not a
-                               top-up, M3), pay per place, rest to the Safe, empty)
-    bonus-lifecycle.anvil.test.ts  v2.5 Task 10 e2e: the whole builder bonus lifecycle from
-                               record_submission to the WETH transfer, through cronPost/runCron on
-                               anvil + Postgres (mock tokens.fun, raw GitHub and Blockscout on one
-                               local HTTP server; GitHub API, probe, proof pages, sanctions
-                               injected): coin vs no coin, proof re-check, fees over 2 days (tokens.fun
-                               batch collect, EarnKit's own near-end collect), scoring with no
-                               onchain users, freeze, veto, payout split, post-end sweep, winner
-                               alert, idempotent re-run; v2.6 Task 8: an Arc entry on a 405 page
-                               counted on the builder's confirmation (unverified_page flag, no
-                               503), then e2e-confirm (rolling, no proof pattern): a confirmed entry
-                               paid the whole pool after the month ends, an unconfirmed one never
-                               ranked, a test installation (EARNKIT_TEST_INSTALLATIONS) shown as
-                               "Test entry: not ranked", never paid, out of /api/stats, a late
-                               confirmation updating the same entry, the winner's list_programs
-                               paid line, a re-run that signs nothing. Skips without
-                               BONUS_ANVIL_URL/DATABASE_URL (both must be local)
     policy.ts                  v2.5 Task 9: FEE_SPLIT_BPS (a copy of tokens.fun's split), SAFE_ADDRESS, FEE_ROWS / SIGNAL_ROWS (traction
                                WEIGHTS) / PLACE_ROWS (BONUS_SPLIT_BPS) for /policy; v2.9 re-exports
                                MINI_FEE_RECIPIENT and GAS_WALLET_MIN_WEI_DEFAULT; v2.11 T12: RECORDS_* and
@@ -1305,7 +1235,7 @@ apps/frontend/
                                (the /terms#builder-profiles copy; lawyer review before go-live)
     policy-constants.ts        v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
                                GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
-                               (policy.ts imports bonus-payout/traction, which import bonus-ledger)
+                               (policy.ts once imported bonus-payout/traction, which import bonus-ledger)
     landing.ts(+test)          v2.7 §1, v2.7.1: landingFrom (pure: curated cards by prize → Tile JSON:
                                prize = pool_line, else "up to $X per winner", else the curated text;
                                prize_note "up to $X per winner" when different; v2.8: has_bonus and bonus_amount = bonusAmount ("0.42 ETH", "<0.01 ETH", else null);
@@ -1333,6 +1263,8 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
+                               launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
+                               (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
                                open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
@@ -1365,18 +1297,7 @@ apps/frontend/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
                                free-tier caps), digestUnsubscribeGet/Post
-    bonus-board.ts(+test)      v2.5 Task 9: bonusBoard (open/frozen: live ranking from bonus_scores
-                               with eligibility in words; review/paying/paid: frozen bonus_payouts
-                               minus vetoes, renumbered, top 10 + place holders, amounts, mined tx);
-                               openRows/frozenRows/daysLeft/ethText pure; no wallets, flags or
-                               veto reasons; a not-yet-booked open round shows with pool 0;
-                               OpenEntry.test (v2.6 Ruling 6 (plan)): an owner test installation,
-                               listed with the ineligible rows as "Test entry: not ranked";
-                               OpenEntry.pattern: "No: submission page not confirmed yet" vs "No:
-                               submission not confirmed yet"; a not-yet-booked round shows only for
-                               a bonusOn program; Board.ends_label (Ruling 29: entry-text.ts
-                               roundEndLabel, shown by BoardView)
-    public-pages.test.ts       markup tests of /terms (11.4: section ids, MINI line; 11.5 redirects 301; 11.6 Tokenfi line; 11.7 no /fund or /award in builder navigation), BoardView and the footer link
+    public-pages.test.ts       markup tests of /terms (11.4: section ids, MINI line; 11.5 redirects 301; 11.6 Tokenfi line; 11.7 no /fund or /award in builder navigation) and the footer link
     install.test.ts            v2.8 Task 5: the install tabs and order, the Claude Code and Codex
                                commands, local icons (logoFileProblem), no editor tab in the modal,
                                llms.txt, README, app/ or lib/, and llms.txt's token/bonus text
@@ -1407,6 +1328,11 @@ apps/frontend/
                                never `flagged`, so never needs_owner or a 503)
     test-guard.test.ts         Part 2 final review I3: the preloaded guard clears vendor keys, fetch is local only
     fixtures/                  test-guard.ts (the `--import` preload above; no network, no vendor keys),
+                               test-db.ts + test-db-template/create/drop.mjs (v2.14 T2: each test file runs in its own
+                               ek_t_<hash>_<pid> database copied from this worktree's ek_test_template_<key>; databases
+                               are tagged per worktree and only this worktree's dead leftovers are ever dropped),
+                               Needs Postgres 15+ (STRATEGY FILE_COPY) and a local server (localhost, 127.0.0.1 or ::1 only),
+                               mcp-call.ts (v2.14 T2: mcpCall / mcpListTools, tools/call through the real MCP server),
                                clanker-base-launch.json (a real Base receipt, from tokens.fun),
                                bonus-db-lock.ts (test-only advisory lock for the bonus test files),
                                fake-github-branch.ts (v2.13.2: fakeGitHub, idOf: the proof branch fake API),
@@ -1417,9 +1343,10 @@ apps/frontend/
                                programs-cleanup.ts (v2.13 T17: dropPrograms; dropRunPrograms, which each
                                DB test file calls at its end so the programs it made (ids carrying its pid)
                                never outlive the run in the shared test DB)
-    builder-score-flag.ts      v2.12: BUILDER_SCORE_FLAG, builderScoreEnabled (exactly "on"), archiveFlag(name)
-                               for SPONSOR_CAMPAIGNS, STARTER_REGISTRY, PROGRAM_LEADERBOARDS, TOOL_ALIASES;
-                               import-free
+    builder-score-flag.ts      v2.14 T3: archiveFlag(name) for SPONSOR_CAMPAIGNS, STARTER_REGISTRY,
+                               PROGRAM_LEADERBOARDS, TOOL_ALIASES; xSignInEnabled; RAISING_FLAG, raisingEnabled
+                               (EARNKIT_RAISING, the one product switch left); the builder-score and Bench
+                               switches are retired (flags-retired.test.ts); import-free
     score-calibration.ts       v2.12 T2: Calibration, CALIBRATIONS ('v1-launch': users 500, money $5,000,
                                13 weeks, 60 days, package_users 100, pr_target_users 2, since 2026-10-12),
                                LIVE_CALIBRATION, calibration(id); pure
@@ -1435,107 +1362,171 @@ apps/frontend/
                                profileCode / profileCodesIn (the earnkit.txt `profile:` line, HMAC under
                                EARNKIT_AUTH_SECRET)
     discovery.ts(+test)        v2.12 T4, T6: localGitInput, noteLocalGit (remotes and live_urls proposed,
+                               v2.14 T6: provenLogin is the App installer's login only (one across the group); clue 2
+                               (owned/remote repos, top contributor), the proof-line check, x_match and loginStands
+                               are gone; clue 3 scans App-proven repos with their own token (repo-proof.ts appClient).
                                agent), enqueueDiscovery, enqueueClue (wallet, signin; flag on, not shared),
                                LoginOf, provenLogin (R4), proofLineCheck, discover (DISCOVER_PER_RUN 20,
                                DISCOVER_CAPS; reads first, verdicts after), publicHttpsOrigin, homepageOrigin
                                v2.12.2: REPORTED_REPOS_MAX (a reported login's own repos proposed, not
                                confirmed), proofLineCheck skipShort/onSkip (discoverPerson, the refresh;
                                a skipped check re-queues 'proof_line' for the cron)
-    source-readers.ts(+test)   v2.12 T5: ReaderDeps, readRepo, readSite, probeSite, readNpm, readPypi,
-                               readContract (Base Blockscout, Arc logs), readContractOrigin, readMergedPrs (never
-                               into own orgs), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
+    source-readers.ts(+test)   v2.12 T5: ReaderDeps, readSite, probeSite, readNpm, readPypi, readContractOrigin,
+                               walletCreationsFrom (R16b removed readRepo, readContract, readCoin, readMergedPrs and
+                               the Blockscout/Arc/price deps), budgetedGh (GH_RATE_FLOOR, GH_RUN_CAP 1500 calls a run),
                                GitHubBudgetStop, soft, READ_CAPS,
-                               defaultReaderDeps (one per run)
+                               defaultReaderDeps (one per run; v2.14 final fix 8: ghFetch skips the run cap and the rate watch
+                               for appCredential requests, an installation token or the App JWT)
     weeks.ts(+test)            v2.13 T1: ISO weeks (isoWeekOf, mondayOf, lastFinishedMonday, last52, streakOf,
                                weeksShipping)
     main-project.ts(+test)     v2.13 T2: the one project (main_project_key): mainProjectOf, setMainProject,
+                               v2.14 T6: confirming, confirmingFast, CONFIRMING_*, MAIN_PROOF_MIN_MS and clearOpenCodes deleted.
                                benchConfirmedSql (repo key needs a confirmed repo proof), CONFIRMING_WINDOW_MS
                                (1 h fast refresh), PROOF_NOTE (names proof.repo), proofFor (the line, or the
                                sign-in link: can't push, owner not github_user, an org, or the hour passed;
                                SIGN_IN_OWNER_NOTE; v2.13.1: null under the flag), pickMainProject
                                (Bench-confirmed only, else null); v2.13.1 O2: setMainProject replaces an
                                unconfirmed one (old key's open proof code cleared), dropMainProject (tell
-                               repo_facts not_mine on the unconfirmed one project)
-    proof-branch.ts            v2.13.1 O1: the proof branch (table proof_branches: sha256 + seed, code =
-                               HMAC(secret, seed)): proofBranchFor (open code, else one a day per person, coding
-                               agents only; failed / needs_agent / taken; v2.13.1 O3 `buildDeploy`: a starter
-                               build's deploy gets a fresh code after an expiry, within the 5-a-day cap), checkProofBranch (once a minute per
-                               code; ref, repo, pusher: User repo owner only, org any; exclusive; proof
-                               `proof_branch` with gh_repo_id/gh_owner, login basis `proof_branch`, rescore),
-                               heldByOther (group roots; discovery asks it too), coinBranchProof (the token
-                               gate under the Bench: a proof under 30 days whose repo id still reads the same,
-                               else a fresh branch, never a line), branchToRemove, proofBranchStep (cron,
-                               deadline, 7-day cleanup); v2.13.1 O2: coinBranchProof passes a Bench-confirmed
-                               main project with any other confirmed proof; tests: v2131-proof-branch.test.ts,
-                               v2131-onboarding.test.ts (O2: B1, B2, B4, B6, page link, last line, coin);
-                               O2 fix round 1: controlProvenMain (coin: proof_line/github_signin only, one
-                               repo read, not held), PROOF_BRANCH_MAX_PER_DAY 5, closed_at + closedRemoveNote,
-                               branchProvenOwner (a build's deploy proof under the Bench); O5: probeRepo +
-                               knownUnprovable (one cheap repo read before a code: 404 -> failed, a User repo
-                               under another login -> foreign; public -> builder_sources.public_at), pushRefused
-                               (tell proof { pushed: false }), PROOF_BRANCH_NOTE says what to do while checking
-                               fix round 1: copy (fork/template) and unseen (404) verdicts, probe outside the
-                               lock, kept a day (standing_seen.repo_probe); bench-find keepBenchMatch /
-                               keptBenchMatch (standing_seen.bench_match, 1 h) for a match cut by the wait;
-                               v2.13.2: ORG_PROOF_MAX_AGE_MS (90 days), expireOrgProofs (an Organization's
-                               proof_branch source back to proposed, reject_reason STALE 'stale', rescored),
-                               orgProofExpiryStep (cron step proof_expiry, ORG_PROOF_PER_RUN, the deadline; the
-                               day's slot taken only after a finished run),
-                               proofBranchFor's checking `again` (bench-reply stillYoursLine, view 'recheck');
-                               a stale source is never re-verified by discovery (discovery.ts, sources.ts verifySource);
+                               repo_facts not_mine on the unconfirmed one project); launch ready L2: rankRepo (tell
+                               main_project: the one project moves, even a confirmed one, only to a repo this person proved
+                               with the App)
+    repo-proof.ts              v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
+                               deleted; proof_branches and proof_line_issues stay, unused). APP_PROOF 'github_app', APP_REMOVED,
+                               APP_CHECK_PER_RUN 50, APP_CHECK_EVERY_MS 1 day, APP_PROOF_FRESH_MS (a day + 2 h);
+                               repoProof(builderId, key, db?, { forAction? }) (app / kept / none / taken / copy;
+                               forAction: only a github_app proof GitHub confirmed within APP_PROOF_FRESH_MS: coins,
+                               deploys, hosting); proveByApp (appSetup's last step: GitHub names this installation for
+                               the repo, one read with its token, fork/template -> derived, then ONE transaction under
+                               repo_hold:<key> and source_proof:<id> locks: heldByOther, verify github_app with gh ids,
+                               public_at from GitHub's private flag; then source_verified, the connect read, rescore, and
+                               on the first proof R13's backfill within the connect budget); installLink (the App
+                               link, null with the App off or no page); appClient (one token, GETs); appCheckStep (cron
+                               step app_check: GitHub still names an installation this person proved, else proposed +
+                               APP_REMOVED + rescore); moved here: heldByOther, ORG_PROOF_MAX_AGE_MS, ORG_PROOF_PER_RUN,
+                               STALE, STALE_RETRY, expireOrgProofs, orgProofExpiryStep (re-proof is the App);
+                               Fix round 1: appProofLive (an installation this person proved; an org's prover still admin;
+                               held / gone / unknown), recheckAppSource (applies it; appCheckStep and repoProof forAction on
+                               a proof older than APP_PROOF_FRESH_MS use it; v2.14 final fix: no login option, sharedAppProven
+                               gone: a shared client has no proof), REPLACED_BY_APP (an App proof replaces another person's non-App hold;
+                               heldByOther counts App holds only).
+                               Launch ready L2: proveByApp = proveOne (the checks and the one transaction; returns Proven) +
+                               connectProven (replaced people rescored, events, one connect read of every proven row,
+                               rescore, backfill for first proofs; one REFRESH_BUDGET_MS, or less: o.deadline); pickLink (the repo picker's link).
+                               tests: v214-app-proof.test.ts, repo-picker.test.ts (fixtures fake-github.ts, app-install.ts)
+    v214-journey.test.ts       v2.14 T12: acceptance 1 to 5 end to end on fake X and GitHub (fetch throws; every fake call routed)
+    v214-removed.test.ts       v2.14 T7: the claim page, join route and join modules gone (wallet page stays), the tables
+                               kept, tell takes no pickup, bindX never asks, the S4 detach migration, a refused re-auth keeps
+                               the old token
                                tests v2132-followups.test.ts (fakeGitHub in fixtures/fake-github-branch.ts)
                                v2.13.3: appBearer (the App's per-call installation token for a repo this person installed it on) on the probe and the branch check.
     reply-wait.ts              v2.13.1 O5 N1: REPLY_WAIT_MS (1.5 s), settleWithin, inTime/ReplyLate: the Bench
                                reply never waits longer on the refresh, matching or the proof check
-    week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor, factChips, startedLine, upsertWeekFacts,
-                               weeklyFactsStep (Mondays from 15:00 UTC)
+    week-facts.ts(+test)       v2.13 T4: WeekFacts, weekFactsFor (R16b: no users_up or earned), factChips, startedLine, upsertWeekFacts,
+                               launch-ready: shipReading (one LATERAL: the newest good reading, a reader-2 one first),
+                               weeklyFactsStep (Mondays from 15:00 UTC); v2.14 T8: the step reads an App-proven repo's
+                               week titles (appClient, ghFetch) and upsertWeekFacts stores them (project_updates.titles);
+                               scoring and clarity R13: writeWeek (the per-week body: facts, titles, row, events; shared
+                               by weeklyFactsStep and the backfill), BACKFILL_WEEKS 3, BACKFILL_PER_RUN 20,
+                               BACKFILL_TRIES_A_DAY 3, backfillMondays, backfillWeeks, backfillOnConnect (repo-proof.ts
+                               proveByApp, first proof only), backfillStep (cron step backfill, after weekly; facts
+                               titles_read marks a completed titles read); fix round 1: weekFactsFor's shipped_code
+                               passes person-score.ts weekCounts (one floor for both paths), setShipTitles clears
+                               titles_read on the backfill weeks; tests backfill.test.ts
+    ship-titles.ts(+test)      v2.14 T8: TITLES_MAX 3, TITLE_MAX 80, cleanTitle (final fix 13: TITLE_MIN 3 by letter and digit
+                               code points, a Han, kana or Hangul character counting 2), shipTitles (checkUpdate on each),
+                               readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
+                               while builder_profiles.ship_titles_at is set, never naming the repo); week-facts.ts
+                               weekTitles calls readWeekTitles; tests ship-titles.test.ts, v214-ship-log.test.ts
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
-    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, setUpdates, ownLinks (tell update / updates);
-                               UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>)
-    feed.ts(+test)             v2.13 T6: pointsOf, feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
-                               carouselCards, setFeedFlag (pin/hide)
-    bench-rank.ts(+test)       v2.13 T7: benchPool (listed ranked + benchConfirmedSql), chainPools, rankLines (Top P% and per-chain lines; rank.ts has benchRank,
-                               CHAIN_CHIP_MIN, BENCH_CHAINS)
-    bench-reply.ts(+test)      v2.13 T8: the reply's three headings, lines and ask kinds
-                               v2.13.3: NO_PROJECT_LINE, START_ASK, startBuildAsk, claimLine, needsLine, installAppAsk; kinds start, install_app; chooseAsk: entry, then community round, first.
-                               v2.13.4: claimAsk/claimAskLine/claimQuestion (kind claim), privateLine, installAppAsk (owner's copy, question last),
-                               linkedLine, displayName (site spelling or title case), the asks end on their question (R4)
-    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp, coinAskBench;
-                               v2.13.4: CLAIM_NOTE, CLAIM_YES_NOTE, fundNeeds(c, has), reportedLive, liveOf, takeLinked;
-                               v2.13.1 O5: quiet asks (GRANTS_QUIET_MS), ideaFitsOffer, SHIP_NOTE;
-                               tests: v2131-o5.test.ts (N1 to N16, P1 to P10)
-                               v2.13.3: fundNeeds, needsPicks (NEEDS_MAX 2), START_NOTE, START_YES_NOTE, INSTALL_APP_NOTE, INSTALL_APP_YES_NOTE; no generic starter.
-    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, raiseAsk (projects.raising_at); all off
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles
+                               (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
+                               UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
+                               option (posted_by still written)
+    feed.ts(+test)             v2.13 T6: pointsOf (R16b: went live, win, commits, streak only), feedRankStep (daily, feedRank:<day>), rankFeed, feedWeeks,
+                               carouselCards, setFeedFlag (pin/hide); v2.14 T8: FeedCard.titles (titlesShown)
+    bench-rank.ts(+test)       v2.13 T7: benchPool (re-export from person-score), chainPools, rankLines ({ bench: rank line,
+                               line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
+                               project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
+    bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
+                               no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
+                               STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
+                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; ranked: the weekly target
+                               line (L5, weekly-target.ts), SHIP_STEP "Ship this week to climb." only without a Shipping row, kind ship); benchReply: stand line (+ the why, "Your page"),
+                               "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
+                               Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
+                               else the page; none when there is no page, X off). Launch ready L2: no_project asks the
+                               repo picker (STATE_COPY.no_project.ask(link), kind pick_repo; noApp() and kind start only
+                               while the App link can't be made). Kinds sign_in, start, pick_repo, install_app,
+                               other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
+                               displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
+                               the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
+                               Launch ready L5, L6: BenchView.target (the weekly target, STATE_COPY.ranked.ask(target), else
+                               SHIP_STEP) and BenchView.share (the weekly moment's X link: then the one link, and stateAsk
+                               gives kind share, shareAsk "Share your week on X: <link>" + "Does last week look right?").
+                               tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
+                               tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
+                               showRaisingLine, an open offer again via openCoinLine, else offerCoin 'countable';
+                               TOKEN_NOT_YET, tokenUnavailable, tokenHasCoin, RAISE_NOTE), SHIP_STEP_NOTE; R12: fitWhy
+                               (the chain: deployed on / deploy to / build for, any chain, a live app) and whyFacts;
+                               v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
+                               install link, the sign-in link minted for the caller's own installation, D14), the
+                               money (R12: up to 3 fits, never an open-all-year pick; not counted or no project:
+                               needsPicks too; a taken project still names open programs, D6), the stored ask; a held question (find's outcome question or
+                               submission step, A17) replaces the state's, except signed out (signedOutNow: the
+                               sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
+                               first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
+                               handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
+                               kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE), pick_repo (PICK_REPO_YES_NOTE);
+                               retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
+                               no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
+                               needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
+                               Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
+                               main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
+                               RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
+                               (weekly-target.ts targetFor, ranks only) and weeklyMoment (momentDue, lastWeekOf, takeMoment:
+                               the moment's lines lead find's and score's show_to_builder, after "Signed in as"; the share
+                               link is the ranked link; momentReady gates it; openShare keeps the offer open all week);
+                               benchMoveUp kind share goes to answerShare (once, that week only; APPROVED_LINE); SHARE_NOTE.
+                               tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
+                               repo-picker.test.ts, weekly-moment.test.ts
+    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
+                               launch-ready L3: BenchFilter is { chain, weekly } (no community round filter),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
-                               tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits)
+                               tracking" chip on its week's card), gridWeeks (ship weeks + weeks with checked commits);
+                               v2.14 T8: profile log cards carry titles (titlesShown, S9); launch ready L5: ProfileData.target
+                               (weekly-target.ts targetFor, ranks only, voice 'page' since L10), shown under the why by BenchProfileView
     v213-final-fix.test.ts     v2.13 final fix wave: private names, lazy pick, proof repo and sign-in, the
                                Bench gate, the update limit, EARNKIT_RAISING off and on
     llms/{v212,v213}.txt       v2.13: the two /llms.txt bodies (flag off / on)
     v213-journey.test.ts       v2.13 T16: acceptance steps 1 to 7 (the runbook) on fakes in its own database,
                                plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
                                fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
-    sources.ts(+test)          v2.12 T5: Proof, repoOwned, packageOwned, siteOwnedByText, contractOwnership
+    sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
-                               rejectSource, dueSources, previousSignals, readSources (READS_PER_RUN 200)
+                               rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
+                               readSources (READS_PER_RUN 200; no org contributors call)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
                                buildInputs (v1 rules, kept as history with its tests), holdReason, sourceShares,
                                profileEmpty, heldPeople, runScoreSteps (discover, read, score = person-score.ts
-                               scorePeopleV2, empty), publicRow, verifiedProject (odds: the person's confirmed
-                               builder_projects row; v2.12.1 T12), scoreContext, heldForReview,
+                               scorePeopleV2, empty), publicRow, heldForReview (R16b removed verifiedProject,
+                               scoreContext, ringEdges),
                                (T12 removed scoreBuilders, percentiles, publicScore, emptyReasonOf)
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
-    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b): the coin offered only at its moments (built_live,
-                               countable, first_five, has_people), replacing v2.12's score-20 gate. COIN_PROGRAM
+    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b), R8: the coin offered only when the builder asks (bench-find
+                               tokenAsk, moment countable); built_live (fix 1: the build path no longer pitches),
+                               first_five, has_people and streak_five stay for old rows. coinPitchAllowed: the coin
+                               program's accepted entry only. COIN_PROGRAM
                                (policy-constants.ts), coinLine, coinAllowed, coinWallet, offerCoin (records
-                               coin_moments, once per project), coinYes (the coin program's entry + saved offer;
+                               coin_moments, once per project), openCoinLine (an open offer shown again), coinYes (the coin program's entry + saved offer;
                                confirm by project_id launches it), coinNo (recordDecline), coinOpen,
                                coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
-                               builtLiveAnswer, COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
+                               COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with
@@ -1544,55 +1535,105 @@ apps/frontend/
                                resolveSlug (claimed only), resolveHandle (HANDLE_REDIRECT_DAYS 90),
                                mergeProfiles (older group keeps its page; hidden/held either side)
     profile-cache.ts           v2.12 T10: PROFILE_TAG, profileChanged() (revalidateTag; no-op outside Next)
-    share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, claimFirstLine, cardYes (the share
-                               link of a claimed page, else the claim link first); the v2.12 offer is gone (T12)
-    score-tool.ts(+test)       v2.12.1 T8: scoreReply (where you stand, one way to earn, one step; score_viewed),
+    share.ts                   v2.12.1: CARD_CACHE, SKIPPED_LINE, POST_LINE, signInFirstLine (v2.14 T7), cardYes(root, own) (the
+                               share link of a page signed in with X, else "Sign in with X first: <x-link.ts signInLink>"); the
+                               v2.12 offer is gone (T12)
+    score-tool.ts(+test)       v2.12.1 T8: scoreReply (benchScore: where you stand, up to 3 fits, one step; score_viewed),
                                SCORE_SHARED, SEND_LINK_NOTE (v2.12's reply removed in T12)
     reserved-routes.ts(+test)  v2.12.1 T1: RESERVED_ROUTES (every top-level route; the test fails on a new one),
                                isReserved, pagePath (/b/<handle> for a reserved one), pageUrl
-    score-v2.ts(+test)         v2.12.1 T2: computeScoreV2 (Shipped 20, Used 40, Earned 20, Consistency 20;
-                               fade 90-day half-life, Shipped keeps half; STAR_FORK_CAP 5; ranked = 1 ship)
-    rank.ts(+test)             v2.12.1 T2: rankWords ("#N of M builders on EarnKit" under RANK_LIST_UNTIL 50,
-                               top half only; then "top N% of people building with AI" for N <= 50), topPercentOf
+    score-v2.ts(+test)         scoring and clarity: computeScoreV2 (one Shipping score: round(90 x weighted active
+                               weeks / 78) + 10 live bonus; parts { shipping }, room for originality), weekMask,
+                               shippingOf, storedShipping (old four-part rows read as none), scoreWhy (the why
+                               sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
+                               as of now's week); R16b removed countUse
+    weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
+                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."; final fix I3: "D short of #k"
+                               via shortOf), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
+                               (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
+    weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
+                               titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
+                               shareText, shareLink (page-data shareIntentText), lastWeekOf (builder_scores' last ranked day
+                               of last week and the week before, rank among that day's listed rows; titlesShown, then checkUpdate again),
+                               momentDue / takeMoment (installations.moment_week, one UPDATE ... RETURNING), approveWeek
+                               (facts.approved, approved_at, approved_via 'share'; the existing row matched case-insensitively,
+                               else inserted), openShare / answerShare (standing_seen.share_open), SHARE_NOTE, APPROVED_LINE;
+                               weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
+                               fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
+    embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
+                               (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
+    originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
+                               cosine, stripMarkdown, originalityText, textHash, nearestOf, workerEmbed (spawns
+                               embed-worker.mjs once a step, killed at the deadline; EARNKIT_EMBED_OFF in tests), workerScript,
+                               originalityStep (the cron
+                               step: due query, README via appClient (on404), embed on hash change, written per project, rescore affected),
+                               boundedEmbed/EmbedDeadline, readOriginality;
+                               tables project_embeddings and known_idea_embeddings; ideas in programs/ideas/known-ideas.json
+    sources.ts (fix round 2)   anti-backdating: withPastWeeks/withPastCounts (only this and last week new after a
+                               reading), storedCommits (pushes_checked), needsPushCheck, pushedWeeks, readPushes, firstPushes
+                               (/activity until verified: newest page, then the oldest page when full; unbacked weeks only in the gap between two full pages), previousRepoSignals (rename: repo id, else owner + created_at)
+    rank.ts(+test)             scoring and clarity: rankLine (the one rank phrase: "#N of M builders this week", from 20
+                               "Top P% of builders this week" in the top half; chains named), scoreLine ("Shipping 72 ·
+                               <rank line>"; thousands separators), benchPercent, BENCH_CHAINS; rankSplit (lead number and
+                               words, for the profile and the leaderboard rows)
     person-github.ts(+test)    v2.12.1 T3: PERSON_GITHUB_QUERY (one GraphQL query a person), reposQuery
                                (aliased by name, REPOS_MAX 25), readPersonGithub, readGithubRepos
                                v2.13.3: readAppRepos (a repo EarnKit's token can't read, through the App, keyed by source id).
+                               R16b: REPO_FIELDS has no stars or forks; no org contributors call.
+                               Launch-ready: readGithubRepos returns { repos, failed } (one busy repo's failed weekly
+                               call fails only it; a repo refused on its own alias is in refused, aliasErrors); needsAllWeeks (the 52-week call only without a reader-2 baseline or
+                               when last week isn't fully read); no weekly call past ReaderDeps.deadline.
+    badge.ts(+test)            launch-ready L8: badgeSvg, badgeValue (personFacts: rank only in the pool, else "not
+                               ranked"), badgeMarkdown, badgeFor ("not found" for unknown, unclaimed, hidden), badgeResponse
+                               final fix M6: badgeFileOk / badgeMiss (a name that can't be a handle never reaches the cache or DB)
     read-usage.ts(+test)       v2.12.1 T3: FREE_LIMITS, countingDeps, flushReadUsage (read_usage per provider/day)
     person-score.ts(+test)     v2.12.1 T4: personInputsV2, rescorePerson (builder_live, pending holds, the
                                25-project cap TRACKED_MAX), listedRanked (the one ranked population),
-                               standingOf, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
+                               benchPool (listed ranked + benchConfirmedSql: the leaderboard's pool),
+                               standingOf (ranks over benchPool), streak = commit weeks in a row, refreshPerson (REFRESH_MS 10 min, REFRESH_BUDGET_MS 8 s),
                                pageViewRefresh (page views: PAGE_REFRESH_MS a day, LIMITS.pageRefresh
                                200/h global, pageRefreshIp 20/h per IP),
-                               readPersonLive (source_live), scorePeopleV2 (cron; v2 history rows),
-                               trackingHeld, ring storage
+                               readPersonLive (source_live; R16b: repos, sites, packages only), scorePeopleV2
+                               (cron; v2 history rows); R16b: no people, money or ring
+                               (rescorePerson(id, now, { cron }))
+    read-cost.test.ts          R16b: the outside calls of one daily read and one refresh, by kind (before/after in the guide)
     confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
     identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), mergeIdentity (reports
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
                                most 25 projects; remembers wallets, never proof)
                                v2.13.3: benchIdentity (github_user, repos, local remotes, a live link fill identity under the Bench).
-    login-contests.ts          v2.12.1 T5/T6: contestants, loginStands, settleLogin, loginContests, ruleContest
+                               R11: a project name keeps up to 60 characters (NAME_MAX), whole words (wholeWords), never cut mid-word.
     x-oauth.ts(+test)          v2.12.1 T6: X_SCOPES, pkcePair, xAuthorizeUrl, xUserFrom, xOAuth (token + /2/users/me)
-    claim.ts(+test)            v2.12.1 T6/T7: CLAIM_TEXT, claimCode (S13), claimLink, claimGet, claimPost,
-                               xCallback, bindX (join_pending when another group holds the X id; under the Bench 'held')
-                               v2.13.4 R1: joinOffer, joinPage (R6: names the agent, agoText), claimJoinPost (POST /claim/join: the one-click join,
-                               x_join_offers, cookie + Origin + one use + 15 min; page_joined event; standing_seen.linked)
+    x-install.ts               v2.14 T4 (tests: v214-x-install.test.ts): SIGNIN_TEXT, signinCookie, signinPage,
+                               newSignin (x_signins row + __Host-eki- cookie), startInstallSignIn (straight to X or
+                               the page naming the host), xSignInCallback (cookie-bound, one use, /2/users/me once,
+                               code with x), attachToX (one tx: row lock, checks, attach alone or page from X,
+                               bindXIn, x_user_id last; T5: always the installation alone: a root's members detached
+                               first, a member leaves its old root when no page holds the X); T7: the X profile writer
+                               moved here from the deleted claim module: BindResult, bindX (no held or join_pending branch; an X another
+                               page holds is refused by the unique index), BoundX, bindXIn, afterBind (cache dropped in a
+                               finally), errText (pg code + message for logs)
+    x-link.ts                  v2.14 T5 (tests: v214-signin-link.test.ts): the fallback link. LINK_TTL_MS, PASTE_TTL_MS,
+                               LINK_TEXT, SIGN_IN_NOTES, signInLink (HMAC(seed) code, hash kept, reused while open),
+                               signinGet (GET /signin/<code>), linkSignedIn (callback 'link' branch: paste code hash,
+                               15 min), pasteCode/formatPaste/normalizePaste, bindFromPaste (minting installation
+                               only, one use, attachToX, signed_in_by_code event), agoText;
+                               tools.ts find reads sign_in_code first (findReply is the rest of find)
+                               fix 1: signinGet rate limit (signinLink), exact link via x_signins.link_hash,
+                               code given back on a thrown error, a bound retry is ok
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
-    page-joins.ts              v2.13.4 R6 to R10: JOIN_TABLES (blocks/discard/stays registry), freshAndEmpty, attachFresh (one locked transaction), openR1Join, onProbation (24 h, PROBATION_LINES), pendingNotice (per installation,
-                               until answered), answerNotice (eligibility by join order, yes and no), detach to from_root,
-                               joinNoticeLine, DETACH_LINES
     wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     brand-page.ts              v2.12.1 T11: the claim, done and wallet pages' navy shell (fonts as data:), X_ICON
-    where-you-stand.ts(+test)  v2.12.1 T8: HEADS, whereYouStand, chooseStep, placeBuild, paymentFits,
-                               paymentStepFits, plainWhat, standingNews, newsOpener, pageReadyLine,
-                               confirmLinkLine, SEND_LINK_LINE, usersMoneyLine, rollingLine, buildStepLine,
-                               MOVE_UP_NOTE, EARN_NOTE
-                               v2.12.2: StandProject.code ("on GitHub" line), .web (go_live for code-only repos)
-    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase, takeNews, takePageReady, confirmYes,
-                               scoreEarn, moneyFallback, tipsPick, hostFor, currentStep, DECLINE_MS 30 days
-    make-countable.ts(+test)   v2.12.1 T9: COUNT_LINES, countableNow, stepFor, moveUpYes, moveUpNo, nowRank,
-                               TAG_NOTE, TIPS_NOTE, NO_LINE_NOTE (+ the countable coin line, T10)
+                               Scoring and clarity R14: the one shell for every sign-in and verify page (verifyPage, signinPage, the 404s, OAuth authorize 429/400, wallet 405); page-shells.test.ts checks each carries the slim top bar
+    stand-text.ts              v2.14 T3 (was where-you-stand.ts): EARN_NOTE, newsOpener, standingNews, NOTED_LINE
+                               (Task 4 removed the dead step, project and money-line types and helpers)
+    stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase ({ standing, claimed, handle, signInLink }: v2.14 T7
+                               signInLink for the caller's own installation; Task 4 dropped the projects read and the
+                               count-past and tip-jar steps), takeNews, earnPrize, earnWhen, fundWhen (R12: "closes Oct
+                               30" or "rolling"), showable, biggestPick, scoreFits (R12: score's up to 3 fits from
+                               fit_repos and alerts.ts repoCanWin, FITS_MAX 3)
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
     page-data.ts(+test)        v2.12.1 T11: every public sentence (SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED,
@@ -1609,8 +1650,9 @@ apps/frontend/
     v212-journey.test.ts       v2.12 T15: the end-to-end journey on its own database (see the
                                architecture guide's v2.12 section); v212-schema.test.ts T1's schema checks;
                                archive.test.ts T13/T14's flags-off checks; card-route.test.ts T11
-    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS;
-                               v2.5: bonusVetoKey, bonusReviewLink, vetoBonusEntry (bonus_vetoes)
+    veto.ts(+test)             vetoKey, vetoLink, vetoEntry (FOR SHARE on the run), vetoPost, VETO_ERRORS
+                               (v2.14 final fix: the bonus round branch, bonusVetoKey, bonusReviewLink and vetoBonusEntry are gone;
+                               bonus_vetoes stays, unused; no `pnpm campaign bonus-link`)
     escrow.ts                  read-only escrow client: chain/token config (ESCROW_*, validated by
                                escrowConfigProblem/escrowEnabled, which gate the sponsor tool), builds
                                approve/createCampaign/award transactions; chain reads: chainReader
@@ -1644,6 +1686,9 @@ apps/frontend/
                                sponsor wallet, token, factory), sponsorStatus (survives scoring and
                                RPC failures), prepareAward (guarded UPDATE)
   db/schema.sql                the whole schema, idempotent (sponsor_campaigns, projects.prize_*,
+                               v2.14 T7 (bind block, before the bind UPDATE): preflight S4 detaches the members of every
+                               page_joins row still attached with no eligible answer (builder_id back to from_root, their
+                               updates since the join hidden, the row stamped detached; no deletes, a rerun is a no-op);
                                v2.10 item 13: contract_deploys (reservation row, builder_key, tx_hash, status, owner_ok, blocked, cost_micro_usd).
                                v2.11 T3: contract_deploys.owner_wallet, block (nullable), code_differs; submissions_project index.
                                projects.repo_key + its partial unique index, projects.token_* and
@@ -1710,7 +1755,8 @@ apps/frontend/
                                events-redact.mts: v2.11 T12, the owner's redaction of one builder's login
                                and wallet in builder_events (--login/--wallet, dry run unless --apply);
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
-                               events-redact.test.ts runs it as a child process); v2.12: also the profile's login,
+                               events-redact.test.ts runs it as a child process); v2.14 T7: the profile clear also unbinds the
+                               person's installations (x_user_id) and deletes their x_signin_links rows; v2.12: also the profile's login,
                                X handle, fallback, slug and slug history, sources' ref/project_key/deployer
                                v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
                                (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
@@ -1719,9 +1765,7 @@ apps/frontend/
                                launched L`, reads per day per source against read-usage.ts FREE_LIMITS, claimed
                                pages, `Leaderboard: N real builders (goal 20, shown, not a target)` (--as-of,
                                --days 7; owner-run, one READ ONLY transaction; v2121-metric.test.ts runs it)
-                               v2121-prod-check.mts: v2.12.1 T13, the runbook's read-only checks (GET only;
-                               one opt-in POST to a claim button with --handoff); its method allow-list is
-                               lib/earnkit/v2121-prod-check.ts requestAllowed (tested, final fix wave)
+                               v2121-prod-check.mts: deleted in v2.14 T3 (with lib/earnkit/v2121-prod-check.ts)
                                v2121-seed.mts: v2.12.1 T11, seeds a local v2121_shots database for the design
                                screenshots (refuses any other database)
                                archive-restore.mts: v2.12 T13, `<feature>` moves archive/<feature>/files back
@@ -1737,7 +1781,9 @@ apps/frontend/
                                 columns, and (Task 12) results/outcome_asked_at/fit_chains defaults and
                                 entry_outcomes' unique key, CHECKs, re-run survival and cascade;
                                 v2.9 Task 9: fee_recipients NULL on old rows, fee_claims role CHECK and
-                                re-run survival
+                                re-run survival; v2.14 T7: the JOIN_TABLES coverage and pending_joins consent
+                                checks are gone (nothing moves rows by table); checks installations.x_user_id,
+                                x_signins, x_signin_links, builder_sources.app_checked_at instead
     token-e2e.mts               v2.3 token flows through the tools layer against a local Postgres
                                 and a mock tokens.fun on 127.0.0.1 (gate faked via
                                 ToolContext.tokenDeps): default launch, edited ticker, skip, gate
@@ -1787,7 +1833,8 @@ Root commands: `pnpm programs:check` (validate program files, logo files, and a 
 required submission item), `pnpm test` (v2.9 T12: runs `pnpm host:typecheck` first, P42; Part 2 final review I3: it and
 `token:e2e`, `campaign:e2e` and `sponsor:e2e` preload `lib/earnkit/fixtures/test-guard.ts`, which
 clears the tokens.fun, Resend, R2 and GitHub OAuth keys and makes `fetch` throw for any host but
-localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch),
+localhost, 127.0.0.1, ::1 and `BONUS_ANVIL_URL`; `LINK_CHECK=1` keeps the real fetch; v2.14 T2: it first rebuilds
+this worktree's test template, and the guard gives every test file its own database),
 `pnpm campaign --help`, `pnpm campaign scores-link` (v2.12: the owner's /admin/scores link), `pnpm campaign golive|rank|payout|veto-link <slug>` (EarnKit's own
 campaigns; payout is a dry run only, the cron pays), `pnpm campaign fallback propose|execute|veto <ref>`, `refund <ref>` (sponsor
 campaigns; dry run without `--execute`; `OPERATOR_PRIVATE_KEY`, the veto `GUARDIAN_PRIVATE_KEY`;
@@ -1833,9 +1880,13 @@ chain only). `OPERATOR_PRIVATE_KEY` (fallback propose/execute, refund) and `GUAR
 (fallback veto) are local only, never on Railway.
 
 v2.13 changed entry points: `tools.ts` `list_programs`/find branch to `benchFind` and `tell` takes `update`,
-`updates` under `EARNKIT_BENCH` and `coin { raising }` under `EARNKIT_RAISING` too (`moveUpAnswer` goes to `benchMoveUp`);
-`builder-score.ts runScoreSteps` gains `weekly` and `feed` steps; `cron.ts runCron` skips the bonus steps
-under the flag; `bonus-rounds.ts bonusOn` is false under it; `policy-constants.ts EARNKIT_SPLITS_BPS` holds
+`updates` (always since v2.14 T3, which retired `EARNKIT_BENCH` and `EARNKIT_BUILDER_SCORE`) and `coin { raising }`
+under `EARNKIT_RAISING` (`moveUpAnswer` goes to `benchMoveUp`); `builder-score.ts runScoreSteps` gains `weekly` and
+`feed` steps; v2.14 T3 deleted the bonus steps and bonus-rounds.ts; `policy-constants.ts EARNKIT_SPLITS_BPS` holds
 both fee splits; `app/llms.txt/route.ts` replaces `public/llms.txt`; `schema.sql` adds
 `builder_profiles.main_project_key/updates_on_at`, `project_updates`, `builder_projects.chains/streak/
 weeks_shipping`, `projects.raising_at/coin_tx/coin_chain_id`, `programs.pitch` and the new event types.
+
+v2.14 T10: `app/layout.tsx` loads Funnel Display and Funnel Sans through `next/font/local` from `app/fonts/*.woff2`
+(SIL OFL 1.1, `app/fonts/OFL.txt`), same `--font-funnel-display`/`--font-funnel-sans` variables; no Google fetch at
+build. `fonts` is in `reserved-routes.ts` (the folder has no page).

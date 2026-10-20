@@ -4,39 +4,39 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { X_ON, find, install, withEnv } from './fixtures/find';
-import { fakeGitHub, idOf } from './fixtures/fake-github-branch';
-import { ORG_PROOF_MAX_AGE_MS, checkProofBranch, expireOrgProofs, orgProofExpiryStep } from './proof-branch';
-import { benchReply, stillYoursLine, type BenchView } from './bench-reply';
+import { fakeGitHub } from './fixtures/fake-github';
+import { appEnv } from './fixtures/app-install';
+import { ORG_PROOF_MAX_AGE_MS, expireOrgProofs, orgProofExpiryStep, proveByApp } from './repo-proof';
+import { rescorePerson } from './person-score';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/bench/BenchView';
+import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/leaderboard/BenchView';
 import { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
 import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
 /**
- * v2.13.2 follow-ups. 1: an Organization's repo confirmed by a proof branch expires 90 days after it
- * was verified (the pusher may have lost push access); a User's repo (owner = pusher) never does.
+ * v2.13.2 follow-ups. 1: an Organization's repo confirmed by a proof branch (before v2.14) expires 90 days
+ * after it was verified (the pusher may have lost push access); a User's repo (owner = pusher) never does.
+ * v2.14 spec 2: the re-proof is the read-only App (repo-proof.ts proveByApp).
  * 3: the empty Bench header and its singular. (2, the Safe's revenue stat: v2132-safe-fees.test.ts.)
  */
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env.EARNKIT_AUTH_SECRET ||= 'v2132-branch-secret';
+appEnv();
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
 });
 
 const RUN = randomBytes(3).toString('hex');
-const ON = { EARNKIT_BUILDER_SCORE: 'on', EARNKIT_BENCH: 'on', EARNKIT_URL: undefined, ...X_ON };
+const ON = { EARNKIT_URL: undefined, ...X_ON };
 const NO_MATCH = { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) };
 const DAY = 86_400_000;
 let seq = 0;
 const uniq = (p: string) => `${p}${RUN}${++seq}`;
 
 const named = (repo: string) => ({ identity: { github_login: repo.split('/')[0], project: { name: 'Recipe planner', what: 'a recipe planner', repo } } });
-const branchOf = (r: { proof?: unknown }) => ((r.proof ?? {}) as { branch?: string }).branch ?? '';
 const source = async (id: number, key: string) => {
   const [s] = await sql()<{ state: string; proof: string | null; reject_reason: string | null }[]>`
     SELECT state, proof, reject_reason FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()} ORDER BY id LIMIT 1`;
@@ -46,37 +46,39 @@ const ranked = async (id: number) => Boolean((await sql()`SELECT 1 FROM builder_
 /** The person's proof_branch confirmation, verified `days` ago. */
 const verifiedAgo = (id: number, days: number) =>
   sql()`UPDATE builder_sources SET verified_at = now() - ${`${days} days`}::interval WHERE builder_id = ${id} AND kind = 'repo' AND proof = 'proof_branch'`;
-const recheckable = (id: number) =>
-  sql()`UPDATE proof_branches SET checked_at = checked_at - interval '2 minutes' WHERE builder_id = ${id} AND checked_at IS NOT NULL`;
-
-/** A person whose repo `key` is confirmed by a proof branch pushed by `pusher` (default the owner). */
-async function confirmed(gh: ReturnType<typeof fakeGitHub>, key: string, pusher?: string) {
+/** A person whose repo `key` was confirmed by a proof branch before v2.14 (an Organization's when `org`). */
+async function confirmed(key: string, org = false) {
   const id = await install();
-  const r = await find(id, named(key), { ...NO_MATCH, proofBranchFetch: gh.f });
-  gh.push(key, branchOf(r), pusher);
-  assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
+  await find(id, named(key), NO_MATCH);
+  await sql()`
+    UPDATE builder_sources SET state = 'verified', proof = 'proof_branch', verified_at = now(), gh_owner = ${key.split('/')[0]},
+      gh_owner_type = ${org ? 'Organization' : 'User'}
+    WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()}`;
+  // R4: ranked once the repo has a reading.
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+    SELECT id, ${sql().json({ owner: key.split('/')[0], owner_type: org ? 'Organization' : 'User', commit_weeks: [] } as never)}, true, now()
+    FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key.toLowerCase()}
+    ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals, ok = true, read_at = EXCLUDED.read_at`;
+  await rescorePerson(id, new Date());
   assert.equal(await ranked(id), true);
   return id;
+}
+/** v2.14: the builder installs the read-only App on the repo (an installer who administers it). */
+async function reprove(id: number, key: string, installation: number) {
+  const gh = fakeGitHub({ [key]: { id: installation, owner: key.split('/')[0], ownerType: 'Organization', installation } });
+  return proveByApp({ builderId: id, repoKey: key, githubInstallationId: installation }, { fetch: gh });
 }
 
 // ---- 1. Org-repo proof expiry
 
 test('v2.13.2 1: the expiry is 90 days', () => {
   assert.equal(ORG_PROOF_MAX_AGE_MS, 90 * DAY);
-  assert.equal(stillYoursLine('Recipe planner'), "Time to show Recipe planner is still yours: I'll check with a quick temporary branch on GitHub.");
-  const v: BenchView = {
-    project: { key: 'acme/app', name: 'Recipe planner', confirmed: false, live: false, weeks: 0 },
-    rank: null, claimed: false, handle: null, claimLink: null, fund: [], ask: null, branch: 'recheck',
-  };
-  assert.equal(benchReply(v), ['Where you stand', stillYoursLine('Recipe planner')].join('\n'));
 });
 
-test('v2.13.2 1: an org proof at 89 days stays; at 91 days it is proposed (stale), leaves the Bench, and find asks for a fresh branch', dbTest, () =>
+test('v2.13.2 1: an org proof at 89 days stays; at 91 days it is proposed (stale), leaves the Bench, and the App re-proves it (v2.14)', dbTest, () =>
   withEnv(ON, async () => {
-    const gh = fakeGitHub();
     const org = `${uniq('acme')}/app`;
-    gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
-    const id = await confirmed(gh, org, uniq('member'));
+    const id = await confirmed(org, true);
     await verifiedAgo(id, 89);
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
     assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
@@ -89,28 +91,17 @@ test('v2.13.2 1: an org proof at 89 days stays; at 91 days it is proposed (stale
     // Run again: nothing more to do.
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
 
-    // find issues a fresh proof branch, with the still-yours line.
-    await recheckable(id);
-    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    assert.equal(r.show_to_builder.split('\n')[1], stillYoursLine('Recipe planner'), r.show_to_builder);
-    const fresh = branchOf(r);
-    assert.match(fresh, /^earnkit-[a-z2-7]{12}$/);
-    const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM proof_branches WHERE builder_id = ${id} AND used_at IS NULL`;
-    assert.equal(n, 1, 'one new, open code');
-
-    // Re-proven: verified again, the note cleared, back on the Bench.
-    gh.push(org, fresh, uniq('member'));
-    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
-    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
+    // v2.14 spec 2: the re-proof is the App: verified again (github_app), the note cleared, back on the Bench.
+    assert.deepEqual(await reprove(id, org, 91_001), { ok: true, via: 'app', owner: org.split('/')[0], private: false });
+    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'github_app', reject_reason: null });
     assert.equal(await ranked(id), true);
   }),
 );
 
 test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
   withEnv(ON, async () => {
-    const gh = fakeGitHub();
     const key = `${uniq('maya')}/recipes`;
-    const id = await confirmed(gh, key);
+    const id = await confirmed(key);
     await verifiedAgo(id, 200);
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 0, done: true });
     assert.deepEqual(await source(id, key), { state: 'verified', proof: 'proof_branch', reject_reason: null });
@@ -121,22 +112,20 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
 // ---- 3. The Bench header's counts
 
 test('v2.13.2 3: the Bench header says nobody, one builder, or many', () => {
-  assert.equal(benchLine(0), 'Nobody on the Bench yet. Add EarnKit to your agent and be first.');
-  assert.equal(benchLine(1), '1 builder who ships, ranked by what they shipped and who uses it.');
-  assert.equal(benchLine(2), '2 builders who ship, ranked by what they shipped and who uses it.');
-  assert.equal(benchLine(1200), '1,200 builders who ship, ranked by what they shipped and who uses it.');
+  assert.equal(benchLine(0), 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
+  assert.equal(benchLine(1), '1 builder this week. Ranked by Shipping points.');
+  assert.equal(benchLine(2), '2 builders this week. Ranked by Shipping points.');
+  assert.equal(benchLine(1200), '1,200 builders this week. Ranked by Shipping points.');
 });
 
 // ---- Fix round 1
 
-test('v2.13.2 fix 1 (concern 3): a stale org repo comes back only through a fresh proof branch, never through discovery (top contributor)', dbTest, () =>
+test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through the App, never through discovery', dbTest, () =>
   withEnv(ON, async () => {
-    const gh = fakeGitHub();
     const org = `${uniq('acme')}/app`;
     const owner = org.split('/')[0];
-    gh.repos[org] = { owner: { login: owner, type: 'Organization' } };
     const member = uniq('member');
-    const id = await confirmed(gh, org, member);
+    const id = await confirmed(org, true);
     await verifiedAgo(id, 91);
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id] }), { expired: 1, done: true });
     // GitHub says the person is the org repo's top contributor (discovery's repo_owner rule for org repos).
@@ -145,29 +134,26 @@ test('v2.13.2 fix 1 (concern 3): a stale org repo comes back only through a fres
         if (k === 'now') return new Date();
         if (k === 'ghSpent') return () => false;
         if (k === 'gh') return async (path: string) =>
-          path === `/repos/${org}` ? { id: idOf(org), full_name: org, fork: false, is_template: false, owner: { login: owner, type: 'Organization' } }
+          path === `/repos/${org}` ? { id: 91_002, full_name: org, fork: false, is_template: false, owner: { login: owner, type: 'Organization' } }
           : path.startsWith(`/repos/${org}/contributors`) ? [{ login: member }]
           : path === `/users/${member}` ? { login: member, blog: null, twitter_username: null } : [];
         return async () => [];
       },
     }) as ReaderDeps;
-    await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login: member, basis: 'proof_branch' as never }) });
+    await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => ({ login: member, basis: 'app' }) });
     assert.deepEqual(await source(id, org), { state: 'proposed', proof: 'proof_branch', reject_reason: 'stale' }, 'discovery never re-verifies a stale source');
     assert.equal(await ranked(id), false);
-    // A fresh proof branch brings it back.
-    await recheckable(id);
-    const r = await find(id, {}, { ...NO_MATCH, proofBranchFetch: gh.f });
-    gh.push(org, branchOf(r), member);
-    assert.equal(await checkProofBranch(id, new Date(), { ghFetch: gh.f }), true);
-    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'proof_branch', reject_reason: null });
+    // The App brings it back.
+    assert.equal((await reprove(id, org, 91_003)).ok, true);
+    assert.deepEqual(await source(id, org), { state: 'verified', proof: 'github_app', reject_reason: null });
   }),
 );
 
 (globalThis as { React?: typeof React }).React = React;
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
-    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
-    count, chips: [], filter: { chain, raising: false, weekly: false }, raising: false,
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, raising: null, chains: [], project: 'P', best: 'Building' })),
+    count, chips: [], filter: { chain, weekly: false },
   })).replace(/&#x27;/g, "'");
 
 test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered view with no rows keeps "No one here yet."', () => {
@@ -176,7 +162,7 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
   const filtered = page(5, 0, 'base');
   assert.ok(filtered.includes(BENCH_EMPTY));
-  assert.ok(filtered.includes('5 builders who ship'));
+  assert.ok(filtered.includes('5 builders this week.'));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });
 
@@ -184,10 +170,8 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
 
 test('v2.13.2 review 2 (M1): the expiry stops at the deadline (leftovers stay for the next run); a failed rescore puts the row back and is logged', dbTest, () =>
   withEnv(ON, async () => {
-    const gh = fakeGitHub();
     const org = `${uniq('acme')}/app`;
-    gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
-    const id = await confirmed(gh, org, uniq('member'));
+    const id = await confirmed(org, true);
     await verifiedAgo(id, 91);
     // Past the deadline: nothing done, not done.
     assert.deepEqual(await expireOrgProofs(new Date(), { only: [id], deadline: Date.now() - 1 }), { expired: 0, done: false });
@@ -231,16 +215,11 @@ test('v2.13.2 review 2 (M1): the day\'s slot is taken only after a run that fini
 
 test('v2.13.2 review 3: a person whose rescore keeps failing never blocks the people behind them; they are retried last', dbTest, () =>
   withEnv(ON, async () => {
-    const gh = fakeGitHub();
-    const orgOf = () => {
-      const org = `${uniq('acme')}/app`;
-      gh.repos[org] = { owner: { login: org.split('/')[0], type: 'Organization' } };
-      return org;
-    };
+    const orgOf = () => `${uniq('acme')}/app`;
     const [oa, ob, oc, od] = [orgOf(), orgOf(), orgOf(), orgOf()];
-    const a = await confirmed(gh, oa, uniq('m'));
-    const b = await confirmed(gh, ob, uniq('m'));
-    const c = await confirmed(gh, oc, uniq('m'));
+    const a = await confirmed(oa, true);
+    const b = await confirmed(ob, true);
+    const c = await confirmed(oc, true);
     // A is the oldest, so it comes first.
     await verifiedAgo(a, 95);
     await verifiedAgo(b, 92);
@@ -261,7 +240,7 @@ test('v2.13.2 review 3: a person whose rescore keeps failing never blocks the pe
       assert.equal((await source(c, oc))?.reject_reason, 'stale');
       assert.ok(logged.some((x) => JSON.stringify(x).includes('Error')) && !logged.some((x) => JSON.stringify(x).includes('rescore down')), 'logged by class name');
       // Next run: D (newer than A) is handled before A, who just failed.
-      const d = await confirmed(gh, od, uniq('m'));
+      const d = await confirmed(od, true);
       await verifiedAgo(d, 91);
       calls.length = 0;
       assert.deepEqual(await expireOrgProofs(new Date(), { only: [a, d], rescore: failA }), { expired: 1, done: false });

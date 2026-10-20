@@ -12,8 +12,6 @@ import { upsertProgram } from './programs';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 
-process.env.EARNKIT_BUILDER_SCORE = 'on';
-process.env.EARNKIT_BENCH = 'on';
 process.env[EVENT_LOG_FLAG] = 'on';
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -58,16 +56,17 @@ async function person(id: number, key: string, counts: Record<string, number>, o
       VALUES (${id}, 'site', ${o.other}, ${o.other}, 'verified', 'earnkit_hosted', 'server')`;
 }
 
-test('4.1 the chips, in the order the card shows them, in plain words', () => {
+test('4.1 the chips, in the order the card shows them, in plain words: shipping facts only (no people, money or community round)', () => {
   assert.deepEqual(
-    factChips({ shipped_code: { n: 12 }, went_live: true, users_up: { n: 31 }, earned: { usd: 120 }, won: [{ title: 'Base Builder Grants' }], streak: { w: 6 } }, { raising: 'RECIPE' }),
-    ['Went live', 'Won Base Builder Grants', '+31 people', '$120 earned', '12 commits', '6 weeks in a row', 'Community round $RECIPE'],
+    factChips({ shipped_code: { n: 12 }, went_live: true, users_up: { n: 31 }, earned: { usd: 120 }, won: [{ title: 'Base Builder Grants' }], streak: { w: 6 } }),
+    ['Went live', 'Won Base Builder Grants', '12 commits', '6 weeks in a row'],
   );
-  assert.deepEqual(factChips({ shipped_code: { n: 1 }, users_up: { n: 1 } }), ['+1 person', '1 commit']);
+  assert.deepEqual(factChips({ shipped_code: { n: 1 }, users_up: { n: 1 } }), ['1 commit']);
+  assert.equal(hasFacts({ users_up: { n: 3 }, earned: { usd: 50 } }), false, 'people or money alone is not a card');
   assert.deepEqual(factChips({ streak: { w: 1 } }), [], 'a streak of one is not a chip');
   assert.equal(startedLine('Recipe planner'), 'Started tracking Recipe planner.');
-  assert.deepEqual(startedChips({ live: true, weeks: 6, people: 31 }), ['Live', '6 weeks shipping', '31 people use it']);
-  assert.deepEqual(startedChips({ live: false, weeks: 1, people: 1 }), ['1 week shipping', '1 person uses it']);
+  assert.deepEqual(startedChips({ live: true, weeks: 6, people: 31 }), ['Live', '6 weeks shipping']);
+  assert.deepEqual(startedChips({ live: false, weeks: 1, people: 1 }), ['1 week shipping']);
   assert.deepEqual(startedChips({ live: false, weeks: 0, people: 0 }), []);
 });
 
@@ -105,6 +104,22 @@ test('4.3 the rescore scores the one project, stores its streak, weeks shipping,
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1, 'never twice');
 });
 
+test('Final follow-ups 1: the stored streak is commit weeks in a row (the grid), never a deploy week', dbTest, async () => {
+  const id = T + 9;
+  const key = `streak${T}/app`;
+  // Commits last week and three weeks ago; EarnKit deploys this week and two weeks ago fill the gaps in ship weeks.
+  await person(id, key, { [wk(7)]: 2, [wk(21)]: 1 });
+  for (const [n, ago] of [[1, 0], [2, 14]] as const)
+    await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
+      VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${String(n).repeat(64)}`}, ${`0x${String(n).repeat(40)}`}, 'deployed', 1, ${new Date(NOW.getTime() - ago * DAY)})`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ streak: number; ship_weeks: string[]; commit_weeks: string[] }[]>`
+    SELECT streak, ship_weeks, commit_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.deepEqual(new Set(p.ship_weeks), new Set([wk(0), wk(7), wk(14), wk(21)]), 'four ship weeks in a row');
+  assert.deepEqual(new Set(p.commit_weeks), new Set([wk(7), wk(21)]));
+  assert.equal(p.streak, 1, 'one commit week in a row, so "Shipping every week" (4) never shows it');
+});
+
 test('4.4 an unconfirmed main project is not ranked, though another confirmed project would have been (B5)', dbTest, async () => {
   const id = T + 2;
   await person(id, `nope${T}/theirs`, { [wk(0)]: 1 }, { confirmed: false, other: `https://mine${T}.example.com` });
@@ -113,7 +128,7 @@ test('4.4 an unconfirmed main project is not ranked, though another confirmed pr
   assert.equal(live.ranked, false);
 });
 
-test('4.5 a finished week\'s facts: commits, going live once, money from creator fee claims, a win; nothing for an unconfirmed project', dbTest, async () => {
+test('4.5 a finished week\'s facts: commits, going live once, a win; R16b: no money fact; nothing for an unconfirmed project', dbTest, async () => {
   const id = T + 3;
   const key = `ann${T}/shop`;
   const monday = mondayOf(new Date(NOW.getTime() - 7 * DAY));
@@ -135,7 +150,7 @@ test('4.5 a finished week\'s facts: commits, going live once, money from creator
   const f = await weekFactsFor(id, monday, NOW);
   assert.deepEqual(f.shipped_code, { n: 12 });
   assert.equal(f.went_live, true);
-  assert.deepEqual(f.earned, { usd: 620 }, '0.04 WETH at $3,000 plus a $500 prize');
+  assert.equal(f.earned, undefined, 'R16b: creator fees and prizes are no longer a money fact');
   assert.deepEqual(f.won?.map((w) => w.title), [base.title]);
   assert.deepEqual(f.streak, { w: 2 });
   await sql()`UPDATE builder_projects SET confirmed = false WHERE builder_id = ${id}`;
@@ -181,32 +196,30 @@ test('4.7 a builder who names someone else\'s repo writes no ship-log row; the c
   assert.equal(week?.facts.checked, true);
 });
 
-test('4.9 new people per week are counted accounts at their first touch; the scope keeps other projects out of the score', dbTest, async () => {
+test('4.9 R16b: no new-people fact; the scope keeps other projects\' ships out of the score', dbTest, async () => {
   const id = T + 7;
   const key = `cy${T}/dapp`;
   await person(id, key, { [wk(0)]: 1 }, { other: `https://side${T}.example.com` });
   const addr = `0x${(T + 7).toString(16).padStart(40, '0')}`;
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
     VALUES (${id}, 'contract', ${`base:${addr}`}, ${key}, 'verified', 'deployer', 'server')`;
-  // 40 long-lived wallets, first calling 9 to 11 days ago (spread over three days), again 2 days ago.
-  const first = (i: number) => new Date(NOW.getTime() - (9 + (i % 3)) * DAY - i * 60_000);
-  const callers = Array.from({ length: 40 }, (_, i) => [first(i), new Date(NOW.getTime() - 2 * DAY - i * 60_000)].map((at) => ({
-    id: `wallet:0x${(T * 100 + i).toString(16).padStart(40, '0')}`, at: at.toISOString(),
+  // An old reading's callers (before R16b) count nothing.
+  const callers = Array.from({ length: 40 }, (_, i) => ({
+    id: `wallet:0x${(T * 100 + i).toString(16).padStart(40, '0')}`, at: new Date(NOW.getTime() - 2 * DAY - i * 60_000).toISOString(),
     value_usd: 100, codes: [], first_tx_at: '2024-01-01T00:00:00Z',
-  }))).flat();
+  }));
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
     SELECT id, ${sql().json({ callers, partial: false } as never)}, true, now() FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract'`;
-  const mine = await personInputsV2(id, NOW, undefined, sql(), { scope: key });
-  const row = mine.projects.find((p) => p.key === key)!;
-  const fresh = mine.newPeople.get(key)!;
-  assert.ok((row.accounts ?? 0) > 0, 'some accounts count');
-  assert.equal(Object.values(fresh).reduce((a, n) => a + n, 0), row.accounts, 'each counted account once');
-  const weeks = new Set(Array.from({ length: 40 }, (_, i) => isoWeekOf(first(i))));
-  assert.ok(Object.keys(fresh).every((w) => weeks.has(w)), 'keyed by the week of the first touch, never a later one');
-  assert.ok(mine.input.touches.length > 0);
-  const other = await personInputsV2(id, NOW, undefined, sql(), { scope: `https://side${T}.example.com` });
-  assert.equal(other.input.touches.length, 0, 'another project in scope: these calls stay out of the score');
-  assert.deepEqual(other.newPeople.get(key), fresh, 'the rows are built for every project');
+  const mine = await personInputsV2(id, NOW, sql(), { scope: key });
+  assert.deepEqual(mine.input.ships.map((x) => x.key), [`contract:base:${addr}`], 'the confirmed contract is a live ship');
+  assert.deepEqual(mine.input.commitWeeks, [wk(0)]);
+  const other = await personInputsV2(id, NOW, sql(), { scope: `https://side${T}.example.com` });
+  assert.deepEqual([other.input.ships, other.input.commitWeeks], [[], []], 'another project in scope: this one stays out of the score');
+  assert.ok(other.projects.some((p) => p.key === key), 'the rows are built for every project');
+  await rescorePerson(id, NOW);
+  const f = await weekFactsFor(id, mondayOf(NOW), NOW);
+  assert.deepEqual(f.shipped_code, { n: 1 }, 'the week is read');
+  assert.equal(f.users_up, undefined, 'no new-people fact');
 });
 
 /** A verified contract `base:<addr>` on `key` with `n` long-lived callers, first calls spread over three days (the spread rule). */
@@ -222,15 +235,13 @@ async function callersOn(id: number, key: string, n: number, seed: number) {
   return sid;
 }
 
-test('4.10 a side project with more users than the one project never holds the score as one source', dbTest, async () => {
+test('4.10 R16b: callers on the one project or a side project never hold the score', dbTest, async () => {
   const id = T + 8;
   const key = `dee${T}/main`;
   await person(id, key, { [wk(0)]: 2 });
   await callersOn(id, key, 30, 1);
   await callersOn(id, key, 30, 2);
-  const side = await callersOn(id, `dee${T}/side`, 400, 3);
-  const { perSource } = await personInputsV2(id, NOW, undefined, sql(), { scope: key });
-  assert.equal(perSource.has(side), false, 'the side project credits no users to the one project\'s hold');
+  await callersOn(id, `dee${T}/side`, 400, 3);
   const r = await rescorePerson(id, NOW);
   assert.equal(r.held, false);
 });
@@ -308,7 +319,7 @@ test('4.14 a coin and an entry naming an unproven repo do not confirm it for the
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
 
-test('4.15 a scoped npm package as the one project, confirmed through its package source, is ranked and gets its Started row', dbTest, async () => {
+test('4.15 a scoped npm package as the one project, confirmed through its package source, gets its Started row; R4: unranked without a repo reading', dbTest, async () => {
   const id = T + 13;
   const key = `@v213s${T}/pkg`;
   await clear(id);
@@ -318,29 +329,20 @@ test('4.15 a scoped npm package as the one project, confirmed through its packag
     VALUES (${id}, 'package_npm', ${key}, ${key}, 'verified', 'repo_link', 'server') RETURNING id::int AS sid`;
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ weekly: 500 } as never)}, true, now())`;
   await rescorePerson(id, NOW);
-  const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
-  assert.equal(live.ranked, true);
+  const [live] = await sql()<{ ranked: boolean; score: number }[]>`SELECT ranked, score FROM builder_live WHERE builder_id = ${id}`;
+  assert.deepEqual([live.ranked, live.score], [false, 10], 'the published package is a live ship (10); no repo reading, no rank');
   assert.equal((await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${id} AND facts ? 'started'`).length, 1);
 });
 
-test('4.16 downloads of a package outside the one project add nothing to the score under the flag; flag off they count as today', dbTest, async () => {
+test('4.16 downloads of a package outside the one project add nothing to the score', dbTest, async () => {
   const id = T + 14;
   const key = `ivy${T}/main`;
   await person(id, key, { [wk(0)]: 1 });
   const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
     VALUES (${id}, 'package_npm', ${`ivy-side-${T}`}, ${`ivy-side-${T}`}, 'verified', 'repo_link', 'server') RETURNING id::int AS sid`;
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) VALUES (${sid}, ${sql().json({ weekly: 5000 } as never)}, true, now())`;
-  const scoped = await personInputsV2(id, NOW, undefined, sql(), { scope: key });
-  assert.deepEqual(scoped.input.packages, []);
-  const U = async () => Number((await sql()<{ u: string }[]>`SELECT parts->'used'->'raw'->>'U' AS u FROM builder_live WHERE builder_id = ${id}`)[0].u ?? 0);
-  await rescorePerson(id, NOW);
-  const on = await U();
-  delete process.env.EARNKIT_BENCH;
-  try {
-    await rescorePerson(id, new Date(NOW.getTime() + 60_000));
-    assert.ok((await U()) > on, `flag off: the package counts (U ${await U()} > ${on})`);
-  } finally {
-    process.env.EARNKIT_BENCH = 'on';
-  }
-  assert.equal(on, 0, 'flag on: no use from outside the one project');
+  const scoped = await personInputsV2(id, NOW, sql(), { scope: key });
+  assert.deepEqual(scoped.input.ships, [], 'the side package is no live ship of the one project');
+  const r = await rescorePerson(id, NOW);
+  assert.equal(r.score, 14, 'this week\'s code only: no live bonus from outside the one project');
 });

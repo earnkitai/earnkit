@@ -16,7 +16,7 @@ import { logoFileProblem } from './program-file';
 const FRONTEND = join(import.meta.dirname, '../..');
 const PUBLIC = join(FRONTEND, 'public');
 const html = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
-const llms = readFileSync(join(import.meta.dirname, 'llms/v212.txt'), 'utf8');
+const llms = readFileSync(join(import.meta.dirname, 'llms/v213.txt'), 'utf8');
 const readme = readFileSync(join(FRONTEND, '../../README.md'), 'utf8');
 const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 
@@ -42,7 +42,7 @@ test('Codex: codex mcp add with the EarnKit URL, then log in', () => {
   assert.ok(cx.code?.startsWith('codex mcp add earnkit'), cx.code);
   assert.ok(cx.code?.includes('https://earnkit.com/mcp'));
   assert.equal(cx.code, CODEX);
-  assert.equal(cx.after, 'Then run codex mcp login earnkit.');
+  assert.equal(cx.after, 'Then sign in:');
   // Fix round 1: the login command can be copied too.
   assert.equal(cx.afterCode, 'codex mcp login earnkit');
   const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
@@ -96,7 +96,9 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
     ['install modal', html],
     ['llms.txt', llms],
     ['README.md', readme],
-    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8')]),
+    // v2.14 T4 fix round 1: oauth.ts AGENT_APP_SCHEMES lists editor URL schemes an OAuth redirect may use
+    // (a security allowlist, not an install tab); only that one line is left out of the scan.
+    ...files.map((f): [string, string] => [f, readFileSync(f, 'utf8').replace(/^export const AGENT_APP_SCHEMES = .*$/m, '')]),
   ];
   for (const [label, text] of all)
     for (const word of ['VS Code', 'vscode', '.vscode'])
@@ -106,19 +108,18 @@ test('no editor tab anywhere: the modal, llms.txt, the README, app/ and lib/', (
   assert.ok(html.includes('https://earnkit.com/mcp'));
 });
 
-test('llms.txt: the token is not optional, the builder bonus, the starting phrase, both commands, no campaigns section', () => {
-  for (const m of llms.matchAll(/optional/g)) {
-    const near = llms.slice(Math.max(0, m.index - 40), m.index + 'optional'.length + 40);
-    assert.ok(!near.includes('token'), near);
-  }
-  assert.ok(llms.includes('builder bonus'));
-  assert.ok(llms.includes('What can I earn?'));
-  assert.ok(llms.includes(CLAUDE_CODE));
-  assert.ok(llms.includes('Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.'));
-  assert.ok(llms.includes(CODEX));
-  assert.ok(llms.includes('codex mcp login earnkit'));
-  assert.ok(llms.includes('Any other MCP client: add https://earnkit.com/mcp as a remote server'));
-  assert.ok(llms.includes('the builder earns 40% of its trading'));
-  assert.ok(!llms.includes('EarnKit also runs its own campaigns'));
-  assert.ok(!llms.includes('## EarnKit campaigns'));
+test('launch-ready L1: Claude Code installs at user scope everywhere it is written; Cursor\'s one-click link comes first and carries the EarnKit config', () => {
+  assert.equal(byName('Claude Code').code, CLAUDE_CODE);
+  for (const [label, text] of [['README.md', readme], ['llms.txt', llms]] as const)
+    assert.ok(text.includes(CLAUDE_CODE), label);
+  const cursor = byName('Cursor');
+  const link = new URL(cursor.install!);
+  assert.equal(`${link.protocol}//${link.host}${link.pathname}`, 'cursor://anysphere.cursor-deeplink/mcp/install');
+  assert.equal(link.searchParams.get('name'), 'earnkit');
+  assert.deepEqual(JSON.parse(atob(link.searchParams.get('config')!)), { url: 'https://earnkit.com/mcp' });
+  // Only Cursor documents a one-click install link: no other tab gets one.
+  assert.deepEqual(AGENTS.filter((a) => a.install).map((a) => a.name), ['Cursor']);
+  // In Cursor's tab the button is first, before the manual steps.
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.ok(src.indexOf('{agent.install && (') < src.indexOf('{agent.steps.map('), 'the one-click button renders above the steps');
 });

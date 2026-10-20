@@ -2,9 +2,6 @@ import { z } from 'zod';
 import { isWalletAddress, normalizeLiveUrl, normalizeRepoUrl } from './campaigns';
 import { sql } from './db';
 import { rememberWallet, sharedGroup } from './installations';
-import { OWNERSHIP_FILE } from './ownership';
-import { bonusOn } from './bonus-rounds';
-import { benchEnabled } from './builder-score-flag';
 import type { Chain } from './chains';
 import type { SubmissionRequirement, TokenPolicy } from './program-file';
 import { answersOf } from './projects';
@@ -12,15 +9,9 @@ import { prepareSubmission, type KnownInfo } from './submission';
 import type { ProgramRow } from './programs';
 import { canonicalBuilderUrl } from './untrusted-text';
 import { LIMITS, RateLimitError, enforce, windowStart } from './rate-limit';
-import { PROOF_LINE_PREFIX, tokenGate, tokenLineFor, type GateDeps } from './token-gate';
+import { tokenGate, type GateDeps } from './token-gate';
 import { logoDefaults, type Logo } from './token-logo';
 
-/**
- * Ruling C24: the agent's way out of the proof-line loop (confirm mode). Agent text, so it names
- * the tool and the field.
- */
-export const CANT_PUSH_RETRY_NOTE =
-  "If you can't push to this repo, call confirm again with agent: { can_push: false }: the entry records without a token and the kit comes back.";
 import { TOKEN_ERROR_CONFIRM } from './confirm';
 import { todoOf } from './entry-text';
 import {
@@ -30,15 +21,16 @@ import {
   tickerProblem,
   titleCase,
   tokensFunTickerCheck,
+  type OwnBrand,
   type TickerCheck,
 } from './token-proposal';
+import { earnkitOwnRepo } from './own-brand';
 import {
   LaunchError,
   REPO_HAS_TOKEN,
   TOKENS_UNAVAILABLE,
   decodeImage,
   deployToken,
-  repoCoinPrograms,
   repoHasTokenNote,
   repoTokenUrl,
   setTokenStatus,
@@ -91,22 +83,7 @@ export type TokenBlock = {
   creator_wallet: string | null;
   policy: 'encouraged' | 'allowed';
   note: string;
-  /** v2.6 Ruling 7: bonusOn, active, not opted out, not a campaign (hasBuilderBonus). */
-  has_bonus: boolean;
-  /**
-   * Ruling 25: the program this repo's coin is already entered in (one coin per repo), on a
-   * program with a builder bonus: no new coin and no builder bonus here. Null otherwise.
-   */
-  repo_coin_program: string | null;
 };
-
-/**
- * Whether a program's entries can earn the builder bonus (v2.6 §4, Ruling 7 (plan)): `bonusOn`,
- * same name kept for callers. `submission_proof` now only decides how a submission is checked,
- * never whether the program has a bonus.
- */
-export const hasBuilderBonus = (program: Pick<ProgramRow, 'status' | 'builder_bonus' | 'campaign'>) =>
-  bonusOn(program);
 
 /**
  * Ruling 31: `note` is plain builder text (never a tool, field or file name); `agent_note`, when
@@ -142,16 +119,16 @@ export function plainProblem(problem: string): { note: string; agent_note: strin
  * The builder's name and ticker edits that pass the rules (cleaned name, uppercased ticker), and
  * the first problem, if any. Pure; exported for tests.
  */
-export function editsOf(choice: Choice): { name?: string; symbol?: string; problem?: string } {
+export function editsOf(choice: Choice, own: OwnBrand = {}): { name?: string; symbol?: string; problem?: string } {
   const out: { name?: string; symbol?: string; problem?: string } = {};
   if (choice.name !== undefined) {
-    const n = cleanTokenName(choice.name);
+    const n = cleanTokenName(choice.name, own);
     if ('problem' in n) out.problem = n.problem;
     else out.name = n.name;
   }
   if (choice.symbol !== undefined) {
     const symbol = choice.symbol.trim().toUpperCase();
-    const issue = tickerProblem(symbol);
+    const issue = tickerProblem(symbol, own);
     if (issue) out.problem ??= issue;
     else out.symbol = symbol;
   }
@@ -174,6 +151,8 @@ export function decideToken(a: {
   wallet: string | null;
   /** record_submission: launch only with the ticker the builder confirmed, passed explicitly. */
   needsSymbol?: boolean;
+  /** Verified (own-brand.ts earnkitOwnRepo): the entry's repo is EarnKit's own, so EarnKit's brand is allowed. */
+  ownEarnkit?: boolean;
 }): Decision {
   if (a.policy === 'off')
     return { action: 'skip', note: "Not launched: this program doesn't allow tokens for entries." };
@@ -189,31 +168,24 @@ export function decideToken(a: {
     };
   const choice = a.choice ?? {};
   if (a.needsSymbol && !choice.symbol?.trim()) return { action: 'skip', note: NEEDS_SYMBOL, agent_note: NEEDS_SYMBOL_AGENT };
-  const edits = editsOf(choice);
+  const own = { ownEarnkit: a.ownEarnkit === true };
+  const edits = editsOf(choice, own);
   if (edits.problem) return { action: 'refuse', ...plainProblem(edits.problem) };
   const rawName = edits.name ?? a.proposal?.name;
   const symbol = edits.symbol ?? a.proposal?.symbol?.trim().toUpperCase();
   if (!rawName || !symbol)
     return {
       action: 'refuse',
-      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3–6 letters or digits) with the builder.',
+      note: 'Not launched: EarnKit has no proposed token for this project. Pick a name and a ticker (3 to 10 letters or digits) with the builder.',
       agent_note: 'Pass them as name and symbol.',
     };
-  const name = cleanTokenName(rawName);
+  const name = cleanTokenName(rawName, own);
   if ('problem' in name) return { action: 'refuse', ...plainProblem(name.problem) };
-  const tickerIssue = tickerProblem(symbol);
+  const tickerIssue = tickerProblem(symbol, own);
   if (tickerIssue) return { action: 'refuse', ...plainProblem(tickerIssue) };
   if (!a.wallet) return { action: 'refuse', note: NO_WALLET, agent_note: NO_WALLET_AGENT, code: 'no_wallet' };
   return { action: 'launch', name: name.name, symbol };
 }
-
-/** What the agent must push before a launch (v2.6 §3: one ticker-free line; the builder edits nothing). */
-const ownershipLine = (tokenLine: string | null) =>
-  tokenLine
-    ? `Write the line "${tokenLine}" to ${OWNERSHIP_FILE} at the repo root (default branch) and push it yourself ` +
-      'before confirm; never ask the builder to edit files. It is for this agent and this repo only; ' +
-      'a new ticker needs no new line.'
-    : "Pass the project's repo_url to get its earnkit.txt token line.";
 
 /**
  * The `token` block of prepare_submission, or null when the program has no tokens, launches aren't
@@ -227,7 +199,7 @@ export async function tokenProposalBlock(
     program: ProgramRow;
     projectName?: string;
     creatorWallet: string | null;
-    /** The asking agent and the project's repo: the earnkit.txt token line is bound to both. */
+    /** The asking agent and the project's repo. */
     installationId: number;
     repoUrl?: string;
     /** v2.10 item 12: the entry's live link (its logo is tried first at launch). */
@@ -236,8 +208,6 @@ export async function tokenProposalBlock(
   deps: {
     check?: TickerCheck;
     available?: () => boolean;
-    /** The program a normalized repo's coin is entered in (default tokens.ts repoCoinPrograms). */
-    repoCoin?: (repoKey: string) => Promise<{ program_id: string; title: string } | null>;
   } = {},
 ): Promise<TokenBlock | null> {
   const { program } = a;
@@ -253,38 +223,15 @@ export async function tokenProposalBlock(
   // Ruling 22: outside campaigns the wallet goes to record_submission explicitly.
   if (!program.campaign)
     notes.push("Pass the wallet the builder confirmed (the wallet on the confirm line) as confirm's wallet");
-  // v2.13.1 O1 fix rounds 1 and 2 (rulings): under the Bench (off a shared client) the gate takes a proof branch, never a line.
-  const branchProven = benchEnabled() && !(await sharedGroup(a.installationId).catch(() => true));
-  // Shown only to this agent (prepare_submission's reply): its code is useless to anyone else.
-  const tokenLine = a.repoUrl && !branchProven ? tokenLineFor(a.installationId, a.repoUrl) : null;
-  const hasBonus = hasBuilderBonus(program);
-  // Ruling 25: on a program with a builder bonus, a repo whose coin is entered elsewhere gets no
-  // new coin (one per repo) and so no bonus here; the row says so. A failed read never fails this.
-  const coin =
-    hasBonus && a.repoUrl
-      ? await (deps.repoCoin ?? defaultRepoCoin)(normalizeRepoUrl(a.repoUrl)).catch((err: unknown) => {
-          console.error('[token] repo coin lookup', err);
-          return null;
-        })
-      : null;
-  // A coin entered in this same program is this repo's own (Ruling 13b covers a second entry).
-  const coinIn = coin && coin.program_id !== program.id ? coin.title : null;
-  if (coinIn)
-    notes.push(`This repo already has its token, entered in ${coinIn}: don't pass token; this entry gets no new token and no builder bonus`);
-  else if (!branchProven) notes.push(ownershipLine(tokenLine));
+  // v2.14 spec 2: the repo is checked at confirm by the gate (the read-only App); the agent pushes nothing.
   return {
     proposed: { name: proposal.name, symbol: proposal.symbol, image: a.liveUrl ? 'site' : 'mark' },
     chain: 'base',
     creator_wallet: a.creatorWallet,
     policy: program.token_policy,
-    has_bonus: hasBonus,
-    repo_coin_program: coinIn,
     note: notes.map((n) => (/[.!?]$/.test(n.trim()) ? n.trim() : `${n.trim()}.`)).join(' '),
   };
 }
-
-/** The program a normalized repo's coin is entered in, from the database. */
-const defaultRepoCoin = async (repoKey: string) => (await repoCoinPrograms([repoKey])).get(repoKey) ?? null;
 
 /** What the flow reads about a project and its program. */
 export type FlowProject = {
@@ -311,8 +258,6 @@ export type FlowProject = {
   token_released_at?: Date | null;
   installation_id: number | null;
   token_policy: TokenPolicy;
-  /** The program has a builder bonus (hasBuilderBonus), for launch_token's non-Base note. */
-  has_bonus?: boolean;
   /** v2.8 Ruling 3 (plan): the builder's answer at the confirmation step; 'skip' launches nothing. */
   confirm_choice?: 'go' | 'skip' | null;
   /**
@@ -414,6 +359,8 @@ export type TokenFlowDeps = {
   available?: () => boolean;
   /** v2.10 item 12: the logo when the agent sent no image (default token-logo.ts launchLogo); null sends the mark. */
   logo?: (a: { liveUrl: string | null; repoUrl: string | null; repoPrivate: boolean }) => Promise<Logo | null>;
+  /** Fix round 1: whether the entry's repo is EarnKit's own, verified (default own-brand.ts earnkitOwnRepo). */
+  ownEarnkit?: (installationId: number, repoUrl: string | null) => Promise<boolean>;
 };
 
 const dbStore: FlowStore = {
@@ -421,7 +368,6 @@ const dbStore: FlowStore = {
     const [row] = await sql()<(FlowProject & StoredChecks)[]>`
       SELECT p.id, p.name, p.repo_url, p.live_url, p.repo_private, p.payout_wallet, p.creator_wallet, p.token_url, p.token_name,
         p.token_symbol, p.token_claimed_at, p.token_note, p.token_status, p.token_released_at, p.installation_id, pr.token_policy, p.confirm_choice,
-        (pr.status = 'active' AND pr.builder_bonus AND pr.campaign IS NULL) AS has_bonus,
         pr.submission_requirements AS requirements, (pr.campaign IS NOT NULL) AS campaign,
         p.description, p.demo_url,
         (SELECT s.submission_data FROM submissions s WHERE s.project_id = p.id ORDER BY s.id DESC LIMIT 1) AS submission_data,
@@ -430,8 +376,6 @@ const dbStore: FlowStore = {
       WHERE p.id = ${projectId}`;
     if (!row) return null;
     const { live_verified_at, contract_verified_at, needs_contract, ...project } = row;
-    // v2.13 R16: the SQL above is bonusOn's twin, so it takes bonusOn's Bench switch too (no non-Base bonus note).
-    if (benchEnabled()) project.has_bonus = false;
     return withStoredChecks(project, { live_verified_at, contract_verified_at, needs_contract });
   },
   setStatus: setTokenStatus,
@@ -508,9 +452,9 @@ export const launchLimit = async (installationId: number, wallet: string) => {
 };
 
 /** A stored name and ticker that still pass the rules, else null. */
-function storedProposal(p: FlowProject) {
-  if (!p.token_name || !p.token_symbol || tickerProblem(p.token_symbol)) return null;
-  const name = cleanTokenName(p.token_name);
+function storedProposal(p: FlowProject, own: OwnBrand) {
+  if (!p.token_name || !p.token_symbol || tickerProblem(p.token_symbol, own)) return null;
+  const name = cleanTokenName(p.token_name, own);
   return 'name' in name ? { name: name.name, symbol: p.token_symbol } : null;
 }
 
@@ -558,8 +502,8 @@ async function runTokenFlow(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: the agent checking back after "launching": a read, never a launch. */
     checkBack?: boolean;
-    /** Rulings G8, G9: whose GitHub sign-in proves the repo (token-gate.ts GateInput.verifiedLogin). */
-    verifiedLogin?: string | null;
+    /** v2.14 final fix: the caller is a shared client (the gate finds that itself; this only delays keeping the wallet). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps,
   progress: Progress = { deploying: false },
@@ -602,13 +546,15 @@ async function runTokenFlow(
   // At submission an explicit ticker is the builder's; no proposal (and no ticker lookups) needed.
   const explicit = a.mode === 'submission' && Boolean(choice?.symbol?.trim());
   // A retry (launch_token, or confirm_entry after a taken ticker) uses the stored suggestion.
+  // Fix round 1: EarnKit's own brand only for its verified own repo (computed once, never from the link alone).
+  const own: OwnBrand = { ownEarnkit: await (deps.ownEarnkit ?? earnkitOwnRepo)(a.installationId, project.repo_url) };
   const proposed = explicit
     ? null
-    : (a.mode !== 'submission' && storedProposal(project)) ||
-      (await proposeToken(project.name, deps.check, project.repo_url ?? undefined));
+    : (a.mode !== 'submission' && storedProposal(project, own)) ||
+      (await proposeToken(project.name, deps.check, project.repo_url ?? undefined, own));
   const proposal = proposed ? { name: proposed.name, symbol: proposed.symbol } : null;
   // At submission a ticker without a name takes the (cleaned) project name.
-  const projectName = cleanTokenName(project.name);
+  const projectName = cleanTokenName(project.name, own);
   const fallback =
     a.mode === 'submission'
       ? { name: 'name' in projectName ? projectName.name : proposal?.name, symbol: proposal?.symbol }
@@ -631,13 +577,14 @@ async function runTokenFlow(
     proposal: fallback,
     wallet,
     needsSymbol: a.mode === 'submission',
+    ownEarnkit: own.ownEarnkit,
   });
   // Token retry (v2.4 §6, audit C14): a creator wallet given now, or the one a launch uses, is
   // kept, so launch_token after a gate failure doesn't ask for it again (and fee reads know it).
   const keep = choice?.creator_wallet ?? a.givenWallet ?? (decision.action === 'launch' ? wallet : null);
   // v2.9 B9 (fix round 2): on a shared client the entry may be another builder's, so the wallet is
   // kept only once the gate passed for this caller.
-  const sharedCaller = a.verifiedLogin !== undefined;
+  const sharedCaller = a.sharedClient === true;
   const saveWallet = async () => {
     if (keep && !project.token_url && keep.toLowerCase() !== project.creator_wallet)
       await store.saveCreatorWallet(project.id, a.installationId, keep);
@@ -652,7 +599,7 @@ async function runTokenFlow(
     if (project.token_url)
       return { status: notNow, note: decision.note, ...(decision.agent_note && { agent_note: decision.agent_note }) };
     // Kept for a later launch_token: the builder's valid edits, else the proposal.
-    const edits = choice ? editsOf(choice) : {};
+    const edits = choice ? editsOf(choice, own) : {};
     const out = await record(
       notNow,
       decision.note,
@@ -686,6 +633,7 @@ async function runTokenFlow(
       project.name,
       async (s) => (s === symbol ? false : check(s)),
       project.repo_url ?? undefined,
+      own,
     );
     return fix({
       ...(await record(
@@ -710,7 +658,6 @@ async function runTokenFlow(
       symbol,
       installationId: a.installationId,
       projectId: project.id,
-      verifiedLogin: a.verifiedLogin,
     },
     deps.gate,
   );
@@ -719,8 +666,6 @@ async function runTokenFlow(
     const withNote = {
       ...out,
       ...(gate.agent_note && { agent_note: gate.agent_note }),
-      ...(gate.branch && { proof_branch: gate.branch }),
-      ...(gate.sign_in && { sign_in_needed: gate.sign_in }),
     };
     return gate.fixable ? fix(withNote) : withNote;
   }
@@ -809,8 +754,8 @@ export async function tokenAfterSubmission(
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
-    /** Rulings G9, G10: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-    verifiedLogin?: string | null;
+    /** The caller is a shared client (runTokenFlow sharedClient). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps = {},
   progress?: Progress,
@@ -843,7 +788,7 @@ export async function tokenAfterSubmission(
       chain: 'base',
       givenWallet: a.givenWallet,
       checkBack: a.checkBack,
-      verifiedLogin: a.verifiedLogin,
+      sharedClient: a.sharedClient,
     },
     deps,
     progress,
@@ -953,8 +898,8 @@ export async function confirmToken(
     deadline?: number;
     /** v2.8.1 fix round 1: a check-back reads, never launches. */
     checkBack?: boolean;
-    /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-    verifiedLogin?: string | null;
+    /** The caller is a shared client (runTokenFlow sharedClient). */
+    sharedClient?: boolean;
   },
   deps: TokenFlowDeps = {},
 ): Promise<TokenOutcome> {
@@ -981,7 +926,7 @@ export async function confirmToken(
       }
       return await runTokenFlow(
         project,
-        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack, verifiedLogin: a.verifiedLogin },
+        { mode: 'confirm', installationId: a.installationId, choice: parsed.data, confirmed: true, chain: 'base', checkBack: a.checkBack, sharedClient: a.sharedClient },
         deps,
         progress,
       );
@@ -1003,16 +948,8 @@ export async function confirmToken(
 function toConfirmWords(out: TokenOutcome): TokenOutcome {
   const note = out.note?.replace(/say 'launch the token'/g, 'say go');
   if (!out.fixable) return { ...out, ...(note && { note }) };
-  const proofLine = out.note?.startsWith(PROOF_LINE_PREFIX) === true;
   const agentNote = out.agent_note?.replace(/call confirm with project_id and yes: true/g, 'call confirm again with yes: true');
-  return {
-    ...out,
-    ...(note && { note }),
-    ...((agentNote || proofLine) && {
-      agent_note: [agentNote, proofLine && CANT_PUSH_RETRY_NOTE].filter(Boolean).join(' '),
-    }),
-    ...(proofLine && { proof_line: true as const }),
-  };
+  return { ...out, ...(note && { note }), ...(agentNote && { agent_note: agentNote }) };
 }
 
 /**
@@ -1062,8 +999,6 @@ export const LaunchTokenInput = TokenChoice.extend({
   repo_url: z.string().optional(),
   /** v2.8.1 fix round 1: checking back after "launching": a read, never a launch. */
   check_back: z.boolean().optional(),
-  /** v2.9 B9 (Ruling G9): the code a shared client's builder pasted after signing in with GitHub. */
-  signed_in: z.string().max(40).optional(),
   /** v2.9 B10: the first reply's token offer (list_programs token_offer): a draft entry is made for it. */
   offer: z
     .object({ program_id: z.string().min(1), repo_url: z.string().min(1).max(500), project_name: z.string().trim().min(1).max(200) })
@@ -1072,7 +1007,7 @@ export const LaunchTokenInput = TokenChoice.extend({
   /** v2.9 B10: the builder's answer to that offer: 'go' launches, 'skip' records a decline. */
   decision: z.enum(['go', 'skip']).default('go'),
   /**
-   * v2.9 B10: what the agent can do (can_push: false, the builder signs in with GitHub instead). The
+   * v2.9 B10: what the agent can do (can_push; v2.14: the read-only App proves the repo either way). The
    * same shape every other tool takes (T12 journey 12.1: an agent passing its usual { browser,
    * can_push } got a ZodError on the yes).
    */
@@ -1098,10 +1033,10 @@ export async function launchToken(
   deps: TokenFlowDeps = {},
   /** v2.8.1 §A5: past this time (ms since epoch) the reply is "launching" and the flow runs on. */
   deadline?: number,
-  /** Rulings G8, G9: whose GitHub sign-in proves the repo (undefined: not a shared client). */
-  verifiedLogin?: string | null,
+  /** The caller is a shared client (runTokenFlow sharedClient). */
+  sharedClient?: boolean,
 ): Promise<TokenOutcome> {
-  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, signed_in: _s, offer: _o, decision: _d, agent: _a, ...choice } = input;
+  const { project_id, builder_confirmed: _c, chain, live_url, repo_url, check_back, offer: _o, decision: _d, agent: _a, ...choice } = input;
   // v2.9 B10: an offer is made into an entry by the launch_token tool first (tools.ts launchFromOffer).
   if (project_id === undefined) throw new LaunchError('Pass project_id.');
   const store = deps.store ?? dbStore;
@@ -1144,15 +1079,9 @@ export async function launchToken(
   if (entryMissing(project).length === 0) await store.markComplete(project.id);
   const progress: Progress = { deploying: false };
   const out = await withinReply(
-    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true, verifiedLogin }, deps, progress),
+    runTokenFlow(project, { mode: 'launch', installationId, choice, confirmed: true, chain, checkBack: check_back === true, sharedClient }, deps, progress),
     progress,
     deadline,
   );
-  if (out.launching || out.note === STILL_CHECKING_LAUNCH) return out;
-  // The builder bonus counts Base coins only (Ruling 24): a coin launched on another chain never implies it.
-  if (out.status === 'launched' && chain !== 'base' && project.has_bonus) return { ...out, note: [out.note, NON_BASE_NO_BONUS].filter(Boolean).join(' ') };
   return out;
 }
-
-/** launch_token's note for a coin on another chain, on a program with a builder bonus (Ruling 24). */
-export const NON_BASE_NO_BONUS = 'No builder bonus for this token: the builder bonus counts Base tokens only.';

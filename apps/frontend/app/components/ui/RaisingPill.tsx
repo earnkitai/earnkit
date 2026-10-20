@@ -7,7 +7,7 @@ export default function RaisingPill({ symbol, url, size = 'md' }: { symbol: stri
       target="_blank"
       rel="noopener noreferrer"
       data-pill="raising"
-      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-ek-score-orange/60 bg-ek-navy-deep font-funnel-sans font-medium text-ek-score-orange ${box}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-full border border-ek-score-orange/60 bg-ek-surface font-funnel-sans font-medium text-ek-score-orange ${box}`}
     >
       Community round ${symbol}
     </a>

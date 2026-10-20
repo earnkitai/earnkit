@@ -2,9 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ImageResponse } from 'next/og';
 import { benchCardFacts, benchShareText, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
-import { benchEnabled } from '../../lib/earnkit/builder-score-flag';
 import { noteEvent } from '../../lib/earnkit/events';
-import { bestProject, cardHeadline, personFacts, shareIntent, shareIntentText, type PersonFacts } from '../../lib/earnkit/page-data';
+import { shareIntentText } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
 import { pagePath, pageUrl } from '../../lib/earnkit/reserved-routes';
 import { CARD_CACHE } from '../../lib/earnkit/share';
@@ -32,14 +31,6 @@ async function live(handle: string, path: string, suffix: string): Promise<{ bui
   if ('redirect' in r) return move(r.redirect);
   if (pagePath(r.handle) !== path) return move(pagePath(r.handle));
   return r;
-}
-
-/** The headline that fits the person's latest card moment (card_moments.latest; default what they shipped). */
-async function headlineOf(builderId: number): Promise<{ headline: string; facts: PersonFacts } | null> {
-  const f = await personFacts(builderId);
-  if (!f) return null;
-  const best = f.moment === 'people' ? await bestProject(builderId) : null;
-  return { facts: f, headline: cardHeadline({ moment: f.moment, shipped: f.shipped, noun: f.noun, best, rank: f.rank }) };
 }
 
 // Funnel Display, read once per process (assets/fonts, OFL). A missing file draws the default font.
@@ -106,7 +97,7 @@ function CardPhoto({ avatar, handle }: { avatar: string | null; handle: string }
 }
 
 /**
- * v2.13 spec "Card (OG image)": the photo, the name, "Top 4% on the Bench" (else nothing), the
+ * v2.13 spec "Card (OG image)": the photo, the name, the score line ("Shipping 62 · Top 4% of builders this week", else nothing), the
  * project's name and the streak, and "Community round $X" while the pill shows. Pure.
  */
 export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolean) {
@@ -154,56 +145,12 @@ export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolea
 export async function cardResponse(handle: string, path: string): Promise<Response> {
   const who = await live(handle, path, 'card.png');
   if (who instanceof Response) return who;
-  if (benchEnabled()) {
-    const f = await benchCardFacts(who.builderId);
-    if (!f) return notFound();
-    const [font, avatar] = await Promise.all([loadFonts(), avatarData(f.avatar)]);
-    return new ImageResponse(benchCard(f, avatar, font.length > 0), {
-      width: 1200, height: 630, ...(font.length ? { fonts: font } : {}), headers: { 'Cache-Control': CARD_CACHE, 'X-Content-Type-Options': 'nosniff' },
-    });
-  }
-  const h = await headlineOf(who.builderId);
-  if (!h) return notFound();
-  const [font, avatar] = await Promise.all([loadFonts(), avatarData(h.facts.avatar)]);
-  const size = headlineSize(h.headline);
-  return new ImageResponse(
-    (
-      <div
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          padding: '64px 76px 56px',
-          backgroundColor: NAVY,
-          backgroundImage: 'radial-gradient(circle at 96% 0%, rgba(155, 107, 255, 0.30), transparent 46%), radial-gradient(circle at 0% 100%, rgba(255, 122, 26, 0.16), transparent 42%)',
-          color: WHITE,
-          fontFamily: font.length ? 'Funnel Display' : undefined,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
-          <div style={{ display: 'flex', width: 120, height: 120, borderRadius: 60, padding: 5, backgroundImage: `linear-gradient(135deg, ${ORANGE}, ${PURPLE})` }}>
-            {avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element -- satori draws a plain img
-              <img src={avatar} width={110} height={110} alt="" style={{ width: 110, height: 110, borderRadius: 55, objectFit: 'cover', border: `4px solid ${NAVY}` }} />
-            ) : (
-              <div style={{ display: 'flex', width: 110, height: 110, borderRadius: 55, alignItems: 'center', justifyContent: 'center', backgroundColor: '#112969', border: `4px solid ${NAVY}`, fontSize: 52, fontWeight: 700, color: WHITE }}>
-                {who.handle.replace(/^_+/, '').charAt(0).toUpperCase() || '?'}
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', fontSize: 44, fontWeight: 700, letterSpacing: -0.5 }}>@{who.handle}</div>
-        </div>
-        <div style={{ display: 'flex', fontSize: size, fontWeight: 700, lineHeight: 1.04, letterSpacing: -size / 36, maxWidth: 1048 }}>{h.headline}</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 30, fontWeight: 500 }}>
-          <div style={{ display: 'flex', color: WHITE }}>{pageUrl(who.handle)}</div>
-          <div style={{ display: 'flex', color: SOFT }}>earnkit.com/leaderboard</div>
-        </div>
-      </div>
-    ),
-    { width: 1200, height: 630, ...(font.length ? { fonts: font } : {}), headers: { 'Cache-Control': CARD_CACHE, 'X-Content-Type-Options': 'nosniff' } },
-  );
+  const f = await benchCardFacts(who.builderId);
+  if (!f) return notFound();
+  const [font, avatar] = await Promise.all([loadFonts(), avatarData(f.avatar)]);
+  return new ImageResponse(benchCard(f, avatar, font.length > 0), {
+    width: 1200, height: 630, ...(font.length ? { fonts: font } : {}), headers: { 'Cache-Control': CARD_CACHE, 'X-Content-Type-Options': 'nosniff' },
+  });
 }
 
 /**
@@ -213,17 +160,10 @@ export async function cardResponse(handle: string, path: string): Promise<Respon
 export async function shareResponse(handle: string, path: string): Promise<Response> {
   const who = await live(handle, path, 'share');
   if (who instanceof Response) return who;
-  // v2.13: the post says what the card shows (benchShareText); flag off, the v2.12.1 headline.
-  let location: string;
-  if (benchEnabled()) {
-    const f = await benchCardFacts(who.builderId);
-    if (!f) return notFound();
-    location = shareIntentText(who.handle, benchShareText(f));
-  } else {
-    const h = await headlineOf(who.builderId);
-    if (!h) return notFound();
-    location = shareIntent(who.handle, h.headline);
-  }
+  // v2.13: the post says what the card shows (benchShareText).
+  const f = await benchCardFacts(who.builderId);
+  if (!f) return notFound();
+  const location = shareIntentText(who.handle, benchShareText(f));
   const day = new Date().toISOString().slice(0, 10);
   await noteEvent('card_shared', () => ({ type: 'card_shared', dedupe_key: `card_shared:${who.builderId}:${day}`, installation_id: who.builderId }));
   return new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } });

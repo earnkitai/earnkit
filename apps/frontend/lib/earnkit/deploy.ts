@@ -26,12 +26,11 @@ import { sql } from './db';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { FREE_CAPS, forceFreeTier, giveBackFreeTier, takeFreeTier } from './free-tier';
-import { loginBasisFor, provenOwnerLogin } from './github-verify';
+import { loginBasisFor } from './github-verify';
 import { llamaPrice } from './prices';
 import { RateLimitError, enforce } from './rate-limit';
-import { proofLineOwner, repoOwnershipPasses, repoSignedIn, type OwnershipDeps } from './token-gate';
+import { proveRepo } from './token-gate';
 import { markDeployed, rpcFor } from './verify';
-import { benchEnabled } from './builder-score-flag';
 
 /**
  * v2.10 item 13: EarnKit deploys the builder's own compiled contract on Arc or Base from its own
@@ -59,12 +58,10 @@ export const DEPLOY_CAPS = {
   perRepo30d: 10,
 } as const;
 
-/** v2.11 T9 security fix R3: the agent's note when a proof-line-only deploy has no proven owner login (final fix M5: a fresh push, as BUILD_OWNER_NOTE asks). */
+/** v2.14 spec 2: the agent's note when the repo isn't proven (the read-only App isn't installed on it). */
 export const OWNER_PROOF_NOTE =
-  "EarnKit deploys from the earnkit.txt line only for the repo owner's own account: the owner's own push of the line (not a merge, " +
-  "a bot or a collaborator), the builder's GitHub username passed to find, and an account at least 30 days old with a public repo. " +
-  "A push from before the line was shown never counts: make a fresh commit (any small change, earnkit.txt kept) and push it now from the builder's own account to a repo they own, " +
-  'never a force push, then call this again; or sign in with GitHub where that is offered. If it is still refused, tell the builder in one short line.';
+  "EarnKit deploys only for a repo proven yours: the read-only EarnKit app installed on it. Call find, which gives the builder the install link; " +
+  "once they installed it, call this again. Don't show this note.";
 
 /** ERC-20 transfer, approve and totalSupply: bytecode PUSH4-ing all three is a token (refused). */
 export const ERC20_SELECTORS = ['a9059cbb', '095ea7b3', '18160ddd'] as const;
@@ -296,14 +293,10 @@ export type DeployDeps = {
   chain?: (c: DeployChainName) => DeployChain | null;
   usdPerNative?: (c: DeployChainName) => Promise<number>;
   now?: Date;
-  /** Test seam: the ownership proof's reads (token-gate.ts GateDeps). */
-  gate?: OwnershipDeps;
   /** Test seam: how long to wait for a receipt (default 30 s). */
   receiptMs?: number;
   /** Test seam for tools.ts deployStep: the installation's verified login (github-verify.ts installationLogin). */
   installationLogin?: (installationId: number) => Promise<string | null>;
-  /** Test seam for tools.ts deployStep on a shared client: the caller's verified login (github-verify.ts callerLogin). */
-  callerLogin?: (installationId: number, signedIn: string | undefined) => Promise<string | null>;
 };
 
 export type DeployOutcome =
@@ -468,12 +461,6 @@ export async function deployForBuilder(
      */
     starter?: { id: string; bytecode_hash: string | null };
     /**
-     * v2.11 T9 security fix (I1): who pushed the earnkit.txt line (token-gate.ts proofLineOwner), when
-     * the caller already read it; undefined: read here (off a shared client). Kept on the row, and a
-     * cap key (I3) and the only way a proof-line login is ever recorded.
-     */
-    lineOwner?: string | null;
-    /**
      * v2.11 T9 security fix (M4): runs once every cap has passed, just before the send (the build
      * path's `built` event). Never throws into the deploy.
      */
@@ -497,25 +484,12 @@ export async function deployForBuilder(
   const bad = deployRefusal(a.input);
   if (bad) return refused(bad);
   if (!isAddress(a.builderWallet, { strict: false })) return refused(DEPLOY_LINES.failed);
-  // v2.13.1 O2 fix round 1 (fresh-build ruling): under the Bench a build's proof branch proves the repo (no line).
-  const branchOwner = !a.shared && benchEnabled() ? await (await import('./proof-branch')).branchProvenOwner(a.installationId, a.repoKey, now) : null;
-  const owns =
-    branchOwner !== null ||
-    (await repoOwnershipPasses(
-      { installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}`, verifiedLogin: a.shared ? a.login : undefined },
-      deps.gate,
-    ));
-  if (!owns) return refused(DEPLOY_LINES.notYours);
+  // v2.14 spec 2: the repo is the person's, proven by the read-only GitHub App (or verified before v2.14);
+  // a shared client has no person, so nothing of its proves a repo. The repo's owner keys the per-owner caps.
+  const proven = a.shared ? null : await proveRepo({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` });
+  if (!proven) return { ...refused(DEPLOY_LINES.notYours), agent_note: OWNER_PROOF_NOTE };
   const repoKey = a.repoKey.toLowerCase();
-  // v2.11 T9 security fix R3: off a shared client with no sign-in or App proof of the repo, the
-  // earnkit.txt line alone is push access, and installations, repos and wallets are free. So a deploy
-  // there needs a proven login: GitHub's push record says the repo's owner wrote the line, the
-  // builder said that login is theirs, it is a User, and it passes the host gate (30 days, 1 public
-  // repo). Its caps are that login's. A sign-in or App proof keeps the v2.10 path unchanged.
-  const signedIn = a.shared || (await repoSignedIn({ installationId: a.installationId, repoKey }, deps.gate));
-  const lineOwner = a.shared ? null : a.lineOwner !== undefined ? a.lineOwner : branchOwner ?? (signedIn ? null : await proofLineOwner({ installationId: a.installationId, repoUrl: `https://github.com/${a.repoKey}` }, deps.gate));
-  const owner = a.shared || !lineOwner ? null : await provenOwnerLogin(a.installationId, repoKey, lineOwner);
-  if (!signedIn && !owner) return { ...refused(DEPLOY_LINES.notYours), agent_note: OWNER_PROOF_NOTE };
+  const owner = proven.owner;
   const wallet = a.builderWallet.toLowerCase();
   // Final fix wave F1: the row names the starter only for its exact bytecode (as the deployed event does).
   const exactStarter =
@@ -672,7 +646,7 @@ export async function deployForBuilder(
     // v2.11 T3: the row is `deployed`: its event, with the tx, the address, the block and the owner check.
     const deployedEvent = (address: string, ownerOk: boolean | null, codeDiffers = false) =>
       noteEvent('deployed', async () => {
-        const who = await loginBasisFor(a.installationId, a.repoKey, a.shared ? { callerLogin: a.login } : { lineOwner: owner });
+        const who = await loginBasisFor(a.installationId, a.repoKey, a.shared ? { callerLogin: a.login } : {});
         return {
           type: 'deployed',
           dedupe_key: `deployed:${id}`,
@@ -832,7 +806,7 @@ export async function settlePendingDeploy(
   if (settled) {
     if (!differs && !children) await markDeployed(c, address).catch((err: unknown) => console.error('[deploy] cache', errName(err)));
     await noteEvent('deployed', async () => {
-      const who = await loginBasisFor(a.installationId, repoKey, { lineOwner: row.line_owner });
+      const who = await loginBasisFor(a.installationId, repoKey);
       return {
         type: 'deployed',
         dedupe_key: `deployed:${row.id}`,

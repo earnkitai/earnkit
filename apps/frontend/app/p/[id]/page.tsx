@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { COLUMN, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
 import { getProjectPage } from '@/lib/earnkit/leaderboard';
 import { entryStatus } from '@/lib/earnkit/campaigns';
@@ -13,7 +14,7 @@ const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
     href={/^https?:\/\//i.test(href) ? href : undefined}
     target="_blank"
     rel="noopener noreferrer"
-    className="text-ek-white underline underline-offset-4"
+    className="text-ek-text underline underline-offset-4"
   >
     {children}
   </a>
@@ -35,19 +36,19 @@ export default async function ProjectPage({
   const ranked = c.kind === 'earnkit' ? p.score !== null : p.any_scored;
 
   return (
-    <div className="w-full pt-4">
-      <section className="rounded-[40px] bg-ek-navy-deep px-6 py-12 md:rounded-[56px] md:px-16 md:py-16">
+    <div className={`${COLUMN} pt-8 md:pt-12`}>
+      <section className={`${SURFACE} px-5 py-10 md:px-10 md:py-12`}>
         <Link
           href={`/campaigns/${p.program_id}`}
-          className="font-funnel-sans text-sm text-ek-blue-soft hover:text-ek-white"
+          className="font-funnel-sans text-sm text-ek-muted hover:text-ek-text"
         >
           ← {p.program_title}
         </Link>
-        <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-white md:text-5xl">
+        <h1 className="mt-4 font-funnel-display text-3xl font-medium text-ek-text md:text-5xl">
           {p.name}
         </h1>
         {p.description ? (
-          <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-blue-light md:text-lg">
+          <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-body md:text-lg">
             {p.description}
           </p>
         ) : null}
@@ -56,33 +57,33 @@ export default async function ProjectPage({
           {ranked ? (
             <>
               <div>
-                <dt className="text-sm text-ek-blue-soft">Rank</dt>
-                <dd className="mt-1 text-2xl text-ek-white">
+                <dt className="text-sm text-ek-muted">Rank</dt>
+                <dd className="mt-1 text-2xl text-ek-text">
                   #{p.rank} of {p.entries}
                 </dd>
               </div>
               <div>
-                <dt className="text-sm text-ek-blue-soft">
+                <dt className="text-sm text-ek-muted">
                   {c.kind === 'earnkit' ? 'Unique users' : 'Unique wallets'}
                 </dt>
-                <dd className="mt-1 text-2xl tabular-nums text-ek-white">
+                <dd className="mt-1 text-2xl tabular-nums text-ek-text">
                   {p.score ?? '–'}
                 </dd>
               </div>
             </>
           ) : null}
           <div>
-            <dt className="text-sm text-ek-blue-soft">Status</dt>
-            <dd className="mt-1 text-2xl text-ek-white">
+            <dt className="text-sm text-ek-muted">Status</dt>
+            <dd className="mt-1 text-2xl text-ek-text">
               {capitalize(p.standing ?? entryStatus(c, p, p.sponsor_state))}
             </dd>
           </div>
         </dl>
         {p.prize_reason ? (
-          <p className="mt-2 text-sm text-ek-blue-soft">{p.prize_reason}</p>
+          <p className="mt-2 text-sm text-ek-muted">{p.prize_reason}</p>
         ) : null}
 
-        <ul className="mt-8 space-y-2 font-funnel-sans text-base text-ek-blue-light">
+        <ul className="mt-8 space-y-2 font-funnel-sans text-base text-ek-body">
           {p.live_url ? (
             <li>
               Live: <A href={p.live_url}>{p.live_url}</A>
@@ -111,15 +112,15 @@ export default async function ProjectPage({
           ) : null}
         </ul>
         {/* v2.10 item 5: the token terms live here (and on tokens.fun), never in a reply. */}
-        <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
+        <p className="mt-6 font-funnel-sans text-sm font-light text-ek-muted">
           Token terms: <A href={TOKEN_TERMS.agreement}>agreement</A> · <A href={TOKEN_TERMS.risks}>risks</A>
         </p>
         {/* v2.11 T12: what EarnKit records about this entry, and how to have the login and wallet removed. */}
-        <p className="mt-2 font-funnel-sans text-sm font-light text-ek-blue-soft">
-          <Link href={RECORDS_HREF} className="text-ek-white underline underline-offset-4">{RECORDS_TITLE}</Link>
+        <p className="mt-2 font-funnel-sans text-sm font-light text-ek-muted">
+          <Link href={RECORDS_HREF} className="text-ek-text underline underline-offset-4">{RECORDS_TITLE}</Link>
         </p>
         {p.scored_at ? (
-          <p className="mt-6 font-funnel-sans text-sm font-light text-ek-blue-soft">
+          <p className="mt-6 font-funnel-sans text-sm font-light text-ek-muted">
             Scored {formatDeadline(p.scored_at)}
           </p>
         ) : null}

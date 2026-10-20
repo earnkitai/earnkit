@@ -1,104 +1,126 @@
-import type { CalibrationV2 } from './score-calibration';
+import { isoWeekOf } from './weeks';
 
 /**
- * v2.12.1 spec "Score": 0 to 100 in four parts, confirmed data only (the caller passes only
- * confirmed ships and use, already through anti-farming, the builder's own accounts excluded).
- * Shipped is front-loaded (the first ship is half of it) and keeps at least half its value
- * forever; Used and Consistency fade with a 90-day half-life; Earned does not fade. Ranked = at
- * least one confirmed ship. Stars and forks by other people count at most STAR_FORK_CAP toward
- * Used. Raw inputs are stored unscaled in each part's `raw`. Inputs come from untrusted readings:
- * an invalid date fades to 0 and a non-finite number counts as 0, so the score is never NaN. Pure.
+ * Scoring and clarity (owner ruling 2026-10-19, replacing R1 to R3): one score, Shipping, 0 to 100,
+ * from the one project's confirmed data only.
+ *   Shipping = round(90 x sum(w_i x active_i) / sum(w_i)) + live bonus
+ * where i = 0..11 is a week's age (0 = this ISO week, Monday to Sunday UTC), active_i = 1 when the
+ * repo has commits that week, and w_i = 12 - i (recent weeks weigh more; the weights sum to 78). The
+ * live bonus is 10 when any live ship exists (a live site, a contract deploy, a published package).
+ * Used and Earned are no longer scored, and R16b stopped counting people and money at all. `parts` holds { shipping } and leaves room for a separate 0 to 100
+ * { originality } a later change adds (never summed into Shipping). Pure.
  */
 export const FORMULA_V2 = 'v2';
-export const MAX_V2 = { shipped: 20, used: 40, earned: 20, consistency: 20 } as const;
-export const HALF_LIFE_DAYS = 90;
-export const STAR_FORK_CAP = 5;
+export const SHIPPING_MAX = 100;
+export const CODE_MAX = 90;
+export const LIVE_BONUS = 10;
+export const SHIPPING_WEEKS = 12;
+const WEIGHT_SUM = (SHIPPING_WEEKS * (SHIPPING_WEEKS + 1)) / 2; // 78
 const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
 
-export type Ship = { key: string; at: Date; alive_at: Date | null };
-export type UseTouch = { project: string; actor: string; at: Date; weight: number; kind: 'caller' | 'tagged' | 'trader' | 'star' | 'fork' };
-export type V2Input = {
-  ships: Ship[];
-  touches: UseTouch[];
-  packages: { project: string; users: number; at: Date }[];
-  earned: { project: string; usd: number; kind: 'coin_fees' | 'contract_fees' | 'prize' }[];
-  weeks: { week: string; at: Date }[];
+/** One live ship; `key` names it once ('site:<host>', 'contract:<chain>:<address>', 'package:<kind>:<name>'). */
+export type Ship = { key: string; kind: 'site' | 'contract' | 'package' };
+export type ScoreInput = { ships: Ship[]; commitWeeks: string[] };
+export type ScorePart = { points: number; raw: Record<string, number> };
+/**
+ * `shipping.raw`: mask (bit i set: commits in the week i weeks before this one; bit 0 is this week),
+ * monday (that week's Monday as whole days since the epoch, UTC), weeks (of the last 12), recent (of
+ * the last 4), live_ships (distinct). scoreWhy reads them.
+ * `originality`: reserved for a later, separate value.
+ */
+export type ScoreParts = { shipping: ScorePart; originality?: ScorePart };
+export type V2Scored = { score: number; parts: ScoreParts; shipped: number };
+
+const LAST12 = (1 << SHIPPING_WEEKS) - 1;
+const LAST4 = 0b1111;
+/** The 12-bit mask of the last 12 ISO weeks with commits (bit 0: the week of `now`). Pure. */
+export function weekMask(commitWeeks: Iterable<string>, now: Date): number {
+  const have = new Set(commitWeeks);
+  let mask = 0;
+  for (let i = 0; i < SHIPPING_WEEKS; i++) if (have.has(isoWeekOf(new Date(now.getTime() - i * WEEK_MS)))) mask |= 1 << i;
+  return mask;
+}
+const bits = (m: number) => {
+  let n = 0;
+  for (let x = m; x; x &= x - 1) n++;
+  return n;
 };
-export type V2Part = { points: number; raw: Record<string, number> };
-export type V2Parts = { shipped: V2Part; used: V2Part; earned: V2Part; consistency: V2Part };
-export type V2Scored = { score: number; parts: V2Parts; ranked: boolean; shipped: number; perProject: Map<string, { people: number; usd: number }> };
 
-const time = (d: Date | null | undefined): number => (d instanceof Date ? d.getTime() : NaN);
-/** 1 for now, 0.5 at the half-life; 0 for an invalid date (an unreadable date earns nothing). */
-export const fade = (at: Date, now: Date): number => {
-  const a = time(at);
-  const n = time(now);
-  if (!Number.isFinite(a) || !Number.isFinite(n)) return 0;
-  return 0.5 ** (Math.max(0, n - a) / DAY_MS / HALF_LIFE_DAYS);
+/** Shipping from a week mask and the distinct live ships. Pure. */
+export function shippingOf(mask: number, liveShips: number): number {
+  const m = Number.isInteger(mask) ? mask & LAST12 : 0;
+  let w = 0;
+  for (let i = 0; i < SHIPPING_WEEKS; i++) if (m & (1 << i)) w += SHIPPING_WEEKS - i;
+  return Math.min(SHIPPING_MAX, Math.round((CODE_MAX * w) / WEIGHT_SUM) + (liveShips > 0 ? LIVE_BONUS : 0));
+}
+
+/** The Monday of `now`'s ISO week, as whole days since the epoch (UTC). Pure. */
+export const mondayDay = (now: Date): number => {
+  const day = Math.floor(now.getTime() / DAY_MS);
+  return day - ((new Date(day * DAY_MS).getUTCDay() + 6) % 7);
 };
-const fin = (n: number) => (Number.isFinite(n) && n > 0 ? n : 0);
-const scaled = (max: number, x: number, bar: number) => (x <= 0 ? 0 : max * Math.min(1, Math.log10(1 + x) / Math.log10(1 + bar)));
 
-export function computeScoreV2(i: V2Input, cal: CalibrationV2, now: Date): V2Scored {
-  // Shipped: 20 x (1 - 0.5^S), kept at max(0.5, fade(newest day any ship was alive)).
-  const S = new Set(i.ships.map((s) => s.key)).size;
-  const alive = i.ships.reduce<number>((n, s) => {
-    const t = time(s.alive_at ?? s.at);
-    return Number.isFinite(t) ? Math.max(n, t) : n;
-  }, 0);
-  const keep = S === 0 ? 0 : Math.max(0.5, fade(new Date(alive), now));
-  const shipped = MAX_V2.shipped * (1 - 0.5 ** S) * keep;
+export function computeScoreV2(i: ScoreInput, now: Date): V2Scored {
+  const live = new Set(i.ships.map((s) => s.key)).size;
+  const mask = weekMask(i.commitWeeks, now);
+  const score = shippingOf(mask, live);
+  const raw = { mask, monday: mondayDay(now), weeks: bits(mask), recent: bits(mask & LAST4), live_ships: live };
+  return { score, parts: { shipping: { points: score, raw } }, shipped: live };
+}
 
-  // Used: each account once per project (its best weight, faded by its newest touch).
-  const best = new Map<string, { w: number; kind: UseTouch['kind']; project: string }>();
-  for (const t of i.touches) {
-    const k = `${t.project}\u0000${t.actor.toLowerCase()}`;
-    const w = fin(t.weight) * fade(t.at, now);
-    const cur = best.get(k);
-    const sf = t.kind === 'star' || t.kind === 'fork';
-    const curSf = cur !== undefined && (cur.kind === 'star' || cur.kind === 'fork');
-    // A real use (caller, tagged, trader) always wins over a star or fork by the same account.
-    if (!cur || (curSf && !sf) || (curSf === sf && cur.w < w)) best.set(k, { w, kind: t.kind, project: t.project });
-  }
-  let people = 0;
-  let starFork = 0;
-  const perProject = new Map<string, { people: number; usd: number }>();
-  const bump = (p: string, people: number, usd: number) => {
-    const x = perProject.get(p) ?? { people: 0, usd: 0 };
-    perProject.set(p, { people: x.people + people, usd: x.usd + usd });
+/**
+ * Shipping as stored in `builder_live.parts` (jsonb), or null when the row has none (an empty
+ * placeholder, a malformed row, or one from an older formula: its shipped, used, earned and
+ * consistency keys are ignored).
+ */
+export function storedShipping(j: unknown): { points: number; mask: number; monday: number | null; liveShips: number } | null {
+  if (!j || typeof j !== 'object') return null;
+  const sh = (j as Record<string, unknown>).shipping as { points?: unknown; raw?: Record<string, unknown> } | undefined;
+  const points = sh?.points;
+  const mask = sh?.raw?.mask;
+  if (typeof points !== 'number' || !Number.isFinite(points) || typeof mask !== 'number' || !Number.isInteger(mask) || mask < 0) return null;
+  const live = sh?.raw?.live_ships;
+  const monday = sh?.raw?.monday;
+  return {
+    points: Math.max(0, Math.min(SHIPPING_MAX, Math.round(points))),
+    mask: mask & LAST12,
+    monday: typeof monday === 'number' && Number.isInteger(monday) ? monday : null,
+    liveShips: typeof live === 'number' && Number.isFinite(live) && live > 0 ? Math.floor(live) : 0,
   };
-  for (const { w, kind, project } of best.values()) {
-    if (kind === 'star' || kind === 'fork') starFork += w;
-    else {
-      people += w;
-      if (w > 0) bump(project, 1, 0);
-    }
-  }
-  const pkg = i.packages.reduce((n, p) => {
-    const u = Math.min(cal.package_users, fin(p.users)) * fade(p.at, now);
-    if (u >= 1) bump(p.project, Math.floor(u), 0);
-    return n + u;
-  }, 0);
-  const capped = Math.min(STAR_FORK_CAP, starFork);
-  const U = people + pkg + capped;
+}
 
-  // Earned: unfaded USD.
-  const E = i.earned.reduce((n, e) => {
-    bump(e.project, 0, fin(e.usd));
-    return n + fin(e.usd);
-  }, 0);
+/** The stored mask read as of `now`'s week (shifted by the weeks since it was scored) and its live ships, or null. Pure. */
+function maskNow(parts: unknown, now: Date): { mask: number; liveShips: number } | null {
+  const p = storedShipping(parts);
+  if (!p) return null;
+  const gone = p.monday === null ? 0 : Math.max(0, Math.round((mondayDay(now) - p.monday) / 7));
+  return { mask: gone >= SHIPPING_WEEKS ? 0 : (p.mask << gone) & LAST12, liveShips: p.liveShips };
+}
 
-  // Consistency: distinct weeks, each faded by its age.
-  const weekAt = new Map<string, Date>();
-  for (const w of i.weeks) if (Number.isFinite(time(w.at)) && (!weekAt.has(w.week) || weekAt.get(w.week)! < w.at)) weekAt.set(w.week, w.at);
-  const W = [...weekAt.values()].reduce((n, at) => n + fade(at, now), 0);
+/**
+ * One plain sentence on why Shipping is what it is: "Code in 7 of the last 12 weeks, 3 of the last 4." A row
+ * scored in an earlier week is read as of `now`'s week (its mask shifted by the weeks since), so "this week" is
+ * never last week's. What raises it is the weekly target (weekly-target.ts), shown beside it. Null for parts
+ * without Shipping's raw. Pure.
+ */
+export function scoreWhy(parts: unknown, now: Date): string | null {
+  const m = maskNow(parts, now);
+  if (!m) return null;
+  const w12 = bits(m.mask);
+  return w12 === 0 ? 'No code in the last 12 weeks.' : `Code in ${w12} of the last 12 weeks, ${bits(m.mask & LAST4)} of the last 4.`;
+}
 
-  const parts: V2Parts = {
-    shipped: { points: shipped, raw: { S, keep } },
-    used: { points: scaled(MAX_V2.used, U, cal.users), raw: { U, people, packages: pkg, star_fork: capped } },
-    earned: { points: scaled(MAX_V2.earned, E, cal.money_usd), raw: { E } },
-    consistency: { points: MAX_V2.consistency * Math.min(1, W / cal.weeks), raw: { W, weeks: weekAt.size } },
-  };
-  const sum = parts.shipped.points + parts.used.points + parts.earned.points + parts.consistency.points;
-  return { score: Math.min(100, Math.max(0, Math.round(Number.isFinite(sum) ? sum : 0))), parts, ranked: S >= 1, shipped: S, perProject };
+/**
+ * Launch ready L5: what this week is worth by the formula. `active`: this week already has commits. `gain`: the
+ * points this week adds (while not active, what shipping now would add; once active, what it added). `next`: what
+ * next week adds over next week without commits (asked only once this week is done). Null as scoreWhy. Pure.
+ */
+export type WeekGains = { active: boolean; gain: number; next: number };
+export function weekGains(parts: unknown, now: Date): WeekGains | null {
+  const m = maskNow(parts, now);
+  if (!m) return null;
+  const { mask, liveShips } = m;
+  const add = (x: number) => shippingOf(x | 1, liveShips) - shippingOf(x & ~1, liveShips);
+  return { active: (mask & 1) === 1, gain: add(mask), next: add((mask << 1) & LAST12) };
 }

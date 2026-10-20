@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { benchEnabled } from './builder-score-flag';
 import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
@@ -665,12 +664,6 @@ export const ProgramFile = z
 
     // v2.5 M4 / v2.6 Ruling 8 (plan): a builder bonus round is the program's window, so a windowed
     // program with a builder bonus needs its start (never a round counting activity from 1970).
-    // Every program has the bonus by default now, so this applies unless the file opted out or is
-    // a campaign (campaigns already require starts_at/ends_at together, above).
-    // v2.13 R16: no builder bonus under the Bench flag, so no round and no rule (builder_bonus is ignored).
-    if (!benchEnabled() && p.builder_bonus !== false && !p.campaign && p.ends_at && !p.starts_at)
-      issue('builder bonus on a program with ends_at needs starts_at (the round is the window)');
-
     if (
       p.starts_at &&
       p.ends_at &&
@@ -773,15 +766,6 @@ export function starterAgeWarnings(
     return [`${id} tested ${days} days ago (${s.tested_at}); ${stop}. Rerun its test (${s.test_cmd}) and update tested_at in starters.ts.`];
   });
 }
-
-/**
- * v2.13.1 O2 (B1): the program_id the Bench's starter build with no program uses at prepare. No program
- * file may take it (reservedIdProblem; programs:check and sync refuse it).
- */
-export const BENCH_BUILD_ID = 'earnkit-bench';
-/** v2.13.1 O2 fix round 1 (ruling 5): a program file named with a reserved id, or null. Pure. */
-export const reservedIdProblem = (p: Pick<ProgramFile, 'id'>): string | null =>
-  p.id.toLowerCase() === BENCH_BUILD_ID ? `id: "${BENCH_BUILD_ID}" is reserved for the Bench's starter build with no program` : null;
 
 /**
  * v2.11 spec 2 (plan T5): `pnpm programs:check` checks a program's `fresh_build` against the starter

@@ -1,17 +1,23 @@
 import { createPrivateKey, createSign } from 'node:crypto';
 import { sql } from './db';
+import { pageUrl } from './reserved-routes';
 import { GitHubError } from './match-projects';
 import {
+  PICK_REPOS,
   VERIFY_PAGE,
+  appConfirmDestination,
+  pageHandle,
+  pageWith,
   clearCsrf,
-  codeLine,
   cookieValue,
   csrfCookieName,
   githubVerifyEnabled,
+  notFoundPage,
   limited,
   saveVerification,
   takeNonce,
   verifyPage,
+  type NonceRow,
   type RouteDeps,
 } from './github-verify';
 
@@ -28,9 +34,9 @@ import {
  *   (`appSetup`), which needs the same browser cookie, consumes the nonce, and passes when the
  *   installation is the login's own account or the login is the repo's admin, and the installation
  *   lists the repo. A pass is a github_verifications row with `via = 'app'`.
- * - R9, what it grants: read access only. A launch still needs the v2.9 proof (a proof line or a
- *   wallet-bound sign-in, G10, G11); github-verify.ts verifiedFor never returns an App row unless
- *   asked for one (Pre-flight P11).
+ * - v2.14 spec 2: the install is the only proof of a repo. The setup URL verifies the person's repo
+ *   source as `github_app` (repo-proof.ts proveByApp), which the coin gate, builds, hosting and the
+ *   Bench all read; readings of an App-proven repo use its installation token.
  * - The private key is never stored, logged or returned. Installation tokens (1 hour, this repo only,
  *   contents and metadata read) are minted per call and never stored or logged; errors carry the HTTP
  *   status only.
@@ -79,6 +85,9 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
       ...(init.body !== undefined && { 'Content-Type': 'application/json' }),
     },
     ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
+    // T6 fix rounds 1, 2: a redirect (a renamed or transferred repo) is never followed: it is a GitHubError with
+    // its 3xx status (repo-proof.ts appProofLive counts it as gone).
+    redirect: 'manual',
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) {
@@ -90,12 +99,13 @@ async function ghApp<T>(f: typeof fetch, path: string, bearer: string, init: { m
 
 /**
  * A 1-hour installation token for one repo (`repo`: its name), with contents and metadata read
- * only. Minted per call; never stored or logged.
+ * only. Minted per call; never stored or logged. Launch ready L2: `repo` null is a token for the
+ * installation's repo list only (metadata read), for the repo picker's setup (pickedRepos).
  */
-export async function installationToken(installationId: number, repo: string, deps: AppDeps = {}): Promise<string> {
+export async function installationToken(installationId: number, repo: string | null, deps: AppDeps = {}): Promise<string> {
   const out = await ghApp<{ token?: unknown }>(deps.fetch ?? fetch, `/app/installations/${installationId}/access_tokens`, appJwt(deps.now), {
     method: 'POST',
-    body: { repositories: [repo], permissions: { contents: 'read', metadata: 'read' } },
+    body: repo === null ? { permissions: { metadata: 'read' } } : { repositories: [repo], permissions: { contents: 'read', metadata: 'read' } },
   });
   if (typeof out.token !== 'string' || out.token === '') throw new GitHubError('GitHub App request failed (no token)');
   return out.token;
@@ -151,7 +161,8 @@ export async function appTokenFor(
     if (id === null) return null;
     return await installationToken(id, a.repoKey.split('/')[1], deps);
   } catch (err) {
-    console.error('[github-app] token', err instanceof Error ? err.name : 'error');
+    // GitHubError messages carry the status only, never the token or the JWT.
+    console.error('[github-app] token', err instanceof Error ? `${err.name}: ${err.message}` : 'error');
     return null;
   }
 }
@@ -174,11 +185,13 @@ export async function repoInstallation(repoKey: string, deps: AppDeps = {}): Pro
 async function appProofRow(a: { installationId: number; login?: string | null; repoKey: string }) {
   const db = sql();
   const [row] = await db<{ gid: string }[]>`
-    SELECT github_installation_id::text AS gid FROM github_verifications
-    WHERE via = 'app' AND purpose = 'app' AND installation_id = ${a.installationId} AND repo_key = ${a.repoKey.toLowerCase()}
-      AND used_at IS NULL AND github_installation_id IS NOT NULL
-      ${a.login != null ? db`AND login = ${a.login.toLowerCase()}` : db``}
-    ORDER BY verified_at DESC, id DESC LIMIT 1`;
+    SELECT v.github_installation_id::text AS gid FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+    WHERE v.via = 'app' AND v.purpose = 'app' AND v.repo_key = ${a.repoKey.toLowerCase()}
+      -- T6 fix round 1: the person's group (an installation of the group proved it), as repo-proof.ts reads it.
+      AND COALESCE(i.builder_id, i.id) = COALESCE((SELECT COALESCE(g.builder_id, g.id) FROM installations g WHERE g.id = ${a.installationId}), ${a.installationId})
+      AND v.used_at IS NULL AND v.github_installation_id IS NOT NULL
+      ${a.login != null ? db`AND v.login = ${a.login.toLowerCase()}` : db``}
+    ORDER BY v.verified_at DESC, v.id DESC LIMIT 1`;
   return row ?? null;
 }
 
@@ -197,6 +210,162 @@ export async function hasAppProof(a: { installationId: number; login?: string | 
   }
 }
 
+/** Launch ready L2: at most this many repos of an installation are listed at the picker's setup (one page). */
+export const PICK_LIST_MAX = 100;
+/** Launch ready L2: at most this many picked repos are proven at setup, most recently pushed first. */
+export const PICK_PROVE_MAX = 20;
+/** Fix round 1 (I3): at most this many admin checks (an org's repos) at one setup, PICK_ADMIN_BATCH at a time. */
+export const PICK_ADMIN_CHECKS = 30;
+export const PICK_ADMIN_BATCH = 5;
+/**
+ * Fix round 1 (I3): the picker's setup has one deadline from the top of the handler: the list, the admin checks
+ * and every proof's GitHub calls stop at it (repo-proof.ts budgetedFetch), and the connect read gets what is left.
+ */
+export const PICK_BUDGET_MS = 25_000;
+/** Fix round 1 (I2): where a builder removes the App from repos (the daily check then takes them off the page). */
+export const GITHUB_INSTALLATIONS_URL = 'https://github.com/settings/installations';
+
+/** One repo the picker's installation lists that the installer owns or administers (pickedRepos). */
+export type PickedRepo = { key: string; pushedAt: number };
+
+/**
+ * Launch ready L2: the repos this installation lists (GitHub's picker chose them; the first PICK_LIST_MAX), newest
+ * push first, split by R8's rule as appProof applies it to one repo: the installation is the installer's own account
+ * (and the repo is on it), or the installer is the repo's admin. Admin checks: at most PICK_ADMIN_CHECKS, in
+ * batches of PICK_ADMIN_BATCH, stopping once PICK_PROVE_MAX repos passed or `deadline` (ms since the epoch)
+ * passed. `listed`: how many were listed. Throws on a failed list (the setup page says so). `deps.fetch` should
+ * carry the deadline (pickSetup passes repo-proof.ts budgetedFetch).
+ */
+export async function pickedRepos(
+  a: { installationId: number; login: string; deadline?: number },
+  deps: AppDeps = {},
+): Promise<{ listed: number; mine: PickedRepo[]; org: boolean }> {
+  const f = deps.fetch ?? fetch;
+  const login = a.login.toLowerCase();
+  const deadline = a.deadline ?? Infinity;
+  const inst = await ghApp<{ account?: { login?: string; type?: string } | null }>(f, `/app/installations/${a.installationId}`, appJwt(deps.now));
+  const account = typeof inst.account?.login === 'string' ? inst.account.login.toLowerCase() : null;
+  // Final fix I2: an installation on an organization (or any account that isn't the installer's own) is "org".
+  const org = inst.account?.type === 'Organization' || (account !== null && account !== login);
+  const token = await installationToken(a.installationId, null, deps);
+  type Listed = { full_name?: unknown; pushed_at?: unknown };
+  const all: Listed[] = [];
+  for (let page = 1; all.length < PICK_LIST_MAX; page++) {
+    const per = Math.min(100, PICK_LIST_MAX - all.length);
+    const out = await ghApp<{ repositories?: Listed[] }>(f, `/installation/repositories?per_page=${per}&page=${page}`, token);
+    const got = Array.isArray(out.repositories) ? out.repositories : [];
+    all.push(...got.slice(0, per));
+    if (got.length < per) break;
+  }
+  const repos = all
+    .flatMap((r) => (typeof r.full_name === 'string' && /^[^/\s]+\/[^/\s]+$/.test(r.full_name)
+      ? [{ key: r.full_name.toLowerCase(), pushedAt: typeof r.pushed_at === 'string' ? Date.parse(r.pushed_at) || 0 : 0 }]
+      : []))
+    .sort((x, y) => y.pushedAt - x.pushedAt || x.key.localeCompare(y.key));
+  const own = (r: PickedRepo) => account !== null && account === login && r.key.split('/')[0] === login;
+  const isAdmin = (r: PickedRepo) =>
+    ghApp<{ permission?: string }>(f, `/repos/${r.key}/collaborators/${encodeURIComponent(login)}/permission`, token)
+      .then((p) => p.permission === 'admin', () => false);
+  const mine: PickedRepo[] = [];
+  let checks = 0;
+  let i = 0;
+  while (i < repos.length && mine.length < PICK_PROVE_MAX && Date.now() < deadline) {
+    if (own(repos[i])) {
+      mine.push(repos[i++]);
+      continue;
+    }
+    if (checks >= PICK_ADMIN_CHECKS) {
+      i++; // no admin checks left: only the installer's own repos can still pass
+      continue;
+    }
+    // Up to PICK_ADMIN_BATCH admin checks together, in push order (a batch ends at an own repo).
+    const batch: PickedRepo[] = [];
+    while (i < repos.length && batch.length < Math.min(PICK_ADMIN_BATCH, PICK_ADMIN_CHECKS - checks) && !own(repos[i])) batch.push(repos[i++]);
+    checks += batch.length;
+    const ok = await Promise.all(batch.map(isAdmin));
+    batch.forEach((r, k) => {
+      if (ok[k] && mine.length < PICK_PROVE_MAX) mine.push(r);
+    });
+  }
+  return { listed: repos.length, mine, org };
+}
+
+/** How a setup page names a one project: a repo as its GitHub link, anything else as it is. Pure. */
+const named = (key: string) => (/^[^/\s:]+\/[^/\s]+$/.test(key) ? `github.com/${key}` : key);
+
+/** Launch ready L2 (fix round 1, I1, I2): what the picker's setup page says. */
+export const PICK_PAGE = {
+  /** Always names the one project after the setup and the page it is on. */
+  ranked: (key: string, handle: string | null) => `Done. EarnKit now ranks ${named(key)}${handle ? ` on ${pageUrl(handle)}` : ''}.`,
+  /** Launch ready L10: the one next step (the reply asked "Want me to rank it once that's done?"), then the way to change it. */
+  next: 'Go back to your agent and say yes. To rank a different repo, tell your agent.',
+  /** I2: every success page offers the way out for a forwarded link. */
+  remove: (these: boolean) => `Not your page? Remove the EarnKit app from ${these ? 'these repos' : 'this repo'} in your GitHub settings:`,
+  none: 'No repo was picked. Add one to the EarnKit app on GitHub, then ask your agent for a new link.',
+  notYours: "This GitHub account doesn't own the repos you picked. Install the app with the account that owns them.",
+  noneCounted: "None of the repos you picked can be ranked: forks, templates and repos on another page don't count. Pick one you made, then ask your agent for a new link.",
+} as const;
+
+/** Fix round 1 (I2): a success page: its lines, then the removal line with the one GitHub settings link. */
+function donePage(lines: string[], these: boolean, headers: Record<string, string>): Response {
+  return pageWith(lines, { text: PICK_PAGE.remove(these), href: GITHUB_INSTALLATIONS_URL }, 200, headers);
+}
+
+/**
+ * Launch ready L2: the setup URL for the repo picker's nonce (repo_key PICK_REPOS), after appSetup's cookie and
+ * single-use nonce checks. Each picked repo the installer owns or administers (pickedRepos) goes through proveOne
+ * (exact installation, no fork or template, `repo_hold` lock, taken, a non-App hold replaced); only a proven one
+ * gets its `via = 'app'` verification (fix round 1, M2). Fix round 1 (I1): the one project stays when it is one of
+ * the proven repos; else setMainProject with the newest proven (it replaces an unconfirmed one and keeps a
+ * confirmed one), and the page names whatever the one project is now, and the page it is on. Then one connect read,
+ * rescore and backfill (connectProven) within what is left of `deadline`.
+ */
+async function pickSetup(row: NonceRow & { login: string; account_created_at: Date }, installationId: number, now: Date, deps: AppDeps, clear: Record<string, string>, deadline: number): Promise<Response> {
+  const { budgetedFetch, proveOne, connectProven } = await import('./repo-proof');
+  const timed = { ...deps, now, fetch: budgetedFetch(deps.fetch ?? fetch, deadline) };
+  const { listed, mine, org } = await pickedRepos({ installationId, login: row.login, deadline }, timed);
+  if (!listed) return verifyPage(PICK_PAGE.none, 403, clear);
+  if (!mine.length) return verifyPage(PICK_PAGE.notYours, 403, clear);
+  const builderId = await (await import('./identity')).rootOf(row.installation_id);
+  const main = await import('./main-project');
+  const current = (await main.mainProjectOf(builderId))?.toLowerCase() ?? null;
+  // Final fix I2 (ruling): on an organization's installation only the repo that becomes the one project is proven and
+  // held: the current one project when it was picked, else the most recently pushed one that proves. A user account
+  // (the builder's own repos) proves up to PICK_PROVE_MAX.
+  const order = org && current !== null && mine.some((r) => r.key === current) ? [mine.find((r) => r.key === current)!, ...mine.filter((r) => r.key !== current)] : mine;
+  const proven: Awaited<ReturnType<typeof proveOne>>[] = [];
+  let tried = 0;
+  let threw = 0;
+  for (const r of order) {
+    if (Date.now() >= deadline || (org && proven.length > 0)) break;
+    tried++;
+    const p = await proveOne({ builderId, repoKey: r.key, githubInstallationId: installationId }, timed).catch((err: unknown) => {
+      console.error('[github-app] prove', err instanceof Error ? err.name : 'error');
+      threw++;
+      return null;
+    });
+    if (!p?.out.ok) continue;
+    await saveVerification(
+      { ...row, repo_key: r.key },
+      { login: row.login, created_at: row.account_created_at, public_repos: row.public_repos ?? 0 },
+      now,
+      { githubInstallationId: installationId },
+    );
+    proven.push(p);
+  }
+  // M3: GitHub failed every proof (or none could start): the failed page, never "none could count".
+  if (!proven.length) return threw === tried ? verifyPage(VERIFY_PAGE.failed, 502, clear) : verifyPage(PICK_PAGE.noneCounted, 403, clear);
+  // `mine` is newest push first, so the first proven is the most recently pushed.
+  if (current === null || !proven.some((p) => p.key === current)) {
+    const key = proven[0].key;
+    await main.setMainProject(builderId, { name: key.split('/')[1], what: null, repo: key, live_url: null, package: null, contracts: [] });
+  }
+  const ranked = (await main.mainProjectOf(builderId)) ?? proven[0].key;
+  await connectProven(builderId, proven, { ...deps, now }, { deadline })
+    .catch((err: unknown) => console.error('[github-app] connect', err instanceof Error ? err.name : 'error'));
+  return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id)), PICK_PAGE.next], proven.length > 1, clear);
+}
+
 /** GitHub's install page for the App, with the v2.9 nonce as `state` (R8). Pure. */
 export const installUrl = (slug: string, nonce: string) =>
   `https://github.com/apps/${slug}/installations/new?state=${encodeURIComponent(nonce)}`;
@@ -211,11 +380,13 @@ export const APP_PAGE = {
  * GET /github/verify/app?installation_id=&state= (the App's setup URL). Refuses, before the nonce is
  * used, a missing browser cookie (the confirm page's, Ruling G8) or an installation id that isn't a
  * number. Then consumes the nonce (an `app` nonce whose OAuth hop stored a login, Pre-flight P3),
- * checks the proof (R8), and writes the `via = 'app'` verification. On a shared client the page shows
- * the one-time code (Ruling G9). Never logs the nonce, a token or the key.
+ * checks the proof (R8), and writes the `via = 'app'` verification. No paste code (v2.14 final fix: a shared
+ * client never gets an App link, Ruling T6-2). Never logs the nonce, a token or the key.
  */
 export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {}): Promise<Response> {
-  if (!githubAppEnabled()) return new Response('Not found', { status: 404 });
+  // Fix round 1 (I3): the picker's one setup deadline starts here.
+  const deadline = Date.now() + PICK_BUDGET_MS;
+  if (!githubAppEnabled()) return notFoundPage();
   const busy = await limited(request, deps);
   if (busy) return busy;
   const q = new URL(request.url).searchParams;
@@ -230,15 +401,32 @@ export async function appSetup(request: Request, deps: AppDeps & RouteDeps = {})
   const row = await takeNonce(nonce, now, { purpose: 'app' });
   if (!row || !row.login || !row.account_created_at) return verifyPage(VERIFY_PAGE.expired, 410, clear);
   try {
+    // Launch ready L2: the repo picker's link names no repo; GitHub's page picked them.
+    if (row.repo_key === PICK_REPOS) return await pickSetup({ ...row, login: row.login, account_created_at: row.account_created_at }, installationId, now, deps, clear, deadline);
     const proof = await appProof({ installationId, login: row.login, repoKey: row.repo_key }, deps);
     if (!proof.ok) return verifyPage(proof.reason === 'not_listed' ? APP_PAGE.notListed : APP_PAGE.notYours, 403, clear);
-    const paste = await saveVerification(
+    // v2.14 spec 2 (A8): the install verifies the person's repo source (`github_app`) and rescores them, so the
+    // next reply counts it. The page says done either way; the next reply says what counted. Fix round 1 (M2): the
+    // `via = 'app'` verification is written only for a repo proveOne proved (a taken repo or a copy gets none, so
+    // appTokenFor never mints a token for it), before the connect read (which mints through it).
+    const builderId = await (await import('./identity')).rootOf(row.installation_id);
+    const { proveOne, connectProven } = await import('./repo-proof');
+    const p = await proveOne({ builderId, repoKey: row.repo_key, githubInstallationId: installationId }, deps)
+      .catch((err: unknown) => {
+        console.error('[github-app] prove', err instanceof Error ? err.name : 'error');
+        return null;
+      });
+    if (!p?.out.ok) return verifyPage(VERIFY_PAGE.done, 200, clear);
+    await saveVerification(
       row,
       { login: row.login, created_at: row.account_created_at, public_repos: row.public_repos ?? 0 },
       now,
       { githubInstallationId: installationId },
     );
-    return verifyPage(paste ? codeLine(paste) : VERIFY_PAGE.done, 200, clear);
+    await connectProven(builderId, [p], deps).catch((err: unknown) => console.error('[github-app] connect', err instanceof Error ? err.name : 'error'));
+    // I2: the page names where the repo went, and the way out.
+    const handle = await pageHandle(row.installation_id);
+    return donePage([VERIFY_PAGE.done, ...(handle ? [appConfirmDestination(row.repo_key, handle)] : [])], false, clear);
   } catch (err) {
     console.error('[github-app] setup', err instanceof Error ? err.name : 'error');
     return verifyPage(VERIFY_PAGE.failed, 502, clear);

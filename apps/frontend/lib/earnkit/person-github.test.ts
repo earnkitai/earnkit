@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readGithubUser, readPersonGithub, reposQuery } from './person-github';
+import { PERSON_GITHUB_QUERY, REPOS_MAX, personGithubFrom, readGithubRepos, readGithubUser, reposQuery } from './person-github';
 import { graphqlUsable } from './source-readers';
 
 const NOW = new Date('2026-10-14T00:00:00Z');
@@ -20,8 +20,8 @@ test('3.1 one query reads every public repo of a person into v2.12 repo signals'
   assert.equal(g.twitter, 'lee_builds');
   const r = g.repos.get('lee/tipjar')!;
   assert.equal(r.homepage, 'https://tip.example.com');
-  assert.deepEqual(r.stargazers, [{ id: 'gh:ann', at: '2026-09-01T00:00:00Z', created_at: '2020-01-01T00:00:00Z' }]);
-  assert.deepEqual(r.forkers.map((f) => f.id), ['gh:bob']);
+  // R16b: stars and forks are no longer read.
+  assert.deepEqual([r.stargazers, r.forkers, r.partial], [[], [], false]);
   assert.deepEqual(r.commit_weeks, ['2026-W40']);
   assert.equal(r.derived, false);
 });
@@ -35,11 +35,6 @@ test('3.2 forks, templates and repos made from a template are marked derived', (
 test('3.3 an unknown user or a malformed answer reads as null, never throws', async () => {
   assert.equal(personGithubFrom({ data: { user: null } }, NOW), null);
   assert.equal(personGithubFrom('nonsense', NOW), null);
-  let calls = 0;
-  const d = { ghGraphql: async (q: string, v: Record<string, unknown>) => { calls++; assert.equal(q, PERSON_GITHUB_QUERY); assert.equal(v.login, 'lee'); return body([repo({})]); }, now: NOW } as never;
-  assert.ok(await readPersonGithub('lee', d));
-  assert.equal(calls, 1);
-  await assert.rejects(readPersonGithub('bad login!', d), /not a GitHub login/);
 });
 
 test('3.9 the person query reads the newest 100 repos; others by name, names as variables, up to 25 a call', async () => {
@@ -55,13 +50,13 @@ test('3.9 the person query reads the newest 100 repos; others by name, names as 
     },
     now: NOW,
   } as never;
-  const got = await readGithubRepos(['Acme/Tool', 'lee/gone'], d);
+  const got = (await readGithubRepos(['Acme/Tool', 'lee/gone'], d)).repos;
   assert.deepEqual([vars.o0, vars.n0, vars.o1, vars.n1], ['acme', 'tool', 'lee', 'gone']);
   assert.equal(got.get('acme/tool')!.owner_type, 'Organization');
   assert.equal(got.has('lee/gone'), false, 'GitHub does not know it');
   await assert.rejects(readGithubRepos(Array.from({ length: REPOS_MAX + 1 }, (_, i) => `lee/r${i}`), d), /too many repo names/);
   // A malformed name (an owner GitHub refuses, an injection attempt) is never sent; the valid one still is.
-  const bad = await readGithubRepos(['a--b/x', 'lee/x") { id } evil: repository(owner: "y', 'Acme/Tool'], d);
+  const bad = (await readGithubRepos(['a--b/x', 'lee/x") { id } evil: repository(owner: "y', 'Acme/Tool'], d)).repos;
   assert.deepEqual(Object.keys(vars).filter((k) => k !== 'since').sort(), ['n0', 'o0']);
   assert.deepEqual([...bad.keys()], ['acme/tool']);
 });

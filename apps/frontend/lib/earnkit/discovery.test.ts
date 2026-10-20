@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
-import { bindX } from './claim';
+import { bindX } from './x-install';
 import { discover, discoverPerson, enqueueClue, enqueueDiscovery, localGitInput, provenLogin } from './discovery';
 import { rememberWallets } from './installations';
 import { rescorePerson, standingOf } from './person-score';
@@ -66,29 +66,25 @@ test('4.15 a new clue queues the person again: a wallet not seen before (remembe
   // Flag off: v2.11, nothing is queued.
   await rememberWallets(id, [w1]);
   assert.equal(await queued(), null);
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    assert.equal(await enqueueClue(id, 'wallet'), false, 'no profile yet: the first find queues them');
-    await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
-    await sql()`INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${id}, 'first_find', now())`;
-    await rememberWallets(id, [w1, w2]);
-    const w = await queued();
-    assert.deepEqual([w!.reason, w!.done_at], ['wallet', null], 'a new wallet is a new clue');
-    await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
-    await rememberWallets(id, [w2]);
-    assert.notEqual((await queued())!.done_at, null, 'a wallet already remembered is no new clue');
-    assert.equal(await enqueueClue(id, 'signin'), true);
-    const s = await queued();
-    assert.deepEqual([s!.reason, s!.done_at], ['signin', null]);
-  } finally {
-    delete process.env.EARNKIT_BUILDER_SCORE;
-  }
+  assert.equal(await enqueueClue(id, 'wallet'), false, 'no profile yet: the first find queues them');
+  await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`c${id}`})`;
+  await sql()`INSERT INTO discovery_queue (builder_id, reason, done_at) VALUES (${id}, 'first_find', now())`;
+  await rememberWallets(id, [w1, w2]);
+  const w = await queued();
+  assert.deepEqual([w!.reason, w!.done_at], ['wallet', null], 'a new wallet is a new clue');
+  await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${id}`;
+  await rememberWallets(id, [w2]);
+  assert.notEqual((await queued())!.done_at, null, 'a wallet already remembered is no new clue');
+  assert.equal(await enqueueClue(id, 'signin'), true);
+  const s = await queued();
+  assert.deepEqual([s!.reason, s!.done_at], ['signin', null]);
 });
 
-test('4.16 the wiring: rememberWallets and saveVerification queue their clue, behind the flag', () => {
+test('4.16 the wiring: rememberWallets and saveVerification queue their clue', () => {
   const src = (f: string) => readFileSync(join(import.meta.dirname, f), 'utf8');
-  assert.match(src('installations.ts'), /RETURNING wallet[\s\S]{0,300}builderScoreEnabled\(\)[\s\S]{0,120}enqueueClue\(installationId, 'wallet'\)/);
-  assert.match(src('github-verify.ts'), /INSERT INTO github_verifications[\s\S]{0,900}builderScoreEnabled\(\)[\s\S]{0,120}enqueueClue\(row\.installation_id, 'signin'\)/);
+  assert.match(src('installations.ts'), /RETURNING wallet[\s\S]{0,300}enqueueClue\(installationId, 'wallet'\)/);
+  // v2.14 spec 1, 2: a GitHub login is no clue and joins no one (the App proves a repo, proveByApp).
+  assert.doesNotMatch(src('github-verify.ts'), /enqueueClue|joinOnProvenTie|settleLogin/);
 });
 
 // ---- v2.12.1 Task 7: confirmed vs not yet confirmed.
@@ -100,14 +96,10 @@ function fakeReader(): ReaderDeps {
     throw new Error('unexpected read');
   };
   return {
-    gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, baseTxs: no, tokenTransfers: no, contractOrigin: no,
-    arcLogs: no, arcHead: no, arcSender: no, usdPerNative: no, walletCreations: no, now: NOW,
+    gh: no, ghGraphql: no, probe: no, fetchText: no, json: no, contractOrigin: no,
+    walletCreations: no, now: NOW,
   };
 }
-/** The person query's answer: this login, its X field and these repos, bare. */
-const personBody = (login: string, twitter: string | null, keys: string[]) => ({
-  data: { user: { login, twitterUsername: twitter, websiteUrl: null, repositories: { nodes: keys.map((k) => ({ nameWithOwner: k, isFork: false, isTemplate: false, stargazers: { edges: [] }, forks: { nodes: [] }, defaultBranchRef: null })) } } },
-});
 const randomAddress = () => '0x' + randomBytes(20).toString('hex');
 /** A fresh installation with a profile, claimed with a fresh X id as `handle` (bindX clears it from any other profile). */
 async function claimed(handle: string): Promise<number> {
@@ -118,29 +110,19 @@ async function claimed(handle: string): Promise<number> {
   return id;
 }
 async function withScore<T>(fn: () => Promise<T>): Promise<T> {
-  const old = process.env.EARNKIT_BUILDER_SCORE;
-  process.env.EARNKIT_BUILDER_SCORE = 'on';
-  try {
-    return await fn();
-  } finally {
-    if (old === undefined) delete process.env.EARNKIT_BUILDER_SCORE;
-    else process.env.EARNKIT_BUILDER_SCORE = old;
-  }
+  return fn();
 }
 
-test('7.2 the X field match proves the reported login; any other reported login stays not yet confirmed', dbTest, () => withScore(async () => {
+test('7.2 v2.14: a reported login proves nothing (no X field match); what it names stays not yet confirmed', dbTest, () => withScore(async () => {
   const id = await claimed('lee_builds');
   await sql()`UPDATE builder_profiles SET reported_github = 'lee' WHERE builder_id = ${id}`;
-  const reader = { ...fakeReader(), ghGraphql: async <T,>() => personBody('lee', 'Lee_Builds', ['lee/tipjar']) as T };
-  assert.deepEqual(await provenLogin(id, { reader }), { login: 'lee', basis: 'x_match' });
+  assert.equal(await provenLogin(id), null, 'no X field match: only the App names a login');
   await sql()`UPDATE builder_profiles SET reported_github = 'someone_else' WHERE builder_id = ${id}`;
-  const other = { ...fakeReader(), ghGraphql: async <T,>() => personBody('someone_else', 'not_lee', ['someone_else/app']) as T };
-  assert.equal(await provenLogin(id, { reader: other }), null);
+  assert.equal(await provenLogin(id), null);
   // An unclaimed profile never matches, whatever GitHub's X field says.
   const [{ id: plain }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v2121-t7-${randomBytes(8).toString('hex')}`}) RETURNING id`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, x_handle, reported_github) VALUES (${plain}, ${`t7-${plain}`}, ${`u${plain}`}, 'lee')`;
-  const typed = { ...fakeReader(), ghGraphql: async <T,>() => personBody('lee', `u${plain}`, []) as T };
-  assert.equal(await provenLogin(plain, { reader: typed }), null);
+  assert.equal(await provenLogin(plain), null);
   // The reported project is live, so it would be a ship if it were confirmed; it must stay not yet confirmed.
   const [site] = await sql()<{ id: string }[]>`
     INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by)

@@ -1,5 +1,6 @@
 /**
- * v2.10 item 4: the 8 v2.9 tool names, kept as hidden aliases of the 4 new tools for 30 days (R17).
+ * v2.10 item 4: the v2.9 tool names, kept as hidden aliases of the 4 new tools for 30 days (R17). v2.14 T7:
+ * pick_up_entries is gone with the pickup (an unknown tool now).
  * `app/mcp/route.ts` rewrites an old name in a `tools/call` body before the MCP transport sees it,
  * so old names never appear in `tools/list` and each old call reaches the handler its new form does
  * (Review Focus 2). Pure: no database, no network.
@@ -15,7 +16,6 @@ export const OLD_TOOL_NAMES = [
   'record_submission',
   'launch_token',
   'tell_earnkit',
-  'pick_up_entries',
 ] as const;
 
 /** R17: 30 days after the spec's approval, plus one. After it an old name is an unknown tool. The owner may move it. */
@@ -44,12 +44,6 @@ const pick = (a: Args, keys: string[]): Args => Object.fromEntries(keys.filter((
 /** v2.12 (R23): yesNo lives in yes-no.ts (tools.ts reads it there); re-exported for old imports. */
 export { yesNo };
 
-/** pick_up_entries' answer as tell's "yes" or "no"; an unclear one passes as given (tell refuses it). */
-const pickupOf = (v: unknown) => {
-  const a = yesNo(v);
-  return a === null ? v : a ? 'yes' : 'no';
-};
-
 /**
  * An old tool call as its new tool and arguments, until ALIASES_UNTIL (R17) or with
  * EARNKIT_TOOL_ALIASES=on (aliasesOn); null for any other name or after the date. Pre-flight P15:
@@ -65,11 +59,10 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
   const skip = yes && a.decision === 'skip' && { skip_token: true };
   const check = a.check_back === true && { check: true };
   // v2.10.1 fix round 1 (I3): a reply names tools in both forms with the new argument words, so an old
-  // name called with them (yes, skip_token, check, submitted, pickup) is that new call as given.
-  const newForm = ['yes', 'skip_token', 'check', 'submitted', 'pickup'].some((k) => a[k] !== undefined);
+  // name called with them (yes, skip_token, check, submitted) is that new call as given.
+  const newForm = ['yes', 'skip_token', 'check', 'submitted'].some((k) => a[k] !== undefined);
   if (newForm && ['confirm_entry', 'launch_token', 'record_submission'].includes(name))
     return { name: a.submitted !== undefined && a.yes === undefined && a.skip_token === undefined && a.program_id === undefined ? 'tell' : 'confirm', args: a };
-  if (newForm && name === 'pick_up_entries') return { name: 'tell', args: a };
   switch (name) {
     case 'list_programs':
       return { name: 'find', args: a };
@@ -80,14 +73,14 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
     case 'confirm_entry':
       return {
         name: 'confirm',
-        args: { ...pick(a, ['program_id', 'project', 'answers', 'token', 'wallet', 'agent', 'signed_in']), ...go, ...skip, ...check },
+        args: { ...pick(a, ['program_id', 'project', 'answers', 'token', 'wallet', 'agent']), ...go, ...skip, ...check },
       };
     case 'launch_token': {
       const o = a.offer as { program_id?: unknown; repo_url?: unknown; project_name?: unknown } | undefined;
       const links = pick(a, ['live_url', 'repo_url']);
       const base = {
         ...(a.name !== undefined || a.symbol !== undefined ? { token: pick(a, ['name', 'symbol']) } : {}),
-        ...pick(a, ['signed_in', 'image_data', 'image_url', 'builder_x', 'agent']),
+        ...pick(a, ['image_data', 'image_url', 'builder_x', 'agent']),
         ...(a.creator_wallet !== undefined && { wallet: a.creator_wallet }),
         ...go,
         ...skip,
@@ -107,7 +100,6 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
           name: 'tell',
           args: {
             submitted: pick(a, ['program_id', 'external_submission_url', 'project', 'submission_data']),
-            ...pick(a, ['signed_in']),
           },
         };
       const t = a.token && typeof a.token === 'object' ? (a.token as Args) : null;
@@ -116,7 +108,7 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
       return {
         name: 'confirm',
         args: {
-          ...pick(a, ['program_id', 'project', 'contracts', 'deployer_signature', 'signed_in']),
+          ...pick(a, ['program_id', 'project', 'contracts', 'deployer_signature']),
           answers: answersOf(a.submission_data),
           ...(t && (t.name !== undefined || t.symbol !== undefined) && { token: pick(t, ['name', 'symbol']) }),
           ...(t && pick(t, ['image_url', 'image_data', 'builder_x'])),
@@ -131,8 +123,6 @@ export function aliasCall(name: string, a: Args, now = new Date()): AliasedCall 
     }
     case 'tell_earnkit':
       return { name: 'tell', args: a };
-    case 'pick_up_entries':
-      return { name: 'tell', args: { pickup: pickupOf(a.answer) } };
     default:
       return null;
   }

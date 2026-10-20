@@ -139,9 +139,11 @@ const NAMED_COLUMNS: [string, string][] = [
   ['builder_profiles', 'main_project_key'],
   ['project_updates', 'project_key'],
   ['project_updates', 'text'],
+  // Scoring and clarity R3: Originality's rows, keyed by the main project (its nearest lists name other projects by key).
+  ['project_embeddings', 'project_key'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
-const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates'] as const;
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
@@ -221,12 +223,23 @@ try {
       // columns, and the rows keyed by its builder_id are deleted (none of them is append-only).
       if (login) {
         const ids = await profileIds(tx);
+        // v2.14: the person's installations (the page's group, and any bound to this person's X account) are unbound
+        // first, so a later sign-in starts clean (they stay anonymous until then); their X sign-in links (which keep
+        // the X id, handle, name and picture of a sign-in) are deleted.
+        await tx`
+          DELETE FROM x_signin_links
+          WHERE installation_id IN (SELECT id FROM installations WHERE COALESCE(builder_id, id) = ANY(${ids}))
+            OR x_user_id IN (SELECT x_user_id FROM builder_profiles WHERE builder_id = ANY(${ids}) AND x_user_id IS NOT NULL)`;
+        await tx`
+          UPDATE installations SET x_user_id = NULL
+          WHERE COALESCE(builder_id, id) = ANY(${ids})
+            OR x_user_id IN (SELECT x_user_id FROM builder_profiles WHERE builder_id = ANY(${ids}) AND x_user_id IS NOT NULL)`;
         // x_handle and fallback_handle are nulled only when they are the login itself (an X handle that is
         // not the login is the person's public name, kept and left to the owner like the slug, which is
         // NOT NULL and the page's URL).
         await tx`
           UPDATE builder_profiles SET x_user_id = NULL, x_name = NULL, x_avatar_url = NULL, reported_github = NULL,
-            base_builder_code = NULL, main_project_key = NULL, updates_on_at = NULL, updates_scheduled_at = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
+            base_builder_code = NULL, main_project_key = NULL, updates_on_at = NULL, updates_scheduled_at = NULL, ship_titles_at = NULL, identity = '{}'::jsonb, github_basis = NULL, ring = '{}'::jsonb,
             x_handle = CASE WHEN lower(x_handle) = ${login} THEN NULL ELSE x_handle END,
             fallback_handle = CASE WHEN lower(fallback_handle) = ${login} THEN NULL ELSE fallback_handle END
           WHERE builder_id = ANY(${ids})`;
@@ -238,6 +251,10 @@ try {
           counts.push(`${t}: ${d.length}`);
         }
         page = counts;
+        // Other projects' Originality nearest lists that name the login's repos lose them (the next change recomputes).
+        await tx`
+          UPDATE project_embeddings SET nearest = '[]'::jsonb
+          WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(nearest) x WHERE x->>'kind' = 'project' AND x->>'key' ~ ${named!})`;
       }
       // v2.12.1: stored ring weights (builder_profiles.ring) naming the wallet are cleared; the next cron recomputes them.
       if (wallet) await tx`UPDATE builder_profiles SET ring = '{}'::jsonb WHERE position(${`"wallet:${wallet}"`} in ring::text) > 0`;
