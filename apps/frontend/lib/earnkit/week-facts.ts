@@ -7,7 +7,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
-import { TITLES_MAX, readWeekTitles, shipTitles } from './ship-titles';
+import { TITLES_MAX, namesRepo, readWeekTitles, shipTitles } from './ship-titles';
 import { SUMMARY_TITLES_MAX, weekSummary } from './week-summary';
 import { REPO_READER } from './sources';
 import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
@@ -160,8 +160,9 @@ export async function weekTitles(id: number, key: string, monday: string, now: D
   // updates.ts imports this file: ownLinks is loaded when called.
   const own = await (await import('./updates')).ownLinks(id);
   const all = shipTitles(await readWeekTitles(get, k, monday), own, SUMMARY_TITLES_MAX);
-  const [b] = await db<{ name: string | null }[]>`SELECT name FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = ${k}`;
-  const summary = all.length > 0 ? await weekSummary({ project: b?.name || k.split('/').pop() || k, titles: all, own }) : null;
+  // Security review: the model never sees the project's name, and a private repo's titles naming it never reach it.
+  const fed = app.titles_on ? all.filter((t) => !namesRepo(t, k)) : all;
+  const summary = fed.length > 0 ? await weekSummary({ titles: fed, own }) : null;
   return { titles: all.slice(0, TITLES_MAX), summary };
 }
 

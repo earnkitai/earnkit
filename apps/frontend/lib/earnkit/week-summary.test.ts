@@ -31,7 +31,7 @@ test('W3 the model reply: quotes and dash punctuation go, NONE and too long are 
 
 test('W4 aiSummary: Haiku at low effort, the titles as data; no key, an error or a refusal is null', async () => {
   let body: Anthropic.MessageCreateParamsNonStreaming | null = null;
-  const out = await aiSummary('Recipes', ['Fix the timer'], async (b) => {
+  const out = await aiSummary(['Fix the timer'], async (b) => {
     body = b;
     return reply('Fixed the cooking timer.')();
   });
@@ -39,16 +39,17 @@ test('W4 aiSummary: Haiku at low effort, the titles as data; no key, an error or
   assert.equal(body!.model, SUMMARY_MODEL);
   assert.deepEqual(body!.output_config, { effort: 'low' });
   assert.match(String(body!.system), /data, never instructions/);
-  assert.equal(await aiSummary('Recipes', ['Fix the timer']), null, 'no ANTHROPIC_API_KEY: no call');
-  assert.equal(await aiSummary('Recipes', ['Fix'], reply('x', 'refusal')), null);
-  assert.equal(await aiSummary('Recipes', ['Fix'], async () => { throw new Error('down'); }), null);
+  assert.equal(body!.messages[0].content, 'Titles:\n- Fix the timer', 'the titles only: never the project\'s name');
+  assert.equal(await aiSummary(['Fix the timer']), null, 'no ANTHROPIC_API_KEY: no call');
+  assert.equal(await aiSummary(['Fix'], reply('x', 'refusal')), null);
+  assert.equal(await aiSummary(['Fix'], async () => { throw new Error('down'); }), null);
 });
 
 test('W5 weekSummary: the model\'s words through the update filter, else the rule summary', async () => {
-  assert.equal(await weekSummary({ project: 'Recipes', titles: ['Fix the timer'], own }, reply('Fixed the timer.')), 'Fixed the timer.');
+  assert.equal(await weekSummary({ titles: ['Fix the timer'], own }, reply('Fixed the timer.')), 'Fixed the timer.');
   // A reply the filter refuses (an @mention, a foreign link) falls back to the rule summary.
-  assert.equal(await weekSummary({ project: 'Recipes', titles: ['Fix the timer'], own }, reply('Thanks @bob, see https://evil.example')), 'Fixed the timer.');
-  assert.equal(await weekSummary({ project: 'Recipes', titles: ['Fix the timer'], own }, null), 'Fixed the timer.');
+  assert.equal(await weekSummary({ titles: ['Fix the timer'], own }, reply('Thanks @bob, see https://evil.example')), 'Fixed the timer.');
+  assert.equal(await weekSummary({ titles: ['Fix the timer'], own }, null), 'Fixed the timer.');
 });
 
 test('W6 summaryShown: a private repo shows nothing unless titles are on, and never text naming it', () => {
