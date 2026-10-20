@@ -241,7 +241,7 @@ test('11.17 (v2.13.1 O3) logCards: a week with only the start keeps its Started 
     { week: '2026-10-05', text: null, facts: { started: { live: false, weeks: 0, people: 0 } } },
   ], 'Recipe planner');
   assert.deepEqual(cards, [
-    { week: '2026-10-12', text: 'Shipped the parser.', chips: ['3 commits'] },
+    { week: '2026-10-12', text: 'Shipped the parser.', confirmed: false, chips: ['3 commits'] },
     { week: '2026-10-05', text: null, chips: [], started: 'Started tracking Recipe planner.' },
   ]);
   // Never two cards under one week heading.

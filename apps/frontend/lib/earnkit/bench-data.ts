@@ -110,7 +110,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
 /** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null };
+export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean };
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
   coin: { symbol: string; url: string } | null; programs: { title: string; won: boolean }[]; funds: string[]; confirmed: boolean;
@@ -168,7 +168,7 @@ export function logCards(rows: { week: string; text: string | null; summary?: st
       // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
       const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
       const start = facts.started ? [STARTED_CHIP, ...own] : [];
-      out.push({ week: r.week, text: r.text, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+      out.push({ week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;

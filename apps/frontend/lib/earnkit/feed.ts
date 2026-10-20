@@ -39,7 +39,7 @@ export async function feedRankStep(now: Date): Promise<{ step: 'skipped' } | { r
 }
 
 /** Weekly updates: `summary`, what the week shipped in one paragraph (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; summary: string | null; chips: string[]; pinned: boolean };
+export type FeedCard = { id: number; handle: string; name: string; avatar: string | null; project: string; week: string; text: string | null; summary: string | null; chips: string[]; pinned: boolean; confirmed?: boolean };
 type Row = {
   id: number; builder_id: number; key: string; week: string; text: string | null; summary: string | null; facts: WeekFacts; pinned: boolean; handle: string;
   x_name: string | null; avatar: string | null; project: string;
@@ -73,7 +73,7 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
 }
 const toCard = (r: Row): FeedCard => ({
   id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar), project: r.project, week: r.week,
-  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned,
+  text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned, confirmed: r.facts?.approved === true,
 });
 
 /** The last finished week and FEED_OLDER_WEEKS before it, newest first, at most FEED_WEEK_MAX cards each. */

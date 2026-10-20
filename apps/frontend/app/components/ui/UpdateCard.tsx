@@ -3,6 +3,7 @@ import { PART_COLORS, chipHue } from '../../[handle]/score-colors';
 import { SURFACE } from '../common/Panel';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { RENDERED_LINK, RENDERED_TRAILING } from '../../../lib/earnkit/update-links';
+import { UNCONFIRMED_LABEL } from '../../../lib/earnkit/week-facts';
 import { weekLabel } from '../../../lib/earnkit/weeks';
 
 /** What a card needs. The person's handle, name, avatar and project are only for showPerson (the profile omits them). */
@@ -11,6 +12,8 @@ export type UpdateCardData = {
   week: string; text: string | null; chips: string[]; started?: string | null;
   /** Weekly updates: what the week shipped, one paragraph, already filtered (week-summary.ts summaryShown); plain text. */
   summary?: string | null;
+  /** false: the builder has not said yes to this week; the card reads UNCONFIRMED_LABEL (never on a Started card). */
+  confirmed?: boolean;
 };
 
 
@@ -60,6 +63,7 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
   const note = card.started || !card.text ? null : square ? card.text.split(/(?<=[.!?])\s/)[0] : card.text;
   const chips = square ? card.chips.slice(0, 2) : card.chips;
   const handle = card.handle;
+  const unconfirmed = card.confirmed === false && !card.started;
   return (
     <article data-shape={shape} className={shell}>
       <div>
@@ -73,7 +77,12 @@ export default function UpdateCard({ card, shape, showPerson = true, showWeek = 
             </a>
           </div>
         )}
-        {showWeek && <p data-ek-week="" className="font-funnel-sans text-sm text-ek-muted">{weekLabel(card.week)}</p>}
+        {(showWeek || unconfirmed) && (
+          <p data-ek-week="" className="font-funnel-sans text-sm text-ek-muted">
+            {showWeek && weekLabel(card.week)}
+            {unconfirmed && <span data-ek-unconfirmed="" className="text-ek-muted">{showWeek ? ' · ' : ''}{UNCONFIRMED_LABEL}</span>}
+          </p>
+        )}
         {lead && (
           <p data-ek-summary="" className={`mt-2 font-funnel-sans text-base text-ek-text ${square ? 'line-clamp-4' : ''}`}><Body text={lead} /></p>
         )}
