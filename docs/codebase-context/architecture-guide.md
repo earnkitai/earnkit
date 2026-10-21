@@ -7172,6 +7172,22 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   check `useReducedMotion()`.
 - **Primitives** in `app/components/site/` (see code-map). Test: `v31-site-tokens.test.ts`.
 
+## v3.1 site Task 5: nav, footer, install sheet, programs page removal
+
+- **Chrome.** `Header` (Nav board) and `Footer` (`variant: 'full' | 'minimal'`, Foot board) are rewritten in place on
+  the SITE tokens; every page keeps its import. The footer painting is a plain lazy `<img srcSet>` (no image optimizer);
+  `FooterLight` writes the light's style on pointer moves without re-rendering and renders nothing under reduced motion
+  or `(hover: none)`. New tokens: `footLine`, `footButton`, `footFade`, `footGlow`, `footGlowMid`, `footCtaGlow`.
+- **Links.** `FOOTER_COLUMNS` is Leaderboard, Feed, Docs, Terms and EarnKit's X (`X` now lives in
+  `lib/earnkit/footer-links.ts`, re-exported by `app/lib/links.ts`); `EXTERNAL_ALLOW` is that X url only. The email,
+  `@jenilt` and "For sponsors" left the footer.
+- **Programs (W10).** `/programs` is a `permanentRedirect('/#earn')` (308); guides stay at `/programs/<id>` and in the
+  sitemap; a guide's "All programs" links `/#earn`; the shell header (`brand-page.ts`) lost its Programs link.
+- **Install sheet.** Same behaviour and tabs, restyled: `bg-s-panel` sheet rounded 32px over `bg-s-scrim`, SegTabs pill
+  tabs, code blocks `bg-s-page rounded-[22px]`.
+- **Harness.** `.superpowers/sdd/v3.1-plan-site/seed-site.mts` (scratch DB `earnkit_v31_site` only) and `shoot.mjs`
+  (Playwright screenshots at 1440 and 390 plus phone checks) are untracked tools for Tasks 5 to 11.
+
 ## v3.1 site Task 3: profile reads
 
 - **One module.** `lib/earnkit/site-data.ts profileSite(builderId, d, now)` adds what the v3.1 profile shows beyond

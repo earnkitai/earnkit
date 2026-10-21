@@ -128,7 +128,8 @@ test('(e) the page adds no "this week" of its own after "builders"', () => {
 
 test('(f) the flat system: no card radius, no gradient, no glow, no uppercase; the grid is hairline cells with a brand fill', () => {
   for (const tab of ['log', 'project', 'money'] as const) {
-    const h = html(React.createElement(BenchProfileView, { data: RANKED, tab }));
+    // v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts (the v3.1 card system).
+    const h = html(React.createElement(BenchProfileView, { data: RANKED, tab })).replace(/<footer[\s\S]*<\/footer>/, '');
     assert.doesNotMatch(h, /rounded-\[24px\]|rounded-\[3px\]|bg-gradient|linear-gradient|drop-shadow|shadow-|uppercase|tracking-widest/, tab);
   }
   const h = html(React.createElement(BenchProfileView, { data: RANKED, tab: 'log' }));

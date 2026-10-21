@@ -149,15 +149,14 @@ apps/frontend/
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
                                /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
-  app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
-                               v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
-                               the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
-                               Footer only
-  app/components/common/Footer.tsx  R18: a quiet footer under a hairline (wordmark, FOOTER_TAGLINE, the
-                               FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
-                               line; renders from lib/earnkit/footer-links.ts; real links only
-  app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
-                               Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
+  app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
+                               (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
+  app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
+                               painting, lazy <img srcSet> of public/art/foot-panini-*, FooterLight, FOOT_CTA in Kaftan, the
+                               install pill, the bar: wordmark, FOOTER_COLUMNS links, ART_CREDIT, EarnKit's X) or 'minimal'
+                               (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
+  app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
+                               (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
   app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
   app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
                                BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
@@ -246,7 +245,10 @@ apps/frontend/
                                PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
                                ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
-                               aria-current), useReducedMotion (client)
+                               aria-current; segRail/segTab for the install sheet's tabs), useReducedMotion and
+                               useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,
+                               pointer light on the footer; nothing under reduced motion or on touch), AgentMarks (AGENT_MARKS
+                               from the Landing board, lobehub MIT + muse.svg; AgentMark)
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
   lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
                                thisWeekCommits (commit_counts via weekCounts), highlights (W8: live, Base Builder Code,

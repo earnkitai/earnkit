@@ -2,7 +2,7 @@ import Link from 'next/link';
 
 /**
  * Quiet pagination (canvas: leaderboard "Previous 1 of 3 Next", profile Activity and feed "Newer 1 2 3
- * Older"). Every control is a link; a disabled end is an aria-disabled span at 35% opacity. 44px targets
+ * Older"). Every control is a link; a disabled end is an aria-disabled span at 35% opacity that keeps its colour on hover. 44px targets
  * on a phone, 34px from md. One page (or none) renders nothing.
  */
 const TONES = {
@@ -36,6 +36,8 @@ export default function Pager({
   className?: string;
 }) {
   if (pages <= 1) return null;
+  // A page out of range (a hand-edited ?page=) reads as the nearest end, so the links never leave 1..pages.
+  const at = Math.min(Math.max(Math.trunc(page) || 1, 1), pages);
   const t = TONES[tone];
   const end = (text: string, to: number, enabled: boolean) =>
     enabled ? (
@@ -43,17 +45,17 @@ export default function Pager({
         {text}
       </Link>
     ) : (
-      <span aria-disabled="true" className={`${BTN} font-medium opacity-35 ${t.idle}`}>
+      <span aria-disabled="true" className={`${BTN} font-medium opacity-35 ${t.count}`}>
         {text}
       </span>
     );
   return (
     <nav aria-label={label} className={`flex flex-wrap items-center justify-between gap-1 ${className}`.trim()}>
-      {end(labels[0], page - 1, page > 1)}
+      {end(labels[0], at - 1, at > 1)}
       {numbers ? (
         <div className="flex flex-wrap items-center gap-1">
           {Array.from({ length: pages }, (_, i) => i + 1).map((n) =>
-            n === page ? (
+            n === at ? (
               <span key={n} aria-current="page" className={`${BTN} font-semibold ${t.on}`}>
                 {n}
               </span>
@@ -66,10 +68,10 @@ export default function Pager({
         </div>
       ) : (
         <span className={`text-sm ${t.count}`}>
-          {page} of {pages}
+          {at} of {pages}
         </span>
       )}
-      {end(labels[1], page + 1, page < pages)}
+      {end(labels[1], at + 1, at < pages)}
     </nav>
   );
 }

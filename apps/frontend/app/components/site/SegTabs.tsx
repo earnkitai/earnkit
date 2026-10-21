@@ -8,7 +8,24 @@ import Link from 'next/link';
 const TONES = {
   panel: { rail: 'bg-s-panel', idle: 'text-s-muted', on: 'bg-s-light text-s-ink' },
   step: { rail: 'bg-s-step-top', idle: 'text-s-card-handle', on: 'bg-s-light text-s-deep' },
+  /** Inside the install sheet (a panel): the rail is the page colour. */
+  sheet: { rail: 'bg-s-page', idle: 'text-s-muted', on: 'bg-s-light text-s-ink' },
 } as const;
+
+export type SegTone = keyof typeof TONES;
+
+/** The rail's classes, for a tab row that is not links (the install sheet's agent tabs). */
+export function segRail(tone: SegTone): string {
+  return `no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${TONES[tone].rail}`;
+}
+
+/** One tab's classes, current or not. */
+export function segTab(tone: SegTone, on: boolean): string {
+  const t = TONES[tone];
+  return `inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-[18px] text-sm font-semibold transition-colors md:min-h-[38px] ${
+    on ? t.on : `${t.idle} hover:text-s-text`
+  }`;
+}
 
 export default function SegTabs({
   items,
@@ -17,22 +34,14 @@ export default function SegTabs({
   className = '',
 }: {
   items: { label: string; href: string; on: boolean }[];
-  tone?: keyof typeof TONES;
+  tone?: SegTone;
   label: string;
   className?: string;
 }) {
-  const t = TONES[tone];
   return (
-    <nav aria-label={label} className={`no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${t.rail} ${className}`.trim()}>
+    <nav aria-label={label} className={`${segRail(tone)} ${className}`.trim()}>
       {items.map((it) => (
-        <Link
-          key={it.href}
-          href={it.href}
-          aria-current={it.on ? 'page' : undefined}
-          className={`inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-[18px] text-sm font-semibold transition-colors md:min-h-[38px] ${
-            it.on ? t.on : `${t.idle} hover:text-s-text`
-          }`}
-        >
+        <Link key={it.href} href={it.href} aria-current={it.on ? 'page' : undefined} className={segTab(tone, it.on)}>
           {it.label}
         </Link>
       ))}

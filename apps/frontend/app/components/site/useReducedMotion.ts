@@ -4,10 +4,21 @@ import { useSyncExternalStore } from 'react';
 
 const QUERY = '(prefers-reduced-motion: reduce)';
 
-function subscribe(onChange: () => void) {
-  const mq = window.matchMedia(QUERY);
-  mq.addEventListener('change', onChange);
-  return () => mq.removeEventListener('change', onChange);
+/**
+ * Whether a media query matches, following its changes. `server` is the value before the browser answers
+ * (the server render and hydration); the pointer components pass true so nothing moves until the browser
+ * says it may.
+ */
+export function useMediaQuery(query: string, server: boolean): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    },
+    () => window.matchMedia(query).matches,
+    () => server,
+  );
 }
 
 /**
@@ -15,11 +26,7 @@ function subscribe(onChange: () => void) {
  * it beside the CSS media query. The server renders as reduced (no motion) until the browser answers.
  */
 export function useReducedMotion(): boolean {
-  return useSyncExternalStore(
-    subscribe,
-    () => window.matchMedia(QUERY).matches,
-    () => true,
-  );
+  return useMediaQuery(QUERY, true);
 }
 
 export default useReducedMotion;

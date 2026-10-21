@@ -62,7 +62,8 @@ test('(b) exactly two "Add to your agent" buttons: one in the header, one in the
 });
 
 test('(c) nothing of the old kit in the HTML: no video, no builder image, no uppercase, no gradient, no stats line', () => {
-  for (const h of [page(full), page(null), page(emptyBench), html(React.createElement(AddToAgent, { onClose: () => {} }))]) {
+  // v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts (the v3.1 card system); the install sheet's v3.1 look is pinned in (i).
+  for (const h of [page(full), page(null), page(emptyBench)].map((x) => x.replace(/<footer[\s\S]*<\/footer>/, ''))) {
     assert.doesNotMatch(h, /<video|builder-blue|\buppercase\b|gradient|animate-marquee|rounded-\[24px\]/);
   }
   assert.ok(!page({ ...full, stats_line: '120 agents earning', won_line: 'Builders using EarnKit won $12,500' }).includes('agents earning'));
@@ -115,28 +116,33 @@ test('(h) the deletions: the video, the graphics folder, the final CTA image and
   assert.ok(RESERVED_ROUTES.has('favicon-32x32'));
 });
 
-test('(i) the install modal: a flat sheet, a bottom sheet on phones, hairline tabs, 44px targets', () => {
+test('(i) the install modal: v3.1 SITE sheet (panel, 32px radius, scrim), a bottom sheet on phones, SegTabs pill tabs, 44px targets', () => {
   const h = html(React.createElement(AddToAgent, { onClose: () => {} }));
   const panel = h.match(/<div class="([^"]*)"[^>]*><button[^>]*aria-label="Close"/)?.[1] ?? '';
-  for (const c of ['fixed', 'inset-x-0', 'bottom-0', 'bg-ek-surface']) assert.match(panel, new RegExp(`(^| )${c}( |$)`), c);
-  assert.doesNotMatch(panel, /rounded|gradient|shadow/);
-  // Tabs: a hairline row, the active tab marked by a bottom line, 44px tall.
-  const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*class="([^"]*)"/g)].map((m) => m[1]);
+  for (const c of ['fixed', 'inset-x-0', 'bottom-0', 'bg-s-panel', 'rounded-t-[32px]', 'sm:rounded-[32px]']) assert.ok(panel.split(' ').includes(c), c);
+  assert.doesNotMatch(panel, /gradient|shadow/);
+  // Tabs: one SegTabs rail (page colour) that scrolls on a phone, the current tab a white pill, 44px tall.
+  const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*aria-selected="(true|false)"[^>]*class="([^"]*)"/g)];
   assert.equal(tabs.length, 6);
-  // Final review: one row that scrolls on a phone (bleeding to the gutter), never wrapping under the rail line.
   const rail = h.match(/<div role="tablist"[^>]*class="([^"]*)"/)?.[1] ?? '';
   assert.doesNotMatch(rail, /(^| )flex-wrap( |$)/, rail);
-  for (const c of ['flex-nowrap', 'overflow-x-auto', 'no-scrollbar', '-mx-4', 'px-4', 'border-b']) assert.match(rail, new RegExp(`(^| )${c}( |$)`), c);
-  for (const c of tabs) assert.match(c, /min-h-11/);
-  assert.doesNotMatch(h, /rounded-full pl-3 pr-4/, 'no pill tabs');
-  // The link's Copy is the primary button.
-  assert.match(h, /<button[^>]*aria-label="Copy the EarnKit link"[^>]*class="[^"]*bg-ek-brand/);
-  // Review round 1: the backdrop is a token that carries alpha (ek-glass). A `/NN` opacity modifier on a var() token
+  for (const c of ['flex-nowrap', 'overflow-x-auto', 'no-scrollbar', 'rounded-full', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
+  for (const [, on, c] of tabs) {
+    assert.match(c, /(^| )min-h-11( |$)/);
+    assert.match(c, /(^| )rounded-full( |$)/);
+    assert.equal(c.split(' ').includes('bg-s-light'), on === 'true');
+  }
+  // Code blocks: the page colour, rounded 22px.
+  assert.match(h, /<div class="[^"]*\brounded-\[22px\] bg-s-page\b/);
+  // The link's Copy is the primary (blue) button.
+  assert.match(h, /<button[^>]*aria-label="Copy the EarnKit link"[^>]*class="[^"]*bg-s-blue/);
+  // The backdrop is the scrim token (it carries its own alpha). A `/NN` opacity modifier on a var() token
   // emits no CSS at all (tailwind.config.ts has no <alpha-value>), so none may appear anywhere under app/.
   const overlay = h.match(/<div role="dialog"[^>]*class="([^"]*)"/)?.[1] ?? '';
-  assert.match(overlay, /(^| )bg-ek-glass( |$)/);
+  assert.match(overlay, /(^| )bg-s-scrim( |$)/);
+  assert.doesNotMatch(h, /\bek-(?:page|surface|glass|brand|line|muted|text|body|accent|chip)\b/, 'no v3 tokens left in the sheet');
   const files = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? files(p) : /\.tsx?$/.test(n) ? [p] : []; });
-  for (const f of files(join(FRONTEND, 'app'))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b(?:bg|text|border|divide|fill|stroke|outline|shadow|ring|from|via|to)-ek-[a-z-]+\/\d/, f);
+  for (const f of files(join(FRONTEND, 'app'))) assert.doesNotMatch(readFileSync(f, 'utf8'), /\b(?:bg|text|border|divide|fill|stroke|outline|shadow|ring|from|via|to)-(?:ek|s)-[a-z0-9-]+\/\d/, f);
 });
 
 test('(j) ProgramRow: one link per row with the title, the award and the chips in order', () => {

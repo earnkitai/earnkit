@@ -21,9 +21,9 @@ export const CARD_PANEL = 'rounded-[36px] bg-s-panel text-s-text';
 /** White pill (hero CTA, Share, Back home): ink on white, 44px tall. */
 export const PILL_WHITE =
   'inline-flex min-h-11 items-center justify-center rounded-full bg-s-light px-6 text-[15px] font-bold text-s-ink transition-colors duration-200 hover:bg-s-light-hover';
-/** Blue pill (the nav's "Add to your agent"): white on blue, 44px tall. */
+/** Blue pill (the nav's "Add to your agent"): white on blue, 14px/600, 44px tall. */
 export const PILL_BLUE =
-  'inline-flex min-h-11 items-center justify-center rounded-full bg-s-blue px-5 text-sm font-semibold text-s-on-blue transition-colors duration-200 hover:bg-s-blue-top';
+  'inline-flex h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-s-blue px-5 text-[14px] font-semibold text-s-on-blue transition-colors duration-200 hover:bg-s-blue-top';
 
 /** Page columns: 1240px (landing, feed) and 1200px (profile, leaderboard, docs, 404); 16px gutters on a phone, 24px from md. */
 export const PAGE_COL_WIDE = 'mx-auto w-full max-w-[1240px] px-4 md:px-6';

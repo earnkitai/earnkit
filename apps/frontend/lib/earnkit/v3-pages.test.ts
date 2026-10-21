@@ -117,9 +117,8 @@ test('(c) /programs: H1 "Money open now", the money line and what it leaves out,
   const at = (s: string) => t.indexOf(s);
   assert.ok(at('Money open now') < at('$115K in grants and prizes open') && at('$115K in grants and prizes open') < at('Plus 2 accelerators and 1 hackathon.') && at('Plus 2 accelerators') < at("Crypto World's Fair Hackathon"), t);
   assert.doesNotMatch(h, /Open programs/);
-  const page = readFileSync(join(FRONTEND, 'app/programs/page.tsx'), 'utf8');
-  assert.match(page, /more=\{landing\.open_more\}/);
-  assert.doesNotMatch(page, /Open programs/);
+  // v3.1 W10: /programs itself is a permanent redirect to the landing's earn section.
+  assert.match(readFileSync(join(FRONTEND, 'app/programs/page.tsx'), 'utf8'), /permanentRedirect\('\/#earn'\)/);
   // The landing's section is the same heading (h2) with the same words.
   assert.match(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })), /<h2[^>]*>Money open now<\/h2>/);
 });
@@ -169,7 +168,7 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
   assert.match(h, /<h2[^>]*>What Arc wants now<\/h2>/);
   assert.match(h, /<h2[^>]*>Your best bet<\/h2>/);
   assert.match(h, /Sources:/);
-  assert.match(h, /href="\/programs"/);
+  assert.match(h, /href="\/#earn"/);
   // The parts are a ROWS list: it closes with a hairline, each part opens with one.
   assert.match(h, /<div class="[^"]*\bborder-b border-ek-line\b[^"]*"><section/);
   assert.equal((h.match(/<section [^>]*class="[^"]*\bborder-t border-ek-line\b/g) ?? []).length, 3);

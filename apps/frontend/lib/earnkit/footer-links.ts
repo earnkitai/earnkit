@@ -7,53 +7,40 @@ export type FooterColumn = {
 };
 
 /**
- * These four link constants live here (lib/earnkit), not in app/lib/links.ts, because
- * EXTERNAL_ALLOW and FOOTER_COLUMNS need them and lib/earnkit never imports from app/ (fix round
- * 1, Important #1; every other app/ constant stays in app/lib/links.ts, which re-exports these).
+ * These link constants live here (lib/earnkit), not in app/lib/links.ts, because EXTERNAL_ALLOW and
+ * FOOTER_COLUMNS need them and lib/earnkit never imports from app/ (fix round 1, Important #1; every other
+ * app/ constant stays in app/lib/links.ts, which re-exports these).
  */
 /** "Docs" in the header, footer and shell pages: the site's own page (v3 Stage 3, Task 5). */
 export const DOCS = '/docs';
-/** The footer's "For sponsors": the Docs page's section for program selectors. */
-export const FOR_SPONSORS = '/docs#selectors';
-/** The owner's personal account, used only for the footer's contact column (Ruling 22, plan). */
-export const JENIL_X = 'https://x.com/jenilt';
-/** The footer's contact email (Ruling 22, plan). */
-export const CONTACT_EMAIL = 'mailto:j@earnkit.com';
+/** EarnKit on X (@EarnKitAI, as the site metadata; v3.1 S17, owner decision O3). */
+export const X = 'https://x.com/EarnKitAI';
 
-/** Ruling 22 (plan), v2.13 (controller ruling): the tagline under the wordmark, the landing hero's title. */
+/** Ruling 22 (plan), v2.13 (controller ruling): the old footer tagline, kept as a copy constant (v213-copy.test.ts). */
 export const BENCH_FOOTER_TAGLINE = 'Ship every week. Get funded.';
 
 /**
  * Ruling 22 (plan): the only external destinations the footer may link to. Owner rule: real
- * links only, no extras and no placeholders.
+ * links only, no extras and no placeholders. v3.1: EarnKit's X only (no email, no personal account).
  */
-export const EXTERNAL_ALLOW = [JENIL_X, CONTACT_EMAIL];
+export const EXTERNAL_ALLOW = [X];
 
-/** Ruling 22 (plan): the footer's links, in order (R18: shown as one row; the titles group them in code only). */
+/**
+ * v3.1 (Foot board, S16): the full footer's links, in order: Leaderboard, Feed, Docs, Terms, then the X
+ * button. The programs list left the footer (W10), and so did "For sponsors" and the email. The titles
+ * group them in code only.
+ */
 export const FOOTER_COLUMNS: FooterColumn[] = [
   {
     title: 'Product',
     links: [
       { label: 'Leaderboard', href: '/leaderboard' },
       { label: 'Feed', href: '/feed' },
-      { label: 'Programs', href: '/programs' },
-    ],
-  },
-  {
-    title: 'Resources',
-    links: [
       { label: 'Docs', href: DOCS },
-      { label: 'For sponsors', href: FOR_SPONSORS },
     ],
   },
   { title: 'Legal', links: [{ label: 'Terms', href: '/terms' }] },
-  {
-    title: 'Contact',
-    links: [
-      { label: 'j@earnkit.com', href: CONTACT_EMAIL },
-      { label: '@jenilt on X', href: JENIL_X, icon: 'x' },
-    ],
-  },
+  { title: 'Social', links: [{ label: 'EarnKit on X', href: X, icon: 'x' }] },
 ];
 
 /**

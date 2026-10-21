@@ -69,7 +69,8 @@ test('11.3 the Ship log tab is the default: long cards newest first, chips alone
   assert.equal((h.match(/data-shape="long"/g) ?? []).length, 3);
   assert.ok(h.includes(BENCH_SOURCES_LINE));
   // Text only: the Docs link's #connect-an-agent anchor is not copy; the visitor CTA (L7) is the one place the page names the agent.
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' ').replace(VISITOR_CTA, '').replace('Add to your agent', ''), /written by|agent/i, 'R6');
+  // v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts.
+  assert.doesNotMatch(h.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' ').replace(VISITOR_CTA, '').replace('Add to your agent', ''), /written by|agent/i, 'R6');
   assert.ok(html(React.createElement(BenchProfileView, { data: { ...DATA, log: [] }, tab: 'log' })).includes(LOG_EMPTY));
 });
 

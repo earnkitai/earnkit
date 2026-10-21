@@ -403,9 +403,10 @@ test('12.3 the feed row: photo, @handle, project, the whole note and every chip;
   assert.ok(!none.includes(`>${FEED_SECTION_TITLE}</h2>`) && none.includes('Money open now'));
 });
 
-test('12.5 the footer tagline: "Ship every week. Get funded."', () => {
+test('12.5 the footer tagline constant: "Ship every week. Get funded."; v3.1 Task 5: the footer shows the Foot board CTA instead', () => {
   assert.equal(BENCH_FOOTER_TAGLINE, 'Ship every week. Get funded.');
-  assert.ok(renderToStaticMarkup(React.createElement(Footer)).includes(`>${BENCH_FOOTER_TAGLINE}<`));
+  const f = renderToStaticMarkup(React.createElement(Footer));
+  assert.ok(f.includes('>Your next week starts now.<') && !f.includes(BENCH_FOOTER_TAGLINE));
 });
 
 test('12.6 readLanding: the Activity cards (at most 3); plain JSON; no Bench parts', dbTest, async () => {

@@ -3,7 +3,7 @@ import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
-import { THEME } from '@/lib/earnkit/theme';
+import { SITE } from '@/lib/earnkit/site-theme';
 
 // v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
 const funnelDisplay = localFont({
@@ -28,7 +28,7 @@ const kaftan = localFont({
   display: 'swap',
 });
 
-const TITLE = 'EarnKit | Ship every week. Get funded.';
+const TITLE = 'EarnKit | Earn from building.';
 const DESCRIPTION =
   'Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.';
 
@@ -104,7 +104,7 @@ export default function RootLayout({
           sizes="180x180"
           href="/apple-icon.png"
         />
-        <meta name="theme-color" content={THEME.page} />
+        <meta name="theme-color" content={SITE.page} />
         <SchemaOrg />
       </head>
       <body

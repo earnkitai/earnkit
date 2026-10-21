@@ -46,7 +46,8 @@ test('b: header, footer and the shell link /docs in the same tab; no external do
   assert.doesNotMatch(h.match(/<a[^>]*href="\/docs"[^>]*>/)![0], /target=/);
   const f = renderToStaticMarkup(React.createElement(Footer));
   assert.match(f, /href="\/docs"/);
-  assert.match(f, /href="\/docs#selectors"[^>]*>For sponsors/);
+  // v3.1 (Foot board): "For sponsors" left the footer; the Docs page keeps its selectors section.
+  assert.doesNotMatch(f, /For sponsors/);
   assert.deepEqual(FOOTER_COLUMNS.flatMap((c) => c.links).filter((l) => /github\.com\/earnkitai/.test(l.href)), []);
   assert.match(readFileSync(join(root, 'lib/earnkit/brand-page.ts'), 'utf8'), /href="\$\{DOCS\}">Docs/);
   assert.doesNotMatch(readFileSync(join(root, 'lib/earnkit/footer-links.ts'), 'utf8'), /connect-an-agent/);

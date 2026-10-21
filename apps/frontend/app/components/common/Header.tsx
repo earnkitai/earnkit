@@ -1,38 +1,24 @@
 import Link from 'next/link';
 import InstallButton from './InstallButton';
 import { Wordmark } from '../ui/Logo';
-import { COLUMN } from './Panel';
-import { DOCS } from '../../lib/links';
-
-const LINK = 'inline-flex min-h-11 items-center px-2 font-funnel-sans text-sm font-medium text-ek-muted transition-colors hover:text-ek-text md:px-3 md:text-base';
+import NavLinks from '../site/NavLinks';
+import { PILL_BLUE } from '../site/ui';
+import { NAV_INSTALL } from '../../../lib/earnkit/site-copy';
 
 /**
- * R18, v3 Stage 3 (spec 5.6): the one site header on every page: the wordmark, Leaderboard, Feed, Programs, Docs
- * (/docs), and the one primary action, "Add to your agent" (the install sheet).
- * Sticky on the page's glass with a hairline under it, in the page column. On a phone: the wordmark, Leaderboard and
- * the button; Feed, Programs and Docs from sm (and in the footer).
+ * v3.1 (Nav board): the one site header on every page, transparent and not sticky, in the 1200px column:
+ * the wordmark (home), Leaderboard, Feed and Docs (NavLinks marks the current one), and the blue pill that
+ * opens the install sheet (S18). On a phone (<640px) the wordmark and the pill share the first row and the
+ * three links take the second.
  */
 export default function Header() {
   return (
-    <header data-ek-header="" className="sticky top-0 z-40 border-b border-ek-line bg-ek-glass backdrop-blur">
-      <nav aria-label="Site" className={`${COLUMN} flex h-14 items-center gap-1 md:h-16`}>
-        <Link href="/" className="mr-auto inline-flex min-h-11 items-center text-ek-text">
-          <Wordmark className="h-[18px] w-auto md:h-5" />
-        </Link>
-        <Link href="/leaderboard" className={LINK}>
-          Leaderboard
-        </Link>
-        <Link href="/feed" className={`${LINK} hidden sm:inline-flex`}>
-          Feed
-        </Link>
-        <Link href="/programs" className={`${LINK} hidden sm:inline-flex`}>
-          Programs
-        </Link>
-        <Link href={DOCS} className={`${LINK} hidden sm:inline-flex`}>
-          Docs
-        </Link>
-        <InstallButton className="ml-2 inline-flex h-11 items-center whitespace-nowrap rounded-full bg-ek-brand px-4 font-funnel-sans text-sm font-medium text-ek-text transition-colors hover:bg-ek-accent md:ml-3 md:px-5" />
-      </nav>
+    <header data-ek-header="" className="mx-auto flex max-w-[1200px] flex-wrap items-center gap-x-8 gap-y-1 px-4 py-5 md:px-6">
+      <Link href="/" aria-label="EarnKit home" className="inline-flex min-h-11 items-center text-s-text">
+        <Wordmark decorative width={104} height={20} />
+      </Link>
+      <NavLinks className="order-last flex w-full flex-wrap gap-x-6 sm:order-none sm:w-auto sm:flex-1" />
+      <InstallButton label={NAV_INSTALL} className={`${PILL_BLUE} ml-auto sm:ml-0`} />
     </header>
   );
 }

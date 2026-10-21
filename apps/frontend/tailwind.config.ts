@@ -126,6 +126,12 @@ export default {
         's-logo-pink': 'var(--ek-s-logo-pink)',
         's-logo-cyan': 'var(--ek-s-logo-cyan)',
         's-logo-amber': 'var(--ek-s-logo-amber)',
+        's-foot-line': 'var(--ek-s-foot-line)',
+        's-foot-button': 'var(--ek-s-foot-button)',
+        's-foot-fade': 'var(--ek-s-foot-fade)',
+        's-foot-glow': 'var(--ek-s-foot-glow)',
+        's-foot-glow-mid': 'var(--ek-s-foot-glow-mid)',
+        's-foot-cta-glow': 'var(--ek-s-foot-cta-glow)',
       },
       fontFamily: {
         'funnel-display': ['var(--font-funnel-display)', 'sans-serif'],

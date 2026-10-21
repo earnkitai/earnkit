@@ -103,6 +103,13 @@ export const SITE = {
   logoPink: '#DB2777',
   logoCyan: '#0891B2',
   logoAmber: '#CA8A04',
+  /** Task 5: the full footer (Foot board): the bar's top line, the X button fill, the bottom fade over the painting, the pointer light's two stops and the CTA's hover glow. */
+  footLine: 'rgba(255,255,255,0.12)',
+  footButton: 'rgba(255,255,255,0.10)',
+  footFade: 'rgba(5,6,13,0.85)',
+  footGlow: 'rgba(255,200,150,0.28)',
+  footGlowMid: 'rgba(255,160,110,0.10)',
+  footCtaGlow: 'rgba(255,150,70,0.5)',
 } as const;
 
 /** The CSS variable for a SITE key: `onBlueSoft` → `--ek-s-on-blue-soft`. */

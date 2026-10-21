@@ -150,7 +150,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
         )}
 
         <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between md:mt-10">
-          <Link href="/programs" className={TEXT_LINK}>
+          <Link href="/#earn" className={TEXT_LINK}>
             All programs
           </Link>
           <Sources sources={page.sources} />

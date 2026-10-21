@@ -27,7 +27,9 @@ export type Agent = {
  * Icon sources (each the maker's own, stored locally; SVG marks drawn in one color):
  * - grok-bot.png: Grok Bot's own app icon (the macOS app by SpaceXAI, "Copyright © 2026 SpaceXAI"),
  *   dist/renderer/assets/app-icon-*.png inside Grok Bot.app's app.asar (the same art as its
- *   icon.icns), scaled from 256px to 64px. Grok Bot is not Grok: Grok's logomark is not used.
+ *   icon.icns), scaled from 256px to 64px. Grok Bot is not Grok: these tabs use its own app icon.
+ *   v3.1 S20 (owner decision O5): the landing hero's agent row (app/components/site/AgentMarks.tsx) shows
+ *   the lobehub Grok mark for Grok Bot, as the owner-approved canvas does; nowhere else uses it.
  * - claude-code.svg: Anthropic press kit, https://www.anthropic.com/press-kit
  *   (Claude logos/3 Claude Spark/SVG/Claude Spark - Clay.svg), unchanged.
  * - cursor.svg: Cursor brand page, https://cursor.com/brand

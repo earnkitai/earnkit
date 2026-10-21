@@ -26,7 +26,6 @@ import type { GuidePage } from './landing';
 import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
 import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
-import { BENCH_FOOTER_TAGLINE } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
@@ -53,15 +52,16 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
-test('v2.7.1, R18: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
+test('v2.7.1, R18, v3.1: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
   assert.equal((h.match(/<a[^>]*href="\/docs"[^>]*>Docs<\/a>/g) ?? []).length, 1);
   assert.match(h, /href="\/leaderboard"/);
   assert.match(h, /href="\/feed"/);
-  assert.match(h, /<header[^>]*class="[^"]*\bsticky\b/);
-  assert.doesNotMatch(h, /x\.com\/jenilt/);
-  assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
+  // v3.1 (Nav board): transparent, not sticky.
+  assert.doesNotMatch(h, /<header[^>]*class="[^"]*\bsticky\b/);
+  assert.doesNotMatch(h, /x\.com\//);
+  assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/EarnKitAI"/);
 });
 
 test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
@@ -150,7 +150,7 @@ test('Ruling 22 (plan): a closed program still renders, "· closed", with no "As
   assert.ok(!t.includes('grants · closed'));
   assert.doesNotMatch(t, /Ask your agent/);
   assert.deepEqual(asks(closedGuide), []);
-  assert.match(h, /href="\/programs"/);
+  assert.match(h, /href="\/#earn"/, 'v3.1 W10: "All programs" goes to the landing section');
 });
 
 test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP', () => {
@@ -163,10 +163,8 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(page.includes('This guide is unavailable right now. Try again in a few minutes.'));
   assert.ok(page.includes('description: guideDescription(page)'));
   assert.ok(page.includes('`${page.title} guide · EarnKit`'));
-  const index = read('app/programs/page.tsx');
-  assert.match(index, /export const revalidate = 600;/);
-  assert.ok(index.includes('Programs are unavailable right now.'));
-  assert.doesNotMatch(index, /limit=/);
+  // v3.1 W10: the index is a permanent redirect to the landing's earn section.
+  assert.match(read('app/programs/page.tsx'), /permanentRedirect\('\/#earn'\)/);
   const cache = read('app/lib/landing-cache.ts');
   assert.match(cache, /\['guide-v3'\], \{ revalidate: 600 \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
   assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
@@ -174,7 +172,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.match(cache, /export const getGuidePage = cache\(/);
   assert.match(cache, /console\.error\('\[guide\]'/);
   const sitemap = read('app/sitemap.ts');
-  assert.ok(sitemap.includes('`${SITE}/programs`'));
+  assert.ok(!sitemap.includes('`${SITE}/programs`'), 'v3.1 W10: the index left the sitemap');
   assert.ok(sitemap.includes('`${SITE}/programs/${p.id}`'));
   assert.match(sitemap, /status = 'active' AND source = 'file' AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
   // The logo files' sandbox CSP never matches a guide page route.
@@ -185,7 +183,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(read('next.config.ts').includes("source: '/programs/:file([a-z0-9-]+\\\\.(?:svg|png))'"));
 });
 
-test('/programs: every open program as rows under an h1, or the unavailable line', async () => {
+test('ProgramCards as a page section: every open program as rows under an h1; the unavailable panel', async () => {
   const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
   assert.match(h, /<h1[^>]*>Money open now<\/h1>/); // v3 Stage 3 Task 4: the landing's heading, on the page too
   assert.ok(!text(h).includes('By pool')); // v2.8: no eyebrow
@@ -195,12 +193,9 @@ test('/programs: every open program as rows under an h1, or the unavailable line
   // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
   const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
   assert.ok(fig.includes(` Money open now ${homeFixture.open_text} CW Crypto World`) && !fig.includes('By pool'), fig);
-  const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
-  assert.match(page, /figure=\{landing\.open_text\}/);
-  assert.doesNotMatch(page, /layout=/, 'v3 Stage 3: rows everywhere, no grid or carousel');
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
-  assert.ok(u.includes(BENCH_FOOTER_TAGLINE), 'the footer');
+  assert.ok(u.includes('EarnKit is a product of Tokenfi Inc.'), 'the footer');
 });
 
 // ---- v2.8 Task 3, v3 Stage 3: the Open programs rows (Rulings 20, 21 (plan); spec 5.6).
@@ -617,8 +612,8 @@ test('L10 the site 404 (never Next\'s white default): title, one line, the way t
   assert.doesNotMatch(h, /<a [^>]*class="[^"]*bg-ek-brand/);
 });
 
-test('L10 the header names Programs (the money); the install modal: no "no account", numbers only for two steps or more', () => {
-  assert.match(renderToStaticMarkup(React.createElement(Header)), /href="\/programs"[^>]*>Programs</);
+test('L10, v3.1 W10: the header no longer names Programs; the install modal: no "no account", numbers only for two steps or more', () => {
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(Header)), /\/programs|>Programs</);
   assert.doesNotMatch(INTRO, /no account/i);
   const h = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
   assert.ok(h.includes(INTRO), h);

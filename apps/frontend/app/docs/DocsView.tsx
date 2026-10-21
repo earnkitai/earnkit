@@ -38,7 +38,7 @@ function Pairs({ items }: { items: { label: string; text: string }[] }) {
 
 function Code({ text }: { text: string }) {
   return (
-    <pre className="my-2 overflow-x-auto whitespace-pre-wrap border border-ek-line bg-ek-page px-4 py-3 font-mono text-sm text-ek-text">
+    <pre className="my-2 overflow-x-auto whitespace-pre-wrap border border-ek-line bg-s-page px-4 py-3 font-mono text-sm text-ek-text">
       <code>
         <Command text={text} />
       </code>

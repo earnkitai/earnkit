@@ -142,8 +142,8 @@ test('T1.7 the profile keeps PART_COLORS; SCORE_COLORS reads the page, surface, 
   assert.equal(SCORE_COLORS.text, THEME.text);
   assert.equal(SCORE_COLORS.muted, THEME.muted);
   assert.deepEqual(SCORE_COLORS.total, { from: '#FFFFFF', to: THEME.accent });
-  // The layout's theme-color is the page token, not a stale hex.
-  assert.match(read('app/layout.tsx'), /theme-color" content=\{THEME\.page\}/);
+  // The layout's theme-color is the page token, not a stale hex (v3.1 Task 5: the site's page token).
+  assert.match(read('app/layout.tsx'), /theme-color" content=\{SITE\.page\}/);
 });
 
 test('T1.9 the shell pages (brand-page.ts) draw the same system: the button is white on brand at 4.5:1 or more, the body is flat, nothing has a gradient or a shadow', () => {
