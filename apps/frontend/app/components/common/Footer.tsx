@@ -5,7 +5,7 @@ import FooterLight from '../site/FooterLight';
 import { FOOTER_COLUMNS } from '../../../lib/earnkit/footer-links';
 import { ART_CREDIT, CTA_INSTALL, FOOT_CTA, FOOT_GET_PAGE } from '../../../lib/earnkit/site-copy';
 
-const LINK = 'inline-flex min-h-11 items-center text-s-foot-link transition-colors duration-200 hover:text-s-text';
+const LINK = 'inline-flex min-h-11 items-center text-s-foot-link motion-safe:transition-colors duration-200 hover:text-s-text';
 
 /** The X glyph (14px) in a round button: 44px on a phone, 36px from md (Foot board). */
 function XButton({ href, label, fill }: { href: string; label: string; fill: string }) {
@@ -15,7 +15,7 @@ function XButton({ href, label, fill }: { href: string; label: string; fill: str
       target="_blank"
       rel="noopener noreferrer"
       aria-label={label}
-      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-s-text transition-colors duration-200 hover:bg-s-line-hover md:h-9 md:w-9 ${fill}`}
+      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-s-text motion-safe:transition-colors duration-200 hover:bg-s-line-hover md:h-9 md:w-9 ${fill}`}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
         <path
@@ -99,7 +99,7 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
           <span className="ek-serif text-balance text-[40px] leading-none [text-shadow:0_4px_40px_var(--ek-s-scrim)] md:text-[64px]">{FOOT_CTA}</span>
           <InstallButton
             label={CTA_INSTALL}
-            className="inline-flex h-[52px] items-center rounded-full bg-s-light px-7 text-[15px] font-bold text-s-ink transition-shadow duration-200 hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_60px_var(--ek-s-foot-cta-glow)]"
+            className="inline-flex h-[52px] items-center rounded-full bg-s-light px-7 text-[15px] font-bold text-s-ink motion-safe:transition-shadow duration-200 hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_60px_var(--ek-s-foot-cta-glow)]"
           />
         </div>
 

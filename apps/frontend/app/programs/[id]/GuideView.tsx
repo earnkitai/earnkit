@@ -20,7 +20,7 @@ export const askPrompt = (title: string) => `What can I earn on ${title}?`;
 const H1 = 'ek-serif text-[40px] leading-none text-ek-text md:text-[56px]';
 const H2 = 'ek-serif text-[28px] leading-none text-ek-text md:text-[36px]';
 
-const LINK = 'text-ek-body underline underline-offset-4 transition-colors hover:text-ek-text';
+const LINK = 'text-ek-body underline underline-offset-4 motion-safe:transition-colors hover:text-ek-text';
 
 /** One guide part, a hairline row: the heading left, its items right (stacked on a phone). */
 function Part({ title, children }: { title: string; children: ReactNode }) {

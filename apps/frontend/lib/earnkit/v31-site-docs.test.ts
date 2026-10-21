@@ -5,13 +5,13 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DocsView from '../../app/docs/DocsView';
-import { AgentPanel } from '../../app/docs/InstallCard';
+import { AgentPanel, COPY_SAID, tabKeyTarget } from '../../app/docs/InstallCard';
 import NotFound from '../../app/not-found';
 import GuideView from '../../app/programs/[id]/GuideView';
 import TermsPage from '../../app/terms/page';
 import { fullGuide, upcomingGuide } from './fixtures/guide';
 import { AGENTS, MCP_URL } from '../../app/components/sections/agents';
-import { LIVE_BONUS } from './score-v2';
+import { LIVE_BONUS, SHIPPING_WEEKS } from './score-v2';
 import { DOCS_NAV, DOCS_SELECTORS, DOCS_STEPS } from './docs-copy';
 import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 
@@ -90,6 +90,9 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
 test('(c) "A live product adds 10." uses LIVE_BONUS; raising off: no Backing, the nav label "Programs"; raising on: the Backing sentence', () => {
   assert.equal(LIVE_BONUS, 10);
   assert.match(read('lib/earnkit/docs-copy.ts'), /\$\{LIVE_BONUS\}/);
+  // Task 11: the 12 is SHIPPING_WEEKS, not a literal.
+  assert.equal(SHIPPING_WEEKS, 12);
+  assert.match(read('lib/earnkit/docs-copy.ts'), /over \$\{SHIPPING_WEEKS\} weeks/);
   const off = text(docs(false).split('<footer')[0]);
   assert.ok(off.includes('0 to 100 over 12 weeks. Weeks with real code count, not commit volume. A live product adds 10.'));
   assert.ok(off.includes('Ship during the week. Monday, EarnKit writes your update from the commits and emails it. One tap posts it.'));
@@ -111,7 +114,11 @@ test('(d) the selectors card shows the JSON URL; no "points", no em dash, under 
     const sel = h.match(/<section [^>]*id="selectors"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? '';
     assert.match(sel, /<h2[^>]*>For selectors<\/h2>/);
     assert.ok(text(sel).includes("Every builder's standing as JSON."));
-    assert.match(sel, new RegExp(`<code[^>]*bg-s-inset22[^>]*>${DOCS_SELECTORS.url.replace(/[.<>]/g, (c) => ({ '.': '\\.', '<': '&lt;', '>': '&gt;' })[c]!)}</code>`));
+    // Task 11: the URL breaks only after a "/" on a phone (a <wbr> after each), never inside a word.
+    const code = sel.match(/<code[^>]*bg-s-inset22[^>]*>([\s\S]*?)<\/code>/)!;
+    assert.doesNotMatch(code[0], /break-all|overflow-wrap:anywhere/);
+    assert.equal(decode(code[1].replace(/<wbr\/>/g, '')), DOCS_SELECTORS.url);
+    assert.equal(code[1].split('/<wbr/>').length, DOCS_SELECTORS.url.split('/').length, 'a <wbr> after every "/"');
     const t = text(h);
     assert.doesNotMatch(t, /points/i);
     assert.doesNotMatch(t, /—/);
@@ -151,5 +158,42 @@ test('(f) the guide and terms pages sit on the 1200px column with Kaftan titles;
     assert.match(h, /<h1 class="[^"]*\bek-serif\b[^"]*">Terms<\/h1>/);
     assert.match(h, /id="risk-disclosure"/);
     assert.match(h, /href="#risk-disclosure"/);
+  }
+});
+
+test('(g) Task 11: the install tabs wrap on a phone, rove with the arrow keys, and a failed copy says so', () => {
+  const h = docs();
+  const rail = h.match(/<div [^>]*role="tablist"[^>]*>/)![0];
+  assert.match(rail, /flex-wrap/);
+  assert.doesNotMatch(rail, /overflow-x-auto/, 'every agent shows: no sideways scroll');
+  // Roving tabIndex: only the chosen tab is in the Tab order.
+  const idx = [...h.matchAll(/<button [^>]*role="tab"[^>]*>/g)].map((m) => /tabindex="(-?\d)"/i.exec(m[0])?.[1]);
+  assert.deepEqual(idx, AGENTS.map((_, i) => (i === 0 ? '0' : '-1')));
+  const n = AGENTS.length;
+  assert.equal(tabKeyTarget('ArrowRight', 0, n), 1);
+  assert.equal(tabKeyTarget('ArrowRight', n - 1, n), 0);
+  assert.equal(tabKeyTarget('ArrowLeft', 0, n), n - 1);
+  assert.equal(tabKeyTarget('Home', 3, n), 0);
+  assert.equal(tabKeyTarget('End', 0, n), n - 1);
+  assert.equal(tabKeyTarget('Enter', 0, n), null);
+  assert.deepEqual(COPY_SAID, { idle: '', copied: 'Copied', failed: 'Copy failed' });
+  // The other rails (the sheet, the leaderboard filters, the feed weeks) still scroll in one row.
+  const src = read('app/components/site/SegTabs.tsx');
+  assert.match(src, /if \(tone === 'light'\) return `flex max-w-full flex-wrap/);
+});
+
+test('(h) Task 11: terms section headings are Kaftan; every inline link is 44px tall on a phone', () => {
+  for (const raising of [false, true]) {
+    const h = withRaising(raising, () => renderToStaticMarkup(React.createElement(TermsPage)));
+    const h2s = h.match(/<h2 [^>]*>/g) ?? [];
+    assert.ok(h2s.length >= 8, `${h2s.length} section headings`);
+    for (const h2 of h2s) assert.match(h2, /\bek-serif\b/, h2);
+    // The prose links (mailto, X, the Safe on basescan): padded to 44px below md, the padding cancelled by margin.
+    const prose = (h.split('<footer')[0].match(/<a [^>]*>/g) ?? []).filter((a) => /href="(mailto:|https:\/\/(x\.com|basescan))/.test(a));
+    assert.ok(prose.length >= 5, `${prose.length} prose links`);
+    for (const a of prose) {
+      const cls = /class="([^"]*)"/.exec(a)![1].split(' ');
+      for (const c of ['-my-3', 'py-3', 'md:my-0', 'md:py-0']) assert.ok(cls.includes(c), `${c} on ${a}`);
+    }
   }
 });

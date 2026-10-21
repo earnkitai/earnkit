@@ -10,9 +10,9 @@ export type { Agent, AgentName } from './agents';
 
 
 const COPY_PRIMARY =
-  'inline-flex min-h-11 shrink-0 items-center rounded-full bg-s-blue px-4 text-sm font-semibold text-s-on-blue transition-colors duration-200 hover:bg-s-blue-top';
+  'inline-flex min-h-11 shrink-0 items-center rounded-full bg-s-blue px-4 text-sm font-semibold text-s-on-blue motion-safe:transition-colors duration-200 hover:bg-s-blue-top';
 const COPY_SECONDARY =
-  'inline-flex min-h-11 shrink-0 items-center rounded-full border border-s-line-hover px-4 text-sm font-semibold text-s-text transition-colors duration-200 hover:bg-s-panel-inner';
+  'inline-flex min-h-11 shrink-0 items-center rounded-full border border-s-line-hover px-4 text-sm font-semibold text-s-text motion-safe:transition-colors duration-200 hover:bg-s-panel-inner';
 /** A block for a link or a command: the page colour inside the sheet, rounded 22px (v3.1). */
 const CODE_BOX = 'flex items-center gap-3 rounded-[22px] bg-s-page py-2 pl-4 pr-2';
 
@@ -86,7 +86,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full text-s-muted transition-colors hover:bg-s-panel-inner hover:text-s-text sm:right-5 sm:top-5"
+          className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full text-s-muted motion-safe:transition-colors hover:bg-s-panel-inner hover:text-s-text sm:right-5 sm:top-5"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="h-5 w-5" aria-hidden="true">
             <path d="m6 6 12 12M18 6 6 18" />

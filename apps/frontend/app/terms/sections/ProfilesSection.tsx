@@ -9,7 +9,7 @@ export default function ProfilesSection() {
   return (
     <Panel id={PROFILES_ANCHOR} className="scroll-mt-32 py-2 md:py-4" label={PROFILES_TITLE}>
       <div className="grid gap-4 py-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
-        <h2 className="font-funnel-display text-2xl font-medium text-ek-text md:text-3xl">{PROFILES_TITLE}</h2>
+        <h2 className="ek-serif text-[28px] leading-none text-ek-text md:text-[36px]">{PROFILES_TITLE}</h2>
         <div className="max-w-2xl font-funnel-sans text-base font-light leading-relaxed text-ek-body md:text-lg">
           <ul className="list-disc space-y-2 pl-5 marker:text-ek-muted">
             {PROFILES_POINTS.map((p) => (

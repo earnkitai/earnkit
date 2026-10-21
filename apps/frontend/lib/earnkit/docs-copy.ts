@@ -1,4 +1,4 @@
-import { LIVE_BONUS } from './score-v2';
+import { LIVE_BONUS, SHIPPING_WEEKS } from './score-v2';
 
 /**
  * v3.1 site Task 10 (Docs board): every string on /docs. The agents' install steps and commands are not here: the
@@ -21,10 +21,10 @@ export const DOCS_WEEK = {
   title: 'How the week works',
   text: 'Ship during the week. Monday, EarnKit writes your update from the commits and emails it. One tap posts it.',
 };
-/** The real scoring (score-v2.ts): weeks with code over the last 12, plus LIVE_BONUS for a live product. */
+/** The real scoring (score-v2.ts): weeks with code over the last SHIPPING_WEEKS, plus LIVE_BONUS for a live product. */
 export const DOCS_SCORE = {
   title: 'Shipping score',
-  text: `0 to 100 over 12 weeks. Weeks with real code count, not commit volume. A live product adds ${LIVE_BONUS}.`,
+  text: `0 to 100 over ${SHIPPING_WEEKS} weeks. Weeks with real code count, not commit volume. A live product adds ${LIVE_BONUS}.`,
 };
 export const DOCS_MONEY = {
   title: 'Programs and Backing',

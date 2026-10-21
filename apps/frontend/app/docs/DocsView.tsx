@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
@@ -73,7 +74,19 @@ export default function DocsView() {
             </h2>
             <p className="text-[15px] text-s-on-blue-soft">{DOCS_SELECTORS.text}</p>
           </div>
-          <code className="max-w-full break-all rounded-[18px] bg-s-inset22 px-[18px] py-3.5 font-mono text-[14px]">{DOCS_SELECTORS.url}</code>
+          {/* A phone breaks the URL only after a "/", never inside a word. */}
+          <code className="max-w-full rounded-[18px] bg-s-inset22 px-[18px] py-3.5 font-mono text-[14px]">
+            {DOCS_SELECTORS.url.split('/').map((part, i) => (
+              <Fragment key={i}>
+                {i > 0 && (
+                  <>
+                    /<wbr />
+                  </>
+                )}
+                {part}
+              </Fragment>
+            ))}
+          </code>
         </section>
       </article>
     </div>

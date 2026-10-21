@@ -16,15 +16,20 @@ const TONES = {
 
 export type SegTone = keyof typeof TONES;
 
-/** The rail's classes, for a tab row that is not links (the install sheet's agent tabs). */
+/**
+ * The rail's classes, for a tab row that is not links (the install sheet's agent tabs). The light rail (the docs install
+ * card) wraps instead of scrolling, so every agent shows on a phone (Docs board); its 26px radius stays concentric with
+ * the tabs on two rows and reads as a pill on one.
+ */
 export function segRail(tone: SegTone): string {
+  if (tone === 'light') return `flex max-w-full flex-wrap gap-1 rounded-[26px] p-1 ${TONES.light.rail}`;
   return `no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${TONES[tone].rail}`;
 }
 
 /** One tab's classes, current or not. */
 export function segTab(tone: SegTone, on: boolean): string {
   const t = TONES[tone];
-  return `inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-[18px] text-sm font-semibold transition-colors md:min-h-[38px] ${
+  return `inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-full px-[18px] text-sm font-semibold motion-safe:transition-colors md:min-h-[38px] ${
     on ? t.on : t.idle
   }`;
 }

@@ -46,7 +46,7 @@ export default function TermsPage() {
               <a
                 key={s.href}
                 href={s.href}
-                className="inline-flex min-h-[44px] items-center text-ek-body underline underline-offset-4 transition-colors hover:text-ek-text"
+                className="inline-flex min-h-[44px] items-center text-ek-body underline underline-offset-4 motion-safe:transition-colors hover:text-ek-text"
               >
                 {s.label}
               </a>

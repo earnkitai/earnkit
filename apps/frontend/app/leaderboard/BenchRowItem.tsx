@@ -12,7 +12,7 @@ const BACKED_TAG = 'inline-flex shrink-0 items-center rounded-full bg-s-navy px-
 /**
  * v3.1 site Task 8: one leaderboard row (Leaderboard board), one link to the builder's page: the place ("#N", only while
  * `ranked`: RANK_MIN_POOL ranked builders), the X photo, the name, the X glyph and @handle (text: the row is the link)
- * with the project, the Backed tag (only with `r.backing`: benchRows sets it only while EARNKIT_RAISING is on and never
+ * with the project (its own line on a phone), the Backed tag (only with `r.backing`: benchRows sets it only while EARNKIT_RAISING is on and never
  * for EarnKit's own repo), the streak and the Shipping score in its band colour. On a phone the streak and the tag drop
  * under the handle. Names and projects wrap, never cut.
  */
@@ -40,7 +40,11 @@ export default function BenchRowItem({ r, ranked }: { r: BenchRow; ranked: boole
           <span className="min-w-0 text-base font-semibold text-s-text [overflow-wrap:anywhere]">{r.name}</span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-[13px] text-s-muted">
             <XHandle handle={r.handle} tone="muted" link={false} />
-            <span className="min-w-0 [overflow-wrap:anywhere]">· {r.project}</span>
+            {/* On a phone the project takes its own line, without the dot. */}
+            <span aria-hidden="true" className="hidden md:inline">
+              ·
+            </span>
+            <span className="w-full min-w-0 [overflow-wrap:anywhere] md:w-auto">{r.project}</span>
           </span>
           {(streak || backed) && (
             <span className="mt-1 flex flex-wrap items-center gap-2 md:hidden">

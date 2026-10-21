@@ -14,7 +14,7 @@ const TERMS = [
 export default function SponsorTermsSection() {
   return (
     <Panel className="py-12 md:py-16" label="Sponsor terms">
-      <h2 id="sponsor-terms" className="scroll-mt-32 font-funnel-display text-2xl font-medium text-ek-text md:text-4xl">
+      <h2 id="sponsor-terms" className="scroll-mt-32 ek-serif text-[32px] leading-none text-ek-text md:text-[44px]">
         Sponsor terms
       </h2>
       <ol className="mt-8 max-w-2xl list-decimal space-y-3 pl-5 font-funnel-sans text-base font-light text-ek-body md:text-lg">

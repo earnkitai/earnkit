@@ -24,7 +24,7 @@ test('a: /docs (v3.1 Docs board): the install H1, the three card H2s and the sel
   for (const a of ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']) assert.match(html, new RegExp(`<button[^>]*role="tab"[^>]*>${a}</button>`));
   assert.match(html, /<pre[^>]*>(<span[^>]*>)*https:\/\/earnkit\.com\/mcp/);
   assert.match(html, /id="selectors"/);
-  assert.match(html, /earnkit\.com\/api\/builders\/&lt;handle&gt;\.json/);
+  assert.match(html.replace(/<wbr\/>/g, ''), /earnkit\.com\/api\/builders\/&lt;handle&gt;\.json/);
   // The rule pins carried over: never "EARN points" (and no points at all on a page), no parentheticals.
   assert.doesNotMatch(text, /EARN points|points/);
   assert.doesNotMatch(text, /\((?:score|tell|find, prepare|confirm)\)/);

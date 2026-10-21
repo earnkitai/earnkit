@@ -12,7 +12,7 @@ export default function RiskSection() {
       <div className="max-w-4xl font-funnel-sans text-base font-light">
         {/* Header */}
         <div className="mb-12">
-          <h2 id="risk-disclosure" className="mb-3 scroll-mt-32 font-funnel-display text-2xl font-medium text-ek-text md:text-4xl">
+          <h2 id="risk-disclosure" className="mb-3 scroll-mt-32 ek-serif text-[32px] leading-none text-ek-text md:text-[44px]">
             Risk disclosure
           </h2>
           <p className="text-ek-muted text-md">
@@ -985,7 +985,7 @@ export default function RiskSection() {
               href="mailto:j@earnkit.com"
               target="_blank"
               rel="noopener noreferrer"
-              className={INLINE_LINK}
+              className={`${INLINE_LINK} inline-block -my-3 py-3 md:my-0 md:py-0`}
             >
               j@earnkit.com
             </a>

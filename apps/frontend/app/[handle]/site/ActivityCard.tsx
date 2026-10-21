@@ -69,7 +69,7 @@ export default function ActivityCard({
         </h2>
         {last && Number.isFinite(last.getTime()) ? (
           <span className="inline-flex items-center gap-2 text-[14px] text-s-ink-soft">
-            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${fresh ? 'ek-pulse bg-s-live' : 'bg-s-ink-muted'}`} />
+            <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${fresh ? 'ek-pulse bg-s-live motion-reduce:animate-none' : 'bg-s-ink-muted'}`} />
             {shippedAgo(agoWords(last, now))}
           </span>
         ) : null}

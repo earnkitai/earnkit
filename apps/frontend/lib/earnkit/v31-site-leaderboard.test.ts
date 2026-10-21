@@ -205,3 +205,20 @@ test('(g) EarnKit\'s own repo never shows Backing: with EARNKIT_RAISING on and a
 function count(h: string, re: RegExp) {
   return (h.match(re) ?? []).length;
 }
+
+test('(h) Task 11: the place pill follows the whole-board rank (a filtered podium of #5, #7, #9 is plain); the project has its own phone line; one "Builders" landmark', () => {
+  const rows = rowsOf(12).filter((r) => r.rank % 2 === 1 && r.rank >= 5);
+  const h = view(rows, { count: 12, filter: { chain: 'base', weekly: false } });
+  for (const [i, rank] of [5, 7, 9].entries()) {
+    const c = block(h, `data-ek-podium="${i + 1}"`);
+    assert.match(c, new RegExp(`data-ek-place=""[^>]*class="[^"]*bg-s-inset22[^"]*"[^>]*>#${rank}<`), c);
+    assert.doesNotMatch(c, /text-s-(gold|silver|bronze)-ink/, `#${rank} is never metal`);
+  }
+  // The whole board: #1 gold, #2 silver, #3 bronze.
+  const all = view(rowsOf(12));
+  for (const [i, metal] of ['gold', 'silver', 'bronze'].entries()) assert.match(block(all, `data-ek-podium="${i + 1}"`), new RegExp(`text-s-${metal}-ink[^"]*"[^>]*>#${i + 1}<`));
+  // A list row: the dot is desktop only, the project a full-width line on a phone.
+  const row = block(all, 'data-row="bldr_4"');
+  assert.match(row, /<span aria-hidden="true" class="hidden md:inline">·<\/span><span class="w-full [^"]*md:w-auto">Project 4<\/span>/, row);
+  assert.equal(count(all, /aria-label="Builders"/g), 1, 'one Builders landmark');
+});

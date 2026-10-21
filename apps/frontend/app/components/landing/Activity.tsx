@@ -10,7 +10,7 @@ import { ACTIVITY_INVITE_TEXT, ACTIVITY_INVITE_TITLE, ACTIVITY_MORE, ACTIVITY_TI
 import { weekLabel } from '../../../lib/earnkit/weeks';
 
 /** A card: the neutral gradient, the border brightening and a 4px lift on hover, both only without reduced motion. */
-const CARD = `${CARD_NEUTRAL.replace('transition-colors duration-200', 'motion-safe:transition-[border-color,transform] motion-safe:duration-200')} flex min-h-[230px] min-w-0 flex-col gap-3.5 p-[26px] motion-safe:hover:-translate-y-1`;
+const CARD = `${CARD_NEUTRAL.replace('motion-safe:transition-colors duration-200', 'motion-safe:transition-[border-color,transform] motion-safe:duration-200')} flex min-h-[230px] min-w-0 flex-col gap-3.5 p-[26px] motion-safe:hover:-translate-y-1`;
 
 /** "EarnKit · Week of Oct 12 · 279 commits"; no commits part at 0. Pure. */
 export function activityMeta(c: Pick<FeedCard, 'project' | 'week' | 'commits'>): string {

@@ -10,7 +10,7 @@ const LINKS = [
   { label: 'Docs', href: '/docs' },
 ] as const;
 
-const LINK = 'inline-flex min-h-11 items-center text-[15px] transition-colors duration-200 hover:text-s-text';
+const LINK = 'inline-flex min-h-11 items-center text-[15px] motion-safe:transition-colors duration-200 hover:text-s-text';
 
 /** Whether `pathname` is the link's page or under it (/leaderboard?page=2, /docs#selectors, /feed/...). */
 function isActive(pathname: string | null, href: string): boolean {

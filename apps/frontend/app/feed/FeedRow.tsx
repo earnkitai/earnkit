@@ -10,7 +10,7 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
  * The row: the neutral card at 28px, the border brightening and a 4px lift on hover, both only without reduced motion.
  * A phone grid (the person block, the score at its right, the words below) that becomes the board's one wrapping line from md.
  */
-const ROW = `${CARD_NEUTRAL.replace('rounded-[32px]', 'rounded-[28px]').replace('transition-colors duration-200', 'motion-safe:transition-[border-color,transform] motion-safe:duration-200')} grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3.5 px-[26px] py-[22px] motion-safe:hover:-translate-y-1 md:flex md:flex-wrap md:gap-[22px]`;
+const ROW = `${CARD_NEUTRAL.replace('rounded-[32px]', 'rounded-[28px]').replace('motion-safe:transition-colors duration-200', 'motion-safe:transition-[border-color,transform] motion-safe:duration-200')} grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3.5 px-[26px] py-[22px] motion-safe:hover:-translate-y-1 md:flex md:flex-wrap md:gap-[22px]`;
 
 /** "EarnKit · 279 commits"; the project alone at 0 commits. Pure. */
 export function feedMeta(c: Pick<FeedCard, 'project' | 'commits'>): string {

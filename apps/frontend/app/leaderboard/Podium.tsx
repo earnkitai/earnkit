@@ -7,16 +7,22 @@ import { METAL } from '../components/site/ui';
 import type { BenchRow } from '../../lib/earnkit/bench-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 
-/** The three podium cards, first to third (Leaderboard board): blue, navy, rust, each with its metal place pill. */
-const CARDS: { fill: string; sub: string; tone: XHandleTone; metal: keyof typeof METAL }[] = [
-  { fill: 'bg-s-blue text-s-on-blue', sub: 'text-s-on-blue-soft', tone: 'blue', metal: 'gold' },
-  { fill: 'bg-s-navy text-s-text', sub: 'text-s-on-navy-soft', tone: 'navy', metal: 'silver' },
-  { fill: 'bg-s-rust text-s-text', sub: 'text-s-rust-sub', tone: 'rust', metal: 'bronze' },
+/** The three podium cards, first to third on the page (Leaderboard board): blue, navy, rust. */
+const CARDS: { fill: string; sub: string; tone: XHandleTone }[] = [
+  { fill: 'bg-s-blue text-s-on-blue', sub: 'text-s-on-blue-soft', tone: 'blue' },
+  { fill: 'bg-s-navy text-s-text', sub: 'text-s-on-navy-soft', tone: 'navy' },
+  { fill: 'bg-s-rust text-s-text', sub: 'text-s-rust-sub', tone: 'rust' },
 ];
+
+/** The place pill's fill by the builder's whole-board rank: gold #1, silver #2, bronze #3, a plain pill after (a filtered view's "#5" is never silver). */
+export function placeFill(rank: number): string {
+  const metal: (keyof typeof METAL)[] = ['gold', 'silver', 'bronze'];
+  return rank >= 1 && rank <= 3 ? METAL[metal[rank - 1]] : 'bg-s-inset22';
+}
 
 /**
  * v3.1 site Task 8: the first three builders of page 1 as cards. The place pill shows the builder's rank (always the
- * whole board's) in the card's metal, only while `ranked` (RANK_MIN_POOL ranked builders, plan S14). The card is one
+ * whole board's) in that rank's metal (placeFill), only while `ranked` (RANK_MIN_POOL ranked builders, plan S14). The card is one
  * link to the builder's page (the name's link stretched over it); the @handle above it is its own link to X.
  */
 export default function Podium({ rows, ranked }: { rows: BenchRow[]; ranked: boolean }) {
@@ -33,7 +39,7 @@ export default function Podium({ rows, ranked }: { rows: BenchRow[]; ranked: boo
           >
             <div className="flex min-h-[30px] items-center justify-between gap-3">
               {ranked ? (
-                <span data-ek-place="" className={`inline-flex h-[30px] items-center rounded-full px-3.5 text-sm font-bold ${METAL[c.metal]}`}>
+                <span data-ek-place="" className={`inline-flex h-[30px] items-center rounded-full px-3.5 text-sm font-bold ${placeFill(r.rank)}`}>
                   #{r.rank}
                 </span>
               ) : (

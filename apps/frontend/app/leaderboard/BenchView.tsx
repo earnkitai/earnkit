@@ -79,7 +79,7 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
               {(list.length > 0 || pages > 1) && (
                 <section aria-label="Builders" className={`${phoneRadius(CARD_PANEL)} flex flex-col p-3`}>
                   {list.length > 0 && (
-                    <ol aria-label="Builders" start={(at - 1) * LEADERBOARD_PAGE + podium.length + 1} className="flex flex-col">
+                    <ol start={(at - 1) * LEADERBOARD_PAGE + podium.length + 1} className="flex flex-col">
                       {list.map((r) => (
                         <BenchRowItem key={r.handle} r={r} ranked={ranked} />
                       ))}
