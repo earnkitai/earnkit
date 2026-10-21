@@ -985,7 +985,7 @@ export default function RiskSection() {
               href="mailto:j@earnkit.com"
               target="_blank"
               rel="noopener noreferrer"
-              className={`${INLINE_LINK} inline-block -my-3 py-3 md:my-0 md:py-0`}
+              className={INLINE_LINK}
             >
               j@earnkit.com
             </a>

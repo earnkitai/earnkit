@@ -137,7 +137,9 @@ test('(c2) first week, Builder Codes false, an Arc project, codes unknown, no pr
   assert.equal(d.log.length, 1);
   assert.equal(d.log[0].commits, 3);
   const h = await highlights(fresh.id, d, NOW);
-  assert.deepEqual(h.find((x) => x.icon === 'code'), { icon: 'code', title: 'Base Builder Code', sub: 'Not in the repo yet' });
+  // Final fix 4: not found is no item on the public page (never "Not in the repo yet"); only a found code shows.
+  assert.ok(!h.some((x) => x.icon === 'code'), JSON.stringify(h));
+  assert.ok(!JSON.stringify(h).includes('Not in the repo'), JSON.stringify(h));
   assert.deepEqual(h.at(-1), { icon: 'start', title: 'Shipping since Oct 19', sub: 'First week on EarnKit' });
   // Builder Codes are a Base step: an Arc project gets no code item, whatever is stored.
   const arc = await builder({ chains: ['arc'], proof: 'github_app' });

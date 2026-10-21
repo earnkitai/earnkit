@@ -122,7 +122,7 @@ export const SAM_SITE: ProfileSite = {
   lastShippedAt: new Date(Date.now() - 72 * HOUR).toISOString(),
   thisWeek: 0,
   highlights: [
-    { icon: 'code', title: 'Base Builder Code', sub: 'Not in the repo yet' },
+    { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' },
     { icon: 'start', title: 'Shipping since Oct 12', sub: 'First week on EarnKit' },
   ],
   standing: null,

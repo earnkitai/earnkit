@@ -194,6 +194,9 @@ test('(h) Task 11: terms section headings are Kaftan; every inline link is 44px 
     for (const a of prose) {
       const cls = /class="([^"]*)"/.exec(a)![1].split(' ');
       for (const c of ['-my-3', 'py-3', 'md:my-0', 'md:py-0']) assert.ok(cls.includes(c), `${c} on ${a}`);
+      // Final fix 5: the padding is the phone's hit area; the invisible box is md only, so neighbouring links never overlap.
+      assert.ok(!cls.some((c) => c.startsWith('after:')), `no phone after: box on ${a}`);
+      assert.ok(cls.includes('md:after:-inset-y-3'), `the md box on ${a}`);
     }
   }
 });

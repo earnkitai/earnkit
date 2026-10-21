@@ -27,8 +27,8 @@ import {
   feeTable,
 } from '../../../lib/earnkit/policy';
 
-/** An inline link: on a phone its box grows to 44px tall (padding cancelled by margin, so the lines do not move). */
-const link = `${INLINE_LINK} inline-block -my-3 py-3 md:my-0 md:py-0`;
+/** An inline link: 44px tall on a phone and up (Button.tsx INLINE_LINK), the lines never move. */
+const link = INLINE_LINK;
 
 /** `aside` sits beside the heading. */
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -125,7 +125,7 @@ export default function PolicySection() {
               href={`https://basescan.org/address/${SAFE_ADDRESS}`}
               target="_blank"
               rel="noopener noreferrer"
-              className={`${INLINE_LINK} block break-all py-3 font-funnel-sans text-sm -my-3 md:my-0 md:py-0 md:text-base after:-inset-y-2`}
+              className={`${INLINE_LINK} !block break-all font-funnel-sans text-sm md:text-base`}
             >
               {SAFE_ADDRESS}
             </a>

@@ -108,13 +108,16 @@ async function liveItem(builderId: number, key: string, hiddenRepo: boolean): Pr
   return { icon: 'live', title: `Live at ${host}`, sub: `Since ${monthYear(new Date(`${r.day}T00:00:00Z`))}` };
 }
 
-/** code: Base projects only, the stored Builder Codes answer for a repo the builder proved through the App; unknown is no item. */
+/**
+ * code: Base projects only, the stored Builder Codes answer for a repo the builder proved through the App. Only a found
+ * code is an item (v3.1 final fix 4): the public page never says "not in the repo"; unknown or not found is no item.
+ */
 async function codeItem(builderId: number, key: string, now: Date): Promise<Highlight | null> {
   const repo = norm(key);
   if (!(await appProvenRepo(builderId, repo))) return null;
   const known = await builderCodesKnown(repo, now);
-  if (!known) return null;
-  return { icon: 'code', title: 'Base Builder Code', sub: known.found ? 'Found in the repo' : 'Not in the repo yet' };
+  if (!known?.found) return null;
+  return { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' };
 }
 
 /** contract: distinct Base addresses over the project's verified contract sources ("base:0x...") and EarnKit's deploys on Base. */

@@ -148,7 +148,8 @@ test('(f) first week, no project, confirming: every card has text; nothing reads
   assert.doesNotMatch(score, /ek-arc|<stop /, 'track only');
   assert.match(score, /aria-label="Shipping score not shown yet"/);
   const t = text(sam);
-  for (const s of ['Week 2 starts Monday', 'Ship by Sunday', '1 week', nextUpdateLine(new Date()), 'First week on EarnKit', 'Not in the repo yet']) assert.ok(t.includes(s), s);
+  for (const s of ['Week 2 starts Monday', 'Ship by Sunday', '1 week', nextUpdateLine(new Date()), 'First week on EarnKit', 'Found in the repo']) assert.ok(t.includes(s), s);
+  assert.ok(!t.includes('Not in the repo'), 'final fix 4: never the negative Builder Code line');
   assert.match(block(sam, 'data-ek-activity'), /border-dashed/);
   const noProject: ProfileData = { ...SAM, project: null, log: [], streak: 0, grid: SAM.grid.map((g) => ({ ...g, on: false })) };
   const noProjectSite: ProfileSite = { ...SAM_SITE, project: null, lastShippedAt: null, highlights: [{ icon: 'start', title: 'On EarnKit since Oct 12', sub: 'No project on the leaderboard yet' }] };

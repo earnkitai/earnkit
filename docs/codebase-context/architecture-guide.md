@@ -6562,7 +6562,9 @@ and as a designer. Screenshots and the rendered replies were in `docs/screenshot
   exported and unused by copy.
 - **M1 Share yes.** `answerShare` with no `project_key` answers the one open offer.
 - **M2 Moment line.** "This week starts at Shipping S: ship code to add +G points, ..." (S the new week's score), so
-  the drop from last week's number reads as the new week.
+  the drop from last week's number reads as the new week. v3.1 F4 replaced the "+G points" tail with the rank:
+  `weekly-target.ts weekStartLine` ends "ship code to pass #k." / "to hold #1." / "to move toward #k.", or "to climb."
+  with no rank.
 - **M6 Badge.** `badge.ts badgeFileOk` (X handle, 1 to 15 of `[A-Za-z0-9_]`, plus ".svg"); the route answers
   `badgeMiss()` for anything else before `unstable_cache` or the database.
 
