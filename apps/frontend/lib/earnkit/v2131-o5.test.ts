@@ -285,7 +285,8 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
   withEnv(ON, async () => {
     const bench = toolDescriptions(true, true).prepare;
     assert.doesNotMatch(bench, /earnkit\.txt|token: <code>/);
-    assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the install link when it needs one\./);
+    // v3.1 (spec 3.4): prepare only drafts, so it says nothing of a token.
+    assert.doesNotMatch(bench, /token/i);
     assert.ok(bench.length < 800, `${bench.length}`);
   }),
 );

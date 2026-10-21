@@ -7093,3 +7093,23 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   exported; `approveWeek` still writes `builder_points` and the page still shows points).
 - The upcoming line (a 4-week streak) shows only when the reply names no fit (no `fits` FundLine), after the no-fit
   line. Task 6's Best fit joins that rule.
+
+## v3.1 P0 Task 10 (spec 3.4, D1): the agent drafts, never submits; confirm only opens Backing
+
+- The agent's tools are find, prepare (draft only, `draft-application.ts`), tell and score. `mcp.ts` registers
+  `confirm` only while `raisingEnabled()` (EARNKIT_RAISING), with `CONFIRM_BACKING_DESCRIPTION` and a strict schema
+  `{ project_id (required), yes?, check?, token?, wallet?, image_url?, image_data?, builder_x?, agent?, signed_in? }`:
+  the coin launch a Backing yes hands over (`coin-moments.ts COIN_YES_NOTE`). No program_id, project, answers,
+  skip_token, contracts, deployer_signature or submitted.
+- `tools.confirm` throws `EntryError(CONFIRM_ENTRY_GONE)` for any `program_id` (an old alias, a direct call) and
+  otherwise is `confirmByProjectId`. Through MCP a program_id is a schema error first ("Unrecognized keys"); with the
+  flag off, "Tool confirm not found". `handlers.confirm_entry` / `record_submission` stay (tell submitted, the
+  by-project_id re-offer); `buildWalletAgain`, `BUILD_WALLET_NOTE`, `SUBMITTED_AGAIN_NOTE`, `withoutTokenLine` are gone.
+- `prepareDescription(buildOn)`: the drafting sentence, the host sentence, and `build: a build_offer yes.` only while
+  deploys are on. No campaign sentence and no token sentence; `toolDescriptions(campaignOpen, buildOn)` no longer
+  varies by campaign. `toolDescriptions().confirm` exists only under the flag; `TOOL_DESCRIPTIONS` always carries it
+  (copy scan).
+- find offers no build: `list_programs` passes `fresh: undefined` (no `build_offer`, no fresh lead line);
+  `presentFirstMessage` has no "Ideas" section (the close keeps "Pick one and I'll start." where a shown program has
+  curated ideas); `bench-find.ts benchView` adds no `idea` FundLine for a builder with no project, so `needsPicks`
+  fills both NEEDS_MAX slots.

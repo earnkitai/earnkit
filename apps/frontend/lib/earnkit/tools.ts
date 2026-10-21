@@ -1221,7 +1221,8 @@ export const handlers = {
       deadline: await takeDeadlineLine(ctx.installationId, myEntries),
       more: more === true,
       // v2.11 T7: the no-repo lead's switches; off (no pick) unless deploys and hosting are on.
-      fresh: freshSwitches(ctx, agent_can_build),
+      // v3.1 (spec 3.4): find offers no build (no build_offer); the no-repo reply names open programs instead.
+      fresh: undefined,
     };
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // after every other read (review minor 11), so nothing after marking it asked can lose the
@@ -2787,8 +2788,11 @@ export const ConfirmInput = z
   })
   .strict()
   .refine((c) => c.program_id !== undefined || c.project_id !== undefined, {
-    message: 'Pass program_id (with project and answers), or project_id for an entry already made.',
+    message: "Pass project_id, as tell coin returned it.",
   });
+
+/** v3.1 (spec 3.4): what confirm says to a program_id (EarnKit drafts; the builder sends the application). */
+export const CONFIRM_ENTRY_GONE = "EarnKit drafts applications now; the builder sends them on the program's site. Call prepare for a draft.";
 
 export const TellToolInput = z
   .object({
@@ -2932,16 +2936,6 @@ function joinReplies(replies: Reply[]): Reply {
   };
 }
 
-/** Fix round 2 (Minor): confirm with submitted that recorded nothing yet. */
-export const SUBMITTED_AGAIN_NOTE =
-  'The builder already submitted on the program site, and that is not saved yet: send submitted again on your next confirm call for this entry.';
-
-/** record_submission's entered line without its token sentence ("Your token: …", "Your token is launching."). Pure; exported for tests. */
-export function withoutTokenLine(text: unknown): unknown {
-  if (typeof text !== 'string') return text;
-  return text.replace(/ Your token(:| is| isn't| didn't)[^\n]*?\.(?=\n|$|;)/, '').replace(/; it joins the builder bonus once it is\./, '.');
-}
-
 type ConfirmArgs = z.infer<typeof ConfirmInput>;
 
 /** Fix round 2 (I-b): a shared client's confirm by project_id (v2.14 final fix: no caller can be verified there). */
@@ -3026,34 +3020,6 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
     ctx,
   )) as Reply;
   return { ...offer, project_id: entry.id, token: { status: 'skipped', fixable: true, ...(offer.token as object | undefined) }, agent_note: PROJECT_REOFFER_NOTE };
-}
-
-/** v2.11 T10: the agent's note when a yes on the build path named a wallet the confirm line didn't show. */
-export const BUILD_WALLET_NOTE =
-  'Nothing launched: this wallet is not the one the confirm line showed the builder. Show show_to_builder as written; ' +
-  'when the builder says yes, call confirm again with yes: true, wallet: shown_wallet and token: token.proposed.';
-
-/**
- * v2.11 T10 (plan 10.3, Review Focus 5): on the build path a yes launches only to the wallet the
- * confirm line showed (the build's wallet first). A yes naming another wallet gets the confirm line
- * again, showing that wallet, and nothing is recorded or launched; the builder's next yes covers it.
- * Null: not this build's entry, or the wallet shown, so confirm goes on as usual. Owner ruling on
- * final fix M4: another wallet is allowed, never unseen: it is shown first, and only a yes to the
- * line that showed it launches to it.
- */
-async function buildWalletAgain(c: ConfirmArgs & { program_id: string; wallet: string }, ctx: ToolContext): Promise<Reply | null> {
-  const build = await readBuild(ctx.installationId);
-  const repoUrl = c.project?.repo_url ?? c.answers?.repo_url;
-  const name = c.project?.name;
-  if (!build?.repo_url || build.program_id !== c.program_id || typeof repoUrl !== 'string' || typeof name !== 'string') return null;
-  if (normalizeRepoUrl(repoUrl) !== normalizeRepoUrl(build.repo_url)) return null;
-  const shown = await readShownOffer(ctx.installationId, c.program_id, offerKey(repoUrl, name)).catch(() => null);
-  if (shown?.wallet && shown.wallet === c.wallet.trim().toLowerCase()) return null;
-  const offer = (await handlers.confirm_entry(
-    defined({ program_id: c.program_id, project: c.project, answers: c.answers, token: c.token, wallet: c.wallet, agent: c.agent }),
-    ctx,
-  )) as Reply;
-  return { ...offer, agent_note: BUILD_WALLET_NOTE };
 }
 
 /** A guide's text without its builder bonus section (guide.ts guideText: sections joined by a blank line). Pure. */
@@ -3151,63 +3117,12 @@ export const tools = {
     return { ...r, show_to_builder: shown, deploy: step.deploy, ...(note && { agent_note: note }) };
   },
 
-  // R15: the builder's yes (or skip the token) to the confirm line; or an entry's token (project_id).
+  // v3.1 (spec 3.4, D1): only the Backing coin launch (project_id, as tell coin returned it). An entry is never made
+  // here any more: a program_id (an older agent, an old alias) is refused with where the application goes now.
   confirm: async (input: unknown, ctx: ToolContext) => {
     const c = ConfirmInput.parse(input);
-    const tokenEdits = c.token ?? {};
-    const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
-    if (c.program_id === undefined) return confirmByProjectId(c as ConfirmArgs & { project_id: number }, ctx);
-    const program = await getProgramRow(c.program_id);
-    // An EarnKit campaign is entered in one step (record_submission).
-    if (program.campaign)
-      return handlers.record_submission(
-        defined({
-          program_id: c.program_id,
-          project: c.project,
-          submission_data: c.answers ?? {},
-          token: c.skip_token ? 'skip' : c.token || Object.keys(image).length > 0 ? { ...tokenEdits, ...image } : undefined,
-          builder_confirmed: c.yes,
-          payout_wallet: c.wallet,
-          contracts: c.contracts,
-          deployer_signature: c.deployer_signature,
-          check_back: c.check || undefined,
-          ...(c.submitted && { builder_submitted: true, external_submission_url: c.submitted.external_submission_url }),
-        }),
-        ctx,
-      );
-    // v2.11 T10: the build path launches only to the wallet its confirm line showed (owner ruling on
-    // final fix M4: another wallet is shown first, never refused, never launched to unseen).
-    if (c.yes && !c.check && c.wallet !== undefined && !ctx.sharedClient) {
-      const again = await buildWalletAgain(c as ConfirmArgs & { program_id: string; wallet: string }, ctx);
-      if (again) return again;
-    }
-    const confirmed = (await handlers.confirm_entry(
-      defined({
-        program_id: c.program_id,
-        project: c.project,
-        answers: c.answers,
-        token: c.token,
-        wallet: c.wallet,
-        agent: c.agent,
-        builder_confirmed: c.yes || c.skip_token ? true : undefined,
-        decision: c.skip_token ? 'skip' : c.yes ? 'go' : undefined,
-        check_back: c.check || undefined,
-      }),
-      ctx,
-    )) as Reply;
-    // Pre-flight P15b (fix round 1, C1): "already submitted" follows the confirmation, never replaces
-    // it. Only once confirm_entry recorded the entry and returned its kit (the builder's yes or skip
-    // to the confirm line they saw, the plain-words check passed) is it marked submitted.
-    if (!c.submitted) return confirmed;
-    // Fix round 2 (Minor): launching, a fixable stop or the confirm line again: not marked yet, so say
-    // to send it again.
-    if (!('kit' in confirmed) || typeof confirmed.project_id !== 'number')
-      return { ...confirmed, agent_note: [confirmed.agent_note, SUBMITTED_AGAIN_NOTE].filter(Boolean).join(' ') };
-    const marked = (await markSubmitted({ program_id: c.program_id, project_id: confirmed.project_id, external_submission_url: c.submitted.external_submission_url }, ctx)) as Reply;
-    // The confirmation's reply (its kit and token) wins; the submitted mark adds its lines, without a
-    // second token line (the confirmation's said it).
-    const joined = joinReplies([confirmed, { ...marked, show_to_builder: withoutTokenLine(marked.show_to_builder) }]);
-    return { ...joined, ...confirmed, show_to_builder: joined.show_to_builder, agent_note: joined.agent_note };
+    if (c.program_id !== undefined) throw new EntryError(CONFIRM_ENTRY_GONE);
+    return confirmByProjectId(c as ConfirmArgs & { project_id: number }, ctx);
   },
 
   // R16: what the builder said: "I submitted", then statements; replies joined.

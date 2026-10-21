@@ -560,7 +560,9 @@ apps/frontend/
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
+    mcp.ts(+test)              v3.1 Task 10: registers find, prepare (draft only), tell, score; confirm only while
+                               EARNKIT_RAISING (CONFIRM_BACKING_DESCRIPTION, project_id required, no entry fields).
+                               v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
                                with the Bench descriptions only; serverInstructions() takes no flag); sponsor_campaign is archived
                                (archive/sponsor-campaigns) and never registered.
                                v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow, until v2.12);
@@ -800,7 +802,9 @@ apps/frontend/
                                v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
                                yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
                                v2.14 T7: pick_up_entries dropped from OLD_TOOL_NAMES (an unknown tool now).
-    tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
+    tools.ts                   v3.1 Task 10: confirm refuses program_id (CONFIRM_ENTRY_GONE), else confirmByProjectId;
+                               find passes fresh: undefined (no build_offer). buildWalletAgain is gone.
+                               v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
                                v2.11 T8: prepare's build (plan S7, prepareBuild: BuildStart / BuildTwist strict,
@@ -2039,3 +2043,9 @@ candidate, investments included, byRelevance, at most FITS_MAX; lead and recordS
 v3.1 P0 Task 4 (F4, fewer words): `bench-reply.ts benchReply` drops the why sentence, Originality and the points line,
 and shows the upcoming line only with no `fits` line; `bench-find.ts benchView` no longer reads `pointsTotal`. New:
 `v31-reply-trim.test.ts`.
+
+v3.1 P0 Task 10 (spec 3.4, D1, the agent drafts, never submits): `mcp.ts` (`prepareDescription(buildOn)` draft-only,
+`CONFIRM_BACKING_DESCRIPTION`, `confirm` registered only under `raisingEnabled()` with the Backing-only strict schema,
+`toolDescriptions().confirm` only under the flag, `TOOL_DESCRIPTIONS` keeps it), `tools.ts` (`CONFIRM_ENTRY_GONE`,
+confirm refuses `program_id`, find `fresh: undefined`), `present.ts` (no ideas section; `ideaLines` gone),
+`bench-find.ts` (no `idea` FundLine for no_project; `noProjectIdea`/`ideaFitsOffer` gone). New: `v31-mcp-surface.test.ts`.

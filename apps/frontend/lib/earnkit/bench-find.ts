@@ -22,7 +22,7 @@ import { xSignInEnabled } from './builder-score-flag';
 import { outcomeLine } from './outcomes';
 import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
-  biggestPick, earnPrize, FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
+  earnPrize, FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
 import { byDeadline, byPrize, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
@@ -112,13 +112,6 @@ type Reply = Record<string, unknown>;
 /** The one project's builder_projects row, as the Bench sees it (confirmed: benchConfirmedSql). */
 type MainRow = { key: string; name: string; kind: string; shipped: boolean; weeks: number; streak: number; confirmed: boolean; site: boolean; chains: string[] };
 
-/** v2.13.1 O2 (B1): an idea for a builder with no project never needs a live product or a repo. Pure. */
-export const noProjectIdea = (c: Card) => c.needs_repo === false && c.tag !== NEEDS_LIVE_PRODUCT;
-/**
- * v2.13.1 O5 N6 (P5): an idea for a builder with no project: only with the program's own pitch (never
- * a made-up "a small app"). v2.14 A18: find offers no build, so no starter narrows it. Pure.
- */
-export const ideaFitsOffer = (c: Card) => noProjectIdea(c) && Boolean(c.pitch?.for);
 /** "Base", "Robinhood Chain". Pure. */
 const chainName = (c: string) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c);
 /**
@@ -478,13 +471,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   if (project && !taken) {
     fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, prize: f.prize, when: f.when, why: f.why }));
     for (const f of o.fits.slice(0, 3)) named.add(f.program_id);
-  } else if (!project) {
-    // v2.13.1 O2 (B1): never an idea that needs a live product or a repo for a builder with no project.
-    // O5 N6: only a program with its own pitch.
-    const idea = biggestPick(o.cards.filter((c) => ideaFitsOffer(c)), now, o.skip, null);
-    if (idea) named.add(idea.id);
-    fund = idea ? [{ kind: 'idea', who: idea.pitch?.who ?? idea.title, prize: earnPrize(idea), for: idea.pitch!.for! }] : [];
   }
+  // v3.1 (spec 3.4): no idea line for a builder with no project (EarnKit offers no build); needsPicks fills both slots.
   // v2.13.3 (2), v2.14 spec 4: "Ways to get funded" always shows (it's the hook): with no project, one not yet
   // counted or one another person holds, up to NEEDS_MAX open programs in all, each with what it needs. Never a
   // fit claimed. R12: a ranked project gets only its fits (none: noFitLine).

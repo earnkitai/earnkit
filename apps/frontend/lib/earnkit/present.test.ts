@@ -154,7 +154,7 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
   noEmoji(text);
 });
 
-test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped by program (2 each, 6 in all), build one', () => {
+test('v2.5 §1 golden (b), v3.1 (spec 3.4): no repos: open money ranked by prize, no ideas (EarnKit offers no build), pick one', () => {
   const ideas = (p: string) => [`${p} idea one`, `${p} idea two`, `${p} idea three`];
   const text = presentFirstMessage(msg({
     cards: [
@@ -167,14 +167,14 @@ test('v2.5 §1 golden (b): no repos: open money ranked by prize, ideas grouped b
   assert.equal(text, [
     '$5.5K+ in prizes open right now.',
     '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |',
-    "Ideas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea one\n- Arc Microgrants: Arc idea two\n- Tiny Bounty: Tiny idea one\n- Tiny Bounty: Tiny idea two",
     `Pick one and I'll start.`,
   ].join('\n\n'));
   noEmoji(text);
   // A GitHub user with no repos counts as no repo.
   const none = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] } }));
   assert.match(none, /^\$500 in prizes open right now\.\n\n/);
-  assert.match(none, new RegExp(`\\n\\nIdeas I can build:\\n- Arc Microgrants: Arc idea\\n\\nPick one and I'll start\\.$`));
+  assert.ok(none.endsWith("|\n\nPick one and I'll start."), none);
+  assert.doesNotMatch(none, /Ideas|Arc idea/);
   assert.doesNotMatch(none, /None of your/);
   // Honest offer rules still win: keep going, and chat-only agents.
   assert.match(
@@ -201,7 +201,7 @@ test('v2.5 §1 golden (c): a program without a per-winner amount is not counted 
   assert.doesNotMatch(unknown, /\$0/);
 });
 
-test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could win", ideas, pick one', () => {
+test('v2.6 §1, v3.1: no repo and no GitHub user: "$X is open right now", "You could win", no ideas, pick one', () => {
   const text = presentFirstMessage(msg({
     cards: [
       { ...base, ideas: ['Base idea one', 'Base idea two', 'Base idea three'] },
@@ -215,7 +215,7 @@ test('v2.6 §1: no repo and no GitHub user: "$X is open right now", "You could w
   assert.match(text, /\| Program \| You could win \| Difficulty \| Ends \|/);
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14, 11:59 PM ET \|/);
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
-  assert.match(text, /\nIdeas I can build:\n- Base Builder Grant Program: Base idea one\n- Base Builder Grant Program: Base idea two\n- Arc Microgrants: Arc idea\n/);
+  assert.doesNotMatch(text, /Ideas|idea one/);
   // Ruling H8: "Pick one" names no program, so no bonus line.
   assert.ok(text.endsWith("\n\nPick one and I'll start."), text);
   assert.doesNotMatch(text, /Builder bonus/);
@@ -253,13 +253,13 @@ test('fix round 1, finding 1: "You could" with no ideas still closes with "Pick 
   assert.doesNotMatch(text, /qualify/);
 });
 
-test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos found: "$X is open right now" plus ideas', () => {
+test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos found: "$X is open right now" (v3.1: no ideas)', () => {
   const text = presentFirstMessage(msg({
     cards: [{ ...arc, ideas: ['Arc idea'] }],
     repos: { error: 'GitHub said no' },
   }));
   assert.match(text, /^Couldn't read your repos: GitHub said no\n\n\$500 in prizes open right now\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
-  assert.match(text, /\nIdeas I can build:\n- Arc Microgrants: Arc idea\n/);
+  assert.doesNotMatch(text, /Ideas|Arc idea/);
   assert.ok(text.endsWith(`Pick one and I'll start.`));
   assert.doesNotMatch(text, /You could/);
 });
@@ -274,10 +274,13 @@ test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sente
   assert.match(text, /\n\n[^\n]*can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\.$/);
 });
 
-test('fix round 1: ideas cap at 6 in all, 2 per program', () => {
+test('v3.1 (spec 3.4): no ideas section, whatever ideas the programs carry, for a builder or a chat-only agent', () => {
   const many = Array.from({ length: 5 }, (_, i) => ({ ...tiny, id: `p${i}`, title: `P${i}`, ideas: ['a', 'b', 'c'] }));
-  const text = presentFirstMessage(msg({ cards: many }));
-  assert.match(text, new RegExp(`Ideas I can build:\\n- P0: a\\n- P0: b\\n- P1: a\\n- P1: b\\n- P2: a\\n- P2: b\\n\\nPick one and I'll start\\.$`));
+  for (const agentCanBuild of [true, false]) {
+    const text = presentFirstMessage(msg({ cards: many, agentCanBuild }));
+    assert.doesNotMatch(text, /Ideas|- P0: a/, text);
+  }
+  assert.ok(presentFirstMessage(msg({ cards: many })).endsWith("|\n\nPick one and I'll start."));
 });
 
 test('v2.5: no open EarnKit campaign, no campaign table (Campaign #1 is closed)', () => {

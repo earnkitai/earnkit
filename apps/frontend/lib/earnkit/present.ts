@@ -208,8 +208,6 @@ export const APPLIED_OUTSIDE = 'applied outside EarnKit';
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
 const MAX_OTHERS = 5;
-/** Ideas under "Ideas I can build"/"Ideas for these programs" in all (v2.6 §1). */
-const MAX_IDEAS = 6;
 
 /** "0.42" from wei, two decimals, rounded down. Exported for alerts.ts (the bonus win amount). */
 export const eth = (wei: bigint) => {
@@ -223,25 +221,6 @@ export { NO_CELL };
 /** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or NO_CELL with none. Pure. */
 export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
   return c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL;
-}
-
-/** Ideas per program in the ideas list (fix round 1, ruling 3). */
-const IDEAS_PER_PROGRAM = 2;
-
-/**
- * One line per idea, in table order, its program title on every line: "- Arc Microgrants: <idea>".
- * At most 2 ideas per program and 6 ideas in all (v2.6 §1).
- */
-function ideaLines(cards: Card[]) {
-  const lines: string[] = [];
-  let left = MAX_IDEAS;
-  for (const c of cards) {
-    const ideas = (c.ideas ?? []).slice(0, Math.min(IDEAS_PER_PROGRAM, left));
-    for (const idea of ideas) lines.push(`- ${c.title}: ${idea}`);
-    left -= ideas.length;
-    if (left === 0) break;
-  }
-  return lines;
 }
 
 /** Days until a deadline if it's within 3 days, else null. */
@@ -907,10 +886,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     );
   }
 
-  // No repo to match: curated ideas for the programs shown (never generated at request time).
-  const ideas = noMatch(m.repos) ? ideaLines(shown) : [];
-  if (ideas.length > 0)
-    sections.push(`${m.agentCanBuild ? 'Ideas I can build:' : 'Ideas for these programs:'}\n${ideas.join('\n')}`);
+  // v3.1 (spec 3.4): no ideas section (EarnKit offers no build); the open programs are the reply.
   const sponsored = m.cards.filter((c) => c.sponsored);
   if (sponsored.length > 0)
     sections.push(
@@ -922,7 +898,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
   // The one closing offer.
-  const close = offer(m, byId, rows, ideas.length > 0, entered);
+  // v3.1 (spec 3.4): the ideas list is gone; the close a shown program with curated ideas earned stays the same.
+  const close = offer(m, byId, rows, noMatch(m.repos) && shown.some((c) => (c.ideas ?? []).length > 0), entered);
   if (!given.holdQuestion) sections.push(close.text);
   return done();
 }
@@ -972,8 +949,7 @@ type Offer = {
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
  * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
  * without forms; a fit that needs forms, saying what only they can give; with no repo known (and
- * no open campaign), "Pick one and I'll start." (task 2 fix round 1, Ruling 11) whether or not
- * ideas were shown; with repos known and no fit, build something new for the top program (without
+ * no open campaign), "Pick one and I'll start." (task 2 fix round 1, Ruling 11) when a shown program carries curated ideas; with repos known and no fit, build something new for the top program (without
  * forms first, Ruling 28); with a GitHub user or repo list given/remembered but no repo known,
  * check them; else wait for results or news.
  */
@@ -981,7 +957,7 @@ function offer(
   m: FirstMessage,
   byId: Map<string, Card>,
   rows: Fit[],
-  ideasShown: boolean,
+  withIdeas: boolean,
   entered: Set<string>,
 ): Offer {
   // v2.8.1 §B7, §B9: never an investment (it shows only in the table), never a program entered.
@@ -1016,7 +992,7 @@ function offer(
     return { text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`, campaign: false };
   if (asTheyAre)
     return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
-  if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
+  if (withIdeas) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   const fresh = curated.filter(offerable);
   // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no
