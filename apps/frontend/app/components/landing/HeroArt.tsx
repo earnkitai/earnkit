@@ -67,7 +67,10 @@ export default function HeroArt() {
       <img
         src="/art/hero-eckersberg-1600.jpg"
         srcSet="/art/hero-eckersberg-800.jpg 800w, /art/hero-eckersberg-1600.jpg 1600w, /art/hero-eckersberg-3200.jpg 3200w"
-        sizes="(min-width: 1240px) 1192px, calc(100vw - 32px)"
+        // object-cover fills the hero by its height at every width (the hero is wider than 1600:1036 nowhere):
+        // 776 * 1600/1036 = 1198px from md, 560 * 1600/1036 = 865px on a phone. Sizing by the column width
+        // instead picked a file 1.6 to 2.2x too small on phones (blur).
+        sizes="(min-width: 768px) 1198px, 865px"
         fetchPriority="high"
         decoding="async"
         alt=""
@@ -97,7 +100,7 @@ export default function HeroArt() {
             cy="500"
             r="300"
             fill="url(#ek-sunset)"
-            className="mix-blend-screen opacity-0 transition-opacity duration-700 ease-out"
+            className="mix-blend-screen opacity-0 motion-safe:transition-opacity motion-safe:duration-700 motion-safe:ease-out"
           />
         </g>
       </svg>

@@ -4,7 +4,7 @@ import Steps from './components/landing/Steps';
 import Activity from './components/landing/Activity';
 import Opportunities from './components/landing/Opportunities';
 import { PAGE_COL_WIDE } from './components/site/ui';
-import type { Landing } from '../lib/earnkit/landing';
+import { landingPrograms, type Landing } from '../lib/earnkit/landing';
 
 /**
  * The homepage (v3.1, Landing board) on the deep page colour: the hero (painting, chip, title, CTA, agent marks),
@@ -20,7 +20,7 @@ export default function HomeView({ landing }: { landing: Landing | null }) {
         <Hero chip={landing?.open_chip ?? null} />
         <Steps />
         {landing ? <Activity cards={landing.activity} /> : null}
-        {landing ? <Opportunities tiles={landing.tiles} /> : null}
+        {landing ? <Opportunities programs={landingPrograms(landing.tiles)} /> : null}
       </div>
       <Footer />
     </div>

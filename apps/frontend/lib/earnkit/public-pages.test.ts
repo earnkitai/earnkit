@@ -72,6 +72,11 @@ test('fix round 1, Important 4: the Hero never imports the server money modules 
     // Final review M1: only no-cell.ts, which imports nothing, may be shared at runtime.
     assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\/(?!no-cell';)/, f);
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'no-cell.ts'), 'utf8'), /^import /m, 'no-cell.ts stays import-free');
+  // v3.1 Task 6 fix round 1: the landing's program cards import no db-backed module at runtime (HomeView picks the
+  // programs with landing.ts landingPrograms); only types and the pure site-copy.ts (which imports weeks and site-theme).
+  const opp = readFileSync(join(import.meta.dirname, '../../app/components/landing/Opportunities.tsx'), 'utf8');
+  assert.doesNotMatch(opp, /import (?!type)[^;]*lib\/earnkit\/(?!site-copy';)/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'site-copy.ts'), 'utf8'), /^import (?!type)[^;]*from '\.\/(?!weeks'|site-theme')/m, 'site-copy stays pure');
 });
 
 test('fix round 1: a logo path that is not a local programs file renders the monogram', () => {
@@ -252,10 +257,11 @@ test('3.5 v2.8, v3.1: zero tiles render the title and the foot line; a failed re
   assert.ok(!text(failed).includes(EARN_TITLE) && !text(failed).includes(EARN_FOOT));
 });
 
-test('3.6 v3.1: the copy-review shim (sections/ProgramCards) renders the landing\'s cards and the money line', () => {
+test('3.6 v3.1: the copy-review shim (sections/ProgramCards) renders every tile as the landing\'s cards, and the money line', () => {
   const shim = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text }));
   assert.ok(text(shim).includes(homeFixture.open_text!));
-  assert.deepEqual(cardsOf(shim).map((c) => text(c).trim()), cardsOf(home(homeFixture)).map((c) => text(c).trim()));
+  assert.equal(cardsOf(shim).length, homeFixture.tiles.length, 'every tile it is given');
+  assert.deepEqual(cardsOf(shim).slice(0, 4).map((c) => text(c).trim()), cardsOf(home(homeFixture)).map((c) => text(c).trim()));
   // Nothing under app/ renders it.
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../app/HomeView.tsx'), 'utf8'), /ProgramCards/);
 });

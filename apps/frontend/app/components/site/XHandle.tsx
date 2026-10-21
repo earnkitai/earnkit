@@ -14,7 +14,7 @@ export default function XHandle({ handle, tone = 'card', className = '' }: { han
       href={`https://x.com/${encodeURIComponent(h)}`}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex min-w-0 max-w-full items-center gap-[5px] text-[13px] transition-colors hover:text-s-text ${TONES[tone]} ${className}`.trim()}
+      className={`inline-flex min-w-0 max-w-full items-center gap-[5px] text-[13px] hover:text-s-text motion-safe:transition-colors ${TONES[tone]} ${className}`.trim()}
     >
       <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true" className="shrink-0">
         <path

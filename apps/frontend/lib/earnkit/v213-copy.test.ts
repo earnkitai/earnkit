@@ -119,10 +119,13 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   // v3.1 Task 6: the landing's words are site-copy's (the v3 hero, BenchTop and FeedRows left with their sections).
   const c = await import('./site-copy');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  // The owner-approved v3.1 Landing board names commits and the repo ("From commit to capital", "Pick one repo.",
-  // "279 commits"), so those two words of the v2.13 Bench rule are allowed on the landing; every other banned word is not.
-  const allowed = [String(/\bcommits?\b/i), String(/\brepos?\b/i)];
-  const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => !allowed.includes(w));
+  // The owner-approved v3.1 Landing board names commits ("From commit to capital", "279 commits"), so that word of the
+  // v2.13 Bench rule is allowed on the landing. "repo" is allowed only inside the Connect step's own text ("Pick one
+  // repo."): the step is removed before the scan, so a repo word anywhere else still fails. Every other word is checked.
+  const commits = String(/\bcommits?\b/i);
+  const banned = (t: string, exempt: string[]) => bannedInBench(t.split(c.STEPS[0].text).join(' '), exempt).filter((w) => w !== commits);
+  assert.ok(bannedInBench(c.STEPS[0].text, EXEMPT).includes(String(/\brepos?\b/i)), 'the Connect step is the one repo word');
+  assert.ok(banned('Pick your repo.', EXEMPT).length > 0, 'repo outside the Connect step still fails');
   for (const t of [c.HERO_TITLE, c.HERO_SUB, c.CTA_INSTALL, c.STEPS_TITLE, ...c.STEPS.flatMap((s) => [s.title, s.text]), c.ACTIVITY_TITLE, c.ACTIVITY_MORE, c.ACTIVITY_INVITE_TITLE, c.ACTIVITY_INVITE_TEXT, c.EARN_TITLE, c.EARN_FOOT, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(banned(t, EXEMPT), [], t);
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false, score: 62, commits: 12 };

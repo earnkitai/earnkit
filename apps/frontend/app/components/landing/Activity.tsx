@@ -9,8 +9,8 @@ import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { ACTIVITY_INVITE_TEXT, ACTIVITY_INVITE_TITLE, ACTIVITY_MORE, ACTIVITY_TITLE, CTA_INSTALL } from '../../../lib/earnkit/site-copy';
 import { weekLabel } from '../../../lib/earnkit/weeks';
 
-/** A card: the neutral gradient, a 4px lift on hover (none under reduced motion). */
-const CARD = `${CARD_NEUTRAL} flex min-h-[230px] min-w-0 flex-col gap-3.5 p-[26px] transition-[border-color,transform] motion-safe:hover:-translate-y-1`;
+/** A card: the neutral gradient, the border brightening and a 4px lift on hover, both only without reduced motion. */
+const CARD = `${CARD_NEUTRAL.replace('transition-colors duration-200', 'motion-safe:transition-[border-color,transform] motion-safe:duration-200')} flex min-h-[230px] min-w-0 flex-col gap-3.5 p-[26px] motion-safe:hover:-translate-y-1`;
 
 /** "EarnKit · Week of Oct 12 · 279 commits"; no commits part at 0. Pure. */
 export function activityMeta(c: Pick<FeedCard, 'project' | 'week' | 'commits'>): string {
@@ -20,7 +20,7 @@ export function activityMeta(c: Pick<FeedCard, 'project' | 'week' | 'commits'>):
 }
 
 /** The week's words: the summary, else the builder's note, else the fact chips. */
-const words = (c: FeedCard): string => c.summary ?? c.text ?? c.chips.join(' · ');
+const words = (c: FeedCard): string => c.summary || c.text || c.chips.join(' · ');
 
 function UpdateCard({ c }: { c: FeedCard }) {
   const body = words(c);
@@ -29,11 +29,11 @@ function UpdateCard({ c }: { c: FeedCard }) {
       <div className="flex items-center gap-3">
         <Avatar src={c.avatar} handle={c.handle} className="h-11 w-11 text-base" />
         <div className="flex min-w-0 flex-1 flex-col items-start">
-          {/* 44px tap targets on a phone without moving the lines apart (negative margins). */}
-          <Link href={pagePath(c.handle)} className="-my-[11px] inline-flex min-h-11 max-w-full items-center text-[15px] font-semibold md:my-0 md:min-h-0">
+          {/* 44px tap targets on a phone, stacked edge to edge (no overlap): each pulls in only its outer side. */}
+          <Link href={pagePath(c.handle)} className="-mt-[11px] inline-flex min-h-11 max-w-full items-center text-[15px] font-semibold md:mt-0 md:min-h-0">
             <span className="truncate">{c.name}</span>
           </Link>
-          <XHandle handle={c.handle} className="-my-[13px] min-h-11 md:my-0 md:min-h-0" />
+          <XHandle handle={c.handle} className="-mb-[13px] min-h-11 md:mb-0 md:min-h-0" />
         </div>
         {c.score !== null ? <ScoreText score={c.score} size={32} className="shrink-0" /> : null}
       </div>
@@ -51,7 +51,7 @@ function InviteCard() {
       <p className="text-[15px] leading-[1.6] text-s-card-body">{ACTIVITY_INVITE_TEXT}</p>
       <InstallButton
         label={CTA_INSTALL}
-        className="mt-auto inline-flex min-h-11 items-center rounded-full bg-s-light px-6 text-[15px] font-bold text-s-ink transition-colors duration-200 hover:bg-s-light-hover"
+        className="mt-auto inline-flex min-h-11 items-center rounded-full bg-s-light px-6 text-[15px] font-bold text-s-ink hover:bg-s-light-hover motion-safe:transition-colors motion-safe:duration-200"
       />
     </article>
   );
@@ -69,7 +69,7 @@ export default function Activity({ cards }: { cards: FeedCard[] }) {
         <h2 id="activity-title" className={H2_SITE}>
           {ACTIVITY_TITLE}
         </h2>
-        <Link href="/leaderboard" className="inline-flex min-h-11 items-center text-[15px] text-s-muted transition-colors duration-200 hover:text-s-text md:min-h-0">
+        <Link href="/leaderboard" className="inline-flex min-h-11 items-center text-[15px] text-s-muted hover:text-s-text motion-safe:transition-colors motion-safe:duration-200 md:min-h-0">
           {ACTIVITY_MORE}
         </Link>
       </div>

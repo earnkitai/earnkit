@@ -155,6 +155,17 @@ test('(c) Activity: 3 cards, names to /<handle>, x.com links, score colour by ba
   assert.ok(text(cards[2]).includes('EarnKit · Week of Oct 12 '), 'meta');
   assert.doesNotMatch(text(cards[2]), /Week of Oct 12 · /, 'commits 0: no commits part');
   assert.match(cards[0], /<img[^>]*src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/a_normal\.jpg"/, 'the X photo');
+  // Fix round 1: an empty summary falls back to the text.
+  const blank = section(html({ ...LANDING, activity: [card(1, { summary: '', text: 'The note.' })] }), 'activity');
+  assert.ok(text(blank).includes('The note.'));
+  // Fix round 1: the name and the handle are each a 44px phone target, stacked without overlapping (each pulls in its outer side only).
+  const name = cards[0].match(/<a [^>]*href="\/jenilt"[^>]*class="([^"]*)"/)?.[1] ?? cards[0].match(/<a [^>]*class="([^"]*)"[^>]*href="\/jenilt"/)?.[1] ?? '';
+  const handle = cards[0].match(/<a [^>]*href="https:\/\/x\.com\/jenilt"[^>]*class="([^"]*)"/)?.[1] ?? '';
+  for (const [cls, pull] of [[name, '-mt-[11px]'], [handle, '-mb-[13px]']] as const) {
+    const c = cls.split(' ');
+    assert.ok(c.includes('min-h-11') && c.includes(pull), cls);
+    assert.ok(!c.some((x) => /^-my-|^-mb-/.test(x) && x !== pull) && !c.some((x) => /^-mt-/.test(x) && x !== pull), cls);
+  }
 
   const noScore = section(html({ ...LANDING, activity: [card(1, { score: null }), card(2), card(3)] }), 'activity').split('<article')[1];
   assert.doesNotMatch(noScore, /text-s-(good|mid|low)-text/, 'no score span');
@@ -242,7 +253,8 @@ test('(g) the hero painting: srcset of the three files, fetchpriority high; the 
   const img = h.match(/<img[^>]*hero-eckersberg[^>]*>/)?.[0] ?? '';
   for (const w of [800, 1600, 3200]) assert.ok(img.includes(`/art/hero-eckersberg-${w}.jpg ${w}w`), `${w}w`);
   assert.match(img, /fetchpriority="high"/i);
-  assert.match(img, /sizes="\(min-width: 1240px\) 1192px, calc\(100vw - 32px\)"/);
+  // Fix round 1: object-cover fills the hero by its height, so the painting renders 1198px wide from md, 865px on a phone.
+  assert.match(img, /sizes="\(min-width: 768px\) 1198px, 865px"/);
   assert.match(img, /alt=""/);
   const board = read('../../docs/design-docs-and-implementation-plans/v3.1-site-boards/Landing.dc.html');
   const d = board.match(/<clipPath id="ekArches"><path d="([^"]+)"/)?.[1];
@@ -272,4 +284,11 @@ test('(h) the landing colours are SITE tokens: the new card text pairs pass 4.5:
     assert.ok(contrast(SITE[t], SITE[b]) >= 4.5, `${t} on ${b}: ${contrast(SITE[t], SITE[b]).toFixed(2)}`);
   for (const f of ['Hero', 'HeroArt', 'Steps', 'Activity', 'Opportunities'])
     assert.doesNotMatch(read(`app/components/landing/${f}.tsx`), /#[0-9a-f]{3,8}\b|rgba?\(/i, f);
+});
+
+test('(i) fix round 1: every landing transition runs only without reduced motion (motion-safe:)', () => {
+  const h = html({ ...LANDING, activity: [card(1)] }).split('<footer')[0];
+  for (const m of h.matchAll(/class="([^"]*)"/g))
+    for (const c of m[1].split(' ')) assert.ok(!/^(transition|duration-|ease-)/.test(c), `bare ${c} in: ${m[1]}`);
+  assert.match(h, /motion-safe:transition-\[border-color,transform\]/, 'the Activity card');
 });

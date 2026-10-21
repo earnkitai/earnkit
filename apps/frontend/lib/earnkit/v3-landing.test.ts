@@ -123,15 +123,15 @@ test('(i) the install modal: v3.1 SITE sheet (panel, 32px radius, scrim), a bott
 
 test('(j) Opportunities: one link per open program to its guide, with its title, big number, kind and when', () => {
   const tile = { ...homeFixture.tiles[0], when: 'Closes Nov 2', kind: 'hackathon' };
-  const h = html(React.createElement(Opportunities, { tiles: [tile] }));
+  const h = html(React.createElement(Opportunities, { programs: [tile] }));
   assert.equal((h.match(/<a /g) ?? []).length, 1);
   assert.match(h, /<a [^>]*href="\/programs\/colosseum-worlds-fair"/);
   // Named by its content (title, award), never an aria-label that hides it.
   assert.doesNotMatch(h, /<a [^>]*aria-label=/);
   const t = text(h);
   for (const s of ["Crypto World's Fair Hackathon", '$30K', 'hackathon', 'Closes Nov 2']) assert.ok(t.includes(s), s);
-  // An upcoming program is not on the landing.
-  assert.doesNotMatch(html(React.createElement(Opportunities, { tiles: [{ ...tile, status: 'upcoming' as const }] })), /<a /);
+  // An upcoming program is not on the landing (HomeView picks landingPrograms).
+  assert.doesNotMatch(page({ ...full, tiles: [{ ...tile, status: 'upcoming' as const }] }), /href="\/programs\/colosseum-worlds-fair"/);
 });
 
 test('(l) the landing cache key moved with the v3.1 Landing shape and names the raising flag only', async () => {

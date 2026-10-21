@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { monogram } from '../sections/ProgramLogo';
 import { H2_SITE } from '../site/ui';
-import { landingPrograms, type Tile } from '../../../lib/earnkit/landing';
+import type { Tile } from '../../../lib/earnkit/landing';
 import { EARN_FOOT, EARN_TITLE } from '../../../lib/earnkit/site-copy';
 
 /** The four card looks in order (Landing board): blue, step, rust, step; each with its secondary text colour. */
@@ -35,11 +35,11 @@ function Logo({ t }: { t: Tile }) {
 
 /**
  * "Earning opportunities" (Landing board, W2), the `#earn` anchor (the hero chip and /programs land here): the
- * first four open programs (landingPrograms), each card to its guide. The big number is the per-winner max
+ * programs HomeView chose (landingPrograms: the first four open), each card to its guide. It imports no
+ * db-backed module at runtime (only types and the pure site-copy), so it stays safe to share. The big number is the per-winner max
  * (`tile.big`, S2), else the tile's prize text smaller. No open program: the title and the foot line only.
  */
-export default function Opportunities({ tiles }: { tiles: Tile[] }) {
-  const shown = landingPrograms(tiles);
+export default function Opportunities({ programs: shown }: { programs: Tile[] }) {
   return (
     <section id="earn" aria-labelledby="earn-title" className="flex scroll-mt-6 flex-col gap-8">
       <h2 id="earn-title" className={`${H2_SITE} px-2`}>
@@ -53,7 +53,7 @@ export default function Opportunities({ tiles }: { tiles: Tile[] }) {
               <Link
                 key={t.id}
                 href={`/programs/${t.id}`}
-                className={`flex min-h-[290px] min-w-0 flex-col gap-2 rounded-[32px] border p-[26px] text-s-text transition-transform duration-200 motion-safe:hover:-translate-y-1 ${look.card}`}
+                className={`flex min-h-[290px] min-w-0 flex-col gap-2 rounded-[32px] border p-[26px] text-s-text motion-safe:transition-transform motion-safe:duration-200 motion-safe:hover:-translate-y-1 ${look.card}`}
               >
                 <span className="flex items-center justify-between gap-3">
                   <Logo t={t} />

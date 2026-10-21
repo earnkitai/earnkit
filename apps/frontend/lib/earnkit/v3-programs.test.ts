@@ -27,7 +27,6 @@ import { fileCards } from './fixtures/fresh-build';
 import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import Opportunities from '../../app/components/landing/Opportunities';
 import HomeView from '../../app/HomeView';
 
 (globalThis as { React?: typeof React }).React = React;
@@ -86,7 +85,7 @@ test('(a) an upcoming program is listed with "not open yet", never a fit, never 
   assert.equal(openMoneyUsd([c]), 0, 'never in the total');
   // v3.1 W2: the tile says "Not open yet" and the landing's cards leave it out (open programs only).
   assert.equal(tile?.when, 'Not open yet');
-  assert.doesNotMatch(renderToStaticMarkup(React.createElement(Opportunities, { tiles: [tile!] })), new RegExp(`href="/programs/${id}"`));
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(HomeView, { landing: { ...landingFrom(cards, stats, new Date()), tiles: [tile!] } })), new RegExp(`href="/programs/${id}"`));
 });
 
 test('(b) tile order: active first; Base, then any chain, then the rest; grants before investments; dated before rolling', () => {

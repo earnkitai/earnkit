@@ -9,7 +9,7 @@ const SHADE =
 
 /** The white CTA: a soft warm glow at rest; on hover a 1px lift (not under reduced motion) and a white ring. */
 const CTA =
-  'mt-1.5 inline-flex h-[52px] items-center rounded-full bg-s-light px-8 text-[16px] font-bold text-s-ink shadow-[0_18px_60px_var(--ek-s-cta-glow)] transition-[box-shadow,transform] duration-[240ms] ease-out hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_70px_var(--ek-s-cta-glow-hover)] motion-safe:hover:-translate-y-px md:h-14';
+  'mt-1.5 inline-flex h-[52px] items-center rounded-full bg-s-light px-8 text-[16px] font-bold text-s-ink shadow-[0_18px_60px_var(--ek-s-cta-glow)] motion-safe:transition-[box-shadow,transform] motion-safe:duration-[240ms] motion-safe:ease-out hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_70px_var(--ek-s-cta-glow-hover)] motion-safe:hover:-translate-y-px md:h-14';
 
 /**
  * The landing hero (Landing board): Eckersberg's painting with its arch light (HeroArt), the money chip
@@ -29,7 +29,7 @@ export default function Hero({ chip }: { chip: string | null }) {
         {chip ? (
           <a
             href="#earn"
-            className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-chip px-4 text-[14px] text-s-chip-text backdrop-blur-md transition-colors duration-200 hover:bg-s-chip-line md:h-9"
+            className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-chip px-4 text-[14px] text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:h-9"
           >
             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-s-rust-light shadow-[0_0_10px_var(--ek-s-rust-light)]" />
             {chip}
