@@ -248,6 +248,11 @@ apps/frontend/
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
                                aria-current), useReducedMotion (client)
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
+  lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
+                               thisWeekCommits (commit_counts via weekCounts), highlights (W8: live, Base Builder Code,
+                               contracts on Base, won/applied, shipping since), standingPill (Top N% from RANK_MIN_POOL),
+                               backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
+                               Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
   public/art/                  hero-eckersberg-{800,1600,3200}.jpg, foot-panini-{700,1400,2800}.jpg (pre-sized, plain srcSet)
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)

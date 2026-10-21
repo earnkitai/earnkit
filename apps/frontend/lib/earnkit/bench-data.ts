@@ -119,7 +119,11 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
 /** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean };
+export type ProfileCard = {
+  week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean;
+  /** v3.1 site: the week's commits EarnKit checked (facts.shipped_code.n), set only from 1. */
+  commits?: number;
+};
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
   coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
@@ -209,7 +213,12 @@ export function logCards(rows: { week: string; text: string | null; summary?: st
       // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
       const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
       const start = facts.started ? [STARTED_CHIP, ...own] : [];
-      out.push({ week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+      const n = Number(facts.shipped_code?.n ?? 0);
+      const commits = Number.isFinite(n) ? Math.floor(n) : 0;
+      out.push({
+        week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), ...(commits > 0 && { commits }),
+        chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])],
+      });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;

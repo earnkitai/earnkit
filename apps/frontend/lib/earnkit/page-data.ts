@@ -188,30 +188,39 @@ async function programEntries(builderId: number) {
  * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project.
  */
 async function toldApplied(builderId: number) {
-  return sql()<{ title: string }[]>`
-    SELECT DISTINCT g.title FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
+  return sql()<{ title: string; at: Date }[]>`
+    SELECT g.title, max(s.at) AS at FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
-    ORDER BY g.title`;
+    GROUP BY g.title ORDER BY g.title`;
 }
 /** A program on the Project tab: won (announced only), else applied (submitted, or the builder said so). */
 export type ProgramLabel = { title: string; won: boolean; applied: boolean };
 /** "Won X", "Applied to X", else nothing (an entry never submitted has no label). Pure. */
 export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${g.title}` : g.applied ? `Applied to ${g.title}` : null);
-/** The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). Pure. */
-const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: string[] = []): ProgramLabel[] => {
+/**
+ * The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). `at`: the
+ * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). Pure.
+ */
+const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date }[] = []): (ProgramLabel & { at: Date })[] => {
   const k = norm(key);
-  const programs = new Map<string, { won: boolean; applied: boolean }>();
-  const add = (title: string, won: boolean, applied: boolean) => {
+  const programs = new Map<string, { won: boolean; applied: boolean; at: Date }>();
+  const add = (title: string, won: boolean, applied: boolean, at: Date) => {
     const was = programs.get(title);
-    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied });
+    // The date comes from a row that earns the label (an entry never submitted dates nothing once another row does).
+    const counts = won || applied;
+    const wasCounts = Boolean(was && (was.won || was.applied));
+    const date = !was || (counts && !wasCounts) ? at : wasCounts && !counts ? was.at : was.at <= at ? was.at : at;
+    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date });
   };
-  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied);
-  for (const title of told) add(title, false, true);
+  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied, new Date(e.submitted_at));
+  for (const t of told) add(t.title, false, true, new Date(t.at));
   return [...programs]
     .map(([title, g]) => ({ title, ...g }))
     .filter((g) => programLabel(g) !== null)
     .sort((a, b) => Number(b.won) - Number(a.won));
 };
+/** v3.1 site S10: the programs the person's project `key` won or applied to (projectPrograms' rule), each with its date. */
+export const projectProgramsDated = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key, await toldApplied(builderId));
 /** v2.13 T11: the programs the person's project `key` won or applied to (v3 Stage 2: told applications too). */
-export const projectPrograms = async (builderId: number, key: string) =>
-  programsOf(await programEntries(builderId), key, (await toldApplied(builderId)).map((r) => r.title));
+export const projectPrograms = async (builderId: number, key: string): Promise<ProgramLabel[]> =>
+  (await projectProgramsDated(builderId, key)).map((g) => ({ title: g.title, won: g.won, applied: g.applied }));

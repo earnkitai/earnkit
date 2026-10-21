@@ -7172,3 +7172,22 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   check `useReducedMotion()`.
 - **Primitives** in `app/components/site/` (see code-map). Test: `v31-site-tokens.test.ts`.
 
+## v3.1 site Task 3: profile reads
+
+- **One module.** `lib/earnkit/site-data.ts profileSite(builderId, d, now)` adds what the v3.1 profile shows beyond
+  `profileData`; every part catches its own error (`[site] <part>`) and falls back to null, 0 or [].
+- **Last shipped / this week.** The one project's verified repo source, its `week-facts.ts shipReading` (now exported):
+  `signals.pushed_at` (null if absent, unparsable, in the future, or the project not Bench-confirmed) and
+  `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
+- **Highlights (W8).** Verifiable facts only, at most 5: live since (first up day of a verified site source), Base Builder
+  Code (Base projects, App-proven repo, stored answer only; never starts a check), contracts on Base (verified
+  `base:` contract sources plus EarnKit `contract_deploys`, distinct addresses), won/applied (`page-data.ts
+  projectProgramsDated`, at most 2), shipping since. No confirmed project: one "On EarnKit since" item. A hidden repo's
+  site is left out when its host is GitHub's or carries the repo name.
+- **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
+  10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is `rank.ts rankLine`.
+- **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC
+  at runtime), bucketed into the last 12 ISO weeks.
+- **Shape changes.** `ProfileCard.commits` (facts.shipped_code.n, from 1); `projectProgramsDated` (`toldApplied` reads
+  `max(at)`). Test: `v31-site-data.test.ts`.
+
