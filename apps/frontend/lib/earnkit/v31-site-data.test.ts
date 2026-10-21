@@ -11,7 +11,7 @@ import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { last52, mondayOfWeek, isoWeekOf } from './weeks';
-import { BASE_GENESIS_UNIX, backerWeeks, highlights, lastShippedAt, profileSite, standingPill, thisWeekCommits } from './site-data';
+import { BASE_GENESIS_UNIX, backerWeeks, highlights, lastShippedAt, profileSite, standingPill, thisWeekCommits, tokenAllowed } from './site-data';
 
 /** v3.1 site Task 3: the profile's reads (last shipped, this week, Highlights, the standing pill, backer weeks, the Token card guard). */
 
@@ -60,6 +60,7 @@ test('(a) lastShippedAt reads pushed_at from the ship reading; null with no veri
   const at = '2026-10-21T10:00:00Z';
   const b = await builder({ signals: { pushed_at: at } });
   assert.equal((await lastShippedAt(b.id, NOW))?.toISOString(), new Date(at).toISOString());
+  assert.equal((await profileSite(b.id, await page(b.id), NOW)).lastShippedAt, new Date(at).toISOString());
   // No verified repo: the project is not confirmed and has no repo source.
   const none = await builder({ confirmed: false });
   assert.equal(await lastShippedAt(none.id, NOW), null);
@@ -76,6 +77,10 @@ test('(b) thisWeekCommits returns this ISO week\'s count and 0 for a week weekCo
   const week = isoWeekOf(NOW);
   const b = await builder({ signals: { commit_counts: { [week]: 14, '2026-W01': 3 }, pushes_checked: true, created_at: '2025-01-01T00:00:00Z' } });
   assert.equal(await thisWeekCommits(b.id, NOW), 14);
+  // profileSite reads the same ship reading once for both.
+  const s = await profileSite(b.id, await page(b.id), NOW);
+  assert.equal(s.thisWeek, 14);
+  assert.equal(s.lastShippedAt, null);
   // The repo was created after this week (backdated counts): refused.
   const later = await builder({ signals: { commit_counts: { [week]: 9 }, pushes_checked: true, created_at: new Date(NOW.getTime() + 10 * DAY).toISOString() } });
   assert.equal(await thisWeekCommits(later.id, NOW), 0);
@@ -141,9 +146,9 @@ test('(c2) first week, Builder Codes false, an Arc project, codes unknown, no pr
   const unproven = await builder({ chains: ['base'] });
   await codes(unproven.key, true);
   assert.ok(!(await highlights(unproven.id, await page(unproven.id), NOW)).some((x) => x.icon === 'code'));
-  // No commit weeks, claimed long ago: shipping since the claim, weeks with code in the last year.
+  // No commit weeks, claimed long ago: shipping since the claim; under one week of code reads as the first week (never "0 weeks").
   const quiet = await builder({ claimedAt: new Date('2026-03-02T00:00:00Z') });
-  assert.deepEqual(await highlights(quiet.id, await page(quiet.id), NOW), [{ icon: 'start', title: 'Shipping since Mar 2026', sub: '0 weeks with code in the last year' }]);
+  assert.deepEqual(await highlights(quiet.id, await page(quiet.id), NOW), [{ icon: 'start', title: 'Shipping since Mar 2026', sub: 'First week on EarnKit' }]);
   const one = await builder({ commitWeeks: [last52(NOW)[30]] });
   assert.equal((await highlights(one.id, await page(one.id), NOW)).at(-1)?.sub, '1 week with code in the last year');
   // No project at all.
@@ -189,7 +194,7 @@ test('(e) standingPill: under 10 none; Base percentile with its metal; outside t
   const more = await padPool(30);
   await onBase(more);
   only = [...only, ...more];
-  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: 'Top 3% on Base', tier: 'gold', title: 'Top 3% of builders on Base' });
+  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: 'Top 3% on Base', tier: 'gold', title: '#1 of 40 builders on Base' });
   // Rank 11 of 40: 28%, no metal, no pill.
   const top = await padPool(10, 95);
   await onBase(top);
@@ -241,6 +246,23 @@ test('(f) profileSite.token: raising on with an open coin; never with raising of
     assert.deepEqual(s.project?.link, { href: 'https://earnkit.com/', text: 'earnkit.com' });
     assert.equal(s.project?.repo, 'https://github.com/earnkitai/earnkit');
     assert.equal(s.first, 'Sam');
+  });
+  // Fails closed: an unknown main key (none, or its read failed) never allows the card; EarnKit's repos never do.
+  assert.equal(tokenAllowed(null), false);
+  assert.equal(tokenAllowed(''), false);
+  assert.equal(tokenAllowed('earnkitai/earnkit'), false);
+  assert.equal(tokenAllowed('EarnKitAI/other'), false);
+  assert.equal(tokenAllowed(b.key), true);
+  // Backing on the page data but no main project key (as after a failed read): no Token card.
+  await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
+    const d = await page(b.id);
+    assert.ok(d.backing);
+    await sql()`UPDATE builder_profiles SET main_project_key = NULL WHERE builder_id = ${b.id}`;
+    try {
+      assert.equal((await profileSite(b.id, d, NOW)).token, null);
+    } finally {
+      await sql()`UPDATE builder_profiles SET main_project_key = ${b.key} WHERE builder_id = ${b.id}`;
+    }
   });
 });
 

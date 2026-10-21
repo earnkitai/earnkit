@@ -7185,7 +7185,7 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   projectProgramsDated`, at most 2), shipping since. No confirmed project: one "On EarnKit since" item. A hidden repo's
   site is left out when its host is GitHub's or carries the repo name.
 - **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
-  10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is `rank.ts rankLine`.
+  10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is the place, "#N of M builders" (" on Base" for the Base pool; `rank.ts rankLine` only guards validity).
 - **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC
   at runtime), bucketed into the last 12 ISO weeks.
 - **Shape changes.** `ProfileCard.commits` (facts.shipped_code.n, from 1); `projectProgramsDated` (`toldApplied` reads

@@ -57,7 +57,11 @@ async function mainReading(builderId: number): Promise<Record<string, unknown> |
 
 /** Plan S6: the last push to the one project's repo (its ship reading's pushed_at); null when absent, unparsable or after `now`. */
 export async function lastShippedAt(builderId: number, now: Date): Promise<Date | null> {
-  const raw = (await mainReading(builderId))?.pushed_at;
+  return shippedFrom(await mainReading(builderId), now);
+}
+/** lastShippedAt from a ship reading already read. Pure. */
+function shippedFrom(g: Record<string, unknown> | null, now: Date): Date | null {
+  const raw = g?.pushed_at;
   if (typeof raw !== 'string') return null;
   const t = Date.parse(raw);
   return Number.isFinite(t) && t <= now.getTime() ? new Date(t) : null;
@@ -65,7 +69,10 @@ export async function lastShippedAt(builderId: number, now: Date): Promise<Date 
 
 /** Plan S7: this ISO week's commits on the ship reading, through the anti-backdating floor (person-score.ts weekCounts); else 0. */
 export async function thisWeekCommits(builderId: number, now: Date): Promise<number> {
-  const g = await mainReading(builderId);
+  return commitsFrom(await mainReading(builderId), now);
+}
+/** thisWeekCommits from a ship reading already read. Pure. */
+function commitsFrom(g: Record<string, unknown> | null, now: Date): number {
   const week = isoWeekOf(now);
   if (!g || !weekCounts(g, week, now)) return 0;
   const counts = g.commit_counts as Record<string, unknown> | null | undefined;
@@ -141,7 +148,9 @@ function startItem(d: ProfileData, claimedAt: Date, now: Date): Highlight {
       ? 'First week on EarnKit'
       : d.streak >= 2
         ? `${d.streak} weeks in a row`
-        : `${on} ${on === 1 ? 'week' : 'weeks'} with code in the last year`;
+        : on < 1
+          ? 'First week on EarnKit'
+          : `${on} ${on === 1 ? 'week' : 'weeks'} with code in the last year`;
   return { icon: 'start', title, sub };
 }
 
@@ -150,7 +159,7 @@ const part = async <T>(name: string, read: () => Promise<T>, fallback: T): Promi
   try {
     return await read();
   } catch (err) {
-    console.error(`[site] ${name}`, err instanceof Error ? err.name : 'error');
+    console.error(`[site] ${name}`, err instanceof Error ? `${err.name}: ${err.message}` : 'error');
     return fallback;
   }
 };
@@ -161,7 +170,9 @@ const part = async <T>(name: string, read: () => Promise<T>, fallback: T): Promi
  * item: on EarnKit since the claim. Never empty.
  */
 export async function highlights(builderId: number, d: ProfileData, now: Date): Promise<Highlight[]> {
-  const main = await mainOf(builderId);
+  return highlightsOf(builderId, d, now, await mainOf(builderId));
+}
+async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: MainRow | null): Promise<Highlight[]> {
   const claimedAt = main ? new Date(main.claimed_at) : now;
   if (!main?.key || !main.confirmed || !d.project?.confirmed)
     return [{ icon: 'start', title: `On EarnKit since ${monthDay(claimedAt)}`, sub: 'No project on the leaderboard yet' }];
@@ -194,13 +205,14 @@ async function baseStanding(builderId: number, o: { only?: number[] }): Promise<
 /**
  * Plan S5: the metal "Top N%" pill. Only on a ranked page (d.rankListed); the Base pool's percentile when the project
  * is on Base and that pool has RANK_MIN_POOL ranked builders, else the whole pool's from RANK_MIN_POOL; none outside
- * the top 25% (standingTier). `title` is the rank line (rank.ts rankLine). `only` limits the pool (tests).
+ * the top 25% (standingTier). `title` is the place, "#N of M builders" (" on Base" for the Base pool). `only` limits the pool (tests).
  */
 export async function standingPill(builderId: number, d: ProfileData, o: { only?: number[] } = {}): Promise<StandingPill | null> {
   if (!d.rankListed) return null;
   const pill = (s: Standing, where: 'base' | null): StandingPill | null => {
-    const title = rankLine(s, where ? { chain: where } : {});
-    if (!title) return null;
+    // rankLine is the validity guard only; the title is always the place (the approved board): "#3 of 42 builders on Base".
+    if (!rankLine(s)) return null;
+    const title = `#${s.rank.toLocaleString('en-US')} of ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'builder' : 'builders'}${where ? ' on Base' : ''}`;
     const pct = benchPercent(s.rank, s.total);
     const tier = standingTier(pct);
     return tier ? { label: `Top ${percentText(pct)}% ${where ? 'on Base' : 'of builders'}`, tier, title } : null;
@@ -237,8 +249,13 @@ export type ProfileSite = {
 /** The GitHub owner of a project key ("owner/repo"), lowercase. Pure. */
 const ownerOf = (key: string | null) => (key ? norm(key).split('/')[0] : '');
 /** EarnKit's own repos never show Backing (plan Global Constraints; policy-constants BACKING_EXCLUDED_REPOS). Pure. */
-const isEarnkitRepo = (key: string | null) =>
-  Boolean(key) && ((EARNKIT_ORGS as readonly string[]).includes(ownerOf(key)) || (BACKING_EXCLUDED_REPOS as readonly string[]).includes(norm(key!)));
+const isEarnkitRepo = (key: string) =>
+  (EARNKIT_ORGS as readonly string[]).includes(ownerOf(key)) || (BACKING_EXCLUDED_REPOS as readonly string[]).includes(norm(key));
+/**
+ * Whether the Token card may show for this main project key: fails closed, so an unknown key (none, or its read failed)
+ * never shows it, and EarnKit's own repos never do. Pure.
+ */
+export const tokenAllowed = (key: string | null): boolean => Boolean(key) && !isEarnkitRepo(key!);
 /** A link as text: no scheme, no www., no trailing slash. Pure. */
 const linkText = (href: string) => href.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '');
 const letterOf = (s: string) => s.trim().charAt(0).toUpperCase() || '?';
@@ -262,7 +279,7 @@ function projectPanel(d: ProfileData, key: string | null): ProjectPanel | null {
 
 /** The Token card: only while EARNKIT_RAISING is on, backing open (d.backing, pillCoin's coin) and never for EarnKit's own repo. */
 async function tokenCard(builderId: number, d: ProfileData, key: string | null, now: Date): Promise<TokenCard | null> {
-  if (!raisingEnabled() || !d.backing || isEarnkitRepo(key)) return null;
+  if (!raisingEnabled() || !d.backing || !tokenAllowed(key)) return null;
   const coin = (await pillCoin(builderId))?.coin;
   if (!coin) return null;
   const { symbol, url, backers, earned_usd } = d.backing;
@@ -275,18 +292,17 @@ async function tokenCard(builderId: number, d: ProfileData, key: string | null, 
  * first read fails). `only` limits the rank pool (tests).
  */
 export async function profileSite(builderId: number, d: ProfileData, now: Date, o: { only?: number[] } = {}): Promise<ProfileSite> {
-  const main = await part('main', () => mainOf(builderId), null);
+  const [main, reading] = await Promise.all([part('main', () => mainOf(builderId), null), part('reading', () => mainReading(builderId), null)]);
+  // A failed main read leaves the key null: the Token card then fails closed (tokenAllowed).
   const key = main?.key ?? null;
-  const [shipped, thisWeek, items, standing, token] = await Promise.all([
-    part('shipped', () => lastShippedAt(builderId, now), null),
-    part('this week', () => thisWeekCommits(builderId, now), 0),
-    part('highlights', () => highlights(builderId, d, now), [] as Highlight[]),
+  const [items, standing, token] = await Promise.all([
+    main ? part('highlights', () => highlightsOf(builderId, d, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
     part('standing', () => standingPill(builderId, d, o), null),
     part('token', () => tokenCard(builderId, d, key, now), null),
   ]);
   return {
-    lastShippedAt: shipped ? shipped.toISOString() : null,
-    thisWeek,
+    lastShippedAt: shippedFrom(reading, now)?.toISOString() ?? null,
+    thisWeek: commitsFrom(reading, now),
     highlights: items,
     standing,
     token,
