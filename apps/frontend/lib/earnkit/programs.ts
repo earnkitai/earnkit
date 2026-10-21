@@ -549,6 +549,8 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
+  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one).
+  if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);

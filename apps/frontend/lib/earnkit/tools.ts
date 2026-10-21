@@ -40,6 +40,7 @@ import { recordShown, saveEntryScore } from './match-loop';
 import { repoKey, repoKey as saidKeyOf } from './answer-bank';
 import { outcomeLine, outcomeToAsk, type OutcomeAsk } from './outcomes';
 import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts } from './ship-log-facts';
+import { draftApplication } from './draft-application';
 import { wonSource } from './stats';
 import { WHICH_EMAIL, saveWeeklyEmail } from './digest';
 import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
@@ -1369,6 +1370,8 @@ export const handlers = {
   prepare_submission: async (input: unknown, ctx: ToolContext, join?: BuildJoin) => {
     const { program_id, agent, coach_asked, host, ...known } = PrepareSubmissionInput.parse(input);
     const program = await getProgramRow(program_id);
+    // v3.1 R15: an unlisted program is refused on every prepare path (the build, deploy and host ones too), never "closed".
+    if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${program_id}". Call find for current ids.`);
     const hosting = host ? await hostBlock(ctx, known.project?.repo_url ?? known.answers?.repo_url, known.project?.name) : null;
     // Campaign entries reach the sponsor: check the name and description now, as record_submission will.
     if (program.campaign && known.project)
@@ -3106,13 +3109,20 @@ export const tools = {
   prepare: async (input: unknown, ctx: ToolContext) => {
     // v2.11 T8: the build path (plan S7).
     let join: BuildJoin | undefined;
-    if (input && typeof input === 'object' && 'build' in input) {
+    const build = Boolean(input && typeof input === 'object' && 'build' in input);
+    if (build) {
       const b = await prepareBuild(input as Record<string, unknown>, ctx);
       if ('reply' in b) return b.reply;
       input = b.rest;
       join = b.join;
     }
     const { deploy, tips, ...prep } = PrepareInput.parse(input);
+    // v3.1 (spec 3.2), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted refused).
+    if (!build && !deploy && !tips && !prep.host) {
+      const program = await getProgramRow(prep.program_id);
+      if (program.source === 'file' && !program.campaign)
+        return draftApplication({ program_id: prep.program_id, project: prep.project, answers: prep.answers }, ctx, program);
+    }
     if (tips) {
       // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.
       if (!deploy) return { program_id: prep.program_id, show_to_builder: '', agent_note: TIPS_NEEDS_DEPLOY_NOTE };

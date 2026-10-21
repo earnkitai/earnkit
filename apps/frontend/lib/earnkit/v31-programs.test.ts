@@ -55,13 +55,15 @@ test('(a) an unlisted program: not in listPrograms, the landing, /api/stats open
   assert.ok(ids.includes('arc-microgrants'), 'an open program keeps its guide');
 });
 
-test('(b) prepare on an unlisted program refuses (NotFoundError)', { ...db, todo: 'R15: wired in Task 9 (draftApplication)' }, async () => {
+test('(b) prepare on an unlisted program refuses (NotFoundError); so does find with its id (never "closed")', db, async () => {
   const [{ id }] = await sql()<{ id: number }[]>`
     INSERT INTO installations (token_hash) VALUES (${`v31-unlisted-b-${process.pid}-${Date.now()}`}) RETURNING id`;
   await assert.rejects(
     tools.prepare({ program_id: AVA, project: { name: 'Tip Jar' } }, { installationId: id }),
     (err: Error) => err.constructor.name === 'NotFoundError',
   );
+  // get_program (find with program_id): an unlisted program is unknown, never a guide that says "closed".
+  await assert.rejects(tools.find({ program_id: AVA }, { installationId: id }), (err: Error) => err.constructor.name === 'NotFoundError');
 });
 
 test('(c) multi_choice: validation, and a Google prefill with the param repeated per option', () => {

@@ -366,3 +366,75 @@ export function kitReplyNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
     (kit.proof.kind === 'entry_link' ? ' and their entry link as external_submission_url.' : '.')
   );
 }
+
+/** v3.1 (spec 3.2): the one question after a drafted application; a yes records `applied`. */
+export const SENT_ASK = "Tell me once you've sent it.";
+
+/**
+ * v3.1 (spec 3.2): a drafted application, before anything is recorded. `fields`: every answer in full (agent-facing);
+ * `show_to_builder`: the builder's draft, where answers show without their scheme (D7) so the form link is the
+ * reply's one https link.
+ */
+export type DraftKit = {
+  mode: 'prefilled_link' | 'copy_paste';
+  url: string;
+  prefilled_url?: string;
+  fields: KitField[];
+  missing: string[];
+  show_to_builder: string;
+};
+
+/** D7: an answer as the builder reads it in the draft, every link without its scheme. Pure. */
+export const schemeless = (s: string) => s.replace(/https?:\/\//gi, '');
+/** A label as a draft heading: the form's own words without its question marks (a reply holds one question). Pure. */
+const draftLabel = (label: string) => label.replace(/\s*\?/g, '').trim();
+
+/**
+ * v3.1 (spec 3.2), "Apply with this page": the draft the builder sends themselves. Never submits and records nothing.
+ * The mode as submitModeFor without a browser; an agent-filled or API form is copied and pasted. Every field
+ * (required, or answered) with its answer or STILL_NEEDED; then what is still needed, how to send it (one prefilled
+ * link, or the form link to paste into), where an investment's form goes on, and SENT_ASK. Answers that don't fit
+ * the prefilled link are already in the list above it. Pure.
+ */
+export function draftKit(program: KitProgram, answers: Record<string, string>, o: { problems?: string[] } = {}): DraftKit {
+  const problems = new Set(o.problems ?? []);
+  const reqs = program.submission_requirements;
+  const missing: string[] = [];
+  const fields: KitField[] = reqs.flatMap((r): KitField[] => {
+    const answer = problems.has(r.key) ? '' : (answers[r.key]?.trim() ?? '');
+    if (answer) return [{ key: r.key, label: r.label, answer }];
+    if (!r.required && !problems.has(r.key)) return [];
+    missing.push(todoOf(r, problems.has(r.key)));
+    return [{ key: r.key, label: r.label, answer: '', missing: true }];
+  });
+  const given = Object.fromEntries(fields.filter((f) => !f.missing).map((f) => [f.key, f.answer]));
+  const kind = prefillKindOf(hostOf(program));
+  const prefilled =
+    submitModeFor(program, { browser: false }) === 'prefilled_link' && program.form && kind
+      ? PREFILL[kind](program.form, reqs, given).url
+      : null;
+  const send = prefilled
+    ? [
+        ...(kind === 'google' && program.form?.sign_in === 'email_only' ? [GOOGLE_EMAIL_SIGN_IN] : []),
+        'Open this, check each answer, fill any blank and click submit:',
+        prefilled,
+      ].join('\n')
+    : `Paste each answer into the form: ${program.submission_url}`;
+  const continues = continuesLine(program);
+  const shown = [
+    `Your draft for ${program.title}:`,
+    ...fields.map((f) => `${draftLabel(f.label)}\n${f.missing ? STILL_NEEDED : schemeless(f.answer)}`),
+    ...(missing.length ? [`Before you submit: ${missing.join(', ')}.`] : []),
+    send,
+    ...(continues ? [continues] : []),
+    SENT_ASK,
+  ];
+  return {
+    mode: prefilled ? 'prefilled_link' : 'copy_paste',
+    url: program.submission_url,
+    ...(prefilled && { prefilled_url: prefilled }),
+    fields,
+    missing,
+    show_to_builder: shown.join('\n\n'),
+  };
+}

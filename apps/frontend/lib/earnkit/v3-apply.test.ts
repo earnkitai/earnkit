@@ -20,6 +20,8 @@ import { applyAsk as outcomeApplyAsk, outcomeToAsk } from './outcomes';
 import { profileData } from './bench-data';
 import { programLabel } from './page-data';
 import { shipLogBlock } from './ship-log-facts';
+import { DRAFT_NOTE } from './draft-application';
+import { SENT_ASK, schemeless } from './submit-kit';
 import { STATS_KEYS, STATS_LABELS, readStats } from './stats';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -118,7 +120,7 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'apply');
 });
 
-test('(b) yes returns the prepare note and lead; prepare shows the ship log block first', db, async () => {
+test('(b) yes returns the prepare note and lead; prepare shows the draft, the ship log block first', db, async () => {
   const p = await dated('b', 20);
   const b = await builder('b', [p.id]);
   assert.match(show(await find(b)), /Want me to draft your application from your ship log\?$/);
@@ -135,19 +137,22 @@ test('(b) yes returns the prepare note and lead; prepare shows the ship log bloc
   const answers = Object.fromEntries(reqs.map((r) => [r.key, r.type === 'url' ? 'https://kit.app/demo' : r.type === 'email' ? 'lee@kit.app' : r.options ? r.options[0] : 'Kit lets fans tip creators on Base.']));
   const prep = await mcpCall(b.ctx, 'prepare', { program_id: p.id, project: { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' }, answers, coach_asked: true });
   const s = show(prep);
-  // The draft opens with the block (after the program's guide, which withGuide puts above every prepare reply).
-  const at = s.indexOf('From your ship log:\n');
-  assert.ok(at >= 0, s);
-  const [blockText, next] = s.slice(at).split('\n\n');
+  // v3.1 Task 9: the yes then prepare is the drafted application ("Apply with this page"): the block first (no guide,
+  // never the confirm offer), its live site without the scheme (D7), then the draft, ending with the sent ask.
+  assert.ok(s.startsWith('From your ship log:\n'), s);
+  const [blockText, next] = s.split('\n\n');
   const block = blockText.split('\n');
   assert.equal(block.at(-1), `Page: earnkit.com/${b.handle}`);
-  assert.ok(block.includes('Live: https://kit.app/'), s);
-  assert.ok(next.startsWith('| Field | Answer |'), 'the draft table follows the block');
-  assert.equal(s.lastIndexOf('From your ship log:'), at, 'once');
+  assert.ok(block.includes('Live: kit.app/'), s);
+  assert.equal(next, `Your draft for ${p.title}:`, 'the draft follows the block');
+  assert.equal(s.lastIndexOf('From your ship log:'), 0, 'once');
+  assert.ok(s.endsWith(`\n\n${SENT_ASK}`), s);
+  assert.equal(links(s).length, 1, s);
+  assert.doesNotMatch(s, /Ready to submit|\| Field \| Answer \|/, 'never the v2 confirm offer');
   const facts = prep.reply?.ship_log as { page: string; live: string | null; streak: number };
   assert.equal(facts.page, `earnkit.com/${b.handle}`);
-  assert.deepEqual(shipLogBlock(facts as never), block);
-  assert.match(String(prep.reply?.agent_note), / Use the ship log facts in the description and traction answers\.$/);
+  assert.deepEqual(shipLogBlock(facts as never).map(schemeless), block);
+  assert.equal(prep.reply?.agent_note, DRAFT_NOTE);
   // The block's lines, by rule.
   assert.deepEqual(
     shipLogBlock({ score: 72, rank: '#3 of 40 builders', why: 'You shipped 3 weeks in a row.', streak: 3, live: 'https://kit.app/', page: 'earnkit.com/lee' }),

@@ -82,6 +82,39 @@ export async function builderCodesKnown(repoKey: string, now: Date): Promise<{ f
   }
 }
 
+/** v3.1 Task 7: the Builder Codes checks running in this process, one per repo. */
+const codesRunning = new Map<string, Promise<boolean | null>>();
+/**
+ * v3.1 Task 7 fix round 1: when this process last started a check per repo. A check that fails stores nothing, so
+ * without this an unreadable repo would be read again on every reply; at most one attempt a repo per
+ * BUILDER_CODES_TTL_MS (R13: once a day), whether it succeeded or not.
+ */
+const codesTried = new Map<string, number>();
+/** Test only: resolves when every running Builder Codes check has finished. */
+export const codesSettled = () => Promise.all([...codesRunning.values()]);
+
+/**
+ * v3.1 Tasks 7 and 9 (R13): the repo's check, started unless the stored answer is fresh or one ran within the day: the
+ * running check (one per repo), or null when none runs. Never throws (checkBuilderCodes never does).
+ */
+export function refreshBuilderCodes(
+  builderId: number,
+  repoKey: string,
+  known: { fresh: boolean } | null,
+  now: Date,
+  f: typeof fetch | undefined,
+): Promise<boolean | null> | null {
+  const k = repoKey.toLowerCase();
+  const running = codesRunning.get(k);
+  if (running || known?.fresh) return running ?? null;
+  const tried = codesTried.get(k);
+  if (tried !== undefined && now.getTime() - tried < BUILDER_CODES_TTL_MS) return null;
+  codesTried.set(k, now.getTime());
+  const check = checkBuilderCodes(builderId, k, now, { fetch: f }).finally(() => codesRunning.delete(k));
+  codesRunning.set(k, check);
+  return check;
+}
+
 /** The Best fit line's Builder Codes sentence: found, the first step (with the guide), or nothing when unknown. Pure. */
 export function builderCodesWords(repo: string, found: boolean | null): string | null {
   return found === true ? builderCodesFound(repo) : found === false ? BUILDER_CODES_FIRST : null;

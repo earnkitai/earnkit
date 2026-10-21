@@ -48,7 +48,7 @@ import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
-import { BUILDER_CODES_TTL_MS, builderCodesKnown, builderCodesWords, checkBuilderCodes } from './builder-codes-check';
+import { builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 export { displayName };
 
 /**
@@ -371,29 +371,16 @@ type ViewIn = {
   codesFetch?: typeof fetch;
 };
 
-/** v3.1 Task 7: the Builder Codes checks running in this process, one per repo. */
-const codesRunning = new Map<string, Promise<unknown>>();
-/**
- * v3.1 Task 7 fix round 1: when this process last started a check per repo. A check that fails stores nothing, so
- * without this an unreadable repo would be read again on every reply; at most one attempt a repo per
- * BUILDER_CODES_TTL_MS (R13: once a day), whether it succeeded or not.
- */
-const codesTried = new Map<string, number>();
 /** Test only: resolves when every running Builder Codes check has finished. */
-export const codesSettled = () => Promise.all([...codesRunning.values()]);
+export { codesSettled };
 /**
  * v3.1 Task 7: the Builder Codes sentence from the stored answer (null when unknown). A missing or day-old answer
  * starts a check in the background (never awaited) for the next reply, unless one ran within the day.
  */
 async function codesFor(id: number, key: string, now: Date, f: typeof fetch | undefined): Promise<string | null> {
   const known = await builderCodesKnown(key, now);
-  const k = key.toLowerCase();
-  const tried = codesTried.get(k);
-  if (!known?.fresh && !codesRunning.has(k) && (tried === undefined || now.getTime() - tried >= BUILDER_CODES_TTL_MS)) {
-    codesTried.set(k, now.getTime());
-    codesRunning.set(k, checkBuilderCodes(id, k, now, { fetch: f }).finally(() => codesRunning.delete(k)));
-  }
-  return builderCodesWords(k, known?.found ?? null);
+  refreshBuilderCodes(id, key, known, now, f);
+  return builderCodesWords(key.toLowerCase(), known?.found ?? null);
 }
 
 /** v3 Stage 2 review: the backing offer (its tokens.fun ticker check) never holds a reply long; it gets at least this. */

@@ -1400,9 +1400,12 @@ test('9.3 prepare is prepare_submission (the same strict input); an old call ali
   withTokenEnv(async () => {
     const a = await confirmSetup('t9prepa');
     const b = await confirmSetup('t9prepb');
-    const old = await handlers.prepare_submission({ ...a.input, coach_asked: true }, a.ctx);
+    // v3.1 Task 9: prepare drafts a curated program's application ("Apply with this page") instead of prepare_submission's
+    // confirm offer, so the old call aliased is compared with prepare itself: the same strict input, the same reply.
+    const own = await tools.prepare({ ...a.input, coach_asked: true }, a.ctx);
     const next = aliasCall('prepare_submission', { ...b.input, coach_asked: true })!;
-    assert.equal(same(b, await tools.prepare(next.args, b.ctx)), same(a, old));
+    assert.equal(same(b, await tools.prepare(next.args, b.ctx)), same(a, own));
+    assert.match(same(a, own), /Tell me once you've sent it\./);
   }));
 
 test('9.3 find with repo: the eligibility check as one plain line after the guide', () => {
@@ -1670,8 +1673,11 @@ test('T11 fix (journey 11.0): prepare with deploy checks this draft with the dep
     assert.doesNotMatch(r.show_to_builder, /No contract found/, 'the draft was checked with the deployed contract');
     assert.equal(r.ready, true, r.show_to_builder);
     // Without a deploy (and no contract given) the same draft says so: the check is real.
-    const plain = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
+    const plain = (await handlers.prepare_submission({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
     assert.match(plain.show_to_builder, /No contract found on Arc mainnet yet\./);
+    // v3.1 Task 9: prepare without a deploy drafts a curated program's application instead (no entry check there).
+    const drafted = (await tools.prepare({ program_id: f.id, project, answers }, { installationId: id })) as { show_to_builder: string };
+    assert.ok(drafted.show_to_builder.endsWith("Tell me once you've sent it."), drafted.show_to_builder);
   } finally {
     keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
     await sql()`UPDATE programs SET status = 'closed' WHERE id = ${f.id}`;
