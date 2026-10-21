@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Leaderboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+
+body{margin:0;background:#0B0C14}
+a{color:inherit;text-decoration:none}
+.ek-row{transition:background-color 160ms ease}.ek-row:hover{background-color:#1C2031}
+.ek-f:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0B0C14; color: #FFFFFF; font-family: 'Funnel Sans', system-ui, sans-serif;">
+<dc-import name="Nav" active="Leaderboard" hint-size="100%,80px"></dc-import>
+<main style="max-width: 1200px; margin: 0 auto; padding: 8px 24px 24px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box;">
+
+<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; padding: 16px 8px 8px;">
+<div style="display: flex; flex-direction: column; gap: 6px;">
+<h1 style="margin: 0; font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-weight: 400; font-size: 72px; line-height: 1;">Leaderboard</h1>
+<span style="font-size: 15px; color: #A8B0CC;">42 builders, ranked by how often they ship</span>
+</div>
+<div role="tablist" aria-label="Filter" style="display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: #161927;">
+<sc-for list="{{filters}}" as="f" hint-placeholder-count="3">
+<button type="button" role="tab" class="ek-f" aria-selected="{{f.on}}" onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+<sc-for list="{{podium}}" as="p" hint-placeholder-count="3">
+<a href="BackedBuilder.dc.html" style="{{p.card}}">
+<div style="display: flex; justify-content: space-between; align-items: center;">
+<span style="{{p.medal}}">{{p.place}}</span>
+<span style="font-size: 13px; color: {{p.sub}};">{{p.streak}}</span>
+</div>
+<div style="display: flex; align-items: center; gap: 14px;">
+<sc-if value="{{p.pfp}}" hint-placeholder-val="{{false}}"><img src="{{p.pfp}}" alt="" style="width: 56px; height: 56px; border-radius: 999px; object-fit: cover;"></sc-if><sc-if value="{{p.noPfp}}" hint-placeholder-val="{{true}}"><span aria-hidden="true" style="{{p.avatar}}"></span></sc-if>
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 34px; line-height: 1;">{{p.name}}</span>
+<span style="display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: {{p.sub}};"><svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"></path></svg>{{p.handle}} · {{p.project}}</span>
+</div>
+</div>
+<div style="display: flex; align-items: baseline; gap: 8px; margin-top: auto;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 56px; line-height: 0.9;">{{p.score}}</span>
+<span style="font-size: 14px; color: {{p.sub}};">Shipping</span>
+</div>
+</a>
+</sc-for>
+</section>
+
+<section style="background: #161927; border-radius: 36px; padding: 12px; display: flex; flex-direction: column;">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+<a href="BackedBuilder.dc.html" class="ek-row" style="display: flex; align-items: center; gap: 16px; padding: 14px 18px; border-radius: 24px;">
+<span style="width: 36px; font-size: 15px; font-weight: 600; color: #A8B0CC;">{{r.place}}</span>
+<sc-if value="{{r.pfp}}" hint-placeholder-val="{{false}}"><img src="{{r.pfp}}" alt="" style="width: 40px; height: 40px; flex-shrink: 0; border-radius: 999px; object-fit: cover;"></sc-if><sc-if value="{{r.noPfp}}" hint-placeholder-val="{{true}}"><span aria-hidden="true" style="{{r.avatar}}"></span></sc-if>
+<div style="display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0;">
+<span style="font-size: 16px; font-weight: 600;">{{r.name}}</span>
+<span style="display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #A8B0CC;"><svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"></path></svg>{{r.handle}} · {{r.project}}</span>
+</div>
+<sc-if value="{{r.backed}}" hint-placeholder-val="{{false}}">
+<span style="padding: 5px 11px; border-radius: 999px; background: #142159; color: #A9C2FF; font-size: 12px; font-weight: 600;">Backed</span>
+</sc-if>
+<span style="width: 84px; text-align: right; font-size: 14px; color: #FFB088;">{{r.streak}}</span>
+<span style="{{r.scoreStyle}}">{{r.score}}</span>
+</a>
+</sc-for>
+<nav aria-label="Pages" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 6px;">
+<button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: #A8B0CC; font: 500 14px 'Funnel Sans', sans-serif; opacity: 0.35;">Previous</button>
+<span style="font-size: 14px; color: #A8B0CC;">1 of 3</span>
+<button type="button" style="height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: #C9D0E6; font: 500 14px 'Funnel Sans', sans-serif; cursor: pointer;">Next</button>
+</nav>
+</section>
+
+<span style="font-size: 13px; color: #6F7792; padding: 0 8px;">Example data. Under 10 builders the board lists builders without rank numbers.</span>
+</main>
+<div style="height: 64px;"></div>
+<dc-import name="Foot" hint-size="100%,520px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1700}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { filter: 'All' }; }
+  renderVals() {
+    const colors = ['#FF6A1F', '#7C3AED', '#16A34A', '#2D6BE0', '#DB2777', '#0891B2', '#CA8A04'];
+    const av = (i, size) => 'width: ' + size + 'px; height: ' + size + 'px; flex-shrink: 0; border-radius: 999px; background: linear-gradient(140deg, #3A4366 0%, #1C2238 100%);';
+    const pfpOf = (n) => n === 'Jenil' ? '/_blob/a9439bb9e3b4769da8817eac818ba445' : '';
+    const handleOf = (n) => n === 'Jenil' ? '@jenilt' : '@' + n.toLowerCase();
+    const band = (s) => s >= 70 ? '#4ADE80' : s >= 40 ? '#FFB020' : '#FF6B5B';
+    const all = [
+      ['Ari', 'Relay', 91, 14, true], ['Lena', 'Pollen', 88, 11, false], ['Maya', 'Tipjar', 84, 9, true],
+      ['Dev', 'Gridline', 79, 8, false], ['Noor', 'Mintbox', 74, 6, true], ['Kai', 'Orbit', 68, 5, false], ['Jenil', 'EarnKit', 60, 5, false],
+      ['Ravi', 'Ledgerly', 52, 3, false], ['Tomas', 'Quill', 44, 2, false], ['Sam', 'Ledgerly', 22, 1, false]
+    ];
+    const f = this.state.filter;
+    const list = f === 'Backed' ? all.filter((x) => x[4]) : all;
+    const metals = [
+      { bg: 'linear-gradient(135deg, #FFE8A3 0%, #F2C14E 45%, #C98A1E 100%)', ink: '#3A2500' },
+      { bg: 'linear-gradient(135deg, #FFFFFF 0%, #DDE3EE 45%, #A7B1C4 100%)', ink: '#1E2533' },
+      { bg: 'linear-gradient(135deg, #FFD7B5 0%, #E0985E 50%, #A9602C 100%)', ink: '#3A1A05' }
+    ];
+    const cards = ['#2D6BE0', '#142159', '#241008'];
+    const podium = list.slice(0, 3).map((x, i) => ({
+      name: x[0], project: x[1], score: x[2], streak: x[3] + ' weeks', initial: x[0][0], place: '#' + (i + 1), pfp: pfpOf(x[0]), noPfp: !pfpOf(x[0]), handle: handleOf(x[0]),
+      card: 'background: ' + cards[i] + '; color: #FFFFFF; border-radius: 36px; padding: 28px; display: flex; flex-direction: column; gap: 22px; min-height: 260px; box-sizing: border-box;',
+      medal: 'display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border-radius: 999px; background: ' + metals[i].bg + '; color: ' + metals[i].ink + '; font-size: 14px; font-weight: 700;',
+      avatar: av(i, 56), sub: i === 2 ? '#D9B8A6' : '#DCE6FF'
+    }));
+    const rows = list.slice(3).map((x, i) => ({
+      name: x[0], project: x[1], score: String(x[2]), streak: x[3] === 1 ? '1 week' : x[3] + ' weeks', backed: x[4], initial: x[0][0], place: '#' + (i + 4), pfp: pfpOf(x[0]), noPfp: !pfpOf(x[0]), handle: handleOf(x[0]),
+      avatar: av(i + 3, 40),
+      scoreStyle: "width: 56px; text-align: right; font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 30px; line-height: 1; color: " + band(x[2]) + ";"
+    }));
+    const filters = ['All', 'Base', 'Backed'].map((label) => ({
+      label, on: String(label === f), pick: () => this.setState({ filter: label }),
+      style: 'height: 38px; padding: 0 18px; border: 0; border-radius: 999px; cursor: pointer; font: 600 14px \'Funnel Sans\', sans-serif; background: ' + (label === f ? '#FFFFFF' : 'transparent') + '; color: ' + (label === f ? '#0B0C14' : '#A8B0CC') + ';'
+    }));
+    return { podium, rows, filters };
+  }
+}
+</script>
+</body>
+</html>

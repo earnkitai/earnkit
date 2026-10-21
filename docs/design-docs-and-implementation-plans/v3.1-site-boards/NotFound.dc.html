@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Page not found</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+body{margin:0;background:#0B0C14}a{text-decoration:none}</style>
+</helmet>
+<div style="min-height: 100vh; background: #0B0C14; color: #FFFFFF; font-family: 'Funnel Sans', system-ui, sans-serif;">
+<dc-import name="Nav" hint-size="100%,80px"></dc-import>
+<main style="max-width: 1200px; margin: 0 auto; padding: 8px 24px 24px; box-sizing: border-box;">
+<section style="background: #241008; border-radius: 40px; padding: 80px 40px; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 140px; line-height: 0.9; color: #FF6A1F;">404</span>
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 44px; line-height: 1;">Nothing shipped here.</span>
+<a href="Landing.dc.html" style="margin-top: 8px; background: #FFFFFF; color: #0B0C14; padding: 13px 24px; border-radius: 999px; font-weight: 700; font-size: 15px;">Back home</a>
+</section>
+</main>
+<div style="height: 64px;"></div>
+<dc-import name="Foot" hint-size="100%,520px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
