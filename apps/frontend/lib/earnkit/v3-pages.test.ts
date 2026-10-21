@@ -10,7 +10,6 @@ process.env.EARNKIT_RAISING = 'on';
 
 import BenchView from '../../app/leaderboard/BenchView';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
-import { Chip } from '../../app/leaderboard/FilterChip';
 import FeedView, { FEED_LINE, FEED_TITLE } from '../../app/feed/FeedView';
 import HomeView from '../../app/HomeView';
 import { EARN_TITLE, leaderboardLine } from './site-copy';
@@ -37,56 +36,46 @@ const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 
 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
-test('(a) the leaderboard: "Leaderboard", leaderboardLine, hairline rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
-  const h = html(React.createElement(BenchView, { rows: [ROW, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false } }));
-  assert.match(h, /<h1[^>]*>Leaderboard<\/h1>/);
+test('(a) the leaderboard (v3.1 Task 8): "Leaderboard", leaderboardLine, a podium then rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
+  const top = [1, 2, 3].map((rank) => ({ ...ROW, rank, line: `#${rank} of 120 builders`, handle: `top_${rank}`, name: `Top ${rank}` }));
+  const h = html(React.createElement(BenchView, { rows: [...top, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false }, page: 1 }));
+  assert.match(h, /<h1 class="ek-serif[^"]*">Leaderboard<\/h1>/);
   assert.ok(h.includes(leaderboardLine(120)) && leaderboardLine(40) === '40 builders, ranked by how often they ship');
   assert.doesNotMatch(h, /Shipping points/);
-  assert.doesNotMatch(h, /builders?.{0,20}this week/, 'no "this week" after the rank (a best fact may say "31 people this week")');
-  assert.equal((h.match(/data-row="/g) ?? []).length, 3);
-  assert.equal((h.match(/data-rank=""/g) ?? []).length, 3);
-  assert.equal((h.match(/data-points=""/g) ?? []).length, 3);
-  assert.ok(h.includes('>#3<') && h.includes('>#4<') && h.includes('>#100<'), 'the rank number');
-  // The list is ROWS (closes with a hairline); each row opens with one; no Panel wrapper, no middle dot in a row.
-  assert.match(h, /<ol [^>]*class="[^"]*\bborder-b border-ek-line\b/);
+  assert.doesNotMatch(text(h), /builders?.{0,20}this week/, 'no "this week" after the rank');
+  assert.equal((h.match(/data-ek-podium="/g) ?? []).length, 3);
+  assert.equal((h.match(/data-row="/g) ?? []).length, 2);
+  assert.equal((h.match(/data-rank=""/g) ?? []).length, 2);
+  assert.equal((h.match(/data-points=""/g) ?? []).length, 2);
+  assert.ok(h.includes('>#1<') && h.includes('>#4<') && h.includes('>#100<'), 'the rank number');
   const rows = h.match(/<li data-row=[\s\S]*?<\/li>/g) ?? [];
-  assert.equal(rows.length, 3);
   for (const r of rows) {
-    assert.match(r, /class="[^"]*\bborder-t border-ek-line\b/);
-    // Task 7: the phone rank column is 3rem, so "#100" fits on one line.
-    assert.match(r, /\bgrid-cols-\[3rem_minmax\(0,1fr\)_auto\]/);
-    assert.doesNotMatch(r, /·/, 'the project and its best fact are two lines, not a dotted pair');
-    assert.match(r, /md:grid-cols-\[3rem_minmax\(0,1fr\)_minmax\(0,1fr\)_5rem\]/);
-    assert.match(r, /after:absolute after:inset-0/, 'the whole row is the link');
+    assert.match(r, /^<li data-row="[^"]+"><a [^>]*href="\/[^"]+"/, 'the whole row is the link');
+    assert.match(r, /hover:bg-s-panel-hover/);
+    assert.match(r, /data-rank="" class="w-9 shrink-0/, 'a fixed rank column: "#100" fits');
   }
-  assert.ok(h.indexOf('Recipe planner') < h.indexOf('31 people this week'));
 });
 
-test('(a) the chips: hairline pills with aria-pressed, 44px on a phone, the on state inverted (never brand fill)', () => {
-  const off = html(React.createElement(Chip, { on: false, href: '/leaderboard?chain=base' } as React.ComponentProps<typeof Chip>, 'Base'));
-  const on = html(React.createElement(Chip, { on: true, href: '/leaderboard' } as React.ComponentProps<typeof Chip>, 'Base'));
-  assert.match(off, /aria-pressed="false"/);
-  assert.match(on, /aria-pressed="true"/);
-  for (const c of [off, on]) {
-    assert.match(c, /rounded-full/);
-    assert.match(c, /\bh-11\b/);
-    assert.match(c, /\bborder\b/);
-    assert.doesNotMatch(c, /bg-ek-brand/);
-  }
-  assert.match(on, /bg-ek-text text-ek-page/);
-  const h = html(React.createElement(BenchView, { rows: [ROW], count: 40, chips: ['base'], filter: { chain: null, weekly: false } }));
-  assert.match(h, /href="\/leaderboard\?backed=1"[^>]*>Backed</);
-  assert.match(h, /href="\/leaderboard\?weekly=1"[^>]*>Shipping every week</);
+test('(a) the filter tabs: a SegTabs rail of links, 44px on a phone, the current one aria-current and white', () => {
+  const h = html(React.createElement(BenchView, { rows: [ROW], count: 40, chips: ['base'], filter: { chain: null, weekly: false }, page: 1 }));
+  const rail = h.slice(h.indexOf('<nav aria-label="Filters"'), h.indexOf('</nav>', h.indexOf('<nav aria-label="Filters"')));
+  assert.match(rail, /rounded-full p-1 bg-s-panel/);
+  for (const a of rail.match(/<a [^>]*>/g) ?? []) assert.match(a, /\bmin-h-11\b/);
+  assert.match(rail, /<a aria-current="page" class="[^"]*bg-s-light text-s-ink[^"]*" href="\/leaderboard">All<\/a>/);
+  assert.match(rail, /href="\/leaderboard\?backed=1"[^>]*>Backed</);
+  assert.doesNotMatch(rail, /weekly=1|Shipping every week/, 'W3: no weekly tab');
 });
 
 // ---- (f) nothing wider than a phone column -------------------------------------------------------
 
-test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, nothing cut', () => {
+test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, names and projects wrap (only the @handle truncates)', () => {
   const long = { ...ROW, name: 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh', project: 'The Recipe Planner For Busy Families Who Cook Every Night', best: 'Went live, 3 weeks in a row, 1,204 people', streak: 0 };
-  const row = html(React.createElement(BenchRowItem, { r: long }));
+  const row = html(React.createElement(BenchRowItem, { r: long, ranked: true }));
   assert.doesNotMatch(row, /whitespace-nowrap/);
-  assert.doesNotMatch(row, /\btruncate\b|text-ellipsis|line-clamp|max-w-\[/);
-  const page = html(React.createElement(BenchView, { rows: [long], count: 40, chips: ['base', 'arc', 'robinhood'], filter: { chain: null, weekly: false } }));
+  assert.doesNotMatch(row, /text-ellipsis|line-clamp|max-w-\[/);
+  assert.equal((row.match(/\btruncate\b/g) ?? []).length, 1, 'only the @handle');
+  assert.equal((row.match(/\[overflow-wrap:anywhere\]/g) ?? []).length, 2, 'the name and the project wrap');
+  const page = html(React.createElement(BenchView, { rows: [long, long, long, long].map((r, i) => ({ ...r, handle: `h${i}` })), count: 40, chips: ['base', 'arc', 'robinhood'], filter: { chain: null, weekly: false }, page: 1 }));
   for (const m of page.matchAll(/min-w-\[(\d+(?:\.\d+)?)rem\]/g)) assert.ok(Number(m[1]) <= 20, m[0]);
   assert.doesNotMatch(page, /min-w-\[\d+px\]/);
 });

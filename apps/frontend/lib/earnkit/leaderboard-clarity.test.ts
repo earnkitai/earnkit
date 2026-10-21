@@ -122,21 +122,26 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
 
 // ---- R6, R17: the row's points and rank ----------------------------------------------------------
 
-test('R17, R18 fix 1, R11: a leaderboard row shows the Shipping points, "#N" (the full rank line to screen readers), and long names whole', () => {
+test('R17, R18 fix 1, R11 (v3.1 Task 8): a leaderboard row shows the Shipping score, "#N" (the full rank line to screen readers), and long names whole', () => {
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
     r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
+    ranked: true,
   }));
-  assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*>Shipping<\/span>/);
+  assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*> Shipping<\/span>/);
   // R18 fix 1 (supersedes R6 for rows): "#3" alone on screen; the whole rank line only for screen readers.
-  assert.match(html, /aria-hidden="true"[^>]*>#3<\/span><span class="sr-only">#3 of 12 builders<\/span>/);
+  assert.match(html, /aria-hidden="true">#3<\/span><span class="sr-only">#3 of 12 builders<\/span>/);
   assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('of 12 builders'), false, 'no rank words on screen');
   assert.doesNotMatch(html, /max-w-\[/, 'the rank column is never squeezed');
-  // Final follow-ups 4, v3 Stage 3 Task 4: fixed-width rank and points columns (not auto), so every row lines up at #1 and #100.
-  assert.match(html, /md:grid-cols-\[3rem_minmax\(0,1fr\)_minmax\(0,1fr\)_5rem\]/);
+  // Fixed-width rank and score columns (36px and 56px, Leaderboard board), so every row lines up at #1 and #100.
+  assert.match(html, /data-rank="" class="w-9 shrink-0/);
+  assert.match(html, /data-points="" class="w-14 shrink-0/);
   assert.ok(html.includes(name) && html.includes(project), 'names whole');
-  assert.doesNotMatch(html, /\btruncate\b|text-ellipsis|line-clamp/, 'never cut: long names wrap');
+  // Never cut: the name and the project wrap; only the @handle (XHandle) truncates.
+  assert.equal((html.match(/\btruncate\b/g) ?? []).length, 1);
+  assert.match(html, /<span class="truncate">@maxi<\/span>/);
+  assert.doesNotMatch(html, /text-ellipsis|line-clamp/);
   assert.deepEqual(rankSplit('#1,204 of 3,500 builders'), { lead: '#1,204', rest: 'of 3,500 builders' });
   assert.deepEqual(rankSplit('Top 4% of builders'), { lead: 'Top 4%', rest: 'of builders' });
 });

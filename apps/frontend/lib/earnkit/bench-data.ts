@@ -8,6 +8,7 @@ import { readOriginality } from './originality';
 import { pointsTotal } from './points';
 import { backersOfCoin } from './backers';
 import { NO_EARNED, earnedUsd } from './earned';
+import { tokenAllowed } from './site-data';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
@@ -95,12 +96,15 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
   const pools = await chainPools(o);
   const nameOf = await safeNames(rows.map((r) => r.builder_id));
-  const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url ? { symbol: r.symbol, url: r.url } : null);
+  // v3.1 site Task 8: never for EarnKit's own repo (site-data tokenAllowed, the Token card's rule), so neither the Backed
+  // tag nor the Backed filter ever shows earnkitai/earnkit.
+  const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url && tokenAllowed(r.key) ? { symbol: r.symbol, url: r.url } : null);
+  const listed = f.backed && raisingOn ? rows.filter((r) => pill(r) !== null) : rows;
   return {
     count: total,
     // R16e: a chain's chip from one ranked project on it.
     chips: BENCH_CHAINS.filter((c) => pools[c] > 0),
-    rows: rows.map((r) => ({
+    rows: listed.map((r) => ({
       rank: r.rank,
       line: rankLine({ ranked: true, rank: r.rank, total }),
       points: r.points,

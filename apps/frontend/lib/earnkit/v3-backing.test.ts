@@ -24,8 +24,8 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { profileSite } from './site-data';
-import BenchView from '../../app/leaderboard/BenchView';
-import { FILTER_BACKED } from '../../app/leaderboard/FilterChip';
+import BenchView, { FILTER_BACKED } from '../../app/leaderboard/BenchView';
+import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import { benchCard } from '../../app/[handle]/card-response';
 import PolicySection from '../../app/terms/sections/PolicySection';
@@ -253,9 +253,12 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.deepEqual(backed.rows.map((r) => r.handle), [b.handle]);
   assert.deepEqual(backed.rows[0].backing, { symbol: sym, url });
   assert.equal(FILTER_BACKED, 'Backed');
-  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false } }));
+  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
   assert.match(board, /<a[^>]*href="\/leaderboard\?backed=1"[^>]*>Backed<\/a>/, board);
-  assert.ok(board.includes(`Backing · $${sym}`));
+  // v3.1 Task 8: a list row carries the Backed tag (never the coin's symbol or link on the leaderboard).
+  const row = renderToStaticMarkup(React.createElement(BenchRowItem, { r: backed.rows[0], ranked: false }));
+  assert.match(row, /data-ek-backed=""[^>]*>Backed</, row);
+  assert.ok(!row.includes(`$${sym}`) && !row.includes('tokens.fun'));
 
   // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
   const r = show(await find(b));
@@ -327,8 +330,10 @@ test('(f) flag off: no backing text anywhere (reply, page, card, terms, JSON bac
     assert.deepEqual(parseBenchFilter({ backed: '1' }), { chain: null, weekly: false, backed: false });
     const all = await benchRows({ chain: null, weekly: false, backed: false }, { only: [b.id] });
     assert.ok(all.rows.every((r) => r.backing === null));
-    const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false } }));
+    const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
     assert.doesNotMatch(board, /Backed|Backing|backed=1/);
+    // v3.1 Task 8: a list row of the same builder carries no Backed tag either.
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(BenchRowItem, { r: all.rows[0], ranked: false })), /Backed|Backing/);
     assert.equal((await builderJson(b.handle, new Date()))!.backing, null);
     const r = show(await find(b));
     assert.doesNotMatch(r, /backing/i, r);

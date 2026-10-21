@@ -7,9 +7,11 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: `${BENCH_TITLE} · EarnKit`, description: 'Builders who ship every week. Ranked by Shipping.' };
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
-/** v2.13 spec "The Bench": filters are links (R9). */
+/** v2.13 spec "The Bench": filters are links (R9). v3.1 site Task 8: `?page=N` pages the one cached read (BenchView clamps it). */
 export default async function BenchPage({ searchParams }: Props) {
-  const filter = parseBenchFilter(await searchParams);
+  const q = await searchParams;
+  const filter = parseBenchFilter(q);
   const { rows, count, chips } = await cachedBench(filter);
-  return <BenchView rows={rows} count={count} chips={chips} filter={filter} />;
+  const page = typeof q.page === 'string' ? Number.parseInt(q.page, 10) || 1 : 1;
+  return <BenchView rows={rows} count={count} chips={chips} filter={filter} page={page} />;
 }

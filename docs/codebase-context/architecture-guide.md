@@ -7244,3 +7244,15 @@ rank on the page is `site.standing` (null under RANK_MIN_POOL, so no pill and no
 (fails closed, never EarnKit's own repo, only while `raisingEnabled()`). Points, Originality, the 52-week grid, Earned,
 tabs (`?tab=` ignored) and the README badge left the page; the badge, share and JSON routes stay. Confirming or no
 project: one calm line in the panel, no score, a 0-week streak and only the dashed next-update line.
+
+## v3.1 site Task 8: the leaderboard
+
+`/leaderboard` (`app/leaderboard/BenchView.tsx`, `Podium.tsx`, `BenchRowItem.tsx`) is the owner-approved Leaderboard
+board: the Kaftan H1 with `leaderboardLine(count)`, a SegTabs rail (All, Base when a Base project is ranked, Backed only
+while `raisingEnabled()`; old `?chain=arc` and `?weekly=1` links still filter and mark no tab, W3), the podium (page 1's
+first three rows on blue, navy and rust cards with gold, silver and bronze place pills; the name is a stretched link to
+the page, the @handle its own X link), then the rest of the page on one panel: each row one link (place, photo, name,
+X glyph and @handle as text, project, Backed tag, streak, score in its band colour). `?page=N` pages the one cached
+read, 20 rows a page (`LEADERBOARD_PAGE`, clamped). Under `RANK_MIN_POOL` ranked builders no "#N" and no metal pill
+(S14). Backing: `bench-data.ts benchRows` sets `row.backing` only while raising is on and never for EarnKit's own repos
+(`site-data.ts tokenAllowed`), and the Backed filter drops those rows too. Test: `v31-site-leaderboard.test.ts`.

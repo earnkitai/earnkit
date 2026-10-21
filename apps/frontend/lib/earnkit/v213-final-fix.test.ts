@@ -218,7 +218,7 @@ test('F11 raising off: the Bench, the landing, tell\'s description and llms.txt 
   const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, backing: null, chains: [], project: 'Recipe planner', best: 'Live', streak: 0 };
   const filter = { chain: null, weekly: false };
   // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
-  const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));
+  const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter, page: 1 }));
   assert.ok(!board.includes('Community round') && !board.includes('raising=1'));
   // R18, v3.1 Task 6: the landing (no leaderboard rows any more) names no community round.
   assert.ok(!/community round/i.test(renderToStaticMarkup(React.createElement(HomeView, { landing: homeFixture }))));

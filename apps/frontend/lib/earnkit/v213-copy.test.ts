@@ -79,8 +79,8 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
   ].map(bestFact);
   for (const t of [BENCH_TITLE, leaderboardLine(25), leaderboardLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week', streak: 0 };
-  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false } }));
-  // Chain names only in the chips and the logos' alt text and tooltips (R14).
+  const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false }, page: 1 }));
+  // Chain names only in the filter tabs (R14; v3.1 Task 8: rows carry no chain logos).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });
 

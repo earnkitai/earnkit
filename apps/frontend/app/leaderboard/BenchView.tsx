@@ -1,67 +1,94 @@
 import Link from 'next/link';
 import Footer from '../components/common/Footer';
-import { BTN_SECONDARY } from '../components/common/Button';
-import { COLUMN, H1, LEDE, ROWS } from '../components/common/Panel';
-import ChainLogo from '../components/ui/ChainLogo';
+import Pager from '../components/site/Pager';
+import SegTabs from '../components/site/SegTabs';
+import { CARD_PANEL, H1_SITE, PAGE_COL, PILL_WHITE, phoneRadius } from '../components/site/ui';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
-import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
+import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
+import { CHAIN_LABEL, RANK_MIN_POOL, type BenchChain } from '../../lib/earnkit/rank';
 import { BENCH_TOP_EMPTY, leaderboardLine } from '../../lib/earnkit/site-copy';
 import BenchRowItem from './BenchRowItem';
-import { Chip, FILTER_BACKED, FILTER_WEEKLY } from './FilterChip';
-import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
+import Podium from './Podium';
 
 export const BENCH_TITLE = 'Leaderboard';
 export const BENCH_EMPTY = 'No builder matches this filter yet.';
 export const BENCH_SHOW_ALL = 'Show everyone';
-export { FILTER_BACKED, FILTER_WEEKLY };
+/** The filter tabs' words (plan W3: All, Base, Backed). */
+export const FILTER_ALL = 'All';
+/** v3 Stage 2: builders with backing open (`?backed=1`), only while EARNKIT_RAISING is on. */
+export const FILTER_BACKED = 'Backed';
+/** v2.13: an old `?weekly=1` link still filters (a streak of WEEKLY_STREAK weeks) but has no tab (plan W3). */
+export const FILTER_WEEKLY = 'Shipping every week';
+/** Rows per page; the podium is rows 1 to 3 of page 1 (plan W3). */
+export const LEADERBOARD_PAGE = 20;
+
+/** Pure. A page of a filter variant: the filter's URL, plus `page=N` from page 2. */
+export function pageHref(f: BenchFilter, n: number): string {
+  const href = filterHref(f);
+  return n <= 1 ? href : `${href}${href.includes('?') ? '&' : '?'}page=${n}`;
+}
 
 /**
- * v2.13 spec "The Bench" (R4, R9, R14), v3 Stage 3 (spec 5.8): the title, the count line, the filters as hairline
- * pills (links: a chain chip from one ranked project on it, Shipping every week; v3 Stage 2: Backed, only with
- * EARNKIT_RAISING on), then one hairline row per builder, best score first.
+ * Pure. The tabs: All, Base (with a ranked Base project), Backed (only while EARNKIT_RAISING is on). A tab is marked only
+ * for its exact filter, so an old `?chain=arc` or `?weekly=1` link filters the rows and marks none (plan W3).
  */
-export default function BenchView({ rows, count, chips, filter }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter }) {
+export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: boolean): { label: string; href: string; on: boolean }[] {
+  const { chain, weekly } = filter;
+  const backed = Boolean(filter.backed);
+  const tabs = [{ label: FILTER_ALL, href: filterHref({ chain: null, weekly: false }), on: !chain && !weekly && !backed }];
+  if (chips.includes('base')) tabs.push({ label: CHAIN_LABEL.base, href: filterHref({ chain: 'base', weekly: false }), on: chain === 'base' && !weekly && !backed });
+  if (raising) tabs.push({ label: FILTER_BACKED, href: filterHref({ chain: null, weekly: false, backed: true }), on: backed && !chain && !weekly });
+  return tabs;
+}
+
+/**
+ * v3.1 site Task 8 (Leaderboard board): the title and its count line, the filter rail, the podium (page 1's first three
+ * rows), then the rest of the page's rows on one panel with quiet pagination, LEADERBOARD_PAGE rows a page. Under
+ * RANK_MIN_POOL ranked builders no "#N" and no metal pill anywhere (plan S14); the count line never says "of N".
+ */
+export default function BenchView({ rows, count, chips, filter, page }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter; page: number }) {
+  const ranked = count >= RANK_MIN_POOL;
+  const pages = Math.max(1, Math.ceil(rows.length / LEADERBOARD_PAGE));
+  // A hand-edited ?page= reads as the nearest page (as Pager clamps its links).
+  const at = Math.min(Math.max(Math.trunc(page) || 1, 1), pages);
+  const shown = rows.slice((at - 1) * LEADERBOARD_PAGE, at * LEADERBOARD_PAGE);
+  const podium = at === 1 ? shown.slice(0, 3) : [];
+  const list = shown.slice(podium.length);
   return (
     <>
-      <div className={`${COLUMN} pt-8 md:pt-12`}>
-        <section aria-label={BENCH_TITLE}>
-          <h1 className={H1}>{BENCH_TITLE}</h1>
-          <p className={LEDE}>{count > 0 ? leaderboardLine(count) : BENCH_TOP_EMPTY}</p>
-          <nav aria-label="Filters" className="mt-6 flex flex-wrap gap-2">
-            {chips.map((c) => (
-              <Chip key={c} on={filter.chain === c} href={filterHref({ ...filter, chain: filter.chain === c ? null : c })}>
-                <span aria-hidden="true" className="inline-flex">
-                  <ChainLogo chain={c} size={18} />
-                </span>
-                {CHAIN_LABEL[c]}
-              </Chip>
-            ))}
-            <Chip on={filter.weekly} href={filterHref({ ...filter, weekly: !filter.weekly })}>
-              {FILTER_WEEKLY}
-            </Chip>
-            {raisingEnabled() ? (
-              <Chip on={Boolean(filter.backed)} href={filterHref({ ...filter, backed: !filter.backed })}>
-                {FILTER_BACKED}
-              </Chip>
-            ) : null}
-          </nav>
+      <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 md:pb-0`}>
+        <section aria-label={BENCH_TITLE} className="flex flex-wrap items-end justify-between gap-4 px-2 pb-2 pt-4">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <h1 className={H1_SITE}>{BENCH_TITLE}</h1>
+            <p className="text-[15px] text-s-muted">{count > 0 ? leaderboardLine(count) : BENCH_TOP_EMPTY}</p>
+          </div>
+          {count > 0 && <SegTabs label="Filters" items={filterTabs(filter, chips, raisingEnabled())} />}
         </section>
-        {/* v2.13.2 fix 1: nobody ranked: the header's empty line is the only one; a filtered view with no rows keeps BENCH_EMPTY. */}
+        {/* Nobody ranked: the header's empty line is the only one; a filtered view with no rows says BENCH_EMPTY. */}
         {count > 0 &&
           (rows.length === 0 ? (
-            // Launch ready L10: only a filter can empty a ranked board, so the way back is one tap.
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-y border-ek-line py-6 md:mt-10">
-              <p className="font-funnel-sans text-base text-ek-body">{BENCH_EMPTY}</p>
-              <Link href={filterHref({ chain: null, weekly: false })} className={BTN_SECONDARY}>
+            <div className={`${phoneRadius(CARD_PANEL)} flex flex-wrap items-center justify-between gap-3 p-6`}>
+              <p className="text-[15px] text-s-muted">{BENCH_EMPTY}</p>
+              <Link href={filterHref({ chain: null, weekly: false })} className={PILL_WHITE}>
                 {BENCH_SHOW_ALL}
               </Link>
             </div>
           ) : (
-            <ol aria-label="Builders" className={`${ROWS} mt-8 md:mt-10`}>
-              {rows.map((r) => (
-                <BenchRowItem key={r.handle} r={r} />
-              ))}
-            </ol>
+            <>
+              <Podium rows={podium} ranked={ranked} />
+              {(list.length > 0 || pages > 1) && (
+                <section aria-label="Builders" className={`${phoneRadius(CARD_PANEL)} flex flex-col p-3`}>
+                  {list.length > 0 && (
+                    <ol aria-label="Builders" start={(at - 1) * LEADERBOARD_PAGE + podium.length + 1} className="flex flex-col">
+                      {list.map((r) => (
+                        <BenchRowItem key={r.handle} r={r} ranked={ranked} />
+                      ))}
+                    </ol>
+                  )}
+                  <Pager page={at} pages={pages} href={(n) => pageHref(filter, n)} tone="dark" className="px-3.5 pb-1.5 pt-2.5" />
+                </section>
+              )}
+            </>
           ))}
       </div>
       <Footer />

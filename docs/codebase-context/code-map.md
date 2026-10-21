@@ -62,7 +62,12 @@ apps/frontend/
                                earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
                                (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The leaderboard" section, earnkit.com/leaderboard);
                                v2.14 T3 deleted v212.txt with the Bench switch
-  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9),
+  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,Podium.tsx,bench-load.ts}  v3.1 site T8 (Leaderboard board):
+                               SegTabs All/Base/Backed (filterTabs; old ?chain=arc/?weekly=1 filter, mark no tab), Podium
+                               (page 1 rows 1-3: blue/navy/rust, METAL place pills), panel rows (BenchRowItem: one link,
+                               XHandle link={false}, Backed tag, streak, ScoreText 30), Pager (?page=, LEADERBOARD_PAGE 20,
+                               pageHref); under RANK_MIN_POOL no "#N"/metal pills; FilterChip deleted. History below:
+                               scoring and clarity T3 (R9),
                                v3 Stage 3 T4 (spec 5.8): /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept):
                                H1, benchLine ("N builders. Ranked by Shipping."; BENCH_TOP_EMPTY at 0), the filters as hairline
                                pills (FilterChip: links with aria-pressed, 44px on a phone, on = white fill with black text;
@@ -236,7 +241,7 @@ apps/frontend/
                                that opens with a hairline; kept for callers) and Panel
   app/components/site/         v3.1 site T1 primitives: ui.ts (CARD_NEUTRAL/BLUE/NAVY/RUST/LIGHT/PANEL, PILL_WHITE/BLUE,
                                PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
-                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link), Pager
+                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
                                aria-current; segRail/segTab for the install sheet's tabs), useReducedMotion and
                                useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,

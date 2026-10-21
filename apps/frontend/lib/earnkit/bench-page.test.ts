@@ -99,29 +99,32 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
   assert.equal(weekly.rows.length, 2);
 });
 
-test('10.4 the row: photo, name, @handle, pill, chain logos with the name as alt and tooltip, project, best fact, "#N" on the right (R18 fix 1; the rank line to screen readers); the header count line', () => {
-  const row = { rank: 2, line: 'Top 4% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week', streak: 0 };
-  const html = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: null, weekly: false } }));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', 'Backing · $RECIPE', 'Recipe planner', '31 people this week', '>#2<', 'Top 4% of builders', '25 builders, ranked by how often they ship', FILTER_WEEKLY])
-    assert.ok(html.includes(s), s);
-  assert.match(html, /<img[^>]+alt="Base"[^>]+title="Base"|<img[^>]+title="Base"[^>]+alt="Base"/);
+test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, streak, score, "#N" (the rank line to screen readers); the header count line; the tabs', () => {
+  const row = { rank: 4, line: 'Top 16% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week', streak: 5 };
+  const top = [1, 2, 3].map((n) => ({ ...row, rank: n, line: null, handle: `top_${n}`, name: `Top ${n}`, backing: null, points: 90 - n }));
+  const render = (filter: Parameters<typeof BenchView>[0]['filter'], rows = [...top, row], count = 25) =>
+    renderToStaticMarkup(React.createElement(BenchView, { rows, count, chips: ['base'], filter, page: 1 }));
+  const html = render({ chain: null, weekly: false });
+  const li = html.slice(html.indexOf('data-row="maya_makes"'));
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', '>Backed<', 'Recipe planner', '5 weeks', '>#4<', '<span class="sr-only">Top 16% of builders</span>', '>62<'])
+    assert.ok(li.includes(s), s);
+  assert.ok(html.includes('25 builders, ranked by how often they ship'));
+  // The tag only: the coin's symbol and link stay off the leaderboard (they are on the profile's Token card).
+  assert.doesNotMatch(html, /\$RECIPE|tokens\.fun/);
   assert.match(html, /href="\/leaderboard\?chain=base"/);
-  // Launch-ready L3: no community round chip; v3 Stage 2: the Backed chip (EARNKIT_RAISING is on in this file).
+  // Launch-ready L3: no community round chip; v3 Stage 2: the Backed tab (EARNKIT_RAISING is on in this file). W3: no weekly tab.
   assert.doesNotMatch(html, /raising=1|>Community round</);
   assert.match(html, /href="\/leaderboard\?backed=1">Backed</);
-  assert.match(html, /href="\/leaderboard\?weekly=1"/);
+  assert.ok(!html.includes('weekly=1') && !html.includes(FILTER_WEEKLY));
   assert.doesNotMatch(html, /<form/, 'filters are links');
-  // A filter that is on links back to the Bench without it, and says so.
-  const on = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', weekly: true } }));
-  const link = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
-  assert.match(link(on, '/leaderboard?weekly=1'), /aria-pressed="true"/, 'Base is on: its chip turns it off');
-  assert.match(link(on, '/leaderboard?chain=base'), /aria-pressed="true"/, 'Weekly is on: its chip turns it off');
-  const off = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base'], filter: { chain: 'base', weekly: false } }));
-  assert.match(link(off, '/leaderboard?chain=base&amp;weekly=1'), /aria-pressed="false"/);
+  // The tab of the filter that is on is marked; an old ?weekly=1 link marks none.
+  const tab = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
+  assert.match(tab(render({ chain: 'base', weekly: false }), '/leaderboard?chain=base'), /aria-current="page"/);
+  assert.doesNotMatch(render({ chain: 'base', weekly: true }), /aria-current="page"/);
   // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
-  const filtered = renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 3, chips: [], filter: { chain: 'base', weekly: false } }));
+  const filtered = render({ chain: 'base', weekly: false }, [], 3);
   assert.ok(filtered.includes(BENCH_EMPTY));
   // Launch ready L10: the way back from an empty filter is one link to everyone.
-  assert.ok(filtered.includes(`href="/leaderboard">${BENCH_SHOW_ALL}</a>`), filtered);
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: 'base', weekly: false } })).includes(BENCH_EMPTY));
+  assert.match(filtered, new RegExp(`href="/leaderboard"[^>]*>${BENCH_SHOW_ALL}</a>`), filtered);
+  assert.ok(!render({ chain: 'base', weekly: false }, [], 0).includes(BENCH_EMPTY));
 });

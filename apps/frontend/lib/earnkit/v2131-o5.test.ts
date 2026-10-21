@@ -296,7 +296,7 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
 test('O5 N16, P1, P10 the leaderboard with nobody on it says so; "1 builder"; the money heading includes investments', () => {
-  assert.ok(html(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: null, weekly: false } })).includes(BENCH_TOP_EMPTY));
+  assert.ok(html(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: null, weekly: false }, page: 1 })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
   // v2.13.2 (3), v3.1: "1 builder" (v2132-followups.test.ts covers 0, 1 and many).
   assert.equal(leaderboardLine(1), '1 builder, ranked by how often they ship');
