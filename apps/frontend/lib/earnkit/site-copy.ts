@@ -71,8 +71,12 @@ export function heroChipText(usd: number, prizes: boolean): string | null {
   return usd > 0 ? `${compactUsd(usd)} in grants${prizes ? ' and prizes' : ''} open now` : null;
 }
 
-export function programKind(c: { investment?: boolean; reward?: string }): string {
-  return c.investment ? 'investment' : /\bUSDC\b/.test(c.reward ?? '') ? 'grant, in USDC' : 'grant';
+/** A program that is a prize or a hackathon by kind: in person, or its reward text says prize(s). Never an investment. Pool size is not the test (a grant can have a pool). */
+export const isPrizeProgram = (c: { investment?: boolean; in_person?: boolean; reward?: string }): boolean =>
+  !c.investment && (c.in_person === true || /\bprizes?\b/i.test(c.reward ?? ''));
+
+export function programKind(c: { investment?: boolean; in_person?: boolean; reward?: string }): string {
+  return c.investment ? 'investment' : isPrizeProgram(c) ? 'hackathon' : /\bUSDC\b/.test(c.reward ?? '') ? 'grant, in USDC' : 'grant';
 }
 
 export const streakNote = (streak: number, on12: number): string => (streak === 1 ? 'Week 2 starts Monday' : `Code in ${on12} of 12 weeks`);

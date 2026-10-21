@@ -7,15 +7,15 @@ import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 import { carouselCards, type FeedCard } from './feed';
-import { compactUsd, heroChipText, monthDay, programKind } from './site-copy';
+import { compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
 export { byRelevance };
 
 /**
  * The landing page's live data (v2.7 §1, v2.7.1): the open curated programs as cards, the hero's
- * "$X open right now" (v2.9 F21: the one money figure, openMoneyUsd), one short stats line and the
- * Bench's parts. `landingFrom` is pure; `readLanding` is the one DB read behind it
+ * "$X open right now" (v2.9 F21: the one money figure, openMoneyUsd), the hero chip, one short stats line and the
+ * Activity cards (the feed's first three). `landingFrom` is pure; `readLanding` is the one DB read behind it
  * (app/lib/landing-cache.ts caches it for 10 minutes).
  */
 
@@ -49,7 +49,7 @@ export type Tile = {
   in_person: boolean;
   /** "/programs/arc-microgrants.svg" (a local file, Ruling 23 (plan)), or null for the monogram. */
   logo: string | null;
-  /** v3.1 site: "grant", "grant, in USDC" or "investment" (site-copy programKind). */
+  /** v3.1 site: "grant", "grant, in USDC", "hackathon" or "investment" (site-copy programKind). */
   kind: string;
   /** v3.1 site: the per-winner max compacted ("$5K"), null without one. */
   big: string | null;
@@ -120,8 +120,8 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : 'Rolling',
     };
   });
-  // The chip says "and prizes" when any program it sums is in person or states a pool (a hackathon's money).
-  const prizes = kept.some((c) => openCurated(c, now) && !c.investment && (c.max_award_usd ?? 0) > 0 && (c.in_person === true || Boolean(c.pool_usd)));
+  // The chip says "and prizes" when a program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
+  const prizes = kept.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
   return {
     open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
     open_more: openMoneyWords(kept, now),

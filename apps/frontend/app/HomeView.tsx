@@ -7,11 +7,10 @@ import ProgramCards from './components/sections/ProgramCards';
 import type { Landing } from '../lib/earnkit/landing';
 
 /**
- * The homepage (R18: one idea per block; v3 Stage 3, spec 5.6): the hero (a statement, one action and the featured
- * builder's live preview), the leaderboard's top 10, the last finished week's feed rows (when there are any), the
- * money open now, backed by, the footer. `landing` is null when the read failed (Ruling 21 (plan)): the hero and
- * Backed by render and the live sections are skipped (a failed read claims nothing, not even "nobody yet"); an
- * empty bench or an empty program list shows its one empty line.
+ * The homepage (interim until the v3.1 landing page task): the hero, the Activity cards (landing.activity, when there
+ * are any), the money open now, backed by, the footer. `landing` is null when the read failed (Ruling 21 (plan)): the
+ * hero and Backed by render and the live sections are skipped (a failed read claims nothing); an empty program list
+ * shows its one empty line.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {

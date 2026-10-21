@@ -11,7 +11,7 @@ import { feedWeekStats } from './site-data';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
-import { upsertProgram } from './programs';
+import { listPrograms, upsertProgram } from './programs';
 
 /** v3.1 site Task 4: the list reads (leaderboard streak, feed score and commits, landing chip and Activity, feed week stats). */
 
@@ -45,7 +45,7 @@ test('(a) benchRows rows carry streak equal to builder_projects.streak', db, asy
   assert.deepEqual(rows.map((r) => r.streak), [7, 0]);
 });
 
-test('(b) feedWeeks cards carry score (the live score) and commits (facts.shipped_code.n, 0 without)', db, async () => {
+test('(b) feedWeeks cards carry score (the live score; builder_live.score is a smallint, so it is already whole) and commits (facts.shipped_code.n, 0 without)', db, async () => {
   const a = await listed(72, { weeks: [{ monday: '2026-10-12', facts: { shipped_code: { n: 14 } } }] });
   const b = await listed(30, { weeks: [{ monday: '2026-10-12', facts: { went_live: true } }] });
   await rankFeed(NOW);
@@ -64,11 +64,23 @@ const card = (id: string, o: Partial<Card> = {}): Card => ({
 });
 const stats = { installs: 0, builders_won_usd: 0 } as PublicStats;
 
-test('(c) landingFrom: the chip, and the tiles\' kind, big and when', () => {
+test('(c) landingFrom: the chip from the committed files, a pooled hackathon, and the tiles\' kind, big and when', db, async () => {
+  for (const f of ['base-builder-grants', 'circle-developer-grants']) await upsertProgram(ProgramFile.parse(committedProgram(f)));
+  const files = (await listPrograms()).filter((c) => ['base-builder-grants', 'circle-developer-grants'].includes(c.id));
+  assert.equal(files.length, 2);
+  assert.ok(files.find((c) => c.id === 'circle-developer-grants')!.pool_usd, 'Circle states a pool and is still a grant');
+  const fromFiles = landingFrom(files, stats, NOW);
+  assert.equal(fromFiles.open_chip, '$105K in grants open now');
+  assert.deepEqual(fromFiles.tiles.map((t) => [t.id, t.kind]).sort(), [['base-builder-grants', 'grant'], ['circle-developer-grants', 'grant, in USDC']]);
+  // A pooled hackathon (prize text, pool) reads "and prizes", and its tile is a hackathon, never a grant.
+  const hack = card('hack', { max_award_usd: 20000, pool_usd: 200000, reward: '$200K in prizes' });
+  const withHack = landingFrom([...files, hack], stats, NOW);
+  assert.equal(withHack.open_chip, '$125K in grants and prizes open now');
+  assert.equal(withHack.tiles.find((t) => t.id === 'hack')!.kind, 'hackathon');
   const base = card('base-builder-grants', { max_award_usd: 5000, reward: 'up to $5,000' });
-  const circle = card('circle-developer-grants', { max_award_usd: 100000, chains: ['arc'], reward: 'milestone-based USDC grants' });
+  const circle = card('circle-developer-grants', { max_award_usd: 100000, chains: ['arc'], reward: 'milestone-based USDC grants', pool_usd: 200000 });
   assert.equal(landingFrom([base, circle], stats, NOW).open_chip, '$105K in grants open now');
-  const inPerson = card('hack', { max_award_usd: 20000, in_person: true });
+  const inPerson = card('hack2', { max_award_usd: 20000, in_person: true });
   assert.equal(landingFrom([base, circle, inPerson], stats, NOW).open_chip, '$125K in grants and prizes open now');
   assert.equal(landingFrom([], stats, NOW).open_chip, null);
   assert.equal(landingFrom([card('upcoming-one', { max_award_usd: 5000, status: 'upcoming' })], stats, NOW).open_chip, null);
@@ -124,6 +136,8 @@ test('(f) feedWeekStats on a seeded week: shipped rows, one went live, one feed_
   const c = await listed(50, { weeks: [{ monday, facts: { shipped_code: { n: 0 } } }] });
   const d = await listed(45, { weeks: [{ monday, facts: { shipped_code: { n: 50 } }, feedHidden: true }] });
   const only = [a.id, b.id, c.id, d.id];
+  // The feed's rank step gives points (rankFeed covers recent weeks only): set them as it would.
+  await sql()`UPDATE project_updates SET points = 10 WHERE builder_id IN ${sql()(only)} AND (facts->'shipped_code'->>'n')::int > 0`;
   // Programs: one entered by a, one told by b in the week, one told outside the week.
   const mk = async (name: string) => {
     const id = `v31-lists-${process.pid}-${name}`;
@@ -135,6 +149,17 @@ test('(f) feedWeekStats on a seeded week: shipped rows, one went live, one feed_
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', ${pt}, 'applied', ${inWeek})`;
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', ${po}, 'applied', '2030-01-20T10:00:00Z')`;
   assert.deepEqual(await feedWeekStats(monday, { only }), { builders: 2, commits: 42, went_live: 1, applications: 2 });
+  // A told application to an unlisted program inside the week is not counted.
+  const pu = await mk('unlisted');
+  await sql()`UPDATE programs SET status = 'unlisted' WHERE id = ${pu}`;
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${a.id}, '', ${pu}, 'applied', ${inWeek})`;
+  const pc = await mk('campaign');
+  await sql()`UPDATE programs SET campaign = '{"kind":"sponsor"}'::jsonb WHERE id = ${pc}`;
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${a.id}, '', ${pc}, 'applied', ${inWeek})`;
+  assert.deepEqual(await feedWeekStats(monday, { only }), { builders: 2, commits: 42, went_live: 1, applications: 2 }, 'unlisted and campaign programs are not counted');
+  // An update with commits but no points is not a feed card, so it is not a builder shipped (feedRows' rule).
+  const e = await listed(40, { weeks: [{ monday, facts: { shipped_code: { n: 9 } } }] });
+  assert.deepEqual(await feedWeekStats(monday, { only: [...only, e.id] }), { builders: 2, commits: 42, went_live: 1, applications: 2 });
   // An empty week is all zeros.
   assert.deepEqual(await feedWeekStats('2030-02-04', { only }), { builders: 0, commits: 0, went_live: 0, applications: 0 });
 });

@@ -9,7 +9,7 @@ export const FEED_SECTION_TITLE = 'Feed';
 export const SEE_ALL_UPDATES = 'See all';
 
 /**
- * v3 Stage 3 (spec 5.6): the last finished week's updates as rows (landing.ts FEED_ROWS at most), the week named
+ * v3 Stage 3 (spec 5.6): the landing's Activity cards (landing.activity, at most LANDING_ACTIVITY) as rows, the week named
  * once under the title, "See all" to /feed beside it. Each row is the long UpdateCard (Task 3 restyles it); the
  * section is left out when the week has no rows. Server-safe.
  */
