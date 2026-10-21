@@ -27,8 +27,8 @@ import { fileCards } from './fixtures/fresh-build';
 import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import ProgramRow from '../../app/components/sections/ProgramRow';
-import ProgramCards from '../../app/components/sections/ProgramCards';
+import Opportunities from '../../app/components/landing/Opportunities';
+import HomeView from '../../app/HomeView';
 
 (globalThis as { React?: typeof React }).React = React;
 appEnv();
@@ -84,10 +84,9 @@ test('(a) an upcoming program is listed with "not open yet", never a fit, never 
   assert.equal(tile?.status, 'upcoming');
   assert.ok(!(await openProgramFacts()).some((p) => p.id === id), 'never a fit');
   assert.equal(openMoneyUsd([c]), 0, 'never in the total');
-  // The row's chip reads "Not open yet"; an in-person program adds "In person".
-  const h = renderToStaticMarkup(React.createElement(ProgramRow, { tile: { ...tile!, in_person: true } }));
-  const chips = [...h.matchAll(/<span class="ek-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(chips.slice(0, 2), ['Not open yet', 'In person']);
+  // v3.1 W2: the tile says "Not open yet" and the landing's cards leave it out (open programs only).
+  assert.equal(tile?.when, 'Not open yet');
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(Opportunities, { tiles: [tile!] })), new RegExp(`href="/programs/${id}"`));
 });
 
 test('(b) tile order: active first; Base, then any chain, then the rest; grants before investments; dated before rolling', () => {
@@ -148,10 +147,9 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
-  // The two lines, in order, the second muted.
-  const h = renderToStaticMarkup(React.createElement(ProgramCards, { tiles: landing.tiles, figure: landing.open_text, more: landing.open_more }));
-  const t = h.replace(/<[^>]+>/g, ' ');
-  assert.ok(t.indexOf('$100K in grants and prizes open') >= 0 && t.indexOf('$100K in grants and prizes open') < t.indexOf('Plus 1 accelerator and 1 hackathon.'), t);
+  // v3.1 Task 6: the landing shows the hero chip (open_chip, the same figure), never "open right now".
+  const t = renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/<[^>]+>/g, ' ');
+  assert.ok(landing.open_chip && t.includes(landing.open_chip) && landing.open_chip.startsWith('$100K '), t.slice(0, 300));
   assert.doesNotMatch(t, /open right now/);
 });
 

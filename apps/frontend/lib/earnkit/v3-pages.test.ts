@@ -8,11 +8,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 process.env.EARNKIT_RAISING = 'on';
 
-import BenchView, { benchLine } from '../../app/leaderboard/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import { Chip } from '../../app/leaderboard/FilterChip';
 import FeedView, { FEED_LINE, FEED_TITLE } from '../../app/feed/FeedView';
-import ProgramCards, { PROGRAMS_TITLE } from '../../app/components/sections/ProgramCards';
+import HomeView from '../../app/HomeView';
+import { EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramLogo from '../../app/components/sections/ProgramLogo';
 import GuideView, { ANY_CHAIN } from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
@@ -36,10 +37,10 @@ const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 
 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
-test('(a) the leaderboard: "Leaderboard", benchLine, hairline rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
+test('(a) the leaderboard: "Leaderboard", leaderboardLine, hairline rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
   const h = html(React.createElement(BenchView, { rows: [ROW, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false } }));
   assert.match(h, /<h1[^>]*>Leaderboard<\/h1>/);
-  assert.ok(h.includes(benchLine(120)) && benchLine(40) === '40 builders. Ranked by Shipping.');
+  assert.ok(h.includes(leaderboardLine(120)) && leaderboardLine(40) === '40 builders, ranked by how often they ship');
   assert.doesNotMatch(h, /Shipping points/);
   assert.doesNotMatch(h, /builders?.{0,20}this week/, 'no "this week" after the rank (a best fact may say "31 people this week")');
   assert.equal((h.match(/data-row="/g) ?? []).length, 3);
@@ -109,19 +110,13 @@ test('(b) the feed: H1 "Feed", the line, each week an H2 over a ROWS list of hai
 
 // ---- (c) the programs page -------------------------------------------------------------------------
 
-test('(c) /programs: H1 "Money open now", the money line and what it leaves out, then the rows', () => {
-  assert.equal(PROGRAMS_TITLE, 'Money open now');
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: '$115K in grants and prizes open', more: 'Plus 2 accelerators and 1 hackathon.' }));
-  assert.match(h, /<h1[^>]*>Money open now<\/h1>/);
-  const t = text(h);
-  const at = (s: string) => t.indexOf(s);
-  assert.ok(at('Money open now') < at('$115K in grants and prizes open') && at('$115K in grants and prizes open') < at('Plus 2 accelerators and 1 hackathon.') && at('Plus 2 accelerators') < at("Crypto World's Fair Hackathon"), t);
-  assert.doesNotMatch(h, /Open programs/);
-  // v3.1 W10: /programs itself is a permanent redirect to the landing's earn section.
+test('(c) /programs: a permanent redirect to the landing\'s #earn section (v3.1 W10), "Earning opportunities"', () => {
   assert.match(readFileSync(join(FRONTEND, 'app/programs/page.tsx'), 'utf8'), /permanentRedirect\('\/#earn'\)/);
-  // The landing's section is the same heading (h2) with the same words.
-  assert.match(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })), /<h2[^>]*>Money open now<\/h2>/);
+  const h = html(React.createElement(HomeView, { landing: homeFixture }));
+  assert.match(h, new RegExp(`<section id="earn"[^>]*>\\s*<h2[^>]*>${EARN_TITLE}</h2>`));
+  assert.doesNotMatch(h, /Open programs|Money open now/);
 });
+
 
 test('(c) a program logo sits on a light disc so a dark mark reads on the black page; the monogram keeps its raised disc', () => {
   const one = html(React.createElement(ProgramLogo, { logo: '/programs/arc-microgrants.svg', title: 'Arc Microgrants', size: 40 }));

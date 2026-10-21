@@ -1,26 +1,26 @@
-import Hero from './components/sections/Hero';
-import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
-import { COLUMN } from './components/common/Panel';
-import FeedRows from './components/sections/FeedRows';
-import ProgramCards from './components/sections/ProgramCards';
+import Hero from './components/landing/Hero';
+import Steps from './components/landing/Steps';
+import Activity from './components/landing/Activity';
+import Opportunities from './components/landing/Opportunities';
+import { PAGE_COL_WIDE } from './components/site/ui';
 import type { Landing } from '../lib/earnkit/landing';
 
 /**
- * The homepage (interim until the v3.1 landing page task): the hero, the Activity cards (landing.activity, when there
- * are any), the money open now, backed by, the footer. `landing` is null when the read failed (Ruling 21 (plan)): the
- * hero and Backed by render and the live sections are skipped (a failed read claims nothing); an empty program list
- * shows its one empty line.
+ * The homepage (v3.1, Landing board) on the deep page colour: the hero (painting, chip, title, CTA, agent marks),
+ * "From commit to capital", Activity (landing.activity) and Earning opportunities (#earn), then the full footer.
+ * `landing` is null when the read failed (Ruling 21 (plan)): the hero (without the chip) and the steps render and
+ * the live sections are skipped (a failed read claims nothing). The layout holds <main>; this is a plain column.
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
   return (
-    <div className="w-full">
-      <Hero featured={null} />
-      <div className={`${COLUMN} flex flex-col gap-14 md:gap-24`}>
-        {landing ? <FeedRows cards={landing.activity} /> : null}
-        {landing ? <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} /> : null}
-        <BackedBy />
+    <div data-ek-deep="" className="w-full">
+      <div className={`${PAGE_COL_WIDE} flex flex-col gap-[72px] pt-2 md:gap-32`}>
+        <Hero chip={landing?.open_chip ?? null} />
+        <Steps />
+        {landing ? <Activity cards={landing.activity} /> : null}
+        {landing ? <Opportunities tiles={landing.tiles} /> : null}
       </div>
       <Footer />
     </div>

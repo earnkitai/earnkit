@@ -44,7 +44,7 @@ Every open program EarnKit lists has a short guide at
 https://earnkit.com/programs/<id>: the prize, the difficulty, what won
 before, and what the ecosystem wants now. find with program_id returns the
 same guide, and prepare shows it the first time the builder picks a program.
-All open programs: https://earnkit.com/programs
+All open programs: https://earnkit.com/#earn
 
 ## Tools
 

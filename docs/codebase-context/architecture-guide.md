@@ -7188,6 +7188,33 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
 - **Harness.** `.superpowers/sdd/v3.1-plan-site/seed-site.mts` (scratch DB `earnkit_v31_site` only) and `shoot.mjs`
   (Playwright screenshots at 1440 and 390 plus phone checks) are untracked tools for Tasks 5 to 11.
 
+## v3.1 site Task 6: the landing
+
+- **Composition (`HomeView`, Landing board).** A `data-ek-deep` root (the body turns `s-deep`) holding a
+  `PAGE_COL_WIDE` column (`gap-[72px] md:gap-32`): `landing/Hero`, `landing/Steps`, `landing/Activity`,
+  `landing/Opportunities` (the `#earn` anchor that `/programs` and the hero chip land on), then the full `Footer`.
+  `landing === null` renders the hero (no chip) and the steps only. Backed by left (S19).
+- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; 44px on a phone,
+  36px from md), the one-line Kaftan title (`clamp(36px,9.6vw,96px)`, `whitespace-nowrap`), the sub line, the white
+  `CTA_INSTALL` button (opens the install sheet) and the four `AgentMark`s (now `currentColor` + `text-s-text`).
+- **HeroArt (client).** One `ek-drift` layer (`data-hero-art`) holding the painting (`<img srcSet>` of the three
+  pre-sized files, `fetchPriority="high"`) and an SVG in the painting's 1600x1036 space (the files are that aspect, so
+  `object-cover` and `xMidYMid slice` frame both alike): the board's arch `clipPath` (`ARCH_PATH`), a dusk tint at
+  rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
+  only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
+  `useReducedMotion()` no listener is attached.
+- **Steps / Activity / Opportunities.** Steps append "Backers can buy in." only with `raisingEnabled()`. Activity is
+  `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
+  else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
+  none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour
+  order (blue, step, rust, step); big number `tile.big`, else the prize text; logo on a white tile or the monogram.
+- **Tokens.** `heroBase`, `heroShade*`, `heroTitleShadow`, `ctaGlow`, `ctaGlowHover`, `dusk*`, `sunset*`, `blueLine`,
+  `rustLine`. `BENCH_TOP_EMPTY` moved to `site-copy.ts`; `BenchView` uses `leaderboardLine`. The OG image's v3 words
+  (`BENCH_HERO_*`) live in `scripts/og.mts` (W11).
+- **Deleted.** `sections/{Hero,FeaturedCard,BenchTop,FeedRows,ProgramRow,BackedBy}.tsx`. `sections/ProgramCards.tsx` is a
+  shim (money line + `Opportunities`) kept only because `copy-review.test.ts` (P0-owned) imports it; nothing under
+  `app/` renders it. Test: `v31-site-landing.test.ts`.
+
 ## v3.1 site Task 3: profile reads
 
 - **One module.** `lib/earnkit/site-data.ts profileSite(builderId, d, now)` adds what the v3.1 profile shows beyond

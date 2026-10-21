@@ -110,6 +110,23 @@ export const SITE = {
   footGlow: 'rgba(255,200,150,0.28)',
   footGlowMid: 'rgba(255,160,110,0.10)',
   footCtaGlow: 'rgba(255,150,70,0.5)',
+  /** Task 6: the landing (Landing board): the hero's base, readability shade, title shadow and CTA glow; the arch light's dusk tint and sunset; the blue and rust program card borders. */
+  heroBase: '#0B0907',
+  heroShade: 'rgba(8,7,14,0.35)',
+  heroShadeClear: 'rgba(8,7,14,0)',
+  heroShadeDeep: 'rgba(8,7,14,0.72)',
+  heroShadeEnd: 'rgba(5,6,13,0.96)',
+  heroTitleShadow: 'rgba(5,6,13,0.7)',
+  ctaGlow: 'rgba(255,150,90,0.30)',
+  ctaGlowHover: 'rgba(255,150,90,0.5)',
+  duskTop: '#3B2A6B',
+  duskMid: '#F08A5D',
+  duskBottom: '#F2B07A',
+  sunsetCore: '#FFC58A',
+  sunsetMid: '#FF9A62',
+  sunsetEdge: '#FF8A55',
+  blueLine: 'rgba(255,255,255,0.12)',
+  rustLine: 'rgba(255,138,76,0.18)',
 } as const;
 
 /** The CSS variable for a SITE key: `onBlueSoft` → `--ek-s-on-blue-soft`. */

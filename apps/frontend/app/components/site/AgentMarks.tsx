@@ -1,5 +1,5 @@
 /**
- * The agent marks under the landing hero (Landing board, `agents`), drawn in white at half opacity.
+ * The agent marks under the landing hero (Landing board, `agents`), drawn in the text colour at half opacity.
  * Sources, copied verbatim from the board: Grok Bot, Claude Code and Codex are grok.svg, claude.svg and
  * openai.svg from `@lobehub/icons-static-svg` (MIT licence); Muse is the path of
  * public/images/agents/muse.svg (muse.ai's mark). S20 (owner decision O5): the owner-approved canvas names
@@ -42,13 +42,13 @@ export const AGENT_MARKS: AgentMarkData[] = [
   },
 ];
 
-/** One mark: a white glyph at 50% opacity, named for screen readers. */
+/** One mark: the glyph in the text colour (currentColor, s-text) at 50% opacity, named for screen readers. */
 export function AgentMark({ mark, size = 22 }: { mark: AgentMarkData; size?: number }) {
   return (
-    <span title={mark.name} role="img" aria-label={mark.name} className="inline-flex opacity-50">
+    <span title={mark.name} role="img" aria-label={mark.name} className="inline-flex text-s-text opacity-50">
       <svg width={size} height={size} viewBox={mark.viewBox} aria-hidden="true">
         {mark.paths.map((d) => (
-          <path key={d} d={d} fill="#FFFFFF" />
+          <path key={d} d={d} fill="currentColor" />
         ))}
       </svg>
     </span>

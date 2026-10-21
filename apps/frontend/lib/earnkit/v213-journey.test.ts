@@ -661,8 +661,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
 test('16.6 acceptance 6, the landing page: the hero and the Activity cards', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('>Feed</h2>'));
-  assert.match(page, /data-shape="long"/);
+  // v3.1 Task 6: the hero title and the Activity cards (the feed's first three, linking each builder's page).
+  assert.ok(page.includes('Earn from building.') && page.includes('>Activity</h2>'));
+  assert.match(page, /<a [^>]*href="\/maya_makes"/);
   assert.ok(landing.activity.some((c) => c.handle === 'maya_makes'));
 });
 

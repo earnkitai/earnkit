@@ -5,13 +5,12 @@ import { COLUMN, H1, LEDE, ROWS } from '../components/common/Panel';
 import ChainLogo from '../components/ui/ChainLogo';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { CHAIN_LABEL, type BenchChain } from '../../lib/earnkit/rank';
-import { BENCH_TOP_EMPTY, benchLine } from '../components/sections/BenchTop';
+import { BENCH_TOP_EMPTY, leaderboardLine } from '../../lib/earnkit/site-copy';
 import BenchRowItem from './BenchRowItem';
 import { Chip, FILTER_BACKED, FILTER_WEEKLY } from './FilterChip';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 
 export const BENCH_TITLE = 'Leaderboard';
-export { benchLine };
 export const BENCH_EMPTY = 'No builder matches this filter yet.';
 export const BENCH_SHOW_ALL = 'Show everyone';
 export { FILTER_BACKED, FILTER_WEEKLY };
@@ -27,7 +26,7 @@ export default function BenchView({ rows, count, chips, filter }: { rows: BenchR
       <div className={`${COLUMN} pt-8 md:pt-12`}>
         <section aria-label={BENCH_TITLE}>
           <h1 className={H1}>{BENCH_TITLE}</h1>
-          <p className={LEDE}>{count > 0 ? benchLine(count) : BENCH_TOP_EMPTY}</p>
+          <p className={LEDE}>{count > 0 ? leaderboardLine(count) : BENCH_TOP_EMPTY}</p>
           <nav aria-label="Filters" className="mt-6 flex flex-wrap gap-2">
             {chips.map((c) => (
               <Chip key={c} on={filter.chain === c} href={filterHref({ ...filter, chain: filter.chain === c ? null : c })}>

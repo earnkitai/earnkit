@@ -18,8 +18,7 @@ import Footer from '../../app/components/common/Footer';
 import Header from '../../app/components/common/Header';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
 import { BENCH_FOOTER_TAGLINE } from './footer-links';
-import { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
-import { FEED_SECTION_TITLE } from '../../app/components/sections/FeedRows';
+import { CTA_INSTALL, EARN_TITLE, HERO_SUB, HERO_TITLE, NAV_INSTALL, STEPS_TITLE } from './site-copy';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -360,47 +359,56 @@ test('10.11 the won line: absent at 0 (never "$0"); "Builders using EarnKit won 
 const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/&#x27;/g, "'");
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], summary: null, pinned: false, score: 62, commits: 12 };
 
-test('12.1 the hero, word for word, and its one button (v3 Stage 3: the header holds the other one)', () => {
-  assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  // R18, v3 Stage 3 (spec 5.6): shipping and funding; the landing never pitches a coin or a community round.
-  assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to the agent you already use. It writes your weekly ship log from real commits, ranks you against every builder, and routes you to grants, accelerators and backers.');
+test('12.1 the hero, word for word, and its one button (v3.1 Task 6: "Add EarnKit to your agent"; the header holds the other one)', () => {
+  assert.equal(HERO_TITLE, 'Earn from building.');
+  // R18: shipping and funding; the landing never pitches a coin or a community round.
+  assert.equal(HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
   const h = page({ ...LANDING_FIXTURE, activity: [CARD] });
-  assert.ok(h.includes(BENCH_HERO_TITLE) && h.includes(BENCH_HERO_SUBTITLE));
+  assert.ok(h.includes(HERO_TITLE) && h.includes(HERO_SUB));
   // Exactly two on the landing: the header's (app/layout.tsx, outside HomeView) and the hero's. HomeView renders one.
-  assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
-  assert.equal((renderToStaticMarkup(React.createElement(Header)).match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
+  // (One Activity card adds the invite card, with its own CTA further down.)
+  const hero = h.slice(0, h.indexOf('</section>'));
+  assert.equal((hero.match(new RegExp(`<button[^>]*>${CTA_INSTALL}</button>`, 'g')) ?? []).length, 1);
+  assert.equal((hero.match(/<button/g) ?? []).length, 1);
+  assert.equal((renderToStaticMarkup(React.createElement(Header)).match(new RegExp(`<button[^>]*>${NAV_INSTALL}</button>`, 'g')) ?? []).length, 1);
   assert.ok(!h.includes('Agents only'), 'no all-caps eyebrow under the flag');
   assert.ok(!/Builder bonus/i.test(h), 'R16');
 });
 
 test('12.1b (R18) the landing never mentions a coin or a community round, raising on or off', () => {
-  for (const _raising of [false, true]) {
-    const h = page({ ...LANDING_FIXTURE, activity: [CARD] });
-    assert.ok(h.includes(BENCH_HERO_SUBTITLE));
-    assert.doesNotMatch(h, /\braise\b|raising|community round|your own coin/i);
+  const was = process.env.EARNKIT_RAISING;
+  try {
+    for (const raising of [false, true]) {
+      if (raising) process.env.EARNKIT_RAISING = 'on';
+      else delete process.env.EARNKIT_RAISING;
+      const h = page({ ...LANDING_FIXTURE, activity: [CARD] });
+      assert.ok(h.includes(HERO_SUB));
+      assert.doesNotMatch(h, /\braise\b|raising|community round|your own coin/i);
+    }
+  } finally {
+    if (was === undefined) delete process.env.EARNKIT_RAISING;
+    else process.env.EARNKIT_RAISING = was;
   }
 });
 
-test('12.2 the sections in order: hero, Feed (the Activity cards), Money open now, Backed by (R18: no How it works, no filter chips)', () => {
+test('12.2 the sections in order: hero, From commit to capital, Activity, Earning opportunities (v3.1 Task 6; no Backed by, S19)', () => {
   const h = page({ ...LANDING_FIXTURE, activity: [CARD] });
-  const at = [BENCH_HERO_TITLE, `>${FEED_SECTION_TITLE}</h2>`, '>Money open now</h2>', '>Backed by</h2>'].map((s) => h.indexOf(s));
+  const at = [HERO_TITLE, `>${STEPS_TITLE}</h2>`, '>Activity</h2>', `>${EARN_TITLE}</h2>`].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
   // v3.1 site Task 4: the landing reads no leaderboard rows any more.
-  assert.doesNotMatch(h, /data-row=/);
-  assert.match(h, /data-shape="long"/);
+  assert.doesNotMatch(h, /data-row=|>Backed by</);
   assert.doesNotMatch(h, /data-shape="square"|snap-x/);
   assert.ok(!h.includes('How it works'));
 });
 
-test('12.3 the feed row: photo, @handle, project, the whole note and every chip; no rows, no section', () => {
+test('12.3 the Activity card: @handle, project, week, the note when there is no summary; no cards, no section', () => {
   const h = page({ ...LANDING_FIXTURE, activity: [CARD] });
   assert.ok(h.includes('Added fridge photo import.') && h.includes('It plans a week.'));
-  assert.ok(h.includes('Went live') && h.includes('+31 people') && h.includes('12 commits'));
   assert.ok(h.includes('@maya_makes') && h.includes('Recipe planner'));
-  assert.ok(h.includes('Week of Oct 12'), 'the week named once under the title');
-  // No updates in the last finished week: no Feed section (the Bench and the grants still show).
+  assert.ok(h.includes('Recipe planner · Week of Oct 12 · 12 commits'), 'the meta line');
+  // No updates in the last finished week: no Activity section (the programs still show).
   const none = page({ ...LANDING_FIXTURE, activity: [] });
-  assert.ok(!none.includes(`>${FEED_SECTION_TITLE}</h2>`) && none.includes('Money open now'));
+  assert.ok(!none.includes('>Activity</h2>') && none.includes(EARN_TITLE));
 });
 
 test('12.5 the footer tagline constant: "Ship every week. Get funded."; v3.1 Task 5: the footer shows the Foot board CTA instead', () => {
@@ -416,20 +424,20 @@ test('12.6 readLanding: the Activity cards (at most 3); plain JSON; no Bench par
   assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'unstable_cache serializes it');
 });
 
-test('12.8 no all-caps labels: "Backed by" is sentence case; the footer has no column titles and nothing uppercase, with leaderboard data or without', () => {
-  const caps = (h: string, text: string) => new RegExp(`<(?:p|h3) class="[^"]*\\buppercase\\b[^"]*">\\s*${text}\\s*<`).test(h);
+test('12.8 no all-caps labels: the footer has no column titles and nothing uppercase, with live data or without', () => {
   const on = page({ ...LANDING_FIXTURE, activity: [CARD] });
   // No live data (a failed read): the same page, minus the live sections.
   const fallback = page(null);
   for (const h of [on, fallback]) {
-    assert.ok(h.includes('>Backed by<') && !caps(h, 'Backed by'));
     for (const t of ['Product', 'Resources', 'Legal', 'Contact']) assert.ok(!h.includes(`>${t}<`), t);
     assert.doesNotMatch(h, /\buppercase\b/, 'nothing uppercase anywhere on the landing');
   }
-  assert.ok(!fallback.includes(`>${FEED_SECTION_TITLE}</h2>`), 'no data: no Feed section');
+  assert.ok(!fallback.includes('>Activity</h2>'), 'no data: no Activity section');
 });
 
-test('12.9 the landing\'s Bench parts never import the /bench page module (BenchView pulls in its Footer)', () => {
-  const src = readFileSync(join(import.meta.dirname, '../../app/components/sections/BenchTop.tsx'), 'utf8');
-  assert.doesNotMatch(src, /bench\/BenchView'/);
+test('12.9 the landing\'s parts never import the leaderboard page module (BenchView pulls in its Footer)', () => {
+  for (const f of ['Hero', 'HeroArt', 'Steps', 'Activity', 'Opportunities']) {
+    const src = readFileSync(join(import.meta.dirname, `../../app/components/landing/${f}.tsx`), 'utf8');
+    assert.doesNotMatch(src, /leaderboard\/BenchView'/, f);
+  }
 });

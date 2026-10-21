@@ -96,7 +96,7 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
         <div aria-hidden="true" className="absolute inset-0 z-[-2] bg-[linear-gradient(180deg,transparent_40%,var(--ek-s-foot-fade)_100%)]" />
 
         <div className="flex flex-col items-center gap-[22px] pt-10 text-center">
-          <span className="ek-serif text-[40px] leading-none [text-shadow:0_4px_40px_var(--ek-s-scrim)] md:text-[64px]">{FOOT_CTA}</span>
+          <span className="ek-serif text-balance text-[40px] leading-none [text-shadow:0_4px_40px_var(--ek-s-scrim)] md:text-[64px]">{FOOT_CTA}</span>
           <InstallButton
             label={CTA_INSTALL}
             className="inline-flex h-[52px] items-center rounded-full bg-s-light px-7 text-[15px] font-bold text-s-ink transition-shadow duration-200 hover:shadow-[0_0_0_6px_var(--ek-s-foot-button),0_18px_60px_var(--ek-s-foot-cta-glow)]"

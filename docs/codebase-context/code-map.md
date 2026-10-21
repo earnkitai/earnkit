@@ -88,22 +88,18 @@ apps/frontend/
                                and grid, Project tab shows name and what only; launch ready L10: "a private project" in
                                the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
                                line only with a rank, BENCH_SOURCES_LINE without "public data"
-  app/components/sections/{BenchTop,FeedRows,FeaturedCard}.tsx  v2.13 T12, v3 Stage 3 T2: the landing's
-                               Leaderboard top 10 as hairline rows (benchLine "N builders. Ranked by Shipping.",
-                               BENCH_TOP_EMPTY), the Feed section (FEED_SECTION_TITLE, the last finished week's rows as
-                               long UpdateCards, "See all"), and FeaturedCard (the hero's live profile preview: name,
-                               @handle, streak, Shipping / Rank / Earned, two log lines; one link to the page).
-                               UpdateCarousel and CarouselRow are gone (carousel.ts stays, tested, unused)
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v2.7 §1, v3 Stage 3 T2: the pure home render (Hero, BenchTop, FeedRows,
-                               ProgramCards "Money open now", BackedBy, Footer); landing null (failed read) → hero and
-                               Backed by only (no empty lines); empty bench / no tiles → the one empty line each
-  app/components/sections/Hero.tsx  v3 Stage 3: BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, one InstallButton
-                               (BTN_PRIMARY) and the FeaturedCard on the right from md; no video, no stats line
+  app/HomeView.tsx             v3.1 site T6 (Landing board): data-ek-deep root, PAGE_COL_WIDE column: landing/Hero, Steps,
+                               Activity, Opportunities (#earn), full Footer; landing null (failed read) → hero (no chip) and Steps
+  app/components/landing/      v3.1 site T6: Hero (chip to #earn, one-line Kaftan H1, HERO_SUB, CTA_INSTALL InstallButton,
+                               AGENT_MARKS), HeroArt (client: painting srcSet + SVG arch clip ARCH_PATH, dusk tint, sunset
+                               glow at the pointer via getScreenCTM, drift; nothing moves under reduced motion), Steps (STEPS;
+                               Earn adds backing only with raisingEnabled), Activity (landing.activity cards, activityMeta,
+                               invite card at 1 to 2, none at 0), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
@@ -113,9 +109,7 @@ apps/frontend/
                                agents' steps from sections/agents.tsx: install per agent (the MCP link as a Code block),
                                what the agent can do, the three numbers, how the week works, for program selectors
                                (#selectors; the page, the JSON, the badge, the contact as an INLINE_LINK), the terms link
-  app/programs/page.tsx        v2.7 Ruling 22, v3 Stage 3 T4: /programs is the landing's Money section as a page:
-                               ProgramCards with heading h1 (PROGRAMS_TITLE "Money open now", figure = landing.open_text,
-                               more = landing.open_more); getLanding() null → "Programs are unavailable…"
+  app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
   app/programs/[id]/GuideView.tsx  pure guide render, v3 Stage 3 T4: the 56px ProgramLogo beside the H1, the facts as
@@ -134,15 +128,10 @@ apps/frontend/
                                Grok's logomark; muse.svg is Muse's logo from muse.ai; SVG marks
                                take the tab's one color),
                                `after` approve lines
-  app/components/sections/{ProgramCards,ProgramLogo}.tsx  v2.7 §1 landing sections (HowItWorks.tsx deleted in v2.14 T3);
-                               ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked) at 70% on a white disc
-                               (ek-text, so Arc's navy and a16z's black read on the page), or the Ruling 1 monogram on
-                               the raised disc; PROGRAMS_TITLE "Money open now" is the one title (landing h2, /programs h1);
-                               v2.8 ProgramCards, v3 Stage 3: h2/h1, `figure` and `more` lines, then every tile as a
-                               ProgramRow in one hairline list (ROWS); no carousel, no grid; PROGRAMS_EMPTY with no tiles
-  app/components/sections/ProgramRow.tsx  v2.8 Ruling 21, v3 Stage 3 (was ProgramCard): one hairline row, a whole-row link to
-                               /programs/<id> (aria-label "<title>, <prize>"): logo, title with the days-left / In person /
-                               difficulty chips under it, the award (and per-winner line) on the right from md; no buttons
+  app/components/sections/{ProgramCards,ProgramLogo}.tsx  ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked)
+                               on a white disc, or the Ruling 1 monogram (monogram() is shared with landing/Opportunities);
+                               ProgramCards (v3.1 T6): a shim (money line + Opportunities) kept only because copy-review.test.ts
+                               (P0-owned) imports it; nothing under app/ renders it. ProgramRow.tsx is gone (v3.1 T6)
   app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
                                arrowState (prev/next enabled; both off when nothing overflows); v3 Stage 3: no caller
                                (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
@@ -1689,8 +1678,10 @@ apps/frontend/
                                primitives and buttons, PART_COLORS kept, the shell button, DESIGN.md as the one-page rulebook
     v31-site-tokens.test.ts    v3.1 site T1: SITE mirror (globals.css, tailwind), contrast pairs, no s-dim on cards, the six
                                paintings (width, budget), Kaftan, reduced motion, body page/deep, Pager, ScoreText bands
-    v3-landing.test.ts         v3 Stage 3 T2: HomeView order, two "Add to your agent" buttons, no video/gradient/uppercase, the
-                               featured read (hidden/missing is null), empty landing, FeaturedCard, the install sheet, the /NN scan
+    v31-site-landing.test.ts   v3.1 site T6: the landing (hero order, chip, Activity cards and invite, Opportunities #earn, the
+                               raising-gated Earn step, the hero srcset and arch clip path, landing tokens)
+    v3-landing.test.ts         v3 Stage 3 T2, v3.1 T6: HomeView order, one hero install button, no video/uppercase, empty landing,
+                               the hero, Opportunities, the install sheet, the /NN scan
     v3-profile.test.ts         v3 Stage 3 T3: the three numbers row, the grid, the tabs, the Money tab rows, Share, the badge line, empty states
     v3-pages.test.ts           v3 Stage 3 T4 (T7: a rank 100 row, the 3rem phone rank column, capitalised guide facts): the
                                leaderboard, the chips, the feed, ProgramCards/ProgramRow/ProgramLogo, the guide states, the 404, rankLine

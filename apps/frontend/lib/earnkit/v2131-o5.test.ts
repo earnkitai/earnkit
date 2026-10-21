@@ -20,8 +20,8 @@ import { EARN_NOTE } from './stand-text';
 import { toolDescriptions } from './mcp';
 import { UPDATE_LINES } from './updates';
 import { rankLines } from './bench-rank';
-import { benchLine } from '../../app/leaderboard/BenchView';
-import BenchTop, { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
+import BenchView from '../../app/leaderboard/BenchView';
+import { BENCH_TOP_EMPTY, EARN_FOOT, EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
 import { endsOnRankedStep } from './fixtures/ranked-step';
@@ -295,14 +295,15 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
 (globalThis as { React?: typeof React }).React = React;
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
-test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder who ships"; the money heading includes investments', () => {
-  assert.ok(html(React.createElement(BenchTop, { rows: [], count: 0 })).includes(BENCH_TOP_EMPTY));
+test('O5 N16, P1, P10 the leaderboard with nobody on it says so; "1 builder"; the money heading includes investments', () => {
+  assert.ok(html(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: null, weekly: false } })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
-  // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
-  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
-  assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
+  // v2.13.2 (3), v3.1: "1 builder" (v2132-followups.test.ts covers 0, 1 and many).
+  assert.equal(leaderboardLine(1), '1 builder, ranked by how often they ship');
+  assert.equal(leaderboardLine(2), '2 builders, ranked by how often they ship');
+  // v3.1 Task 6: the landing's money heading is "Earning opportunities" (investments included), never "Grants open now".
   const cards = html(React.createElement(ProgramCards, { tiles: [] }));
-  assert.ok(cards.includes('Money open now'), cards);
+  assert.ok(cards.includes(EARN_TITLE) && cards.includes(EARN_FOOT), cards);
   assert.ok(!cards.includes('Grants open now'));
 });
 

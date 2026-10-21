@@ -127,7 +127,8 @@ test('(e) AGENT_MARKS: Grok Bot, Claude Code, Codex, Muse, each path non-empty; 
   assert.match(h, /<span[^>]*role="img"[^>]*aria-label="Grok Bot"/);
   assert.match(h, /opacity-50/);
   assert.match(h, /<svg[^>]*width="22"[^>]*height="22"[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"/);
-  assert.match(h, /<path[^>]*fill="#FFFFFF"/);
+  assert.match(h, /<path[^>]*fill="currentColor"/);
+  assert.match(h, /<span[^>]*class="[^"]*text-s-text[^"]*opacity-50/);
   assert.match(read('app/components/site/AgentMarks.tsx'), /@lobehub\/icons-static-svg[\s\S]*MIT/);
 });
 

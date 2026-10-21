@@ -16,7 +16,8 @@ import { UPDATE_LIMIT_NOTE, UPDATE_POSTS_PER_DAY, postUpdate } from './updates';
 import { raisingEnabled } from './builder-score-flag';
 import { TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, toolDescriptions } from './mcp';
 import BenchView from '../../app/leaderboard/BenchView';
-import BenchTop from '../../app/components/sections/BenchTop';
+import HomeView from '../../app/HomeView';
+import { homeFixture } from './fixtures/landing';
 import { GET as llms } from '../../app/llms.txt/route';
 
 /**
@@ -213,14 +214,14 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
   });
 });
 
-test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
+test('F11 raising off: the Bench, the landing, tell\'s description and llms.txt name no raising', async () => {
   const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, backing: null, chains: [], project: 'Recipe planner', best: 'Live', streak: 0 };
   const filter = { chain: null, weekly: false };
   // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
   const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));
   assert.ok(!board.includes('Community round') && !board.includes('raising=1'));
-  // R18: the landing's top 10 has no filter chips at all (they live on /leaderboard).
-  assert.ok(!renderToStaticMarkup(React.createElement(BenchTop, { rows: [row], count: 1 })).includes('Community round'));
+  // R18, v3.1 Task 6: the landing (no leaderboard rows any more) names no community round.
+  assert.ok(!/community round/i.test(renderToStaticMarkup(React.createElement(HomeView, { landing: homeFixture }))));
   await withRaising(false, async () => {
     assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
     assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));

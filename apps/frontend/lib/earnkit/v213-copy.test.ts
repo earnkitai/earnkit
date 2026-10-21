@@ -6,7 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { pageWords } from './fixtures/page-words';
 import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
-import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY, benchLine } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
+import { leaderboardLine } from './site-copy';
 import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
@@ -76,7 +77,7 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
     { people_week: 0, streak: 1, weeks_shipping: 9, shipped: true }, { people_week: 0, streak: 0, weeks_shipping: 0, shipped: true },
     { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
   ].map(bestFact);
-  for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  for (const t of [BENCH_TITLE, leaderboardLine(25), leaderboardLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week', streak: 0 };
   const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false } }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
@@ -115,18 +116,21 @@ test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names o
 test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async () => {
   const { default: HomeView } = await import('../../app/HomeView');
   const { homeFixture } = await import('./fixtures/landing');
-  const { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } = await import('../../app/components/sections/Hero');
-  const { BENCH_TOP_TITLE, SEE_BENCH } = await import('../../app/components/sections/BenchTop');
-  const { FEED_SECTION_TITLE, SEE_ALL_UPDATES } = await import('../../app/components/sections/FeedRows');
+  // v3.1 Task 6: the landing's words are site-copy's (the v3 hero, BenchTop and FeedRows left with their sections).
+  const c = await import('./site-copy');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
-  for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, FEED_SECTION_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
-    assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
+  // The owner-approved v3.1 Landing board names commits and the repo ("From commit to capital", "Pick one repo.",
+  // "279 commits"), so those two words of the v2.13 Bench rule are allowed on the landing; every other banned word is not.
+  const allowed = [String(/\bcommits?\b/i), String(/\brepos?\b/i)];
+  const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => !allowed.includes(w));
+  for (const t of [c.HERO_TITLE, c.HERO_SUB, c.CTA_INSTALL, c.STEPS_TITLE, ...c.STEPS.flatMap((s) => [s.title, s.text]), c.ACTIVITY_TITLE, c.ACTIVITY_MORE, c.ACTIVITY_INVITE_TITLE, c.ACTIVITY_INVITE_TEXT, c.EARN_TITLE, c.EARN_FOOT, BENCH_FOOTER_TAGLINE])
+    assert.deepEqual(banned(t, EXEMPT), [], t);
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false, score: 62, commits: 12 };
   const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, activity: [card] } }));
-  // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
-  const investors = ['The LAO', 'IDEO', 'GCR'];
-  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
-  assert.deepEqual(bannedInBench(page, exempt), [], page);
+  // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the agents' marks.
+  const agents = ['Grok Bot', 'Claude Code', 'Codex', 'Muse'];
+  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...agents];
+  assert.deepEqual(banned(page, exempt), [], page);
 });
 
 test('13.8 no builder-visible bonus text: replies, landing, program pages, guides, the install modal, terms (acceptance 7)', async () => {

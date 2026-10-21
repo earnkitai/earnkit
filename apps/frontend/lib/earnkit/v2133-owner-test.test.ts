@@ -13,7 +13,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
+import { HERO_SUB, STEPS } from './site-copy';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import { INTRO_LINE, SHIP_ASK, STATE_COPY, applyAsk, pickRepoAsk, stateAsk } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE } from './bench-find';
@@ -398,7 +398,7 @@ test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered
 test('B.1 (v3 Stage 2) "Backing", never a community round, raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Backing · \$RECIPE</);
-  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
+  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, HERO_SUB, `${STEPS[2].text} ${STEPS[2].backing}`, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
   assert.notDeepEqual(bannedInBench('Want to raise for it?', []), []);
   assert.notDeepEqual(bannedInBench('Raising $X', []), []);

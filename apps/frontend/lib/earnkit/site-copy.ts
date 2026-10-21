@@ -120,6 +120,8 @@ export const keepsLine = (first: string): string => `${first} keeps 40% of fees`
 export const feesBy = (first: string): string => `earned by ${first}`;
 export const BACKERS = 'backers';
 export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by how often they ship`;
+/** v2.13.1 O5 N16: the leaderboard with nobody ranked yet (moved here from the landing's old BenchTop; Task 8 keeps the wording). */
+export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
 export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
 export const BACKED_TAG = 'Backed';
 export const FEED_STATS = { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' } as const;
