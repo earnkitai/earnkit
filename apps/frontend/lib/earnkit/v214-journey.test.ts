@@ -19,6 +19,7 @@ import { mcpCall, type McpResult } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv } from './fixtures/app-install';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { profileSite } from './site-data';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
@@ -182,7 +183,7 @@ test('12.5 acceptance 4: the next Monday the profile shows the week from its tit
   const r = await resolveHandle(ME.username);
   assert.ok(r && !('redirect' in r), 'the handle is the page');
   const data = await profileData(r.builderId, new Date('2026-10-26T16:00:00Z'));
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: data!, tab: 'log' }));
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: data!, site: await profileSite(r.builderId, data!, new Date('2026-10-26T16:00:00Z')), page: 1 }));
   // Weekly updates: one summary of the week's titles, never the raw titles.
   // Weekly updates: one summary of the week's titles (the free rule summary: no ANTHROPIC_API_KEY in tests).
   assert.deepEqual(data!.log.map((c) => c.summary), ['Fixed the reply copy. Shipped sign in with X at install.']);

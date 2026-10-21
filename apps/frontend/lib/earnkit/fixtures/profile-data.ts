@@ -1,4 +1,6 @@
 import type { ProfileData } from '../bench-data';
+import type { ProfileSite } from '../site-data';
+import { SITE } from '../site-theme';
 
 /** v2.13 T11: a rich profile (raising, a chain line, a Started card) for the profile's render and copy tests. */
 export const DATA: ProfileData = {
@@ -21,4 +23,134 @@ export const DATA: ProfileData = {
     backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1', backers: 0, earned_usd: 0 },
     points: 0,
   },
+};
+
+/**
+ * v3.1 site Task 7: one ProfileData and ProfileSite per approved profile board (Profile: Jenil, BackedBuilder: Maya,
+ * NewBuilder: Sam), with the board's own numbers. Times are relative to the import, so "2h ago" holds in a test run.
+ */
+const HOUR = 3_600_000;
+/** The last 12 weeks of a 52-week grid from 12 on/off flags (the 40 older weeks off). */
+const grid12 = (on: boolean[]): ProfileData['grid'] =>
+  Array.from({ length: 52 }, (_, i) => ({ week: `2026-W${String(i + 1).padStart(2, '0')}`, on: i >= 40 ? on[i - 40] : false }));
+const week = (monday: string, commits: number, summary: string): ProfileData['log'][number] => ({ week: monday, text: null, summary, chips: [`${commits} commits`], commits });
+
+export const JENIL: ProfileData = {
+  ...DATA,
+  handle: 'jenilt', name: 'Jenil', avatar: 'https://pbs.twimg.com/profile_images/2/j_400x400.jpg', initials: 'J',
+  backing: null, bench: null, rankListed: true, line: null, chainLines: [], score: 60, originality: 64, points: 1200, streak: 5,
+  grid: grid12([false, false, true, false, false, true, false, true, true, true, true, true]),
+  log: [
+    week('2026-10-12', 279, 'Added Sign in with X at the install step, plus a fallback sign-in link.'),
+    week('2026-10-05', 317, 'Rebuilt the leaderboard around one list and cut the first load in half.'),
+    week('2026-09-28', 230, 'Shipped weekly updates written from the commits.'),
+    week('2026-09-21', 120, 'Moved program guides into the repo.'),
+    week('2026-09-14', 98, 'Added the Base Builder Code check.'),
+    week('2026-08-24', 40, 'Started the builder score.'),
+  ],
+  project: {
+    name: 'EarnKit', what: 'Connects builders with capital, from the agent they already use.', live: 'https://earnkit.com', repo: 'https://github.com/earnkitai/earnkit',
+    chains: ['base'], coin: null, programs: [], funds: [], confirmed: true,
+  },
+  money: { fits: [], applied: [], backing: null, points: 1200 },
+};
+export const JENIL_SITE: ProfileSite = {
+  lastShippedAt: new Date(Date.now() - 2 * HOUR).toISOString(),
+  thisWeek: 14,
+  highlights: [
+    { icon: 'live', title: 'Live at earnkit.com', sub: 'Since Aug 2026' },
+    { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' },
+    { icon: 'contract', title: '2 contracts on Base', sub: 'Deployed by the project' },
+    { icon: 'start', title: 'Shipping since Aug 2026', sub: '5 weeks in a row' },
+  ],
+  standing: null,
+  token: null,
+  project: {
+    name: 'EarnKit', about: 'Connects builders with capital, from the agent they already use.', link: { href: 'https://earnkit.com', text: 'earnkit.com' },
+    repo: 'https://github.com/earnkitai/earnkit', onBase: true, earnkit: true, letter: 'E', color: SITE.logoBlue,
+  },
+  first: 'Jenil',
+};
+
+export const MAYA: ProfileData = {
+  ...DATA,
+  handle: 'maya', name: 'Maya', avatar: null, initials: 'M',
+  backing: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar', backers: 23, earned_usd: 412 },
+  bench: 'Top 3% of builders', rankListed: true, line: 'Shipping 84 · Top 3% of builders', score: 84, streak: 9,
+  grid: grid12([true, true, false, true, true, true, true, true, true, true, true, true]),
+  log: [
+    week('2026-10-12', 42, 'Shipped tips in USDC on Base.'),
+    week('2026-10-05', 18, 'Added a tip page per creator.'),
+    week('2026-09-28', 31, 'Cut the checkout to one tap.'),
+    week('2026-09-21', 12, 'Started the tip jar.'),
+  ],
+  project: {
+    name: 'Tipjar', what: 'Tips for creators, paid in USDC on Base.', live: 'https://tipjar.xyz', repo: 'https://github.com/maya/tipjar',
+    chains: ['base'], coin: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar' }, programs: [], funds: [], confirmed: true,
+  },
+};
+export const MAYA_SITE: ProfileSite = {
+  lastShippedAt: new Date(Date.now() - 30 * HOUR).toISOString(),
+  thisWeek: 6,
+  highlights: [
+    { icon: 'live', title: 'Live at tipjar.xyz', sub: 'Since Sep 2026' },
+    { icon: 'applied', title: 'Applied to Alliance ALL19', sub: 'Oct 14' },
+    { icon: 'won', title: 'Won Base Builder Grant Program', sub: 'Oct 2' },
+    { icon: 'start', title: 'Shipping since Aug 2026', sub: '9 weeks in a row' },
+  ],
+  standing: { label: 'Top 3% on Base', tier: 'gold', title: '#1 of 42 builders on Base' },
+  token: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar', backers: 23, fees_usd: 412, weeks: [0, 1, 0, 2, 1, 3, 2, 4, 3, 2, 5, 4], letter: 'T', color: SITE.logoOrange },
+  project: {
+    name: 'Tipjar', about: 'Tips for creators, paid in USDC on Base.', link: { href: 'https://tipjar.xyz', text: 'tipjar.xyz' },
+    repo: 'https://github.com/maya/tipjar', onBase: true, earnkit: false, letter: 'T', color: SITE.logoOrange,
+  },
+  first: 'Maya',
+};
+
+export const SAM: ProfileData = {
+  ...DATA,
+  handle: 'sam', name: 'Sam', avatar: null, initials: 'S',
+  backing: null, bench: null, rankListed: false, line: null, chainLines: [], score: null, why: null, target: null, originality: null, points: 0, streak: 1,
+  grid: grid12([false, false, false, false, false, false, false, false, false, false, false, true]),
+  log: [week('2026-10-12', 9, 'Started the ledger: a monthly statement from one wallet.')],
+  project: {
+    name: 'Ledgerly', what: null, live: null, repo: 'https://github.com/sam/ledgerly', chains: ['base'], coin: null, programs: [], funds: [], confirmed: true,
+  },
+  money: { fits: [], applied: [], backing: null, points: 0 },
+};
+export const SAM_SITE: ProfileSite = {
+  lastShippedAt: new Date(Date.now() - 72 * HOUR).toISOString(),
+  thisWeek: 0,
+  highlights: [
+    { icon: 'code', title: 'Base Builder Code', sub: 'Not in the repo yet' },
+    { icon: 'start', title: 'Shipping since Oct 12', sub: 'First week on EarnKit' },
+  ],
+  standing: null,
+  token: null,
+  project: {
+    name: 'Ledgerly', about: null, link: { href: 'https://github.com/sam/ledgerly', text: 'github.com/sam/ledgerly' },
+    repo: 'https://github.com/sam/ledgerly', onBase: true, earnkit: false, letter: 'L', color: SITE.logoViolet,
+  },
+  first: 'Sam',
+};
+
+/** A ProfileSite for any ProfileData (the page's own reads, quiet: no push, no standing, no Token card), with overrides. Pure. */
+export const siteOf = (d: ProfileData, o: Partial<ProfileSite> = {}): ProfileSite => {
+  const p = d.project;
+  const href = p ? (p.live ?? p.repo) : null;
+  return {
+    lastShippedAt: null,
+    thisWeek: 0,
+    highlights: [{ icon: 'start', title: 'On EarnKit since Oct 1', sub: 'No project on the leaderboard yet' }],
+    standing: null,
+    token: null,
+    project: p
+      ? {
+          name: p.name, about: p.what, link: href ? { href, text: href.replace(/^https?:\/\//, '') } : null, repo: p.repo,
+          onBase: p.chains.includes('base'), earnkit: false, letter: p.name.charAt(0).toUpperCase(), color: SITE.logoBlue,
+        }
+      : null,
+    first: d.name.trim().split(/\s+/)[0] || d.handle,
+    ...o,
+  };
 };

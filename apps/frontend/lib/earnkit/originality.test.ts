@@ -15,7 +15,7 @@ import { fakeGitHub, type FakeGitHub, type FakeRepo } from './fixtures/fake-gith
 import { appEnv } from './fixtures/app-install';
 import { attachToX } from './x-install';
 import { profileData } from './bench-data';
-import { DATA } from './fixtures/profile-data';
+import { DATA, siteOf } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { padPool } from './fixtures/rank-pool';
 import {
@@ -125,13 +125,11 @@ test('O4 the model worker never runs in a test unless opted in', { skip: process
   assert.ok(existsSync(workerScript()), workerScript());
 });
 
-test('O5 profile: "Originality 72" is one small line under the Shipping ring, no second ring', () => {
-  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.match(h, /Originality <span[^>]*>72<\/span>/);
+test('O5 v3.1 (owner rule): Originality is not on the profile, as a line or a ring; one Shipping ring', () => {
+  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, site: siteOf(DATA), page: 1 }));
+  assert.ok(DATA.originality !== null);
+  assert.doesNotMatch(h, /Originality/);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
-  assert.doesNotMatch(h, /aria-label="Originality/, 'no Originality ring');
-  const none = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...DATA, originality: null }, tab: 'log' }));
-  assert.doesNotMatch(none, /Originality/);
 });
 
 // ---- the step ----

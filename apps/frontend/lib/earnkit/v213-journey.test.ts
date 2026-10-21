@@ -41,7 +41,7 @@ import type { TokenFlowDeps } from './token-launch';
 import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import type { ProfileTab } from '../../app/[handle]/handle-view';
+import { profileSite } from './site-data';
 import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
@@ -418,15 +418,15 @@ async function advanceRefreshGuard(id: number, ms: number) {
 }
 
 /**
- * The profile at earnkit.com/<handle> on `tab` (F4): the Bench view rendered from profileData, as
- * handle-view.tsx's BenchPage renders it (HandleView itself needs a request for headers()).
+ * The profile at earnkit.com/<handle> (F4): the Bench view rendered from profileData and profileSite, as
+ * handle-view.tsx's BenchPage renders it (HandleView itself needs a request for headers()). v3.1: no tabs.
  */
-async function renderProfile(handle: string, tab: ProfileTab): Promise<string> {
+async function renderProfile(handle: string): Promise<string> {
   const r = await resolveHandle(handle);
   assert.ok(r && !('redirect' in r), `no page at ${handle}`);
   const data = await profileData(r.builderId, new Date());
   assert.ok(data, `no profile data for ${handle}`);
-  return html(React.createElement(BenchProfileView, { data, tab }));
+  return html(React.createElement(BenchProfileView, { data, site: await profileSite(r.builderId, data, new Date()), page: 1 }));
 }
 
 /** The next Monday at 15:30 UTC: the week is finished and the Monday steps have run. */
@@ -556,10 +556,10 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
-  const page = await renderProfile('maya_makes', 'log');
+  const page = await renderProfile('maya_makes');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
-  assert.ok((await renderProfile('maya_makes', 'project')).includes('https://recipes.app'));
+  assert.ok(page.includes('https://recipes.app'), 'the project panel links the live site');
 });
 
 test('16.1b review focus 3: a second person naming maya/recipes (already on the Bench under maya) is told so and stays off it: no Bench, no update', db, async () => {
@@ -600,8 +600,8 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
   assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
-  const log = await renderProfile('maya_makes', 'log');
-  assert.match(log, /data-shape="long"[\s\S]*Added fridge photo import[\s\S]*commit/, log);
+  const log = await renderProfile('maya_makes');
+  assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);
   // The current (unfinished) week is not in /feed.
   assert.deepEqual(await feedWeeks(new Date(), { only: [id] }), []);
@@ -628,7 +628,8 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
   assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
-  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base/);
+  // v3.1: the Base standing is the metal pill beside the name, its place in the title (RANK_MIN_POOL Base builders).
+  assert.match(await renderProfile(BASE_HANDLE), /data-ek-standing="" title="#\d+ of \d+ builders on Base"[^>]*>[\s\S]*?Top \d+(\.\d)?% on Base</);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
@@ -646,9 +647,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  // v3 Stage 3 (spec 5.6): the pill sits in the Money tab's Backing group; the header carries the Back button.
-  assert.ok((await renderProfile('maya_makes', 'money')).includes(`Backing · $${pill.symbol}`));
-  assert.match(await renderProfile('maya_makes', 'log'), /data-ek-back/);
+  // v3.1 Task 7: the coin is the Token card's ($SYMBOL and the Back pill).
+  const prof = await renderProfile('maya_makes');
+  assert.match(prof, new RegExp(`data-ek-token[\\s\\S]*?\\$${pill.symbol}`), prof);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');

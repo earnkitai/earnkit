@@ -13,7 +13,8 @@ import { momentLines, shareText } from './weekly-moment';
 import { digestBody } from './digest';
 import { builderJson } from './builder-json';
 import { profileData } from './bench-data';
-import BenchProfileView, { DASH } from '../../app/[handle]/BenchProfileView';
+import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { profileSite } from './site-data';
 
 /**
  * v3.1 F3: no rank is shown while fewer than RANK_MIN_POOL (10) builders are ranked ("#1 of 1 builder" read as a
@@ -114,7 +115,7 @@ test('(d) builder JSON keeps rank at 1 of 1', db, async () => {
   assert.deepEqual([j.rank, j.total, j.shipping], [1, 1, me.score]);
 });
 
-test('(e) the profile shows a dash for Rank under 10', db, async () => {
+test('(e) the profile under 10: the Shipping ring stays, no standing pill, no rank anywhere (v3.1 Review Focus 2)', db, async () => {
   await freshBoard();
   const me = await builder('rpe', [1, 2, 3], 50);
   const d = (await profileData(me.id, new Date()))!;
@@ -122,13 +123,12 @@ test('(e) the profile shows a dash for Rank under 10', db, async () => {
   assert.equal(d.line, `Shipping ${me.score}`);
   assert.equal(d.rankListed, true);
   assert.equal(d.score, me.score, 'the Shipping number stays');
-  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
-  const at = h.indexOf('data-ek-numbers');
-  const row = h.slice(at, h.indexOf('</ul>', at));
-  assert.ok(row.includes(`aria-label="Shipping ${me.score} of 100"`), row);
-  assert.match(row, new RegExp(`>${DASH}</p><p class="[^"]*">Rank<`), row);
-  assert.ok(row.includes('data-ek-earned'), 'Earned shows on a ranked page');
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /#\d/, 'no rank in the page text');
+  const site = await profileSite(me.id, d, new Date());
+  assert.equal(site.standing, null);
+  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
+  assert.ok(h.includes(`aria-label="Shipping score ${me.score} out of 100"`), 'the ring');
+  assert.doesNotMatch(h, /data-ek-standing|data-ek-numbers|data-ek-earned/);
+  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /#\d|Top \d+%|of \d+ builders/, 'no rank in the page text');
 });
 
 test('(f) the share card under 10: the project is the headline, Shipping and Earned still show, no "#"', async () => {

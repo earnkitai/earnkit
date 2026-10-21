@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { HandleView, handleMetadata, tabOf } from './handle-view';
+import { HandleView, handleMetadata, pageOf } from './handle-view';
 
 /** Read live on every request: a hide or a rename shows at once. */
 export const dynamic = 'force-dynamic';
@@ -13,5 +13,5 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 /** v2.12.1 spec "Identity": earnkit.com/<x-handle>, once claimed with X. */
 export default async function HandlePage({ params, searchParams }: Params) {
   const { handle } = await params;
-  return HandleView({ handle, path: `/${handle}`, tab: tabOf(await searchParams) });
+  return HandleView({ handle, path: `/${handle}`, page: pageOf(await searchParams) });
 }

@@ -32,3 +32,13 @@ export const PAGE_COL = 'mx-auto w-full max-w-[1200px] px-4 md:px-6';
 /** A page title (72px, 48px on a phone) and a section title (64px, 44px on a phone), in Kaftan Serif. */
 export const H1_SITE = 'ek-serif text-[48px] leading-none text-s-text md:text-[72px]';
 export const H2_SITE = 'ek-serif text-[44px] leading-none text-s-text md:text-[64px]';
+
+/** A card's radius on the profile: 28px on a phone, the card's 36px from md. */
+export const phoneRadius = (card: string): string => card.replace('rounded-[36px]', 'rounded-[28px] md:rounded-[36px]');
+
+/** The metal "Top N%" standing pills (gold top 5%, silver top 10%, bronze top 25%): a 135deg gradient, its ink, a glow and a top shine. */
+export const METAL = {
+  gold: 'bg-[linear-gradient(135deg,var(--ek-s-gold-top)_0%,var(--ek-s-gold-mid)_45%,var(--ek-s-gold-bottom)_100%)] text-s-gold-ink shadow-[0_4px_16px_var(--ek-s-gold-glow),inset_0_1px_0_var(--ek-s-metal-shine)]',
+  silver: 'bg-[linear-gradient(135deg,var(--ek-s-silver-top)_0%,var(--ek-s-silver-mid)_45%,var(--ek-s-silver-bottom)_100%)] text-s-silver-ink shadow-[0_4px_16px_var(--ek-s-silver-glow),inset_0_1px_0_var(--ek-s-metal-shine)]',
+  bronze: 'bg-[linear-gradient(135deg,var(--ek-s-bronze-top)_0%,var(--ek-s-bronze-mid)_50%,var(--ek-s-bronze-bottom)_100%)] text-s-bronze-ink shadow-[0_4px_16px_var(--ek-s-bronze-glow),inset_0_1px_0_var(--ek-s-metal-shine)]',
+} as const;

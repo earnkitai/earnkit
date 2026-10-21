@@ -145,6 +145,11 @@
   --ek-s-sunset-edge: #FF8A55;
   --ek-s-blue-line: rgba(255,255,255,0.12);
   --ek-s-rust-line: rgba(255,138,76,0.18);
+  --ek-s-blue-button: rgba(255,255,255,0.14);
+  --ek-s-blue-button-hover: rgba(255,255,255,0.24);
+  --ek-s-base-blue: #0000FF;
+  --ek-s-light-dash: #C3CCE0;
+  --ek-s-coin-ring: rgba(255,255,255,0.25);
 }
 
 @layer utilities {

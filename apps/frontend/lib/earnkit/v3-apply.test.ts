@@ -25,7 +25,8 @@ import { SENT_ASK, draftReadyLine, schemeless } from './submit-kit';
 import { STATS_KEYS, STATS_LABELS, readStats } from './stats';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import ProjectTab from '../../app/[handle]/ProjectTab';
+import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { profileSite } from './site-data';
 
 /**
  * v3 Stage 2 Task 2 (spec 5.3 Route 1): the drafted application is the ranked reply's step for a fit closing within
@@ -204,8 +205,10 @@ test('(e) program_status accepted stays private; applied shows on the page', db,
   assert.equal(programLabel({ title: 'X', won: false, applied: true }), 'Applied to X');
   assert.equal(programLabel({ title: 'X', won: true, applied: true }), 'Won X');
   assert.equal(programLabel({ title: 'X', won: false, applied: false }), null);
-  const html = renderToStaticMarkup(React.createElement(ProjectTab, { project: page!.project! }));
-  assert.match(html, new RegExp(`Applied to ${p.title}`));
+  // v3.1 Task 7: the Project tab left the page; the application is a Highlights item.
+  const full = renderToStaticMarkup(React.createElement(BenchProfileView, { data: page!, site: await profileSite(b.id, page!, new Date()), page: 1 }));
+  const html = full.slice(full.indexOf('data-ek-highlights'));
+  assert.match(html, new RegExp(`Applied to ${p.title}`), html);
   assert.doesNotMatch(html, /Accepted|Funded|Entered/, "never the self-reported outcome");
   // A builder's own memory hides the program, as applied does.
   assert.doesNotMatch(show(await find(b)), new RegExp(p.title));

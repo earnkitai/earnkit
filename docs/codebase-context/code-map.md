@@ -76,125 +76,25 @@ apps/frontend/
   app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12, v3 Stage 3 T4: /feed (404 flag off): H1 FEED_TITLE "Feed", FEED_LINE,
                                each finished week an H2 ("Week of Oct 12") over a ROWS list of long UpdateCards (showWeek off);
                                FEED_EMPTY between two hairlines with a secondary link to the leaderboard
-  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid,MoneyTab,ShareButton}.tsx  v2.13 T11, v3 Stage 3 (spec 5.6): the profile on the
-                               flat system: header row (56px photo, name, @handle, Share, Back button), the three
-                               numbers row `data-ek-numbers` (96px Shipping ring, rank lead and words, Earned; dashes
-                               while confirming, no project or unranked), why + target, chain lines, Originality,
-                               points; hairline 52-week grid filled ek-brand; tabs Ship log / Project / Money
-                               (?tab=money: MoneyTab, FITS_TITLE/APPLIED_TITLE/BACKING_TITLE, the pill, points line);
-                               visitor row, sources line, badge. Avatar falls
-                               back to the initial; card-response and page.tsx branch under the flag;
-                               v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
-                               and grid, Project tab shows name and what only; launch ready L10: "a private project" in
-                               the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
-                               line only with a rank, BENCH_SOURCES_LINE without "public data"
-  app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
-                               long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
-  public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
-                               the owner supplies the brand SVGs)
-  app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v3.1 site T6 (Landing board): data-ek-deep root, PAGE_COL_WIDE column: landing/Hero, Steps,
-                               Activity, Opportunities (#earn), full Footer; landing null (failed read) → hero (no chip) and Steps
-  app/components/landing/      v3.1 site T6: Hero (chip to #earn, one-line Kaftan H1, HERO_SUB, CTA_INSTALL InstallButton,
-                               AGENT_MARKS), HeroArt (client: painting srcSet + SVG arch clip ARCH_PATH, dusk tint, sunset
-                               glow at the pointer via getScreenCTM, drift; nothing moves under reduced motion), Steps (STEPS;
-                               Earn adds backing only with raisingEnabled), Activity (landing.activity cards, activityMeta,
-                               invite card at 1 to 2, none at 0), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
-  app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
-                               [landing], await connection() (never prerendered), null;
-                               getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
-                               the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
-                               then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/docs/{page,DocsView}.tsx  v3 Stage 3 T5 (spec 5.6): /docs, one page, every string in lib/earnkit/docs-copy.ts and the
-                               agents' steps from sections/agents.tsx: install per agent (the MCP link as a Code block),
-                               what the agent can do, the three numbers, how the week works, for program selectors
-                               (#selectors; the page, the JSON, the badge, the contact as an INLINE_LINK), the terms link
-  app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
-  app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
-                               the Unavailable panel (HTTP 200, never a 404); generateMetadata
-  app/programs/[id]/GuideView.tsx  pure guide render, v3 Stage 3 T4: the 56px ProgramLogo beside the H1, the facts as
-                               separate muted spans (guide.header split on " · ": the award, "ends <date>" / "rolling" /
-                               "closed" / "not open yet", then GuidePage.chain or ANY_CHAIN; stacked on a phone, hairline
-                               dividers from md), an upcoming program's opens_note, the Difficulty line, AskAgent (open
-                               programs only), the parts as one ROWS list (What won, What X wants now chips, Your best bet;
-                               H2 left, content right from md), "All programs" as a TEXT_LINK and the Sources links spaced
-                               apart (shownUrl); exports askPrompt, ANY_CHAIN and Unavailable
-  app/programs/[id]/AskAgent.tsx   client button opening AddToAgent with "What can I earn on <title>?"
-  app/components/sections/AddToAgent.tsx   "Add to your agent" install panel (hero, the Open programs
-                               "Ask your agent", the guide's AskAgent with "What can I earn on <program>?"); START_PROMPT;
-                               v2.8 Task 5: AGENTS (Grok Bot, Claude Code, Cursor, Codex, Muse) with
-                               local icons in public/images/agents/ (sources in the comment;
-                               v2.8.1: grok-bot.png is Grok Bot's own app icon, shown in color, not
-                               Grok's logomark; muse.svg is Muse's logo from muse.ai; SVG marks
-                               take the tab's one color),
-                               `after` approve lines
-  app/components/sections/{ProgramCards,ProgramLogo}.tsx  ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked)
-                               on a white disc, or the Ruling 1 monogram (monogram() is shared with landing/Opportunities);
-                               ProgramCards (v3.1 T6): a shim (money line + Opportunities) kept only because copy-review.test.ts
-                               (P0-owned) imports it; nothing under app/ renders it. ProgramRow.tsx is gone (v3.1 T6)
-  app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
-                               arrowState (prev/next enabled; both off when nothing overflows); v3 Stage 3: no caller
-                               (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
-                               BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
-  app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
-                               /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
-  app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
-                               (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
-  app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
-                               painting, lazy <img srcSet> of public/art/foot-panini-*, FooterLight, FOOT_CTA in Kaftan, the
-                               install pill, the bar: wordmark, FOOTER_COLUMNS links, ART_CREDIT, EarnKit's X) or 'minimal'
-                               (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
-  app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
-                               (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
-  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
-  app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
-                               BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
-  apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
-                               accent, hairline rows, type scale, contrast table, the profile's PART_COLORS kept)
-  app/campaigns/[slug]/page.tsx  campaign leaderboard (404 unless the program has a campaign; 404 for
-                               a taken-down sponsor campaign or a closed EarnKit campaign with no
-                               entries). Sponsor kind: "Sponsored · unverified" / "Sponsored ·
-                               verified <host>" header, the sponsor wallet's track record, and a
-                               plain entry list (links + status, no rank or wallets) until some
-                               entry is scored
-                               EarnKit kind (v2.4): standing per entry, the review (top N with
-                               evidence, removed entries and reasons), the payout wallet and its
-                               live balance, the public pause note
-  app/p/[id]/page.tsx          campaign entry page (rank only when ranked; status via entryStatus)
-                               v2.10 item 5: one footer line with the token terms links (TOKEN_TERMS).
-                               v2.11 T12: a footer link to /terms#what-earnkit-records (RECORDS_HREF).
-  app/terms/page.tsx           v2.9 F22 (Task 11): the one legal page, metadata title "Terms", canonical
-                               https://earnkit.com/terms; a section nav (v2.11 T12: + What EarnKit records; v2.12 T15: + Builder
-                               profiles), then PolicySection (#policy), ProfilesSection (#builder-profiles, always
-                               since v2.14 T3, which made the page static),
-                               RiskSection (#risk-disclosure), SponsorTermsSection (#sponsor-terms), Footer.
-                               /policy, /risk-disclosure, /sponsor-terms 301 here (next.config.ts
-                               LEGAL_REDIRECTS, statusCode 301, never permanent: true = 308)
-  app/terms/sections/ProfilesSection.tsx  v2.12 T15 (spec 8): /terms#builder-profiles, a Panel laid out as
-                               "What EarnKit records" with policy.ts PROFILES_POINTS as a list (v2.14 final fix: the page
-                               is made at the X sign-in (install or the one-time link) and public from then on; same X =
-                               same page, no question, nothing merged; the read-only App is the only proof; App repos,
-                               private too, read with short-lived installation tokens never stored; weekly commit and PR
-                               titles, a private repo facts only until titles are on, hidden not deleted when turned off;
-                               only confirmed counts; "hide my page"; X read at each sign-in; merger; removal by email).
-                               RECORDS_WITH: the login only as the App checked it (or a pre-App check).
-  app/terms/sections/RiskSection.tsx  Tokenfi Inc.'s risk disclosure (was app/risk-disclosure/page.tsx),
-                               text unchanged, restyled onto the site's panel and ek tokens
-  app/terms/sections/SponsorTermsSection.tsx  sponsor terms (was app/sponsor-terms/page.tsx; the fund
-                               page's checkbox links /terms#sponsor-terms)
-  app/terms/sections/PolicySection.tsx  (was app/policy/page.tsx) v2.5 Task 9: the public policy (matching, fee split table then MINI_LINE (v2.9 F24), coin optional, no
-                               affiliation, contact); numbers from lib/earnkit/policy.ts; v2.6: the
-                               bonus on every program unless opted out, page / confirmation /
-                               unverified-page eligibility, the coin's earnkit.txt token line; v2.8: the
-                               (v2.14 T3: the builder bonus section is gone);
-                               v2.11 T12: "What EarnKit records" (#what-earnkit-records, before Contact)
-  app/bench/page.tsx           scoring and clarity T3 (R9): permanentRedirect('/leaderboard') (308)
+  app/[handle]/{BenchProfileView,ShareButton}.tsx, app/[handle]/site/*  v3.1 site Task 7 (Profile, BackedBuilder,
+                               NewBuilder boards): BenchProfileView({ data, site, page }) lays out two wrapping rows:
+                               HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,
+                               GitHub, white Share; the inset project panel with the EarnKit mark or a letter tile, the
+                               Base tile, about, link; noProjectLine / confirmingCardLine instead), ScoreCard (navy,
+                               ScoreRing 132px one-hue band gradient, round caps), StreakCard (rust, 12 squares from the
+                               grid, streakNote, weekLine), ActivityCard (white, live dot "Shipped <ago>", 3 week cards a
+                               page via ?page=, Pager, dashed nextUpdateLine under 3 cards), TokenCard (only site.token),
+                               HighlightsCard; then Footer minimal. No points, Originality, 52-week grid, rank number,
+                               Earned, tabs, visitor row or badge (plan S15; MoneyTab and ProjectTab deleted).
+                               BenchProfileSkeleton: flat s-panel shapes with the name. ShipGrid/BadgeCopy stay (unused
+                               on the page; shippedWords and the badge route remain)
   app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic); HandleView
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
                                pagePath) renders BenchProfileView (v2.14 T3: ProfileView and ProjectCards deleted);
+                               v3.1: BenchPage reads profileSite and passes it with pageOf(?page=); tabOf parsed, ignored;
                                handleMetadata (title, og card)
-  app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the ring: SCORE_COLORS.total gradient stroke (white to
-                               ek-accent, the site's one gradient), THEME track, no glow (v3 Stage 3); "N of 100" in words
+  app/[handle]/ScoreRing.tsx   v3.1 Task 7: the profile's Shipping ring (132px, viewBox 148, r 62, stroke 12, navy track,
+                               the band's light-to-deep gradient, round caps, .ek-arc draw; null: track and DASH)
   app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
                                picture with a 3 s timeout, CARD_CACHE) and shareResponse (card_shared once a day,

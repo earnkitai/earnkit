@@ -127,6 +127,12 @@ export const SITE = {
   sunsetEdge: '#FF8A55',
   blueLine: 'rgba(255,255,255,0.12)',
   rustLine: 'rgba(255,138,76,0.18)',
+  /** Task 7: the profile (Profile boards): the hero's round icon buttons and their hover, Base's official blue square, the Activity card's dashed next-update border, the coin's inner ring. */
+  blueButton: 'rgba(255,255,255,0.14)',
+  blueButtonHover: 'rgba(255,255,255,0.24)',
+  baseBlue: '#0000FF',
+  lightDash: '#C3CCE0',
+  coinRing: 'rgba(255,255,255,0.25)',
 } as const;
 
 /** The CSS variable for a SITE key: `onBlueSoft` → `--ek-s-on-blue-soft`. */

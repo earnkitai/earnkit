@@ -23,7 +23,7 @@ import { builderJson, builderResponse } from './builder-json';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import ProjectTab from '../../app/[handle]/ProjectTab';
+import { profileSite } from './site-data';
 import BenchView from '../../app/leaderboard/BenchView';
 import { FILTER_BACKED } from '../../app/leaderboard/FilterChip';
 import RaisingPill from '../../app/components/ui/RaisingPill';
@@ -225,17 +225,17 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   const url = `https://tokens.fun/coin/0x${b.id}`;
   const d = (await profileData(b.id, new Date()))!;
   assert.deepEqual(d.backing, { symbol: sym, url, backers: 0, earned_usd: 0 });
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
-  assert.match(html, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*data-ek-back[^>]*>Back ${d.project!.name}</a>`), html);
+  // v3.1 Task 7: the coin is on the Token card (site.token): $SYMBOL, "Back <first>" to the coin's page. The card reads
+  // the coin's backers by its address, which a real launch records.
+  await sql()`UPDATE projects SET coin_address = ${`0x${String(b.id).padStart(40, 'd')}`} WHERE id = ${yes.reply!.project_id as number}`;
+  const site = await profileSite(b.id, d, new Date());
+  assert.ok(site.token, 'the Token card');
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
+  const tok = html.slice(html.indexOf('data-ek-token'));
+  assert.ok(tok.includes(`$${sym}`), tok);
+  assert.match(tok, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*>Back ${site.first}</a>`), tok);
   assert.doesNotMatch(html, /Community round/);
-  // v3 Stage 3 (spec 5.6): the coin's pill sits in the Money tab's Backing group (the header carries the Back button).
-  const money = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'money' }));
-  assert.match(money, /data-pill="backing"/);
-  assert.ok(money.includes(`Backing · $${sym}`), money);
-  assert.doesNotMatch(money, /Community round/);
   assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'KIT', url })).trim(), 'Backing · $KIT');
-  // The project tab's coin line shows with the flag on.
-  assert.match(renderToStaticMarkup(React.createElement(ProjectTab, { project: d.project })), new RegExp(`\\$${sym} on tokens\\.fun`));
   // The card's pill.
   const card = (await benchCardFacts(b.id))!;
   assert.equal(card.raising, sym);
@@ -321,8 +321,8 @@ test('(f) flag off: no backing text anywhere (reply, page, card, terms, JSON bac
   await off(async () => {
     const d = (await profileData(b.id, new Date()))!;
     assert.equal(d.backing, null);
-    const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'project' }));
-    assert.doesNotMatch(html, /data-ek-back|Backing|data-pill|on tokens\.fun/, html);
+    const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
+    assert.doesNotMatch(html, /data-ek-back|data-ek-token|Backing|data-pill|tokens\.fun/, html);
     assert.equal((await benchCardFacts(b.id))!.raising, null);
     assert.deepEqual(parseBenchFilter({ backed: '1' }), { chain: null, weekly: false, backed: false });
     const all = await benchRows({ chain: null, weekly: false, backed: false }, { only: [b.id] });

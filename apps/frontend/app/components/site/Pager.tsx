@@ -14,7 +14,7 @@ const TONES = {
   light: { idle: 'text-s-ink-muted hover:text-s-ink', on: 'bg-s-light-hover text-s-ink', count: 'text-s-ink-muted' },
 } as const;
 
-const BTN = 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm transition-colors md:min-h-[34px] md:min-w-[34px]';
+const BTN = 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-3 text-sm motion-safe:transition-colors md:min-h-[34px] md:min-w-[34px]';
 
 export default function Pager({
   page,

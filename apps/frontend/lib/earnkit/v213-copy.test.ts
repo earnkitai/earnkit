@@ -84,32 +84,37 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
 });
 
-test('11.11 the profile\'s words pass the v2.13 rule on both tabs; chain names only in rank lines and logos (copy rules)', async () => {
-  const { default: BenchProfileView, BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, confirmingCardLine, streakWords } = await import('../../app/[handle]/BenchProfileView');
+test('11.11 the profile\'s words pass the v2.13 rule; chain names only in the Base tile and highlights (copy rules)', async () => {
+  const { default: BenchProfileView, confirmingCardLine, noProjectLine, streakWords } = await import('../../app/[handle]/BenchProfileView');
   const { shippedWords } = await import('../../app/[handle]/ShipGrid');
   const { factChips, startedChips, startedLine } = await import('./week-facts');
-  const { DATA } = await import('./fixtures/profile-data');
+  const { DATA, JENIL, JENIL_SITE, MAYA, MAYA_SITE, SAM, SAM_SITE, siteOf } = await import('./fixtures/profile-data');
   const { benchShareText } = await import('./bench-data');
+  const c = await import('./site-copy');
   const texts = [
-    TAB_LOG, TAB_PROJECT, BENCH_SOURCES_LINE, LOG_EMPTY, confirmingCardLine('Maya Chen', 'Recipe planner'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
+    confirmingCardLine('Maya Chen', 'Recipe planner'), noProjectLine('Maya Chen'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
     benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders', project: null, streak: 0 }),
     benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }),
+    c.SCORE_TITLE, c.scoreNote('Maya'), c.SCORE_PENDING, c.STREAK_TITLE, c.PROFILE_ACTIVITY, c.shippedAgo('2h ago'), c.HIGHLIGHTS_TITLE,
   ];
   for (const t of texts) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
   // O3 fix round 1 (controller ruling): the grid says "Code in", never "Shipped" (the score part's word).
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
   assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
-  // Launch-ready L8: README is a file's name (the badge line), not shouting.
-  // v3 Stage 3: the Money tab too; $EARN is the token's name (the points line).
-  const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', '$EARN', 'Base Builder Grants', 'Avalanche Team1 Mini Grants', 'https://recipes.app', 'https://github.com/maya/recipes', 'README', ...Object.values(CHAIN_LABEL)];
-  for (const tab of ['log', 'project', 'money'] as const) {
-    const page = pageWords(React.createElement(BenchProfileView, { data: DATA, tab }));
-    assert.deepEqual(bannedInBench(page, exempt), [], page);
-    // v2.13.1 O3: the Confirming page too.
-    const confirming = pageWords(React.createElement(BenchProfileView, { data: { ...DATA, project: { ...DATA.project!, confirmed: false } }, tab }));
-    assert.deepEqual(bannedInBench(confirming, exempt), [], confirming);
+  // v3.1 Task 7: the approved Profile boards name commits ("279 commits", "This week: 14 commits"), the repo in the
+  // Builder Code highlight ("Found in the repo") and contracts ("[N] contracts on Base"), so those words are allowed on the
+  // profile; every other word is checked.
+  const allowed = [String(/\bcommits?\b/i), String(/\brepos?\b/i), String(/\bcontracts?\b/i)];
+  const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => !allowed.includes(w));
+  assert.ok(bannedInBench('This week: 14 commits', []).every((w) => allowed.includes(w)));
+  const names = ['Maya Chen', 'Maya', 'Jenil', 'Sam', 'Recipe planner', 'EarnKit', 'Tipjar', 'Ledgerly', '$TIPJAR', 'Alliance ALL19', 'Base Builder Grant Program', 'Base Builder Code', ...Object.values(CHAIN_LABEL)];
+  const exempt = [...names, 'https://recipes.app', 'earnkit.com', 'tipjar.xyz', 'github.com/sam/ledgerly'];
+  const confirming = { ...DATA, project: { ...DATA.project!, confirmed: false } };
+  for (const [d, site] of [[DATA, siteOf(DATA)], [confirming, siteOf(confirming)], [JENIL, JENIL_SITE], [MAYA, MAYA_SITE], [SAM, SAM_SITE]] as const) {
+    const page = pageWords(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
+    assert.deepEqual(banned(page, exempt), [], page);
   }
 });
 

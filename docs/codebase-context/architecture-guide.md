@@ -7234,3 +7234,13 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
 - **Shape changes.** `ProfileCard.commits` (facts.shipped_code.n, from 1); `projectProgramsDated` (`toldApplied` reads
   `max(at)`). Test: `v31-site-data.test.ts`.
 
+
+## v3.1 site Task 7: the profile
+
+The builder page (`app/[handle]/BenchProfileView.tsx` with `app/[handle]/site/*`) is the owner-approved Profile board:
+a blue hero, navy Shipping score, rust Streak, white Activity, the Token card and Highlights, then the minimal footer.
+`handle-view.tsx` BenchPage reads `profileData` then `profileSite` (Task 3) and passes `?page=` (3 weeks a page). Every
+rank on the page is `site.standing` (null under RANK_MIN_POOL, so no pill and no "#N"); Backing is only `site.token`
+(fails closed, never EarnKit's own repo, only while `raisingEnabled()`). Points, Originality, the 52-week grid, Earned,
+tabs (`?tab=` ignored) and the README badge left the page; the badge, share and JSON routes stay. Confirming or no
+project: one calm line in the panel, no score, a 0-week streak and only the dashed next-update line.

@@ -148,6 +148,11 @@ export default {
         's-sunset-edge': 'var(--ek-s-sunset-edge)',
         's-blue-line': 'var(--ek-s-blue-line)',
         's-rust-line': 'var(--ek-s-rust-line)',
+        's-blue-button': 'var(--ek-s-blue-button)',
+        's-blue-button-hover': 'var(--ek-s-blue-button-hover)',
+        's-base-blue': 'var(--ek-s-base-blue)',
+        's-light-dash': 'var(--ek-s-light-dash)',
+        's-coin-ring': 'var(--ek-s-coin-ring)',
       },
       fontFamily: {
         'funnel-display': ['var(--font-funnel-display)', 'sans-serif'],

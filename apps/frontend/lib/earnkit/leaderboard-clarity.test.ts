@@ -26,6 +26,7 @@ import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import BenchProfileView, { confirmingCardLine } from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
 import { padPool } from './fixtures/rank-pool';
+import { profileSite } from './site-data';
 
 /**
  * Scoring and clarity, Task 3: the leaderboard (R9, R17), rank wording (R6), one status line and one
@@ -238,10 +239,11 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   assert.deepEqual(d.chainLines, []);
   assert.equal(d.score, null);
   assert.equal((await benchCardFacts(a.id))!.bench, null);
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: 'Top 4% of builders', line: 'Shipping 62 · Top 4% of builders' }, tab: 'log' }));
+  const staleData = { ...d, bench: 'Top 4% of builders', line: 'Shipping 62 · Top 4% of builders' };
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: staleData, site: await profileSite(a.id, staleData, new Date()), page: 1 }));
   assert.ok(d.project && !d.project.confirmed, 'confirming');
   assert.ok(html.includes(confirmingCardLine(d.name, d.project.name)), html);
-  assert.doesNotMatch(html, /Top 4%/, 'never a rank beside the confirming card, even from a stale line');
+  assert.doesNotMatch(html, /Top 4%|data-ek-standing/, 'never a rank beside the confirming card, even from a stale line');
 });
 
 // ---- R11: names never cut ------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFileOk, badgeFor, badgeMarkdown, badgeResponse, badgeSvg, badgeValue, textWidth } from './badge';
-import { DATA } from './fixtures/profile-data';
+import { DATA, siteOf } from './fixtures/profile-data';
 import { isReserved } from './reserved-routes';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { BADGE_COPY_LINE, COPY_FAILED } from '../../app/[handle]/BadgeCopy';
@@ -75,12 +75,10 @@ test('L8 the markdown links the badge to the page; a reserved handle\'s page is 
   assert.equal(isReserved('Badge'), true);
 });
 
-test('L8 the profile offers the markdown, quietly, under the sources line', () => {
-  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.ok(h.includes(BADGE_COPY_LINE));
-  assert.ok(h.includes(badgeMarkdown(DATA.handle).replace(/&/g, '&amp;')), 'the markdown is shown');
-  assert.match(h, /aria-label="Copy the badge markdown"/);
-  // v3 Stage 3 (the profile): one quiet line, the image always shown, the markdown behind it.
+test('L8 v3.1 (plan S15): the badge left the profile; the route and the markdown stay', () => {
+  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, site: siteOf(DATA), page: 1 }));
+  assert.ok(!h.includes(BADGE_COPY_LINE));
+  assert.doesNotMatch(h, /\/badge\/|Copy the badge markdown/);
   assert.equal(BADGE_COPY_LINE, 'Badge for your README');
 });
 
