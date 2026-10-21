@@ -1,6 +1,10 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import * as React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { withThisWeek } from './site-streak';
 import { sql } from './db';
 import { profileData, type ProfileData } from './bench-data';
 import { PRIVATE_NAME, projectPrograms, projectProgramsDated } from './page-data';
@@ -302,4 +306,44 @@ test('(h) projectProgramsDated returns the told application\'s at and the entry\
     { title: `Entry program ${RUN}`, won: false, applied: true },
     { title: 'Alliance ALL19', won: false, applied: true },
   ]);
+});
+
+test('(i) Task 7 fix round 2: Highlights and the Streak card read one streak (withThisWeek): bumped, not bumped, already lit, quiet', db, async () => {
+  (globalThis as { React?: typeof React }).React = React;
+  const w = last52(NOW);
+  const signals = (n: number) => ({ commit_counts: { [isoWeekOf(NOW)]: n }, pushes_checked: true, created_at: '2025-01-01T00:00:00Z' });
+  /** The Streak card's "N weeks" and the start highlight's sub line, from profileSite as the page reads them. */
+  const both = async (b: B) => {
+    const d = await page(b.id);
+    const s = await profileSite(b.id, d, NOW);
+    const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: s, page: 1 }));
+    const card = h.slice(h.indexOf('data-ek-streak'));
+    const weeks = Number(/<span class="ek-serif[^"]*">(\d+) weeks?<\/span>/.exec(card)![1]);
+    return { weeks, sub: s.highlights.at(-1)!.sub, lit: (card.slice(0, card.indexOf('</div></div>')).match(/bg-s-rust-on/g) ?? []).length, d };
+  };
+  // Bumped: two weeks before this one, commits this week (not yet in the grid): 3 on the card and in Highlights.
+  const bumped = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(5) }));
+  assert.equal(bumped.d.streak, 2, 'stored');
+  assert.deepEqual([bumped.weeks, bumped.sub, bumped.lit], [3, '3 weeks in a row', 3]);
+  // Not bumped: no commits this week.
+  const flat = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(0) }));
+  assert.deepEqual([flat.weeks, flat.sub], [2, '2 weeks in a row']);
+  // Already lit this week: never counted twice.
+  const lit = await both(await builder({ commitWeeks: [w[50], w[51]], signals: signals(4) }));
+  assert.equal(lit.weeks, lit.d.streak);
+  assert.equal(lit.sub, `${lit.weeks} weeks in a row`);
+  // The first-week builder shipping this week (seeded sam): 2 weeks on both, never "First week on EarnKit" beside it.
+  const fresh = await both(await builder({ commitWeeks: [w[50]], signals: signals(6), claimedAt: new Date(NOW.getTime() - 3 * DAY) }));
+  assert.deepEqual([fresh.weeks, fresh.sub], [2, '2 weeks in a row']);
+  // Quiet (not confirmed): 0 weeks, nothing lit, and Highlights says it is not on the leaderboard.
+  const quiet = await both(await builder({ confirmed: false, source: true, commitWeeks: [w[50]], signals: signals(6) }));
+  assert.deepEqual([quiet.weeks, quiet.lit, quiet.sub], [0, 0, 'No project on the leaderboard yet']);
+  // The helper itself.
+  const g = (on: boolean[]) => on.map((x, i) => ({ week: `2026-W${i + 1}`, on: x }));
+  const proj = { ...(bumped.d.project!), confirmed: true };
+  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: proj }, 3), { grid: g([true, true]), streak: 2 });
+  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: proj }, 0), { grid: g([true, false]), streak: 1 });
+  assert.deepEqual(withThisWeek({ grid: g([true, true]), streak: 2, project: proj }, 9), { grid: g([true, true]), streak: 2 });
+  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: { ...proj, confirmed: false } }, 3), { grid: g([false, false]), streak: 0 });
+  assert.deepEqual(withThisWeek({ grid: g([true]), streak: 1, project: null }, 3), { grid: g([false]), streak: 0 });
 });

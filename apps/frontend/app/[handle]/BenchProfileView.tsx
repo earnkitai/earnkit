@@ -4,6 +4,7 @@ import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import type { ProfileSite } from '../../lib/earnkit/site-data';
+import { withThisWeek } from '../../lib/earnkit/site-streak';
 import { PAGE_COL, phoneRadius, CARD_BLUE } from '../components/site/ui';
 import Avatar from './Avatar';
 import { DASH } from './ScoreRing';
@@ -30,18 +31,6 @@ const last12 = (grid: ProfileData['grid']): boolean[] => {
   const on = grid.slice(-12).map((g) => g.on);
   return [...Array<boolean>(12 - on.length).fill(false), ...on];
 };
-
-/**
- * The Streak card's numbers. The 12th square is this week: the stored grid and streak (weeks.ts streakOf) leave an
- * unlit current week out, so commits read this week (site.thisWeek) light it and add it to the streak. Quiet
- * (confirming, no project): 0 weeks, all off. Pure.
- */
-export function streakOf(d: ProfileData, site: ProfileSite, quiet: boolean): { streak: number; weeks: boolean[]; thisWeek: number } {
-  if (quiet) return { streak: 0, weeks: last12([]), thisWeek: 0 };
-  const weeks = last12(d.grid);
-  if (site.thisWeek > 0 && !weeks[11]) return { streak: d.streak + 1, weeks: [...weeks.slice(0, 11), true], thisWeek: site.thisWeek };
-  return { streak: d.streak, weeks, thisWeek: site.thisWeek };
-}
 
 /** While the page's sources refresh: the photo, name and @handle at once on a flat hero, the other cards as flat shapes. */
 export function BenchProfileSkeleton({
@@ -85,6 +74,7 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
   const now = new Date();
   const confirming = d.project !== null && !d.project.confirmed;
   const quiet = confirming || d.project === null;
+  const streak = withThisWeek(d, site.thisWeek);
   const line = d.project === null ? noProjectLine(d.name) : confirming ? confirmingCardLine(d.name, d.project.name) : null;
   return (
     <>
@@ -94,7 +84,8 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
           <HeroCard data={d} site={site} line={line} />
           <div className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
             <ScoreCard score={quiet ? null : d.score} first={site.first} />
-            <StreakCard {...streakOf(d, site, quiet)} />
+            {/* withThisWeek: the same streak profileSite gave Highlights (this week's commits light this week). */}
+            <StreakCard streak={streak.streak} weeks={last12(streak.grid)} thisWeek={quiet ? 0 : site.thisWeek} />
           </div>
         </section>
         <section aria-label="Activity and highlights" className="flex flex-wrap items-start gap-4">

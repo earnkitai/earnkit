@@ -11,6 +11,7 @@ import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
 import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
+import { withThisWeek } from './site-streak';
 import { shipReading } from './week-facts';
 import { isoWeekOf, last52, mondayOfWeek } from './weeks';
 
@@ -143,11 +144,12 @@ function startItem(d: ProfileData, claimedAt: Date, now: Date): Highlight {
   const since = monday ? new Date(`${monday}T00:00:00Z`) : claimedAt;
   const title = `Shipping since ${now.getTime() - since.getTime() <= 12 * 7 * DAY_MS ? monthDay(since) : monthYear(since)}`;
   const on = d.grid.filter((g) => g.on).length;
+  // A run of 2+ weeks first, so the line always agrees with the Streak card (both read withThisWeek's streak).
   const sub =
-    now.getTime() - claimedAt.getTime() <= 14 * DAY_MS && d.log.length <= 1
-      ? 'First week on EarnKit'
-      : d.streak >= 2
-        ? `${d.streak} weeks in a row`
+    d.streak >= 2
+      ? `${d.streak} weeks in a row`
+      : now.getTime() - claimedAt.getTime() <= 14 * DAY_MS && d.log.length <= 1
+        ? 'First week on EarnKit'
         : on < 1
           ? 'First week on EarnKit'
           : `${on} ${on === 1 ? 'week' : 'weeks'} with code in the last year`;
@@ -295,14 +297,17 @@ export async function profileSite(builderId: number, d: ProfileData, now: Date, 
   const [main, reading] = await Promise.all([part('main', () => mainOf(builderId), null), part('reading', () => mainReading(builderId), null)]);
   // A failed main read leaves the key null: the Token card then fails closed (tokenAllowed).
   const key = main?.key ?? null;
+  const thisWeek = commitsFrom(reading, now);
+  // The Streak card's grid and streak (BenchProfileView applies the same withThisWeek), so Highlights agrees with it.
+  const shown = { ...d, ...withThisWeek(d, thisWeek) };
   const [items, standing, token] = await Promise.all([
-    main ? part('highlights', () => highlightsOf(builderId, d, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
+    main ? part('highlights', () => highlightsOf(builderId, shown, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
     part('standing', () => standingPill(builderId, d, o), null),
     part('token', () => tokenCard(builderId, d, key, now), null),
   ]);
   return {
     lastShippedAt: shippedFrom(reading, now)?.toISOString() ?? null,
-    thisWeek: commitsFrom(reading, now),
+    thisWeek,
     highlights: items,
     standing,
     token,

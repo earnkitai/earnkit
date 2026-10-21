@@ -81,7 +81,8 @@ apps/frontend/
                                HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,
                                GitHub, white Share; the inset project panel with the EarnKit mark or a letter tile, the
                                Base tile, about, link; noProjectLine / confirmingCardLine instead), ScoreCard (navy,
-                               ScoreRing), StreakCard (rust, 12 squares from the grid, this week lit from site.thisWeek,
+                               ScoreRing), StreakCard (rust, 12 squares from the grid, this week lit from site.thisWeek by
+                               lib/earnkit/site-streak.ts withThisWeek, which profileSite also applies before Highlights,
                                streakNote, weekLine), ActivityCard (white, live dot "Shipped <ago>", 3 week cards a page
                                via ?page=, Pager, dashed nextUpdateLine under 3 cards), TokenCard (only site.token),
                                HighlightsCard; then Footer minimal. No points, Originality, 52-week grid, rank number,
