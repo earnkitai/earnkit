@@ -1525,7 +1525,8 @@ apps/frontend/
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
-                               showRaisingLine, an open offer again via openCoinLine, else offerCoin 'countable';
+                               showRaisingLine, an open offer again via openCoinLine, else backingOffer; EARNKIT_RAISING
+                               off is tokenUnavailable (v3.1 final fix 1: confirm only exists with it on);
                                TOKEN_NOT_YET, tokenUnavailable, tokenHasCoin, RAISE_NOTE), SHIP_STEP_NOTE; R12: fitWhy
                                (the chain: deployed on / deploy to / build for, any chain, a live app) and whyFacts;
                                v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the

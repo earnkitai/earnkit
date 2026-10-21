@@ -6230,8 +6230,9 @@ ranking higher.
     description: "only when they ask about a token") runs `bench-find.ts tokenAsk`: for the confirmed one project, a
     launched coin not shown yet is the community-round line (`showRaisingLine`, EARNKIT_RAISING on; its yes is `tell
     coin { raising: true }`); a coin out or launching says so; an open offer is shown again (`coin-moments.ts
-    openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
-    off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
+    openCoinLine`); else Backing's offer (`backingOffer`, after the first approved week with code). Not confirmed:
+    `TOKEN_NOT_YET`; nothing offerable (EARNKIT_RAISING off, since confirm is only registered with it on: v3.1 final
+    fix 1; launches off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
     { project_id }`; `confirm` and `launch` are unchanged; the build path no longer offers a coin (fix round 1).
 - **One fit order (fix round 1).** find and score name the same fits in the same order: `present.ts byDeadline`
   (the soonest `ends_at` first, rolling last, then the bigger `max_award_usd`, then the id). find sorts its qualifying
@@ -7065,7 +7066,8 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   every literal under `app/` (page metadata included) for "Shipping points", "EARN points", "What builders
   shipped", "the Bench", "community round", a raise, and "this week" after "builders"; `human-text.test.ts` for
   em dashes. The terms' risk disclosure keeps its words and numbering with the headings in sentence case. Links
-  inside running text use `INLINE_LINK` (a 44px hit area without changing the line's height). `ChainLogo` is round
+  inside running text use `INLINE_LINK` (a 44px hit area without changing the line's height: padding below md, an
+  invisible box from md, never both, so neighbouring links never overlap on a phone; v3.1 final fix 5). `ChainLogo` is round
   at every size; `public/images/chains/base.svg` is a solid Base-blue circle drawn inline (Arc and Robinhood stay
   monograms until the owner supplies the files).
 - **Visual check.** Every page at 1440x900 and 390x844 (the landing with the install sheet open, the leaderboard's
