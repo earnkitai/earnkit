@@ -78,9 +78,10 @@ apps/frontend/
                                @handle, chain logos and the Backing pill under it, the project over its best fact (two lines,
                                no middle dot), the Shipping number in NUM 24px; names and projects wrap (R11, no truncate,
                                no nowrap); BENCH_EMPTY + BENCH_SHOW_ALL only for a filtered view with no rows
-  app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12, v3 Stage 3 T4: /feed (404 flag off): H1 FEED_TITLE "Feed", FEED_LINE,
-                               each finished week an H2 ("Week of Oct 12") over a ROWS list of long UpdateCards (showWeek off);
-                               FEED_EMPTY between two hairlines with a secondary link to the leaderboard
+  app/feed/{page.tsx,FeedView.tsx,FeedStats.tsx,FeedRow.tsx}  v3.1 site Task 9 (Feed board): /feed: H1, week tabs
+                               (FEED_TABS 3, ?week=<monday>, pickWeek falls back to the newest), FeedStats (feedWeekStats,
+                               cached ['feed-stats-v31', monday]), full-width dark FeedRows, FEED_PAGE 10 a page (?page=);
+                               FEED_EMPTY on a neutral card with "See the leaderboard"
   app/[handle]/{BenchProfileView,ShareButton}.tsx, app/[handle]/site/*  v3.1 site Task 7 (Profile, BackedBuilder,
                                NewBuilder boards): BenchProfileView({ data, site, page }) lays out two wrapping rows:
                                HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,

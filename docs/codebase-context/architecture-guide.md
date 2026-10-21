@@ -7256,3 +7256,16 @@ X glyph and @handle as text, project, Backed tag, streak, score in its band colo
 read, 20 rows a page (`LEADERBOARD_PAGE`, clamped). Under `RANK_MIN_POOL` ranked builders no "#N" and no metal pill
 (S14). Backing: `bench-data.ts benchRows` sets `row.backing` only while raising is on and never for EarnKit's own repos
 (`site-data.ts tokenAllowed`), and the Backed filter drops those rows too. Test: `v31-site-leaderboard.test.ts`.
+
+## v3.1 site Task 9: the feed
+
+`/feed` (`app/feed/FeedView.tsx`, `FeedStats.tsx`, `FeedRow.tsx`) is the owner-approved Feed board on the deep page
+colour in the 1240px column: the Kaftan H1 with a step-tone SegTabs rail of the newest `FEED_TABS` (3) weeks
+(`?week=<monday>`; an unknown monday falls back to the newest, a 4th week works by URL and marks no tab, W4), the
+selected week's four stat cards (blue, step, rust, green gradients: builders shipped, commits compact, went live,
+applications sent; `site-data.ts feedWeekStats`, read once per request in `page.tsx`, cached per week as
+`['feed-stats-v31', monday]`, 300s, `PROFILE_TAG`; a failed read hides the cards), then the week's cards as full-width
+dark rows (`FeedRow`: photo, name link to the page, @handle link to X, `project · N commits`, the summary else the note
+else the chips, the score in its band colour), `FEED_PAGE` (10) a page with the centred Newer / numbers / Older pager
+(`?page=N`, clamped). No weeks: `FEED_EMPTY` on a neutral card with "See the leaderboard". `FEED_LINE` is only the
+page description now. Test: `v31-site-feed.test.ts`.

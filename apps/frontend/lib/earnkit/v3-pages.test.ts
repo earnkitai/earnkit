@@ -82,19 +82,20 @@ test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, names
 
 // ---- (b) the feed ----------------------------------------------------------------------------------
 
-test('(b) the feed: H1 "Feed", the line, each week an H2 over a ROWS list of hairline rows (no gapped flex column)', () => {
+test('(b) the feed (v3.1 site Task 9): H1 "Feed", the line as the description, week tabs, full-width dark rows (no grid, no white card)', () => {
   assert.equal(FEED_TITLE, 'Feed');
   assert.equal(FEED_LINE, 'What builders on the leaderboard shipped, week by week. Every fact is checked.');
+  assert.match(readFileSync(join(FRONTEND, 'app/feed/page.tsx'), 'utf8'), /description: FEED_LINE/);
   const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer.', chips: ['Went live'], pinned: false, score: 62, commits: 12 };
-  const h = html(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card, { ...card, id: 2, handle: 'devon_ships', name: 'Devon Park' }] }, { monday: '2026-10-05', label: 'Week of Oct 5', cards: [{ ...card, id: 3, week: '2026-10-05' }] }] }));
+  const weeks = [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card, { ...card, id: 2, handle: 'devon_ships', name: 'Devon Park' }] }, { monday: '2026-10-05', label: 'Week of Oct 5', cards: [{ ...card, id: 3, week: '2026-10-05' }] }];
+  const h = html(React.createElement(FeedView, { weeks, week: null, page: 1, stats: null }));
   assert.match(h, /<h1[^>]*>Feed<\/h1>/);
-  assert.ok(h.includes(FEED_LINE));
-  assert.match(h, /<h2 class="[^"]*font-funnel-display[^"]*">Week of Oct 12<\/h2>/);
-  assert.match(h, /<h2 class="[^"]*font-funnel-display[^"]*">Week of Oct 5<\/h2>/);
-  assert.equal((h.match(/<ul class="[^"]*\bborder-b border-ek-line\b[^"]*">/g) ?? []).length, 2, 'one ROWS list per week');
-  assert.equal((h.match(/<article [^>]*class="[^"]*\bborder-t border-ek-line\b/g) ?? []).length, 3, 'every row opens with a hairline');
-  assert.doesNotMatch(h, /flex flex-col gap-4/);
-  assert.ok(h.indexOf('Week of Oct 12') < h.indexOf('Week of Oct 5'));
+  assert.match(h, /<nav aria-label="Weeks"[^>]*>[\s\S]*Week of Oct 12[\s\S]*Week of Oct 5[\s\S]*<\/nav>/);
+  // The selected (newest) week's rows only; each a full-width dark card in one column.
+  assert.equal((h.match(/<article data-ek-feed-row="/g) ?? []).length, 2);
+  assert.match(h, /<ul class="flex flex-col gap-3">/);
+  assert.doesNotMatch(h, /grid-cols-3|bg-s-light text-s-ink[^"]*rounded|<blockquote/);
+  assert.match(h, /<article data-ek-feed-row="1" class="[^"]*--ek-s-card-top[^"]*"/);
 });
 
 // ---- (c) the programs page -------------------------------------------------------------------------
