@@ -1,9 +1,9 @@
 import { sql } from './db';
 import { benchConfirmedSql } from './main-project';
 import { benchPool, standingOf } from './person-score';
-import { BENCH_CHAINS, CHAIN_LABEL, rankLine, scoreLine, type BenchChain } from './rank';
+import { BENCH_CHAINS, CHAIN_LABEL, rankLine, scoreLine, shownRankLine, type BenchChain } from './rank';
 
-/** v2.13 spec "Chains (R14)": a chain's pool is the Bench (person-score benchPool) on that chain. A chain's line and its chip show from one ranked project in its pool (R16e). */
+/** v2.13 spec "Chains (R14)": a chain's pool is the Bench (person-score benchPool) on that chain. A chain's chip shows from one ranked project in its pool (R16e); its line from RANK_MIN_POOL (v3.1 F3). */
 export { benchPool };
 
 export async function chainPools(o: { only?: number[] } = {}): Promise<Record<BenchChain, number>> {
@@ -15,12 +15,14 @@ export async function chainPools(o: { only?: number[] } = {}): Promise<Record<Be
 }
 
 /**
- * `bench`: the rank phrase (rank.ts rankLine); `line`: the score line with it (rank.ts scoreLine), null
- * while unranked; `chains`: each chain's rank phrase (R16e: from one ranked project on it).
+ * `bench`: the rank phrase (rank.ts shownRankLine: null under RANK_MIN_POOL ranked builders); `line`: the score line
+ * with it (rank.ts scoreLine; "Shipping 60" alone under the minimum), null while unranked; `chains`: each chain's rank
+ * phrase, against its own chain pool (v3.1 F3: from RANK_MIN_POOL on it); `listed`: in the leaderboard's pool (a
+ * whole-pool rankLine exists), so a ranked page even while `bench` is null.
  */
-export type RankLines = { bench: string | null; line: string | null; chains: { chain: BenchChain; label: string; line: string }[] };
+export type RankLines = { bench: string | null; line: string | null; chains: { chain: BenchChain; label: string; line: string }[]; listed: boolean };
 
-const unranked = (): RankLines => ({ bench: null, line: null, chains: [] });
+const unranked = (): RankLines => ({ bench: null, line: null, chains: [], listed: false });
 
 /**
  * R10: a rank only while the one project counts as confirmed now (benchConfirmedSql, read live): a stale
@@ -36,16 +38,17 @@ export async function rankLines(builderId: number, o: { only?: number[] } = {}):
       AND ${benchConfirmedSql(sql())}
     JOIN builder_live l ON l.builder_id = p.builder_id WHERE p.builder_id = ${builderId}`;
   if (!me) return unranked();
-  // Scoring and clarity: every ranked builder sees their rank, from 1 ranked ("#1 of 1 builder").
-  const bench = rankLine(s);
-  const out: RankLines = { bench, line: bench ? scoreLine(s.score, bench) : null, chains: [] };
+  // v3.1 F3: the rank phrase only from RANK_MIN_POOL ranked builders; the score line stands alone under it.
+  const listed = rankLine(s) !== null;
+  const bench = shownRankLine(s);
+  const out: RankLines = { bench, line: listed ? scoreLine(s.score, bench) : null, chains: [], listed };
   for (const chain of BENCH_CHAINS) {
     if (!me.chains.includes(chain)) continue;
     const [r] = await sql()<{ total: number; rank: number }[]>`
       SELECT (count(*) + CASE WHEN bool_or(x.builder_id = ${builderId}) THEN 0 ELSE 1 END)::int AS total,
         (1 + count(*) FILTER (WHERE x.score > ${me.score} AND x.builder_id <> ${builderId}))::int AS rank
       FROM ${benchPool(o.only)} x WHERE ${chain} = ANY(x.chains)`;
-    const line = rankLine({ ranked: true, rank: r.rank, total: r.total }, { chain });
+    const line = shownRankLine({ ranked: true, rank: r.rank, total: r.total }, { chain });
     if (line) out.chains.push({ chain, label: CHAIN_LABEL[chain], line });
   }
   return out;

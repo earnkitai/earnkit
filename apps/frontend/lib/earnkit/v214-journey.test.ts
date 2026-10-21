@@ -22,6 +22,7 @@ import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -162,6 +163,8 @@ test('12.3 naming the repo: not counted, with the App install link', db, async (
 });
 
 test('12.4 acceptance 3: the App installed on the org repo; the next reply says it is on the Bench with a rank and the page', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   assert.ok(installLinkSeen, '12.3 ran');
   const nonce = new URL(installLinkSeen).searchParams.get('n')!;
   // The GitHub sign-in hop of /github/verify (github-verify.ts) names the installer: done here as its callback would.

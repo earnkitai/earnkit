@@ -17,6 +17,7 @@ import { fitLines, fitWhy, tokenUnavailable } from './bench-find';
 import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, noFitLine } from './bench-reply';
 import type { RepoFit } from './present';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * Scoring and clarity, Task 4: four reply states (R16a), moving up by shipping (R8: "Ship this week to climb.",
@@ -101,6 +102,8 @@ test('R12: arc-microgrants, colosseum-worlds-fair and monad-metropolis are close
 });
 
 test('R8, R12, R16a through find and score: the ranked reply is the score line, the why, at most 3 fits with deadline and why, and "Ship this week to climb."; no coin anywhere; closed programs never show', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   await syncPrograms();
   const extra = await avalanche(); // a fourth open program that fits: only 3 are named
   const a = await rankedBuilder('mvu', 'Kit', 7201);

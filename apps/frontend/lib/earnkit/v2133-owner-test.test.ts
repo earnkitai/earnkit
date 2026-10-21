@@ -36,6 +36,7 @@ import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from
 import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
 import { RANKED_STEP } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
@@ -307,6 +308,8 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
 
 test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim ask); claimed, the one install link; installed, the setup URL proves it with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
+    // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+    await padPool(9);
     const logged: string[] = [];
     const was = { error: console.error, log: console.log, warn: console.warn };
     const spy = (...a: unknown[]) => void logged.push(a.map(String).join(' '));

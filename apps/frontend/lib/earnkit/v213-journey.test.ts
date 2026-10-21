@@ -47,6 +47,7 @@ import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
@@ -522,6 +523,8 @@ const RECIPES_PROJECT = { name: 'Recipe planner', what: 'a recipe planner', repo
 // ---- The journey -------------------------------------------------------------------------------
 
 test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no claim link); after X and the App install it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));

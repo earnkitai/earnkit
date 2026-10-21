@@ -17,6 +17,7 @@ import { attachToX } from './x-install';
 import { profileData } from './bench-data';
 import { DATA } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { padPool } from './fixtures/rank-pool';
 import {
   DIMS, README_CHARS, README_MAX_BYTES, cosine, workerEmbed, workerScript, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, boundedEmbed, EmbedDeadline, stripMarkdown, textHash,
   type Embed,
@@ -369,6 +370,8 @@ test('O8 privacy: a private README is never stored as text; the nearest list nam
 });
 
 test('O9 shown: the profile and the score reply carry "Originality N" once computed, after the score line; never before', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const k = `gus${RUN}/kiln`;
   const gh = fakeGitHub({ [k]: repo(9331, `gus${RUN}`, 331, '# Kiln\nCeramic kiln firing scheduler with thermocouple logging.') });
   const p = await connected(k, 'gus', gh, 331);

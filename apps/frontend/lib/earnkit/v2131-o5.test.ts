@@ -25,6 +25,7 @@ import BenchTop, { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTo
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13.1 O5 (the second first-run audit, N1 to N16, and round 1's open F11, F15, F16, P1 to P5, P7,
@@ -242,11 +243,13 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
   }),
 );
 
-test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 of 1 builder"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
+test('O5 P2 (reversed in v2.13.4, v3.1 F3): the reply names the rank from RANK_MIN_POOL ranked (never "#1 of 1 builder"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
   on(async () => {
     const key = `${uniq('rk')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('rk'), ranked: true, score: 100, projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    assert.equal((await rankLines(id, { only: [id] })).bench, '#1 of 1 builder');
+    const alone = await rankLines(id, { only: [id] });
+    assert.deepEqual([alone.bench, alone.line], [null, 'Shipping 100'], 'one ranked: the score alone');
+    await padPool(9);
     const r = await find(id, {}, NO_MATCH);
     // The stand line is the score line ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
     assert.match(r.show_to_builder, /^Hello-World: Shipping 100 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, r.show_to_builder);

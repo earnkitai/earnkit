@@ -33,7 +33,7 @@ const RANKED: ProfileData = {
   earned: { paid_usd: 340, waiting_usd: 0 }, money: MONEY,
 };
 const NO_PROJECT: ProfileData = {
-  ...RANKED, backing: null, bench: null, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0,
+  ...RANKED, backing: null, bench: null, rankListed: false, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0,
   grid: RANKED.grid.map((g) => ({ ...g, on: false })), money: { fits: [], applied: [], backing: null, points: 0 },
 };
 const CONFIRMING: ProfileData = { ...RANKED, project: { ...RANKED.project!, confirmed: false } };
@@ -54,7 +54,7 @@ test('(a) the three numbers row: the Shipping ring, the rank and Earned, each wi
   const top = numbers(html(React.createElement(BenchProfileView, { data: { ...RANKED, bench: 'Top 4% of builders', line: 'Shipping 62 · Top 4% of builders' }, tab: 'log' })));
   assert.ok(top.includes('>Top 4%<') && top.includes('>of builders<'), top);
   // Unranked: no rank and no Earned figure (dashes in their place).
-  const un = numbers(html(React.createElement(BenchProfileView, { data: { ...RANKED, bench: null, line: null, chainLines: [] }, tab: 'log' })));
+  const un = numbers(html(React.createElement(BenchProfileView, { data: { ...RANKED, bench: null, rankListed: false, line: null, chainLines: [] }, tab: 'log' })));
   assert.doesNotMatch(un, /data-ek-earned|>\$\d|>#\d/);
   // Under the row: the why and the target as one line, Originality, then the chain line with its logo.
   const t = text(h);

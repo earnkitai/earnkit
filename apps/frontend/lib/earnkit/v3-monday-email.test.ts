@@ -153,8 +153,9 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     const r = await sendDigests(new Date(), { mail, only: [me.id] });
     assert.equal(r.sent, 1);
     const m = sent[0]!;
-    assert.equal(m.subject, 'Your week on EarnKit: Shipping 40 · #1 of 1 builder');
-    assert.ok(m.text.startsWith('Last week you finished at Shipping 40, #1.'), m.text);
+    // v3.1 F3: one ranked builder (under RANK_MIN_POOL): no rank in the subject or the moment.
+    assert.equal(m.subject, 'Your week on EarnKit: Shipping 40');
+    assert.ok(m.text.startsWith('Last week you finished at Shipping 40.\n'), m.text);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
     assert.ok(!m.text.includes(me.key.split('/')[0]!), 'no link names the repo');
     assert.match(m.text, /Unsubscribe: https:\/\/earnkit\.com\/api\/digest\/unsubscribe\?t=/);
@@ -174,7 +175,7 @@ test('(d) GET /api/week changes nothing; POST approves with via email and awards
     assert.equal(page.status, 200);
     const body = await html(page);
     assert.match(body, new RegExp(WEEK_TEXT.title));
-    assert.match(body, /Last week you finished at Shipping 40, #1\./);
+    assert.match(body, /Last week you finished at Shipping 40\./);
     assert.match(body, /<form method="post"[^>]*>.*Looks right<\/button>/s);
     assert.ok(!body.includes(me.key), 'the page never names the repo');
     assert.equal((await row(me.id)).facts.approved, undefined, 'GET changed nothing');

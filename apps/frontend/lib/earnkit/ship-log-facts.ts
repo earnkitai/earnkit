@@ -31,7 +31,8 @@ export async function shipLogFacts(builderId: number, now: Date): Promise<ShipLo
   if (!p?.handle) return null;
   const lines = await rankLines(builderId);
   const [live] = await db<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${builderId}`;
-  const scored = lines.bench !== null && Boolean(live);
+  // v3.1 F3: the score on a ranked page; the rank phrase only from RANK_MIN_POOL (null under it).
+  const scored = lines.listed && Boolean(live);
   const facts: ShipLogFacts = {
     score: scored ? (storedShipping(live!.parts)?.points ?? null) : null,
     rank: scored ? lines.bench : null,

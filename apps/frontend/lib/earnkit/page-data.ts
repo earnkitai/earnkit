@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { sql } from './db';
 import { standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
-import { rankLine } from './rank';
+import { rankLine, shownRankLine } from './rank';
 import { pagePath } from './reserved-routes';
 
 /**
@@ -56,7 +56,8 @@ export function displayName(xName: string | null, handle: string): string {
   return n && !WALLET.test(n) ? n : `@${handle}`;
 }
 
-export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; people: number; score: number; moment: 'shipped' | 'rank' | null };
+/** `listed`: in the leaderboard's pool, so ranked even while `rank` is null (v3.1 F3: under RANK_MIN_POOL). */
+export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; listed: boolean; people: number; score: number; moment: 'shipped' | 'rank' | null };
 
 /** What the header and the card need about one claimed person. Null when there is no claimed profile. */
 export async function personFacts(builderId: number, o: { only?: number[] } = {}): Promise<PersonFacts | null> {
@@ -70,9 +71,11 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   const apps = n > 0 && kinds.every((k) => k.kind === 'app');
   const noun = apps ? (n === 1 ? 'app' : 'apps') : n === 1 ? 'project' : 'projects';
   // Hotfix 2026-10-19: a public rank only inside the leaderboard's pool (bench-rank rankLines' rule).
-  const rank = s.listed ? rankLine(s) : null;
+  // v3.1 F3: none under RANK_MIN_POOL ranked builders either.
+  const rank = s.listed ? shownRankLine(s) : null;
   const moment = p.moment === 'rank' ? p.moment : 'shipped';
-  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
+  const listed = s.listed && rankLine(s) !== null;
+  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, listed, people: s.people, score: s.score, moment };
 }
 
 /** The page header; React cache(): the page and its metadata read it once per request. */
@@ -85,8 +88,8 @@ export const pageHead = cache(async (builderId: number, o: { only?: number[] } =
     avatar: f.avatar,
     topLine: f.shipped > 0 ? topLine(f.name, f.shipped, f.noun) : buildingLine(f.name),
     rank: f.rank,
-    // The ring sits only beside a rank (never a bare "0/100").
-    score: f.rank ? f.score : null,
+    // The ring sits only on a ranked page (never a bare "0/100"); v3.1 F3: under RANK_MIN_POOL too, as the profile.
+    score: f.listed ? f.score : null,
   };
 });
 

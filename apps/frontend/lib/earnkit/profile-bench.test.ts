@@ -127,9 +127,9 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   // Shipping and its why from the stored parts; the old used and earned keys are ignored.
   assert.equal(d.score, 62);
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
-  // Launch ready L5: the weekly target (alone in the pool: hold #1).
-  assert.equal(d.target, 'Code this week adds +14 points to hold #1.');
-  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder');
+  // Launch ready L5: the weekly target. v3.1 F3: alone in the pool (under RANK_MIN_POOL), no rank named anywhere.
+  assert.equal(d.target, 'Code this week adds +14 points.');
+  assert.deepEqual([d.bench, d.line, d.rankListed], [null, 'Shipping 62', true]);
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
   assert.equal(d.grid.filter((g) => g.on).length, 2);

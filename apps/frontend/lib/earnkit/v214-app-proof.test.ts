@@ -16,6 +16,7 @@ import { readSources } from './sources';
 import { readPersonLive, rescorePerson } from './person-score';
 import { defaultReaderDeps } from './source-readers';
 import { proveRepo, tokenGate } from './token-gate';
+import { padPool } from './fixtures/rank-pool';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -56,6 +57,8 @@ test('6.1 an unproven repo gets the App install link (purpose app), never a proo
 });
 
 test('6.2 the setup URL proves the repo (github_app), rescoring at once: the next find says it is on the Bench', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const key = `nia${RUN}/notes`;
   const p = await personWith(key, 'nia');
   const gh = fakeGitHub({ [key]: { id: 9001, owner: `nia${RUN}`, installation: 77, private: true } });
@@ -85,6 +88,8 @@ async function connected(key: string, handle: string, gh: ReturnType<typeof fake
 const ago = (weeks: number) => new Date(Date.now() - weeks * 7 * 86_400_000).toISOString();
 
 test('6.2b R5 scored at connect: right after the App setup, a repo with commits has a real Shipping score and a rank', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const key = `gwen${RUN}/ships`;
   const commits = [0, 1, 2, 5].map((w, i) => ({ sha: `c${i}`, message: `change ${i}`, date: ago(w) }));
   const gh = fakeGitHub({ [key]: { id: 9101, owner: `gwen${RUN}`, installation: 91, private: true, commits } });

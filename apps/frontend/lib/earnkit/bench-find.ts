@@ -199,7 +199,7 @@ type BenchRead = {
   liveUrl: string | null;
 };
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null };
-const NO_RANK: RankLines = { bench: null, line: null, chains: [] };
+const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false };
 const logged = (where: string) => (err: unknown) => {
   console.error(`[bench] ${where}`, err instanceof Error ? err.name : 'error');
   return null;

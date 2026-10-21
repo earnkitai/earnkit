@@ -327,7 +327,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
     VALUES (${`0x${'d'.repeat(64)}`}, 1, ${coin}, ${wallet}, ${(E18 / 10n).toString()}, 5100, now())`;
   await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${addr('m1')}, 6000), (${coin}, ${addr('m2')}, 6001)`;
   const d = (await profileData(b.id, new Date()))!;
-  assert.ok(d.bench, 'ranked');
+  assert.ok(d.rankListed, 'ranked');
   assert.deepEqual(d.earned, { paid_usd: 200, waiting_usd: 500 });
   assert.deepEqual(d.backing, { symbol: 'KITD', url: `https://tokens.fun/coin/${coin}`, backers: 2, earned_usd: 200 });
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
@@ -337,7 +337,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.ok(html.includes('and $500 waiting'), html);
   // The third number: after the Shipping ring and the rank.
   assert.ok(html.indexOf('data-ek-earned') > html.indexOf('Shipping'), html);
-  assert.ok(html.indexOf('data-ek-earned') > html.indexOf(d.bench!.split(' ')[0]), html);
+  assert.ok(html.indexOf('data-ek-earned') > html.indexOf('>Rank<'), html);
 
   const r = show(await find(b));
   assert.match(standLine(r), /\. Earned \$200\.$/, r);
@@ -361,7 +361,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.match(hz, /data-ek-earned[^>]*>\$0</, hz);
   assert.doesNotMatch(hz, /waiting/);
   // Unranked: Earned is omitted (even with money earned).
-  const unranked = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: null, line: null }, tab: 'log' }));
+  const unranked = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: null, rankListed: false, line: null }, tab: 'log' }));
   assert.doesNotMatch(unranked, /data-ek-earned/);
   assert.doesNotMatch(show(await find(z)), /Earned/);
 }));

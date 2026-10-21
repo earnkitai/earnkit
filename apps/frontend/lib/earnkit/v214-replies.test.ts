@@ -15,6 +15,7 @@ import { upsertProgram } from './programs';
 import { SIGN_IN_NOTES, signinGet } from './x-link';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -68,6 +69,8 @@ test('9.9 state 2, signed in with no project: the page and the repo picker (laun
 });
 
 test('9.10 state 3, a project without the App: the install link; then state 4 once installed', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const a = await agent({ x: 'bo' });
   const key = `bo${RUN}/kit`;
   const s = rule((await mcpCall(a.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } })).reply);
@@ -80,6 +83,8 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
 });
 
 test('9.11 R16a: shipping weekly is the ranked state; the streak lives in the score (the reply carries it, the stand line does not)', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const a = await agent({ x: 'cy' });
   const key = `cy${RUN}/app`;
   await mcpCall(a.ctx, 'find', { identity: { project: { name: 'App', repo: `https://github.com/${key}` } } });

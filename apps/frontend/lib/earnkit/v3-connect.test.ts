@@ -145,7 +145,7 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
       VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
-    assert.ok(s.startsWith('Last week you finished at Shipping 40, #1.'), s);
+    assert.ok(s.startsWith('Last week you finished at Shipping 40.\n'), s);
     assert.doesNotMatch(s, /Your last \d+ weeks?:/);
     assert.match(s, /Does last week look right\?$/);
   } finally {

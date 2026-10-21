@@ -7,6 +7,7 @@ import { checkUpdate } from './update-text';
 import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
 import { WEEKLY_HOUR_UTC, hasFacts, type WeekFacts } from './week-facts';
 import { awardWeekPoints, type ApproveVia } from './points';
+import { RANK_MIN_POOL } from './rank';
 
 /**
  * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
@@ -32,16 +33,18 @@ const rankDelta = (before: number, now: number) => (before === now ? 'same' : no
 /**
  * "Last week you finished at Shipping 72 (+6), #3 (up 2)." (no week before it: "Last week you finished at Shipping
  * 72, #3."), then the week's titles on one line ("Add dark mode · Fix the login loop"), at most 2, then the new
- * week's line (weekly-target.ts weekStartLine), when there is one. Pure.
+ * week's line (weekly-target.ts weekStartLine), when there is one. v3.1 F3: under RANK_MIN_POOL ranked builders that
+ * week, no rank part ("Last week you finished at Shipping 72 (+6)."). Pure.
  */
 export const MOMENT_TITLES_MAX = 2;
 /** Weekly updates: the builder's optional note under the week's summary (tell update { text }). */
 export const NOTE_LINE = 'Send a line about your week and it goes under your update.';
 export function momentLines(w: Omit<LastWeek, 'approved'>, weekStart: string | null = null): string[] {
   const { now, before } = w;
-  const head = before
-    ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
-    : `Last week you finished at Shipping ${now.score}, #${now.rank}.`;
+  const ranked = now.total >= RANK_MIN_POOL;
+  const score = `Shipping ${now.score}${before ? ` (${scoreDelta(now.score - before.score)})` : ''}`;
+  const rank = ranked ? `, #${now.rank}${before ? ` (${rankDelta(before.rank, now.rank)})` : ''}` : '';
+  const head = `Last week you finished at ${score}${rank}.`;
   const titles = w.titles.slice(0, MOMENT_TITLES_MAX);
   return [head, ...(titles.length > 0 ? [titles.join(' · '), NOTE_LINE] : []), ...(weekStart ? [weekStart] : [])];
 }
@@ -59,9 +62,11 @@ export function momentReady(checked: boolean, now: Date): boolean {
 const LINKISH = /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?:^|[^\p{L}\p{N}@._-])(?:[\p{L}\p{N}-]+\.)+(?:com|net|org|io|dev|app|ai|xyz|co|me|sh|gg|so|fun|site|link|info|tech|cloud|page|ly|to|tv|us|uk|de|eth)\b/iu;
 export const titleHasLink = (t: string) => LINKISH.test(t);
 
-/** The post's text: "My week on EarnKit: Shipping 72 · #3 of 40 builders". Pure. */
+/** The post's text: "My week on EarnKit: Shipping 72 · #3 of 40 builders"; "My week on EarnKit: Shipping 72" under RANK_MIN_POOL (v3.1 F3). Pure. */
 export const shareText = (w: WeekStanding) =>
-  `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} ${w.total === 1 ? 'builder' : 'builders'}`;
+  w.total < RANK_MIN_POOL
+    ? `My week on EarnKit: Shipping ${w.score}`
+    : `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} builders`;
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =

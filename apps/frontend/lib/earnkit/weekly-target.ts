@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { benchPool } from './person-score';
+import { RANK_MIN_POOL } from './rank';
 import { weekGains, type WeekGains } from './score-v2';
 
 /**
@@ -57,20 +58,22 @@ export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page' = 'reply'): st
 }
 
 /**
- * The person's place in the leaderboard's pool and the builder just above (the lowest score above theirs: its score and rank). Null rank: not in the pool (held, hidden, not claimed). Throws on a database error.
+ * The person's place in the leaderboard's pool and the builder just above (the lowest score above theirs: its score and rank), and
+ * the pool's size (`total`, the person included). Null rank: not in the pool (held, hidden, not claimed). Throws on a database error.
  */
-export async function poolPlace(builderId: number, o: { only?: number[] } = {}): Promise<{ score: number; rank: number | null; above: Above | null }> {
+export async function poolPlace(builderId: number, o: { only?: number[] } = {}): Promise<{ score: number; rank: number | null; above: Above | null; total: number }> {
   const db = sql();
   const [me] = await db<{ score: number }[]>`SELECT x.score::int AS score FROM ${benchPool(o.only)} x WHERE x.builder_id = ${builderId}`;
-  if (!me) return { score: 0, rank: null, above: null };
-  const [r] = await db<{ rank: number; above_score: number | null; above_rank: number | null }[]>`
+  if (!me) return { score: 0, rank: null, above: null, total: 0 };
+  const [r] = await db<{ rank: number; above_score: number | null; above_rank: number | null; total: number }[]>`
     WITH pool AS (SELECT x.builder_id, x.score::int AS score FROM ${benchPool(o.only)} x WHERE x.builder_id <> ${builderId}),
     up AS (SELECT min(score) AS score FROM pool WHERE score > ${me.score})
     SELECT (1 + (SELECT count(*) FROM pool WHERE score > ${me.score}))::int AS rank,
-      up.score AS above_score, (1 + (SELECT count(*) FROM pool WHERE score > up.score))::int AS above_rank
+      up.score AS above_score, (1 + (SELECT count(*) FROM pool WHERE score > up.score))::int AS above_rank,
+      (1 + (SELECT count(*) FROM pool))::int AS total
     FROM up`;
   const above = r.above_score === null ? null : { rank: r.above_rank!, score: r.above_score };
-  return { score: me.score, rank: r.rank, above };
+  return { score: me.score, rank: r.rank, above, total: r.total };
 }
 
 /**
@@ -91,13 +94,15 @@ export function weekStartLine(t: TargetIn): string | null {
 
 /**
  * The weekly target's inputs for a ranked builder (`parts`: builder_live.parts), or null when Shipping's raw is
- * missing or the pool read failed. Never throws.
+ * missing or the pool read failed. v3.1 R14: under RANK_MIN_POOL ranked builders no rank is named (rank and above
+ * null: "Ship code this week: +14 points."). Never throws.
  */
 export async function targetIn(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<TargetIn | null> {
   const gains = weekGains(parts, now);
   if (!gains) return null;
   try {
-    return { gains, ...(await poolPlace(builderId, o)) };
+    const { total, ...place } = await poolPlace(builderId, o);
+    return { gains, ...place, ...(total < RANK_MIN_POOL && { rank: null, above: null }) };
   } catch (err) {
     console.error('[target] place', err instanceof Error ? err.name : 'error');
     return null;

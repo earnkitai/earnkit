@@ -152,6 +152,8 @@ export type ProfileData = {
    */
   earned: { paid_usd: number; waiting_usd: number };
   bench: string | null;
+  /** v3.1 F3: in the leaderboard's pool (bench-rank RankLines.listed), so a ranked page even while `bench` is null (under RANK_MIN_POOL). */
+  rankListed: boolean;
   /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders"), null while unranked. */
   line: string | null;
   chainLines: { chain: BenchChain; label: string; line: string }[];
@@ -289,7 +291,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const backers = pill ? await backersOfCoin(pill.coin) : 0;
   const [live] = await db<{ score: number; parts: unknown }[]>`
     SELECT score::float8 AS score, parts FROM builder_live WHERE builder_id = ${builderId}`;
-  const scored = lines.bench !== null && live;
+  // v3.1 F3: the score shows on a ranked page, with or without the rank phrase.
+  const scored = lines.listed && live;
   const base = {
     handle: p.x_handle,
     name: displayName(p.x_name, p.x_handle),
@@ -298,6 +301,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
     earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },
     bench: lines.bench,
+    rankListed: lines.listed,
     line: lines.line,
     chainLines: lines.chains,
     // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).

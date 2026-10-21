@@ -108,6 +108,8 @@ test('L6.2 the share link: an X intent URL whose text is the builder\'s own scor
   assert.ok(!/\s/.test(link), 'no raw spaces');
   assert.equal(link.match(/https:\/\//g)?.length, 1, 'the profile URL is encoded inside it: one https link');
   assert.ok(link.includes('%C2%B7'), 'the middle dot is encoded');
-  assert.equal(shareText({ score: 90, rank: 1, total: 1 }), 'My week on EarnKit: Shipping 90 · #1 of 1 builder');
+  // v3.1 F3: under RANK_MIN_POOL ranked builders, the score alone.
+  assert.equal(shareText({ score: 90, rank: 1, total: 1 }), 'My week on EarnKit: Shipping 90');
+  assert.equal(shareText({ score: 90, rank: 1, total: 10 }), 'My week on EarnKit: Shipping 90 · #1 of 10 builders');
   assert.equal(shareText({ score: 40, rank: 1204, total: 3500 }), 'My week on EarnKit: Shipping 40 · #1,204 of 3,500 builders');
 });

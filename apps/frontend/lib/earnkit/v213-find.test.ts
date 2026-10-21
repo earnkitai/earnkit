@@ -15,6 +15,7 @@ import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, p
 import type { Starter } from './starters';
 import { NOT_ON_BENCH } from './bench-reply';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
@@ -69,6 +70,8 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
 
 test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3: no updates yes and no weekly task', dbTest, () =>
   benchOn(async () => {
+    // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+    await padPool(9);
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });

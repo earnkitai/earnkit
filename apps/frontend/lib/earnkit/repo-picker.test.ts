@@ -11,6 +11,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { mainProjectOf } from './main-project';
 import { backfillMondays } from './week-facts';
 import { attachToX } from './x-install';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * Launch ready L2: the repo picker on install. A signed-in builder with no project is offered the read-only App
@@ -105,6 +106,8 @@ test('L2.2 S7: the picker\'s confirm page names the page every repo goes to; no 
 });
 
 test('L2.3 two picked repos: both proven, the most recently pushed is the one project, read, ranked and backfilled', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const p = await signedIn('cat');
   const older = `${p.login}/older`;
   const newer = `${p.login}/newer`;

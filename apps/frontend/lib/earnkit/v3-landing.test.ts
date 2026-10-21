@@ -201,9 +201,10 @@ test('(d) featured: a listed ranked builder with the log; null when hidden, held
   assert.ok(on.featured, 'featured');
   assert.equal(on.featured.f.handle, handle);
   assert.equal(on.featured.f.name, 'Jenil Thakker');
-  assert.match(on.featured.f.bench ?? '', /^Shipping 72 · #\d/);
+  // v3.1 F3: a pool under RANK_MIN_POOL: the score line alone and no rank (the card shows Shipping and Earned).
+  assert.equal(on.featured.f.bench, 'Shipping 72');
   assert.equal(on.featured.points, 72);
-  assert.match(on.featured.rank ?? '', /^#\d/);
+  assert.equal(on.featured.rank, null);
   assert.deepEqual(on.featured.log.map((l) => l.week), ['2026-10-12', '2026-10-05']);
   assert.equal(on.featured.log[0].summary, 'Shipped week 0 of the site.');
   assert.equal(on.featured.earned, null, 'nothing earned: null, never 0');

@@ -26,6 +26,7 @@ import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import BenchProfileView, { confirmingCardLine } from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * Scoring and clarity, Task 3: the leaderboard (R9, R17), rank wording (R6), one status line and one
@@ -184,7 +185,11 @@ test('Final follow-ups 2: "#N of M" counts the leaderboard\'s own pool (a ranked
   assert.deepEqual([board.count, board.rows.map((r) => r.handle)], [1, [`one${RUN}`.slice(0, 15)]]);
   const s = await standingOf(a.id, { only });
   assert.deepEqual([s.rank, s.total], [1, board.count], 'the profile and reply rank matches the leaderboard header');
-  assert.equal((await rankLines(a.id, { only })).bench, '#1 of 1 builder');
+  // v3.1 F3: one on the leaderboard, under RANK_MIN_POOL: the score line alone.
+  const lines = await rankLines(a.id, { only });
+  assert.deepEqual([lines.bench, lines.line, lines.listed], [null, 'Shipping 72', true]);
+  const pads = await padPool(9);
+  assert.equal((await rankLines(a.id, { only: [...only, ...pads] })).bench, '#1 of 10 builders');
 });
 
 // ---- R10: one status line, one next step, never a rank beside "not counted" ----------------------
@@ -208,14 +213,16 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
 
 test('R10: ranked, the move-up news shows with the rank; once the project is not counted (a stale ranked row) no rank, no news, anywhere', db, async () => {
   const a = await rankedBuilder('nws', 'Newsy', 'newsy', 7102);
+  // v3.1 F3: the news names a rank only from RANK_MIN_POOL ranked builders.
+  await padPool(9);
   const seen = (rank: number) => sql()`
     UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('rank', ${rank}::int, 'at', '2026-01-01T00:00:00Z'::text) WHERE builder_id = ${a.id}`;
   // Ranked: the news and the rank agree.
   await seen(5);
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
-  assert.match(r1, /Since you last checked: You moved up to #[1-4] of \d+ builders?\./, r1);
-  assert.match(r1, /Newsy: Shipping \d+ · #[1-4] of \d+ builders?\./);
+  assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
+  assert.match(r1, /Newsy: Shipping \d+ · (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).

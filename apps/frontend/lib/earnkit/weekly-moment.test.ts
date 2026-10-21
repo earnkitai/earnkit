@@ -60,6 +60,16 @@ async function history(id: number, day: string, score: number) {
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${id}, ${day}, ${score}, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
 }
+/**
+ * v3.1 F3: `n` ranked builders below everyone here (one old week of code; a ranked day at 1 on each of `days`), so the
+ * pool reaches RANK_MIN_POOL and the ranks under test show.
+ */
+async function pad(tag: string, n: number, days: string[] = []) {
+  for (let i = 0; i < n; i++) {
+    const b = await builder(`${tag}${i}`, `Pad ${i}`, [11]);
+    for (const d of days) await history(b.id, d, 1);
+  }
+}
 const plusDays = (monday: string, n: number) => new Date(Date.parse(`${monday}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 
 test('L5.4 through find and score: a ranked builder mid-week gets the weekly target as the one next step (ranks only); after shipping, done this week', db, async () => {
@@ -69,9 +79,10 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const ana = await builder('wtana', HOSTILE, [1, 2, 3, 4]);
   const me = await builder('wtme', 'Maya', [1, 2, 3]);
   await builder('wtbo', 'Bo', [3]);
+  await pad('wtpa', 7);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.match(s, /^App: Shipping 35 · #2 of 3 builders\.$/m, s);
+  assert.match(s, /^App: Shipping 35 · #2 of 10 builders\.$/m, s);
   assert.match(s, /^Code in 3 of the last 12 weeks, 3 of the last 4\.$/m, 'the why: the weeks with code, no step of its own');
   assert.ok(s.endsWith('How to move up\nShip code this week: +13 points, enough to pass #1.'), s);
   assert.equal(links(s).length, 1, s);
@@ -103,6 +114,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
 test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   await freshBoard();
   const top = await builder('wttop', 'Top', [1, 2]);
+  await pad('wtpb', 9);
   const t = show(await mcpCall(ctx(top.id), 'find', {}));
   assert.ok(t.endsWith('How to move up\nShip code this week: +14 points to hold #1.'), t);
   await builder('wttie', 'Tie', [1, 2]);
@@ -128,6 +140,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   await history(bo.id, sunday, 40);
   await history(me.id, plusDays(monday, 3), 47);
   await history(me.id, sunday, 50);
+  await pad('wmpa', 7, [before, sunday]);
   // Last week's ship log, on a repo that reads public, its row keyed in another case; a title naming a host is dropped.
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) SELECT id, '{"private": false}'::jsonb, true, now() FROM builder_sources WHERE builder_id = ${me.id}`;
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
@@ -150,7 +163,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   assert.doesNotMatch(s, /Ship code this week/, 'the share offer replaces the target for this one reply');
   const u = new URL(share[0]);
   assert.equal(`${u.origin}${u.pathname}`, 'https://x.com/intent/post');
-  assert.equal(u.searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #2 of 3 builders');
+  assert.equal(u.searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #2 of 10 builders');
   assert.equal(u.searchParams.get('url'), `https://earnkit.com/${me.handle}`);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
@@ -190,6 +203,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const monday = lastFinishedMonday(new Date());
   const me = await builder('wmsc', 'Sam', [1, 2]);
   await history(me.id, plusDays(monday, 6), 30);
+  await pad('wmpb', 9, [plusDays(monday, 6)]);
   // A private repo (no public reading) with titles stored: the moment shows facts only.
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
@@ -231,6 +245,7 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
   const me = await builder('wtsec', 'Me', [1, 2]);
   await history(above.id, plusDays(monday, 6), 70);
   await history(me.id, plusDays(monday, 6), 40);
+  await pad('wtpc', 8, [plusDays(monday, 6)]);
   const replies: string[] = [];
   for (const tool of ['find', 'score', 'find'] as const) {
     const r = await mcpCall(ctx(me.id), tool, {});
@@ -253,6 +268,7 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     assert.equal(monday, '2026-09-28');
     const me = await builder('wmmon', 'Mo', [1, 2]);
     await history(me.id, plusDays(monday, 6), 30);
+    await pad('wmpc', 9, [plusDays(monday, 6)]);
     const early = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.doesNotMatch(early, /Last week|Share your week/, early);
     assert.match(early, /How to move up\nShip code this week: \+14 points to hold #1\.$/, early);

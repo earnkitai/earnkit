@@ -90,10 +90,10 @@ function Dash({ caption }: { caption: string }) {
  * v3 Stage 3 (spec 5.6, 5.8): the three numbers: the Shipping ring (96px, the number inside), the rank (R16c: the
  * score line to screen readers; "#3" or "Top 4%" large, its words under) and Earned (v3 Stage 2: money that reached
  * the builder, "$0" when nothing yet, "and $X waiting" under it). A number not there yet is a dash; Earned's figure
- * only while ranked.
+ * only while ranked. v3.1 R16: a ranked page under RANK_MIN_POOL shows the dash for Rank (bench null, rankListed).
  */
 function Numbers({ d }: { d: ProfileData }) {
-  const ranked = d.bench !== null;
+  const ranked = d.rankListed;
   const rank = d.bench ? rankSplit(d.bench) : null;
   return (
     <ul data-ek-numbers="" className={NUMBERS}>
@@ -255,7 +255,7 @@ export default function BenchProfileView({
           // R10: never a rank while the project isn't counted yet (rankLines is empty then too); nor a stale line.
           <>
             <p className={LEDE}>{confirming ? confirmingCardLine(d.name, d.project!.name) : noProjectLine(d.name)}</p>
-            <Numbers d={{ ...d, bench: null, line: null, score: null, chainLines: [] }} />
+            <Numbers d={{ ...d, bench: null, rankListed: false, line: null, score: null, chainLines: [] }} />
           </>
         ) : (
           <>
