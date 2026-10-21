@@ -1739,3 +1739,6 @@ BEGIN
     ALTER TABLE creator_fees ADD CONSTRAINT creator_fees_pkey PRIMARY KEY (tx_hash, log_index, coin);
   END IF;
 END $$;
+
+-- v3.1: whether a repo carries Base Builder Codes (ERC-8021), read through the read-only App, once a day.
+CREATE TABLE IF NOT EXISTS repo_builder_codes (repo_key text PRIMARY KEY, found boolean NOT NULL, checked_at timestamptz NOT NULL);

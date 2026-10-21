@@ -47,6 +47,8 @@ import { CONNECT_DONE, CONNECT_HEAD, CONNECT_NOTE, CONNECT_RETRY, answerConnect,
 import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
+import { BASE_GRANTS_ID } from './builder-code';
+import { builderCodesKnown, builderCodesWords, checkBuilderCodes } from './builder-codes-check';
 export { displayName };
 
 /**
@@ -367,6 +369,22 @@ type ViewIn = {
   deadline?: number;
 };
 
+/** v3.1 Task 7: the repos a Builder Codes check is running for in this process (one at a time per repo). */
+const codesRunning = new Set<string>();
+/**
+ * v3.1 Task 7: the Builder Codes sentence from the stored answer (null when unknown). A missing or day-old answer
+ * starts a check in the background (never awaited) for the next reply.
+ */
+async function codesFor(id: number, key: string, now: Date): Promise<string | null> {
+  const known = await builderCodesKnown(key, now);
+  const k = key.toLowerCase();
+  if (!known?.fresh && !codesRunning.has(k)) {
+    codesRunning.add(k);
+    void checkBuilderCodes(id, k, now).finally(() => codesRunning.delete(k));
+  }
+  return builderCodesWords(k, known?.found ?? null);
+}
+
 /** v3 Stage 2 review: the backing offer (its tokens.fun ticker check) never holds a reply long; it gets at least this. */
 export const BACKING_WAIT_MIN_MS = 1_000;
 /**
@@ -437,8 +455,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const open = ranked && project && !taken && !held
     ? applyCandidates((await openCandidates(id, o.applies ?? o.fits.slice(0, 3))) ?? [], read.seen, o.skip, now)
     : [];
+  // v3.1 Task 7: Base Builder Grants' Best fit says whether the repo carries Builder Codes (the stored answer).
+  const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now) : null;
   const best: BestFit | null = open[0]
-    ? { program_id: open[0].program_id, title: open[0].title, prize: open[0].prize, when: open[0].when, why: open[0].why, codes: null }
+    ? { program_id: open[0].program_id, title: open[0].title, prize: open[0].prize, when: open[0].when, why: open[0].why, codes }
     : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) backing and the weekly moment.
   const apply = !connect && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
