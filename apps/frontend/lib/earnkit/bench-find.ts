@@ -10,7 +10,7 @@ import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, offerCoin, openCoinLine } from './coin-moments';
+import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, openCoinLine } from './coin-moments';
 import { UPDATE_LINES } from './updates';
 import { pillCoin, raisingCoin, showRaisingLine } from './raising';
 import { backersOfCoin } from './backers';
@@ -217,8 +217,9 @@ export const RAISE_NOTE = "A yes to the last line: call tell with coin: { raisin
 /**
  * R8: the coin and backing offer, only when the builder asks about a token (tell token: 'ask'),
  * never in find's or score's default reply (v3 Stage 2: save backing's own moment, backingOffer). For the confirmed
- * one project: a launched coin not shown as backing yet: that line (EARNKIT_RAISING on); a coin out or launching: says so; an offer made and
- * not answered: the same line again; else a new offer (coin-moments.ts offerCoin, the coin named and the
+ * one project: a launched coin not shown as backing yet: that line (EARNKIT_RAISING on); a coin out or launching: says so;
+ * EARNKIT_RAISING off: not available (confirm is only registered while it is on, v3.1 final fix 1); an offer made and
+ * not answered: the same line again; else Backing's offer (coin-moments.ts backingOffer, the coin named and the
  * wallet shown). The yes goes to tell coin as with any coin offer, then confirm { project_id }. Never throws
  * on its own reads (a failed read is "not available").
  */
@@ -237,13 +238,12 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
     return { show_to_builder: coin.status === 'launched' ? COIN_LIVE : COIN_LAUNCHING };
   }
   if (row.has_coin) return { show_to_builder: tokenHasCoin(name) };
-  if (backingExcluded(row.key)) return { show_to_builder: tokenUnavailable(name) };
+  // v3.1 final fix 1 (D1): the coin is out of default flows; with EARNKIT_RAISING off confirm isn't registered, so no offer.
+  if (!raisingEnabled() || backingExcluded(row.key)) return { show_to_builder: tokenUnavailable(name) };
   const again = (await coinOpen(id, row.key).catch(() => false)) ? await openCoinLine(id, row.key, deps).catch(logged('token again')) : null;
   // v3 Stage 2 review: under EARNKIT_RAISING the offer is backing's own, once a project, only after the first approved week with code.
-  if (!again && raisingEnabled() && !(await approvedCodeWeek(id, row.key).catch(() => false))) return { show_to_builder: BACKING_NOT_YET };
-  const offer = again ?? (raisingEnabled()
-    ? await backingOffer(id, row.key, deps).catch(logged('token backing'))
-    : await offerCoin(id, row.key, 'countable', deps).catch(logged('token offer')));
+  if (!again && !(await approvedCodeWeek(id, row.key).catch(() => false))) return { show_to_builder: BACKING_NOT_YET };
+  const offer = again ?? await backingOffer(id, row.key, deps).catch(logged('token backing'));
   if (!offer) return { show_to_builder: tokenUnavailable(name) };
   return { show_to_builder: offer.line, coin: { project_key: row.key }, agent_note: COIN_NOTE };
 }

@@ -272,7 +272,7 @@ test('10.6 tell coin reaches the coin answer through the MCP schema', dbTest, as
   assert.equal(m.answer, 'no', 'the answer arrived (stripped, nothing would change)');
 });
 
-test('10.7 R8: find never offers a coin (the step is to ship); asked about a token (tell token), the coin line with the wallet, once offered, shown again while open', dbTest, async () => {
+test('10.7 R8: find never offers a coin (the step is to ship); asked about a token (tell token) with EARNKIT_RAISING off, not available and nothing offered (v3.1 final fix 1)', dbTest, async () => {
   const id = await person([{ key: 'lee/notes', name: 'Notes', people: 7 }]);
   const W = '0x' + randomBytes(20).toString('hex');
   await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${W})`;
@@ -281,14 +281,15 @@ test('10.7 R8: find never offers a coin (the step is to ship); asked about a tok
   assert.doesNotMatch(r.show_to_builder, /coin|token|community round/i);
   assert.equal(r.move_up?.kind, 'ship');
   const { tools } = await import('./tools');
+  // Confirm is only registered with EARNKIT_RAISING on, so off no coin is offered (the on path, the backing line shown
+  // again while open, is v3-backing.test.ts (h); through MCP, v31-mcp-surface.test.ts (j)).
+  const { tokenUnavailable } = await import('./bench-find');
   const asked = (await tools.tell({ token: 'ask' }, { installationId: id, tokenDeps: { check: async () => true } } as never)) as { show_to_builder: string; coin?: { project_key: string }; agent_note?: string };
-  assert.match(asked.show_to_builder, new RegExp(`^A coin pays you 40% of its trading fees, paid to ${W.slice(0, 6)}…${W.slice(-4)}\\. Want to launch a coin, \\$[A-Z0-9]+ \\([^)]+\\), for Notes\\?$`), asked.show_to_builder);
-  assert.deepEqual(asked.coin, { project_key: 'lee/notes' });
-  assert.match(String(asked.agent_note), /tell with coin/);
-  const again = (await tools.tell({ token: 'ask' }, { installationId: id, tokenDeps: { check: async () => true } } as never)) as { show_to_builder: string };
-  assert.equal(again.show_to_builder, asked.show_to_builder, 'asked again while open: the same coin and wallet');
+  assert.equal(asked.show_to_builder, tokenUnavailable('Notes'));
+  assert.equal(asked.coin, undefined);
   const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'coin_offered' AND installation_id = ${id}`;
-  assert.equal(n, 1);
+  assert.equal(n, 0);
+  assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0, 'no moment used up');
   // The next find still never offers it.
   assert.doesNotMatch((await find(id)).show_to_builder, /coin/i);
 });

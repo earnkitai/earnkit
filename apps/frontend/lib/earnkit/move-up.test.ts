@@ -141,7 +141,7 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
 
-test('R8: asking about a token (tell token: \'ask\', through the MCP schema) returns the offer; find and score never do', db, async () => {
+test('R8: asking about a token (tell token: \'ask\', through the MCP schema) with EARNKIT_RAISING off is not available (v3.1 final fix 1); find and score never offer one', db, async () => {
   await syncPrograms();
   const a = await rankedBuilder('tka', 'Tokenkit', 7202);
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${a.id} AND kind = 'repo'`;
@@ -151,15 +151,13 @@ test('R8: asking about a token (tell token: \'ask\', through the MCP schema) ret
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   try {
     const ctx = { ...a.ctx, tokenDeps: { check: async () => true } };
+    // v3.1 final fix 1: launches on but EARNKIT_RAISING off: confirm isn't registered, so no coin is offered (the
+    // flag-on offer, yes and confirm are v31-mcp-surface (j)).
     const asked = (await mcpCall(ctx, 'tell', { token: 'ask' })).reply!;
-    assert.match(String(asked.show_to_builder), /^A coin pays you 40% of its trading fees\. Want to launch a coin, \$TOKENKIT \(Tokenkit\), for Tokenkit\?$/, JSON.stringify(asked));
-    assert.deepEqual(asked.coin, { project_key: a.key });
-    assert.match(String(asked.agent_note), /tell with coin/);
-    // The default paths stay clean even with an open offer.
+    assert.equal(asked.show_to_builder, tokenUnavailable('Tokenkit'), JSON.stringify(asked));
+    assert.equal(asked.coin, undefined);
+    assert.doesNotMatch(String(asked.agent_note ?? ''), /tell with coin|confirm/);
     for (const tool of ['find', 'score'] as const) assert.doesNotMatch(String((await mcpCall(a.ctx, tool, {})).reply?.show_to_builder), COIN_WORDS, tool);
-    // The existing token path keeps working: the yes to the offer, then confirm { project_id }.
-    const yes = (await mcpCall(ctx, 'tell', { coin: { project_key: a.key, answer: 'yes', wallet: `0x${'e'.repeat(40)}` } })).reply!;
-    assert.equal(typeof yes.project_id, 'number', JSON.stringify(yes));
   } finally {
     delete process.env.TOKENSFUN_DEPLOY_API_KEY;
   }

@@ -592,3 +592,15 @@ test('9.7 (Review Focus 2) the route: an old get_program call returns what find 
   assert.deepEqual(logs.filter((l) => l.startsWith('[mcp] alias')), ['[mcp] alias get_program -> find']);
   for (const l of logs) assert.ok(!l.includes(program.id), l);
 });
+
+test('v3.1 final fix 2: the server version moves with the v3.1 tool list (3.1.0)', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  try {
+    assert.deepEqual(client.getServerVersion(), { name: 'earnkit', version: '3.1.0' });
+  } finally {
+    await client.close();
+  }
+});

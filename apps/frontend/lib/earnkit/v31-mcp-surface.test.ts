@@ -18,6 +18,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { CONFIRM_BACKING_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, toolDescriptions } from './mcp';
 import { CONFIRM_ENTRY_GONE, tools } from './tools';
+import { tokenUnavailable } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import type { TokenFlowDeps } from './token-launch';
@@ -268,6 +269,37 @@ test('(i) fix round 1: /llms.txt describes the draft flow; confirm (Backing only
     assert.match(text, /prepare drafts the application/);
     assert.match(text, /tell program_status applied/);
     assert.doesNotMatch(text, /confirm line|One "yes" at the confirmation|skip_token|submit kit|launches its token/);
+    // Final fix 3: prepare's draft path returns no guide, so the text never says it shows one.
+    assert.doesNotMatch(text, /prepare shows it/);
     assert.doesNotMatch(text, /—/);
   }
+});
+
+test('(j) final fix 1: tell token ask with EARNKIT_RAISING off offers no coin (no confirm to call); on, the Backing yes reaches confirm and launches', db, async () => {
+  // Off: not available, no coin, no note pointing at a tool that isn't registered, nothing recorded.
+  await withEnv({ ...OFF, TOKENSFUN_DEPLOY_API_KEY: 'v31-surface-key' }, async () => {
+    const b = await ranked('jo');
+    const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(show(r), tokenUnavailable('Kit'), r.text);
+    assert.equal(r.reply?.coin, undefined, r.text);
+    assert.doesNotMatch(r.text, /confirm|tell with coin/, r.text);
+    const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM coin_moments WHERE builder_id = ${b.id}`;
+    assert.equal(c, 0, 'no offer recorded');
+    assert.ok(!(await mcpListTools({ installationId: b.id })).some((t) => t.name === 'confirm'));
+  });
+  // On: the offer, the yes, confirm { project_id } launches through the fake deploy.
+  await withEnv(ON, async () => {
+    const b = await ranked('jn');
+    const asked = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+    assert.deepEqual(asked.reply?.coin, { project_key: b.key }, asked.text);
+    const yes = await mcpCall(b.ctx, 'tell', { coin: { project_key: b.key, answer: 'yes', wallet: b.wallet } });
+    assert.equal(yes.reply?.agent_note, COIN_YES_NOTE, yes.text);
+    const { project_id, wallet, token } = yes.reply as { project_id: number; wallet: string; token: { name: string; symbol: string } };
+    assert.ok((await mcpListTools({ installationId: b.id })).some((t) => t.name === 'confirm'));
+    const launched = await mcpCall(b.ctx, 'confirm', { project_id, yes: true, wallet, token });
+    assert.equal(launched.isError, false, launched.text);
+    assert.equal(launched.reply?.status, 'launched', launched.text);
+    assert.equal(b.calls.deploy, 1);
+  });
 });
