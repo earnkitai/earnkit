@@ -103,6 +103,8 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   const s = show(f);
   assert.ok(s.endsWith(`How to move up\n${applyAsk(p.title, p.when)}`), s);
   assert.match(s, new RegExp(`${p.title}: up to \\$5K, closes ${p.when}\\.`), 'still a fit line');
+  // v3.1 spec 3.2: the asked program leads as the Best fit (a dated fit within 30 days wins over the 45-day one).
+  assert.ok(s.startsWith(`Best fit: ${p.title}, up to $5K, closes ${p.when}. `), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);

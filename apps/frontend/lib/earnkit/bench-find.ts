@@ -34,7 +34,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, benchReply, benchStepKey, rankedState, replyState, stateAsk,
-  type ApplyPick, type BenchAskKind, type BenchProject, type BenchView, type FundLine, type Variant,
+  type ApplyPick, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type FundLine, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { scoreWhy, storedShipping } from './score-v2';
@@ -318,7 +318,7 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
 export const UPCOMING_STREAK = 4;
 
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
-type Fit = {
+export type Fit = {
   program_id: string; repo?: string; title: string; prize: string; when: string; why: string;
   /** v3 Stage 2: the deadline (ISO), null when rolling. */
   ends_at: string | null;
@@ -432,10 +432,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   const target = aim ? weeklyTarget(aim) : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now) : null;
-  // v3 Stage 2 (spec 5.3): a fit closing within APPLY_WINDOW_DAYS, once a program, before (and in place of) the weekly moment.
-  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
-  const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
-  const apply = ranked && project && !taken && !held && !connect && !backing ? await applyPick(id, read.seen, o.applies ?? o.fits.slice(0, 3), o.skip, now) : null;
+  // v3.1 (spec 3.2): the apply candidates: a fit closing within APPLY_WINDOW_DAYS (deadline order), else the rolling fits
+  // (byRelevance), none the builder told EarnKit about. The first is the Best fit, the reply's lead.
+  const open = ranked && project && !taken && !held
+    ? applyCandidates((await openCandidates(id, o.applies ?? o.fits.slice(0, 3))) ?? [], read.seen, o.skip, now)
+    : [];
+  const best: BestFit | null = open[0]
+    ? { program_id: open[0].program_id, title: open[0].title, prize: open[0].prize, when: open[0].when, why: open[0].why, codes: null }
+    : null;
+  // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) backing and the weekly moment.
+  const apply = !connect && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on);
+  // an apply ask shown holds it (unclaimed) for a later reply.
+  const backing = ranked && project && handle && !held && !connect && !apply ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, aim, now) : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? (moment?.share ?? null) : install;
@@ -492,7 +501,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, score: read.score, why: scoreWhy(read.parts, now), originality: read.originality,
-    earned: earned?.paid_usd ?? 0, target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held,
+    earned: earned?.paid_usd ?? 0, target, share: moment?.share ?? null, handle, link, fund, due: o.due, ask: finalAsk, held, best,
   };
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
@@ -506,26 +515,41 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 }
 
 /**
- * v3 Stage 2 (spec 5.3): the program the apply step offers: the first fit (deadline order) closing within
- * APPLY_WINDOW_DAYS that isn't entered or hidden (`skip`), that the builder never told EarnKit about (builder_program_status,
- * any status), not declined in the last 30 days (standing_seen.declined, keyed by program) and never asked before
- * (standing_seen.apply_asked, set here in one guarded UPDATE: asked once a program). Null otherwise. Never throws.
+ * v3 Stage 2 (spec 5.3), v3.1 (spec 3.2): the programs the apply step may offer, in the order offered: those not entered
+ * or hidden (`skip`) nor declined in the last DECLINE_MS (standing_seen.declined, keyed by program); the dated ones
+ * closing within APPLY_WINDOW_DAYS whose line says "closes <day>", deadline order (present.ts byDeadline); with none,
+ * the rolling ones (no deadline), the program list's order (present.ts byRelevance). Pure.
  */
-async function applyPick(id: number, seen: Seen, fits: Fit[], skip: Set<string>, now: Date): Promise<(ApplyPick & { repo?: string }) | null> {
+export function applyCandidates(fits: Fit[], seen: Seen, skip: Set<string>, now: Date): Fit[] {
   const t = now.getTime();
-  const soon = fits.filter((f) => {
-    const end = f.ends_at ? Date.parse(f.ends_at) : NaN;
+  const ok = fits.filter((f) => {
     const no = seen.declined?.[benchStepKey('apply', f.program_id)];
-    // The ask names the day it closes, so only a fit whose line says "closes <day>" (never "rolling").
-    return end > t && end - t <= APPLY_WINDOW_DAYS * 86_400_000 && f.when.startsWith('closes ') && !skip.has(f.program_id) && !seen.apply_asked?.[f.program_id]
-      && !(no && t - Date.parse(no) < DECLINE_MS);
+    return !skip.has(f.program_id) && !(no && t - Date.parse(no) < DECLINE_MS);
   });
-  if (soon.length === 0) return null;
+  const soon = ok.filter((f) => {
+    const end = f.ends_at ? Date.parse(f.ends_at) : NaN;
+    return end > t && end - t <= APPLY_WINDOW_DAYS * 86_400_000 && f.when.startsWith('closes ');
+  });
+  if (soon.length > 0) return soon.sort((a, b) => byDeadline(a.card, b.card));
+  return ok.filter((f) => f.ends_at === null).sort((a, b) => byRelevance(a.card, b.card));
+}
+
+/** v3 Stage 2: the fits the builder never told EarnKit about (builder_program_status, any status). Null on a read error. Never throws. */
+async function openCandidates(id: number, fits: Fit[]): Promise<Fit[] | null> {
+  if (fits.length === 0) return [];
   const told = await sql()<{ program_id: string }[]>`
-    SELECT program_id FROM builder_program_status WHERE installation_id = ${id} AND program_id = ANY(${soon.map((f) => f.program_id)}::text[])`.catch(logged('apply told'));
+    SELECT program_id FROM builder_program_status WHERE installation_id = ${id} AND program_id = ANY(${fits.map((f) => f.program_id)}::text[])`.catch(logged('apply told'));
   if (!told) return null;
   const known = new Set(told.map((r) => r.program_id));
-  const pick = soon.find((f) => !known.has(f.program_id));
+  return fits.filter((f) => !known.has(f.program_id));
+}
+
+/**
+ * v3 Stage 2: the apply ask: the first of `open` never asked before (standing_seen.apply_asked, set here in one guarded
+ * UPDATE: asked once a program). `when`: the deadline's day ("Nov 18"), null when rolling. Null otherwise. Never throws.
+ */
+async function claimApply(id: number, seen: Seen, open: Fit[], now: Date): Promise<(ApplyPick & { repo?: string }) | null> {
+  const pick = open.find((f) => !seen.apply_asked?.[f.program_id]);
   if (!pick) return null;
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_asked}',
@@ -535,7 +559,7 @@ async function applyPick(id: number, seen: Seen, fits: Fit[], skip: Set<string>,
     return [];
   });
   if (!taken) return null;
-  return { program_id: pick.program_id, title: pick.title, when: pick.when.replace(/^closes /, ''), ...(pick.repo && { repo: pick.repo }) };
+  return { program_id: pick.program_id, title: pick.title, when: pick.ends_at ? pick.when.replace(/^closes /, '') : null, ...(pick.repo && { repo: pick.repo }) };
 }
 
 /**

@@ -60,7 +60,7 @@ let n = 0;
 
 type B = { ctx: Parameters<typeof mcpCall>[0]; id: number; key: string; handle: string };
 /** A ranked builder (signed in with X, the repo proven by the App and read public), with a proven wallet. */
-async function builder(tag: string, o: { key?: string; week?: boolean; private?: boolean } = {}): Promise<B> {
+async function builder(tag: string, o: { key?: string; week?: boolean; private?: boolean; programs?: string[] } = {}): Promise<B> {
   n++;
   const t = `ek_v3b_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -74,7 +74,8 @@ async function builder(tag: string, o: { key?: string; week?: boolean; private?:
   const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
   const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
   const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
-  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true, verdicts: [] }];
+  const verdicts = (o.programs ?? []).map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }));
+  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true, verdicts }];
   const ctx = {
     installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never,
     tokenDeps: { check: async () => true },
@@ -140,6 +141,15 @@ test('(a) after the first approved week the backing offer is the one question, o
   const again = await find(b);
   assert.doesNotMatch(show(again), /backing/i, show(again));
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'backing');
+  // v3.1 spec 3.2 (R1): an apply ask due goes first; backing waits, unclaimed, for the next reply.
+  const both = await builder('a2', { week: true, programs: ['base-builder-grants'] });
+  const first = await find(both);
+  assert.equal((first.reply?.move_up as { kind: string }).kind, 'apply', show(first));
+  assert.doesNotMatch(show(first), /backing/i, show(first));
+  assert.equal((await moments(both.id)).length, 0, 'the backing moment waits unclaimed');
+  const second = await find(both);
+  assert.match(lastLine(show(second)), OFFER_RE, show(second));
+  assert.equal(questions(show(second)), 1, show(second));
 }));
 
 test('(b) yes routes to the coin flow note; no counts a decline', db, () => on(async () => {

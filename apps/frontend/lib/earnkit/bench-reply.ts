@@ -17,7 +17,7 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
 /** Launch ready L6: `share`, the weekly moment's share link and question (ranked, once a week). */
 /** v3 Stage 1: `connect`, the backfilled weeks' one yes after the App connects a repo (ranked, once a person). */
-/** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS (ranked, once a program). */
+/** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS, v3.1 else a rolling fit (ranked, once a program). */
 /** v3 Stage 2: `backing`, the backing offer after the first approved week with code (ranked, once a project, EARNKIT_RAISING on). */
 export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
@@ -54,8 +54,19 @@ export const SHIP_STEP = 'Ship this week to climb.';
 export const connectAsk = (handle: string) => `Post these weeks to your public page? Yes puts them on ${pageUrl(handle)} and the Feed.`;
 /** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
 export const APPLY_WINDOW_DAYS = 30;
-/** v3 Stage 2: the apply step's one question; `when` is the deadline's day as fundWhen gives it, without "closes" ("Nov 18"). */
-export const applyAsk = (title: string, when: string) => `${title} closes ${when}. Want me to draft your application from your ship log?`;
+/**
+ * v3 Stage 2: the apply step's one question; `when` is the deadline's day as fundWhen gives it, without "closes" ("Nov 18").
+ * v3.1 (spec 3.2): null is a rolling program ("open now (rolling)"). Pure.
+ */
+export const applyAsk = (title: string, when: string | null) =>
+  when ? `${title} closes ${when}. Want me to draft your application from your ship log?` : `${title} is open now (rolling). Want me to draft your application from your ship log?`;
+/**
+ * v3.1 (spec 3.2): the ranked reply's lead, the top apply candidate. `when` as fundWhen gives it ("closes Nov 18" or
+ * "rolling"); `codes`: the Builder Codes sentence (Base Builder Grants), else null.
+ */
+export type BestFit = { program_id: string; title: string; prize: string; when: string; why: string; codes: string | null };
+/** v3.1 (spec 3.2): "Best fit: Base Builder Grant Program, up to $5K, rolling. You deployed on Base and your app is live." Pure. */
+export const bestFitLine = (b: BestFit) => `Best fit: ${b.title}, ${b.prize}, ${b.when}. ${b.why}${b.codes ? ` ${b.codes}` : ''}`;
 /** Launch ready L6: the weekly moment's one next step, in place of the target (one link, one question). */
 export const shareAsk = (link: string) => `Share your week on X: ${link}\nDoes last week look right?`;
 /**
@@ -147,14 +158,17 @@ export type BenchView = {
   fund: FundLine[]; due: string[]; ask: BenchAsk;
   /** A17: an outcome question or a submission step, asked instead of the state's step. */
   held: string | null;
+  /** v3.1 (spec 3.2): the top apply candidate, the ranked reply's first line (null or absent: no line). */
+  best?: BestFit | null;
 };
 
-/** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"). */
-export type ApplyPick = { program_id: string; title: string; when: string };
+/** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
+export type ApplyPick = { program_id: string; title: string; when: string | null };
 /**
  * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
- * (`connect`), the backing offer (`backing`, its line given), the drafted application (`apply`), the weekly moment's
- * share ask once a week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
+ * (`connect`), the drafted application (`apply`; v3.1 spec 3.2: money to the builder first), the backing offer
+ * (`backing`, its line given), the weekly moment's share ask once a week (L6), else the weekly target (L5), else
+ * "Ship this week to climb.". Pure.
  */
 export function stateAsk(
   v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { handle?: string | null; connect?: boolean; backing?: string | null; apply?: ApplyPick | null },
@@ -165,8 +179,8 @@ export function stateAsk(
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.handle) };
-  if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.when) };
+  if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked')
     return v.share ? { kind: 'share', project_key: key, line: shareAsk(v.share) } : { kind: 'ship', project_key: key, line: STATE_COPY.ranked.ask(v.target ?? null) };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
@@ -201,15 +215,17 @@ export function benchReply(v: BenchView): string {
   const stand = [BENCH_HEADS.stand, standLine(v), ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const none = v.state === 'ranked' && v.project ? noFitLine(v.project.name) : NO_MONEY_LINE;
-  // v3 Stage 2, v3.1 F4: at most one upcoming line, after the no-fit line, only when the reply names no fit.
-  const fit = v.fund.some((f) => f.kind === 'fits');
+  // v3 Stage 2, v3.1 F4: at most one upcoming line, after the no-fit line, only when the reply names no fit (nor a Best fit).
+  const fit = v.fund.some((f) => f.kind === 'fits') || Boolean(v.best);
   const soon = v.state === 'ranked' && !fit ? v.fund.flatMap((f) => (f.kind === 'upcoming' ? [upcomingLine(f.title, f.prize, f.note)] : [])).slice(0, 1) : [];
   // v3 Stage 2: the backing line, a statement after the upcoming line; its page is the reply's link only when no other is.
   const backing = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'backing' ? [backingLine(f.backers, f.earned_usd, page || linked ? pageUrlOf(f.page) : f.page)] : [])).slice(0, 1) : [];
   const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...soon, ...backing];
   // Fix round 1 (ruling 4): signed out, the sign-in step always wins.
   const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
-  return [stand, money, up].map((x) => x.join('\n')).join('\n\n');
+  // v3.1 (spec 3.2): the ranked reply leads with its Best fit, its own paragraph above "Where you stand".
+  const lead = v.state === 'ranked' && v.best ? [[bestFitLine(v.best)]] : [];
+  return [...lead, stand, money, up].map((x) => x.join('\n')).join('\n\n');
 }
 
 /** A page link without its scheme ("earnkit.com/maya"), as a reply names it beside its one https link. Pure. */

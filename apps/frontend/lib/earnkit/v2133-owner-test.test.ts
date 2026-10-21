@@ -17,7 +17,7 @@ import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
 import { fakeGitHub } from './fixtures/fake-github-branch';
 import {
   BENCH_HEADS, NOT_ON_BENCH, STATE_COPY, benchReply,
-  SHIP_STEP, needsLine, stateAsk, type BenchView,
+  SHIP_STEP, applyAsk, needsLine, stateAsk, type BenchView,
 } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, fundNeeds, needsPicks } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
@@ -405,19 +405,28 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
 test('A.1 pure (R8 supersedes owner ruling A): a ranked project moves up by shipping, never an entry or a community round; one that can\'t join asks for another project', () => {
   const p = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: false, weeks: 0 };
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: p, link: null }), { kind: 'ship', project_key: p.key, line: SHIP_STEP });
+  // v3.1 spec 3.2 (R1): the drafted application comes before the backing offer; backing waits a reply.
+  const apply = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', when: null };
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply, backing: 'Want to open backing?' }).kind, 'apply');
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply: null, backing: 'Want to open backing?' }).kind, 'backing');
   // A project that can't join (v2.14: not counted, taken) asks for a different project, never an entry.
   assert.equal(stateAsk({ state: 'not_counted', variant: 'taken', project: { ...p, confirmed: false }, link: null }).kind, 'other_project');
 });
 
-test('A.2 through find (R8, R12): a project with a fit names it in Ways to get funded with its deadline and why; the step is still to ship', dbTest, () =>
+test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit names it in Ways to get funded with its deadline and why; the draft offer once, then the step is to ship', dbTest, () =>
   on(async () => {
     const prog = await avalanche();
     const key = `${uniq('maya')}/recipes`;
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: up to \\$10K, rolling\\. `, 'm'), r.show_to_builder);
-    assert.match(r.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
-    assert.equal(r.move_up?.kind, 'ship');
+    // v3.1 spec 3.2: the rolling fit leads as the Best fit and is first offered as a draft (once a program); then the step is to ship.
+    assert.ok(r.show_to_builder.startsWith(`Best fit: ${prog.title}, up to $10K, rolling. `), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n').at(-1), applyAsk(prog.title, null));
+    assert.equal(r.move_up?.kind, 'apply');
+    const next = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
+    assert.match(next.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
+    assert.equal(next.move_up?.kind, 'ship');
   }));
 
 test('B.1 (v3 Stage 2) "Backing", never a community round, raise or raising, in builder text; the banned-word check under the Bench catches them', () => {

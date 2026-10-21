@@ -109,13 +109,16 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const a = await rankedBuilder('mvu', 'Kit', 7201);
   // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
   // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product
-  // repo (v3-apply.test.ts (h)); marked asked here, so the step is the ranked one on any date.
+  // repo (v3-apply.test.ts (h)); v3.1 spec 3.2: else a rolling fit is. Every program is marked asked here, so the step is
+  // the ranked one on any date (the Best fit still leads).
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', jsonb_build_object('a16z-speedrun', now()::text, 'alliance-all19', now()::text)) WHERE builder_id = ${a.id}`;
+    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
   const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19']) };
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);
-  const [stand, , up] = s.split('\n\n');
+  // v3.1 spec 3.2: the Best fit leads, its own paragraph.
+  const [best, stand, , up] = s.split('\n\n');
+  assert.match(best, /^Best fit: .+, .+, (closes \w+ \d+|rolling)\. .+$/, s);
   const lines = stand.split('\n');
   assert.equal(lines[0], 'Where you stand');
   assert.match(lines[1], /^Kit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/, s);
@@ -140,6 +143,7 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
   assert.match(t, /^Kit: Shipping \d+ · /m);
+  assert.ok(t.split('\n\n').includes(best), `score leads with the same Best fit: ${t}`);
   const fits = fundPart(t);
   assert.equal(fits.length, 3, t);
   for (const l of fits) assert.match(l, FIT_LINE, l);

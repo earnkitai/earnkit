@@ -74,10 +74,13 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     await padPool(9);
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
+    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here, so the step is to ship.
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${id}`;
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
     // R12: the fit with its award, deadline and why (the fixture's match has no repo facts: the plain why).
     assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)}: up to \\$10K, rolling\\. It fits your project\\.$`, 'm'));
+    assert.ok(r.show_to_builder.startsWith(`Best fit: ${p.title}, up to $10K, rolling. It fits your project.\n\n`), r.show_to_builder);
     // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'ship');
@@ -129,6 +132,8 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
     const p = await avalanche();
     const key = `mayan${RUN}/recipes`;
     const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here, so the step is to ship.
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${id}`;
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
     // R8: the ranked step, to ship.

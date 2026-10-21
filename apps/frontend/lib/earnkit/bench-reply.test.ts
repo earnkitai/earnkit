@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OTHER_PROJECT_ASK, SHIP_STEP, STATE_COPY, benchReply, fitsLine, noFitLine, replyState, shipAsk, stateAsk, type BenchView,
+  OTHER_PROJECT_ASK, SHIP_STEP, STATE_COPY, applyAsk, benchReply, bestFitLine, fitsLine, noFitLine, replyState, shipAsk, stateAsk,
+  type ApplyPick, type BenchView, type BestFit,
 } from './bench-reply';
 
 // v2.14 T9, R16a: the four states' replies and their copy are pinned in reply-states.test.ts; these keep the
@@ -46,6 +47,37 @@ test('8.5 R8, L5, L6: the ranked state\'s one next step is the weekly target (el
   const share = 'https://x.com/intent/post?text=a';
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: share, target, share }),
     { kind: 'share', project_key: 'maya/recipes', line: `Share your week on X: ${share}\nDoes last week look right?` });
+});
+
+test('8.5b v3.1 spec 3.2: the ranked order is connect, apply, backing, share, ship; a rolling apply ask says "open now (rolling)"', () => {
+  const share = 'https://x.com/intent/post?text=a';
+  const backing = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
+  const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', when: null };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: share, share, handle: 'maya', connect: true, backing, apply };
+  assert.equal(stateAsk(all).kind, 'connect');
+  assert.deepEqual(stateAsk({ ...all, connect: false }), {
+    kind: 'apply', project_key: RECIPE.key, program_id: 'base-builder-grants',
+    line: 'Base Builder Grant Program is open now (rolling). Want me to draft your application from your ship log?',
+  });
+  assert.equal(stateAsk({ ...all, connect: false, apply: { ...apply, when: 'Nov 18' } }).line, applyAsk('Base Builder Grant Program', 'Nov 18'));
+  assert.equal(stateAsk({ ...all, connect: false, apply: null }).kind, 'backing');
+  assert.equal(stateAsk({ ...all, connect: false, apply: null, backing: null }).kind, 'share');
+  assert.equal(stateAsk({ ...all, connect: false, apply: null, backing: null, share: null, link: null }).kind, 'ship');
+});
+
+test('8.5c v3.1 spec 3.2: the Best fit line leads the ranked reply in its own paragraph, and hides the upcoming line', () => {
+  const best: BestFit = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5K', when: 'rolling', why: 'You deployed on Base.', codes: null };
+  assert.equal(bestFitLine(best), 'Best fit: Base Builder Grant Program, up to $5K, rolling. You deployed on Base.');
+  const v: BenchView = {
+    state: 'ranked', variant: null, project: RECIPE, rank: null, handle: null, link: null, score: 10, why: null, originality: null, target: null, share: null,
+    fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }], due: [], ask: { kind: 'ship', project_key: RECIPE.key, line: SHIP_STEP }, held: null,
+  };
+  assert.match(benchReply(v), /Base Batches 005/, 'no fit, no Best fit: the upcoming line shows');
+  const out = benchReply({ ...v, best });
+  assert.ok(out.startsWith(`${bestFitLine(best)}\n\nWhere you stand\n`), out);
+  assert.doesNotMatch(out, /Base Batches 005/);
+  // Ranked only.
+  assert.doesNotMatch(benchReply({ ...v, state: 'not_counted', best }), /Best fit/);
 });
 
 test('8.6 R12: a fit line names the award, the deadline and why; a ranked project with no fit says so', () => {

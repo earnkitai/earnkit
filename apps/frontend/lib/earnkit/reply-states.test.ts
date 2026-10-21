@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bannedInBench } from './fixtures/banned-words';
 import {
-  NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, benchReply, noFitLine, replyState, stateAsk, type BenchProject, type BenchView,
+  NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, applyAsk, benchReply, bestFitLine, noFitLine, replyState, stateAsk, type BenchProject, type BenchView,
 } from './bench-reply';
 
 process.env.EARNKIT_URL = 'https://earnkit.com';
@@ -94,6 +94,16 @@ test('9.6 R8: the ranked next step is always "Ship this week to climb." (never a
   for (const project of [P, { ...P, live: false }]) assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project, link: null }), { kind: 'ship', project_key: P.key, line: SHIP_STEP });
   const out = benchReply(view({ state: 'ranked', project: { ...P, live: false } }));
   assert.doesNotMatch(out, /coin|token|community round|prepare an entry|online/i);
+});
+
+test('9.6b v3.1 spec 3.2: a ranked reply leads with its Best fit and still has one link and one question; never in another state', () => {
+  const best = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5K', when: 'rolling', why: 'You deployed on Base.', codes: null };
+  const apply = { program_id: best.program_id, title: best.title, when: null };
+  const out = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply, backing: 'Want to open backing for Recipes?' }) });
+  assert.ok(out.startsWith(`${bestFitLine(best)}\n\n${'Where you stand'}\n`), out);
+  assert.ok(out.endsWith(applyAsk(best.title, null)), 'apply before backing: ' + out);
+  oneLinkOneQuestion(out);
+  for (const state of ['signed_out', 'no_project', 'not_counted'] as const) assert.doesNotMatch(benchReply({ ...view({ state }), best }), /Best fit/, state);
 });
 
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
