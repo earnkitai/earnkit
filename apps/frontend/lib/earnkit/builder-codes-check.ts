@@ -71,6 +71,26 @@ export async function checkBuilderCodes(builderId: number, repoKey: string, now:
   }
 }
 
+/**
+ * v3.1 Task 9 fix round 1 (security): whether `repoKey` ("owner/repo") is a repo this builder proved through the read-only
+ * App (a builder_sources repo row, proof github_app, state verified; own-brand.ts earnkitOwnRepo's rule). The Builder
+ * Codes answer is read and checked only for such a repo, so a caller naming another builder's repo neither reads its
+ * stored answer nor spends its once-a-day check. `id` is an installation or its group root. A failed read is false.
+ */
+export async function appProvenRepo(id: number, repoKey: string): Promise<boolean> {
+  try {
+    const [r] = await sql()`
+      SELECT 1 FROM builder_sources s
+      WHERE s.builder_id = (SELECT COALESCE(i.builder_id, i.id) FROM installations i WHERE i.id = ${id})
+        AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app'
+        AND regexp_replace(regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', ''), '([.]git)?/*$', '') = ${repoKey.toLowerCase()}`;
+    return Boolean(r);
+  } catch (err) {
+    console.error('[builder-codes] proof', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+
 /** The stored answer for this repo and whether it is under a day old, or null (never checked, or unreadable). Never throws. */
 export async function builderCodesKnown(repoKey: string, now: Date): Promise<{ found: boolean; fresh: boolean } | null> {
   try {

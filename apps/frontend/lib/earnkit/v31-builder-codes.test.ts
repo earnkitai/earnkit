@@ -209,3 +209,19 @@ test('(g) fix round 1: a file that answers without text (a symlink) is skipped a
   assert.equal(await checkBuilderCodes(c.id, key2, new Date(), { fetch: broken }), null);
   assert.equal(await stored(key2), null);
 });
+
+test('(h) Task 9 fix round 1 (security): find reads and checks Builder Codes only for a repo the builder proved through the App', db, async () => {
+  const key = 'tova/app';
+  const b = await builder(key, { 'src/tx.ts': `const s = Attribution.toDataSuffix({ codes: ['x'] });` });
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key}, true, now() - interval '2 days')`;
+  // Counted by another proof (a proof branch), not the App: still ranked, but no stored answer read and no check.
+  await sql()`UPDATE builder_sources SET proof = 'proof_branch' WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
+  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  await codesSettled();
+  assert.equal(trees(), 0, 'no check for an unproven repo');
+  // Proven by the App again: the stored answer shows.
+  await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), `${BEST} Builder Codes found in ${key}.`);
+  await codesSettled();
+});

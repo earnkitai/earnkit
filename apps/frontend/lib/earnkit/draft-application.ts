@@ -1,6 +1,6 @@
 import { BASE_GRANTS_ID } from './builder-code';
-import { builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
-import { EntryError, normalizeRepoUrl } from './campaigns';
+import { appProvenRepo, builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
+import { EntryError, githubRepo } from './campaigns';
 import { NotFoundError, type ProgramRow } from './programs';
 import { shipLogBlock, shipLogFacts, type ShipLogFacts } from './ship-log-facts';
 import { prepareSubmission, type ProjectInfo } from './submission';
@@ -52,8 +52,16 @@ export function withPageLink(reqs: SubmissionRequirement[], values: Record<strin
   return { ...values, [r.key]: next };
 }
 
-/** "owner/repo" from a GitHub link, or null. Pure. */
-const githubKey = (url: string | undefined) => (url ? (/^github\.com\/([^/]+\/[^/]+)$/.exec(normalizeRepoUrl(url))?.[1] ?? null) : null);
+/**
+ * Task 9 fix round 1 (security): "owner/repo" from the given GitHub link only when this builder proved that repo through
+ * the read-only App, else null (no stored answer read, no check started).
+ */
+async function provenKey(ctx: ToolContext, url: string | undefined): Promise<string | null> {
+  const gh = url ? githubRepo(url) : null;
+  if (!gh) return null;
+  const key = `${gh.owner}/${gh.repo}`.toLowerCase();
+  return (await appProvenRepo(ctx.installationId, key)) ? key : null;
+}
 
 /**
  * R13: whether the repo carries Builder Codes: the stored answer when under a day old, else the check (one per repo
@@ -110,12 +118,12 @@ export async function draftApplication(input: DraftInput, ctx: ToolContext, prog
   const problems = prep.missing.filter((m) => m.problem).map((m) => m.key);
   const kit = draftKit(program, values, { problems });
 
-  const repo = program.id === BASE_GRANTS_ID ? githubKey(project.repo_url ?? input.answers?.repo_url) : null;
+  const repo = program.id === BASE_GRANTS_ID ? await provenKey(ctx, project.repo_url ?? input.answers?.repo_url) : null;
   const codes = repo ? await builderCodes(ctx, repo) : null;
   // D7: the block's live site without its scheme too, so the form link is the reply's one https link.
   const shown = [
     log ? shipLogBlock(log).map(schemeless).join('\n') : null,
-    repo ? builderCodesWords(repo.toLowerCase(), codes) : null,
+    repo ? builderCodesWords(repo, codes) : null,
     kit.show_to_builder,
   ].filter((x): x is string => Boolean(x));
   return {

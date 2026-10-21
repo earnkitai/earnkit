@@ -48,7 +48,7 @@ import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
-import { builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
+import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 export { displayName };
 
 /**
@@ -374,10 +374,12 @@ type ViewIn = {
 /** Test only: resolves when every running Builder Codes check has finished. */
 export { codesSettled };
 /**
- * v3.1 Task 7: the Builder Codes sentence from the stored answer (null when unknown). A missing or day-old answer
+ * v3.1 Task 7: the Builder Codes sentence from the stored answer (null when unknown, or the repo isn't App-proven). A missing or day-old answer
  * starts a check in the background (never awaited) for the next reply, unless one ran within the day.
  */
 async function codesFor(id: number, key: string, now: Date, f: typeof fetch | undefined): Promise<string | null> {
+  // Task 9 fix round 1: only a repo this builder proved through the App (a ranked project may be counted by another proof).
+  if (!(await appProvenRepo(id, key))) return null;
   const known = await builderCodesKnown(key, now);
   refreshBuilderCodes(id, key, known, now, f);
   return builderCodesWords(key.toLowerCase(), known?.found ?? null);

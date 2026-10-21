@@ -175,7 +175,8 @@ test('(d) Circle (Questbook): copy and paste, the form link as the one link', db
   assert.equal(r.isError, false, r.text);
   const s = show(r);
   assert.deepEqual(links(s), [circle.submission_url]);
-  assert.ok(s.includes(`\n\nPaste each answer into the form: ${circle.submission_url}\n\n${SENT_ASK}`), s);
+  // The page link in the first answer lost its scheme in the shown text: the builder is told to add it (fix round 1).
+  assert.ok(s.includes(`\n\nAdd https:// to each link when you paste.\nPaste each answer into the form: ${circle.submission_url}\n\n${SENT_ASK}`), s);
   for (const req of circle.submission_requirements as SubmissionRequirement[]) assert.ok(s.includes(`\n\n${req.label}\n`), req.key);
   assert.doesNotMatch(s, /Before you submit/);
   const draft = r.reply?.draft as { mode: string; prefilled_url?: string };
@@ -254,4 +255,74 @@ test('(h) no question mark in show_to_builder (outside its link); no em dash', d
     assert.doesNotMatch(s, /—/, s);
     assert.equal(links(s).length, 1, s);
   }
+});
+
+/** A fetch that counts its calls and answers as GitHub with no App installation (404). */
+function countingFetch() {
+  const calls: string[] = [];
+  const f = (async (u: string | URL | Request) => {
+    calls.push(String(u));
+    return new Response('{}', { status: 404 });
+  }) as typeof fetch;
+  return { f, calls };
+}
+
+test('(i) fix round 1 (security): another builder\'s repo named in the draft reads no stored answer and starts no check', db, async () => {
+  const a = await builder('ia');
+  const b = await builder('ib');
+  const other = b.key.toLowerCase();
+  // b's repo has a stored answer: a never reads it, by project.repo_url or answers.repo_url.
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${other}, true, now())`;
+  const spy = countingFetch();
+  const actx = { ...a.ctx, codesFetch: spy.f };
+  for (const args of [
+    { project: { ...a.project, repo_url: `https://github.com/${b.key}` }, answers: baseAnswers() },
+    { project: { name: 'Kit' }, answers: { ...baseAnswers(), repo_url: `https://github.com/${b.key}` } },
+  ]) {
+    const r = await mcpCall(actx, 'prepare', { program_id: BASE_GRANTS_ID, ...args });
+    assert.equal(r.isError, false, r.text);
+    assert.doesNotMatch(show(r), /Builder Codes/, show(r));
+    assert.equal(r.reply?.builder_codes, null);
+  }
+  // Unknown (no stored answer): a's call starts no check, so b's once-a-day attempt is untouched.
+  await sql()`DELETE FROM repo_builder_codes WHERE repo_key = ${other}`;
+  await mcpCall(actx, 'prepare', { program_id: BASE_GRANTS_ID, project: { ...a.project, repo_url: `https://github.com/${b.key}` }, answers: baseAnswers() });
+  assert.equal(spy.calls.length, 0, spy.calls.join(' '));
+  const bspy = countingFetch();
+  await mcpCall({ ...b.ctx, codesFetch: bspy.f }, 'prepare', { program_id: BASE_GRANTS_ID, project: b.project, answers: baseAnswers() });
+  assert.ok(bspy.calls.length > 0, "b's own draft still checks its repo");
+});
+
+test('(j) fix round 1: a copy-and-paste draft whose answers lost a scheme says to add it; shown answers keep one question and no em dash', db, async () => {
+  const b = await builder('j');
+  const circle = committedProgram('circle-developer-grants');
+  const answers = { business: 'Why Kit? Fans tip creators — in USDC.', integrations: 'USDC on Arc, see https://kit.app/arc', roadmap: 'Arc mainnet in Q1', milestones: '100 creators' };
+  const r = await prepare(b, { program_id: circle.id, answers });
+  const s = show(r);
+  assert.ok(s.includes(`\n\nAdd https:// to each link when you paste.\nPaste each answer into the form: ${circle.submission_url}\n\n`), s);
+  assert.ok(s.includes('\n\nDetails on your business\nWhy Kit. Fans tip creators, in USDC. Weekly ship log: earnkit.com/'), s);
+  assert.ok(s.includes('USDC on Arc, see kit.app/arc'), s);
+  assert.equal(questions(s), 0, s);
+  assert.doesNotMatch(s, /—/);
+  assert.deepEqual(links(s), [circle.submission_url]);
+  // The agent-facing fields keep the raw values.
+  assert.equal(fieldsOf(r).find((f) => f.key === 'business')?.answer, `${answers.business} Weekly ship log: https://earnkit.com/${b.handle}`);
+  assert.equal(fieldsOf(r).find((f) => f.key === 'integrations')?.answer, answers.integrations);
+  // No link in the answers (a shared client: no ship log, so no page link): no line. The prefilled Base draft never has it.
+  const plain = show(await mcpCall({ ...b.ctx, sharedClient: true }, 'prepare', { program_id: circle.id, project: b.project, answers: { ...answers, integrations: 'USDC on Arc' } }));
+  assert.ok(plain.includes(`\n\nPaste each answer into the form: ${circle.submission_url}`), plain);
+  assert.doesNotMatch(plain, /Add https:\/\//);
+  const base = show(await prepare(b, { program_id: BASE_GRANTS_ID, answers: baseAnswers() }));
+  assert.match(base, /\n\nLink to your live product\nkit\.app\n/);
+  assert.doesNotMatch(base, /Add https:\/\//);
+});
+
+test('(k) fix round 1: an upcoming program is refused as not open yet, never "closed"', db, async () => {
+  const b = await builder('k');
+  const upcoming = committedProgram('monad-nitro');
+  assert.equal(upcoming.status, 'upcoming');
+  const r = await prepare(b, { program_id: upcoming.id });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /This program is not open yet\./);
+  assert.doesNotMatch(r.text, /closed/);
 });

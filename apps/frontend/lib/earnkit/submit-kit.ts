@@ -386,6 +386,13 @@ export type DraftKit = {
 
 /** D7: an answer as the builder reads it in the draft, every link without its scheme. Pure. */
 export const schemeless = (s: string) => s.replace(/https?:\/\//gi, '');
+/**
+ * Task 9 fix round 1: an agent-written answer as the builder reads it: links without their scheme (D7), a question mark
+ * as a period and an em dash as a comma, so the reply keeps its one question and no em dash. Pure.
+ */
+export const shownAnswer = (s: string) => schemeless(s).replace(/\?/g, '.').replace(/\s*\u2014\s*/g, ', ');
+/** Task 9 fix round 1: a copy-and-paste draft whose shown answers lost a scheme says so before the paste line. */
+export const ADD_SCHEME_LINE = 'Add https:// to each link when you paste.';
 /** A label as a draft heading: the form's own words without its question marks (a reply holds one question). Pure. */
 const draftLabel = (label: string) => label.replace(/\s*\?/g, '').trim();
 
@@ -419,11 +426,14 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
         'Open this, check each answer, fill any blank and click submit:',
         prefilled,
       ].join('\n')
-    : `Paste each answer into the form: ${program.submission_url}`;
+    : [
+        ...(fields.some((f) => !f.missing && schemeless(f.answer) !== f.answer) ? [ADD_SCHEME_LINE] : []),
+        `Paste each answer into the form: ${program.submission_url}`,
+      ].join('\n');
   const continues = continuesLine(program);
   const shown = [
     `Your draft for ${program.title}:`,
-    ...fields.map((f) => `${draftLabel(f.label)}\n${f.missing ? STILL_NEEDED : schemeless(f.answer)}`),
+    ...fields.map((f) => `${draftLabel(f.label)}\n${f.missing ? STILL_NEEDED : shownAnswer(f.answer)}`),
     ...(missing.length ? [`Before you submit: ${missing.join(', ')}.`] : []),
     send,
     ...(continues ? [continues] : []),
