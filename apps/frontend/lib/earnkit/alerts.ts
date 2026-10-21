@@ -295,36 +295,49 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
   return repos.find((r) => repoCanWin(p, r)) ?? null;
 }
 
+/** v3.1 F1: the gate that drops a program for a repo (fitGate), in the order a pair meets them. */
+export type FitGate = 'tier' | 'odds' | 'wide' | 'facts' | 'verdict' | 'mentioned' | 'close' | 'hard';
+
 /**
  * v2.9 A7: the alert precision rule for one remembered repo and one program (alertFit's per-repo
- * test; v2.9 T12, G15 M1: Also qualifies uses it too). The tier fits (an original product for
- * any_chain or investment, project or better otherwise); with what the builder said applied, the
- * verdict is likely, or after_step with effort of hours or less and no real_users or new_work
- * missing; the row is not Hard, unless $10,000+ per winner and product tier. v2.10 item 6: never a
- * low-odds repo, nor a row on a chain only mentioned. v3 Stage 2 final review: with `apply`, an investment the
- * tier fits counts (its verdict is always weeks of work; the apply step offers it, never a fit line). Pure.
+ * test; v2.9 T12, G15 M1: Also qualifies uses it too), as the first gate that drops the pair, or null
+ * when it passes. The tier fits (an original product for any_chain or investment, project or better
+ * otherwise); with what the builder said applied, the verdict is likely, or after_step with effort of
+ * hours or less and no real_users or new_work missing; the row is not Hard, unless $10,000+ per winner
+ * and product tier. v2.10 item 6: never a low-odds repo, nor a row on a chain only mentioned. v3.1 F1: with
+ * `apply` (the builder could apply), the close and Hard gates are skipped; only new work still drops it. Pure.
  */
-export function repoCanWin(p: NewProgram, r: FitRepo, o: { apply?: boolean } = {}): boolean {
-  if (!r.product || r.product.tier === 'noise') return false;
+export function fitGate(p: NewProgram, r: FitRepo, o: { apply?: boolean } = {}): FitGate | null {
+  if (!r.product || r.product.tier === 'noise') return 'tier';
   // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies). v2.11 8a (S3):
   // nor an unknown one (asked about users first).
-  if (r.product.odds === 'low' || r.product.odds === 'unknown') return false;
-  if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return false;
+  if (r.product.odds === 'low' || r.product.odds === 'unknown') return 'odds';
+  if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return 'wide';
   const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
-  if (!f) return false;
+  if (!f) return 'facts';
   const [v] = matchRepo(f, [programFacts(p)]);
-  if (!v || v.status === 'no') return false;
+  if (!v || v.status === 'no') return 'verdict';
   // v2.10 item 9 (Pre-flight P13): nor a row whose chain the repo only mentions (low odds: not deployed yet).
-  if (onlyMentioned(v, f.chains)) return false;
-  // v3 Stage 2 final review: an investment's verdict is always "apply as a company" (weeks, match.ts
-  // INVESTMENT_NOTE), so it is never close; `o.apply` (the apply step's candidates, as find's good-odds row) takes it.
-  if (p.investment && o.apply) return true;
+  if (onlyMentioned(v, f.chains)) return 'mentioned';
+  // v3.1 F1: `o.apply` (the apply step's candidates and the fit lines, as find's canApply) asks whether the builder
+  // could apply, not whether a new program is worth a nag: the close and Hard rules are alert precision, so they are
+  // skipped (an investment's verdict is always "apply as a company", weeks; a row waiting on real users waits on
+  // usage the application itself states). A program that counts only new work still drops an existing repo.
+  if (o.apply) return v.missing.includes('new_work') ? 'close' : null;
   const close =
     v.status === 'likely' ||
     (EFFORT_ORDER.indexOf(v.effort) <= EFFORT_ORDER.indexOf('hours') && !v.missing.some((m) => m === 'real_users' || m === 'new_work'));
-  if (!close) return false;
+  if (!close) return 'close';
   const row = rowDifficulty(p, v, { liveVerified: r.live_verified, hasUsersClaim: Boolean(r.said?.has_users) });
-  return row.level !== 'Hard' || ((p.max_award_usd ?? 0) >= HARD_ALERT_USD && r.product.tier === 'product');
+  return row.level !== 'Hard' || ((p.max_award_usd ?? 0) >= HARD_ALERT_USD && r.product.tier === 'product') ? null : 'hard';
+}
+
+/**
+ * v2.9 A7: whether the repo could really win the program: no gate drops the pair (fitGate). With `apply`, the
+ * apply step's candidates and the fit lines (v3.1 F1: investments included). Pure.
+ */
+export function repoCanWin(p: NewProgram, r: FitRepo, o: { apply?: boolean } = {}): boolean {
+  return fitGate(p, r, o) === null;
 }
 
 /** v2.9 A7: whether a new program is alerted (alertFit found a repo). Pure. */

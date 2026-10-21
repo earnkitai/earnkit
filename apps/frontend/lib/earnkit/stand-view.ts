@@ -134,27 +134,28 @@ export const biggestPick = (cards: Card[], now: Date, skip: Set<string>, not: st
 /** R12: at most this many programs are named as fits. */
 export const FITS_MAX = 3;
 /**
- * R12: score's fits without a GitHub read: the open programs (present.ts byDeadline, find's order) the one project's repo,
- * as find last matched it (installations.fit_repos), can really win (alerts.ts repoCanWin: good odds, the
- * verdict likely or one quick step, never a chain only mentioned), never an in-person program. At most FITS_MAX, each with the repo's
- * facts for its why. v3 Stage 2 final review: with `investments`, an open investment (an accelerator) the repo
- * can win counts too and nothing is cut at FITS_MAX (the apply step's candidates; never a fit line). Never throws (none on an error).
+ * R12: score's apply candidates without a GitHub read: the open programs (present.ts byDeadline, the apply step's
+ * order) the one project's repo, as find last matched it (installations.fit_repos), could apply to (alerts.ts
+ * repoCanWin with `apply`: good odds, never a chain only mentioned, never only new work), investments included, never
+ * an in-person program, each with the repo's facts for its why. v3.1 F1: the fit lines are these, in byRelevance
+ * order, at most FITS_MAX (bench-find.ts fitLines). Never throws (none on an error).
  */
-export async function scoreFits(id: number, main: string, o: { cards: Card[]; skip: Set<string>; now: Date; investments?: boolean }): Promise<{ card: Card; repo: FitRepo }[]> {
+export async function scoreFits(id: number, main: string, o: { cards: Card[]; skip: Set<string>; now: Date }): Promise<{ card: Card; repo: FitRepo }[]> {
   try {
     const [fits, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);
     const repo = fits.find((f) => f.key.toLowerCase() === main.toLowerCase());
     if (!repo) return [];
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
-    const can = o.cards
+    return o.cards
       // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
-      .filter((c) => showable(o.investments ? { ...c, investment: false } : c, o.now, o.skip) && !c.in_person)
+      // showable leaves investments out of picks; an investment is an apply candidate here.
+      .filter((c) => showable({ ...c, investment: false }, o.now, o.skip) && !c.in_person)
       .sort(byDeadline)
       .filter((c) => {
         const np = byId.get(c.id);
-        return Boolean(np && repoCanWin(np, repo, { apply: o.investments }));
-      });
-    return (o.investments ? can : can.slice(0, FITS_MAX)).map((card) => ({ card, repo }));
+        return Boolean(np && repoCanWin(np, repo, { apply: true }));
+      })
+      .map((card) => ({ card, repo }));
   } catch (err) {
     console.error('[score] fits', err instanceof Error ? err.name : 'error');
     return [];

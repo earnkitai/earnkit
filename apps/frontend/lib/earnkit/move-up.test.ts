@@ -13,7 +13,7 @@ import { upsertProgram } from './programs';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { scoreFits } from './stand-view';
-import { fitWhy, tokenUnavailable } from './bench-find';
+import { fitLines, fitWhy, tokenUnavailable } from './bench-find';
 import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, noFitLine } from './bench-reply';
 import type { RepoFit } from './present';
 import { endsOnRankedStep } from './fixtures/ranked-step';
@@ -104,7 +104,12 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   await syncPrograms();
   const extra = await avalanche(); // a fourth open program that fits: only 3 are named
   const a = await rankedBuilder('mvu', 'Kit', 7201);
-  const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id]) };
+  // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
+  // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product
+  // repo (v3-apply.test.ts (h)); marked asked here, so the step is the ranked one on any date.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || jsonb_build_object('apply_asked', jsonb_build_object('a16z-speedrun', now()::text, 'alliance-all19', now()::text)) WHERE builder_id = ${a.id}`;
+  const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19']) };
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);
   const [stand, , up] = s.split('\n\n');
@@ -115,10 +120,10 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const fund = fundPart(s);
   assert.ok(fund.length >= 1 && fund.length <= 3, s);
   for (const l of fund) assert.match(l, FIT_LINE, l);
-  // R12 (fix round 1): one order, present.ts byDeadline: all rolling here, so the bigger award first.
-  assert.equal(fund[0], `${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`, s);
+  // v3.1 F1: one order, present.ts byRelevance: Base first, then any chain (an investment reads "investment"), then the rest.
+  assert.equal(fund[0], `${committedProgram('base-builder-grants').title}: up to $5K, rolling. You deployed on Base and your app is live.`, s);
   assert.equal(fund.length, 3);
-  assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'circle-developer-grants', 'the lead is the first named');
+  assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'base-builder-grants', 'the lead is the first named');
   assert.ok(endsOnRankedStep(up), up);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
   assert.doesNotMatch(s, COIN_WORDS, s);
@@ -127,10 +132,6 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${a.id}`).length, 0, 'no coin offer recorded');
 
   // score: the same parts, its fits from the real matcher over what find saw (fit_repos), never a closed program.
-  // v3 Stage 2 final review: an open investment closing within 30 days (a16z speedrun, Alliance) is score's apply step
-  // for this product repo (v3-apply.test.ts (h)); marked asked here, so the step is the ranked one on any date.
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', jsonb_build_object('a16z-speedrun', now()::text, 'alliance-all19', now()::text)) WHERE builder_id = ${a.id}`;
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
   assert.match(t, /^Kit: Shipping \d+ · /m);
@@ -211,15 +212,18 @@ test('R12 positive match (Task 2c carry): a profiled builder with transactions, 
   assert.equal(repoCanWin(rows.get('base-builder-grants')!, repo), true, 'Base: deployed, live, real use');
   assert.equal(repoCanWin(rows.get('circle-developer-grants')!, repo), true, 'Arc: deployed, live, real use');
   for (const id of CLOSED) assert.equal(rows.has(id), false, `${id} is not open`);
-  // scoreFits over the stored fit repo: byDeadline order, at most 3, each with its why.
+  // scoreFits over the stored fit repo: every apply candidate (v3.1 F1), each with its why; the fit lines are the
+  // first FITS_MAX by byRelevance (bench-find.ts fitLines): Base first.
   const a = await agent('psf');
   await sql()`UPDATE installations SET fit_repos = ${sql().json([repo] as never)} WHERE id = ${a.id}`;
   const { listPrograms } = await import('./programs');
   const fits = await scoreFits(a.id, key, { cards: await listPrograms(), skip: new Set(), now: new Date() });
-  assert.ok(fits.length >= 2 && fits.length <= 3, JSON.stringify(fits.map((f) => f.card.id)));
-  assert.equal(fits[0].card.id, 'circle-developer-grants', 'byDeadline: all rolling, so the biggest award first');
-  assert.ok(fits.some((f) => f.card.id === 'avalanche-team1-mini-grants'), JSON.stringify(fits.map((f) => f.card.id)));
-  assert.equal(fitWhy(fits[0].card, { chains: repo.chains, live: true }), 'You deployed on Arc and your app is live.');
+  const ids = fits.map((f) => f.card.id);
+  for (const id of OPEN) assert.ok(ids.includes(id), JSON.stringify(ids));
+  const lines = fitLines(fits);
+  assert.equal(lines.length, 3, JSON.stringify(ids));
+  assert.equal(lines[0].card.id, 'base-builder-grants', 'byRelevance: Base first');
+  assert.equal(fitWhy(lines[0].card, { chains: repo.chains, live: true }), 'You deployed on Base and your app is live.');
   // A low-odds repo (no traction) gets none.
   const low = { ...repo, product: { ...product, odds: 'low' as const, traction: 0 }, tx_count: 0 };
   await sql()`UPDATE installations SET fit_repos = ${sql().json([low] as never)} WHERE id = ${a.id}`;

@@ -1687,8 +1687,8 @@ apps/frontend/
     stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase ({ standing, claimed, handle, signInLink }: v2.14 T7
                                signInLink for the caller's own installation; Task 4 dropped the projects read and the
                                count-past and tip-jar steps), takeNews, earnPrize, earnWhen, fundWhen (R12: "closes Oct
-                               30" or "rolling"), showable, biggestPick, scoreFits (R12: score's up to 3 fits from
-                               fit_repos and alerts.ts repoCanWin, FITS_MAX 3)
+                               30" or "rolling"), showable, biggestPick, scoreFits (score's apply candidates from
+                               fit_repos and alerts.ts repoCanWin { apply }; v3.1 F1: bench-find.ts fitLines takes FITS_MAX 3)
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
     page-data.ts(+test)        v2.12.1 T11: every public sentence (SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED,
@@ -2025,3 +2025,13 @@ read (`benchCardFacts(id, { money: false })`, as `landing.ts readFeatured`); `sc
 as muted text on the raised spot; `Button.tsx INLINE_LINK` on the terms and Docs links; the terms' risk headings in sentence case;
 `app/leaderboard/page.tsx` description "Ranked by Shipping."; `copy-review.test.ts` Task 7 rule (builder strings and every literal
 under `app/`); `v3-landing.test.ts` (i) scans divide/fill/stroke/outline/shadow/via too.
+
+v3.1 P0 Task 1 (F1, the owner's repo gets its fits): `alerts.ts` (`FitGate`, `fitGate(p, r, { apply })`: the first gate
+that drops a pair, `repoCanWin` is `fitGate === null`; with `apply` the close and Hard gates are skipped, only new work
+drops), `present.ts` (`Fit.repo_odds`; `canApply` also takes a row whose only low reason is "no users yet" on a
+good-odds repo; `qualifies` keeps the old rule), `bench-find.ts` (`Fit.card`, `fitCard`, `fitLines`: every apply
+candidate, investments included, byRelevance, at most FITS_MAX; lead and recordShown use its grants), `stand-view.ts`
+(`scoreFits` returns every apply candidate, byDeadline; no `investments` option), `match-projects.ts`
+(`MatchDeps.ownEarnkit`: an EarnKit-org repo proven the builder's own is matched, never skipped as EarnKit's),
+`tools.ts` (find's Bench match passes `ownEarnkit` when `own-brand.ts earnkitOwnRepo` holds). New:
+`fixtures/earnkit-repo.ts`, `v31-fit-gates.test.ts`.

@@ -319,7 +319,25 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
 export const UPCOMING_STREAK = 4;
 
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
-type Fit = { program_id: string; repo?: string; title: string; prize: string; when: string; why: string; /** v3 Stage 2: the deadline (ISO), null when rolling. */ ends_at: string | null; /** v3 Stage 2 final review: an investment (an apply candidate only, never a fit line). */ investment?: boolean };
+type Fit = {
+  program_id: string; repo?: string; title: string; prize: string; when: string; why: string;
+  /** v3 Stage 2: the deadline (ISO), null when rolling. */
+  ends_at: string | null;
+  /** v3 Stage 2 final review: an investment (an accelerator). v3.1 F1: a fit line too; never the lead or a shown match. */
+  investment?: boolean;
+  /** v3.1 F1: the program's facts the fit lines sort (present.ts byRelevance) and later steps filter on. */
+  card: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>;
+};
+/** v3.1 F1: a card's facts a Fit keeps. Pure. */
+const fitCard = (c: Card): Fit['card'] => ({
+  id: c.id, status: c.status, chains: c.chains, any_chain: c.any_chain, ends_at: c.ends_at, max_award_usd: c.max_award_usd, investment: c.investment,
+});
+/**
+ * v3.1 F1: the fit lines find and score name: every apply candidate, investments included, in the program list's
+ * order (present.ts byRelevance: Base, then any chain; grants before investments; then the deadline), at most
+ * FITS_MAX. Pure.
+ */
+export const fitLines = <F extends Pick<Fit, 'card'>>(applies: F[]): F[] => [...applies].sort((a, b) => byRelevance(a.card, b.card)).slice(0, FITS_MAX);
 const isoOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
@@ -637,24 +655,28 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
   const main = read.main?.toLowerCase() ?? null;
-  // Ways to get funded: the programs the one project qualifies for (as standFind's earn rows).
-  // R12 (fix round 1): one fit order with score (present.ts byDeadline); lead and recordShown use these same 3.
-  // v3 Stage 2 final review: the rows the one project could apply to (an investment included: the apply step's
-  // candidates); the fit lines leave the investments out, as before.
+  // Ways to get funded: the programs the one project could apply to (an investment included), deadline order
+  // (present.ts byDeadline) for the apply step. v3.1 F1: the fit lines are these same rows in the program list's
+  // order (fitLines, as score's); lead and recordShown use the fit lines' grants (never an investment).
   const can = main
     ? layout(m, entered).rows
         // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.
         .filter((r) => canApply(r) && !r.card.sponsored && !r.card.in_person && !entered.has(r.card.id) && (r.key ?? r.repo).toLowerCase() === main)
         .sort((a, b) => byDeadline(a.card, b.card))
     : [];
-  const rows = can.filter((r) => !r.card.investment).slice(0, 3);
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
   const fitOf = (r: (typeof can)[number]): Fit => {
     const f = facts.get(r.repo);
     const why = fitWhy(r.card, whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified }));
-    return { program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at) };
+    return {
+      program_id: r.card.id, repo: r.repo, title: r.card.title, prize: earnPrize(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at),
+      investment: r.card.investment === true, card: fitCard(r.card),
+    };
   };
-  const fits: Fit[] = rows.map(fitOf);
+  const shownRows = fitLines(can);
+  const fits: Fit[] = shownRows.map(fitOf);
+  const rows = shownRows.filter((r) => !r.card.investment);
+  const leadFit = fits.find((f) => !f.investment);
   const applies: Fit[] = can.map(fitOf);
   const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
@@ -669,7 +691,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS,
   });
   const taken = view.variant === 'taken';
-  const lead = Boolean((fits[0] && !submit && !taken) || submit);
+  const lead = Boolean((leadFit && !submit && !taken) || submit);
   // Every reply asks one question now, so news never carries a card offer of its own. R10: the news (a move up
   // the rank) is shown only when the reply itself shows that rank; otherwise it is still recorded, never shown.
   const recorded = read.profiled ? await takeNews(id, read.seen, read.base, now, false).catch(logged('news')) : null;
@@ -690,7 +712,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
-    ...(fits[0] && !submit && !taken && { lead: { program_id: fits[0].program_id, repo: fits[0].repo } }),
+    ...(leadFit && !submit && !taken && { lead: { program_id: leadFit.program_id, repo: leadFit.repo } }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
   };
 }
@@ -724,14 +746,15 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const entered = new Set(entries.map((e) => e.program_id));
   const shown = cards.filter((c) => !hidden.has(c.id));
   const main = read.main?.toLowerCase() ?? null;
-  // v3 Stage 2 final review: the apply step's candidates include an open investment; the fit lines never do.
+  // v3 Stage 2 final review: the apply step's candidates include an open investment. v3.1 F1: so do the fit lines (fitLines).
   const applies: Fit[] = main
-    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now, investments: true })).map((f) => ({
+    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now })).map((f) => ({
         program_id: f.card.id, title: f.card.title, prize: earnPrize(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
-        investment: f.card.investment === true,
+        investment: f.card.investment === true, card: fitCard(f.card),
       }))
     : [];
-  const fits: Fit[] = applies.filter((f) => !f.investment).slice(0, FITS_MAX);
+  const fits: Fit[] = fitLines(applies);
+  const leadFit = fits.find((f) => !f.investment);
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
     due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS,
@@ -746,7 +769,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   return {
     show_to_builder: [signedIn, moment, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
-    ...(fits[0] && view.variant !== 'taken' && { lead: { program_id: fits[0].program_id }, note: EARN_NOTE }),
+    ...(leadFit && view.variant !== 'taken' && { lead: { program_id: leadFit.program_id }, note: EARN_NOTE }),
   };
 }
 

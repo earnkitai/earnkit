@@ -2,7 +2,7 @@ import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -472,6 +472,8 @@ export type Fit = {
   low_reason: string | null;
   /** v2.11 8a (S5): the repo has real use (measured, or the builder's users claim): it outranks traction. */
   real_use: boolean;
+  /** v3.1 F1: the repo's own odds (match.ts productOdds), apart from the row's; absent: unknown (canApply reads it). */
+  repo_odds?: Odds;
 };
 
 /** v2.10 item 6: a low-odds row's label in its "Your repo" cell. Pure. */
@@ -572,13 +574,17 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-export const qualifies = (r: Fit) => canApply(r) && !r.card.investment;
+export const qualifies = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work') && !r.card.investment;
 /**
  * v3 Stage 2 final review: a matched row the builder could apply to from the ship log: good odds and never a
  * program that counts only new work when the repo is existing work. An investment (an accelerator) can be
- * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money and the fit lines. Pure.
+ * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money. v3.1 F1: a row whose
+ * only low odds are users not measured yet ("no users yet", on a repo with good odds of its own) is a candidate
+ * too: the application states the usage itself (Base asks for usage numbers; Alliance considers pre-product teams),
+ * as alerts.ts fitGate with `apply` does on score's path. Pure.
  */
-export const canApply = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work');
+export const canApply = (r: Fit) =>
+  !r.v.missing.includes('new_work') && (r.odds === 'good' || (r.low_reason === NO_USERS_YET && r.repo_odds === 'good'));
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
@@ -608,6 +614,7 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
         traction: f.product?.traction ?? 0,
         low_reason: odds.low_reason,
         real_use: f.facts ? hasRealUse(f.facts) : false,
+        ...(f.product?.odds && { repo_odds: f.product.odds }),
       };
       // v2.10 item 6 (Pre-flight P12): per program, the repo with good odds, then more traction; else the first.
       const kept = matched.get(v.program_id);

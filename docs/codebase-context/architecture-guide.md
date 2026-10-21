@@ -7065,3 +7065,22 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   sign-in page, the GitHub confirm page, two share cards, the badge) lives under the SDD workspace of the stage
   (`.superpowers/sdd/v3-power-user-plan-stage3/shots/task-7/`, with `measurements.txt`: no horizontal scroll, no
   target under 44px, the fonts, no em dash or caps).
+
+## v3.1 P0 Task 1 (F1): the owner's repo gets its fits
+
+- **Root cause.** The matcher skipped every repo in an EarnKit org (`match-projects.ts`, `SKIP_REASONS.earnkit`,
+  v2.10.1 B4) before reading it, so the owner's one project, `earnkitai/earnkit`, never had a match: find's rows were
+  empty and `installations.fit_repos` never held it, so score had none either, and both said "No open program fits
+  EarnKit yet." Now find's Bench match passes `MatchDeps.ownEarnkit` for the one project when `own-brand.ts
+  earnkitOwnRepo` holds (an EarnKit-org repo this builder proved with the read-only App); every other EarnKit repo is
+  still skipped and says so.
+- **Gates.** `alerts.ts fitGate` names the gate that drops a pair (tier, odds, wide, facts, verdict, mentioned, close,
+  hard). The close and Hard gates are alert precision (a nag), so `apply` (the apply step's candidates and the fit
+  lines) skips them; only a program that counts new work still drops. On find's path `present.ts canApply` matches it:
+  a row whose only low reason is users not measured yet ("no users yet": under 50 transactions, no users claim) on a
+  repo with good odds is a candidate, since the application states usage itself. `qualifies` (the money "you qualify
+  for", the first message's lead) keeps the strict rule. No program fact changed.
+- **Fit lines.** Find and score name the same lines (`bench-find.ts fitLines`): every apply candidate, investments
+  included ("up to $400K investment"), in `present.ts byRelevance` order (Base, then any chain; grants before
+  investments; then the deadline), at most 3. The lead and the shown-match record use the lines' grants only. The
+  apply step still picks from every candidate in deadline order.

@@ -260,9 +260,10 @@ test('(g) readStats applications and accepted', db, async () => {
   });
 });
 
-test('(h) an investment closing within 30 days is the apply step (find and score), never a fit line', db, async () => {
+test('(h) an investment closing within 30 days is the apply step (find and score), and a fit line (v3.1 F1), never the lead', db, async () => {
   // v3 Stage 2 final review: the spec's example is an accelerator ("Alliance ALL19 closes Nov 18. Want me to draft
-  // your application from your ship log?"), so an investment is an apply candidate while the fit lines leave it out.
+  // your application from your ship log?"), so an investment is an apply candidate. v3.1 F1: it is a fit line too,
+  // its award read as an investment; the lead (the earn note's program) stays a grant.
   // 5 days: sooner than every other dated program in this file and the committed ones, so score (which reads every
   // open program the repo's facts can win, not only this builder's verdicts) asks this one first.
   const p = await dated('h', 5, { investment: true, max_award_usd: 400000, summary: 'up to $400K investment' });
@@ -272,7 +273,10 @@ test('(h) an investment closing within 30 days is the apply step (find and score
     const r = await mcpCall(b.ctx, tool, {});
     const s = show(r);
     assert.ok(s.endsWith(`How to move up\n${applyAsk(p.title, p.when)}`), `${tool}: ${s}`);
-    assert.doesNotMatch(s.split('How to move up')[0], new RegExp(`${p.title}:`), `${tool}: never a fit line: ${s}`);
+    // find's fits are this builder's verdicts (only this program); score reads every open program this file made, where
+    // the dated grants come first (byRelevance: grants before investments) and fill the 3 lines.
+    if (tool === 'find') assert.match(s.split('How to move up')[0], new RegExp(`\\n${p.title}: up to \\$400K investment, closes ${p.when}\\. `), `a fit line: ${s}`);
+    assert.notEqual((r.reply?.lead as { program_id?: string } | undefined)?.program_id, p.id, `${tool}: an investment is never the lead`);
     assert.equal(questions(s), 1, s);
     assert.equal(links(s).length <= 1, true, s);
     assert.equal((r.reply?.move_up as { kind: string }).kind, 'apply', tool);

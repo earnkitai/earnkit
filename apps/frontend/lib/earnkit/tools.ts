@@ -101,6 +101,7 @@ import { READY_TO_SUBMIT, confirmDecision, confirmOffer, walletQuestion, NO_TOKE
 import { HOST_LINES, HOST_ZONE, UPLOAD_NOTE, hostSignInLine, issueUpload, liveLine, refreshSiteExpiry } from './hosting';
 import { r2Enabled } from './r2';
 import { EARNKIT_ORGS } from './earnkit-orgs';
+import { earnkitOwnRepo } from './own-brand';
 import {
   BUILD_CHAT_ONLY,
   buildCheck,
@@ -1051,11 +1052,14 @@ export const handlers = {
     // v2.13 spec "Program matching uses the one project only": the matcher gets the one project's repo
     // (set at the first find, else the project this call names) and nothing else.
     const bench = scoring && profiled;
+    /** v3.1 F1: the one project when it is an EarnKit repo this builder proved with the App (the owner's own). */
+    let ownEarnkit: string[] | undefined;
     if (bench) {
       const main = (await mainProjectOf(ctx.installationId).catch(() => null))?.toLowerCase() ?? null;
       const one = main && REPO_KEY.test(main) ? main : (reportedRepos(project?.repo ? [project.repo] : [])[0] ?? null);
       repoList = one ? [one] : undefined;
       local = undefined;
+      if (one && (await earnkitOwnRepo(ctx.installationId, `https://github.com/${one}`))) ownEarnkit = [one.toLowerCase()];
     }
     const matchUser = bench ? undefined : user;
     // Ruling 11 (plan): a GitHub user or repo list, given now or remembered, turns off "You could".
@@ -1081,8 +1085,9 @@ export const handlers = {
         const appOn = githubAppEnabled();
         const appLogin = ctx.sharedClient ? null : undefined;
         // R16b: odds no longer read the person's counted users and money (no longer counted); matching's own reads decide.
-        const matchDeps: Pick<MatchDeps, 'appToken'> = {
+        const matchDeps: Pick<MatchDeps, 'appToken' | 'ownEarnkit'> = {
           ...(appOn ? { appToken: (n: string) => appTokenFor({ installationId: ctx.installationId, login: appLogin, repoKey: n.toLowerCase() }) } : {}),
+          ...(ownEarnkit && { ownEarnkit }),
         };
         const matching = (ctx.matchProjects ?? matchProjects)(
           MatchProjectsInput.parse({
