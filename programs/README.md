@@ -64,6 +64,9 @@ program is never closed under it either.
      never a fit, never offered, never entered and never counted in the money total. It needs
      `opens_note`; it may have `submission_requirements: []` (no form yet) and `submission_url` equal
      to `source_url`. When it opens, set `active` and mirror the real form as usual.
+     `unlisted`: an open program that is off EarnKit's thesis. Its row stays for old entries, but
+     nothing lists, matches, offers, counts or guides it (its guide page is a 404, never "closed",
+     since the program itself is still open). Its file follows the `active` rules.
    - `opens_note` (only with `upcoming`): one line, at most 140 characters, no links, on when and how
      it opens, from the source (e.g. `"Batch 005 is not announced yet."`). Never invent an opening date.
    - `in_person` (optional): `true` when the program must be attended in person (an ETHGlobal
@@ -105,7 +108,8 @@ program is never closed under it either.
      names no other). After `expected`, EarnKit asks each builder once whether they won.
    - `submission_requirements`: mirror the real form field by field:
      - `key`: snake_case; `label`: the question as the form asks it
-     - `type`: `text` | `url` | `email` | `choice` (with `options`) | `file`; `required`
+     - `type`: `text` | `url` | `email` | `choice` (with `options`) | `multi_choice` (a checkbox
+       question, with `options`; the answer is the picked options joined by `"; "`) | `file`; `required`
      - `description` (optional): limits or format notes from the form
      - `project_field` (optional): `name`, `description`, `repo_url`, `live_url`, `demo_url`,
        or `token_url` when the answer is simply that
@@ -156,8 +160,9 @@ program is never closed under it either.
          query string. GET that page (read only) and read `FB_PUBLIC_LOAD_DATA_` with a small
          throwaway script (not committed): each question is `[id, title, description, type,
          [[entry_id, options, required]]]`. Match each question title to its requirement and write
-         `"<key>": "entry.<entry_id>"`. Leave out a checkbox question (type 4) whose requirement is
-         free text, a grid, and any question you can't match: they stay in the paste list.
+         `"<key>": "entry.<entry_id>"`. A checkbox question (type 4) is a `multi_choice` requirement with
+         its options copied exactly; the prefilled link repeats its `entry.<entry_id>` once per
+         picked option. Leave out a grid and any question you can't match: they stay in the paste list.
        - Airtable: `fields` maps keys to the form's field names (sent as `prefill_<Field Name>`).
        - Tally: `fields` maps keys to the form's URL parameter names.
        - `sign_in`: `false` when the form needs no sign-in. `"email_only"` (Google only) when its

@@ -38,7 +38,8 @@ after(async () => {
 const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const CLOSED = ['arc-microgrants', 'colosseum-worlds-fair', 'monad-metropolis'] as const;
-const OPEN = ['base-builder-grants', 'avalanche-team1-mini-grants', 'circle-developer-grants'] as const;
+// v3.1 Task 8: Avalanche Team1 Mini Grants is unlisted (v31-programs.test.ts); find.ts avalanche() keeps an active copy.
+const OPEN = ['base-builder-grants', 'circle-developer-grants'] as const;
 const COIN_WORDS = /\bcoin\b|\btokens?\b|community round|tokens\.fun|\$[A-Z]{3,}/i;
 /** R12: "<program>: <award>, <closes Mon D | rolling>. <Why>." */
 const FIT_LINE = /^[^:\n]+: [^,\n]+, (closes [A-Z][a-z]{2} \d{1,2}|rolling)\. [A-Z][^\n]*\.$/;

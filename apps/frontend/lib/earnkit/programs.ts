@@ -126,7 +126,7 @@ export type ProgramRow = {
   starts_at: Date | null;
   ends_at: Date | null;
   /** v3 Stage 2: `upcoming` is listed (Not open yet), never a fit, an entry or in the money total. */
-  status: 'active' | 'closed' | 'upcoming';
+  status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
   opens_note?: string | null;
   /** v3 Stage 2: attended in person (the card's "In person" chip). Optional for older fixtures. */

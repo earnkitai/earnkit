@@ -25,7 +25,7 @@ export { endsOf } from './entry-text';
 export type Card = {
   id: string;
   /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Not open yet), never open. Absent: active. */
-  status?: 'active' | 'closed' | 'upcoming';
+  status?: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens, or null. */
   opens_note?: string | null;
   /** v3 Stage 2: attended in person (the card's "In person" chip). */

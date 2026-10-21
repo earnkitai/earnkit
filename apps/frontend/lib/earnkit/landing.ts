@@ -253,10 +253,10 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
 /** A guide page id: a program file's id shape. Anything else is a 404 with no read. */
 export const GUIDE_ID = /^[a-z0-9-]{1,64}$/;
 
-/** Every curated program id, closed ones included (Ruling 22: old links keep working). */
+/** Every curated program id, closed ones included (Ruling 22: old links keep working); never an unlisted one (v3.1 D2: its guide is a 404, not "closed"). */
 export async function readGuideIds(): Promise<string[]> {
   const rows = await sql()<{ id: string }[]>`
-    SELECT id FROM programs WHERE source = 'file' AND campaign IS NULL ORDER BY id`;
+    SELECT id FROM programs WHERE source = 'file' AND campaign IS NULL AND status <> 'unlisted' ORDER BY id`;
   return rows.map((r) => r.id);
 }
 

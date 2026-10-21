@@ -1,6 +1,7 @@
 import type { ProgramRow } from './programs';
 import type { SubmissionRequirement } from './program-file';
 import { todoOf } from './entry-text';
+import { multiChoiceParts } from './submission';
 import {
   ENTRY_LINK_HOSTS,
   HOST_MODES,
@@ -147,12 +148,15 @@ export function submitModeFor(p: KitProgram, agent: { browser: boolean }): Submi
 
 const enc = encodeURIComponent;
 
-/** Adds `param=value` pairs while the URL stays within MAX_PREFILL_URL; the rest go to `over`. */
-function prefill(base: string, sep: '?' | '&', pairs: [string, string][], over: string[]): string {
+/**
+ * Adds each param's `param=value` pairs (v3.1: a multi_choice repeats the param once per option)
+ * while the URL stays within MAX_PREFILL_URL; a param that doesn't fit whole goes to `over`.
+ */
+function prefill(base: string, sep: '?' | '&', pairs: [string, string[]][], over: string[]): string {
   let url = base;
   let s: string = sep;
-  for (const [param, value] of pairs) {
-    const next = `${url}${s}${param}=${enc(value)}`;
+  for (const [param, values] of pairs) {
+    const next = `${url}${s}${values.map((v) => `${param}=${enc(v)}`).join('&')}`;
     if (next.length > MAX_PREFILL_URL) {
       over.push(param);
       continue;
@@ -166,17 +170,21 @@ function prefill(base: string, sep: '?' | '&', pairs: [string, string][], over: 
 /**
  * Rulings 8, 27 (plan): which answers can ride in the URL; the rest are pasted. A key the form
  * doesn't know (a stale form), a choice that isn't exactly one of its options, and a file can't.
+ * v3.1: a multi_choice rides as one pair per option (`multi`: Google's checkbox prefill) when every
+ * part is one of its options; otherwise, or on a form without `multi`, it is pasted.
  */
-function fillable(form: ProgramForm, reqs: SubmissionRequirement[], answers: Record<string, string>) {
-  const pairs: [string, string, string][] = []; // [key, param, value]
+function fillable(form: ProgramForm, reqs: SubmissionRequirement[], answers: Record<string, string>, multi: boolean) {
+  const pairs: [string, string, string[]][] = []; // [key, param, values]
   const left: string[] = [];
   for (const r of reqs) {
     const v = answers[r.key]?.trim();
     if (!v) continue;
     const param = form.fields[r.key];
-    const badChoice = r.type === 'choice' && !(r.options ?? []).includes(v);
-    if (!param || badChoice || r.type === 'file') left.push(r.key);
-    else pairs.push([r.key, param, v]);
+    const parts = r.type === 'multi_choice' ? multiChoiceParts(v) : [v];
+    const badChoice =
+      (r.type === 'choice' || r.type === 'multi_choice') && (parts.length === 0 || !parts.every((x) => (r.options ?? []).includes(x)));
+    if (!param || badChoice || r.type === 'file' || (r.type === 'multi_choice' && !multi)) left.push(r.key);
+    else pairs.push([r.key, param, parts]);
   }
   return { pairs, left };
 }
@@ -188,8 +196,9 @@ function build(
   form: ProgramForm,
   reqs: SubmissionRequirement[],
   answers: Record<string, string>,
+  multi = false,
 ): { url: string; left: string[] } {
-  const { pairs, left } = fillable(form, reqs, answers);
+  const { pairs, left } = fillable(form, reqs, answers, multi);
   const over: string[] = [];
   const url = prefill(base, sep, pairs.map(([, p, v]) => [paramOf(p), v]), over);
   const overKeys = pairs.filter(([, p]) => over.includes(paramOf(p))).map(([k]) => k);
@@ -197,9 +206,9 @@ function build(
   return { url, left: [...left, ...overKeys].sort((a, b) => order.indexOf(a) - order.indexOf(b)) };
 }
 
-/** Google Forms: `viewform?usp=pp_url&entry.<n>=<answer>`. Pure. */
+/** Google Forms: `viewform?usp=pp_url&entry.<n>=<answer>`; a checkbox repeats `entry.<n>` per option. Pure. */
 export const googlePrefill = (f: ProgramForm, reqs: SubmissionRequirement[], a: Record<string, string>) =>
-  build(`${f.url}?usp=pp_url`, '&', (p) => p, f, reqs, a);
+  build(`${f.url}?usp=pp_url`, '&', (p) => p, f, reqs, a, true);
 /** Airtable: `?prefill_<Field Name>=<answer>`. Pure. */
 export const airtablePrefill = (f: ProgramForm, reqs: SubmissionRequirement[], a: Record<string, string>) =>
   build(f.url, '?', (p) => `prefill_${enc(p)}`, f, reqs, a);

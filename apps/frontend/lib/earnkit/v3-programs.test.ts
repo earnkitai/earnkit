@@ -228,6 +228,9 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   assert.ok((await attachToX(own, { id: `96${RUN}7`, username: `vg${RUN}`.slice(0, 15), name: 'vg', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
   const key = `vg${RUN}/kit`;
+  // v3.1 Task 8: ETHGlobal Mumbai is unlisted, so an active copy stands in for an open in-person program.
+  const mumbai = `ethglobal-mumbai-v3g-${process.pid}`;
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('ethglobal-mumbai'), id: mumbai, status: 'active' }));
   // A product repo the matcher calls likely for ETHGlobal Mumbai (in person) and Base Builder Grants.
   const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
@@ -236,7 +239,7 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
   const fits: RepoFit[] = [{
     repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true,
-    verdicts: ['ethglobal-mumbai', 'base-builder-grants'].map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
+    verdicts: [mumbai, 'base-builder-grants'].map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
   }];
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
@@ -250,7 +253,7 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   const funds = (await profileData(c.id, new Date()))!.project!.funds;
   assert.ok(funds.some((l) => l.startsWith('Base Builder Grant Program pays ')), JSON.stringify(funds));
   assert.ok(!funds.some((l) => /ETHGlobal/.test(l)), JSON.stringify(funds));
-  const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === 'ethglobal-mumbai');
+  const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === mumbai);
   assert.equal(tile?.in_person, true, 'still listed');
 });
 
