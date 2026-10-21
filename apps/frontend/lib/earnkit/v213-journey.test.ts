@@ -42,6 +42,7 @@ import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { profileSite } from './site-data';
+import { unsign } from './fixtures/page-words';
 import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
@@ -648,7 +649,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
   // v3.1 Task 7: the coin is the Token card's ($SYMBOL and the Back pill).
-  const prof = await renderProfile('maya_makes');
+  const prof = unsign(await renderProfile('maya_makes'));
   assert.match(prof, new RegExp(`data-ek-token[\\s\\S]*?\\$${pill.symbol}`), prof);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.backing, pill);

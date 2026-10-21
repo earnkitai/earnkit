@@ -10,11 +10,18 @@ export const ACTIVITY_PER_PAGE = 3;
 /** The live dot pulses for a push within this long; after, it is a still grey dot. */
 const FRESH_MS = 7 * 86_400_000;
 
-/** A week's words: the Started line, else the summary, else the builder's note, else the fact chips. Pure. */
-const words = (c: ProfileCard): string => c.started || c.summary || c.text || c.chips.join(' · ');
+/** A commits chip ("12 commits"), shown at the card's right already. */
+const COMMITS_CHIP = /^\d[\d,]* commits?$/;
+/**
+ * A week's words: the Started line, else the summary, else the builder's note, else the fact chips (without the
+ * commits chip when the count already shows at the right). Pure.
+ */
+export const weekWords = (c: ProfileCard): string =>
+  c.started || c.summary || c.text || c.chips.filter((x) => !((c.commits ?? 0) > 0 && COMMITS_CHIP.test(x))).join(' · ');
 
 function WeekCard({ c }: { c: ProfileCard }) {
   const commits = c.commits ?? 0;
+  const body = weekWords(c);
   return (
     <article className="flex flex-col gap-2 rounded-[24px] bg-s-light-inner px-6 py-[22px] hover:bg-s-light-hover motion-safe:transition-[background-color,transform] motion-safe:duration-150 motion-safe:hover:-translate-y-0.5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -22,7 +29,7 @@ function WeekCard({ c }: { c: ProfileCard }) {
         {commits > 0 ? <span className="text-[13px] text-s-ink-muted">{`${commits.toLocaleString('en-US')} ${commits === 1 ? 'commit' : 'commits'}`}</span> : null}
       </div>
       {c.confirmed === false ? <span className="-mt-1 text-[13px] text-s-ink-muted">{UNCONFIRMED_LABEL}</span> : null}
-      <p className="text-[15px] leading-[1.6] text-s-ink-body [overflow-wrap:anywhere]">{words(c)}</p>
+      {body ? <p className="text-[15px] leading-[1.6] text-s-ink-body [overflow-wrap:anywhere]">{body}</p> : null}
     </article>
   );
 }

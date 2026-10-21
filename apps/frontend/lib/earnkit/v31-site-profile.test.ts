@@ -9,7 +9,8 @@ import { JENIL, JENIL_SITE, MAYA, MAYA_SITE, SAM, SAM_SITE } from './fixtures/pr
 import type { ProfileData } from './bench-data';
 import { PRIVATE_NAME } from './page-data';
 import type { ProfileSite } from './site-data';
-import { SCORE_PENDING, nextUpdateLine } from './site-copy';
+import { SCORE_PENDING, nextUpdateLine, weekLine } from './site-copy';
+import Money from '../../app/components/site/Money';
 
 /**
  * v3.1 site Task 7: the profile (Profile, BackedBuilder and NewBuilder boards): the blue hero, the navy Shipping
@@ -21,7 +22,7 @@ import { SCORE_PENDING, nextUpdateLine } from './site-copy';
 const FRONTEND = join(import.meta.dirname, '../..');
 const page = (data: ProfileData, site: ProfileSite, n = 1) =>
   renderToStaticMarkup(React.createElement(BenchProfileView, { data, site, page: n })).replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, '&');
-const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+const text = (h: string) => h.replace(/<span data-ek-sign=""[^>]*>([^<]*)<\/span>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 /** The markup inside the element whose open tag carries `marker`, through its matching close (same tag name). */
 const block = (h: string, marker: string) => {
   const at = h.indexOf(marker);
@@ -230,4 +231,47 @@ test('(j) phone: names, handles and project names wrap; every link and button is
   const h = page(long, { ...MAYA_SITE, project: { ...MAYA_SITE.project!, name: 'An extraordinarily long project name here' } });
   assert.match(h, /<h1[^>]*class="[^"]*break-words/);
   for (const m of h.split('<footer')[0].matchAll(/<a [^>]*class="([^"]*)"/g)) assert.match(m[1], /min-h-11|h-11/, m[0]);
+});
+
+test('(k) fix round 1: this week\'s commits light the 12th square and add a week; the first-week note gives way while shipping', () => {
+  // Last week on (11th), this week not yet in the grid (12th off), commits read this week.
+  const grid = SAM.grid.map((g, i) => ({ ...g, on: i === 50 }));
+  const h = page({ ...SAM, grid, streak: 1 }, { ...SAM_SITE, thisWeek: 6 });
+  const streak = block(h, 'data-ek-streak');
+  const squares = block(streak, 'aria-label="Code in 2 of the last 12 weeks"');
+  assert.match(squares.match(/<span [^>]*>/g)![11], /bg-s-rust-on/);
+  assert.ok(text(streak).includes('2 weeks') && text(streak).includes('Code in 2 of 12 weeks') && text(streak).includes('This week: 6 commits'));
+  assert.ok(!text(streak).includes('Week 2 starts Monday'));
+  // A gap last week: this week alone is 1 week.
+  const gap = block(page({ ...SAM, grid: SAM.grid.map((g) => ({ ...g, on: false })), streak: 0 }, { ...SAM_SITE, thisWeek: 3 }), 'data-ek-streak');
+  assert.ok(text(gap).includes('1 week') && gap.includes('aria-label="Code in 1 of the last 12 weeks"'));
+  // Already lit, or nothing this week: as stored.
+  assert.ok(text(block(page(JENIL, JENIL_SITE), 'data-ek-streak')).includes('5 weeks'));
+  assert.ok(text(block(page({ ...SAM, grid, streak: 1 }, SAM_SITE), 'data-ek-streak')).includes('Week 2 starts Monday'));
+  // Quiet pages never light it.
+  const conf = block(page({ ...MAYA, project: { ...MAYA.project!, confirmed: false } }, { ...MAYA_SITE, thisWeek: 9 }), 'data-ek-streak');
+  assert.ok(!conf.includes('bg-s-rust-on') && text(conf).includes('0 weeks'));
+  assert.equal(weekLine(123456), 'This week: 123,456 commits');
+});
+
+test('(l) fix round 1: money signs in Funnel Sans; the coin is the project tile; no repeated commits chip; the minimal footer gap', () => {
+  const sign = (h: string) => h.match(/<span data-ek-sign="" class="font-funnel-sans[^"]*">\$<\/span>/g) ?? [];
+  assert.equal(renderToStaticMarkup(React.createElement(Money, { text: '$412' })), '<span data-ek-sign="" class="font-funnel-sans font-normal">$</span>412');
+  assert.equal(renderToStaticMarkup(React.createElement(Money, { text: 'up to €5,000 or £3' })).match(/data-ek-sign/g)!.length, 2);
+  assert.equal(renderToStaticMarkup(React.createElement(Money, { text: 'Tipjar' })), 'Tipjar');
+  const tok = block(page(MAYA, MAYA_SITE), 'data-ek-token');
+  assert.equal(sign(tok).length, 2, 'the ticker and the fees');
+  assert.match(tok, /<span data-ek-sign[^>]*>\$<\/span>TIPJAR/);
+  assert.match(tok, /<span data-ek-sign[^>]*>\$<\/span>412/);
+  // The coin: the project's letter and colour, not the symbol's.
+  const coin = page(MAYA, { ...MAYA_SITE, token: { ...MAYA_SITE.token!, letter: 'Z', color: 'x' }, project: { ...MAYA_SITE.project!, letter: 'Q', color: 'rgb(1, 2, 3)' } });
+  assert.match(block(coin, 'data-ek-token'), /style="background:rgb\(1, 2, 3\)">Q</);
+  // A facts-only week with its commits at the right does not repeat them in the words.
+  const act = block(page({ ...JENIL, log: [{ week: '2026-10-12', text: null, chips: ['Went live', '12 commits'], commits: 12 }] }, JENIL_SITE), 'data-ek-activity');
+  assert.equal((text(act).match(/12 commits/g) ?? []).length, 1);
+  assert.ok(text(act).includes('Went live'));
+  const only = block(page({ ...JENIL, log: [{ week: '2026-10-12', text: null, chips: ['12 commits'], commits: 12 }] }, JENIL_SITE), 'data-ek-activity');
+  assert.equal((text(only).match(/12 commits/g) ?? []).length, 1);
+  // The minimal footer sits 72px under the cards on desktop.
+  assert.match(page(JENIL, JENIL_SITE), /<footer class="[^"]*md:mt-\[72px\]/);
 });

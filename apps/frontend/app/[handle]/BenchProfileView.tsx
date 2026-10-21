@@ -31,6 +31,18 @@ const last12 = (grid: ProfileData['grid']): boolean[] => {
   return [...Array<boolean>(12 - on.length).fill(false), ...on];
 };
 
+/**
+ * The Streak card's numbers. The 12th square is this week: the stored grid and streak (weeks.ts streakOf) leave an
+ * unlit current week out, so commits read this week (site.thisWeek) light it and add it to the streak. Quiet
+ * (confirming, no project): 0 weeks, all off. Pure.
+ */
+export function streakOf(d: ProfileData, site: ProfileSite, quiet: boolean): { streak: number; weeks: boolean[]; thisWeek: number } {
+  if (quiet) return { streak: 0, weeks: last12([]), thisWeek: 0 };
+  const weeks = last12(d.grid);
+  if (site.thisWeek > 0 && !weeks[11]) return { streak: d.streak + 1, weeks: [...weeks.slice(0, 11), true], thisWeek: site.thisWeek };
+  return { streak: d.streak, weeks, thisWeek: site.thisWeek };
+}
+
 /** While the page's sources refresh: the photo, name and @handle at once on a flat hero, the other cards as flat shapes. */
 export function BenchProfileSkeleton({
   head,
@@ -76,18 +88,19 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
   const line = d.project === null ? noProjectLine(d.name) : confirming ? confirmingCardLine(d.name, d.project.name) : null;
   return (
     <>
-      <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2`}>
+      {/* No bottom padding from md: the minimal footer's 72px is the whole gap under the cards (Profile board). */}
+      <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 md:pb-0`}>
         <section aria-label="Profile" className="flex flex-wrap items-stretch gap-4">
           <HeroCard data={d} site={site} line={line} />
           <div className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
             <ScoreCard score={quiet ? null : d.score} first={site.first} />
-            <StreakCard streak={quiet ? 0 : d.streak} weeks={quiet ? last12([]) : last12(d.grid)} thisWeek={quiet ? 0 : site.thisWeek} />
+            <StreakCard {...streakOf(d, site, quiet)} />
           </div>
         </section>
         <section aria-label="Activity and highlights" className="flex flex-wrap items-start gap-4">
           <ActivityCard log={d.log} lastShippedAt={site.lastShippedAt} page={page} path={pagePath(d.handle)} quiet={quiet} now={now} />
           <aside className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
-            {site.token ? <TokenCard token={site.token} first={site.first} /> : null}
+            {site.token ? <TokenCard token={site.token} first={site.first} project={site.project} /> : null}
             <HighlightsCard items={site.highlights} />
           </aside>
         </section>

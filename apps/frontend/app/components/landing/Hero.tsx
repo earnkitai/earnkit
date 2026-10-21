@@ -2,6 +2,7 @@ import InstallButton from '../common/InstallButton';
 import { AGENT_MARKS, AgentMark } from '../site/AgentMarks';
 import HeroArt from './HeroArt';
 import { CTA_INSTALL, HERO_SUB, HERO_TITLE } from '../../../lib/earnkit/site-copy';
+import Money from '../site/Money';
 
 /** The readability shade over the painting: light at the top, clear through the arches, deep under the words. */
 const SHADE =
@@ -32,7 +33,10 @@ export default function Hero({ chip }: { chip: string | null }) {
             className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-chip px-4 text-[14px] text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:h-9"
           >
             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-s-rust-light shadow-[0_0_10px_var(--ek-s-rust-light)]" />
-            {chip}
+            {/* One flex item: the chip's gap must not split the sign from its digits. */}
+            <span>
+              <Money text={chip} />
+            </span>
           </a>
         ) : null}
         <h1 className="ek-serif whitespace-nowrap text-[clamp(36px,9.6vw,96px)] leading-none tracking-[-0.015em] text-s-text [text-shadow:0_6px_50px_var(--ek-s-hero-title-shadow)]">

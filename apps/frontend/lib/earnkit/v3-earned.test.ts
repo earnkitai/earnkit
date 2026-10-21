@@ -24,6 +24,7 @@ import { readStats } from './stats';
 import { backingLine } from './bench-reply';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { profileSite } from './site-data';
+import { unsign } from './fixtures/page-words';
 
 /**
  * v3 Stage 2 Task 4 (spec 5.2, 5.3 Route 2): backers (distinct wallets that received the coin, indexed from Base) and
@@ -332,7 +333,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   // v3.1 (plan S15): Earned left the page (the JSON and the reply keep it); the coin's fees show on the Token card.
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
   assert.doesNotMatch(html, /data-ek-earned|>Earned<|waiting/, html);
-  assert.match(html, /data-ek-token[\s\S]*?>2<[\s\S]*?>\$200</, 'the Token card: 2 backers, $200 earned by the builder');
+  assert.match(unsign(html), /data-ek-token[\s\S]*?>2<[\s\S]*?>\$200</, 'the Token card: 2 backers, $200 earned by the builder');
 
   const r = show(await find(b));
   assert.match(standLine(r), / · \$200 earned$/, r);

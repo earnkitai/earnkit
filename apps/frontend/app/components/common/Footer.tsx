@@ -59,7 +59,7 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
 
   if (variant === 'minimal')
     return (
-      <footer className="mt-14 px-4 pb-8 md:mt-24 md:px-6">
+      <footer className="mt-14 px-4 pb-8 md:mt-[72px] md:px-6">
         <div className="mx-auto max-w-[1152px] text-s-text">
           <div className={`${BAR} border-s-step-line pb-2`}>
             <HomeMark />

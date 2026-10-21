@@ -15,12 +15,14 @@ import { RESERVED_ROUTES } from './reserved-routes';
 import { homeFixture } from './fixtures/landing';
 import { withEnv } from './fixtures/find';
 import { sql } from './db';
+import { unsign } from './fixtures/page-words';
 
 // The components are compiled with the classic JSX runtime here (as landing.test.ts).
 (globalThis as { React?: typeof React }).React = React;
 
 const FRONTEND = join(import.meta.dirname, '../..');
-const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
+// v3.1 Task 7: Money draws currency signs in their own span; read them as one word.
+const html = (el: React.ReactElement) => unsign(renderToStaticMarkup(el)).replace(/&#x27;/g, "'");
 const page = (landing: Landing | null) => html(React.createElement(HomeView, { landing }));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
@@ -78,7 +80,7 @@ test('(e) HomeView with landing = null and with no programs renders the hero and
 
 test('(f) the hero: the chip (to #earn) only with money open, the one-line title, the sub line, the four agent marks', () => {
   const h = html(React.createElement(Hero, { chip: '$105K in grants open now' }));
-  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$105K in grants open now<\/a>/);
+  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$105K in grants open now<\/span><\/a>/);
   assert.doesNotMatch(html(React.createElement(Hero, { chip: null })), /href="#earn"/);
   assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Earn from building.<\/h1>/);
   assert.equal((h.match(/role="img"/g) ?? []).length, 4);

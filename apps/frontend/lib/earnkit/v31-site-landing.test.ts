@@ -9,6 +9,7 @@ import { ARCH_PATH } from '../../app/components/landing/HeroArt';
 import type { FeedCard } from './feed';
 import type { Landing, Tile } from './landing';
 import { SITE } from './site-theme';
+import { unsign } from './fixtures/page-words';
 import {
   ACTIVITY_INVITE_TEXT,
   ACTIVITY_INVITE_TITLE,
@@ -31,7 +32,9 @@ import {
 (globalThis as { React?: typeof React }).React = React;
 const FRONTEND = join(import.meta.dirname, '../..');
 const read = (p: string) => readFileSync(join(FRONTEND, p), 'utf8');
-const html = (landing: Landing | null) => renderToStaticMarkup(React.createElement(HomeView, { landing }));
+const raw = (landing: Landing | null) => renderToStaticMarkup(React.createElement(HomeView, { landing }));
+/** The markup with Money's sign spans unwrapped (test (j) pins the spans on `raw`). */
+const html = (landing: Landing | null) => unsign(raw(landing));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, ' ');
 const esc = (s: string) => s.replace(/[().*+?^$|[\]\\{}]/g, '\\$&');
 /** The markup of one section, by its id. */
@@ -127,7 +130,7 @@ test('(a) order: chip, h1, sub, one install button in the hero, four agent marks
 
 test('(b) the chip is landing.open_chip linking #earn; open_chip null renders no chip', () => {
   const h = html(LANDING);
-  assert.match(h, new RegExp(`<a [^>]*href="#earn"[^>]*>.*?${esc(LANDING.open_chip!)}</a>`));
+  assert.match(h, new RegExp(`<a [^>]*href="#earn"[^>]*>.*?${esc(LANDING.open_chip!)}</span></a>`));
   const none = html({ ...LANDING, open_chip: null });
   assert.doesNotMatch(none, /href="#earn"/);
   assert.doesNotMatch(text(none), /open now/);
@@ -291,4 +294,14 @@ test('(i) fix round 1: every landing transition runs only without reduced motion
   for (const m of h.matchAll(/class="([^"]*)"/g))
     for (const c of m[1].split(' ')) assert.ok(!/^(transition|duration-|ease-)/.test(c), `bare ${c} in: ${m[1]}`);
   assert.match(h, /motion-safe:transition-\[border-color,transform\]/, 'the Activity card');
+});
+
+test('(j) Task 7 fix round 1: the chip and the program numbers draw "$" in Funnel Sans (Money), the digits stay Kaftan', () => {
+  const h = raw(LANDING);
+  const sign = /<span data-ek-sign="" class="font-funnel-sans font-normal">\$<\/span>/;
+  assert.match(h, new RegExp(`<span>${sign.source}105K in grants open now</span>`), 'the chip: one flex item, so the gap never splits the sign');
+  const earn = section(h, 'earn');
+  assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}5K</span>`), 'a big number');
+  assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}1M</span>`));
+  assert.doesNotMatch(earn.replace(new RegExp(sign.source, 'g'), ''), /ek-serif[^>]*>\$/, 'no Kaftan "$" left');
 });

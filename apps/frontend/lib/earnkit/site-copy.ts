@@ -80,7 +80,7 @@ export function programKind(c: { investment?: boolean; in_person?: boolean; rewa
 }
 
 export const streakNote = (streak: number, on12: number): string => (streak === 1 ? 'Week 2 starts Monday' : `Code in ${on12} of 12 weeks`);
-export const weekLine = (n: number): string => (n <= 0 ? 'Ship by Sunday' : `This week: ${n} ${n === 1 ? 'commit' : 'commits'}`);
+export const weekLine = (n: number): string => (n <= 0 ? 'Ship by Sunday' : `This week: ${n.toLocaleString('en-US')} ${n === 1 ? 'commit' : 'commits'}`);
 
 /** "Next update posts Monday, Oct 26": the Monday after the week `now` is in (UTC). */
 export function nextUpdateLine(now: Date): string {

@@ -28,6 +28,7 @@ import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
 import HomeView from '../../app/HomeView';
+import { unsign } from './fixtures/page-words';
 
 (globalThis as { React?: typeof React }).React = React;
 appEnv();
@@ -147,7 +148,7 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
   // v3.1 Task 6: the landing shows the hero chip (open_chip, the same figure), never "open right now".
-  const t = renderToStaticMarkup(React.createElement(HomeView, { landing })).replace(/<[^>]+>/g, ' ');
+  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing }))).replace(/<[^>]+>/g, ' ');
   assert.ok(landing.open_chip && t.includes(landing.open_chip) && landing.open_chip.startsWith('$100K '), t.slice(0, 300));
   assert.doesNotMatch(t, /open right now/);
 });

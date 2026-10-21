@@ -25,11 +25,13 @@ import type { GuidePage } from './landing';
 import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
 import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
+import { unsign } from './fixtures/page-words';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
 
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+// v3.1 Task 7: Money draws currency signs in their own span; read them as one word.
+const html = (el: React.ReactElement) => unsign(renderToStaticMarkup(el));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 test('footer: links the terms page', () => {

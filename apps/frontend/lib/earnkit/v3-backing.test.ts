@@ -8,7 +8,7 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { withEnv } from './fixtures/find';
 import { BENCH_EXTRA, bannedInBench } from './fixtures/banned-words';
-import { pageWords } from './fixtures/page-words';
+import { pageWords, unsign } from './fixtures/page-words';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
@@ -231,7 +231,7 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   const site = await profileSite(b.id, d, new Date());
   assert.ok(site.token, 'the Token card');
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
-  const tok = html.slice(html.indexOf('data-ek-token'));
+  const tok = unsign(html.slice(html.indexOf('data-ek-token')));
   assert.ok(tok.includes(`$${sym}`), tok);
   assert.match(tok, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*>Back ${site.first}</a>`), tok);
   assert.doesNotMatch(html, /Community round/);
