@@ -229,6 +229,11 @@ export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()):
  */
 export async function readStats(now = new Date(), db: Db = sql()): Promise<PublicStats> {
   const ids = testInstallationIds();
+  // Launch baseline 2026-10-22: X handles of the team's own accounts (lowercase, no @), e.g.
+  // EARNKIT_INTERNAL_HANDLES=jenilt,earnkitai. Every installation in a group whose profile has one of
+  // these handles is internal and counts in no public number.
+  const internal = (process.env.EARNKIT_INTERNAL_HANDLES ?? '')
+    .split(',').map((h) => h.trim().replace(/^@/, '').toLowerCase()).filter(Boolean);
   const [r] = await db<Row[]>`
     WITH open AS (
       SELECT max_award_usd, builder_bonus, campaign FROM programs
@@ -275,16 +280,21 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
           AND l.round_key IN (SELECT round_key FROM bonus_rounds WHERE state = 'open')
           AND NOT (l.coin IS NOT NULL AND l.coin IN (SELECT coin_address FROM projects
             WHERE coin_address IS NOT NULL AND installation_id = ANY(${ids}::int[]))))::text AS bonus_pools_wei,
-      (SELECT count(*) FROM installations WHERE NOT (id = ANY(${ids}::int[])))::int AS installs,
+      -- Unique people only: one per builder group, never a test or internal group.
+      (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
+        WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[]))
+          AND NOT (COALESCE(builder_id, id) IN (SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ANY(${internal}::text[]))))::int AS installs,
       -- Pre-launch 2026-10-19: \`installs\` counts every OAuth token exchange for a new client
       -- registration, before any tool call (a re-add, a new machine or a scripted OAuth run is a new
       -- row). These two make the launch numbers trustworthy without changing \`installs\`:
       -- installs_used, the installations that called find at least once (a real first run); builders,
       -- distinct builder groups (v2.8.1 §E18 links a reinstall or an agent switch by builder_id).
-      (SELECT count(*) FROM installations
-        WHERE programs_checked_at IS NOT NULL AND NOT (id = ANY(${ids}::int[])))::int AS installs_used,
       (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
-        WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[])))::int AS builders,
+        WHERE programs_checked_at IS NOT NULL AND NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[]))
+          AND NOT (COALESCE(builder_id, id) IN (SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ANY(${internal}::text[]))))::int AS installs_used,
+      (SELECT count(DISTINCT COALESCE(builder_id, id)) FROM installations
+        WHERE NOT (id = ANY(${ids}::int[])) AND NOT (COALESCE(builder_id, id) = ANY(${ids}::int[]))
+          AND NOT (COALESCE(builder_id, id) IN (SELECT builder_id FROM builder_profiles WHERE lower(x_handle) = ANY(${internal}::text[]))))::int AS builders,
       -- Launch-ready L9 (the funnel), from the weekly moment's approvals (L6: a yes to "Does last week look right?"
       -- sets project_updates.facts.approved and approved_at). Activated: a claimed page, a repo verified by the
       -- read-only EarnKit app, and an approved week. Weekly active: the same people (so never above activated) with
@@ -292,10 +302,12 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- People (weeks for shared), never a test installation's group.
       (SELECT count(*) FROM builder_profiles p
         WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
+          AND NOT (lower(COALESCE(p.x_handle, '')) = ANY(${internal}::text[]))
           AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
           AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${approvedWeek(db)}))::int AS activated,
       (SELECT count(*) FROM builder_profiles p
         WHERE p.x_user_id IS NOT NULL AND ${notTest(db, ids)}
+          AND NOT (lower(COALESCE(p.x_handle, '')) = ANY(${internal}::text[]))
           AND EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = p.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app')
           AND EXISTS (SELECT 1 FROM project_updates u WHERE u.builder_id = p.builder_id AND ${approvedWeek(db)}
             AND (u.facts->>'approved_at')::timestamptz > ${now}::timestamptz - interval '7 days'))::int AS weekly_active,
