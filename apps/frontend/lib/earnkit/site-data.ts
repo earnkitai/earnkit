@@ -6,8 +6,8 @@ import { raisingEnabled } from './builder-score-flag';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { norm, projectProgramsDated } from './page-data';
-import { standingOf, weekCounts } from './person-score';
-import { BACKING_EXCLUDED_REPOS } from './policy-constants';
+import { listedRanked, standingOf, weekCounts } from './person-score';
+import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
 import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
@@ -309,4 +309,42 @@ export async function profileSite(builderId: number, d: ProfileData, now: Date, 
     project: projectPanel(d, key),
     first: firstName(d.name, d.handle),
   };
+}
+
+export type FeedWeekStats = { builders: number; commits: number; went_live: number; applications: number };
+
+/**
+ * Plan W5: the feed week's four numbers for the week starting `monday`. builders and commits: the week's visible updates
+ * (feed.ts feedRows' joins: listed, the one project Bench-confirmed, not hidden, not feed_hidden; uncapped) with
+ * shipped_code.n above 0. went_live: the visible updates whose facts say went live. applications: distinct
+ * (builder, program) with a submitted entry (page-data.ts programEntries' applied rule) or a told "applied"
+ * (builder_program_status) timed inside the week, over all builders. `only` limits the pool (tests).
+ */
+export async function feedWeekStats(monday: string, o: { only?: number[] } = {}): Promise<FeedWeekStats> {
+  const db = sql();
+  const from = new Date(`${monday}T00:00:00Z`);
+  const to = new Date(from.getTime() + 7 * DAY_MS);
+  const [row] = await db<{ builders: number; commits: number; went_live: number }[]>`
+    SELECT count(*) FILTER (WHERE n > 0)::int AS builders, COALESCE(sum(n) FILTER (WHERE n > 0), 0)::int AS commits, count(*) FILTER (WHERE live)::int AS went_live
+    FROM (
+      SELECT COALESCE((u.facts->'shipped_code'->>'n')::int, 0) AS n, COALESCE((u.facts->>'went_live')::boolean, false) AS live
+      FROM project_updates u
+      JOIN ${listedRanked(db, o.only)} l ON l.builder_id = u.builder_id
+      JOIN builder_profiles p ON p.builder_id = u.builder_id AND lower(p.main_project_key) = lower(u.project_key)
+      JOIN builder_projects b ON b.builder_id = u.builder_id AND lower(b.project_key) = lower(u.project_key) AND ${benchConfirmedSql(db)}
+      WHERE u.week >= ${monday} AND u.week < ${to.toISOString().slice(0, 10)} AND NOT u.hidden AND NOT u.feed_hidden
+    ) x`;
+  const [apps] = await db<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM (
+      SELECT COALESCE(i.builder_id, i.id) AS builder, p.program_id AS program
+      FROM projects p JOIN installations i ON i.id = p.installation_id
+      WHERE p.program_id <> ${COIN_PROGRAM} AND p.vetoed_at IS NULL AND p.submitted_at >= ${from} AND p.submitted_at < ${to}
+        AND (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
+          OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id))
+      UNION
+      SELECT COALESCE(i.builder_id, i.id), s.program_id
+      FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+      WHERE s.login = '' AND s.status = 'applied' AND s.at >= ${from} AND s.at < ${to}
+    ) a`;
+  return { builders: row.builders, commits: row.commits, went_live: row.went_live, applications: apps.n };
 }

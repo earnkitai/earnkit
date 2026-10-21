@@ -2,7 +2,7 @@ import InstallButton from '../common/InstallButton';
 import FeaturedCard from './FeaturedCard';
 import { BTN_PRIMARY } from '../common/Button';
 import { COLUMN, H1, LEDE } from '../common/Panel';
-import type { FeaturedData } from '../../../lib/earnkit/landing';
+import type { FeaturedData } from './FeaturedCard';
 
 /** v2.13 spec "Landing page" 1, R18, v3 Stage 3 (spec 5.6): the hero's words. Shipping and funding; no coin, no community round. */
 export const BENCH_HERO_TITLE = 'Ship every week. Get funded.';

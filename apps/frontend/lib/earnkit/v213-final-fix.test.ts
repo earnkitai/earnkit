@@ -214,7 +214,7 @@ test('F10 raising off: no raise ask, no raise line (the coin moment is v2.12.1\'
 });
 
 test('F11 raising off: the Bench, the landing top 10, tell\'s description and llms.txt name no raising', async () => {
-  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, backing: null, chains: [], project: 'Recipe planner', best: 'Live' };
+  const row = { rank: 1, line: '#1 of 2', points: 62, handle: 'maya', name: 'Maya', avatar: null, backing: null, chains: [], project: 'Recipe planner', best: 'Live', streak: 0 };
   const filter = { chain: null, weekly: false };
   // Launch-ready L3: the leaderboard has no community round chip, whatever EARNKIT_RAISING says.
   const board = renderToStaticMarkup(React.createElement(BenchView, { rows: [row], count: 2, chips: [], filter }));

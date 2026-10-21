@@ -2,7 +2,6 @@ import Hero from './components/sections/Hero';
 import BackedBy from './components/sections/BackedBy';
 import Footer from './components/common/Footer';
 import { COLUMN } from './components/common/Panel';
-import BenchTop from './components/sections/BenchTop';
 import FeedRows from './components/sections/FeedRows';
 import ProgramCards from './components/sections/ProgramCards';
 import type { Landing } from '../lib/earnkit/landing';
@@ -16,13 +15,11 @@ import type { Landing } from '../lib/earnkit/landing';
  * It lives outside page.tsx because a page file may only export Next's own fields.
  */
 export default function HomeView({ landing }: { landing: Landing | null }) {
-  const bench = landing?.bench ?? null;
   return (
     <div className="w-full">
-      <Hero featured={landing?.featured ?? null} />
+      <Hero featured={null} />
       <div className={`${COLUMN} flex flex-col gap-14 md:gap-24`}>
-        {bench ? <BenchTop rows={bench.rows} count={bench.count} /> : null}
-        {bench ? <FeedRows cards={bench.cards} /> : null}
+        {landing ? <FeedRows cards={landing.activity} /> : null}
         {landing ? <ProgramCards tiles={landing.tiles} figure={landing.open_text} more={landing.open_more} /> : null}
         <BackedBy />
       </div>

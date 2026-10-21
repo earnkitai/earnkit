@@ -153,7 +153,7 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 (globalThis as { React?: typeof React }).React = React;
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
-    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building' })),
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building', streak: 0 })),
     count, chips: [], filter: { chain, weekly: false },
   })).replace(/&#x27;/g, "'");
 

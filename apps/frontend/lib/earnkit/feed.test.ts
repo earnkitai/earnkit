@@ -100,7 +100,7 @@ test('6.5 a person who is not listed (unclaimed, hidden or held) or a project no
 });
 
 test('6.6 the feed page: long cards, plain words, no "written by", no all-caps labels', () => {
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer and added the shopping list.', chips: ['Went live', '+31 people'], pinned: false };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer and added the shopping list.', chips: ['Went live', '+31 people'], pinned: false, score: 62, commits: 12 };
   const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }] }));
   for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people', 'Fixed the timer and added the shopping list.'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);

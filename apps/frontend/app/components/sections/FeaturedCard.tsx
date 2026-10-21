@@ -1,9 +1,11 @@
 import Avatar from '../../[handle]/Avatar';
 import { NUM } from '../common/Panel';
-import type { FeaturedData } from '../../../lib/earnkit/landing';
-import { dollars, streakWords } from '../../../lib/earnkit/bench-data';
+import { dollars, streakWords, type BenchCardFacts } from '../../../lib/earnkit/bench-data';
 import { pagePath } from '../../../lib/earnkit/reserved-routes';
 import { weekLabel } from '../../../lib/earnkit/weeks';
+
+/** The card's data (v3.1 site: it left landing.ts with the old featured read; this card is replaced by the new hero). */
+export type FeaturedData = { f: BenchCardFacts; rank: string | null; log: { week: string; summary: string | null }[]; points: number; earned: number | null };
 
 /** One, two or three numbers: a literal class per count, so Tailwind emits it. */
 const COLS = ['grid-cols-1', 'grid-cols-1', 'grid-cols-2', 'grid-cols-3'];

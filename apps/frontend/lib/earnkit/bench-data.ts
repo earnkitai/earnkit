@@ -62,7 +62,7 @@ export function bestFact(p: { streak: number; weeks_shipping: number; shipped: b
 }
 
 /** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. v3 Stage 2: `backing`, the Backing pill's coin. */
-export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
+export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string; /** v3.1 site: builder_projects.streak, weeks of code in a row. */ streak: number };
 
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
@@ -111,6 +111,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
       project: nameOf(r.builder_id, r.key),
       best: bestFact(r),
+      streak: r.streak,
     })),
   };
 }

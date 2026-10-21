@@ -77,7 +77,7 @@ test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (c
     { people_week: 0, streak: 0, weeks_shipping: 0, shipped: false },
   ].map(bestFact);
   for (const t of [BENCH_TITLE, benchLine(25), benchLine(1), BENCH_EMPTY, FILTER_WEEKLY, ...facts]) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week' };
+  const row = { rank: 2, line: 'Top 4%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const, 'robinhood' as const, 'arc' as const], project: 'Recipe planner', best: '31 people this week', streak: 0 };
   const page = pageWords(React.createElement(BenchView, { rows: [row], count: 25, chips: ['base', 'robinhood', 'arc'], filter: { chain: 'base', weekly: false } }));
   // Chain names only in the chips and the logos' alt text and tooltips (R14).
   assert.deepEqual(bannedInBench(page, ['Maya Chen', 'Recipe planner', '$RECIPE', ...Object.values(CHAIN_LABEL)]), [], page);
@@ -121,10 +121,8 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
   for (const t of [BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, BENCH_TOP_TITLE, SEE_BENCH, FEED_SECTION_TITLE, SEE_ALL_UPDATES, 'Money open now', BENCH_FOOTER_TAGLINE])
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
-  const row = { rank: 1, line: 'Top 1%', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false };
-  const rows = Array.from({ length: 12 }, (_, i) => ({ ...row, handle: `b${i}`, rank: i + 1 }));
-  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows, count: 12, chips: ['base', 'robinhood', 'arc'], cards: [card], raising: true } } }));
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people'], summary: null, pinned: false, score: 62, commits: 12 };
+  const page = pageWords(React.createElement(HomeView, { landing: { ...homeFixture, activity: [card] } }));
   // Names: the builder, the project, the coin, the programs' titles, the chains on the chips and logos (R14), the investors' logos (Backed by, unchanged).
   const investors = ['The LAO', 'IDEO', 'GCR'];
   const exempt = ['Maya Chen', 'Recipe planner', '$RECIPE', 'EarnKit', ...homeFixture.tiles.map((t) => t.title), ...Object.values(CHAIN_LABEL), ...investors];
@@ -142,7 +140,7 @@ test('13.8 no builder-visible bonus text: replies, landing, program pages, guide
   const { toolDescriptions, serverInstructions } = await import('./mcp');
   const bonusWords = /builder bonus|bonus pool|\bbonus\b/i;
   const pages = [
-    renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, bench: { rows: [], count: 0, chips: [], cards: [], raising: true } } })),
+    renderToStaticMarkup(React.createElement(HomeView, { landing: { ...homeFixture, activity: [] } })),
     renderToStaticMarkup(React.createElement(HomeView, { landing: null })),
     renderToStaticMarkup(React.createElement(TermsPage)),
     renderToStaticMarkup(React.createElement(GuideView, { page: fullGuide })),

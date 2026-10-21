@@ -1,5 +1,6 @@
 import type { Landing, Tile } from '../landing';
 import { NO_CELL } from '../present';
+import { compactUsd } from '../site-copy';
 
 /**
  * Test only: a homepage with 7 open programs (v2.8: all 7 in the carousel), for
@@ -20,12 +21,16 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
   logo: null,
   status: 'active',
   in_person: false,
+  kind: 'grant',
+  big: usd > 0 ? compactUsd(usd) : null,
+  when: 'Rolling',
   ...o,
 });
 export const homeFixture: Landing = {
   // v3 Stage 2: openGrantsText(openMoneyUsd) of these programs' top prizes (prize_usd): $160,500.
   open_text: '$160.5K in grants and prizes open',
   open_more: null,
+  open_chip: '$160.5K in grants open now',
   tiles: [
     tile('colosseum-worlds-fair', "Crypto World's Fair Hackathon", 30000, { chain: 'Base · Tempo · Robinhood Chain', prize: '$840K in prizes', prize_note: 'up to $30,000 per winner', pool_usd: 840000, difficulty: 'Hard' }),
     tile('monad-metropolis', 'Monad Metropolis', 25000, { chain: 'Monad', prize: '$250K+ in prizes', prize_note: 'up to $25,000 per winner', pool_usd: 250000, difficulty: 'Hard', days_left: 'ends today' }),
@@ -37,7 +42,5 @@ export const homeFixture: Landing = {
   ],
   stats_line: '120 agents earning',
   won_line: null,
-  // landingFrom alone has no Bench parts nor a featured builder; landing.test.ts 12.x and v3-landing.test.ts pass their own.
-  bench: null,
-  featured: null,
+  activity: [],
 };

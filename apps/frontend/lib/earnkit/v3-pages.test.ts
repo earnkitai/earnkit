@@ -32,7 +32,7 @@ import type { BenchRow } from './bench-data';
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week' };
+const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week', streak: 0 };
 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
@@ -81,7 +81,7 @@ test('(a) the chips: hairline pills with aria-pressed, 44px on a phone, the on s
 // ---- (f) nothing wider than a phone column -------------------------------------------------------
 
 test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, nothing cut', () => {
-  const long = { ...ROW, name: 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh', project: 'The Recipe Planner For Busy Families Who Cook Every Night', best: 'Went live, 3 weeks in a row, 1,204 people' };
+  const long = { ...ROW, name: 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh', project: 'The Recipe Planner For Busy Families Who Cook Every Night', best: 'Went live, 3 weeks in a row, 1,204 people', streak: 0 };
   const row = html(React.createElement(BenchRowItem, { r: long }));
   assert.doesNotMatch(row, /whitespace-nowrap/);
   assert.doesNotMatch(row, /\btruncate\b|text-ellipsis|line-clamp|max-w-\[/);
@@ -95,7 +95,7 @@ test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, nothi
 test('(b) the feed: H1 "Feed", the line, each week an H2 over a ROWS list of hairline rows (no gapped flex column)', () => {
   assert.equal(FEED_TITLE, 'Feed');
   assert.equal(FEED_LINE, 'What builders on the leaderboard shipped, week by week. Every fact is checked.');
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer.', chips: ['Went live'], pinned: false };
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer.', chips: ['Went live'], pinned: false, score: 62, commits: 12 };
   const h = html(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card, { ...card, id: 2, handle: 'devon_ships', name: 'Devon Park' }] }, { monday: '2026-10-05', label: 'Week of Oct 5', cards: [{ ...card, id: 3, week: '2026-10-05' }] }] }));
   assert.match(h, /<h1[^>]*>Feed<\/h1>/);
   assert.ok(h.includes(FEED_LINE));

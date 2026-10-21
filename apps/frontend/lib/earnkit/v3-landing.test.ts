@@ -7,17 +7,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import HomeView from '../../app/HomeView';
 import Header from '../../app/components/common/Header';
 import Hero, { BENCH_HERO_SUBTITLE, BENCH_HERO_TITLE } from '../../app/components/sections/Hero';
-import FeaturedCard from '../../app/components/sections/FeaturedCard';
-import { BENCH_TOP_EMPTY, BENCH_TOP_TITLE, benchLine } from '../../app/components/sections/BenchTop';
+import FeaturedCard, { type FeaturedData } from '../../app/components/sections/FeaturedCard';
 import { FEED_SECTION_TITLE } from '../../app/components/sections/FeedRows';
 import { PROGRAMS_EMPTY } from '../../app/components/sections/ProgramCards';
 import ProgramRow from '../../app/components/sections/ProgramRow';
 import AddToAgent from '../../app/components/sections/AddToAgent';
-import { FEATURED_HANDLE_DEFAULT, featuredHandle, readLanding, type FeaturedData, type Landing } from './landing';
+import { type Landing } from './landing';
 import { RESERVED_ROUTES } from './reserved-routes';
 import { homeFixture } from './fixtures/landing';
-import { person, withEnv } from './fixtures/find';
-import { upsertWeekFacts } from './week-facts';
+import { withEnv } from './fixtures/find';
 import { sql } from './db';
 
 // The components are compiled with the classic JSX runtime here (as landing.test.ts).
@@ -28,8 +26,7 @@ const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27
 const page = (landing: Landing | null) => html(React.createElement(HomeView, { landing }));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-const ROW = { rank: 1, line: '#1 of 12 builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week' };
-const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '12 commits'], summary: 'Shipped the fridge import and a weekly plan.', pinned: false, confirmed: true };
+const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '12 commits'], summary: 'Shipped the fridge import and a weekly plan.', pinned: false, confirmed: true, score: 62, commits: 12 };
 const FEATURED: FeaturedData = {
   f: { handle: 'jenilt', name: 'Jenil Thakker', avatar: null, bench: 'Shipping 72 · #3 of 40 builders', project: 'EarnKit', streak: 6, raising: null, score: 72, earned: null },
   rank: '#3',
@@ -40,22 +37,15 @@ const FEATURED: FeaturedData = {
   points: 72,
   earned: 1240,
 };
-const full: Landing = {
-  ...homeFixture,
-  featured: FEATURED,
-  bench: { rows: Array.from({ length: 12 }, (_, i) => ({ ...ROW, handle: `b${i}`, rank: i + 1 })), count: 12, chips: ['base'], cards: [CARD], raising: false },
-};
-const emptyBench: Landing = { ...homeFixture, tiles: [], open_text: null, open_more: null, featured: null, bench: { rows: [], count: 0, chips: [], cards: [], raising: false } };
+const full: Landing = { ...homeFixture, activity: [CARD] };
+const emptyBench: Landing = { ...homeFixture, tiles: [], open_text: null, open_more: null, open_chip: null, activity: [] };
 
-test('(a) the sections in order: hero, Leaderboard, Feed, Money open now, Backed by', () => {
+test('(a) the sections in order: hero, Feed (Activity), Money open now, Backed by', () => {
   const h = page(full);
-  const at = [BENCH_HERO_TITLE, `>${BENCH_TOP_TITLE}</h2>`, `>${FEED_SECTION_TITLE}</h2>`, '>Money open now</h2>', '>Backed by</h2>'].map((s) => h.indexOf(s));
+  const at = [BENCH_HERO_TITLE, `>${FEED_SECTION_TITLE}</h2>`, '>Money open now</h2>', '>Backed by</h2>'].map((s) => h.indexOf(s));
   assert.ok(at.every((i, k) => i >= 0 && (k === 0 || i > at[k - 1])), at.join(','));
-  assert.equal(BENCH_TOP_TITLE, 'Leaderboard');
   assert.equal(FEED_SECTION_TITLE, 'Feed');
-  assert.equal((h.match(/data-row=/g) ?? []).length, 10, 'the top 10');
-  assert.ok(h.includes('12 builders. Ranked by Shipping.'));
-  assert.match(h, /href="\/leaderboard"[^>]*>See the full leaderboard</);
+  assert.doesNotMatch(h, /data-row=/, 'no leaderboard rows on the landing');
   assert.match(h, /href="\/feed"[^>]*>See all</);
   // The feed rows are the long card (Task 3 restyles it), never the square one; no carousel.
   assert.match(h, /data-shape="long"/);
@@ -78,9 +68,6 @@ test('(c) nothing of the old kit in the HTML: no video, no builder image, no upp
   assert.ok(!page({ ...full, stats_line: '120 agents earning', won_line: 'Builders using EarnKit won $12,500' }).includes('agents earning'));
   assert.equal(BENCH_HERO_SUBTITLE, 'Add EarnKit to the agent you already use. It writes your weekly ship log from real commits, ranks you against every builder, and routes you to grants, accelerators and backers.');
   assert.equal(BENCH_HERO_TITLE, 'Ship every week. Get funded.');
-  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
-  assert.equal(benchLine(12), '12 builders. Ranked by Shipping.');
-  assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
 });
 
 test('(e) HomeView with landing = null and with an empty bench renders the hero and the empty lines, never throws', () => {
@@ -88,10 +75,9 @@ test('(e) HomeView with landing = null and with an empty bench renders the hero 
   assert.ok(none.includes(BENCH_HERO_TITLE) && none.includes(BENCH_HERO_SUBTITLE) && none.includes('>Backed by<'));
   assert.doesNotMatch(none, /data-row=|data-featured=/);
   // A failed read claims nothing about the live parts.
-  assert.ok(!none.includes(BENCH_TOP_EMPTY) && !none.includes(PROGRAMS_EMPTY));
+  assert.ok(!none.includes(PROGRAMS_EMPTY));
   const empty = page(emptyBench);
   assert.ok(empty.includes(BENCH_HERO_TITLE));
-  assert.ok(empty.includes(BENCH_TOP_EMPTY), 'the empty leaderboard line');
   assert.ok(empty.includes(PROGRAMS_EMPTY), 'the empty money line');
   assert.equal(PROGRAMS_EMPTY, 'No programs are open right now.');
   assert.doesNotMatch(empty, /data-featured=|data-row=|See the full leaderboard/);
@@ -120,15 +106,6 @@ test('(f) FeaturedCard: the handle and name, the three numbers, the streak, two 
   assert.ok(top.includes('Top 4%') && top.includes('Rank'));
   assert.match(html(React.createElement(FeaturedCard, { ...FEATURED, rank: null, earned: null })), /grid-cols-1/);
   assert.doesNotMatch(h, /uppercase|gradient|shadow/);
-  // The landing shows it only with data.
-  assert.match(page(full), /data-featured=""/);
-});
-
-test('(g) the featured handle: LANDING_FEATURED_HANDLE, default jenilt', async () => {
-  assert.equal(FEATURED_HANDLE_DEFAULT, 'jenilt');
-  await withEnv({ LANDING_FEATURED_HANDLE: undefined }, async () => assert.equal(featuredHandle(), 'jenilt'));
-  await withEnv({ LANDING_FEATURED_HANDLE: 'maya_makes' }, async () => assert.equal(featuredHandle(), 'maya_makes'));
-  await withEnv({ LANDING_FEATURED_HANDLE: '  ' }, async () => assert.equal(featuredHandle(), 'jenilt'));
 });
 
 test('(h) the deletions: the video, the graphics folder, the final CTA image and favicon-16x16 (and its reserved name)', () => {
@@ -178,63 +155,10 @@ test('(j) ProgramRow: one link per row with the title, the award and the chips i
   assert.doesNotMatch(h, /rounded-2xl|p-6|aspect-/);
 });
 
-// ---- (d) readLanding.featured against the database.
-const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
-const now = new Date('2026-10-20T12:00:00Z');
-const RUN = `${process.pid}${Date.now().toString(36)}`.slice(-10);
-
-/** A listed, ranked, claimed builder with three summarised weeks on a public repo. */
-async function featuredPerson(handle: string, o: { hidden?: boolean; held?: boolean; ranked?: boolean } = {}): Promise<number> {
-  const key = `feat${RUN}/site`;
-  const id = await person({ projects: [{ key, name: 'EarnKit', confirmed: true, streak: 3, weeks_shipping: 3 }], score: 72, ranked: o.ranked ?? true, main: key, claimed: handle });
-  await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
-  await sql()`UPDATE builder_profiles SET hidden = ${o.hidden ?? false}, held = ${o.held ?? false}, x_name = 'Jenil Thakker' WHERE builder_id = ${id}`;
-  for (const [i, monday] of ['2026-10-12', '2026-10-05', '2026-09-28'].entries())
-    await upsertWeekFacts(id, key, monday, { shipped_code: { n: 12 - i }, streak: { w: 3 - i }, approved: true }, [`Week ${i}`], `Shipped week ${i} of the site.`);
-  return id;
-}
-
-test('(d) featured: a listed ranked builder with the log; null when hidden, held, unranked or missing', dbTest, async () => {
-  const handle = `ft${RUN}`;
-  await featuredPerson(handle);
-  const on = await withEnv({ LANDING_FEATURED_HANDLE: handle }, () => readLanding(now));
-  assert.ok(on.featured, 'featured');
-  assert.equal(on.featured.f.handle, handle);
-  assert.equal(on.featured.f.name, 'Jenil Thakker');
-  // v3.1 F3: a pool under RANK_MIN_POOL: the score line alone and no rank (the card shows Shipping and Earned).
-  assert.equal(on.featured.f.bench, 'Shipping 72');
-  assert.equal(on.featured.points, 72);
-  assert.equal(on.featured.rank, null);
-  assert.deepEqual(on.featured.log.map((l) => l.week), ['2026-10-12', '2026-10-05']);
-  assert.equal(on.featured.log[0].summary, 'Shipped week 0 of the site.');
-  assert.equal(on.featured.earned, null, 'nothing earned: null, never 0');
-  assert.deepEqual(JSON.parse(JSON.stringify(on)), on, 'plain JSON');
-  // The feed rows are the last finished week's, at most 6.
-  assert.ok(on.bench && on.bench.cards.length <= 6);
-  assert.ok(on.bench!.cards.every((c) => c.week === on.bench!.cards[0].week), 'one week');
-
-  const hidden = `fh${RUN}`;
-  await featuredPerson(hidden, { hidden: true });
-  assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: hidden }, () => readLanding(now))).featured, null, 'hidden');
-  const held = `fd${RUN}`;
-  await featuredPerson(held, { held: true });
-  assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: held }, () => readLanding(now))).featured, null, 'held');
-  const unranked = `fu${RUN}`;
-  await featuredPerson(unranked, { ranked: false });
-  assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: unranked }, () => readLanding(now))).featured, null, 'unranked');
-  assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: `nobody${RUN}` }, () => readLanding(now))).featured, null, 'missing');
-  assert.equal((await withEnv({ LANDING_FEATURED_HANDLE: 'not a handle!' }, () => readLanding(now))).featured, null, 'malformed');
-});
-
-test('(l) review round 1: a failing featured read is logged and leaves featured null; the bench and the tiles still arrive', dbTest, async (t) => {
-  const logged = t.mock.method(console, 'error', () => {});
-  const l = await readLanding(now, { featured: () => Promise.reject(new Error('featured boom')) });
-  assert.equal(l.featured, null);
-  assert.ok(l.bench && Array.isArray(l.bench.rows) && Array.isArray(l.tiles));
-  assert.ok(logged.mock.calls.some((c) => c.arguments[0] === '[landing] featured'), 'logged');
-  // The cache key names the featured handle, so a changed handle never serves the old card.
+test('(l) the landing cache key moved with the v3.1 Landing shape and names the raising flag only', async () => {
   const { landingCacheKey } = await import('../../app/lib/landing-cache');
-  await withEnv({ LANDING_FEATURED_HANDLE: 'someone', EARNKIT_RAISING: undefined }, async () => assert.match(landingCacheKey(), /^landing-v3-someone/));
+  await withEnv({ EARNKIT_RAISING: undefined }, async () => assert.equal(landingCacheKey(), 'landing-v31-off'));
+  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(landingCacheKey(), 'landing-v31-raising'));
 });
 
 after(async () => {
