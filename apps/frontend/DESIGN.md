@@ -1,119 +1,132 @@
-# EarnKit design system (v3, spec 5.8)
+# EarnKit design system (v3.1 site)
 
-Simpler, cleaner, premium. The feel of an established brand: a black page, white type, one accent,
-and rows instead of cards. A builder understands a page in a few seconds and sees one next step.
+Owner-approved 2026-10-21. A dark page with big rounded colour cards, two paintings, one serif for names and
+numbers and one sans for everything else. The decision record is
+`docs/design-docs-and-implementation-plans/v3.1-site-design.md`; the pixels are the boards in
+`v3.1-site-boards/`. One source for colour: `lib/earnkit/site-theme.ts SITE`. `app/globals.css` mirrors each value as
+`--ek-s-<kebab>` (tested), Tailwind reads them as `s-<kebab>`, and components never write a raw hex or a `/NN`
+opacity modifier on a token class. Class strings live in `app/components/site/ui.ts`.
 
-## Rules
+## Page and card colours
 
-- No gradients, no glow, no box shadows, no decorative images, no video, no emoji, never an em dash
-- One accent (Base blue). No orange world, no second blue in the UI
-- Everything is sentence case. No all-caps labels, no eyebrows above headings
-- No cards. A list is rows split by hairlines; a section title sits on the page
-- One column, max 1120px, 16px gutters on a phone (32px from md)
-- Every tap target is 44px or taller on a phone
-- One primary action per view; do not repeat the same button down the page
-- When in doubt, remove something
+| Token (`s-`) | Value | Use |
+|---|---|---|
+| `page` | `#0B0C14` | Profile, leaderboard, docs, terms, guides, 404 |
+| `deep` | `#05060D` | Landing and feed (a page that renders `[data-ek-deep]` turns the body deep) |
+| `card-top` to `card-bottom` | `#121629` to `#0C0F1E` | Neutral card: 180deg gradient, 7% white hairline, 16% on hover |
+| `blue` | `#2D6BE0` | Blue card: profile hero, podium #1, selectors strip |
+| `navy` | `#142159` | Navy card: Shipping score, Token card, podium #2 |
+| `rust` | `#241008` | Rust card: Streak, podium #3, 404; accents `#FF6A1F`, `#FF8A4C` |
+| `light` | `#FFFFFF` | Light card: profile Activity, docs install; inner `#F3F6FC`, hover `#E8EEFB` |
+| `panel` | `#161927` | Panel: Highlights, leaderboard list, docs side nav; inner `#1F2336` |
+
+Text on a card: white, `muted` `#A8B0CC` on page and panel, `on-blue-soft` `#F4F7FF` on blue, `on-navy` `#A9C2FF` on
+navy, `rust-sub` `#D9B8A6` on rust, `ink` `#0B0C14` and `ink-body` `#2B3550` on light. `dim` `#747C97` is for the
+page background only, never on a card (a test scans `app/`).
+
+## Score bands
+
+One hue per band, light to deep, never multi-hue. The number is text, the ring is a gradient with round caps.
+
+| Band | Score | Text | Ring |
+|---|---|---|---|
+| good | 70 and up | `#4ADE80` | `#6EE7A0` to `#16A34A` |
+| mid | 40 to 69 | `#FDBA74` | `#FDBA74` to `#F97316` |
+| low | under 40 | `#FCA5A5` | `#FCA5A5` to `#E5484D` |
+
+One set of text colours on every page (`site-copy.ts scoreBand`, `ScoreText`).
+
+## Standing metals
+
+A pill beside the name: gold top 5%, silver top 10%, bronze top 25% (`site-copy.ts standingTier`; none outside the
+top 25%). Each is a 135deg gradient with its ink, a soft glow and a top shine (`ui.ts METAL`). Label "Top N% on Base"
+when the builder's project is on Base and the Base pool has 10 or more, else "Top N% of builders" from the whole
+pool of 10 or more. Under 10 ranked builders: no pill, no "#N" on the profile or the leaderboard.
 
 ## Type
 
-Self-hosted (`app/layout.tsx`, `app/fonts`): `font-funnel-display` is Funnel Display (headings and
-numbers), `font-funnel-sans` is Funnel Sans (everything else). The scale is `app/components/common/Panel.tsx`:
+Kaftan Serif (`app/fonts/kaftan-serif.woff2`, `--font-kaftan`, weight 400, owner-owned licence) only for names,
+headlines, big numbers and section titles, always through `.ek-serif` or `<Serif>`, which set `font-size-adjust: 0.36`
+so it sits level with Funnel Sans. Funnel Sans (`app/fonts`) for everything else, including currency signs inside
+Kaftan numbers (`Money.tsx`).
 
-| Constant | Use |
-|---|---|
-| `H1` | A page's title: 56px, 36px on a phone, weight 500, tight tracking |
-| `H2` | A section's title: 32px, 24px on a phone |
-| `LEDE` | The one line under a title: body colour, 16 to 18px, 36rem measure |
-| `NUM` | A number: Funnel Display, tabular figures |
-
-Body is 16 to 18px in `ek-body`. Short sentences. No text in all caps.
-
-## Colour
-
-One source: `lib/earnkit/theme.ts THEME`. `app/globals.css` mirrors each value as `--ek-p-*` (tested),
-`tailwind.config.ts` reads the variables as `ek-*` tokens and holds no raw hex. Components use the
-tokens only; never add a colour.
-
-| Tailwind | THEME | Value | Use |
-|---|---|---|---|
-| `ek-page` | `page` | `#000000` | The page (body). `pageTop` is the same black |
-| `ek-surface` | `surface` | `#0E1116` | A flat block where one is needed (an input, a code block). `surfaceTop` is the same |
-| `ek-raised` | `raised` | `#161A22` | A raised spot (avatar, monogram, close button) |
-| `ek-line`, `ek-line-strong` | `border`, `borderStrong` | white at 12%, 24% | Hairlines, outline buttons |
-| `ek-chip`, `ek-chip-hover` | `chip`, `chipHover` | white at 6%, 12% | Chip fills, hover tints |
-| `ek-track` | `track` | white at 10% | A ring's empty track, a bar's track |
-| `ek-glass` | `glass` | black at 85% | The sticky header |
-| `ek-text` | `text` | `#FFFFFF` | Headings, names, numbers, button text |
-| `ek-body` | `body` | `#C9CDD6` | Body text |
-| `ek-muted` | `muted` | `#7E8694` | Secondary lines, meta, labels |
-| `ek-accent` | `accent` | `#3D7BFF` | Blue as text (a link, the won line, the Backing pill) and the primary button's hover |
-| `ek-brand` | `brand` | `#0052FF` | Base blue as a fill: the primary button, dots, selection. Never as text |
-
-`ek-brand-hover` is an alias of `ek-accent`. `glow` is transparent and exists only so the mirrors stay
-complete. The three old brand hexes (a bright blue, a soft blue, a coin orange) are gone: the coin orange on
-the Backing pill and the share card becomes brand blue (the pill's text is `ek-accent`).
-
-### Contrast (WCAG, text 4.5:1 or more, graphics 3:1 or more)
-
-| Colour | On page | On surface | On raised |
-|---|---|---|---|
-| `ek-text` | 21.0 | 18.9 | 17.4 |
-| `ek-body` | 13.2 | 11.9 | 10.9 |
-| `ek-muted` | 5.7 | 5.2 | 4.8 |
-| `ek-accent` | 5.5 | 4.9 | 4.5 |
-| `ek-brand` (a fill) | 3.7 | 3.3 | 3.0 |
-
-White on `ek-brand`: 5.8:1. `ek-brand` is below 4.5 on black, so blue text is always `ek-accent`.
-
-### The profile's palette (on purpose)
-
-`app/[handle]/score-colors.ts PART_COLORS` is the one place with more than one hue. The owner keeps
-it to make the profile fun and encouraging; do not recolour it to brand blue. The text shades are
-4.5:1 or more on the page and the raised spot; the ring stops are 3:1 or more on the surface (tested).
-
-| `PART_COLORS` | Stops | Used for |
+| Where | Desktop | Phone |
 |---|---|---|
-| `ship` | `#3B82F6` to `#22D3EE` | Going live, commits |
-| `weeks` | `#D946EF` to `#F472B6` | Streak and weeks chips (the shipping grid itself is hairline cells filled `ek-brand`) |
-| `wins` | `#F59E0B` to `#FB923C` | Program wins |
+| Page title `H1_SITE` | 72px | 48px |
+| Section title `H2_SITE` | 64px | 44px |
+| Landing hero title | 96px, one line | `clamp(36px, 9.6vw, 96px)` |
+| Hero sub, program text | 19px | 17px |
+| Steps and Activity titles | 40px | 32px |
+| Opportunities big number | 64px | 52px |
+| Profile name | 60px | 44px |
+| Profile Streak, podium name | 40px, 34px | same |
+| Feed stat number | 64px | 48px |
+| Docs title | 56px | 40px |
+| 404 | 140px | 96px |
+| Body, rows | 15px | 15px |
+| Meta, handles | 13px | 13px |
 
-The hero ring is white to `ek-accent` (`SCORE_COLORS.total`). The rings are the one gradient on the site.
+## Shape
 
-## Layout (`Panel.tsx`)
+Cards 32 to 48px (`CARD_NEUTRAL` 32px; blue, navy, rust, light and panel 36px, 28px on a phone for the profile;
+the landing hero and footer 48px). Inner tiles 16 to 26px, rows 24px, code blocks 22px, pills and chips 999px.
+Columns: `PAGE_COL_WIDE` 1240px (landing, feed), `PAGE_COL` 1200px (everything else), 24px gutters from md.
+White pill `PILL_WHITE` and blue pill `PILL_BLUE` are 44px tall.
 
-| Constant | Look |
-|---|---|
-| `COLUMN` | The column: 1120px, 16px gutters, 32px from md. Header, footer and every page use it |
-| `SECTION` | A section's vertical rhythm (56px, 96px from md) |
-| `ROWS`, `ROW` | A list: each row opens with a hairline, the list closes with one; 16 to 20px of padding |
-| `FilterChip.tsx Chip` | A filter: a hairline pill, 44px on a phone (36px from md), `aria-pressed`; on, it inverts to white with black text |
-| `ProgramLogo`, `ChainLogo` | A program's mark at 70% on a white disc (`ek-text`), so dark marks read on the page, or the monogram on the raised disc; a chain's mark, always a circle (Base a solid brand-blue disc; Arc and Robinhood monograms until the owner supplies their files) |
-| `SURFACE` | A flat block that opens with a hairline. Kept for callers; no radius, no gradient |
+## Paintings
 
-## Buttons (`Button.tsx`)
+Plain `<img srcSet>` of pre-sized JPEGs in `public/art` (no Next image optimizer: no new paid service, one file per
+width, cached by the CDN). Public domain, from the Google Art Project scans.
 
-| Constant | Look |
-|---|---|
-| `BTN_PRIMARY` | Pill, 48px, `ek-brand` fill, white text, `ek-accent` on hover |
-| `BTN_SECONDARY` | Pill, 48px, `ek-line-strong` outline, white text, `ek-chip` on hover |
-| `TEXT_LINK`, `INLINE_LINK` | A quiet link beside a section title (the accent, 44px tall); a link inside running text (white, underlined, a 44px hit area from an invisible box above and below the words) |
+| Where | Painting | Files |
+|---|---|---|
+| Landing hero | C.W. Eckersberg, A View through Three Arches of the Third Storey of the Colosseum, 1815 | `hero-eckersberg-{800,1600,3200}.jpg`, high priority, 1600x1036 space |
+| Full footer | G.P. Panini, Interior of the Pantheon, Rome, c. 1734, cropped to the dome | `foot-panini-{700,1400,2800}.jpg`, lazy |
 
-The brandShell pages (`lib/earnkit/brand-page.ts`) read the same THEME and draw the same button, header and
-type; so do the share card (`card-response.tsx`), the README badge (`badge.ts`: label on the page, value on brand,
-white text; a not-found value is muted text on the raised spot) and the OG image (`scripts/og.mts`, always
-`earnkit.com` at the foot).
-
-## Words on a page
-
-Sentence case everywhere, the legal text included; a chip or fact span starts with a capital. "Shipping", "Rank", "Earned";
-"#3 of 40 builders" (never "this week"); "Ranked by Shipping" (never "Shipping points"); "Feed"; "Backing" (never a raise).
+The footer's credit line is `site-copy.ts ART_CREDIT`: "Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734". The hero
+adds an SVG arch clip path and a sunset circle that follows the mouse; the footer a faint warm light that follows
+the mouse.
 
 ## Motion
 
-The score ring draws in once (`.ek-arc`). Nothing else moves. `prefers-reduced-motion` turns the
-draw off and collapses every transition.
+`.ek-drift` (the hero's painting and light move a few px against the pointer, 1200ms), `.ek-pulse` (the green
+"shipped" dot, only within 7 days of a push), `.ek-twinkle`, link and card colour transitions (200ms, `motion-safe:`).
+Under `prefers-reduced-motion` all of them stop, and the pointer components attach no listener
+(`useReducedMotion()`); the footer light also stays off on touch screens (`(hover: none)`).
 
-## Browser surfaces
+## Phone
 
-Selection is `ek-brand` with white text; the focus ring is `ek-accent`; the scrollbar is `ek-raised`
-on the page. All in `globals.css`, from the tokens.
+Designed at 390px: no horizontal scroll, 16px side gutters (`px-4`), every tap target 44px or taller (a text link
+inside a line uses `INLINE_LINK`'s 44px hit area), 2-up feed stats, the profile's cards 28px radius, rails that wrap.
+Checked at 1440x900 and 390x844 for every page (`v31-site-sweep.test.ts` and the SDD screenshots).
+
+## Contrast
+
+Every text-on-surface pair on the site is 4.5:1 or more (`v31-site-tokens.test.ts`). Two canvas colours were
+adjusted to pass:
+
+| Canvas | Shipped | Why |
+|---|---|---|
+| `#DCE6FF` on blue (3.92:1) | `on-blue-soft` `#F4F7FF` (4.57:1) | Secondary text on blue and podium #1 |
+| `#6F7792` on page (4.39:1) | `dim` `#747C97` (4.71:1) | Used only on `page` and `deep` |
+
+## Copy rules
+
+Sentence case, short, money first, no emoji, never an em dash. "Backing" (never a raise or a community round);
+"of N builders" (never "this week" after it) and a rank only from 10 ranked builders; no points on any page
+(points show in agent replies only); every number is real data and the canvas's example people never ship. The words
+live in `lib/earnkit/site-copy.ts` and `docs-copy.ts`.
+
+## What stays on the v3 flat system
+
+Black page `#000000`, white type, one accent (Base blue `#0052FF` fill, `#3D7BFF` as text), hairlines and no cards,
+from `lib/earnkit/theme.ts THEME` (`--ek-p-*`, `ek-*` Tailwind tokens), Funnel Display headings, a 1120px column, and
+`app/components/common/Panel.tsx` (`H1`, `H2`, `ROWS`), `Button.tsx` (`BTN_PRIMARY`, `BTN_SECONDARY`):
+
+- the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, wallet, week, unsubscribe);
+  only their header lost its Programs link
+- the share card (`app/[handle]/card-response.tsx`), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`)
+- `app/[handle]/score-colors.ts PART_COLORS`, kept for `app/components/ui/UpdateCard.tsx`; the v3.1 pages use the score bands above
+
+The OG image still says "Ship every week. Get funded." until a later pass. White on `#0052FF` is 5.8:1, and blue
+text on black is always `#3D7BFF` because `#0052FF` is 3.7:1.

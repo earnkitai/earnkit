@@ -1538,8 +1538,8 @@ apps/frontend/
                                handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
                                kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE), pick_repo (PICK_REPO_YES_NOTE);
                                retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
-                               no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
-                               needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
+                               no build-in-progress view. v2.13.4: reportedLive, liveOf (fundNeeds, needsPicks and NEEDS_MAX
+                               were removed in v3.1 T16), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
                                Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
                                main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
                                RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
@@ -1605,8 +1605,8 @@ apps/frontend/
                                sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
                                as of now's week); R16b removed countUse
     weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
-                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."; final fix I3: "D short of #k"
-                               via shortOf), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
+                               done this week; L10: voice 'page' for the profile, v3.1 F4: the rank only, never points: "Ship code this week to pass #2.",
+                               page voice "Code this week passes #2."; shortOf stays exported, unused by copy), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
                                (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
@@ -2063,3 +2063,60 @@ v3.1 P0 Task 10 (spec 3.4, D1, the agent drafts, never submits): `mcp.ts` (`prep
 `toolDescriptions().confirm` only under the flag, `TOOL_DESCRIPTIONS` keeps it), `tools.ts` (`CONFIRM_ENTRY_GONE`,
 confirm refuses `program_id`, find `fresh: undefined`), `present.ts` (no ideas section; `ideaLines` gone),
 `bench-find.ts` (no `idea` FundLine for no_project; `noProjectIdea`/`ideaFitsOffer` gone). New: `v31-mcp-surface.test.ts`.
+
+v3.1 P0 Task 2 (F2): `bench-reply.ts connectAsk` (later Task 16) says where the connected weeks go; `connect-moment.ts` re-exports it.
+v3.1 P0 Task 3 (F3, no rank below 10): `rank.ts` (`RANK_MIN_POOL = 10`, `shownRankLine`), `bench-rank.ts`, `stand-text.ts`,
+`ship-log-facts.ts`, `page-data.ts`, `bench-data.ts`, `badge.ts`, `builder-json.ts` (keeps the number), `card-response.tsx` and
+`BenchProfileView.tsx` (a dash for Rank) read it. New: `fixtures/rank-pool.ts` (`padPool`), `v31-rank-pool.test.ts`.
+v3.1 P0 Task 5 (F4, rank only): `weekly-target.ts` names the rank, never the points ("Ship code this week to pass #2.").
+v3.1 P0 Task 6 (Best fit leads): `bench-find.ts` (`applyCandidates`, `claimApply`, `openCandidates`, `Fit` exported), `bench-reply.ts`
+(`BestFit`, `bestFitLine`, later `moneyLine`; `applyAsk(title, when | null)` for a rolling program). New: `v31-best-fit.test.ts`.
+v3.1 P0 Task 7 (Builder Codes for Base): new `builder-codes-check.ts` (`checkBuilderCodes`, `codePaths`, `appProvenRepo`: the
+App reads the repo's tree and at most 30 code files, once a day, results in `repo_builder_codes`), `builder-code.ts`
+(`builderCodesIn`, `BUILDER_CODES_FIRST`, `builderCodesFound`, `BASE_GRANTS_ID`); `scripts/events-redact.mts` lists the table;
+`fixtures/fake-github.ts`. New: `v31-builder-codes.test.ts`.
+v3.1 P0 Task 8 (unlisted programs): `programs.status` allows `unlisted` (`db/schema.sql`), `program-file.ts`, `programs.ts`,
+`landing.ts`, `leaderboard.ts`, `present.ts`, `also-qualifies.ts` skip it; `submit-kit.ts` and `submission.ts` take
+`multi_choice` requirements; `programs/base-builder-grants.json` prefills its primary challenge; Avalanche and ETHGlobal
+Mumbai are unlisted; `programs/README.md` documents both. New: `v31-programs.test.ts`.
+v3.1 P0 Task 9 (prepare drafts, never submits): new `draft-application.ts` (`draftApplication`, `DRAFT_FIRST_NOTE`, `DRAFT_NOTE`,
+`withPageLink`, `BUILDER_CODES_WAIT_MS`), `submit-kit.ts draftKit` (`draftReadyLine`, `PASTE_LEFT`, `OPEN_PREFILLED`, `SENT_ASK`),
+`tools.ts` (prepare on a curated program goes to the draft; an unlisted or upcoming program is refused), `programs.ts`.
+New: `v31-draft.test.ts`.
+v3.1 P0 Task 16 (every reply rewritten): `bench-reply.ts` (see its entry above), `points.ts` (`connectOfferPoints`, `weekPointsNow`, `weekAwarded`, `MAX_WEEK_POINTS`), `bench-reply.ts` (`POINTS_ON_SIGN_IN`,
+`POINTS_ON_CONNECT`), `connect-moment.ts` (`pointsAddedLine`, `connectApplyAsk`), `weekly-moment.ts` (`weekNumber`,
+`momentPlace`), `bench-find.ts` (`openGrant`, `connectApply`, `takeApplyAsk`). Removed: `BENCH_HEADS`, `NOT_ON_BENCH`,
+`NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`, `shippingStand`, `SHIP_STEP`, `shareAsk`, `CONNECT_HEAD`,
+`fundNeeds`, `needsPicks`, `NEEDS_MAX`. New: `v31-reply-copy.test.ts`, `bench-reply.test.ts` rewritten.
+
+v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/frontend/`):
+
+New, tokens and data:
+- `lib/earnkit/site-theme.ts`: `SITE` colours (mirrored `--ek-s-*`, Tailwind `s-*`), `siteVar`.
+- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText`, `programKind`, `logoColor`.
+- `lib/earnkit/site-data.ts`: `profileSite` and its parts (`lastShippedAt`, `thisWeekCommits`, `highlights`, `standingPill`, `backerWeeks`, `tokenAllowed`), `feedWeekStats`.
+- `lib/earnkit/site-streak.ts`: `withThisWeek`, the page's one streak (grid and count).
+- `app/fonts/kaftan-serif.woff2`: Kaftan Serif (moved from `public/fonts`).
+- `public/art/{hero-eckersberg,foot-panini}-{...}.jpg`: the pre-sized paintings (hero 800/1600/3200, footer 700/1400/2800).
+
+New, primitives (`app/components/site/`):
+- `ui.ts` card, pill, column, title and metal class strings; `Serif.tsx` Kaftan wrapper; `Money.tsx` currency signs in Funnel Sans.
+- `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail.
+- `NavLinks.tsx` active-link nav; `FooterLight.tsx` pointer light; `AgentMarks.tsx` the four hero marks.
+- `useReducedMotion.ts` (with `useMediaQuery`).
+
+New, landing (`app/components/landing/`): `Hero.tsx`, `HeroArt.tsx` (painting, arch light, drift), `Steps.tsx`, `Activity.tsx`, `Opportunities.tsx`.
+New, profile (`app/[handle]/site/`): `HeroCard.tsx`, `ScoreCard.tsx`, `StreakCard.tsx`, `ActivityCard.tsx`, `TokenCard.tsx`, `HighlightsCard.tsx`.
+New, lists: `app/leaderboard/Podium.tsx`; `app/feed/FeedStats.tsx`, `app/feed/FeedRow.tsx`.
+New, tests (`lib/earnkit/`): `v31-site-tokens`, `v31-site-copy`, `v31-site-data`, `v31-site-lists`, `v31-site-chrome`, `v31-site-landing`, `v31-site-profile`, `v31-site-leaderboard`, `v31-site-feed`, `v31-site-docs`, `v31-site-sweep` (`.test.ts`).
+
+Rewritten in place (same path): `app/HomeView.tsx`, `app/[handle]/{BenchProfileView,handle-view,ScoreRing,Avatar,ShareButton}.tsx`, `app/leaderboard/{BenchView,BenchRowItem,page}`,
+`app/feed/{FeedView,page}`, `app/docs/*`, `app/not-found.tsx`, `app/components/common/{Header,Footer,Button,InstallButton}.tsx`, `app/components/sections/AddToAgent.tsx`,
+`app/programs/page.tsx` (a permanent redirect to `/#earn`), `app/programs/[id]/GuideView.tsx` and `app/terms/*` (column and Kaftan titles only), `app/layout.tsx`, `app/globals.css`, `tailwind.config.ts`,
+`lib/earnkit/{landing,feed,bench-data,page-data,week-facts,docs-copy,footer-links,brand-page}.ts`, `app/lib/landing-cache.ts` (key `landing-v31-*`), `scripts/og.mts`.
+
+Deleted: `app/[handle]/MoneyTab.tsx`, `app/[handle]/ProjectTab.tsx`, `app/components/sections/{BackedBy,BenchTop,FeaturedCard,FeedRows,Hero,ProgramRow}.tsx`,
+`app/leaderboard/FilterChip.tsx`, `public/art/eckersberg-colosseum-arches.jpg`, `public/art/panini-pantheon-dome.jpg`.
+`app/components/sections/ProgramCards.tsx` stays as a shim because `copy-review.test.ts` imports it.
+
+Docs: `apps/frontend/DESIGN.md` rewritten for the v3.1 system (pinned by `v3-tokens.test.ts` T1.8).

@@ -162,12 +162,16 @@ test('T1.9 the shell pages (brand-page.ts) draw the same system: the button is w
   assert.doesNotMatch(css, /navy/i);
 });
 
-test('T1.8 DESIGN.md is the one-page rulebook of the flat system', () => {
+test('T1.8 DESIGN.md is the rulebook of the v3.1 site system and names what stays flat', () => {
   const md = read('DESIGN.md');
-  assert.ok(md.split('\n').length <= 120, `one page: ${md.split('\n').length} lines`);
-  for (const must of ['#000000', '#0052FF', '1120', 'Funnel Display', 'Funnel Sans', 'prefers-reduced-motion', 'PART_COLORS', 'Backing', 'sentence case', '44px'])
+  assert.ok(md.split('\n').length <= 200, `one reading: ${md.split('\n').length} lines`);
+  const heads = md.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.slice(3));
+  for (const h of ['Page and card colours', 'Score bands', 'Standing metals', 'Type', 'Shape', 'Paintings', 'Motion', 'Phone', 'Contrast', 'Copy rules', 'What stays on the v3 flat system'])
+    assert.ok(heads.includes(h), `DESIGN.md has the section ${h}`);
+  for (const must of ['#0B0C14', '#05060D', '#2D6BE0', '#142159', '#241008', '#161927', 'Kaftan Serif', 'font-size-adjust: 0.36', 'Funnel Sans', '390px', '44px',
+    '#F4F7FF', '#747C97', 'Eckersberg', 'Panini', 'prefers-reduced-motion', 'Backing', '#000000', '#0052FF', 'PART_COLORS', 'lib/earnkit/site-theme.ts'])
     assert.ok(md.includes(must), `DESIGN.md mentions ${must}`);
-  for (const gone of ['ek-blue-bright', 'ek-blue-soft', 'ek-score-orange', 'builder-blue', 'marquee', '#070D24', '—'])
+  for (const gone of ['ek-blue-bright', 'ek-blue-soft', 'ek-score-orange', 'builder-blue', 'marquee', '#070D24', '—', 'Funnel Display (headings'])
     assert.ok(!md.includes(gone), `DESIGN.md no longer mentions ${JSON.stringify(gone)}`);
-  assert.doesNotMatch(md, /\bno gradients?\b.*\bgradient\(/i);
+  assert.doesNotMatch(md, /^- No gradients/m, 'the flat-system rule "no gradients" no longer headlines the file');
 });
