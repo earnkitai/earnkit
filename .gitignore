@@ -35,3 +35,4 @@ typechain-types/
 .vercel
 # Local Claude Code settings (may contain secrets)
 .claude/settings.local.json
+.superpowers/

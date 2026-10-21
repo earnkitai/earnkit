@@ -98,6 +98,31 @@
   --ek-s-inset: rgba(0,0,0,0.16);
   --ek-s-inset22: rgba(0,0,0,0.22);
   --ek-s-foot-link: #C9CFE6;
+  --ek-s-gold-top: #FFE8A3;
+  --ek-s-gold-mid: #F2C14E;
+  --ek-s-gold-bottom: #C98A1E;
+  --ek-s-gold-ink: #3A2500;
+  --ek-s-gold-glow: rgba(242,193,78,0.45);
+  --ek-s-silver-top: #FFFFFF;
+  --ek-s-silver-mid: #DDE3EE;
+  --ek-s-silver-bottom: #A7B1C4;
+  --ek-s-silver-ink: #1E2533;
+  --ek-s-silver-glow: rgba(221,227,238,0.4);
+  --ek-s-bronze-top: #FFD7B5;
+  --ek-s-bronze-mid: #E0985E;
+  --ek-s-bronze-bottom: #A9602C;
+  --ek-s-bronze-ink: #3A1A05;
+  --ek-s-bronze-glow: rgba(224,152,94,0.4);
+  --ek-s-metal-shine: rgba(255,255,255,0.6);
+  --ek-s-avatar-top: #3A4366;
+  --ek-s-avatar-bottom: #1C2238;
+  --ek-s-logo-orange: #FF6A1F;
+  --ek-s-logo-violet: #7C3AED;
+  --ek-s-logo-green: #16A34A;
+  --ek-s-logo-blue: #2D6BE0;
+  --ek-s-logo-pink: #DB2777;
+  --ek-s-logo-cyan: #0891B2;
+  --ek-s-logo-amber: #CA8A04;
 }
 
 @layer utilities {
