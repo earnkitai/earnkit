@@ -79,7 +79,7 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const sc = await mcpCall(ctx(me.id), 'score', {});
   const t = show(sc);
   assert.match(t, new RegExp(`^App: Shipping ${me.score}\\.$`, 'm'), t);
-  assert.ok(t.endsWith('How to move up\nShip code this week: +13 points.'), t);
+  assert.ok(t.endsWith('How to move up\nShip code this week.'), t);
   assert.doesNotMatch(JSON.stringify(sc.reply), /#\d/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 1, total: 9 }), null);
 });
@@ -92,7 +92,7 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   assert.match(s, new RegExp(`^App: Shipping ${me.score} · #3 of 10 builders\\.$`, 'm'), s);
   assert.equal(new URL(links(s)[0]!).searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #3 of 10 builders');
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(t, /How to move up\nShip code this week: \+13 points, 12 short of #1\.$/, t);
+  assert.match(t, /How to move up\nShip code this week to move toward #1\.$/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

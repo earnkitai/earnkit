@@ -115,7 +115,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // v3.1 F4: the why sentence stays on the page, never in the reply.
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
   // L5: this week has code, so the target says so and what next week adds.
-  assert.match(text, /How to move up\nDone this week: \+\d+ points\. Next week adds up to 13 more\.$/, text);
+  assert.match(text, /How to move up\nDone this week\.$/, text);
 });
 
 test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {

@@ -877,6 +877,8 @@ function weeklyCopy(): [string, string][] {
     ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],
     // Launch ready L10: the profile's voice (said to a visitor).
     ['page target pass', weeklyTarget({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } }, 'page')!],
+    ['page target behind', weeklyTarget({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 90 } }, 'page')!],
+    ['page target hold', weeklyTarget({ gains: g, score: 50, rank: 1, above: null }, 'page')!],
     ['page target done', weeklyTarget({ gains: { active: true, gain: 14, next: 13 }, score: 50, rank: 2, above: null }, 'page')!],
     ['moment', momentLines({ monday: '2026-10-12', now: w, before: { score: 66, rank: 5, total: 40 }, titles: ['Add dark mode', 'Fix the login loop'], checked: true },
       weekStartLine({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } })).join('\n')],

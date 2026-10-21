@@ -13,9 +13,9 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, v3.1 F4: no why sentenc
   const v: BenchView = {
     state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders', handle: 'maya_makes', link: null,
     score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: null,
-    target: 'Ship code this week: +14 points, enough to pass #2.', share: null,
+    target: 'Ship code this week to pass #2.', share: null,
     fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'rolling', why: 'You build on Avalanche.' }], due: [],
-    ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship code this week: +14 points, enough to pass #2.' }, held: null,
+    ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship code this week to pass #2.' }, held: null,
   };
   assert.equal(benchReply(v), [
     'Where you stand',
@@ -26,7 +26,7 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, v3.1 F4: no why sentenc
     'Avalanche Team1 Mini Grants: up to $10K, rolling. You build on Avalanche.',
     '',
     'How to move up',
-    'Ship code this week: +14 points, enough to pass #2.',
+    'Ship code this week to pass #2.',
   ].join('\n'));
 });
 
@@ -41,7 +41,7 @@ test('8.5 R8, L5, L6: the ranked state\'s one next step is the weekly target (el
   assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: null }), { kind: 'ship', project_key: 'maya/recipes', line: SHIP_STEP });
   assert.equal(STATE_COPY.ranked.ask(), SHIP_STEP);
-  const target = 'Ship code this week: +14 points to hold #1.';
+  const target = 'Ship code this week to hold #1.';
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: null, target }), { kind: 'ship', project_key: 'maya/recipes', line: target });
   const share = 'https://x.com/intent/post?text=a';
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: share, target, share }),

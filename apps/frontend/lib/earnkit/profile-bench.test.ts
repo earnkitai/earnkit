@@ -49,7 +49,7 @@ test('11.2 one Shipping ring (no per-part rings) with the why sentence and the w
   const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
   for (const s of ['aria-label="Shipping 62 of 100"', 'Code in 7 of the last 12 weeks, 3 of the last 4.', '6 weeks in a row']) assert.ok(h.includes(s), s);
   // Launch ready L5: the weekly target under the why, naming only the rank (never another builder); L10: in the page's voice.
-  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Code this week adds +14 points, enough to pass #2.'), 'the target under the why');
+  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Code this week passes #2.'), 'the target under the why');
   for (const re of [/Shipped \d+ of/, /Used \d+ of/, /Earned \d+ of/, /Consistency \d+ of/]) assert.doesNotMatch(h, re);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
   assert.equal((h.match(/data-week=/g) ?? []).length, 52);
@@ -128,7 +128,7 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   assert.equal(d.score, 62);
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
   // Launch ready L5: the weekly target. v3.1 F3: alone in the pool (under RANK_MIN_POOL), no rank named anywhere.
-  assert.equal(d.target, 'Code this week adds +14 points.');
+  assert.equal(d.target, null);
   assert.deepEqual([d.bench, d.line, d.rankListed], [null, 'Shipping 62', true]);
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.

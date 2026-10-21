@@ -165,7 +165,7 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   assert.doesNotMatch(s, /Your last \d+ weeks?:|Last week you finished|Share your week|Does last week look right\?/, s);
-  assert.match(s, /How to move up\nShip code this week: \+\d+ points/, s);
+  assert.match(s, /How to move up\nShip code this week\.$/, s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
 });

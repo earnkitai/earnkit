@@ -58,7 +58,7 @@ test('(a) the three numbers row: the Shipping ring, the rank and Earned, each wi
   assert.doesNotMatch(un, /data-ek-earned|>\$\d|>#\d/);
   // Under the row: the why and the target as one line, Originality, then the chain line with its logo.
   const t = text(h);
-  assert.ok(t.includes('Code in 7 of the last 12 weeks, 3 of the last 4. Code this week adds +14 points, enough to pass #2.'), t);
+  assert.ok(t.includes('Code in 7 of the last 12 weeks, 3 of the last 4. Code this week passes #2.'), t);
   assert.ok(t.includes('Originality 72'), t);
   assert.ok(h.includes('Top 1% of builders on Base') && h.includes('alt="Base"'));
 });

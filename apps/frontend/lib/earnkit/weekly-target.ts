@@ -17,45 +17,43 @@ export type Above = {
 export type TargetIn = { gains: WeekGains; score: number; rank: number | null; above: Above | null };
 
 /**
- * The one line (pure):
- * - this week done: "Done this week: +14 points. Next week adds up to 13 more."
- * - #1 (no one scores higher): "Ship code this week: +14 points to hold #1."
- * - someone above, and this week's points pass them: "Ship code this week: +14 points, enough to pass #2."; not
- *   enough (a tie is not a pass): "Ship code this week: +14 points, 7 short of #2." (final fix I3: what is
- *   still missing after this week's points, passing meaning strictly above)
- * - outside the pool (no rank shown): "Ship code this week: +14 points."
- * A week that adds nothing (never under today's weights, kept total): "Ship code this week to hold #3." /
- * "Done this week. Next week adds up to 13 more."
- * Launch ready L10 (L7): `voice: 'page'` is the public profile's line, read by visitors, so it states the math
- * instead of telling the reader to ship: "Code this week adds +14 points, enough to pass #2." / "Shipped this week:
- * +14 points. Next week adds up to 13 more."; null when the week adds nothing.
+ * The one line (pure), the rank only: points never appear (v3.1 F4).
+ * - this week done: "Done this week."
+ * - no gain, a rank: "Ship code this week to hold #3."; no rank (outside the pool or under RANK_MIN_POOL): "Ship code this week."
+ * - #1 (no one scores higher): "Ship code this week to hold #1."
+ * - someone above: this week's points pass them: "Ship code this week to pass #2."; not enough (a tie is not a
+ *   pass): "Ship code this week to move toward #2."
+ * - no rank: "Ship code this week."
+ * `voice: 'page'` is the public profile's line, read by visitors, so it states the fact instead of telling the
+ * reader to ship: "Shipped this week." / "Code this week holds #1." / "passes #2." / "moves toward #2."; null when the
+ * week adds nothing or there is no rank.
  */
-/**
- * Final fix I3: how many more points after this week's would pass the rank above. Passing means strictly above (a
- * tie is not a pass), so it is their score minus (score + gain), plus 1. Pure.
- */
-export const shortOf = (score: number, gain: number, aboveScore: number) => aboveScore - (score + gain) + 1;
-
 export function weeklyTarget(t: TargetIn, voice?: 'reply'): string;
 export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page'): string | null;
 export function weeklyTarget(t: TargetIn, voice: 'reply' | 'page' = 'reply'): string | null {
-  const { gain, next } = t.gains;
-  if (t.gains.active) {
-    const head = voice === 'page' ? 'Shipped this week' : 'Done this week';
-    const done = gain > 0 ? `${head}: +${gain} points.` : `${head}.`;
-    return next > 0 ? `${done} Next week adds up to ${next} more.` : done;
-  }
+  const page = voice === 'page';
+  const { gain } = t.gains;
+  if (t.gains.active) return page ? 'Shipped this week.' : 'Done this week.';
   if (gain <= 0) {
-    if (voice === 'page') return null;
+    if (page) return null;
     return t.rank ? `Ship code this week to hold #${t.rank}.` : 'Ship code this week.';
   }
-  const lead = voice === 'page' ? `Code this week adds +${gain} points` : `Ship code this week: +${gain} points`;
-  if (t.rank === null) return `${lead}.`;
-  if (!t.above) return `${lead} to hold #${t.rank}.`;
-  const { above } = t;
-  if (t.score + gain > above.score) return `${lead}, enough to pass #${above.rank}.`;
-  return `${lead}, ${shortOf(t.score, t.gains.gain, above.score)} short of #${above.rank}.`;
+  if (t.rank === null) return page ? null : 'Ship code this week.';
+  const move = rankMove(t, gain);
+  const pageVerb = { hold: 'holds', pass: 'passes', 'move toward': 'moves toward' }[move.verb];
+  return page ? `Code this week ${pageVerb} #${move.rank}.` : `Ship code this week to ${move.verb} #${move.rank}.`;
 }
+
+/** What this week's ship does to the rank: hold it (no one above), pass the one above, or move toward it. */
+function rankMove(t: TargetIn, gain: number): { verb: 'hold' | 'pass' | 'move toward'; rank: number } {
+  if (!t.above) return { verb: 'hold', rank: t.rank! };
+  return { verb: t.score + gain > t.above.score ? 'pass' : 'move toward', rank: t.above.rank };
+}
+
+/**
+ * Final fix I3: how many more points after this week's would pass the rank above (a tie is not a pass). Exported, unused by copy (v3.1 F4).
+ */
+export const shortOf = (score: number, gain: number, aboveScore: number) => aboveScore - (score + gain) + 1;
 
 /**
  * The person's place in the leaderboard's pool and the builder just above (the lowest score above theirs: its score and rank), and
@@ -77,25 +75,25 @@ export async function poolPlace(builderId: number, o: { only?: number[] } = {}):
 }
 
 /**
- * Launch ready L6 (fix round 1): the weekly moment's line about the new week, from the same target: "This week starts
- * empty: ship code to add +14 points, enough to pass #2." / "... to hold #1." / "..., 7 short of #2.". Null once this
- * week has code or adds nothing (the moment then says nothing about it). No question, no link. Pure.
+ * Launch ready L6 (fix round 1): the weekly moment's line about the new week, from the same target, the rank only:
+ * "This week starts at Shipping 50: ship code to pass #2." / "... to hold #1." / "... to move toward #2." / no rank:
+ * "... ship code to climb." Null once this week has code or adds nothing (the moment then says nothing about it).
+ * No question, no link. Pure.
  */
 export function weekStartLine(t: TargetIn): string | null {
   const { active, gain } = t.gains;
   if (active || gain <= 0) return null;
   // Final fix M2: the new week's score is named, so the drop from last week reads as the new week, not a loss.
-  const lead = `This week starts at Shipping ${t.score}: ship code to add +${gain} points`;
-  if (t.rank === null) return `${lead}.`;
-  if (!t.above) return `${lead} to hold #${t.rank}.`;
-  if (t.score + gain > t.above.score) return `${lead}, enough to pass #${t.above.rank}.`;
-  return `${lead}, ${shortOf(t.score, t.gains.gain, t.above.score)} short of #${t.above.rank}.`;
+  const lead = `This week starts at Shipping ${t.score}: ship code`;
+  if (t.rank === null) return `${lead} to climb.`;
+  const move = rankMove(t, gain);
+  return `${lead} to ${move.verb} #${move.rank}.`;
 }
 
 /**
  * The weekly target's inputs for a ranked builder (`parts`: builder_live.parts), or null when Shipping's raw is
  * missing or the pool read failed. v3.1 R14: under RANK_MIN_POOL ranked builders no rank is named (rank and above
- * null: "Ship code this week: +14 points."). Never throws.
+ * null: "Ship code this week."). Never throws.
  */
 export async function targetIn(builderId: number, parts: unknown, now: Date, o: { only?: number[] } = {}): Promise<TargetIn | null> {
   const gains = weekGains(parts, now);

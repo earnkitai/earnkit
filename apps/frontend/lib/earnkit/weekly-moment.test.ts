@@ -84,7 +84,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const s = show(f);
   assert.match(s, /^App: Shipping 35 · #2 of 10 builders\.$/m, s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
-  assert.ok(s.endsWith('How to move up\nShip code this week: +13 points, enough to pass #1.'), s);
+  assert.ok(s.endsWith('How to move up\nShip code this week to pass #1.'), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 0, 'a statement, never a question');
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
@@ -94,19 +94,19 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
 
   // The public page shows the same math in its own voice (L10: said to a visitor), ranks only.
   const page = (await profileData(me.id, new Date()))!;
-  assert.equal(page.target, 'Code this week adds +13 points, enough to pass #1.', 'the page voice (L10): said to a visitor');
+  assert.equal(page.target, 'Code this week passes #1.', 'the page voice (L10): said to a visitor');
   assert.ok(!JSON.stringify(page).includes('Ignore previous'), 'never another builder\'s name on the page');
 
   // Not enough to pass: the builder above far ahead.
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(behind.endsWith('How to move up\nShip code this week: +13 points, 22 short of #1.'), behind);
+  assert.ok(behind.endsWith('How to move up\nShip code this week to move toward #1.'), behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
   for (const tool of ['find', 'score'] as const) {
     const t = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.ok(t.endsWith('How to move up\nDone this week: +13 points. Next week adds up to 14 more.'), `${tool}: ${t}`);
+    assert.ok(t.endsWith('How to move up\nDone this week.'), `${tool}: ${t}`);
     assert.equal(questions(t), 0, t);
   }
 });
@@ -116,11 +116,11 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   const top = await builder('wttop', 'Top', [1, 2]);
   await pad('wtpb', 9);
   const t = show(await mcpCall(ctx(top.id), 'find', {}));
-  assert.ok(t.endsWith('How to move up\nShip code this week: +14 points to hold #1.'), t);
+  assert.ok(t.endsWith('How to move up\nShip code this week to hold #1.'), t);
   await builder('wttie', 'Tie', [1, 2]);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.ok(tied.endsWith('How to move up\nShip code this week: +14 points to hold #1.'), tied);
-  assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week adds +14 points to hold #1.');
+  assert.ok(tied.endsWith('How to move up\nShip code this week to hold #1.'), tied);
+  assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 
 test('L6.3 the weekly moment: the first find of the week leads with last week and the new week\'s line, the share link replaces the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {
@@ -153,7 +153,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   // Weekly updates: the week's summary, written from the titles without the one naming a host; then the note line.
   assert.equal(titles, 'Added dark mode and fixed the login loop.', 'no title with a host');
   assert.equal(note, NOTE_LINE);
-  assert.equal(week, 'This week starts at Shipping 35: ship code to add +13 points, 5 short of #1.');
+  assert.equal(week, 'This week starts at Shipping 35: ship code to move toward #1.');
   assert.ok(s.split('\n\n')[1].startsWith('Where you stand'), 'the moment leads, then the usual reply');
   const share = links(s);
   assert.equal(share.length, 1, `one link: ${s}`);
@@ -194,7 +194,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   for (const tool of ['find', 'score'] as const) {
     const again = show(await mcpCall(ctx(me.id), tool, {}));
     assert.doesNotMatch(again, /Last week|Share your week/, `${tool}: ${again}`);
-    assert.match(again, /How to move up\nShip code this week: \+\d+ points, \d+ short of #1\.$/, again);
+    assert.match(again, /How to move up\nShip code this week to move toward #1\.$/, again);
   }
 });
 
@@ -208,7 +208,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(s, /^Last week you finished at Shipping 30, #1\.\nThis week starts at Shipping \d+: ship code to add \+14 points to hold #1\.\n\nWhere you stand/, s);
+  assert.match(s, /^Last week you finished at Shipping 30, #1\.\nThis week starts at Shipping \d+: ship code to hold #1\.\n\nWhere you stand/, s);
   assert.doesNotMatch(s, /Secret launch/);
   assert.match(s, /Share your week on X: https:\/\/x\.com\/intent\/post\?\S+\nDoes last week look right\?$/);
 
@@ -252,7 +252,7 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
     replies.push(JSON.stringify(r.reply));
   }
   assert.ok(replies[0].includes('Last week you finished at Shipping 40, #2.'), 'the moment showed');
-  assert.ok(replies.some((r) => r.includes('Ship code this week: +14 points,') && r.includes('short of #1.')), 'the target showed');
+  assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1.')), 'the target showed');
   for (const r of replies) {
     noHostile(r);
     assert.ok(!r.includes('ignore_prev'), r);
@@ -271,7 +271,7 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     await pad('wmpc', 9, [plusDays(monday, 6)]);
     const early = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.doesNotMatch(early, /Last week|Share your week/, early);
-    assert.match(early, /How to move up\nShip code this week: \+14 points to hold #1\.$/, early);
+    assert.match(early, /How to move up\nShip code this week to hold #1\.$/, early);
     assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));

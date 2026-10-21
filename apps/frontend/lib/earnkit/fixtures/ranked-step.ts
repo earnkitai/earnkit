@@ -3,7 +3,7 @@
  * "Ship this week to climb." while no Shipping row exists. A statement, never a question.
  */
 export const RANKED_STEP =
-  /^(Ship this week to climb\.|Ship code this week(: \+\d+ points( to hold #\d+|, enough to pass #\d+|, \d+ short of #\d+)?)?\.|Ship code this week to hold #\d+\.|Done this week(: \+\d+ points)?\.( Next week adds up to \d+ more\.)?)$/;
+  /^(Ship this week to climb\.|Ship code this week( to (hold|pass|move toward) #\d+)?\.|Done this week\.)$/;
 
 /** The reply ends on "How to move up" and the ranked step. */
 export const endsOnRankedStep = (s: string): boolean => {
