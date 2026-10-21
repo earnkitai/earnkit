@@ -3,7 +3,7 @@ import { H2 } from '../common/Panel';
 
 /**
  * The ten marks with their files' pixel sizes and the height each is drawn at (md; phones scale by 0.85), so a
- * tall emblem (The LAO, IDEO) and a thin wordmark (Scalar, Cooper Turley) read at one visual weight.
+ * tall emblem (The LAO, IDEO) and a thin wordmark (Scalar) read at one visual weight.
  */
 const investorLogos = [
   { src: '/images/investors/THE_LAO.png', alt: 'The LAO', w: 84, h: 73, height: 36 },
@@ -14,8 +14,6 @@ const investorLogos = [
   { src: '/images/investors/SCALAR.png', alt: 'Scalar', w: 237, h: 18, height: 14 },
   { src: '/images/investors/gcr-logo-black.png', alt: 'GCR', w: 69, h: 25, height: 22 },
   { src: '/images/investors/DEFI_ALLIANCE.png', alt: 'Alliance', w: 129, h: 60, height: 34 },
-  { src: '/images/investors/BLOCK0.png', alt: 'Block0', w: 94, h: 23, height: 20 },
-  { src: '/images/investors/COOPER_TURLEY.png', alt: 'Cooper Turley', w: 215, h: 18, height: 14 },
 ];
 
 /** v3 Stage 3 (spec 5.6), review round 1: the title and the ten logos in one static wrapping row at 60%, white on black, each sized by height. No motion, no fade edges. Lazy, as images below the fold. */
