@@ -34,6 +34,6 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
   return parts.length ? `Since you last checked: ${parts.join(' ')}` : null;
 }
 
-export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one next step, the last line.';
+export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, its next step.';
 /** The plain answer when a yes or no changes nothing (v2.12.1 make-countable.ts COUNT_LINES.noted). */
 export const NOTED_LINE = 'Okay.';

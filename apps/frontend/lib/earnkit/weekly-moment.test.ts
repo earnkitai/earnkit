@@ -8,12 +8,14 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
 import { readStats } from './stats';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { NOTE_LINE } from './weekly-moment';
+import { SHIP_ASK } from './bench-reply';
+import { momentPlace, weekNumber } from './weekly-moment';
 
 /**
  * Launch ready L5 (one weekly target) and L6 (one weekly moment), with L9's approvals, through the real MCP layer
- * (mcpCall): the ranked reply's one next step, the profile's public target, the first find or score of a week
- * leading with last week, the share link, the yes that approves the week, and the stats that count it.
+ * (mcpCall): the ranked ship step's points line (Task 16: the target leads it), the profile's public target, the
+ * first find or score of a week (Task 16 step 7: the week, the points, a post for X to paste), the yes that approves
+ * the week, and the stats that count it.
  */
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -82,14 +84,13 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await pad('wtpa', 7);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.match(s, /^App: Shipping 35 · #2 of 10 builders\.$/m, s);
+  assert.equal(s, `App · #2 of 10 builders\n${SHIP_ASK}\nShip code this week to pass #1: up to +100 points`);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
-  assert.ok(s.endsWith('How to move up\nShip code this week to pass #1.'), s);
-  assert.equal(links(s).length, 1, s);
-  assert.equal(questions(s), 0, 'a statement, never a question');
+  assert.equal(links(s).length, 0, s);
+  assert.equal(questions(s), 1, s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
-  assert.doesNotMatch(s, /Last week:/);
+  assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
 
   // The public page shows the same math in its own voice (L10: said to a visitor), ranks only.
@@ -100,14 +101,14 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   // Not enough to pass: the builder above far ahead.
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(behind.endsWith('How to move up\nShip code this week to move toward #1.'), behind);
+  assert.ok(behind.endsWith('\nShip code this week to move toward #1: up to +100 points'), behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
   for (const tool of ['find', 'score'] as const) {
     const t = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.ok(t.endsWith('How to move up\nDone this week.'), `${tool}: ${t}`);
-    assert.equal(questions(t), 0, t);
+    assert.ok(t.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), `${tool}: ${t}`);
+    assert.equal(questions(t), 1, t);
   }
 });
 
@@ -116,14 +117,14 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   const top = await builder('wttop', 'Top', [1, 2]);
   await pad('wtpb', 9);
   const t = show(await mcpCall(ctx(top.id), 'find', {}));
-  assert.ok(t.endsWith('How to move up\nShip code this week to hold #1.'), t);
+  assert.ok(t.endsWith('\nShip code this week to hold #1: up to +100 points'), t);
   await builder('wttie', 'Tie', [1, 2]);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.ok(tied.endsWith('How to move up\nShip code this week to hold #1.'), tied);
+  assert.ok(tied.endsWith('\nShip code this week to hold #1: up to +100 points'), tied);
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 
-test('L6.3 the weekly moment: the first find of the week leads with last week and the new week\'s line, the share link replaces the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {
+test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a post for X to paste, in place of the step, once a week per installation; a yes after another find still approves the week (matched case-insensitively) and the stats count it', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const before = plusDays(monday, -1); // the Sunday before last week
@@ -146,25 +147,20 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key.toUpperCase()}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 4 } } as never)}, ${['Launch on acme.com', 'Add dark mode', 'Fix the login loop']}::text[])`;
 
+  // Code in the last 3 weeks (the streak's rule): last week is week 3 in a row.
+  await sql()`UPDATE builder_projects SET commit_weeks = ${[1, 2, 3].map((i) => isoWeekOf(new Date(Date.now() - i * 7 * DAY))).sort()}::text[] WHERE builder_id = ${me.id}`;
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  const [lead, titles, note, week] = s.split('\n');
-  assert.equal(lead, 'Last week you finished at Shipping 50 (+6), #2 (up 1).', s);
-  // Weekly updates: the week's summary, written from the titles without the one naming a host; then the note line.
-  assert.equal(titles, 'Added dark mode and fixed the login loop.', 'no title with a host');
-  assert.equal(note, NOTE_LINE);
-  assert.equal(week, 'This week starts at Shipping 35: ship code to move toward #1.');
-  assert.ok(s.split('\n\n')[1].startsWith('Where you stand'), 'the moment leads, then the usual reply');
-  const share = links(s);
-  assert.equal(share.length, 1, `one link: ${s}`);
-  assert.ok(s.endsWith(`How to move up\nShare your week on X: ${share[0]}\nDoes last week look right?`), s);
+  // #2 of 10 now: the yes earns 70 points (points.ts pointsForRank: the top 25%).
+  assert.equal(s, [
+    "Week 3 done. You're now #2: +70 points.",
+    'A post for X, ready to paste:',
+    `"Week 3 shipping App. earnkit.com/${me.handle}"`,
+    'Does last week look right?',
+  ].join('\n'));
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
-  assert.ok(s.includes(`Your page: earnkit.com/${me.handle}\n`), 'the page is named beside the link, without https');
-  assert.doesNotMatch(s, /Ship code this week/, 'the share offer replaces the target for this one reply');
-  const u = new URL(share[0]);
-  assert.equal(`${u.origin}${u.pathname}`, 'https://x.com/intent/post');
-  assert.equal(u.searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #2 of 10 builders');
-  assert.equal(u.searchParams.get('url'), `https://earnkit.com/${me.handle}`);
+  assert.doesNotMatch(s, /intent|Ship code this week/, 'a post to paste, never an intent link; the moment replaces the step');
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
   assert.match(move.agent_note, /tell with move_up/);
@@ -172,7 +168,7 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
 
   // Another reply first (no moment again: once a week per installation), then the yes: still answered.
   const between = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.doesNotMatch(between, /Last week|Share your week/, between);
+  assert.doesNotMatch(between, /Last week|Week \d+ done|A post for X/, between);
   // The yes approves last week's ship log; answered once.
   const stats0 = await readStats(new Date());
   await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${me.id}`;
@@ -193,8 +189,8 @@ test('L6.3 the weekly moment: the first find of the week leads with last week an
   // Once a week per installation: the next find and score don't repeat it.
   for (const tool of ['find', 'score'] as const) {
     const again = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.doesNotMatch(again, /Last week|Share your week/, `${tool}: ${again}`);
-    assert.match(again, /How to move up\nShip code this week to move toward #1\.$/, again);
+    assert.doesNotMatch(again, /Last week|Week \d+ done|A post for X/, `${tool}: ${again}`);
+    assert.match(again, /\nShip code this week to move toward #1: up to \+100 points$/, again);
   }
 });
 
@@ -208,9 +204,9 @@ test('L6.4 the moment through score, once per installation (another agent of the
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(s, /^Last week you finished at Shipping 30, #1\.\nThis week starts at Shipping \d+: ship code to hold #1\.\n\nWhere you stand/, s);
+  // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
+  assert.equal(s, `Last week done. You're now #1: +100 points.\nA post for X, ready to paste:\n"Shipping App. earnkit.com/${me.handle}"\nDoes last week look right?`);
   assert.doesNotMatch(s, /Secret launch/);
-  assert.match(s, /Share your week on X: https:\/\/x\.com\/intent\/post\?\S+\nDoes last week look right\?$/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
@@ -222,13 +218,13 @@ test('L6.4 the moment through score, once per installation (another agent of the
 
   // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never asked about again, by any agent.
   const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
-  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Last week|Share your week/, 'the approved week is not asked again');
+  assert.doesNotMatch(show(await mcpCall(ctx(me.id, third), 'find', {})), /Last week|A post for X/, 'the approved week is not asked again');
   // A second agent of the same person, last week not yet confirmed (the approval removed): its own first reply of
   // the week has the moment, once.
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-other-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
   const [a, b] = await Promise.all([mcpCall(ctx(me.id, other), 'find', {}), mcpCall(ctx(me.id, other), 'find', {})]);
-  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week')).length, 1, 'two replies at once: one moment');
+  assert.equal([show(a), show(b)].filter((t) => t.startsWith('Last week done')).length, 1, 'two replies at once: one moment');
 
   // That moment opened the offer again; a no closes it and approves nothing.
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
@@ -251,8 +247,8 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
     const r = await mcpCall(ctx(me.id), tool, {});
     replies.push(JSON.stringify(r.reply));
   }
-  assert.ok(replies[0].includes('Last week you finished at Shipping 40, #2.'), 'the moment showed');
-  assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1.')), 'the target showed');
+  assert.ok(replies[0].includes("Last week done. You're now #2: "), 'the moment showed');
+  assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1: ')), 'the target showed');
   for (const r of replies) {
     noHostile(r);
     assert.ok(!r.includes('ignore_prev'), r);
@@ -270,12 +266,12 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     await history(me.id, plusDays(monday, 6), 30);
     await pad('wmpc', 9, [plusDays(monday, 6)]);
     const early = show(await mcpCall(ctx(me.id), 'find', {}));
-    assert.doesNotMatch(early, /Last week|Share your week/, early);
-    assert.match(early, /How to move up\nShip code this week to hold #1\.$/, early);
+    assert.doesNotMatch(early, /Last week|A post for X/, early);
+    assert.match(early, /\nShip code this week to hold #1: up to \+100 points$/, early);
     assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));
-    assert.ok(late.startsWith('Last week you finished at Shipping 30, #1.\n'), late);
+    assert.ok(late.startsWith("Last week done. You're now #1: "), late);
     // The next week the offer is closed: a yes is "Okay." and approves nothing.
     mock.timers.setTime(Date.parse('2026-10-12T16:00:00Z'));
     assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.');
@@ -283,4 +279,16 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }
+});
+
+test('Task 16 step 7: the week\'s number and where last week left the builder', () => {
+  // Code last week and the two before: week 3; none last week: 0 ("Last week done.").
+  assert.equal(weekNumber(['2026-W39', '2026-W40', '2026-W41'], '2026-10-05'), 3);
+  assert.equal(weekNumber(['2026-W39', '2026-W41'], '2026-10-05'), 1);
+  assert.equal(weekNumber(['2026-W39', '2026-W40'], '2026-10-05'), 0);
+  const w = (rank: number, total: number) => ({ score: 40, rank, total });
+  assert.equal(momentPlace({ now: w(3, 12), before: w(3, 12) }), 'still');
+  assert.equal(momentPlace({ now: w(2, 12), before: w(3, 12) }), 'now');
+  assert.equal(momentPlace({ now: w(2, 12), before: null }), 'now');
+  assert.equal(momentPlace({ now: w(1, 9), before: w(1, 9) }), null, 'under RANK_MIN_POOL: "on EarnKit"');
 });

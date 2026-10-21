@@ -21,7 +21,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { NOT_ON_BENCH, VARIANT_COPY } from './bench-reply';
+import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -528,9 +528,8 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
-  assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
-  // v2.14 T9: signed out, the sign-in link is the one question.
-  assert.equal(r1.show_to_builder.split('\n')[1], NOT_ON_BENCH, r1.show_to_builder);
+  // v2.14 T9: signed out, the sign-in link is the one question (Task 16 step 1).
+  assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
   assert.equal(r1.move_up?.kind, 'sign_in');
   // v2.14 T7: no claim link or claim ask.
   assert.equal(r1.claim, undefined);
@@ -542,7 +541,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)( · \d+ weeks? in a row)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
   assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
@@ -567,27 +566,24 @@ test('16.1b review focus 3: a second person naming maya/recipes (already on the 
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+  assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
   await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
-  assert.ok(again.show_to_builder.includes(`Where you stand\n${VARIANT_COPY.taken.stand('My recipes')}\n`), again.show_to_builder);
-  // D6: the open programs are still named.
-  assert.doesNotMatch(again.show_to_builder, /No program is open/);
+  assert.equal(again.show_to_builder, `Signed in as @eve_ships.\n\n${VARIANT_COPY.taken.stand('My recipes')}\n${VARIANT_COPY.taken.ask()}`);
   assert.notEqual(again.move_up?.kind, 'updates');
   const update = await call('tell', { update: { text: 'Shipped the fridge photo import.' } }, ctx(EVE));
   assert.equal(update.agent_note, NOT_CONFIRMED_NOTE);
   assert.ok(!(await benchRows(parseBenchFilter({}))).rows.some((x) => x.handle === 'eve_ships'));
 });
 
-test('16.2 acceptance 2, without a project: ways to get funded and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
+test('16.2 acceptance 2, without a project: the repo picker and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
   const id = await newInstall();
   // v2.14: signed in with X at install (attachToX).
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're not on the leaderboard yet\./m, r.show_to_builder);
-  assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\.\nStep 2 of 2: pick the repo you're building\./, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');

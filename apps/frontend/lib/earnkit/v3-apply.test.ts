@@ -21,7 +21,7 @@ import { profileData } from './bench-data';
 import { programLabel } from './page-data';
 import { shipLogBlock } from './ship-log-facts';
 import { DRAFT_NOTE } from './draft-application';
-import { SENT_ASK, schemeless } from './submit-kit';
+import { SENT_ASK, draftReadyLine, schemeless } from './submit-kit';
 import { STATS_KEYS, STATS_LABELS, readStats } from './stats';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -97,17 +97,15 @@ const tell = (b: { ctx: Parameters<typeof mcpCall>[0] }, args: Record<string, un
 
 test('(a) a fit closing in 20 days makes the apply ask the step, once', db, async () => {
   assert.equal(APPLY_WINDOW_DAYS, 30);
-  assert.equal(applyAsk('Base Builder Grants', 'Nov 18'), 'Base Builder Grants closes Nov 18. Want me to draft your application from your ship log?');
+  assert.equal(applyAsk('Base Builder Grants', '$5,000', 'Nov 18'), 'Base Builder Grants closes Nov 18, up to $5,000. I can draft it in a minute.\nWant me to?');
   const p = await dated('a', 20);
   const far = await dated('a2', 45);
   const b = await builder('a', [p.id, far.id]);
   const f = await find(b);
   const s = show(f);
-  assert.ok(s.endsWith(`How to move up\n${applyAsk(p.title, p.when)}`), s);
-  assert.match(s, new RegExp(`${p.title}: up to \\$5K, closes ${p.when}\\.`), 'still a fit line');
-  // v3.1 spec 3.2: the asked program leads as the Best fit (a dated fit within 30 days wins over the 45-day one).
-  assert.ok(s.startsWith(`Best fit: ${p.title}, up to $5K, closes ${p.when}. `), s);
-  assert.equal(links(s).length, 1, s);
+  // Task 16 step 5: the dated fit within 30 days (never the 45-day one), its question, the points line.
+  assert.equal(s, `Kit is on EarnKit.\n${applyAsk(p.title, '$5,000', p.when)}\nShip code this week: up to +100 points`);
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
@@ -116,14 +114,14 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   assert.ok((await seen(b.id)).apply_asked && (((await seen(b.id)).apply_asked as Record<string, string>)[p.id]), 'asked once is remembered');
   // Asked once: the next reply's step is the weekly target again, and the 45-day program is never asked.
   const again = await find(b);
-  assert.doesNotMatch(show(again), /Want me to draft your application/, show(again));
+  assert.doesNotMatch(show(again), /I can draft it/, show(again));
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'apply');
 });
 
-test('(b) yes returns the prepare note and lead; prepare shows the draft, the ship log block first', db, async () => {
+test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 16 step 6)', db, async () => {
   const p = await dated('b', 20);
   const b = await builder('b', [p.id]);
-  assert.match(show(await find(b)), /Want me to draft your application from your ship log\?$/);
+  assert.match(show(await find(b)), /I can draft it in a minute\.\nWant me to\?\n/);
   const yes = await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
   assert.equal(show(yes), '');
   assert.equal(yes.reply?.agent_note, APPLY_YES_NOTE(p.id));
@@ -137,21 +135,16 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft, the sh
   const answers = Object.fromEntries(reqs.map((r) => [r.key, r.type === 'url' ? 'https://kit.app/demo' : r.type === 'email' ? 'lee@kit.app' : r.options ? r.options[0] : 'Kit lets fans tip creators on Base.']));
   const prep = await mcpCall(b.ctx, 'prepare', { program_id: p.id, project: { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' }, answers, coach_asked: true });
   const s = show(prep);
-  // v3.1 Task 9: the yes then prepare is the drafted application ("Apply with this page"): the block first (no guide,
-  // never the confirm offer), its live site without the scheme (D7), then the draft, ending with the sent ask.
-  assert.ok(s.startsWith('From your ship log:\n'), s);
-  const [blockText, next] = s.split('\n\n');
-  const block = blockText.split('\n');
-  assert.equal(block.at(-1), `Page: earnkit.com/${b.handle}`);
-  assert.ok(block.includes('Live: kit.app/'), s);
-  assert.equal(next, `Your draft for ${p.title}:`, 'the draft follows the block');
-  assert.equal(s.lastIndexOf('From your ship log:'), 0, 'once');
-  assert.ok(s.endsWith(`\n\n${SENT_ASK}`), s);
+  // v3.1 Task 9, Task 16 step 6: the yes then prepare is the drafted application ("Apply with this page"): how many
+  // answers it filled (no guide, never the confirm offer), the prefilled form, the sent ask. The ship log stays in ship_log.
+  assert.ok(s.startsWith(`${draftReadyLine(p.title, reqs.length, reqs.length)}\n`), s);
+  assert.doesNotMatch(s, /From your ship log/);
+  assert.ok(s.endsWith(`\n${SENT_ASK}`), s);
   assert.equal(links(s).length, 1, s);
   assert.doesNotMatch(s, /Ready to submit|\| Field \| Answer \|/, 'never the v2 confirm offer');
   const facts = prep.reply?.ship_log as { page: string; live: string | null; streak: number };
   assert.equal(facts.page, `earnkit.com/${b.handle}`);
-  assert.deepEqual(shipLogBlock(facts as never).map(schemeless), block);
+  assert.ok(shipLogBlock(facts as never).map(schemeless).includes('Live: kit.app/'));
   assert.equal(prep.reply?.agent_note, DRAFT_NOTE);
   // The block's lines, by rule.
   assert.deepEqual(
@@ -164,18 +157,18 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft, the sh
 test('(c) no is remembered 30 days', db, async () => {
   const p = await dated('c', 20);
   const b = await builder('c', [p.id]);
-  assert.match(show(await find(b)), /Want me to draft your application/);
+  assert.match(show(await find(b)), /I can draft it/);
   assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })), 'Okay.');
   const declined = (await seen(b.id)).declined as Record<string, string>;
   assert.ok(declined[`apply:${p.id}`], JSON.stringify(declined));
   // Even with the once-guard gone, a no keeps it away for 30 days.
   const unguard = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'apply_asked' WHERE builder_id = ${b.id}`;
   await unguard();
-  assert.doesNotMatch(show(await find(b)), /Want me to draft your application/);
+  assert.doesNotMatch(show(await find(b)), /I can draft it/);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
     WHERE builder_id = ${b.id}`;
   await unguard();
-  assert.match(show(await find(b)), /Want me to draft your application/);
+  assert.match(show(await find(b)), /I can draft it/);
 });
 
 test('(d) a program the builder already applied to is never asked', db, async () => {
@@ -184,14 +177,14 @@ test('(d) a program the builder already applied to is never asked', db, async ()
   // An older round's rejection: the program still fits, but the builder told EarnKit about it.
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${p.id}, 'rejected', 'an older round')`;
   const s = show(await find(b));
-  assert.match(s, new RegExp(`${p.title}: up to`), s);
-  assert.doesNotMatch(s, /Want me to draft your application/, s);
+  assert.match(s, new RegExp(`You qualify for the ${p.title}, up to`), s);
+  assert.doesNotMatch(s, /I can draft it/, s);
   // Applied this round (through tell): the program is hidden and never asked.
   const q = await dated('d2', 20);
   const c = await builder('d2', [q.id]);
   const told = await tell(c, { program_status: [{ program_id: q.id, status: 'applied' }] });
   assert.equal(told.isError, false, told.text);
-  assert.doesNotMatch(show(await find(c)), /Want me to draft your application/);
+  assert.doesNotMatch(show(await find(c)), /I can draft it/);
 });
 
 test('(e) program_status accepted stays private; applied shows on the page', db, async () => {
@@ -215,7 +208,7 @@ test('(e) program_status accepted stays private; applied shows on the page', db,
   assert.match(html, new RegExp(`Applied to ${p.title}`));
   assert.doesNotMatch(html, /Accepted|Funded|Entered/, "never the self-reported outcome");
   // A builder's own memory hides the program, as applied does.
-  assert.doesNotMatch(show(await find(b)), new RegExp(`${p.title}:`));
+  assert.doesNotMatch(show(await find(b)), new RegExp(p.title));
 });
 
 test('(f) the outcome ask 14 days after the deadline, once', db, async () => {
@@ -232,7 +225,7 @@ test('(f) the outcome ask 14 days after the deadline, once', db, async () => {
   assert.equal(first?.project_id, entry);
   const f = await find(b);
   const s = show(f);
-  assert.match(s, new RegExp(`How to move up\\nDid ${gone.title} come back on .+\\? applied / accepted / funded / rejected\\.$`), s);
+  assert.match(s, new RegExp(`\\nDid ${gone.title} come back on .+\\? applied / accepted / funded / rejected\\.$`), s);
   assert.equal(questions(s), 1, s);
   const ask = f.reply?.ask_outcome as { program_id: string; question: string; agent_note: string; project_id?: number };
   assert.equal(ask.program_id, gone.id);
@@ -279,10 +272,7 @@ test('(h) an investment closing within 30 days is the apply step (find and score
     // find writes the fits score reads (installations.fit_repos); the first reply here is the builder's own.
     const r = await mcpCall(b.ctx, tool, {});
     const s = show(r);
-    assert.ok(s.endsWith(`How to move up\n${applyAsk(p.title, p.when)}`), `${tool}: ${s}`);
-    // find's fits are this builder's verdicts (only this program); score reads every open program this file made, where
-    // the dated grants come first (byRelevance: grants before investments) and fill the 3 lines.
-    if (tool === 'find') assert.match(s.split('How to move up')[0], new RegExp(`\\n${p.title}: up to \\$400K investment, closes ${p.when}\\. `), `a fit line: ${s}`);
+    assert.ok(s.endsWith(`\n${applyAsk(p.title, '$400,000 investment', p.when)}\nShip code this week: up to +100 points`), `${tool}: ${s}`);
     assert.notEqual((r.reply?.lead as { program_id?: string } | undefined)?.program_id, p.id, `${tool}: an investment is never the lead`);
     assert.equal(questions(s), 1, s);
     assert.equal(links(s).length <= 1, true, s);

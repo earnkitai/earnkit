@@ -67,19 +67,15 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const me = await pool('rpa', 9);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  const [lead] = s.split('\n');
-  assert.equal(lead, 'Last week you finished at Shipping 50.', s);
-  assert.match(s, new RegExp(`^App: Shipping ${me.score}\\.$`, 'm'), s);
-  const share = links(s);
-  assert.equal(share.length, 1, s);
-  assert.equal(new URL(share[0]!).searchParams.get('text'), 'My week on EarnKit: Shipping 50');
+  // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", the post to paste with no rank; #3 of 9 earns 50 points.
+  assert.equal(s, `Last week done. You're on EarnKit: +50 points.\nA post for X, ready to paste:\n"Shipping App. earnkit.com/${me.handle}"\nDoes last week look right?`);
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');
   assert.deepEqual((f.reply as { rank_lines?: string[] }).rank_lines ?? [], []);
   const sc = await mcpCall(ctx(me.id), 'score', {});
   const t = show(sc);
-  assert.match(t, new RegExp(`^App: Shipping ${me.score}\\.$`, 'm'), t);
-  assert.ok(t.endsWith('How to move up\nShip code this week.'), t);
+  assert.ok(t.endsWith('\nShip code this week: up to +100 points'), t);
   assert.doesNotMatch(JSON.stringify(sc.reply), /#\d/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 1, total: 9 }), null);
 });
@@ -88,11 +84,10 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const me = await pool('rpb', 10);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.equal(s.split('\n')[0], 'Last week you finished at Shipping 50, #3.', s);
-  assert.match(s, new RegExp(`^App: Shipping ${me.score} · #3 of 10 builders\\.$`, 'm'), s);
-  assert.equal(new URL(links(s)[0]!).searchParams.get('text'), 'My week on EarnKit: Shipping 50 · #3 of 10 builders');
+  assert.equal(s.split('\n')[0], "Last week done. You're now #3: +50 points.", s);
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(t, /How to move up\nShip code this week to move toward #1\.$/, t);
+  assert.match(t, /^App · #3 of 10 builders/, t);
+  assert.ok(t.endsWith('\nShip code this week to move toward #1: up to +100 points'), t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

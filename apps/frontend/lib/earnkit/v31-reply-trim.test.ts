@@ -8,11 +8,12 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
 import { approveWeek } from './weekly-moment';
 import { POINTS_LINE, pointsTotal } from './points';
-import { benchReply, type BenchView } from './bench-reply';
+import { SHIP_ASK, benchReply, type BenchView } from './bench-reply';
 
 /**
  * v3.1 F4: the ranked reply loses words (the owner: "too many words"). No why sentence, no Originality, no points
- * line; the upcoming line only when the reply names no fit. The page and the points ledger keep theirs.
+ * total; the upcoming line only when the reply names no fit. The page and the points ledger keep theirs. Task 16: the
+ * one points line a step earns ("Ship code this week: up to +100 points") is the owner's approved copy.
  */
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -44,14 +45,15 @@ async function ranked(tag: string, streak = 0) {
   return { id, key, handle };
 }
 
-test('(a) a ranked reply has no why sentence, no Originality and no Points line', db, async () => {
+test('(a) a ranked reply has no why sentence, no Originality and no points total', db, async () => {
   const me = await ranked('rta');
   await sql()`INSERT INTO project_embeddings (project_key, builder_id, originality, nearest, checked_at) VALUES (${me.key}, ${me.id}, 72, '[]'::jsonb, now())`;
   const monday = lastFinishedMonday(new Date());
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   await approveWeek(me.id, me.key, monday, new Date());
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
-  assert.match(s, /^App: Shipping \d+/m, s);
+  assert.match(s, /^App is on EarnKit\.$/m, s);
+  assert.ok(s.endsWith('\nShip code this week: up to +100 points'), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);
   assert.doesNotMatch(s, /Points:/, s);
@@ -68,30 +70,26 @@ test('(a) a ranked reply has no why sentence, no Originality and no Points line'
   assert.doesNotMatch(sc, /Code in \d+ of the last 12 weeks|Originality|Points:/, sc);
 });
 
-test('(a) benchReply: the why, Originality and a points line in the view are never shown', () => {
+test('(a) benchReply: the ranked reply is the standing, the question and the points line (no why, Originality or total)', () => {
   const v: BenchView = {
-    state: 'ranked', variant: null, project: { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 6 }, rank: null,
-    handle: 'maya', link: null, score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: 72, target: null, share: null,
-    fund: [{ kind: 'points', total: 100 }], due: [], ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship this week to climb.' }, held: null,
+    state: 'ranked', variant: null, project: { key: 'maya/recipes', name: 'Recipes', confirmed: true, live: true, weeks: 6 }, rank: null, streak: 0,
+    handle: 'maya', link: null, target: null, fund: [], due: [], ask: { kind: 'ship', project_key: 'maya/recipes', line: SHIP_ASK }, held: null,
   };
   const s = benchReply(v);
-  assert.ok(!s.includes('Code in 7') && !s.includes('Originality') && !s.includes(POINTS_LINE(100)), s);
-  assert.ok(s.startsWith('Where you stand\nRecipes: Shipping 62.\nYour page: https://earnkit.com/maya\n\nWays to get funded\n'), s);
+  assert.equal(s, `Recipes is on EarnKit.\n${SHIP_ASK}\nShip code this week: up to +100 points`);
+  assert.ok(!s.includes(POINTS_LINE(100)), s);
 });
 
 test('(b) the upcoming line shows only with no fit', db, async () => {
-  // A 4-week streak and no fit: the upcoming line, after the no-fit line.
+  // A 4-week streak and no fit: the upcoming line is the money line (Task 16: after the standing, before the question).
   const lone = await ranked('rtb', 4);
   const s = show(await mcpCall(ctxOf(lone.id), 'find', {}));
-  const lines = s.split('\n');
-  assert.ok(lines.includes(UPCOMING), s);
-  assert.ok(lines.indexOf('No open program fits App yet.') < lines.indexOf(UPCOMING), s);
-  assert.ok(lines.indexOf(UPCOMING) < lines.indexOf('How to move up'), s);
+  assert.equal(s.split('\n')[1], UPCOMING, s);
   // A 4-week streak and a fit: no upcoming line.
   const ava = await avalanche();
   const fit = await ranked('rtc', 4);
   const t = show(await mcpCall(ctxOf(fit.id, async () => ({ checked: 1, scored: 1, fits: fitsFor(ava.id, fit.key) })), 'find', {}));
-  assert.ok(t.includes(`${ava.title}: `), t);
+  assert.ok(t.includes(ava.title), t);
   assert.doesNotMatch(t, / not open yet\. /, t);
 });
 

@@ -247,7 +247,8 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     await mcpCall(ctx(me.id), 'find', {});
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
-    assert.ok(s.endsWith(`\n${EMAIL_QUESTION}`), s);
+    // Task 16 step 4 with no Best fit: the email question, then the points line.
+    assert.ok(s.includes(`\n${EMAIL_QUESTION}\n+`), s);
     assert.equal(questions(s), 1, s);
     assert.match(String(yes.reply?.agent_note ?? ''), new RegExp(EMAIL_NOTE.replace(/[.']/g, '.')));
     // Asked once: a share yes later asks nothing.

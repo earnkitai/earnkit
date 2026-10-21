@@ -2815,7 +2815,7 @@ export const TellToolInput = z
     x_handle: z.string().max(20).optional(),
     // v2.12.1 T8: the builder's answer to "Want a card to share it?" ("skip" is one word).
     card: z.enum(['yes', 'skip']).optional(),
-    // v2.12.1 T8: the builder's yes or no to "How to move up" (find's or score's move_up).
+    // v2.12.1 T8: the builder's yes or no to the reply's question (find's or score's move_up).
     move_up: z
       .object({
         kind: z.string().max(20).optional(),
@@ -2879,7 +2879,7 @@ export async function coinAnswer(ctx: Pick<ToolContext, 'installationId' | 'toke
 }
 
 /**
- * v2.12.1 T8, T9: the builder's answer to "How to move up". The step is the server's own (the ask the
+ * v2.12.1 T8, T9: the builder's answer to the reply's question. The step is the server's own (the ask the
  * last Bench reply stored); the agent's kind is never trusted, and a yes to a step that is no longer the
  * current one (or another project's) changes nothing. An open coin offer (kind coin: one the builder asked
  * for, tell token) is coinAnswer's; every other answer is bench-find.ts benchMoveUp's.

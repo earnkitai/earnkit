@@ -72,7 +72,7 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
-  assert.match(String(r.reply?.show_to_builder), /^Notes: Shipping 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
+  assert.match(String(r.reply?.show_to_builder), /^Notes · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
 });
 
 /** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */
@@ -102,20 +102,20 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const reads = gh.calls.filter((c) => c.path === '/graphql');
   assert.equal(reads.length, 1);
   assert.equal(reads[0].auth, 'Bearer ghs_fake_91');
-  // v3 Stage 1 Task 5: the first ranked reply after connect leads with the backfilled weeks and asks their one yes.
+  // v3 Stage 1 Task 5, Task 16 step 3: the first ranked reply after connect offers the backfilled weeks in one yes.
   const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(first, /^Your last \d weeks?:\nWeek of /, first);
-  const pageHandle = /\nPost these weeks to your public page\? Yes puts them on earnkit\.com\/(\S+) and the Feed\.$/.exec(first)?.[1];
-  assert.ok(pageHandle && first.endsWith(`How to move up\n${connectAsk(pageHandle)}`), first);
+  assert.match(first, /^Ships is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders), 3 weeks in a row\.\n\n/, first);
+  const m = /\nPost your (\d+) weeks to (earnkit\.com\/\S+) so grant teams can see them\?\n\+(\d+) points$/.exec(first);
+  assert.ok(m && first.endsWith(`${connectAsk(Number(m[1]), m[2])}\n+${Number(m[1]) * 30} points`), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
-  // R16a: one ranked state; the streak lives in the Shipping score (the stand line is the score line alone).
-  assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, text);
+  // R16a: one ranked state; Task 16: the standing line carries the rank and the streak.
+  assert.match(text, /^Ships · (#\d+ of \d+ builders?|Top [\d.]+% of builders) · 3 weeks in a row$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
   // v3.1 F4: the why sentence stays on the page, never in the reply.
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
-  // L5: this week has code, so the target says so and what next week adds.
-  assert.match(text, /How to move up\nDone this week\.$/, text);
+  // L5: this week has code ("Done this week"): the plain points line.
+  assert.ok(text.endsWith('\nShip code this week: up to +100 points'), text);
 });
 
 test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {

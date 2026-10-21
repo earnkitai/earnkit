@@ -1497,23 +1497,17 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (re-export from person-score), chainPools, rankLines ({ bench: rank line,
                                line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
                                project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
-    bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
-                               no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
-                               STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
-                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; ranked: the weekly target
-                               line (L5, weekly-target.ts), SHIP_STEP "Ship this week to climb." only without a Shipping row, kind ship); benchReply: stand line (+ the why, "Your page"),
-                               "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
-                               Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
-                               else the page; none when there is no page, X off). Launch ready L2: no_project asks the
-                               repo picker (STATE_COPY.no_project.ask(link), kind pick_repo; noApp() and kind start only
-                               while the App link can't be made). Kinds sign_in, start, pick_repo, install_app,
-                               other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
-                               displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
-                               the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
-                               Launch ready L5, L6: BenchView.target (the weekly target, STATE_COPY.ranked.ask(target), else
-                               SHIP_STEP) and BenchView.share (the weekly moment's X link: then the one link, and stateAsk
-                               gives kind share, shareAsk "Share your week on X: <link>" + "Does last week look right?").
-                               tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
+    bench-reply.ts(+test)      v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
+                               (signed_out, no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off),
+                               replyState, rankedState; stateAsk (kinds sign_in, start, pick_repo, install_app,
+                               other_project, repo_behind, connect, apply, backing, share, ship, suggest); benchReply per
+                               step: signed out (INTRO_LINE, introWhat(OpenGrant), POINTS_ON_SIGN_IN), step 2 (youreIn,
+                               pickRepoAsk, POINTS_ON_CONNECT; namesAccount), connect (connectStanding, qualifyLine,
+                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, SHIP_ASK,
+                               shipPointsLine), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
+                               ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
+                               displayName. At most one https link, exactly one question, the points line last.
+                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
                                showRaisingLine, an open offer again via openCoinLine, else offerCoin 'countable';
@@ -1521,8 +1515,8 @@ apps/frontend/
                                (the chain: deployed on / deploy to / build for, any chain, a live app) and whyFacts;
                                v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
                                install link, the sign-in link minted for the caller's own installation, D14), the
-                               money (R12: up to 3 fits, never an open-all-year pick; not counted or no project:
-                               needsPicks too; a taken project still names open programs, D6), the stored ask; a held question (find's outcome question or
+                               money (R12: up to 3 fits; Task 16: openGrant for the signed-out reply, connectMoment's
+                               ConnectOffer with connectOfferPoints, weeklyMoment's MomentView), the stored ask; a held question (find's outcome question or
                                submission step, A17) replaces the state's, except signed out (signedOutNow: the
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a

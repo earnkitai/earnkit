@@ -14,13 +14,14 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import { lastFinishedMonday } from './weeks';
-import { applyAsk, bestFitLine, BENCH_HEADS } from './bench-reply';
+import { applyAsk, qualifyLine } from './bench-reply';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 
 /**
- * v3.1 Task 6 (spec 3.2): every ranked reply leads with its Best fit (the top apply candidate); rolling programs get
- * the draft offer when no fit closes within 30 days; the apply ask comes before the backing offer.
+ * v3.1 Task 6 (spec 3.2): every ranked reply names its Best fit (the top apply candidate; Task 16: the apply step, then
+ * the money line); rolling programs get the draft offer when no fit closes within 30 days; the apply ask comes before
+ * the backing offer.
  */
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -39,7 +40,6 @@ const RUN = String(process.pid % 100000);
 const DAY = 86_400_000;
 const ROLLING = 'base-builder-grants';
 const ROLLING_TITLE = 'Base Builder Grant Program';
-const WHY = 'You deployed on Base and your app is live.';
 type R = Awaited<ReturnType<typeof mcpCall>>;
 type Ctx = Parameters<typeof mcpCall>[0];
 type B = { ctx: Ctx; id: number; key: string; handle: string };
@@ -110,25 +110,25 @@ function repoFits(key: string, programs: string[]): RepoFit[] {
 }
 const find = async (b: B) => keep(await mcpCall(b.ctx, 'find', {}));
 const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', args);
-const ROLLING_BEST = bestFitLine({ program_id: ROLLING, title: ROLLING_TITLE, prize: 'up to $5K', when: 'rolling', why: WHY, codes: null });
+/** Task 16: the money line a ranked reply names its Best fit with (after the apply step was asked). */
+const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when: 'rolling' });
+/** Task 16 step 5: the apply step and its points line, the reply's end. */
+const applyEnd = (title: string, when: string | null) => `\n${applyAsk(title, '$5,000', when)}\nShip code this week: up to +100 points`;
 
-test('(a) a rolling fit only: Best fit line first, then the rolling ask, once', db, async () => {
-  assert.equal(ROLLING_BEST, `Best fit: ${ROLLING_TITLE}, up to $5K, rolling. ${WHY}`);
-  assert.equal(applyAsk(ROLLING_TITLE, null), `${ROLLING_TITLE} is open now (rolling). Want me to draft your application from your ship log?`);
-  assert.equal(applyAsk('Alliance ALL19', 'Nov 18'), 'Alliance ALL19 closes Nov 18. Want me to draft your application from your ship log?');
-  assert.equal(bestFitLine({ program_id: 'x', title: 'X', prize: 'up to $5K', when: 'closes Nov 18', why: WHY, codes: 'Builder Codes found in kit.' }),
-    `Best fit: X, up to $5K, closes Nov 18. ${WHY} Builder Codes found in kit.`);
+test('(a) a rolling fit only: the rolling ask, once; then the Best fit is the money line', db, async () => {
+  assert.equal(ROLLING_BEST, `You qualify for the ${ROLLING_TITLE}, up to $5,000.`);
+  assert.equal(applyAsk(ROLLING_TITLE, '$5,000', null), `${ROLLING_TITLE} is still open, up to $5,000. I can draft it in a minute.\nWant me to?`);
+  assert.equal(applyAsk('Alliance ALL19', '$400,000 investment', 'Nov 18'), 'Alliance ALL19 closes Nov 18, up to $400,000 investment. I can draft it in a minute.\nWant me to?');
   const b = await builder('a', [ROLLING]);
   const f = await find(b);
   const s = show(f);
-  assert.ok(s.startsWith(`${ROLLING_BEST}\n\n${BENCH_HEADS.stand}\n`), s);
-  assert.ok(s.endsWith(`${BENCH_HEADS.up}\n${applyAsk(ROLLING_TITLE, null)}`), s);
+  assert.ok(s.endsWith(applyEnd(ROLLING_TITLE, null)), s);
   assert.equal(kind(f), 'apply');
   assert.doesNotMatch(s, /—/);
-  // Once: the next reply still leads with the Best fit, and asks the weekly step instead.
+  // Once: the next reply names the Best fit as its money line, and asks the weekly step instead.
   const again = await find(b);
-  assert.ok(show(again).startsWith(`${ROLLING_BEST}\n\n`), show(again));
-  assert.doesNotMatch(show(again), /Want me to draft your application/);
+  assert.equal(show(again).split('\n')[1], ROLLING_BEST, show(again));
+  assert.doesNotMatch(show(again), /I can draft it/);
   assert.notEqual(kind(again), 'apply');
 });
 
@@ -138,12 +138,11 @@ test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 da
   const b = await builder('b', [ROLLING, soon.id, far.id]);
   const f = await find(b);
   const s = show(f);
-  assert.ok(s.startsWith(`Best fit: ${soon.title}, up to $5K, closes ${soon.when}. ${WHY}\n\n`), s);
-  assert.ok(s.endsWith(`${BENCH_HEADS.up}\n${applyAsk(soon.title, soon.when)}`), s);
+  assert.ok(s.endsWith(applyEnd(soon.title, soon.when)), s);
+  assert.equal(show(await find(b)).split('\n')[1], qualifyLine({ title: soon.title, amount: '$5,000', when: `closes ${soon.when}` }));
   const c = await builder('b2', [ROLLING, far.id]);
   const t = show(await find(c));
-  assert.ok(t.startsWith(`${ROLLING_BEST}\n\n`), t);
-  assert.ok(t.endsWith(applyAsk(ROLLING_TITLE, null)), t);
+  assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
 });
 
 test('(c) apply before backing: with both due, the apply ask shows; the next reply offers backing', db, () =>
@@ -157,33 +156,33 @@ test('(c) apply before backing: with both due, the apply ask shows; the next rep
     const next = await find(b);
     assert.equal(kind(next), 'backing', show(next));
     assert.match(show(next), /Want to open backing for Kit\?$/);
-    assert.ok(show(next).startsWith(`${ROLLING_BEST}\n\n`), 'the Best fit still leads');
+    assert.equal(show(next).split('\n')[1], ROLLING_BEST, 'the Best fit is still the money line');
   }));
 
-test('(d) a no keeps the program off the Best fit line and the ask for 30 days', db, async () => {
+test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db, async () => {
   const b = await builder('d', [ROLLING]);
   assert.equal(kind(await find(b)), 'apply');
   assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'no' } })), 'Okay.');
   const unguard = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'apply_asked' WHERE builder_id = ${b.id}`;
   await unguard();
   const s = show(await find(b));
-  assert.doesNotMatch(s, /Best fit:/, s);
-  assert.doesNotMatch(s, /Want me to draft your application/, s);
-  assert.match(s, new RegExp(`${ROLLING_TITLE}: up to \\$5K, rolling\\.`), 'still a fit line');
+  assert.doesNotMatch(s, /I can draft it/, s);
+  // Still a fit: the money line names it (the first fit line), never as the ask.
+  assert.equal(s.split('\n')[1], ROLLING_BEST, s);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
     WHERE builder_id = ${b.id}`;
   await unguard();
   const back = show(await find(b));
-  assert.ok(back.startsWith(`${ROLLING_BEST}\n\n`), back);
-  assert.ok(back.endsWith(applyAsk(ROLLING_TITLE, null)), back);
+  assert.ok(back.endsWith(applyEnd(ROLLING_TITLE, null)), back);
 });
 
-test('(e) a taken repo or a program in builder_program_status: no Best fit line, no ask', db, async () => {
+test('(e) a taken repo or a program in builder_program_status: no Best fit, no ask', db, async () => {
   const b = await builder('e', [ROLLING]);
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${ROLLING}, 'rejected', 'an older round')`;
-  const s = show(await find(b));
-  assert.doesNotMatch(s, /Best fit:/, s);
-  assert.doesNotMatch(s, /Want me to draft your application/, s);
+  const r0 = await find(b);
+  const s = show(r0);
+  assert.doesNotMatch(s, /I can draft it/, s);
+  assert.notEqual(kind(r0), 'apply');
   // Another person holds the repo.
   const t = `ek_v31bf_e2_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -194,29 +193,30 @@ test('(e) a taken repo or a program in builder_program_status: no Best fit line,
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never } as Ctx;
   const r = keep(await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${b.key}` } } }));
   assert.match(show(r), /already on the leaderboard under another account/, show(r));
-  assert.doesNotMatch(show(r), /Best fit:|Want me to draft your application/, show(r));
+  assert.doesNotMatch(show(r), /You qualify|I can draft it/, show(r));
 });
 
-test('(g) score shows the same Best fit line as find', db, async () => {
+test('(g) score names the same Best fit as find', db, async () => {
   // 1 day: sooner than every other dated program, so score (every open program the repo's facts can win) picks it too.
   const p = await dated('g1', 1);
   const b = await builder('g', [ROLLING, p.id]);
   const f = show(await find(b));
-  const best = `Best fit: ${p.title}, up to $5K, closes ${p.when}. ${WHY}`;
-  assert.ok(f.startsWith(`${best}\n\n`), f);
+  assert.ok(f.endsWith(applyEnd(p.title, p.when)), f);
+  // Every other open program asked already, so score's step is to ship and its money line is the Best fit.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${b.id}`;
   const s = show(keep(await mcpCall(b.ctx, 'score', {})));
-  assert.ok(s.split('\n\n').includes(best), s);
-  assert.equal(s.split('\n\n').find((x) => x.startsWith('Best fit:')), best);
+  assert.equal(s.split('\n')[1], qualifyLine({ title: p.title, amount: '$5,000', when: `closes ${p.when}` }), s);
 });
 
 test('(f) one https link and one question in every reply above', () => {
   assert.ok(replies.length >= 10, String(replies.length));
   for (const s of replies) {
     assert.ok(links(s).length <= 1, s);
-    // The weekly target ("Ship code this week.") is a statement; every other step is the reply's one question.
-    assert.equal(questions(s), /\n(Ship code this week|Ship this week to climb)/.test(s) ? 0 : 1, s);
-    // The Best fit line is a statement: no link, no question.
-    const best = s.split('\n').find((l) => l.startsWith('Best fit:'));
+    // Task 16: every reply asks exactly one question.
+    assert.equal(questions(s), 1, s);
+    // The money line is a statement: no link, no question.
+    const best = s.split('\n').find((l) => l.startsWith('You qualify for'));
     if (best) assert.doesNotMatch(best, /https?:\/\/|\?/, best);
   }
 });

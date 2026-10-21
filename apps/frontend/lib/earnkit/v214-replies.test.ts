@@ -14,6 +14,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { SIGN_IN_NOTES, signinGet } from './x-link';
 import type { XOAuthDeps, XUser } from './x-oauth';
+import { INTRO_LINE } from './bench-reply';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
@@ -27,17 +28,13 @@ after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
-/** D12: the rank phrase as 12.3 reads it: "#N of M builders" or a top percent. */
-/** Scoring and clarity (R16c): the ranked stand line is the score line. */
-const RANK = ': Shipping \\d+ · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)';
+/** D12, Task 16: the ranked standing line, "Kit · #N of M builders" or a top percent. */
+const RANK = ' · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)';
+/** Task 16: at most one https link and exactly one question in every reply. */
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
-  assert.equal(links(s).length, 1, s);
-  // R8, L5: a ranked reply ends on the one statement, the weekly target (no question); every other on one question.
-  const ranked = endsOnRankedStep(s);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
-  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
-  assert.match(s, /Ways to get funded/);
+  assert.ok(links(s).length <= 1, s);
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   return s;
 }
 async function agent(o: { x?: string } = {}) {
@@ -53,8 +50,8 @@ async function agent(o: { x?: string } = {}) {
 test('9.8 state 1, not signed in: the sign-in link and its question', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, /You're not on the leaderboard yet\./);
-  assert.match(s, /https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}/);
+  assert.ok(s.startsWith(INTRO_LINE), s);
+  assert.match(s, /Step 1 of 2: sign in with X \(one click\): https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\nDone\?\n\+30 points when you finish step 2$/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
 });
@@ -62,9 +59,9 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
 test('9.9 state 2, signed in with no project: the page and the repo picker (launch ready L2)', db, async () => {
   const a = await agent({ x: 'abe' });
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, new RegExp(`Your page: earnkit\\.com/abe${RUN}`, 'i'));
-  assert.match(s, /Install the read-only EarnKit app on the repo you want ranked \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Want me to rank it once that's done?"));
+  assert.match(s, new RegExp(`^You're in, @abe${RUN}\\.\n`, 'i'));
+  assert.match(s, /Step 2 of 2: pick the repo you're building\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.ok(s.endsWith("Done?\n+30 points when it's connected"));
   assert.doesNotMatch(s, /What's your GitHub/);
 });
 
@@ -74,15 +71,15 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   const a = await agent({ x: 'bo' });
   const key = `bo${RUN}/kit`;
   const s = rule((await mcpCall(a.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } })).reply);
-  assert.match(s, /Kit isn't counted yet\./);
+  assert.match(s, new RegExp(`^You're in, @bo${RUN}\\.\n`, 'i'));
   assert.match(s, /https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.match(s, /Want me to count it once that's done\?$/);
+  assert.match(s, /Done\?\n\+30 points when it's connected$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(four, new RegExp(`Kit${RANK}\\.`));
+  assert.match(four, new RegExp(`Kit (is on the leaderboard: |· )(#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)`));
 });
 
-test('9.11 R16a: shipping weekly is the ranked state; the streak lives in the score (the reply carries it, the stand line does not)', db, async () => {
+test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line carries the streak', db, async () => {
   // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
   await padPool(9);
   const a = await agent({ x: 'cy' });
@@ -95,8 +92,9 @@ test('9.11 R16a: shipping weekly is the ranked state; the streak lives in the sc
   await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
   const reply = (await mcpCall(a.ctx, 'score', {})).reply;
   const s = rule(reply);
-  assert.match(s, new RegExp(`App${RANK}\\.\n`));
-  assert.doesNotMatch(s, /weeks in a row/);
+  // Task 16: the standing line carries the streak.
+  assert.match(s, new RegExp(`^App${RANK} · 3 weeks in a row\n`, 'm'));
+  assert.ok(endsOnRankedStep(s), s);
   assert.equal(reply?.streak, 3);
 });
 
@@ -120,9 +118,7 @@ test('9.12 D5: X off: a new install is answered as signed in with no page: money
     const a = await agent();
     const s = String((await mcpCall(a.ctx, 'find', {})).reply?.show_to_builder);
     assert.equal(links(s).length, 0, s);
-    assert.match(s, /Ways to get funded/);
-    assert.equal((s.match(/\?/g) ?? []).length, 1, s);
-    assert.ok(s.endsWith("What's your GitHub, or a link to something you've made?"), s);
+    assert.equal(s, "What's your GitHub, or a link to something you've made?");
   } finally {
     process.env.X_CLIENT_ID = 'cid';
   }
@@ -131,7 +127,7 @@ test('9.12 D5: X off: a new install is answered as signed in with no page: money
 test('9.13 D14: the link score shows is minted for the calling installation; its code binds through find; that reply names the account first', db, async () => {
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'score', {})).reply);
-  assert.match(s, /You're not on the leaderboard yet\./);
+  assert.ok(s.startsWith(INTRO_LINE), s);
   const link = links(s)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const [row] = await sql()<{ installation_id: number }[]>`SELECT installation_id FROM x_signin_links WHERE link_hash = encode(sha256(${link.split('/').pop()!}::bytea), 'hex')`;
@@ -142,19 +138,20 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   const bound = await mcpCall(a.ctx, 'find', { sign_in_code: code });
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const first = rule(bound.reply);
-  assert.ok(first.startsWith(`Signed in as @${handle}.\n\n`), first);
-  assert.match(first, new RegExp(`Your page: earnkit\\.com/${handle}`, 'i'));
-  // Once: the next reply goes straight to where they stand.
+  // Task 16 step 2 names the account itself ("You're in"), so no "Signed in as" line above it.
+  assert.ok(first.startsWith(`You're in, @${handle}.\n`), first);
+  assert.doesNotMatch(first, /Signed in as/);
   const c = (await connectInstallation(String(a.token)))!;
   const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);
-  assert.ok(next.startsWith('Where you stand'), next);
+  assert.ok(next.startsWith(`You're in, @${handle}.\n`), next);
 });
 
-test('9.14 the first reply after the sign-in at install names the account, once', db, async () => {
+test('9.14 the first reply after the sign-in at install names the account (Task 16: "You\'re in")', db, async () => {
   const a = await agent({ x: 'eve' });
   const first = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(first.split('\n')[0], new RegExp(`^Signed in as @eve${RUN}\\.$`, 'i'));
-  assert.ok(rule((await mcpCall(a.ctx, 'score', {})).reply).startsWith('Where you stand'));
+  assert.match(first.split('\n')[0], new RegExp(`^You're in, @eve${RUN}\\.$`, 'i'));
+  assert.doesNotMatch(first, /Signed in as/);
+  assert.match(rule((await mcpCall(a.ctx, 'score', {})).reply), new RegExp(`^You're in, @eve${RUN}\\.\n`, 'i'));
 });
 
 test('9.15 fix round 1: signed out with a results question due: the sign-in question wins and the results question waits for the bind', db, async () => {
@@ -168,7 +165,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith("Want me to put your work on the leaderboard once you're in?"), s);
+  assert.ok(s.endsWith('Done?\n+30 points when you finish step 2'), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');
@@ -176,7 +173,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const code = await signInThrough(links(s)[0]!, { id: `97${RUN}6`, username: handle, name: 'Fio', avatar: null });
   const bound = await mcpCall(a.ctx, 'find', { sign_in_code: code });
   const first = rule(bound.reply);
-  assert.ok(first.startsWith(`Signed in as @${handle}.`), first);
+  assert.ok(first.startsWith(`You're in, @${handle}.`), first);
   assert.ok(first.endsWith(`Did Kit win anything in ${p.title}?`), first);
   assert.equal((bound.reply?.ask_outcome as { project_id?: number } | undefined)?.project_id, pid);
   await sql()`DELETE FROM projects WHERE id = ${pid}`;
@@ -192,9 +189,8 @@ test('9.16 fix round 1 (minor 2): a sign-in link that fails to mint is still sig
   try {
     const r = await mcpCall(a.ctx, 'find', {});
     const s = String(r.reply?.show_to_builder);
-    assert.match(s, /You're not on the leaderboard yet\./);
+    assert.ok(s.startsWith(INTRO_LINE), s);
     assert.equal(links(s).length, 0, s);
-    assert.match(s, /Ways to get funded/);
     assert.ok(s.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), s);
     assert.equal((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'sign_in');
     assert.doesNotMatch(s, /What's your GitHub/);

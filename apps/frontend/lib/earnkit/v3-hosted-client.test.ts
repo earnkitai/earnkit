@@ -106,7 +106,7 @@ test('(h) an anonymous hosted find renders the Bench signed_out reply: Sign in w
     mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', { agent_can_build: true }));
   assert.equal(r.isError, false, r.text);
   const text = String(r.reply?.show_to_builder);
-  assert.match(text, /Sign in with X/, text);
+  assert.match(text, /sign in with X/, text);
   assert.equal((text.match(/https?:\/\/\S+/g) ?? []).length, 1, text);
 });
 
@@ -131,7 +131,7 @@ test('(i) a successful hosted paste binds and the same reply is not signed_out',
     mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', { agent_can_build: true, sign_in_code: code }));
   assert.equal(r.isError, false, r.text);
   assert.equal(r.reply?.sign_in_note, SIGN_IN_NOTES.bound);
-  assert.doesNotMatch(String(r.reply?.show_to_builder), /Sign in with X|sign-in link/i);
+  assert.doesNotMatch(String(r.reply?.show_to_builder), /sign in with X|sign-in link/i);
   assert.equal((await connectInstallation(token))!.x, user('ivo').id);
 });
 
@@ -141,7 +141,7 @@ test('(j) with X off, an anonymous hosted find keeps its programs reply', db, as
   const r = await withEnv({ EARNKIT_URL: undefined, X_CLIENT_ID: undefined }, () =>
     mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', { agent_can_build: true }));
   assert.equal(r.isError, false, r.text);
-  assert.doesNotMatch(String(r.reply?.show_to_builder), /Sign in with X/);
+  assert.doesNotMatch(String(r.reply?.show_to_builder), /sign in with X/i);
   assert.ok(Array.isArray(r.reply?.programs) && (r.reply!.programs as unknown[]).length > 0, r.text);
 });
 
@@ -154,7 +154,7 @@ test('(k) a bound token whose group holds an anonymous hosted member is not forc
   assert.equal(c.shared, true, 'the group holds an anonymous hosted member');
   const r = await withEnv({ EARNKIT_URL: undefined, ...X_ON }, () =>
     mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', { agent_can_build: true }));
-  assert.doesNotMatch(String(r.reply?.show_to_builder), /Sign in with X/, r.text);
+  assert.doesNotMatch(String(r.reply?.show_to_builder), /sign in with X/i, r.text);
 });
 
 test('(l) two token exchanges for one hosted registration are two installations; binding one leaves the other anonymous', db, async () => {

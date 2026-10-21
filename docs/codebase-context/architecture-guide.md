@@ -7113,3 +7113,43 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   `presentFirstMessage` has no "Ideas" section (the close keeps "Pick one and I'll start." where a shown program has
   curated ideas); `bench-find.ts benchView` adds no `idea` FundLine for a builder with no project, so `needsPicks`
   fills both NEEDS_MAX slots.
+
+## v3.1 P0 Task 16: every reply rewritten for a busy builder (owner-approved copy, 2026-10-21)
+
+- **Supersedes the three-part layout** of v2.13 to Task 6: no "Where you stand" / "Ways to get funded" / "How to move up"
+  headers anywhere. `bench-reply.ts benchReply` writes each state and step as the owner approved it, word for word:
+  plain lines, " · " joining facts, at most one https link, exactly one question, the points line last when the step
+  earns points. The logic stays: four states, one next step each; ranked steps in order connect, apply, backing, share
+  (the weekly moment), ship; the rank phrase only from `RANK_MIN_POOL`; no Backing for `earnkitai/earnkit`.
+- **Step 1 (signed out):** `INTRO_LINE` + `introWhat(open)` (the open grant: `bench-find.ts openGrant`, the first showable
+  program with a known award by `byRelevance`, its organizer without the parenthesis, `awardAmount` "$5,000"), then the
+  sign-in step, "Done?" and `POINTS_ON_SIGN_IN` (`points.ts CONNECT_POINTS`).
+- **Step 2 (no repo, or a named repo not counted):** `youreIn(handle)`, `pickRepoAsk(link)`, `POINTS_ON_CONNECT`. The reply
+  names the account, so `namesAccount` drops the "Signed in as" line above it.
+- **Step 3 (connect):** `connectStanding` ("Kit is on the leaderboard: #1 of 13 builders, 4 weeks in a row."; "on EarnKit"
+  under the pool), `qualifyLine(best)`, `connectAsk(weeks, page)` and "+P points" where P is `points.ts connectOfferPoints`
+  (CONNECT_POINTS for each offered week the ledger has no row for). The weeks list is gone; `connect_open` now carries
+  the Best fit (`ConnectBest`).
+- **Step 4 (connect yes):** `CONNECT_DONE` "You're live: <page link>", then `connectApplyAsk` (the Best fit offered as a
+  draft: `bench-find.ts connectApply` stores the apply ask and claims `apply_asked` through `takeApplyAsk`, unless told,
+  declined or asked), else the weekly email question; then `pointsAddedLine(added, total)` from the ledger (before and
+  after the yes).
+- **Step 5 and the other ranked steps:** `standingLine` (name · rank · streak · "$X earned"), then the money (the apply
+  ask's own line `applyAsk(title, amount, when)`; else `moneyLine`: the Best fit, the first fit, the backing statement or
+  the upcoming program), the question (`SHIP_ASK` for ship, the backing offer, a held question), and for apply and ship
+  `shipPointsLine` ("Ship code this week: up to +100 points"; the ship step leads with the weekly target when it says to
+  ship). `MAX_WEEK_POINTS = pointsForRank(1, 1)`.
+- **Step 6 (the draft):** `submit-kit.ts draftKit`: `draftReadyLine` (filled of shown fields), "You add: <missing>.", the
+  caller's note (Base: the Builder Codes words), the continues line; copy-and-paste drafts keep the answers block and the
+  https:// paste line; a prefilled draft shows only answers that didn't fit the link (`PASTE_LEFT`) and `OPEN_PREFILLED`;
+  `SENT_ASK` "Sent it?". No ship log block, no points line (no points for applying).
+- **Step 7 (Monday):** `momentHead` ("Week 4 done. You're now #3: +70 points."), `MOMENT_POST_HEAD`, `momentPost` (the X post
+  as plain quoted text, no intent link), `MOMENT_ASK`. `weekly-moment.ts weekNumber` (code weeks in a row up to last
+  week, 0: "Last week done."), `momentPlace` (still / now / under the pool "on EarnKit"), `points.ts weekPointsNow` (what
+  the yes awards now, as `awardWeekPoints`). `momentLines` stays for the Monday email.
+- **Agent notes** say "the question" (not "the last line"): the points line is last now (`mcp.ts` instructions, find,
+  tell and score descriptions, every move_up note, `EARN_NOTE`).
+- Removed: `BENCH_HEADS`, `NOT_ON_BENCH`, `NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`,
+  `shippingStand`, `SHIP_STEP`, `bestFitLine`, `shareAsk`, `CONNECT_HEAD`, `bench-find.ts fundNeeds`/`needsPicks`/`NEEDS_MAX`,
+  and the `needs`, `idea` and `points` FundLine kinds. Tests: `bench-reply.test.ts` (each reply, pure),
+  `v31-reply-copy.test.ts` (the journey through mcpCall), `v31-draft.test.ts` (step 6).

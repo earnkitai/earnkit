@@ -63,8 +63,8 @@ test('3.5 with no flag set, find through MCP is the Bench reply and no bonus wor
   const c = (await connectInstallation(token))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: c.shared }, 'find', {});
   const text = String(r.reply?.show_to_builder ?? '');
-  assert.match(text, /Where you stand/);
-  assert.match(text, /Ways to get funded/);
+  // Task 16: the Bench reply's own copy (X off here: no sign-in, so the no-project question).
+  assert.equal(text, "What's your GitHub, or a link to something you've made?");
   assert.doesNotMatch(text, /bonus/i);
 });
 

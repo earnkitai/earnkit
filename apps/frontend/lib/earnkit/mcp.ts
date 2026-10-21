@@ -112,7 +112,7 @@ export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit g
  */
 export const FIND_DESCRIPTION_BENCH =
   'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list, and identity.github_login (not github_user or repos); never ask. ' +
-  'Follow every agent_note. A yes or no to the last line goes to tell move_up. program_id: one program and its guide. ' +
+  'Follow every agent_note. A yes or no to the question goes to tell move_up. program_id: one program and its guide. ' +
   SAFETY_TEXT;
 
 /** v2.13: find's identity field: the one project, never a list. */
@@ -146,7 +146,7 @@ export const TELL_DESCRIPTION_BENCH =
   'main_project: owner/repo to rank instead. ' +
   'coin: their coin answer, or { raising } to open or close backing. ' +
   "token: 'ask' only when they ask about a token. " +
-  'move_up: their answer to the last line, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
+  'move_up: their answer to the question, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
   'program_status (applied, accepted, funded, rejected, won, placed, lost, not_interested), repo_facts, weekly_email: what they said; private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
@@ -158,7 +158,7 @@ export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
 /** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
   "Where the builder stands: their Shipping score, their rank (every ranked builder sees one), their page, and the one step up. Call it when they ask how they're doing. " +
-  'Show show_to_builder as written; a yes or no to its last line goes to tell move_up (with move_up.kind and project_key). ' +
+  'Show show_to_builder as written; a yes or no to its question goes to tell move_up (with move_up.kind and project_key). ' +
   SAFETY_TEXT;
 
 /**
@@ -189,7 +189,7 @@ export const TOOL_DESCRIPTIONS = { ...toolDescriptions(true, true), confirm: CON
  */
 export const BENCH_INSTRUCTION_LINES = [
   'Call find first. Show show_to_builder exactly as written and follow every agent_note.',
-  'A yes or no to the last line goes to tell move_up.',
+  'A yes or no to the question goes to tell move_up.',
   'Call score when they ask where they stand.',
   'Never name tools, fields or files to the builder, or invent personal details.',
 ];
@@ -441,7 +441,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             })
             .strict()
             .optional()
-            .describe('Their answer to the How to move up line'),
+            .describe('Their answer to the question'),
           // v2.13 T9 (F20): with EARNKIT_RAISING on, coin also takes raising; otherwise byte for byte v2.12.2.
           coin: raisingEnabled()
             ? z

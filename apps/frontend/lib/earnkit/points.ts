@@ -17,6 +17,26 @@ export function pointsForRank(rank: number | null, total: number | null): number
 
 /** A week approved by connecting (a unranked builder's proof): a flat 30. */
 export const CONNECT_POINTS = 30;
+/** Task 16: the most one shipped week earns (rank 1), the "up to +100 points" a reply names. */
+export const MAX_WEEK_POINTS = pointsForRank(1, 1);
+
+/** Task 16: the points a share or email approval would award now (as awardWeekPoints: the builder's current standing). */
+export async function weekPointsNow(builderId: number): Promise<number> {
+  const s = await standingOf(builderId);
+  return s.ranked ? pointsForRank(s.rank, s.total) : pointsForRank(null, null);
+}
+
+/**
+ * Task 16: the points a connect yes would add for these weeks (Mondays): CONNECT_POINTS for each week the ledger has
+ * no row for yet (awardWeekPoints adds nothing to a week that has one). Throws on a database error.
+ */
+export async function connectOfferPoints(builderId: number, weeks: string[]): Promise<number> {
+  if (weeks.length === 0) return 0;
+  const [r] = await sql()<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM unnest(${weeks}::date[]) w(week)
+    WHERE NOT EXISTS (SELECT 1 FROM builder_points p WHERE p.builder_id = ${builderId} AND p.week = w.week)`;
+  return (r?.n ?? 0) * CONNECT_POINTS;
+}
 
 /** The reply's points line. */
 export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('en-US')}. They convert to $EARN at launch, in proportion to all points earned.`;

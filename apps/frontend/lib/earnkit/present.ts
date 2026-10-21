@@ -24,6 +24,8 @@ export { endsOf } from './entry-text';
  */
 export type Card = {
   id: string;
+  /** Task 16: the organizer (programs.ts programCard), as the signed-out reply names it ("Base pays up to $5,000"). */
+  organizer?: string;
   /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Not open yet), never open. Absent: active. */
   status?: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens, or null. */

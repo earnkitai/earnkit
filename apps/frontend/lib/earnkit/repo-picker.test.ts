@@ -74,10 +74,10 @@ test('L2.1 signed in with no project: the reply carries the repo picker link and
   const p = await signedIn('ana');
   const r = await mcpCall(p.ctx, 'find', {});
   const s = String(r.reply?.show_to_builder);
-  assert.match(s, /How to move up\nInstall the read-only EarnKit app on the repo you want ranked \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nWant me to rank it once that's done\?$/, s);
+  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: pick the repo you're building\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?\n\+30 points when it's connected$/, s);
   assert.doesNotMatch(s, /What's your GitHub|link to something you've made/);
-  assert.equal(links(s).length, 1, 'one https link (the page is named without https)');
-  assert.ok(s.includes(`Your page: earnkit.com/${p.username}`), s);
+  assert.equal(links(s).length, 1, 'one https link');
+  assert.ok(s.includes(`@${p.username}.`), s);
   assert.equal((r.reply?.move_up as { kind?: string })?.kind, 'pick_repo');
   // The link is a repo-less App nonce for this person's page.
   const [row] = await sql()<{ repo_key: string; purpose: string; installation_id: number }[]>`
@@ -139,7 +139,7 @@ test('L2.3 two picked repos: both proven, the most recently pushed is the one pr
   const weeks = await sql()<{ week: string }[]>`SELECT week::text AS week FROM project_updates WHERE builder_id = ${p.id} AND lower(project_key) = ${newer} AND week IN ${sql()(MONDAYS)}`;
   assert.equal(weeks.length, 3);
   const s = String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder);
-  assert.match(s, /^Newer: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\./m, s);
+  assert.match(s, /^Newer is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, s);
   assert.ok(gh.calls.every((c) => c.routed), 'every GitHub call was one the fake answers');
 });
 
@@ -246,7 +246,7 @@ test('L2.8b fix round 1 (I1): a confirmed one project stays, and the page names 
   });
   await mcpCall(p.ctx, 'find', { identity: { project: { name: 'Kept', repo: `https://github.com/${kept}` } } });
   assert.equal(((await installApp({ builderId: p.id, repoKey: kept, login: p.login, gh })) as { ok?: boolean }).ok, true);
-  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Kept: Shipping /m, 'confirmed');
+  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Kept (is on the leaderboard:|·) /m, 'confirmed');
   const { res, text } = await setup(await createVerifyLink({ installationId: p.id, projectId: null, repoKey: null, purpose: 'app' }), p.login, inst, gh);
   assert.equal(res.status, 200, text);
   assert.equal(await mainProjectOf(p.id), kept, 'one of the picked repos: kept even though another was pushed later');
@@ -302,11 +302,11 @@ test('L2.9 tell main_project switches to another App-proven repo, even a confirm
   });
   assert.equal((await setup(await pickerLink(p.ctx), p.login, inst, gh)).res.status, 200);
   assert.equal(await mainProjectOf(p.id), b);
-  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Beta: Shipping /m, 'confirmed and ranked');
+  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Beta (is on the leaderboard:|·) /m, 'confirmed and ranked');
   const sw = await mcpCall(p.ctx, 'tell', { main_project: `https://github.com/${a}` });
   assert.equal(sw.reply?.show_to_builder, `EarnKit now ranks github.com/${a}.`);
   assert.equal(await mainProjectOf(p.id), a);
-  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Alpha: Shipping /m);
+  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Alpha (is on the leaderboard:|·) /m);
   const same = await mcpCall(p.ctx, 'tell', { main_project: a });
   assert.equal(same.reply?.show_to_builder, `EarnKit already ranks github.com/${a}.`);
   // A repo this person never proved: nothing changes, and that repo's own install link is offered (fix round 1, M5).

@@ -13,14 +13,14 @@ import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
 import type { Starter } from './starters';
-import { NOT_ON_BENCH } from './bench-reply';
+import { INTRO_LINE } from './bench-reply';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
- * v2.13 T8: find and score under the Bench flag through the real tools: the three parts (where you
- * stand, ways to get funded, how to move up), the one question in the spec's order, the proof in
- * the same turn, the weekly-posting yes; flag off is v2.12.2's reply.
+ * v2.13 T8: find and score under the Bench flag through the real tools (v3.1 Task 16: the owner-approved
+ * copy, no headers): the one question in the spec's order, the proof in the same turn, the weekly-posting
+ * yes; flag off is v2.12.2's reply.
  */
 
 process.env.EARNKIT_AUTH_SECRET ||= 'v213-find-secret';
@@ -56,9 +56,8 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
     const id = await install();
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     const lines = r.show_to_builder.split('\n');
-    assert.equal(lines[0], 'Where you stand');
-    assert.equal(lines[1], NOT_ON_BENCH);
-    assert.match(r.show_to_builder, /Sign in with X to get your page \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nWant me to put your work on the leaderboard once you're in\?$/);
+    assert.equal(lines[0], INTRO_LINE);
+    assert.match(r.show_to_builder, /Step 1 of 2: sign in with X \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nDone\?\n\+30 points when you finish step 2$/);
     assert.equal(r.move_up?.kind, 'sign_in');
     // v2.14 T7: no claim link and no claim ask.
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -68,7 +67,7 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
   }),
 );
 
-test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3: no updates yes and no weekly task', dbTest, () =>
+test('8.7 a confirmed, claimed, ranked project: the ship step with its fit (Task 16); v2.14 spec 3: no updates yes and no weekly task', dbTest, () =>
   benchOn(async () => {
     // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
     await padPool(9);
@@ -77,10 +76,9 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
     // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here, so the step is to ship.
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${id}`;
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.match(r.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
-    // R12: the fit with its award, deadline and why (the fixture's match has no repo facts: the plain why).
-    assert.match(r.show_to_builder, new RegExp(`^${esc(p.title)}: up to \\$10K, rolling\\. It fits your project\\.$`, 'm'));
-    assert.ok(r.show_to_builder.startsWith(`Best fit: ${p.title}, up to $10K, rolling. It fits your project.\n\n`), r.show_to_builder);
+    assert.match(r.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
+    // R12: the fit with its award (Task 16: the money line).
+    assert.match(r.show_to_builder, new RegExp(`^You qualify for the ${esc(p.title)}, up to \\$10,000\\.$`, 'm'));
     // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'ship');
@@ -99,16 +97,15 @@ test('8.7 a confirmed, claimed, ranked project: the spec 2a reply; v2.14 spec 3:
   }),
 );
 
-test('8.8 no project: ideas first; signed out, the sign-in question; no build offer (v2.14 A18)', dbTest, () =>
+test('8.8 no project, signed out: the sign-in question; no build offer (v2.14 A18)', dbTest, () =>
   benchOn(async () => {
     await arcCopy();
     try {
       const id = await install();
       // v2.14 T7: no claim ask first; an unsigned install gets the start ask at once.
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
-      assert.match(r.show_to_builder, /^You're not on the leaderboard yet\.$/m);
-      assert.match(r.show_to_builder, /^Ways to get funded\n/m);
-      assert.ok(r.show_to_builder.endsWith("Want me to put your work on the leaderboard once you're in?"), r.show_to_builder);
+      assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
+      assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
       assert.equal(r.build_offer, undefined);
       assert.equal(r.move_up?.kind, 'sign_in');
     } finally {
@@ -117,11 +114,11 @@ test('8.8 no project: ideas first; signed out, the sign-in question; no build of
   }),
 );
 
-test('8.10 score under the flag: the same three parts, with rank_lines and the streak', dbTest, () =>
+test('8.10 score under the flag: the same reply as find, with rank_lines and the streak', dbTest, () =>
   benchOn(async () => {
     const id = await person({ main: `mayas${RUN}/recipes`, claimed: `ms${RUN}`, ranked: true, score: 60, projects: [{ key: `mayas${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 3, streak: 3 }] });
     const r = (await tools.score({}, { installationId: id } as never)) as { show_to_builder: string; rank_lines: string[]; streak: number };
-    assert.equal(r.show_to_builder.split('\n')[0], 'Where you stand');
+    assert.match(r.show_to_builder.split('\n')[0], /^Recipe planner · .*3 weeks in a row$/);
     assert.equal(r.streak, 3);
     assert.ok(Array.isArray(r.rank_lines));
   }),
@@ -161,11 +158,11 @@ test('8.21 an anonymous hosted client gets the Bench signed_out reply (v3 ruling
   benchOn(async () => {
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, shared_client) VALUES (${`v213-find-s-${randomBytes(6).toString('hex')}`}, true) RETURNING id`;
     const r = await find(id, {}, { sharedClient: true });
-    assert.match(r.show_to_builder, /Where you stand/);
-    assert.match(r.show_to_builder, /Sign in with X/);
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
+    assert.match(r.show_to_builder, /sign in with X/);
     assert.equal((r.show_to_builder.match(/https:\/\/\S+/g) ?? []).length, 1, r.show_to_builder);
     const more = await find(id, { more: true }, { sharedClient: true });
-    assert.doesNotMatch(more.show_to_builder, /Sign in with X/);
+    assert.doesNotMatch(more.show_to_builder, /sign in with X/i);
     // v3 ruling: the move_up agent note ("serves many builders") is dropped; the signed_out reply carries the sign-in step instead.
   }),
 );
@@ -177,7 +174,7 @@ test('8.25 (final fix wave) find.identity reaches the handler through the MCP sc
       identity: { github_login: 'lee', project: { name: 'TipJar', what: 'a tip jar', live_url: 'https://tip.example.com' } },
     });
     assert.equal(r.isError, false, r.text);
-    assert.match(String(r.reply?.show_to_builder), /^Where you stand\n/m);
+    assert.equal(String(r.reply?.show_to_builder).split('\n')[0], INTRO_LINE);
     const [p] = await sql()<{ reported_github: string | null; identity: { projects?: { name: string; what: string | null }[] } | null }[]>`
       SELECT reported_github, identity FROM builder_profiles WHERE builder_id = ${id}`;
     assert.equal(p.reported_github, 'lee');

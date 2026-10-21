@@ -7,7 +7,6 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { bestFitLine } from './bench-reply';
 import { codesSettled } from './bench-find';
 import { BASE_GRANTS_ID, BUILDER_CODES_FIRST, BUILDER_CODES_SUFFIX, builderCodesFound, builderCodesIn } from './builder-code';
 import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths } from './builder-codes-check';
@@ -16,8 +15,8 @@ import type { RepoFit } from './present';
 
 /**
  * v3.1 Task 7: Base Builder Grants' first step is Builder Codes (ERC-8021). The one project's repo is read through the
- * read-only App; its Best fit line says Builder Codes were found, or names the first step with the guide. A read that
- * fails says nothing about Builder Codes.
+ * read-only App (find starts the check in the background); Task 16: the draft says Builder Codes were found, or names
+ * the first step with the guide; the reply never does. A read that fails says nothing about Builder Codes.
  */
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -33,8 +32,7 @@ after(async () => {
 });
 const RUN = String(process.pid % 100000);
 const TITLE = 'Base Builder Grant Program';
-const WHY = 'You deployed on Base and your app is live.';
-const BEST = `Best fit: ${TITLE}, up to $5K, rolling. ${WHY}`;
+
 type R = Awaited<ReturnType<typeof mcpCall>>;
 type Ctx = Parameters<typeof mcpCall>[0];
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
@@ -75,7 +73,17 @@ function repoFits(key: string): RepoFit[] {
 }
 const stored = async (key: string) => (await sql()<{ found: boolean }[]>`SELECT found FROM repo_builder_codes WHERE repo_key = ${key}`)[0] ?? null;
 const contents = (gh: FakeGitHub) => gh.calls.filter((c) => c.path.includes('/contents/'));
-const bestLine = (s: string) => s.split('\n').find((l) => l.startsWith('Best fit:'));
+/** Task 16: the reply names the Best fit (the apply step, then the money line) and never Builder Codes. */
+const bestOnly = (s: string) => {
+  assert.ok(s.includes(`${TITLE}`), s);
+  assert.doesNotMatch(s, /Builder Codes/, s);
+};
+/** Task 16 step 6: the Base draft's Builder Codes line (its explanation's), or undefined. */
+const draftCodes = async (b: { ctx: Ctx }, key: string) => {
+  const answers = { project_name_description: 'App: a Base app', live_product_url: 'https://app.xyz' };
+  const r = await mcpCall(b.ctx, 'prepare', { program_id: BASE_GRANTS_ID, project: { name: 'App', repo_url: `https://github.com/${key}`, live_url: 'https://app.xyz' }, answers });
+  return show(r).split('\n\n')[0].split('\n').find((l) => /Builder Codes/.test(l));
+};
 
 test('(a) builderCodesIn: each of the four signals, and a plain viem call without dataSuffix is false', () => {
   assert.equal(BUILDER_CODES_SUFFIX, '80218021802180218021802180218021');
@@ -101,7 +109,7 @@ test('(b) codePaths ranks and caps; skips node_modules, tests and .d.ts', () => 
   assert.equal(ranked[0], 'src/deep/folder/wallet.ts', 'a likely path before a shorter one');
 });
 
-test('(c) checkBuilderCodes finds the import in the 3rd file, stores found=true; the Best fit line then says "Builder Codes found in maya/app."', db, async () => {
+test('(c) checkBuilderCodes finds the import in the 3rd file, stores found=true; the draft then says "Builder Codes found in maya/app."', db, async () => {
   const key = 'maya/app';
   const b = await builder(key, {
     'README.md': 'import ox/erc8021 in the docs',
@@ -121,10 +129,10 @@ test('(c) checkBuilderCodes finds the import in the 3rd file, stores found=true;
   assert.deepEqual(await builderCodesKnown(key, now), { found: true, fresh: true });
   assert.deepEqual(await builderCodesKnown(key, new Date(now.getTime() + BUILDER_CODES_TTL_MS)), { found: true, fresh: false });
   const s = show(await mcpCall(b.ctx, 'find', {}));
-  const line = bestFitLine({ program_id: BASE_GRANTS_ID, title: TITLE, prize: 'up to $5K', when: 'rolling', why: WHY, codes: builderCodesFound(key) });
-  assert.equal(line, `${BEST} Builder Codes found in maya/app.`);
-  assert.ok(s.startsWith(`${line}\n\n`), s);
+  bestOnly(s);
   assert.ok((s.match(/https:\/\//g) ?? []).length <= 1, s);
+  assert.equal(await draftCodes(b, key), builderCodesFound(key));
+  assert.equal(builderCodesFound(key), 'Builder Codes found in maya/app.');
 });
 
 test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Codes words', db, async () => {
@@ -151,17 +159,17 @@ test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Co
   assert.equal(off.gh.calls.filter((c) => c.path.includes('/git/trees/')).length, 0);
   assert.equal(await stored('ivy/app'), null);
   assert.equal(builderCodesWords('ivy/app', null), null);
-  // The reply: the Best fit line, nothing about Builder Codes.
+  // The reply: the Best fit, nothing about Builder Codes.
   for (const b of [missing, slow, off]) {
     const s = show(await withEnv(b === off ? { GITHUB_APP_PRIVATE_KEY: undefined } : {}, () => mcpCall(b.ctx, 'find', {})));
-    assert.equal(bestLine(s), BEST, s);
-    assert.doesNotMatch(s, /Builder Codes|not found/i, s);
+    bestOnly(s);
+    assert.doesNotMatch(s, /not found/i, s);
   }
   await codesSettled();
   for (const k of ['lena/app', 'omar/app', 'ivy/app']) assert.equal(await stored(k), null, k);
 });
 
-test('(e) none found: the line ends with the guide, no https, no trailing period', db, async () => {
+test('(e) none found: the draft\'s line ends with the guide, no https, no trailing period', db, async () => {
   const key = 'noor/app';
   const b = await builder(key, {
     'src/wagmi.ts': 'export const config = createConfig({ chains: [base] });',
@@ -170,9 +178,9 @@ test('(e) none found: the line ends with the guide, no https, no trailing period
   assert.equal(await checkBuilderCodes(b.id, key, new Date(), { fetch: b.gh }), false);
   assert.equal(contents(b.gh).length, 2);
   assert.deepEqual(await stored(key), { found: false });
-  const s = show(await mcpCall(b.ctx, 'find', {}));
-  const line = bestLine(s)!;
-  assert.equal(line, `${BEST} ${BUILDER_CODES_FIRST}`, s);
+  bestOnly(show(await mcpCall(b.ctx, 'find', {})));
+  const line = (await draftCodes(b, key))!;
+  assert.equal(line, BUILDER_CODES_FIRST);
   assert.ok(line.endsWith('Guide: docs.base.org/base-chain/builder-codes/builder-codes'), line);
   assert.doesNotMatch(line, /https?:\/\/|\?|\.$|—/, line);
 });
@@ -181,11 +189,11 @@ test('(f) fix round 1: a failed background check is not tried again on the next 
   const key = 'ruth/app';
   const b = await builder(key, null); // the tree answers 500
   const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
-  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  bestOnly(show(await mcpCall(b.ctx, 'find', {})));
   await codesSettled();
   assert.equal(trees(), 1, 'the first reply starts one check');
   assert.equal(await stored(key), null, 'a failure stores nothing');
-  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  bestOnly(show(await mcpCall(b.ctx, 'find', {})));
   await codesSettled();
   assert.equal(trees(), 1, 'the next reply does not read again');
 });
@@ -217,11 +225,13 @@ test('(h) Task 9 fix round 1 (security): find reads and checks Builder Codes onl
   // Counted by another proof (a proof branch), not the App: still ranked, but no stored answer read and no check.
   await sql()`UPDATE builder_sources SET proof = 'proof_branch' WHERE builder_id = ${b.id} AND kind = 'repo'`;
   const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
-  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  bestOnly(show(await mcpCall(b.ctx, 'find', {})));
   await codesSettled();
   assert.equal(trees(), 0, 'no check for an unproven repo');
-  // Proven by the App again: the stored answer shows.
+  // Proven by the App again: the stale stored answer starts a check (the draft then says it).
   await sql()`UPDATE builder_sources SET proof = 'github_app' WHERE builder_id = ${b.id} AND kind = 'repo'`;
-  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), `${BEST} Builder Codes found in ${key}.`);
+  bestOnly(show(await mcpCall(b.ctx, 'find', {})));
   await codesSettled();
+  assert.equal(trees(), 1, 'an App-proven repo is checked');
+  assert.equal(await draftCodes(b, key), `Builder Codes found in ${key}.`);
 });

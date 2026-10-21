@@ -14,12 +14,20 @@ export { connectAsk };
  * to confirm).
  */
 export type ConnectWeek = { monday: string; line: string };
-export type ConnectOpen = { key: string; weeks: string[] };
+/**
+ * Task 16: `best`, the Best fit the offer named ("You qualify for ..."), so the yes offers to draft it (step 4).
+ */
+export type ConnectBest = { program_id: string; title: string; amount: string | null; when: string | null; repo?: string };
+export type ConnectOpen = { key: string; weeks: string[]; best?: ConnectBest };
 
-export const CONNECT_HEAD = (n: number) => `Your last ${n} ${n === 1 ? 'week' : 'weeks'}:`;
-export const CONNECT_DONE = (url: string) => `Done. Your page is live: ${url}`;
+/** Task 16 step 4: the yes's first line, the page its one link. */
+export const CONNECT_DONE = (url: string) => `You're live: ${url}`;
+/** Task 16 step 4: the yes offers to draft the Best fit (the reply's one question). */
+export const connectApplyAsk = (title: string) => `Next, I can write your ${title} application. You just check it and send.\nWant me to?`;
+/** Task 16 step 4: "+90 points added · 90 total". Pure. */
+export const pointsAddedLine = (added: number, total: number) => `+${added.toLocaleString('en-US')} points added · ${total.toLocaleString('en-US')} total`;
 export const CONNECT_RETRY = "I couldn't post one of your weeks just now. Want me to try again?";
-export const CONNECT_NOTE = "A yes or no to the last line: call tell with move_up: { kind: 'connect', project_key, answer }. Don't show this note.";
+export const CONNECT_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'connect', project_key, answer }. Don't show this note.";
 
 /** Most weeks one connect offer lists. */
 export const CONNECT_WEEKS_MAX = 12;
@@ -89,11 +97,11 @@ export async function closeConnect(builderId: number, now: Date): Promise<void> 
  * 'connect'). v3 final review: a week whose approval failed (a database error) is not lost: the offer reopens with
  * those weeks (connect_open, connect_done removed), so the next yes retries them. A week another builder holds
  * (approveWeek false) is final. Null: nothing open to answer. `approved`: the weeks that stood (0 for a no);
- * `pending`: the weeks left open for a retry.
+ * `pending`: the weeks left open for a retry; `best`: the Best fit the offer named (Task 16).
  */
 export async function answerConnect(
   builderId: number, projectKey: string | null | undefined, answer: 'yes' | 'no', now: Date,
-): Promise<{ approved: number; pending: number } | null> {
+): Promise<{ approved: number; pending: number; best: ConnectBest | null } | null> {
   const [r] = await sql()<{ o: ConnectOpen }[]>`
     UPDATE builder_profiles p SET standing_seen = (p.standing_seen - 'connect_open') || jsonb_build_object('connect_done', ${now.toISOString()}::text)
     FROM (SELECT standing_seen->'connect_open' AS o FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE) old
@@ -101,7 +109,8 @@ export async function answerConnect(
       AND (${!projectKey}::boolean OR lower(old.o->>'key') = lower(${projectKey ?? ''}))
     RETURNING old.o AS o`;
   if (!r) return null;
-  if (answer === 'no') return { approved: 0, pending: 0 };
+  const best = r.o.best ?? null;
+  if (answer === 'no') return { approved: 0, pending: 0, best };
   let approved = 0;
   const failed: string[] = [];
   for (const monday of r.o.weeks ?? []) {
@@ -118,9 +127,9 @@ export async function answerConnect(
     }
   }
   if (failed.length > 0) {
-    const reopen: ConnectOpen = { key: r.o.key, weeks: failed };
+    const reopen: ConnectOpen = { key: r.o.key, weeks: failed, ...(best && { best }) };
     await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'connect_done') || jsonb_build_object('connect_open', ${sql().json(reopen as never)}::jsonb)
       WHERE builder_id = ${builderId}`.catch((err: unknown) => console.error('[connect] reopen', err instanceof Error ? err.name : 'error'));
   }
-  return { approved, pending: failed.length };
+  return { approved, pending: failed.length, best };
 }

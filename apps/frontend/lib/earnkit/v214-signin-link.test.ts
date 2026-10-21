@@ -107,7 +107,7 @@ test('5.4 the paste code through find binds this installation first; the reply s
     const { code } = await signInThrough((await signInLink(c.own, NOW))!, gus);
     const r = await mcpCall(ctxOf(c), 'find', { sign_in_code: code });
     assert.equal(r.isError, false, r.text);
-    assert.ok(String(r.reply?.show_to_builder).includes(`earnkit.com/${gus.username}`), r.text);
+    assert.ok(String(r.reply?.show_to_builder).startsWith(`You're in, @${gus.username}.`), r.text);
     assert.equal(r.reply?.sign_in_note, SIGN_IN_NOTES.bound);
     assert.equal((await xOf(c.own)).x, gus.id);
     const [e] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'signed_in_by_code' AND installation_id = ${c.own}`;

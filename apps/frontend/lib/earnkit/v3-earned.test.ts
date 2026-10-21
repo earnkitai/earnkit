@@ -172,10 +172,8 @@ async function builder(tag: string): Promise<B> {
 }
 const find = (b: B) => mcpCall(b.ctx, 'find', {});
 /** The line under "Where you stand". */
-const standLine = (s: string) => {
-  const lines = s.split('\n');
-  return lines[lines.indexOf('Where you stand') + 1] ?? '';
-};
+/** Task 16: the ranked reply's standing line (its last paragraph's first line, after any news). */
+const standLine = (s: string) => s.split('\n\n').at(-1)?.split('\n')[0] ?? '';
 /** An announced prize (or another outcome) for an entry of `installation`. */
 async function outcome(installation: number, result: string, basis: string, prize: number | null) {
   const tag = `v3e-prog-${RUN}`;
@@ -340,8 +338,8 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.ok(html.indexOf('data-ek-earned') > html.indexOf('>Rank<'), html);
 
   const r = show(await find(b));
-  assert.match(standLine(r), /\. Earned \$200\.$/, r);
-  assert.ok(r.includes(`Backing: 2 backers, $200 in fees. Your page: earnkit.com/${b.handle}`), r);
+  assert.match(standLine(r), / · \$200 earned$/, r);
+  assert.ok(r.includes(`Backing: 2 backers, $200 in fees. Your page: https://earnkit.com/${b.handle}`), r);
   assert.equal(links(r).length, 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.doesNotMatch(r, /—/);
@@ -363,7 +361,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   // Unranked: Earned is omitted (even with money earned).
   const unranked = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...d, bench: null, rankListed: false, line: null }, tab: 'log' }));
   assert.doesNotMatch(unranked, /data-ek-earned/);
-  assert.doesNotMatch(show(await find(z)), /Earned/);
+  assert.doesNotMatch(show(await find(z)), /earned/i);
 }));
 
 test('(e) flag off: backers and backing_open absent, Earned still shows program prizes', db, async () => {
@@ -385,7 +383,7 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
     assert.match(html, /data-ek-earned[^>]*>\$340</, html);
     assert.doesNotMatch(html, /backers|Backing|data-ek-back/i);
     const r = show(await find(b));
-    assert.match(standLine(r), /\. Earned \$340\.$/, r);
+    assert.match(standLine(r), / · \$340 earned$/, r);
     assert.doesNotMatch(r, /backing|backers/i, r);
     const j = (await builderJson(b.handle, new Date()))!;
     assert.equal(j.backing, null);

@@ -21,7 +21,6 @@ import { appEnv } from './fixtures/app-install';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
-import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -88,18 +87,15 @@ const bareLinks = (s: string) => s.replace(/https?:\/\/\S+/g, ' ').match(/(?<![\
 function rule(r: McpResult): string {
   assert.equal(r.isError, false, r.text);
   const s = String(r.reply?.show_to_builder ?? '');
-  assert.equal(links(s).length, 1, s);
+  // Task 16: at most one https link and exactly one question.
+  assert.ok(links(s).length <= 1, s);
   assert.ok(links(s).every((l) => l.startsWith('https://')), s);
   // Final fix 14: bare earnkit.com links count too: at most the page, named once beside the one action link.
   assert.ok(bareLinks(s).length <= 1, s);
   assert.ok(links(s).length + bareLinks(s).length <= 2, s);
   const [bare] = bareLinks(s);
-  if (bare) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
-  assert.match(s, /Ways to get funded/);
-  // R8, L5: a ranked reply ends on the one statement, the weekly target (no question); every other on one question.
-  const ranked = endsOnRankedStep(s);
-  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, ranked ? 0 : 1, s);
-  assert.ok(ranked || s.trimEnd().endsWith('?'), s);
+  if (bare && links(s)[0]) assert.ok(!links(s)[0]!.includes(bare), `the page is not linked twice: ${s}`);
+  assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   assert.doesNotMatch(s, /raise|fundrais/i, s);
   assert.equal(r.reply?.schedule_weekly_update, undefined, 'nobody is asked to schedule anything');
   return s;
@@ -133,12 +129,11 @@ let installLinkSeen = '';
 test('12.1 acceptance 1: the install signs in with X; the first reply names the account, shows the page and offers the repo picker', db, async () => {
   first = await addEarnKit('http://127.0.0.1:41234/callback', 'Claude Code', ME);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
-  assert.equal(s.split('\n')[0], `Signed in as @${ME.username}.`, s);
-  assert.match(s, /You're not on the leaderboard yet\./);
-  // Launch ready L2: the page is named beside the picker's install link (A14), and no GitHub URL is asked for.
-  assert.ok(s.includes(`Your page: earnkit.com/${ME.username}`), s);
+  // Task 16 step 2: the reply names the account itself; the picker's install link, no GitHub URL asked for.
+  assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
+  assert.doesNotMatch(s, /Signed in as/);
   assert.match(links(s)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Want me to rank it once that's done?"), s);
+  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
   assert.doesNotMatch(s, /What's your GitHub/);
 });
 
@@ -149,20 +144,19 @@ test('12.2 acceptance 2: a second agent with the same X is the same page, nothin
   assert.notEqual(second.own, first.own, 'a distinct own installation');
   assert.notEqual(second.ctx.ownInstallationId, first.ctx.ownInstallationId);
   const s = rule(await mcpCall(second.ctx, 'find', {}));
-  assert.ok(s.includes(`earnkit.com/${ME.username}`), s);
+  assert.ok(s.includes(`@${ME.username}`), s);
   assert.doesNotMatch(s, /approve|merge|add this agent|remove it/i);
 });
 
 test('12.3 naming the repo: not counted, with the App install link', db, async () => {
   const s = rule(await mcpCall(first.ctx, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${KEY}` } } }));
-  assert.match(s, /EarnKit isn't counted yet\./);
+  assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
   installLinkSeen = links(s)[0]!;
   assert.match(installLinkSeen, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Want me to count it once that's done?"), s);
-  assert.ok(s.includes(`earnkit.com/${ME.username}`), 'the page is named (without a second link)');
+  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
 });
 
-test('12.4 acceptance 3: the App installed on the org repo; the next reply says it is on the Bench with a rank and the page', db, async () => {
+test('12.4 acceptance 3: the App installed on the org repo; the next reply says it is on the Bench with a rank', db, async () => {
   // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
   await padPool(9);
   assert.ok(installLinkSeen, '12.3 ran');
@@ -173,8 +167,8 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
-  assert.match(s, /EarnKit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\./, s);
-  assert.ok(s.includes(`earnkit.com/${ME.username}`), s);
+  // Task 16: ranked, with a rank on the standing line (no backfilled weeks here, so no connect offer).
+  assert.match(s, /^EarnKit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
 });
 
 test('12.5 acceptance 4: the next Monday the profile shows the week from its titles; nobody scheduled anything', db, async () => {
@@ -220,7 +214,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   await saveInstallation(token, undefined, false, 'Cursor');
   const ctx = ctxOf((await connectInstallation(token))!);
   const out = rule(await mcpCall(ctx, 'find', {}));
-  assert.match(out, /You're not on the leaderboard yet\./);
+  assert.ok(out.startsWith('EarnKit gets you paid for building.\n'), out);
   const link = links(out)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
@@ -229,9 +223,8 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   const bound = await mcpCall(ctx, 'find', { sign_in_code: code });
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const s = rule(bound);
-  assert.ok(s.startsWith(`Signed in as @${kim.username}.\n\n`), s);
-  assert.ok(s.includes(`Your page: earnkit.com/${kim.username}`), s);
-  assert.ok(s.endsWith("Want me to rank it once that's done?"), s);
+  assert.ok(s.startsWith(`You're in, @${kim.username}.\n`), s);
+  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
 });
 
 test('12.7 no network: every GitHub call went through the fake and was routed; fetch was never called', () => {

@@ -2,7 +2,7 @@ import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
 import { EntryError, githubRepo } from './campaigns';
 import { NotFoundError, type ProgramRow } from './programs';
-import { shipLogBlock, shipLogFacts, type ShipLogFacts } from './ship-log-facts';
+import { shipLogFacts, type ShipLogFacts } from './ship-log-facts';
 import { prepareSubmission, type ProjectInfo } from './submission';
 import { draftKit, schemeless } from './submit-kit';
 import type { SubmissionRequirement } from './program-file';
@@ -116,19 +116,13 @@ export async function draftApplication(input: DraftInput, ctx: ToolContext, prog
   const filled = Object.fromEntries(prep.complete.map((c) => [c.key, c.value]));
   const values = log ? withPageLink(reqs, filled, `https://${schemeless(log.page)}`) : filled;
   const problems = prep.missing.filter((m) => m.problem).map((m) => m.key);
-  const kit = draftKit(program, values, { problems });
-
   const repo = program.id === BASE_GRANTS_ID ? await provenKey(ctx, project.repo_url ?? input.answers?.repo_url) : null;
   const codes = repo ? await builderCodes(ctx, repo) : null;
-  // D7: the block's live site without its scheme too, so the form link is the reply's one https link.
-  const shown = [
-    log ? shipLogBlock(log).map(schemeless).join('\n') : null,
-    repo ? builderCodesWords(repo, codes) : null,
-    kit.show_to_builder,
-  ].filter((x): x is string => Boolean(x));
+  // Task 16 step 6: the Builder Codes sentence is the draft's one extra line (the ship log stays in ship_log, not shown).
+  const kit = draftKit(program, values, { problems, note: repo ? builderCodesWords(repo, codes) : null });
   return {
     program_id,
-    show_to_builder: shown.join('\n\n'),
+    show_to_builder: kit.show_to_builder,
     draft: { mode: kit.mode, url: kit.url, ...(kit.prefilled_url && { prefilled_url: kit.prefilled_url }), fields: kit.fields },
     ...(log && { ship_log: log }),
     ...(program.id === BASE_GRANTS_ID && { builder_codes: codes }),

@@ -4,7 +4,7 @@ import { norm, shareIntentText, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { checkUpdate } from './update-text';
-import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday, mondayOf, streakOf } from './weeks';
 import { WEEKLY_HOUR_UTC, hasFacts, type WeekFacts } from './week-facts';
 import { awardWeekPoints, type ApproveVia } from './points';
 import { RANK_MIN_POOL } from './rank';
@@ -70,7 +70,19 @@ export const shareText = (w: WeekStanding) =>
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =
-  "show_to_builder ends with a share link for X and one question. A yes or no to it: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
+  "show_to_builder offers a post for X to paste and asks one question. A yes or no to the question: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
+/**
+ * Task 16 step 7: the week's number in "Week 4 done.": weeks with code in a row up to last week (`monday`), the
+ * streak's rule (weeks.ts streakOf); 0 when last week had no code ("Last week done."). Pure.
+ */
+export const weekNumber = (commitWeeks: string[], monday: string) =>
+  commitWeeks.includes(isoWeekOf(new Date(`${monday}T12:00:00Z`))) ? streakOf(commitWeeks, new Date(`${monday}T12:00:00Z`)) : 0;
+/**
+ * Task 16 step 7: where last week left the builder beside their rank: 'still' (the same rank as the week before),
+ * 'now' (moved, or no week before), null under RANK_MIN_POOL ranked builders ("on EarnKit"). Pure.
+ */
+export const momentPlace = (w: Pick<LastWeek, 'now' | 'before'>): 'still' | 'now' | null =>
+  w.now.total < RANK_MIN_POOL ? null : w.before && w.before.rank === w.now.rank ? 'still' : 'now';
 export const APPROVED_LINE = 'Thanks. Last week is confirmed.';
 
 /**

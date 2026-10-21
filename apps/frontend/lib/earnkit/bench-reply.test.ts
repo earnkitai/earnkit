@@ -1,94 +1,174 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OTHER_PROJECT_ASK, SHIP_STEP, STATE_COPY, applyAsk, benchReply, bestFitLine, fitsLine, noFitLine, replyState, shipAsk, stateAsk,
+  MOMENT_ASK, OTHER_PROJECT_ASK, SHIP_ASK, applyAsk, awardAmount, benchReply, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
   type ApplyPick, type BenchView, type BestFit,
 } from './bench-reply';
 
-// v2.14 T9, R16a: the four states' replies and their copy are pinned in reply-states.test.ts; these keep the
-// money lines (R12) and the ranked state's one next step (R8).
+// v3.1 Task 16: the owner-approved copy (2026-10-21), word for word, for each reply benchReply writes (steps 1, 2, 3, 5
+// and 7; step 4 is the connect yes, v31-reply-copy.test.ts; step 6 the draft, v31-draft.test.ts). Each has at most one
+// https link and exactly one question.
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: true, weeks: 6 };
+const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
+const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
+const oneAsk = (s: string) => {
+  assert.ok(links(s).length <= 1, s);
+  assert.equal(questions(s), 1, s);
+  assert.doesNotMatch(s, /—/);
+};
+const BASE: BestFit = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling', why: 'You deployed on Base.', codes: null };
+const ranked = (o: Partial<BenchView> = {}): BenchView => ({
+  state: 'ranked', variant: null, project: RECIPE, rank: '#3 of 40 builders', streak: 4, target: null, handle: 'maya', link: null,
+  fund: [], due: [], ask: { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK }, held: null, ...o,
+});
 
-test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, v3.1 F4: no why sentence, the page the one link, fits with deadline and why; L5: the weekly target)', () => {
+test('Task 16 step 1: signed out, the first reply after install', () => {
+  const link = 'https://earnkit.com/signin/abc';
   const v: BenchView = {
-    state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders', handle: 'maya_makes', link: null,
-    score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: null,
-    target: 'Ship code this week to pass #2.', share: null,
-    fund: [{ kind: 'fits', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', when: 'rolling', why: 'You build on Avalanche.' }], due: [],
-    ask: { kind: 'ship', project_key: 'maya/recipes', line: 'Ship code this week to pass #2.' }, held: null,
+    state: 'signed_out', variant: null, project: null, rank: null, streak: 0, target: null, handle: null, link, fund: [], due: [], held: null,
+    ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000' },
   };
-  assert.equal(benchReply(v), [
-    'Where you stand',
-    'Recipe planner: Shipping 62 · Top 18% of builders.',
-    'Your page: https://earnkit.com/maya_makes',
+  const out = benchReply(v);
+  assert.equal(out, [
+    'EarnKit gets you paid for building.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 right now.',
     '',
-    'Ways to get funded',
-    'Avalanche Team1 Mini Grants: up to $10K, rolling. You build on Avalanche.',
-    '',
-    'How to move up',
-    'Ship code this week to pass #2.',
+    `Step 1 of 2: sign in with X (one click): ${link}`,
+    'Done?',
+    '+30 points when you finish step 2',
   ].join('\n'));
+  oneAsk(out);
+  // With no open grant to name, the sentence is dropped.
+  assert.match(benchReply({ ...v, open: null }), /grants you qualify for\.\n\n/);
+  // The link couldn't be made: the retry question, no points line.
+  const retry = benchReply({ ...v, link: null, ask: stateAsk({ state: 'signed_out', variant: null, project: null, link: null }) });
+  assert.ok(retry.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), retry);
+  oneAsk(retry);
 });
 
-test('8.4 the stand line is the score line (R16c), with and without a rank; no streak words (R16a: it lives in the score)', () => {
-  assert.equal(STATE_COPY.ranked.stand('A', 0, null), 'A: Shipping 0.');
-  assert.equal(STATE_COPY.ranked.stand('A', 40, '#3 of 12 builders'), 'A: Shipping 40 · #3 of 12 builders.');
-  assert.equal(STATE_COPY.ranked.stand('A', null, null), 'A is counted. Its Shipping score comes with the next read.');
+test('Task 16 step 2: signed in with no repo (the picker), and a named repo not counted (its install link)', () => {
+  const link = 'https://earnkit.com/github/verify?n=abc';
+  const pick: BenchView = {
+    state: 'no_project', variant: null, project: null, rank: null, streak: 0, target: null, handle: 'maya', link, fund: [], due: [], held: null,
+    ask: stateAsk({ state: 'no_project', variant: null, project: null, link }),
+  };
+  const want = [
+    "You're in, @maya.",
+    `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}`,
+    'Done?',
+    "+30 points when it's connected",
+  ].join('\n');
+  assert.equal(benchReply(pick), want);
+  oneAsk(benchReply(pick));
+  assert.equal(pick.ask.kind, 'pick_repo');
+  const project = { ...RECIPE, confirmed: false };
+  const named: BenchView = { ...pick, state: 'not_counted', project, ask: stateAsk({ state: 'not_counted', variant: null, project, link }) };
+  assert.equal(named.ask.kind, 'install_app');
+  assert.equal(benchReply(named), want);
+  // The reply names the account, so find adds no "Signed in as" line above it.
+  assert.ok(namesAccount(pick) && namesAccount(named));
+  assert.ok(!namesAccount({ ...named, held: 'Did it win?' }));
 });
 
-test('8.5 R8, L5, L6: the ranked state\'s one next step is the weekly target (else "Ship this week to climb."); the weekly moment\'s share ask replaces it', () => {
-  assert.equal(SHIP_STEP, 'Ship this week to climb.');
-  assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
-  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: null }), { kind: 'ship', project_key: 'maya/recipes', line: SHIP_STEP });
-  assert.equal(STATE_COPY.ranked.ask(), SHIP_STEP);
-  const target = 'Ship code this week to hold #1.';
-  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: null, target }), { kind: 'ship', project_key: 'maya/recipes', line: target });
-  const share = 'https://x.com/intent/post?text=a';
-  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: RECIPE, link: share, target, share }),
-    { kind: 'share', project_key: 'maya/recipes', line: `Share your week on X: ${share}\nDoes last week look right?` });
+test('Task 16 step 3: the first ranked reply with weeks to post (connect)', () => {
+  const v = ranked({ rank: '#1 of 13 builders', best: BASE, connect: { weeks: 3, points: 90 } });
+  v.ask = stateAsk({ ...v, connect: v.connect });
+  assert.equal(v.ask.kind, 'connect');
+  const out = benchReply(v);
+  assert.equal(out, [
+    'Recipe planner is on the leaderboard: #1 of 13 builders, 4 weeks in a row.',
+    'You qualify for the Base Builder Grant Program, up to $5,000.',
+    '',
+    'Post your 3 weeks to earnkit.com/maya so grant teams can see them?',
+    '+90 points',
+  ].join('\n'));
+  oneAsk(out);
+  // Under RANK_MIN_POOL (no rank phrase), and with no Best fit.
+  assert.equal(benchReply({ ...v, rank: null, best: null }).split('\n\n')[0], 'Recipe planner is on EarnKit: 4 weeks in a row.');
+  assert.equal(connectStanding('Kit', null, 1), 'Kit is on EarnKit: 1 week in a row.');
+  assert.equal(stateAsk({ ...v, connect: { weeks: 1, points: 30 } }).line, 'Post your week to earnkit.com/maya so grant teams can see it?');
 });
 
-test('8.5b v3.1 spec 3.2: the ranked order is connect, apply, backing, share, ship; a rolling apply ask says "open now (rolling)"', () => {
-  const share = 'https://x.com/intent/post?text=a';
+test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
+  const apply: ApplyPick = { program_id: BASE.program_id, title: BASE.title, amount: '$5,000', when: null };
+  const v = ranked({ rank: '#1 of 13 builders', best: BASE });
+  v.ask = stateAsk({ ...v, apply });
+  const out = benchReply(v);
+  assert.equal(out, [
+    'Recipe planner · #1 of 13 builders · 4 weeks in a row',
+    'Base Builder Grant Program is still open, up to $5,000. I can draft it in a minute.',
+    'Want me to?',
+    'Ship code this week: up to +100 points',
+  ].join('\n'));
+  oneAsk(out);
+  // A dated program says when it closes; under RANK_MIN_POOL the standing has no rank.
+  assert.equal(applyAsk('Apply X', '$5,000', 'Nov 18'), 'Apply X closes Nov 18, up to $5,000. I can draft it in a minute.\nWant me to?');
+  assert.equal(benchReply({ ...v, rank: null }).split('\n')[0], 'Recipe planner · 4 weeks in a row');
+});
+
+test('Task 16: the ship, backing and held steps keep the layout: standing, money, the one question, the points line', () => {
+  const ship = benchReply(ranked({ best: BASE, target: 'Ship code this week to pass #2.' }));
+  assert.equal(ship, [
+    'Recipe planner · #3 of 40 builders · 4 weeks in a row',
+    'You qualify for the Base Builder Grant Program, up to $5,000.',
+    SHIP_ASK,
+    'Ship code this week to pass #2: up to +100 points',
+  ].join('\n'));
+  oneAsk(ship);
+  // Done this week: the plain points line; no fit: the upcoming program, else no money line.
+  const done = benchReply(ranked({ target: 'Done this week.', fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }] }));
+  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n${SHIP_ASK}\nShip code this week: up to +100 points`);
+  // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
+  assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
+  assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
+  // Backing: the offer is the question, no points line.
+  const offer = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
+  const backing = benchReply(ranked({ ask: { kind: 'backing', project_key: RECIPE.key, line: offer } }));
+  assert.equal(backing, `Recipe planner · #3 of 40 builders · 4 weeks in a row\n${offer}`);
+  oneAsk(backing);
+  // A held question takes the step's place; no points line.
+  const held = benchReply(ranked({ held: 'Did Apply X come back on Recipe planner? applied / accepted / funded / rejected.' }));
+  assert.ok(held.endsWith('applied / accepted / funded / rejected.'), held);
+  // Earned from $1 on the standing line.
+  assert.equal(standingLine('Kit', '#3 of 40 builders', 2, 340.4), 'Kit · #3 of 40 builders · 2 weeks in a row · $340 earned');
+  assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
+});
+
+test('Task 16 step 7: the weekly moment, a post for X as plain text (no intent link)', () => {
+  const v = ranked({ moment: { week: 4, place: 'now', rank: 3, points: 70 } });
+  v.ask = stateAsk({ ...v, share: true });
+  assert.deepEqual(v.ask, { kind: 'share', project_key: RECIPE.key, line: MOMENT_ASK });
+  const out = benchReply(v);
+  assert.equal(out, [
+    "Week 4 done. You're now #3: +70 points.",
+    'A post for X, ready to paste:',
+    '"Week 4 shipping Recipe planner. earnkit.com/maya"',
+    'Does last week look right?',
+  ].join('\n'));
+  oneAsk(out);
+  assert.doesNotMatch(out, /intent/);
+  assert.match(benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, points: 70 } }), /^Week 4 done\. You're still #3: \+70 points\.$/m);
+  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, points: 30 } }), /^Last week done\. You're on EarnKit: \+30 points\.\n.*\n"Shipping Recipe planner\. earnkit\.com\/maya"$/m);
+});
+
+test('Task 16: the ranked order is connect, apply, backing, share, ship', () => {
   const backing = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
-  const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', when: null };
-  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: share, share, handle: 'maya', connect: true, backing, apply };
+  const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, backing, apply };
   assert.equal(stateAsk(all).kind, 'connect');
-  assert.deepEqual(stateAsk({ ...all, connect: false }), {
-    kind: 'apply', project_key: RECIPE.key, program_id: 'base-builder-grants',
-    line: 'Base Builder Grant Program is open now (rolling). Want me to draft your application from your ship log?',
-  });
-  assert.equal(stateAsk({ ...all, connect: false, apply: { ...apply, when: 'Nov 18' } }).line, applyAsk('Base Builder Grant Program', 'Nov 18'));
-  assert.equal(stateAsk({ ...all, connect: false, apply: null }).kind, 'backing');
-  assert.equal(stateAsk({ ...all, connect: false, apply: null, backing: null }).kind, 'share');
-  assert.equal(stateAsk({ ...all, connect: false, apply: null, backing: null, share: null, link: null }).kind, 'ship');
+  assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
+  assert.equal(stateAsk({ ...all, connect: null, apply: null }).kind, 'backing');
+  assert.equal(stateAsk({ ...all, connect: null, apply: null, backing: null }).kind, 'share');
+  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, backing: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
+  assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
 });
 
-test('8.5c v3.1 spec 3.2: the Best fit line leads the ranked reply in its own paragraph, and hides the upcoming line', () => {
-  const best: BestFit = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', prize: 'up to $5K', when: 'rolling', why: 'You deployed on Base.', codes: null };
-  assert.equal(bestFitLine(best), 'Best fit: Base Builder Grant Program, up to $5K, rolling. You deployed on Base.');
-  const v: BenchView = {
-    state: 'ranked', variant: null, project: RECIPE, rank: null, handle: null, link: null, score: 10, why: null, originality: null, target: null, share: null,
-    fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }], due: [], ask: { kind: 'ship', project_key: RECIPE.key, line: SHIP_STEP }, held: null,
-  };
-  assert.match(benchReply(v), /Base Batches 005/, 'no fit, no Best fit: the upcoming line shows');
-  const out = benchReply({ ...v, best });
-  assert.ok(out.startsWith(`${bestFitLine(best)}\n\nWhere you stand\n`), out);
-  assert.doesNotMatch(out, /Base Batches 005/);
-  // Ranked only.
-  assert.doesNotMatch(benchReply({ ...v, state: 'not_counted', best }), /Best fit/);
-});
-
-test('8.6 R12: a fit line names the award, the deadline and why; a ranked project with no fit says so', () => {
-  assert.equal(fitsLine('Base Builder Grants', 'up to $5K', 'closes Oct 30', 'You deployed on Base.'), 'Base Builder Grants: up to $5K, closes Oct 30. You deployed on Base.');
-  const v: BenchView = {
-    state: 'ranked', variant: null, project: RECIPE, rank: null, handle: null, link: null, score: 10, why: null, originality: null, target: null, share: null,
-    fund: [], due: [], ask: { kind: 'ship', project_key: RECIPE.key, line: SHIP_STEP }, held: null,
-  };
-  assert.match(benchReply(v), new RegExp(noFitLine('Recipe planner').replace(/[.]/g, '\\.')));
-  const four = Array.from({ length: 4 }, (_, i) => ({ kind: 'fits' as const, title: `P${i}`, prize: '$1K', when: 'rolling', why: 'You build on Base.' }));
-  assert.equal(benchReply({ ...v, fund: four }).split('\n').filter((l) => /^P\d:/.test(l)).length, 3, 'at most 3 fits');
+test('Task 16: an award as the copy names it; the qualify line', () => {
+  assert.equal(awardAmount({ max_award_usd: 5000 }), '$5,000');
+  assert.equal(awardAmount({ max_award_usd: 500000, investment: true }), '$500,000 investment');
+  assert.equal(awardAmount({ max_award_usd: null }), null);
+  assert.equal(qualifyLine({ title: 'Open Grants', amount: null, when: 'rolling' }), 'You qualify for the Open Grants.');
 });
 
 test('O2.8 honest copy: a different project, in plain words', () => {

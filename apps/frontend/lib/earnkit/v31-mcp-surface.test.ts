@@ -191,7 +191,7 @@ test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" s
     assert.equal(r.reply?.build_offer, undefined, `${label}: ${r.text}`);
     assert.doesNotMatch(show(r), /Ideas I can build|Ideas for these programs|Want me to build it\?/, `${label}: ${show(r)}`);
   }
-  // A signed-in builder with no project: the open programs with what each needs (both slots), never an idea line.
+  // A signed-in builder with no project (Task 16 step 2): the repo picker, never an idea line.
   const t = `ek_v31s_np_${RUN}_${randomBytes(4).toString('hex')}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const own = (await connectInstallation(t))!.own;
@@ -199,10 +199,8 @@ test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" s
   const c = (await connectInstallation(t))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false, freshDeps } as Ctx, 'find', {});
   const s = show(r);
-  assert.match(s, /Ways to get funded\n/, s);
+  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: pick the repo/, s);
   assert.doesNotMatch(s, / pays .* for tip jars\.|V31 Pitch pays/, s);
-  const fund = s.split('Ways to get funded\n')[1].split('\n\n')[0].split('\n');
-  assert.equal(fund.length, 2, s);
   assert.equal(r.reply?.build_offer, undefined);
 }));
 
@@ -251,7 +249,7 @@ test('(h) fix round 1: prepare { host: true } on a curated program returns the d
   assert.equal(r.isError, false, r.text);
   assert.ok(r.reply?.draft, r.text);
   assert.ok(r.reply?.host, r.text);
-  assert.ok(show(r).endsWith("Tell me once you've sent it."), show(r));
+  assert.ok(show(r).endsWith('Sent it?'), show(r));
   assert.doesNotMatch(show(r), /Ready to submit\?/);
   assert.doesNotMatch(String(r.reply?.agent_note ?? ''), /confirm|skip_token/);
   const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM projects WHERE installation_id = ${b.id}`;

@@ -162,7 +162,7 @@ test('(d) programs:check passes on the committed JSON files', () => {
     assert.match(out, new RegExp(`Valid: ${f.replace('.', '\\.')}`));
 });
 
-test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming line after the no-fit line (v3.1 F4: none beside a fit, v31-reply-trim.test.ts)', db, async () => {
+test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming line, the money line (v3.1 F4: none beside a fit, v31-reply-trim.test.ts)', db, async () => {
   await upsertProgram(upcomingFile(`v3-upc-e-${RUN}`, { max_award_usd: 50000, chains: ['arc'] }));
   const t = `ek_v3p_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -185,10 +185,8 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   // The first upcoming program by the tile order, with its prize and note.
   const first = (await listPrograms()).filter((p) => p.status === 'upcoming').sort(byRelevance)[0];
   assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, not open yet. ${first.opens_note}`), upc[0]);
-  // Under Ways to get funded, after the no-fit line, before How to move up; a statement, no link.
-  const at = lines.indexOf(upc[0]);
-  assert.ok(lines.indexOf('No open program fits App yet.') < at, s);
-  assert.ok(lines.indexOf('Ways to get funded') < at && at < lines.indexOf('How to move up'), s);
+  // Task 16: the money line, after the standing line, before the question; a statement, no link.
+  assert.equal(lines.indexOf(upc[0]), 1, s);
   assert.doesNotMatch(upc[0], /https?:|\?/);
   // A streak under 4: no upcoming line.
   await streak(3);
@@ -244,9 +242,11 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: `vg${RUN}`, gh: fakeGitHub({ [key]: { id: 5092, owner: `vg${RUN}`, installation: 592 } }) });
+  // find names its Best fit (Base: find's fits are this builder's verdicts); score reads every open program, so its Best
+  // fit may be another one closing sooner. Neither ever names the in-person program.
   for (const tool of ['find', 'score'] as const) {
     const s = String((await mcpCall(ctx, tool, {})).reply?.show_to_builder ?? '');
-    assert.match(s, /Base Builder Grant Program: /, `${tool}: ${s}`);
+    if (tool === 'find') assert.match(s, /Base Builder Grant Program/, `${tool}: ${s}`);
     assert.doesNotMatch(s, /ETHGlobal Mumbai/, `${tool}: ${s}`);
   }
   // v3 Stage 2 final review: nor on the profile's Ways to get funded.

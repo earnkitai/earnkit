@@ -12,7 +12,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { benchCardFacts, benchRows, filterHref, profileData } from './bench-data';
-import { STATE_COPY, VARIANT_COPY, NOT_ON_BENCH } from './bench-reply';
+import { INTRO_LINE, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { FORMULA_V2 } from './score-v2';
 import { rankSplit } from './rank';
@@ -25,7 +25,6 @@ import { PROFILES_POINTS } from './policy';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import BenchProfileView, { confirmingCardLine } from '../../app/[handle]/BenchProfileView';
 import { BENCH_TITLE } from '../../app/leaderboard/BenchView';
-import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -53,24 +52,15 @@ async function agent(o: { x?: string } = {}) {
   return { id: c.id, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH } };
 }
 
-/** The status lines a reply can carry (bench-reply.ts STATE_COPY and VARIANT_COPY). */
-const STATUS = /not on the leaderboard yet|isn't counted yet|is already on the leaderboard|is a copy of someone else's project|: Shipping \d+|is counted\. Its Shipping score/g;
+/** The status lines a reply can carry (Task 16: the signed-out intro, "You're in", VARIANT_COPY, the ranked standing). */
+const STATUS = /EarnKit gets you paid for building\.|You're in, @|isn't counted yet|is already on the leaderboard under|is a copy of someone else's project|is on the leaderboard: |is on EarnKit|^[^\n]+ · (#|Top )/gm;
 const RANKED = /#[\d,]+ of [\d,]+ builders?|Top [\d.]+% of builders/;
-/**
- * R10: exactly one status line and one next step: the "How to move up" part holds one question, or (R8, ranked)
- * the one statement "Ship this week to climb." and no question at all.
- */
+/** R10, Task 16: exactly one status line and one next step: one question in all. */
 function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   const s = String(reply?.show_to_builder ?? '');
   assert.equal((s.match(STATUS) ?? []).length, 1, `one status line: ${s}`);
-  const up = s.split('\n\n').find((p) => p.startsWith('How to move up'));
-  assert.ok(up, s);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-  if (endsOnRankedStep(up!)) assert.equal(questions, 0, `a statement, no question: ${s}`);
-  else {
-    assert.equal((up!.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, `one next step: ${s}`);
-    assert.equal(questions, 1, `one question in all: ${s}`);
-  }
+  assert.equal(questions, 1, `one question in all: ${s}`);
   return s;
 }
 
@@ -118,12 +108,11 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
   }
   assert.deepEqual(found, []);
   const copy = [
-    NOT_ON_BENCH, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
+    INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
   for (const c of copy) assert.doesNotMatch(c, /bench/i, c);
-  assert.equal(NOT_ON_BENCH, "You're not on the leaderboard yet.");
-  assert.match(STATE_COPY.signed_out.ask('L'), /put your work on the leaderboard once you're in\?$/);
+  assert.match(STATE_COPY.signed_out.ask('L'), /^Step 1 of 2: sign in with X \(one click\): L\nDone\?$/);
   const llms = readFileSync(join(FRONTEND, 'lib/earnkit/llms/v213.txt'), 'utf8');
   assert.match(llms, /^## The leaderboard$/m);
   assert.match(llms, /https:\/\/earnkit\.com\/leaderboard/);
@@ -203,7 +192,7 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
     ON CONFLICT (builder_id) DO UPDATE SET score = 30, ranked = true, calibration = ${LIVE_CALIBRATION_V2}, pending = NULL, read_at = now()`;
   const r = (await mcpCall(a.ctx, 'find', {})).reply;
   const s = oneStatusOneStep(r);
-  assert.match(s, /You're not on the leaderboard yet\./);
+  assert.ok(s.startsWith(INTRO_LINE), s);
   assert.doesNotMatch(s, RANKED);
   assert.deepEqual(r?.rank_lines, []);
   const score = (await mcpCall(a.ctx, 'score', {})).reply;
@@ -222,7 +211,7 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
   assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
-  assert.match(r1, /Newsy: Shipping \d+ · (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./);
+  assert.match(r1, /^Newsy (· |is on the leaderboard: )(#[1-4] of \d+ builders|Top [\d.]+% of builders)/m);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).
@@ -233,7 +222,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   await seen(5);
   const stale = (await mcpCall(a.ctx, 'find', {})).reply;
   const s = oneStatusOneStep(stale);
-  assert.match(s, /Newsy isn't counted yet\./);
+  // Task 16 step 2: a named repo not counted gets its install link ("You're in").
+  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: /);
   assert.doesNotMatch(s, RANKED, s);
   assert.doesNotMatch(s, /You moved up/, s);
   assert.deepEqual(stale?.rank_lines, []);
@@ -260,7 +250,7 @@ test('R11: a long project name is whole in the reply and on the leaderboard', db
   const name = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.ok(s.includes(`${name}: Shipping`), s);
+  assert.match(s, new RegExp(`^${name} (· |is on)`, 'm'), s);
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });

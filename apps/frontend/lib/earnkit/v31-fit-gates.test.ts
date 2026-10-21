@@ -16,7 +16,6 @@ import { upsertProgram } from './programs';
 import { fitGate, fitRepoOf, newProgramOf, repoCanWin } from './alerts';
 import { canApply, layout, qualifies, type Card, type YourRepos } from './present';
 import { MatchProjectsInput, SKIP_REASONS, matchProjects, type MatchDeps } from './match-projects';
-import { noFitLine } from './bench-reply';
 
 /**
  * v3.1 F1: the owner's repo (earnkitai/earnkit) gets its program fits, and investments join the fit lines. On
@@ -205,7 +204,8 @@ async function rankedBuilder(tag: string, key: string, fitFor: (key: string) => 
 const show = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.show_to_builder ?? '');
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-const fundPart = (s: string) => (s.split('\n\n').find((p) => p.startsWith('Ways to get funded')) ?? '').split('\n').slice(1);
+/** Task 16: the program the ranked reply names (its apply step or money line): the first of `titles` it holds. */
+const named = (s: string, titles: string[]) => titles.find((t) => s.includes(t)) ?? null;
 const BASE_TITLE = committedProgram('base-builder-grants').title as string;
 const ALLIANCE_TITLE = committedProgram('alliance-all19').title as string;
 
@@ -213,36 +213,31 @@ async function syncTwo() {
   for (const name of ['base-builder-grants', 'alliance-all19']) await upsertProgram(ProgramFile.parse(committedProgram(name)));
 }
 
-let found: string[] = [];
-test('(e) mcpCall find for a ranked builder whose kept match holds both: the reply names both, Base first, and never "No open program fits"', db, async () => {
+test('(e) mcpCall find for a ranked builder whose kept match holds both: the reply names one (Task 16), the lead is Base, never "No open program fits"', db, async () => {
   await syncTwo();
   const b = await rankedBuilder('e', `f1e${RUN}/earnkit`, (k) => earnkitRepoFit([committedFacts('base-builder-grants'), committedFacts('alliance-all19')], k));
   const r = await mcpCall(b.ctx, 'find', {});
   const s = show(r);
-  assert.ok(!s.includes(noFitLine('EarnKit')) && !/No open program fits/.test(s), s);
-  const fund = fundPart(s);
-  const base = fund.findIndex((l) => l.startsWith(`${BASE_TITLE}: `));
-  const alliance = fund.findIndex((l) => l.startsWith(`${ALLIANCE_TITLE}: `));
-  assert.ok(base >= 0 && alliance >= 0, s);
-  assert.ok(base < alliance, 'Base first (byRelevance)');
-  assert.match(fund[alliance], /^Alliance ALL19: up to \$400K investment, closes Nov 18\. /, fund[alliance]);
-  assert.match(fund[base], /: up to \$5K, rolling\. You deployed on Base and your app is live\.$/, fund[base]);
+  assert.ok(!/No open program fits/.test(s), s);
+  // Both matched: Base is the lead (the fit lines' first grant, byRelevance); the reply names the Best fit (Alliance while it
+  // closes within 30 days, else Base).
+  assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, 'base-builder-grants', s);
+  const found = named(s, [ALLIANCE_TITLE, BASE_TITLE]);
+  assert.ok(found, s);
+  if (found === ALLIANCE_TITLE) assert.match(s, /Alliance ALL19 closes Nov 18, up to \$400,000 investment\. /, s);
   assert.ok(links(s).length <= 1, s);
-  assert.ok(questions(s) <= 1, s);
+  assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);
-  found = fund;
 });
 
-test('(f) mcpCall score: the same two fit lines in the same order', db, async () => {
+test('(f) mcpCall score: Base is the lead there too (score reads every open program, so its Best fit may close sooner)', db, async () => {
   await syncTwo();
   const b = await rankedBuilder('f', `f1f${RUN}/earnkit`, (k) => earnkitRepoFit([committedFacts('base-builder-grants'), committedFacts('alliance-all19')], k));
-  const s = show(await mcpCall(b.ctx, 'score', {}));
+  const r = await mcpCall(b.ctx, 'score', {});
+  const s = show(r);
   assert.ok(!/No open program fits/.test(s), s);
-  const fund = fundPart(s);
-  const ours = fund.filter((l) => l.startsWith(`${BASE_TITLE}: `) || l.startsWith(`${ALLIANCE_TITLE}: `));
-  assert.deepEqual(ours, found.filter((l) => l.startsWith(`${BASE_TITLE}: `) || l.startsWith(`${ALLIANCE_TITLE}: `)), s);
-  assert.equal(ours.length, 2, s);
-  assert.ok(fund[0].startsWith(`${BASE_TITLE}: `), 'Base first');
+  assert.equal(questions(s), 1, s);
+  assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, 'base-builder-grants', s);
 });
 
 test('(g) find hands the matcher ownEarnkit only for an EarnKit repo the builder proved with the App', db, async () => {

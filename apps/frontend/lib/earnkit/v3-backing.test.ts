@@ -129,8 +129,9 @@ test('(a) after the first approved week the backing offer is the one question, o
   const s = show(f);
   const m = lastLine(s).match(OFFER_RE);
   assert.ok(m, s);
-  assert.ok(s.endsWith(`How to move up\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`), s);
-  assert.equal(links(s).length, 1, s);
+  // Task 16: the standing, then the offer as the one question (no points line: backing earns none).
+  assert.equal(s, `Kit is on EarnKit.\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—|community round|\braise\b|raising/i);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
@@ -181,7 +182,7 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
     const r = await find(b);
     const s = show(r);
     // Ranked (the offer's own state), so only the rule under test keeps it away.
-    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit: Shipping \d+/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
+    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit (is on EarnKit\.|· )/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
     assert.doesNotMatch(s, /backing/i, `${label}: ${s}`);
     assert.equal((await moments(b.id)).length, 0, label);
   };
@@ -256,9 +257,9 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.match(board, /<a[^>]*href="\/leaderboard\?backed=1"[^>]*>Backed<\/a>/, board);
   assert.ok(board.includes(`Backing · $${sym}`));
 
-  // The reply's fund line: a statement under Ways to get funded; one https link still.
+  // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
   const r = show(await find(b));
-  assert.ok(r.includes(`Backing open. Your page: earnkit.com/${b.handle}`), r);
+  assert.ok(r.includes(`\nBacking open. Your page: https://earnkit.com/${b.handle}\n`), r);
   assert.equal(links(r).length, 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.equal(backingLine(0, 0, 'earnkit.com/x'), 'Backing open. Your page: earnkit.com/x');

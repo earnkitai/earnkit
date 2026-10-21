@@ -277,7 +277,7 @@ test('10.7 R8: find never offers a coin (the step is to ship); asked about a tok
   const W = '0x' + randomBytes(20).toString('hex');
   await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${W})`;
   const r = await find(id);
-  assert.match(r.show_to_builder, /How to move up\nShip this week to climb\.$/, r.show_to_builder);
+  assert.ok(r.show_to_builder.endsWith('\nWant me to suggest one small thing to ship?\nShip code this week: up to +100 points'), r.show_to_builder);
   assert.doesNotMatch(r.show_to_builder, /coin|token|community round/i);
   assert.equal(r.move_up?.kind, 'ship');
   const { tools } = await import('./tools');

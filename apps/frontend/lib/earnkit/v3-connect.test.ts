@@ -9,12 +9,14 @@ import { backfillMondays } from './week-facts';
 import { readStats } from './stats';
 import { pointsTotal } from './points';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { connectAsk, CONNECT_HEAD, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
+import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
+import { SHIP_ASK } from './bench-reply';
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
- * v3 Stage 1 Task 5 (spec 5.1): approve on connect. The first ranked reply after the App connects a repo shows the
- * backfilled weeks and asks one question; one yes approves them all (via 'connect', CONNECT_POINTS each) and activates.
+ * v3 Stage 1 Task 5 (spec 5.1): approve on connect. The first ranked reply after the App connects a repo offers the
+ * backfilled weeks (Task 16 step 3: how many, and the points the yes adds) in one question; one yes approves them all
+ * (via 'connect', CONNECT_POINTS each) and activates.
  */
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -51,20 +53,17 @@ async function backfilled(id: number, key: string) {
       VALUES (${id}, ${key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: i + 2 } } as never)}, ${['Secret launch']}::text[])`;
 }
 
-test('(a) first ranked find after connect shows the last weeks and asks the connect question', db, async () => {
+test('(a) first ranked find after connect offers the last weeks and the points (Task 16 step 3)', db, async () => {
   await freshBoard();
   const me = await ranked('cna');
   await backfilled(me.id, me.key);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.ok(s.startsWith(`${CONNECT_HEAD(3)}\nWeek of Oct 5: 2 commits\nWeek of Sep 28: 3 commits\nWeek of Sep 21: 4 commits\n\nWhere you stand`), s);
-  assert.equal(CONNECT_HEAD(3), 'Your last 3 weeks:');
-  assert.equal(CONNECT_HEAD(1), 'Your last 1 week:');
-  assert.ok(s.endsWith(`How to move up\n${connectAsk(me.handle)}`), s);
+  // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
+  assert.equal(s, `App is on EarnKit.\n\n${connectAsk(3, `earnkit.com/${me.handle}`)}\n+90 points`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
-  assert.doesNotMatch(s, /Last week you finished|Share your week|—/);
-  assert.equal(links(s).length, 1, s);
-  assert.ok(links(s)[0]!.startsWith(`https://earnkit.com/${me.handle}`), 'the link stays the page');
+  assert.doesNotMatch(s, /Last week|Share your week|—/);
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['connect', me.key]);
@@ -72,8 +71,7 @@ test('(a) first ranked find after connect shows the last weeks and asks the conn
   assert.ok((await seen(me.id)).connect_open, 'the offer is open');
   // Shown once: the next reply is the usual one.
   const again = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.doesNotMatch(again, /Your last \d+ weeks?:/, again);
-  assert.doesNotMatch(again, /Post these weeks to your public page/, again);
+  assert.doesNotMatch(again, /Post your \d+ weeks?|grant teams/, again);
 });
 
 test('(b) yes approves all three with via connect, 30 points each, activation counts', db, async () => {
@@ -85,7 +83,7 @@ test('(b) yes approves all three with via connect, 30 points each, activation co
   const before = await readStats(new Date());
   const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
   const s = show(yes);
-  assert.equal(s, `Done. Your page is live: https://earnkit.com/${me.handle}`, 'no email line while the digest is off');
+  assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n+90 points added · 90 total`, 'no email line while the digest is off');
   assert.equal(links(s).length, 1, 'the page link is clickable');
   const rows = await sql()<{ via: string }[]>`SELECT facts->>'approved_via' AS via FROM project_updates WHERE builder_id = ${me.id} AND (facts->>'approved')::boolean`;
   assert.deepEqual(rows.map((r) => r.via), ['connect', 'connect', 'connect']);
@@ -101,7 +99,7 @@ test('(c) a second yes is "Okay."', db, async () => {
   const me = await ranked('cnc');
   await backfilled(me.id, me.key);
   await mcpCall(ctx(me.id), 'find', {});
-  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^Done\./);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: /);
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), 'Okay.');
   assert.equal(await pointsTotal(me.id), 90, 'nothing twice');
   // A no to a fresh offer approves nothing and closes it.
@@ -120,13 +118,13 @@ test('(d) a person with only a started row sees no connect lines', db, async () 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
     VALUES (${me.id}, ${me.key}, ${backfillMondays(new Date())[0]}, ${sql().json({ checked: true, started: { live: false, weeks: 2 } } as never)})`;
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.doesNotMatch(s, /Your last \d+ weeks?:/, s);
-  assert.match(s, /How to move up\nShip code this week/, s);
+  assert.doesNotMatch(s, /Post your \d+ weeks?/, s);
+  assert.ok(s.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), s);
   assert.ok(!(await seen(me.id)).connect_done, 'the backfill is not complete: the offer waits');
   // The backfill's other weeks arrive, checked with nothing to confirm: the next find closes the offer.
   for (const monday of backfillMondays(new Date()).slice(1))
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)})`;
-  assert.doesNotMatch(show(await mcpCall(ctx(me.id), 'find', {})), /Your last \d+ weeks?:/);
+  assert.doesNotMatch(show(await mcpCall(ctx(me.id), 'find', {})), /Post your \d+ weeks?/);
   const st = await seen(me.id);
   assert.ok(st.connect_done && !st.connect_open, 'nothing to confirm: done');
 });
@@ -145,8 +143,9 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
       VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
-    assert.ok(s.startsWith('Last week you finished at Shipping 40.\n'), s);
-    assert.doesNotMatch(s, /Your last \d+ weeks?:/);
+    // Task 16 step 7 (no commit weeks stored here: "Last week done."; one ranked builder: "on EarnKit").
+    assert.ok(s.startsWith("Last week done. You're on EarnKit: +100 points.\n"), s);
+    assert.doesNotMatch(s, /Post your \d+ weeks?/);
     assert.match(s, /Does last week look right\?$/);
   } finally {
     mock.timers.setTime(WEDNESDAY);
@@ -160,12 +159,12 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   // A ranked day last week, so the weekly moment has a week to show (the backfill's newest Monday, Oct 5).
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${me.id}, '2026-10-11', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
-  assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /^Your last 3 weeks:/);
-  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^Done\./);
+  assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Post your 3 weeks/);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: /);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.doesNotMatch(s, /Your last \d+ weeks?:|Last week you finished|Share your week|Does last week look right\?/, s);
-  assert.match(s, /How to move up\nShip code this week\.$/, s);
+  assert.doesNotMatch(s, /Post your \d+ weeks?|Week \d+ done|Last week done|Does last week look right\?/, s);
+  assert.ok(s.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
 });
@@ -178,7 +177,7 @@ test('(f) with the weekly email on, the Done line carries the email question as 
     await mcpCall(ctx(me.id), 'find', {});
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
-    assert.equal(s, `Done. Your page is live: https://earnkit.com/${me.handle}\n${EMAIL_QUESTION}`);
+    assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n${EMAIL_QUESTION}\n+90 points added · 90 total`);
     assert.equal(links(s).length, 1);
     assert.equal(questions(s), 1);
     assert.match(JSON.stringify(yes.reply), new RegExp(EMAIL_NOTE.replace(/[.']/g, '.')));
@@ -192,21 +191,21 @@ test('(g) final review: an older stored week outside the backfill is listed and 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
     VALUES (${me.id}, ${me.key}, '2026-09-14', ${sql().json({ checked: true, shipped_code: { n: 7 } } as never)})`;
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.ok(s.startsWith(`${CONNECT_HEAD(4)}\nWeek of Oct 5: 2 commits\nWeek of Sep 28: 3 commits\nWeek of Sep 21: 4 commits\nWeek of Sep 14: 7 commits\n`), s);
-  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^Done\./);
+  assert.match(s, /\nPost your 4 weeks to .* so grant teams can see them\?\n\+120 points$/, s);
+  assert.deepEqual((await connectWeeks(me.id, me.key, new Date())).map((w) => w.line), ['Week of Oct 5: 2 commits', 'Week of Sep 28: 3 commits', 'Week of Sep 21: 4 commits', 'Week of Sep 14: 7 commits']);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: .*\n\+120 points added · 120 total$/);
   const open = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id} AND NOT COALESCE((facts->>'approved')::boolean, false)`;
   assert.equal(open.length, 0, 'every week confirmed');
   assert.equal(await pointsTotal(me.id), 120);
 });
 
-test('(g2) the connect question names the page and the Feed, one https link, one question', db, async () => {
+test('(g2) the connect question names the page (without its scheme), one question, the points line last', db, async () => {
   await freshBoard();
   const me = await ranked('cng2');
   await backfilled(me.id, me.key);
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.ok(s.endsWith(`How to move up\nPost these weeks to your public page? Yes puts them on earnkit.com/${me.handle} and the Feed.`), s);
-  assert.doesNotMatch(s, /Yes posts them/, s);
-  assert.equal(links(s).length, 1, s);
+  assert.ok(s.endsWith(`Post your 3 weeks to earnkit.com/${me.handle} so grant teams can see them?\n+90 points`), s);
+  assert.ok(links(s).length <= 1, s);
   assert.equal(questions(s), 1, s);
 });
 
@@ -217,7 +216,7 @@ test('(h) final review: an empty read before the backfill completes leaves the o
   assert.doesNotMatch(s, /Your last \d+ weeks?:/, s);
   assert.equal(await connectDue(me.id), true, 'still due');
   await backfilled(me.id, me.key);
-  assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /^Your last 3 weeks:/);
+  assert.match(show(await mcpCall(ctx(me.id), 'find', {})), /Post your 3 weeks/);
 });
 
 test('(i) final review: a week whose approval fails stays open; the reply asks to retry and the next yes retries it', db, async () => {
@@ -244,7 +243,7 @@ test('(i) final review: a week whose approval fails stays open; the reply asks t
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', yes)), CONNECT_RETRY);
   // Fixed and retried: the next yes approves the rest and closes it.
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{connect_open,weeks}', ${sql().json([backfillMondays(new Date())[1]] as never)}::jsonb) WHERE builder_id = ${me.id}`;
-  assert.match(show(await mcpCall(ctx(me.id), 'tell', yes)), /^Done\./);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', yes)), /^You're live: /);
   const end = await seen(me.id);
   assert.ok(end.connect_done);
   assert.equal(end.bench_ask, undefined, 'the ask is cleared once it lands');
@@ -261,7 +260,7 @@ test('(j) reward integrity: a running week is never listed or approved; a finish
   assert.deepEqual((await connectWeeks(me.id, me.key, new Date())).map((w) => w.monday), [finished]);
   // Stored in the offer anyway (an older offer): the running week is skipped, not an error.
   await openConnect(me.id, { key: me.key, weeks: [running, finished!] });
-  assert.deepEqual(await answerConnect(me.id, me.key, 'yes', new Date()), { approved: 1, pending: 0 });
+  assert.deepEqual(await answerConnect(me.id, me.key, 'yes', new Date()), { approved: 1, pending: 0, best: null });
   const rows = await sql()<{ week: string; a: boolean }[]>`SELECT week::text, COALESCE((facts->>'approved')::boolean, false) AS a FROM project_updates WHERE builder_id = ${me.id}`;
   assert.deepEqual(rows.map((r) => [r.week, r.a]).sort(), [[finished, true], [running, false]].sort());
   assert.ok((await seen(me.id)).connect_done);
