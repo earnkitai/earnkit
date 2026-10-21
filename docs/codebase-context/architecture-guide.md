@@ -6520,8 +6520,9 @@ Walked every page (desktop 1440x900, phone 390x844) and the agent replies throug
 and as a designer. Screenshots and the rendered replies were in `docs/screenshots/launch-ready/{before,after}/` (removed 2026-10-20 with the rest of `docs/screenshots/`),
 `replies.md` (after) and `replies-before.md`. The full issue table is in `.superpowers/sdd/launch-ready/task-ux-report.md`.
 
-- **404.** `app/not-found.tsx`: the site's own page ("Page not found", the leaderboard and home) for any unknown path
-  or handle; before, Next's white default.
+- **404.** `app/not-found.tsx`: the site's own page for any unknown path or handle; before, Next's white default.
+  v3.1 site Task 10: the NotFound board's rust card ("404", "Nothing shipped here.", "Back home"); metadata title
+  "Page not found", noindex.
 - **Header.** `Header.tsx` and `brand-page.ts brandShell` link Programs (from 640px, after Feed; the footer's order).
 - **Install modal** (`AddToAgent.tsx`). `INTRO` "Free. Your agent connects with this link:" (not "no account": the agent
   signs the builder in with X). One step is a plain line, two or more a numbered list (no "1. Or add this"). Codex's
@@ -7269,3 +7270,15 @@ dark rows (`FeedRow`: photo, name link to the page, @handle link to X, `project 
 else the chips, the score in its band colour), `FEED_PAGE` (10) a page with the centred Newer / numbers / Older pager
 (`?page=N`, clamped). No weeks: `FEED_EMPTY` on a neutral card with "See the leaderboard". `FEED_LINE` is only the
 page description now. Test: `v31-site-feed.test.ts`.
+
+## v3.1 site Task 10: docs, 404, guides and terms
+
+`/docs` (`app/docs/DocsView.tsx`, `InstallCard.tsx`) is the Docs board in the 1200px column, rendered per request
+(W9: `raisingEnabled()` is read at run time, no DB read). A panel side nav to the five anchors (a wrapping row above
+the article below lg), the light install card (H1, `InstallCard`: agent tabs on a `SegTabs` 'light' rail in `AGENTS`
+order, Grok Bot first; `AgentPanel` shows the agent's steps as one line, `agent.code ?? MCP_URL`, then `after` /
+`afterCode`, each block with a copy button that announces "Copied" in an `aria-live` region; no command text lives
+outside `agents.tsx`), three numbered steps, the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
+`#money`: "Programs" and no Backing sentence while raising is off), and the blue selectors strip with the builder JSON
+URL. The 404 is the NotFound board's rust card with the full footer. The program guide and terms pages only moved to
+`PAGE_COL` with Kaftan titles (structure unchanged; terms keeps the risk disclosure). Test: `v31-site-docs.test.ts`.

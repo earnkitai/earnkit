@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import Footer from '../../components/common/Footer';
-import { COLUMN, H1, H2, ROWS } from '../../components/common/Panel';
+import { ROWS } from '../../components/common/Panel';
+import { PAGE_COL } from '../../components/site/ui';
 import { TEXT_LINK } from '../../components/common/Button';
 import ProgramLogo from '../../components/sections/ProgramLogo';
 import AskAgent from './AskAgent';
@@ -14,6 +15,10 @@ export const ANY_CHAIN = 'Any chain';
 
 /** The guide's question for the agent (spec Decisions: "What can I earn?", on this program). */
 export const askPrompt = (title: string) => `What can I earn on ${title}?`;
+
+/** v3.1 site Task 10: the guide's titles in Kaftan Serif on the 1200px column (no structural change). */
+const H1 = 'ek-serif text-[40px] leading-none text-ek-text md:text-[56px]';
+const H2 = 'ek-serif text-[28px] leading-none text-ek-text md:text-[36px]';
 
 const LINK = 'text-ek-body underline underline-offset-4 transition-colors hover:text-ek-text';
 
@@ -73,7 +78,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
   const parts = Boolean(g.won || g.wants || g.best_bet);
   return (
     <>
-      <div className={`${COLUMN} pt-8 md:pt-12`}>
+      <div className={`${PAGE_COL} pt-8 md:pt-12`}>
         <section aria-label={page.title}>
           <div className="flex items-center gap-4 md:gap-5">
             <ProgramLogo logo={page.logo} title={page.title} size={56} />
@@ -166,7 +171,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
 export function Unavailable({ text }: { text: string }) {
   return (
     <>
-      <div className={`${COLUMN} pt-8 md:pt-12`}>
+      <div className={`${PAGE_COL} pt-8 md:pt-12`}>
         <p className="font-funnel-sans text-lg text-ek-body">{text}</p>
         <Link href="/" className={`${LINK} mt-4 inline-flex min-h-11 items-center font-funnel-sans text-base`}>
           EarnKit home

@@ -12,7 +12,8 @@ import Footer from '../../app/components/common/Footer';
 import HomeView from '../../app/HomeView';
 import { CTA_INSTALL, EARN_FOOT, EARN_TITLE, HERO_SUB } from './site-copy';
 import Header from '../../app/components/common/Header';
-import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
+import NotFound, { NOT_FOUND_TITLE } from '../../app/not-found';
+import { NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 import { AGENTS, Command, INTRO } from '../../app/components/sections/AddToAgent';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
@@ -576,13 +577,15 @@ test('4.13 (H6) a private repo matched only from the local copy (App off) shows 
   }
 });
 
-test('L10 the site 404 (never Next\'s white default): title, one line, the way to the leaderboard and home', () => {
+test('L10 the site 404 (never Next\'s white default), v3.1 NotFound board: the rust card, "Nothing shipped here.", the way home', () => {
   const h = renderToStaticMarkup(React.createElement(NotFound));
-  assert.ok(h.includes(NOT_FOUND_TITLE) && h.includes(NOT_FOUND_LINE), h);
-  assert.match(h, /href="\/leaderboard"/);
-  assert.match(h, /href="\/"/);
-  // Final review: one primary per view (the header's); both 404 links are secondary.
-  assert.doesNotMatch(h, /<a [^>]*class="[^"]*bg-ek-brand/);
+  const main = h.split('<footer')[0];
+  assert.ok(main.includes(NOT_FOUND_TEXT), h);
+  assert.match(main, new RegExp(`<a [^>]*href="/"[^>]*>${NOT_FOUND_HOME}</a>`));
+  assert.match(main, /\bbg-s-rust\b/);
+  // One primary per view (the header's): the 404's only link is the white pill, never the blue fill.
+  assert.doesNotMatch(main, /<a [^>]*class="[^"]*(bg-ek-brand|bg-s-blue)/);
+  assert.equal(NOT_FOUND_TITLE, 'Page not found');
 });
 
 test('L10, v3.1 W10: the header no longer names Programs; the install modal: no "no account", numbers only for two steps or more', () => {

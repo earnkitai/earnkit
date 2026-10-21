@@ -114,10 +114,11 @@ apps/frontend/
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/docs/{page,DocsView}.tsx  v3 Stage 3 T5 (spec 5.6): /docs, one page, every string in lib/earnkit/docs-copy.ts and the
-                               agents' steps from sections/agents.tsx: install per agent (the MCP link as a Code block),
-                               what the agent can do, the three numbers, how the week works, for program selectors
-                               (#selectors; the page, the JSON, the badge, the contact as an INLINE_LINK), the terms link
+  app/docs/{page,DocsView,InstallCard}.tsx  v3.1 site T10 (Docs board): /docs, force-dynamic (W9, no DB read); every string in
+                               lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
+                               (five anchors), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
+                               AgentPanel shows code ?? MCP_URL, copy button + aria-live "Copied"; three numbered steps), the
+                               week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
   app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
@@ -155,7 +156,7 @@ apps/frontend/
                                (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
   app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
                                (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
-  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
+  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME (site-copy.ts), full footer
   app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
                                BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
   apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
@@ -1682,8 +1683,9 @@ apps/frontend/
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
-    docs-copy.ts               v3 Stage 3 T5: every string on /docs (DOCS_TITLE, DOCS_LEDE, the section titles and rows, DOCS_SELECTORS,
-                               DOCS_CONTACT, DOCS_DESCRIPTION); pinned by v3-docs.test.ts (under 600 words, no em dash, no emoji)
+    docs-copy.ts               v3.1 site T10: every string on /docs (DOCS_NAV, DOCS_STEPS, DOCS_WEEK, DOCS_SCORE with score-v2
+                               LIVE_BONUS, DOCS_MONEY, DOCS_SELECTORS, docsNav/docsMoney drop Backing with raising off,
+                               DOCS_DESCRIPTION); pinned by v31-site-docs.test.ts and v3-docs.test.ts (under 250 words)
     v3-tokens.test.ts          v3 Stage 3 T1: THEME values and the globals.css mirror, contrast, no gradient/shadow/marquee, the
                                primitives and buttons, PART_COLORS kept, the shell button, DESIGN.md as the one-page rulebook
     v31-site-tokens.test.ts    v3.1 site T1: SITE mirror (globals.css, tailwind), contrast pairs, no s-dim on cards, the six

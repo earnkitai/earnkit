@@ -17,27 +17,21 @@ const html = renderToStaticMarkup(React.createElement(DocsView));
 const text = html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/\s+/g, ' ');
 const root = join(import.meta.dirname, '..', '..');
 
-test('a: /docs renders the six H2s in order and the six agent names', () => {
+test('a: /docs (v3.1 Docs board): the install H1, the three card H2s and the selectors H2 in order, a tab per agent, the link, the selectors JSON', () => {
   const h2 = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map((m) => m[1]);
-  assert.deepEqual(h2, ['Add EarnKit to your agent', 'What your agent can do', 'The three numbers', 'How the week works', 'For program selectors', 'Terms']);
-  for (const a of ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']) assert.match(html, new RegExp(`<h3[^>]*>${a}</h3>`));
-  assert.match(html, /<pre[^>]*><code>/);
+  assert.match(html, /<h1[^>]*>Add EarnKit to your agent<\/h1>/);
+  assert.deepEqual(h2, ['How the week works', 'Shipping score', 'Programs', 'For selectors']);
+  for (const a of ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']) assert.match(html, new RegExp(`<button[^>]*role="tab"[^>]*>${a}</button>`));
+  assert.match(html, /<pre[^>]*>(<span[^>]*>)*https:\/\/earnkit\.com\/mcp/);
   assert.match(html, /id="selectors"/);
-  assert.match(html, /\/api\/builders\/&lt;handle&gt;\.json/);
-  assert.match(html, /\/badge\/&lt;handle&gt;\.svg/);
-  assert.match(html, /mailto:j@earnkit\.com/);
-  assert.doesNotMatch(text, /EARN points/);
-  // Final review: the SUB line names the five tools; the rows carry no "(score)" style parentheticals.
-  assert.match(text, /Five tools: find, prepare, confirm, tell, score\./);
+  assert.match(html, /earnkit\.com\/api\/builders\/&lt;handle&gt;\.json/);
+  // The rule pins carried over: never "EARN points" (and no points at all on a page), no parentheticals.
+  assert.doesNotMatch(text, /EARN points|points/);
   assert.doesNotMatch(text, /\((?:score|tell|find, prepare|confirm)\)/);
-  assert.match(text, /Your three numbers, any time you ask\. /);
-  assert.match(text, /Money that reached you through EarnKit: backing fees paid and program prizes\./);
-  assert.match(text, /money that reached you, each linked/);
-  assert.doesNotMatch(text, /money you won/);
-  assert.match(html, /<pre[^>]*><code>[^<]*(<span[^>]*>)*[^<]*https:\/\/earnkit\.com\/mcp/);
-  assert.match(text, /Add this to ~\/\.cursor\/mcp\.json:/);
-  assert.doesNotMatch(html, /<section[^>]*aria-label=/);
+  // The page itself stays a server component; only the install card's tabs are client.
   assert.doesNotMatch(readFileSync(join(root, 'app/docs/DocsView.tsx'), 'utf8'), /use client/);
+  assert.match(readFileSync(join(root, 'app/docs/InstallCard.tsx'), 'utf8'), /^'use client';/);
+  assert.match(readFileSync(join(root, 'app/docs/page.tsx'), 'utf8'), /export const dynamic = 'force-dynamic'/);
 });
 
 test('b: header, footer and the shell link /docs in the same tab; no external docs link remains', () => {
@@ -60,10 +54,10 @@ test('c: docs is reserved and in the sitemap; the dead link constants are gone',
   for (const k of ['FOLLOW_X', 'RUN_CAMPAIGN', 'FOR_ECOSYSTEMS', 'FOR_AGENTS']) assert.doesNotMatch(links, new RegExp(k));
 });
 
-test('d: the page has no em dash, no emoji, under 600 words', () => {
+test('d: the page has no em dash, no emoji, under 250 words', () => {
   assert.doesNotMatch(text, /—/);
   assert.doesNotMatch(JSON.stringify(copy), /—|\p{Extended_Pictographic}/u);
   assert.doesNotMatch(text, /\p{Extended_Pictographic}/u);
   const words = text.trim().split(' ').length;
-  assert.ok(words < 600, `${words} words`);
+  assert.ok(words < 250, `${words} words`);
 });

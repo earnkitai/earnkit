@@ -1,114 +1,81 @@
-import type { ReactNode } from 'react';
-import Link from 'next/link';
-import { COLUMN, H1, H2, LEDE, ROW, ROWS, SUB } from '../components/common/Panel';
-import { INLINE_LINK, TEXT_LINK } from '../components/common/Button';
-import { AGENTS, Command, MCP_URL } from '../components/sections/agents';
-import {
-  DOCS_CONTACT, DOCS_CONTACT_LEAD, DOCS_DO, DOCS_DO_SUB, DOCS_DO_TITLE, DOCS_INSTALL_SUB, DOCS_INSTALL_TITLE, DOCS_LEDE,
-  DOCS_NUMBERS, DOCS_NUMBERS_TITLE, DOCS_ORIGINALITY, DOCS_SELECTORS, DOCS_SELECTORS_SUB, DOCS_SELECTORS_TITLE, DOCS_TERMS_LINK,
-  DOCS_TERMS_TITLE, DOCS_TITLE, DOCS_WEEK, DOCS_WEEK_TITLE,
-} from '../../lib/earnkit/docs-copy';
+import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
+import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
+import { DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
+import InstallCard from './InstallCard';
 
-/** A section: the title left, its content right from md (as the program guide does), stacked on a phone. */
-function Part({ title, id, sub, children }: { title: string; id?: string; sub?: string; children: ReactNode }) {
+/** The three cards' 32px radius (the card primitives carry 36px). */
+const r32 = (card: string) => card.replace('rounded-[36px]', 'rounded-[32px]');
+const CARD_TITLE = 'ek-serif text-[32px] leading-none';
+
+/** One of the three cards: a Kaftan title, then one 15px line in the card's soft colour. */
+function InfoCard({ id, card, soft, title, text }: { id: string; card: string; soft: string; title: string; text: string }) {
   return (
-    <section id={id} aria-labelledby={`${id ?? title.toLowerCase().replace(/[^a-z]+/g, '-')}-title`} className="grid scroll-mt-20 gap-6 border-t border-ek-line py-10 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] md:gap-12 md:py-14">
-      <div>
-        <h2 id={`${id ?? title.toLowerCase().replace(/[^a-z]+/g, '-')}-title`} className={H2}>{title}</h2>
-        {sub && <p className={SUB}>{sub}</p>}
-      </div>
-      <div className="min-w-0">{children}</div>
+    <section id={id} aria-labelledby={`${id}-title`} className={`${r32(card)} flex scroll-mt-24 flex-col gap-2.5 p-7`}>
+      <h2 id={`${id}-title`} className={CARD_TITLE}>
+        {title}
+      </h2>
+      <p className={`text-[15px] leading-[1.6] ${soft}`}>{text}</p>
     </section>
   );
 }
 
-/** Label left, text right: a hairline row. */
-function Pairs({ items }: { items: { label: string; text: string }[] }) {
-  return (
-    <div className={ROWS}>
-      {items.map((i) => (
-        <div key={i.label} className={`${ROW} md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]`}>
-          <p className="font-funnel-sans text-base font-medium text-ek-text">{i.label}</p>
-          <p className="min-w-0 break-words font-funnel-sans text-base text-ek-body">{i.text}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Code({ text }: { text: string }) {
-  return (
-    <pre className="my-2 overflow-x-auto whitespace-pre-wrap border border-ek-line bg-s-page px-4 py-3 font-mono text-sm text-ek-text">
-      <code>
-        <Command text={text} />
-      </code>
-    </pre>
-  );
-}
-
-/** v3 Stage 3 (spec 5.6): the Docs page. Pure; every string is in docs-copy.ts or AGENTS. */
+/**
+ * v3.1 site Task 10 (Docs board): the side nav (a wrapping row above the article on a phone), the light install card
+ * (the agent tabs and the chosen command from AGENTS, a copy button, three numbered steps), the three cards (how the
+ * week works, the Shipping score, programs and, while Backing is on, Backing), then the selectors strip with the
+ * builder JSON URL. Server-rendered per request (raisingEnabled is read at run time); the tabs are the one client part.
+ */
 export default function DocsView() {
+  const raising = raisingEnabled();
+  const money = docsMoney(raising);
   return (
-    <div className={`${COLUMN} pb-4 pt-8 md:pt-12`}>
-      <h1 className={H1}>{DOCS_TITLE}</h1>
-      <p className={LEDE}>{DOCS_LEDE}</p>
+    <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 lg:flex-row lg:items-start`}>
+      <nav aria-label="Docs" className={`${r32(CARD_PANEL)} flex flex-wrap gap-1 p-3 text-[15px] lg:w-[260px] lg:shrink-0 lg:flex-col lg:p-[22px]`}>
+        {docsNav(raising).map(([href, label], i) => (
+          <a
+            key={href}
+            href={href}
+            className={`inline-flex min-h-11 items-center rounded-[16px] px-3.5 py-2.5 lg:min-h-0 ${
+              i === 0 ? 'bg-s-panel-inner font-semibold text-s-text' : 'text-s-muted hover:text-s-text motion-safe:transition-colors'
+            }`}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
 
-      <div className="mt-10 md:mt-14">
-        <Part title={DOCS_INSTALL_TITLE} sub={DOCS_INSTALL_SUB}>
-          <Code text={MCP_URL} />
-          <div className={ROWS}>
-            {AGENTS.map((a) => (
-              <div key={a.name} className={`${ROW} items-start`}>
-                <h3 className="font-funnel-sans text-base font-medium text-ek-text">{a.name}</h3>
-                <div className="min-w-0 font-funnel-sans text-base text-ek-body">
-                  {a.steps.map((s) => (
-                    <p key={s}>{s.replace(/^Or add/, 'Add')}</p>
-                  ))}
-                  {a.code && <Code text={a.code} />}
-                  {a.after && <p className="mt-3">{a.after}</p>}
-                  {a.afterCode && <Code text={a.afterCode} />}
-                </div>
-              </div>
+      <article className="flex min-w-0 flex-1 flex-col gap-4">
+        <section id="install" aria-labelledby="install-title" className={`${CARD_LIGHT.replace('rounded-[36px]', 'rounded-[28px] md:rounded-[36px]')} flex scroll-mt-24 flex-col gap-5 p-6 md:p-9`}>
+          <h1 id="install-title" className="ek-serif text-[40px] leading-none text-s-ink md:text-[56px]">
+            {DOCS_INSTALL_TITLE}
+          </h1>
+          <InstallCard />
+          <ol className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-2.5">
+            {DOCS_STEPS.map((s, i) => (
+              <li key={s} data-ek-step="" className="flex flex-col gap-1.5 rounded-[22px] bg-s-light-inner p-[18px]">
+                <span className="ek-serif text-[32px] leading-none text-s-blue">{i + 1}</span>
+                <span className="text-[15px] text-s-ink-body">{s}</span>
+              </li>
             ))}
+          </ol>
+        </section>
+
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">
+          <InfoCard id="week" card={CARD_NAVY} soft="text-s-on-navy-soft" title={DOCS_WEEK.title} text={DOCS_WEEK.text} />
+          <InfoCard id="score" card={CARD_RUST} soft="text-s-rust-sub" title={DOCS_SCORE.title} text={DOCS_SCORE.text} />
+          <InfoCard id="money" card={CARD_PANEL} soft="text-s-muted" title={money.title} text={money.text} />
+        </div>
+
+        <section id="selectors" aria-labelledby="selectors-title" className={`${CARD_BLUE} flex scroll-mt-24 flex-wrap items-center justify-between gap-5 p-6 md:p-8`}>
+          <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-2">
+            <h2 id="selectors-title" className="ek-serif text-[40px] leading-none">
+              {DOCS_SELECTORS.title}
+            </h2>
+            <p className="text-[15px] text-s-on-blue-soft">{DOCS_SELECTORS.text}</p>
           </div>
-        </Part>
-
-        <Part title={DOCS_DO_TITLE} sub={DOCS_DO_SUB}>
-          <Pairs items={DOCS_DO} />
-        </Part>
-
-        <Part title={DOCS_NUMBERS_TITLE}>
-          <Pairs items={DOCS_NUMBERS} />
-          <p className="mt-4 font-funnel-sans text-base text-ek-muted">{DOCS_ORIGINALITY}</p>
-        </Part>
-
-        <Part title={DOCS_WEEK_TITLE}>
-          <Pairs items={DOCS_WEEK} />
-        </Part>
-
-        <Part title={DOCS_SELECTORS_TITLE} id="selectors" sub={DOCS_SELECTORS_SUB}>
-          <div className={ROWS}>
-            {DOCS_SELECTORS.map((i) => (
-              <div key={i.label} className={`${ROW} md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]`}>
-                <p className="font-funnel-sans text-base font-medium text-ek-text">{i.label}</p>
-                <code className="min-w-0 break-all font-mono text-sm text-ek-body">{i.text}</code>
-              </div>
-            ))}
-          </div>
-          <p className="mt-4 font-funnel-sans text-base text-ek-body">
-            {DOCS_CONTACT_LEAD}{' '}
-            <a href={`mailto:${DOCS_CONTACT}`} className={INLINE_LINK}>
-              {DOCS_CONTACT}
-            </a>
-          </p>
-        </Part>
-
-        <Part title={DOCS_TERMS_TITLE}>
-          <Link href="/terms" className={TEXT_LINK}>
-            {DOCS_TERMS_LINK}
-          </Link>
-        </Part>
-      </div>
+          <code className="max-w-full break-all rounded-[18px] bg-s-inset22 px-[18px] py-3.5 font-mono text-[14px]">{DOCS_SELECTORS.url}</code>
+        </section>
+      </article>
     </div>
   );
 }

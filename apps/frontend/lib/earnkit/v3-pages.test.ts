@@ -16,7 +16,8 @@ import { EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramLogo from '../../app/components/sections/ProgramLogo';
 import GuideView, { ANY_CHAIN } from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
+import NotFound, { NOT_FOUND_TITLE, metadata as notFoundMeta } from '../../app/not-found';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 import { rankLine, rankSplit, scoreLine } from './rank';
 import { shareText } from './weekly-moment';
 import { badgeValue } from './badge';
@@ -167,12 +168,14 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
 
 // ---- 404 -------------------------------------------------------------------------------------------
 
-test('404: the title, the line and two links', () => {
+test('404 (v3.1 NotFound board): "404", the line as the h1, one "Back home" link to /; the metadata title stays "Page not found", noindex', () => {
   const h = html(React.createElement(NotFound));
-  assert.match(h, new RegExp(`<h1[^>]*>${NOT_FOUND_TITLE}</h1>`));
-  assert.ok(h.includes(NOT_FOUND_LINE));
-  assert.match(h, /<a [^>]*href="\/leaderboard"/);
-  assert.match(h, /<a [^>]*href="\/"/);
+  const main = h.split('<footer')[0];
+  assert.ok(main.includes(`>${NOT_FOUND_BIG}<`));
+  assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
+  assert.deepEqual([...main.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]), [['/', NOT_FOUND_HOME]]);
+  assert.equal(NOT_FOUND_TITLE, 'Page not found');
+  assert.deepEqual(notFoundMeta, { title: 'Page not found', robots: 'noindex' });
 });
 
 // ---- (e) wording: "of N builders" ---------------------------------------------------------------
