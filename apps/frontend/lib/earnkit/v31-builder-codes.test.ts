@@ -8,6 +8,7 @@ import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { bestFitLine } from './bench-reply';
+import { codesSettled } from './bench-find';
 import { BASE_GRANTS_ID, BUILDER_CODES_FIRST, BUILDER_CODES_SUFFIX, builderCodesFound, builderCodesIn } from './builder-code';
 import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths } from './builder-codes-check';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -26,7 +27,9 @@ process.env.EARNKIT_AUTH_SECRET ??= 'v31-builder-codes-test-secret';
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
-  if (process.env.DATABASE_URL) await sql().end();
+  if (!process.env.DATABASE_URL) return;
+  await codesSettled();
+  await sql().end();
 });
 const RUN = String(process.pid % 100000);
 const TITLE = 'Base Builder Grant Program';
@@ -54,6 +57,7 @@ async function builder(key: string, files: Record<string, string> | null | undef
   const gid = 9000 + n * 10;
   const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1, files } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
+  ctx.codesFetch = gh;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
   return { ctx, id: c.id, gh };
@@ -136,6 +140,7 @@ test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Co
     if (String(input).includes('/contents/')) throw new DOMException('The operation timed out.', 'TimeoutError');
     return slow.gh(input, init);
   }) as typeof fetch;
+  slow.ctx.codesFetch = timeout;
   assert.equal(await checkBuilderCodes(slow.id, 'omar/app', new Date(), { fetch: timeout }), null);
   assert.equal(await stored('omar/app'), null);
   // The App off.
@@ -148,10 +153,12 @@ test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Co
   assert.equal(builderCodesWords('ivy/app', null), null);
   // The reply: the Best fit line, nothing about Builder Codes.
   for (const b of [missing, slow, off]) {
-    const s = show(await mcpCall(b.ctx, 'find', {}));
+    const s = show(await withEnv(b === off ? { GITHUB_APP_PRIVATE_KEY: undefined } : {}, () => mcpCall(b.ctx, 'find', {})));
     assert.equal(bestLine(s), BEST, s);
     assert.doesNotMatch(s, /Builder Codes|not found/i, s);
   }
+  await codesSettled();
+  for (const k of ['lena/app', 'omar/app', 'ivy/app']) assert.equal(await stored(k), null, k);
 });
 
 test('(e) none found: the line ends with the guide, no https, no trailing period', db, async () => {
@@ -168,4 +175,37 @@ test('(e) none found: the line ends with the guide, no https, no trailing period
   assert.equal(line, `${BEST} ${BUILDER_CODES_FIRST}`, s);
   assert.ok(line.endsWith('Guide: docs.base.org/base-chain/builder-codes/builder-codes'), line);
   assert.doesNotMatch(line, /https?:\/\/|\?|\.$|—/, line);
+});
+
+test('(f) fix round 1: a failed background check is not tried again on the next reply within the day', db, async () => {
+  const key = 'ruth/app';
+  const b = await builder(key, null); // the tree answers 500
+  const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
+  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  await codesSettled();
+  assert.equal(trees(), 1, 'the first reply starts one check');
+  assert.equal(await stored(key), null, 'a failure stores nothing');
+  assert.equal(bestLine(show(await mcpCall(b.ctx, 'find', {}))), BEST);
+  await codesSettled();
+  assert.equal(trees(), 1, 'the next reply does not read again');
+});
+
+test('(g) fix round 1: a file that answers without text (a symlink) is skipped and the scan goes on; an HTTP error is still null', db, async () => {
+  const key = 'sam/app';
+  const b = await builder(key, { 'src/wallet.ts': 'link', 'src/a.ts': `import { Attribution } from 'ox/erc8021';` });
+  const symlink = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith('/contents/src/wallet.ts')) return new Response(JSON.stringify({ type: 'symlink', target: '../x.ts', path: 'src/wallet.ts' }), { status: 200 });
+    return b.gh(input, init);
+  }) as typeof fetch;
+  assert.equal(await checkBuilderCodes(b.id, key, new Date(), { fetch: symlink }), true);
+  assert.deepEqual(contents(b.gh).map((c) => c.path), ['/repos/sam/app/contents/src/a.ts']);
+  assert.deepEqual(await stored(key), { found: true });
+  const key2 = 'tia/app';
+  const c = await builder(key2, { 'src/wallet.ts': 'x', 'src/a.ts': `import { Attribution } from 'ox/erc8021';` });
+  const broken = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith('/contents/src/wallet.ts')) return new Response('{}', { status: 502 });
+    return c.gh(input, init);
+  }) as typeof fetch;
+  assert.equal(await checkBuilderCodes(c.id, key2, new Date(), { fetch: broken }), null);
+  assert.equal(await stored(key2), null);
 });

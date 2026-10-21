@@ -37,8 +37,8 @@ type Content = { content?: unknown; encoding?: unknown };
 
 /**
  * Reads the repo through the App: true at the first file carrying Builder Codes, false when none of codePaths does.
- * Stores the answer (repo_builder_codes). Null on any failure (the App off, a 404, a timeout, a file unreadable), and
- * nothing is stored. Never throws.
+ * A path that answers without text (a symlink, a submodule) is skipped. Stores the answer (repo_builder_codes). Null on
+ * any failure (the App off, a 404, a timeout, an HTTP error on any read), and nothing is stored. Never throws.
  */
 export async function checkBuilderCodes(builderId: number, repoKey: string, now: Date, deps: { fetch?: typeof fetch } = {}): Promise<boolean | null> {
   try {
@@ -53,7 +53,9 @@ export async function checkBuilderCodes(builderId: number, repoKey: string, now:
     let found = false;
     for (const path of codePaths(blobs)) {
       const file = await get<Content>(`/repos/${key}/contents/${path.split('/').map(encodeURIComponent).join('/')}`);
-      if (!file || file.encoding !== 'base64' || typeof file.content !== 'string') return null;
+      if (!file) return null;
+      // Fix round 1: a path that answers without text (a symlink, a submodule) is skipped; the scan goes on.
+      if (file.encoding !== 'base64' || typeof file.content !== 'string') continue;
       if (builderCodesIn(Buffer.from(file.content, 'base64').toString('utf8'))) {
         found = true;
         break;

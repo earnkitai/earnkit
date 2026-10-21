@@ -48,7 +48,7 @@ import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
-import { builderCodesKnown, builderCodesWords, checkBuilderCodes } from './builder-codes-check';
+import { BUILDER_CODES_TTL_MS, builderCodesKnown, builderCodesWords, checkBuilderCodes } from './builder-codes-check';
 export { displayName };
 
 /**
@@ -367,20 +367,31 @@ type ViewIn = {
   check?: TickerCheck;
   /** When the reply's wait ends (start + REPLY_WAIT_MS); the backing offer waits until then, at least BACKING_WAIT_MIN_MS. */
   deadline?: number;
+  /** v3.1 Task 7: test injection only (ToolContext.codesFetch): the background Builder Codes check's fetch. */
+  codesFetch?: typeof fetch;
 };
 
-/** v3.1 Task 7: the repos a Builder Codes check is running for in this process (one at a time per repo). */
-const codesRunning = new Set<string>();
+/** v3.1 Task 7: the Builder Codes checks running in this process, one per repo. */
+const codesRunning = new Map<string, Promise<unknown>>();
+/**
+ * v3.1 Task 7 fix round 1: when this process last started a check per repo. A check that fails stores nothing, so
+ * without this an unreadable repo would be read again on every reply; at most one attempt a repo per
+ * BUILDER_CODES_TTL_MS (R13: once a day), whether it succeeded or not.
+ */
+const codesTried = new Map<string, number>();
+/** Test only: resolves when every running Builder Codes check has finished. */
+export const codesSettled = () => Promise.all([...codesRunning.values()]);
 /**
  * v3.1 Task 7: the Builder Codes sentence from the stored answer (null when unknown). A missing or day-old answer
- * starts a check in the background (never awaited) for the next reply.
+ * starts a check in the background (never awaited) for the next reply, unless one ran within the day.
  */
-async function codesFor(id: number, key: string, now: Date): Promise<string | null> {
+async function codesFor(id: number, key: string, now: Date, f: typeof fetch | undefined): Promise<string | null> {
   const known = await builderCodesKnown(key, now);
   const k = key.toLowerCase();
-  if (!known?.fresh && !codesRunning.has(k)) {
-    codesRunning.add(k);
-    void checkBuilderCodes(id, k, now).finally(() => codesRunning.delete(k));
+  const tried = codesTried.get(k);
+  if (!known?.fresh && !codesRunning.has(k) && (tried === undefined || now.getTime() - tried >= BUILDER_CODES_TTL_MS)) {
+    codesTried.set(k, now.getTime());
+    codesRunning.set(k, checkBuilderCodes(id, k, now, { fetch: f }).finally(() => codesRunning.delete(k)));
   }
   return builderCodesWords(k, known?.found ?? null);
 }
@@ -456,7 +467,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
     ? applyCandidates((await openCandidates(id, o.applies ?? o.fits.slice(0, 3))) ?? [], read.seen, o.skip, now)
     : [];
   // v3.1 Task 7: Base Builder Grants' Best fit says whether the repo carries Builder Codes (the stored answer).
-  const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now) : null;
+  const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null;
   const best: BestFit | null = open[0]
     ? { program_id: open[0].program_id, title: open[0].title, prize: open[0].prize, when: open[0].when, why: open[0].why, codes }
     : null;
@@ -725,7 +736,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut, name, fits, applies, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
-    deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS,
+    deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS, codesFetch: ctx.codesFetch,
   });
   const taken = view.variant === 'taken';
   const lead = Boolean((leadFit && !submit && !taken) || submit);
@@ -760,7 +771,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreFits, at most 3, R12). One score_viewed event a minute (v2.12). Null without a
  * profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'codesFetch'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
@@ -794,7 +805,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const leadFit = fits.find((f) => !f.investment);
   const { view, fields, moment } = await benchView({
     id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
-    due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS,
+    due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS, codesFetch: ctx.codesFetch,
   });
   await noteEvent('score_viewed', () => ({
     type: 'score_viewed',

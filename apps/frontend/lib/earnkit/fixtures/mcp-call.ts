@@ -18,13 +18,19 @@ async function connected(ctx: ToolContext, campaignOpen: boolean) {
   return client;
 }
 
+/**
+ * v3.1 Task 7: a test that names no fetch for the background Builder Codes check gets one where GitHub lists no App
+ * installation (404), so the check ends quietly (nothing stored) instead of reaching the test guard's network refusal.
+ */
+const NO_GITHUB = (async () => new Response('{}', { status: 404 })) as typeof fetch;
+
 export async function mcpCall(
   ctx: ToolContext,
   name: ToolName,
   args: Record<string, unknown> = {},
   o: { campaignOpen?: boolean } = {},
 ): Promise<McpResult> {
-  const client = await connected(ctx, o.campaignOpen ?? false);
+  const client = await connected(ctx.codesFetch ? ctx : { ...ctx, codesFetch: NO_GITHUB }, o.campaignOpen ?? false);
   try {
     // An SDK that answers invalid arguments with a JSON-RPC error (instead of an isError result) throws here.
     const r = await client.callTool({ name, arguments: args }).catch((err: unknown) => ({

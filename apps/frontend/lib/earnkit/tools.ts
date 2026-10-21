@@ -194,6 +194,8 @@ export type ToolContext = {
   freshDeps?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
   /** v2.12.1 T8: test injection only: the on-demand refresh's readers (person-score.ts refreshPerson). */
   readerDeps?: ReaderDeps;
+  /** v3.1 Task 7: test injection only: the fetch the background Builder Codes check reads GitHub with. */
+  codesFetch?: typeof fetch;
 };
 
 /**

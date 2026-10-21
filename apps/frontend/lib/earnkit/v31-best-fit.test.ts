@@ -7,6 +7,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { committedProgram } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { withEnv } from './fixtures/find';
+import { codesSettled } from './bench-find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { ProgramFile } from './program-file';
@@ -30,6 +31,7 @@ process.env.EARNKIT_AUTH_SECRET ??= 'v31-best-fit-test-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (!process.env.DATABASE_URL) return;
+  await codesSettled();
   await dropRunPrograms();
   await sql().end();
 });
@@ -80,7 +82,10 @@ async function builder(tag: string, programs: string[], o: { week?: boolean } = 
   } as Ctx;
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   const gid = 8000 + n * 10 + (Number(RUN) % 7);
-  await installApp({ builderId: c.id, repoKey: key, login: handle, gh: fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } }) });
+  const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
+  await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
+  // v3.1 Task 7: the background Builder Codes check reads this fake (its tree answers 404: nothing is said or stored).
+  ctx.codesFetch = gh;
   // The connect weeks are another task's moment: answered, so they never take the step here.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
