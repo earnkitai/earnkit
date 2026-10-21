@@ -4,9 +4,9 @@ Copies of the approved design canvas boards (the claude.ai canvas belongs to the
 
 | Blob id | Repo file |
 |---|---|
-| 8ba9ab781a1c75b5e46546e973466364 | `apps/frontend/public/art/eckersberg-colosseum-arches.jpg` (hero, Eckersberg) |
-| c67c914d9826e3918a2cca9744bf4c71 | `apps/frontend/public/art/panini-pantheon-dome.jpg` (footer, Panini) |
-| 7afd859208171731e8438b099fe32846 | `apps/frontend/public/fonts/kaftan-serif.woff2` (Kaftan Serif) |
+| 8ba9ab781a1c75b5e46546e973466364 | `apps/frontend/public/art/hero-eckersberg-{800,1600,3200}.jpg` (hero, Eckersberg) |
+| c67c914d9826e3918a2cca9744bf4c71 | `apps/frontend/public/art/foot-panini-{700,1400,2800}.jpg` (footer, Panini) |
+| 7afd859208171731e8438b099fe32846 | `apps/frontend/app/fonts/kaftan-serif.woff2` (Kaftan Serif, loaded via next/font) |
 | a9439bb9e3b4769da8817eac818ba445 | the owner's X avatar (runtime: the builder's X photo) |
 | 3248682ccebb6dc3d1bc4bae0c22d9b0 | `public/programs/base-builder-grants.svg` |
 | 8392a020a2d811ea9780024a27d03f56 | `public/programs/a16z-speedrun.png` |
