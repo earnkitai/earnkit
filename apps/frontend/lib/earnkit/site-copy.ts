@@ -124,6 +124,8 @@ export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US
 export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
 export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
 export const BACKED_TAG = 'Backed';
+/** Above the feed's pager when a week has more builders than the feed shows (FEED_WEEK_MAX cards a week). */
+export const feedShowingLine = (shown: number, all: number): string => `Showing the top ${shown.toLocaleString('en-US')} of ${all.toLocaleString('en-US')} builders`;
 export const FEED_STATS = { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' } as const;
 export const NOT_FOUND_BIG = '404';
 export const NOT_FOUND_TEXT = 'Nothing shipped here.';

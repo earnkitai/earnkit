@@ -5,7 +5,7 @@ import SegTabs from '../components/site/SegTabs';
 import { CARD_NEUTRAL, H1_SITE, PAGE_COL_WIDE, PILL_WHITE } from '../components/site/ui';
 import type { FeedCard } from '../../lib/earnkit/feed';
 import type { FeedWeekStats } from '../../lib/earnkit/site-data';
-import { ACTIVITY_MORE } from '../../lib/earnkit/site-copy';
+import { ACTIVITY_MORE, feedShowingLine } from '../../lib/earnkit/site-copy';
 import FeedRow from './FeedRow';
 import FeedStats from './FeedStats';
 
@@ -68,6 +68,8 @@ export default function FeedView({ weeks, week, page, stats }: { weeks: FeedWeek
                 ))}
               </ul>
             </section>
+            {/* The week has more builders than the feed shows (FEED_WEEK_MAX): say so, with both real numbers. */}
+            {stats && stats.builders > cards.length && <p className="px-2 text-center text-[13px] text-s-muted">{feedShowingLine(cards.length, stats.builders)}</p>}
             {/* Centred as on the board: the nav shrinks to its links. One page: none. */}
             {pages > 1 && (
               <div className="flex justify-center py-2">

@@ -82,7 +82,7 @@ test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, names
 
 // ---- (b) the feed ----------------------------------------------------------------------------------
 
-test('(b) the feed (v3.1 site Task 9): H1 "Feed", the line as the description, week tabs, full-width dark rows (no grid, no white card)', () => {
+test('(b) the feed (v3.1 site Task 9): H1 "Feed", the line as the description, week tabs, full-width dark rows (no grid, no white card), the note quoted', () => {
   assert.equal(FEED_TITLE, 'Feed');
   assert.equal(FEED_LINE, 'What builders on the leaderboard shipped, week by week. Every fact is checked.');
   assert.match(readFileSync(join(FRONTEND, 'app/feed/page.tsx'), 'utf8'), /description: FEED_LINE/);
@@ -94,7 +94,9 @@ test('(b) the feed (v3.1 site Task 9): H1 "Feed", the line as the description, w
   // The selected (newest) week's rows only; each a full-width dark card in one column.
   assert.equal((h.match(/<article data-ek-feed-row="/g) ?? []).length, 2);
   assert.match(h, /<ul class="flex flex-col gap-3">/);
-  assert.doesNotMatch(h, /grid-cols-3|bg-s-light text-s-ink[^"]*rounded|<blockquote/);
+  assert.doesNotMatch(h, /grid-cols-3|bg-s-light text-s-ink[^"]*rounded/);
+  // The builder's note stays, quoted under the summary.
+  assert.equal((h.match(/<blockquote data-ek-note=""/g) ?? []).length, 2);
   assert.match(h, /<article data-ek-feed-row="1" class="[^"]*--ek-s-card-top[^"]*"/);
 });
 

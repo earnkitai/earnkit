@@ -111,8 +111,9 @@ test('6.6 the feed page: dark rows, plain words, no "written by", no all-caps la
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);
-  // Weekly updates: the square card shows the summary.
+  // Weekly updates: the square card shows the summary; the builder's note is on the feed row, as a quote.
   assert.ok(square.includes('Fixed the timer') && !square.includes('fridge photo'));
+  assert.match(html, /<blockquote data-ek-note=""[^>]*><p[^>]*>Added fridge photo import\.<\/p><\/blockquote>/);
   assert.equal(renderToStaticMarkup(React.createElement(FeedView, { weeks: [], week: null, page: 1, stats: null })).includes('No updates yet'), true);
 });
 

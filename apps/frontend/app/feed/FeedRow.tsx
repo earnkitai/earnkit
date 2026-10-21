@@ -21,13 +21,21 @@ export function feedMeta(c: Pick<FeedCard, 'project' | 'commits'>): string {
 /** The week's words: the summary, else the builder's note, else the fact chips; '' when none. Pure. */
 export const feedWords = (c: Pick<FeedCard, 'summary' | 'text' | 'chips'>): string => c.summary || c.text || c.chips.join(' · ');
 
+/** The builder's own note under the summary: only beside a summary, non-empty and not the same words; else null. Pure. */
+export const feedNote = (c: Pick<FeedCard, 'summary' | 'text'>): string | null => {
+  const note = c.text?.trim();
+  return c.summary && note && note !== c.summary.trim() ? note : null;
+};
+
 /**
  * v3.1 site Task 9: one feed row (Feed board): the X photo, the name (to the builder's page) and the X glyph and @handle
- * (to X) as two separate links, the project and the week's commits, the week's words, the Shipping score in its band
+ * (to X) as two separate links, the project and the week's commits, the week's words (and the builder's own note, quoted,
+ * under a summary), the Shipping score in its band
  * colour (none while unknown). Names, projects and words wrap, never widen the page.
  */
 export default function FeedRow({ c }: { c: FeedCard }) {
   const words = feedWords(c);
+  const note = feedNote(c);
   return (
     <article data-ek-feed-row={c.id} className={ROW}>
       <div className="flex min-w-0 items-center gap-3 md:flex-[0_0_240px]">
@@ -43,6 +51,12 @@ export default function FeedRow({ c }: { c: FeedCard }) {
       <div className="col-span-2 flex min-w-0 flex-col gap-1 md:flex-[1_1_420px]">
         <span className="text-[13px] font-semibold text-s-card-meta [overflow-wrap:anywhere]">{feedMeta(c)}</span>
         {words ? <p className="text-[15px] leading-[1.55] text-s-card-body [overflow-wrap:anywhere]">{words}</p> : null}
+        {/* The builder's note, quoted as plain text (never a link), at most two lines. */}
+        {note ? (
+          <blockquote data-ek-note="" className="mt-0.5 border-l-2 border-s-line-hover pl-3 text-sm leading-normal text-s-muted">
+            <p className="line-clamp-2 [overflow-wrap:anywhere]">{note}</p>
+          </blockquote>
+        ) : null}
       </div>
       {c.score !== null ? (
         <span className="col-start-2 row-start-1 shrink-0">

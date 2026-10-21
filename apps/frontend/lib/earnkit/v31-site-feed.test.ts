@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import FeedView, { FEED_EMPTY, FEED_PAGE, FEED_TABS, FEED_TITLE } from '../../app/feed/FeedView';
 import type { FeedCard } from './feed';
 import type { FeedWeekStats } from './site-data';
-import { FEED_STATS } from './site-copy';
+import { FEED_STATS, feedShowingLine } from './site-copy';
 
 /**
  * v3.1 site Task 9: the feed (Feed board): the title, the newest FEED_TABS weeks as tabs (`?week=<monday>`), the selected
@@ -119,7 +119,10 @@ test('(d) a row: photo, name to the page, @handle to X, project and commits, wor
   assert.match(row, /href="https:\/\/x\.com\/maya_makes"/);
   assert.ok(text(row).includes('Recipe planner · 1,234 commits'));
   assert.ok(text(row).includes('Summary 1.'), 'the summary first');
-  assert.ok(!text(row).includes('Note 1.'));
+  assert.match(row, /<blockquote data-ek-note=""[^>]*><p[^>]*>Note 1\.<\/p><\/blockquote>/, 'the note quoted under it');
+  assert.ok(row.indexOf('Summary 1.') < row.indexOf('Note 1.'));
+  assert.match(row, /^<article [^>]*class="[^"]*\brounded-\[28px\][^"]*"/, 'the 28px row radius (CARD_NEUTRAL replace held)');
+  assert.doesNotMatch(row, /rounded-\[32px\]/);
   assert.match(row, /text-s-good-text[^"]*"[^>]*>72</);
   assert.doesNotMatch(row, /points/i, 'no points');
   for (const seg of row.split('</a>')) assert.ok((seg.match(/<a /g) ?? []).length <= 1, 'no nested links');
@@ -133,6 +136,8 @@ test('(d) a row: photo, name to the page, @handle to X, project and commits, wor
   assert.ok(text(b).includes(' Solo ') && !/commit/.test(text(b)), 'no commits part at 0');
   assert.doesNotMatch(b, /text-s-(good|mid|low)-text/, 'no score');
   assert.ok(text(p).includes('Shipped the import.'), 'the note without a summary');
+  assert.doesNotMatch(/<article data-ek-feed-row="3"[\s\S]*?<\/article>/.exec(p)![0], /<blockquote/, 'the note is the main line, not quoted twice');
+  assert.doesNotMatch(b, /<blockquote/);
   assert.doesNotMatch(/<article data-ek-feed-row="4"[\s\S]*?<\/article>/.exec(p)![0], /<p /, 'no empty words line');
 
   const empty = view([], { stats: null });
@@ -156,4 +161,37 @@ test('(e) the page reads the stats once per request, cached by week (PROFILE_TAG
   assert.match(h, /^<div data-ek-deep=""/);
   assert.match(h, /max-w-\[1240px\]/);
   assert.doesNotMatch(h, /#[0-9A-Fa-f]{6}\b/, 'no raw hex');
+});
+
+test('(f) the note: quoted only beside a different summary, plain text (no link), two lines at most; chips only when both are empty', () => {
+  const both = card(1, { summary: 'Fixed the timer.', text: 'Added fridge photo import https://x.example', chips: ['Went live'] });
+  const same = card(2, { summary: 'Same words.', text: 'Same words.' });
+  const blank = card(3, { summary: 'Only a summary.', text: '   ' });
+  const h = view([{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [both, same, blank] }]);
+  const r1 = /<article data-ek-feed-row="1"[\s\S]*?<\/article>/.exec(h)![0];
+  const q = /<blockquote data-ek-note=""[^>]*>[\s\S]*?<\/blockquote>/.exec(r1)![0];
+  assert.match(q, /class="[^"]*\btext-sm\b[^"]*text-s-muted/);
+  assert.match(q, /line-clamp-2/);
+  assert.doesNotMatch(q, /<a /);
+  assert.ok(!text(r1).includes('Went live'), 'chips only when summary and note are both empty');
+  assert.doesNotMatch(/<article data-ek-feed-row="2"[\s\S]*?<\/article>/.exec(h)![0], /<blockquote/, 'the same words are not repeated');
+  assert.doesNotMatch(/<article data-ek-feed-row="3"[\s\S]*?<\/article>/.exec(h)![0], /<blockquote/, 'an empty note is not quoted');
+});
+
+test('(g) the stat cards: two a row on a phone, one row of four from md', () => {
+  const h = view(weeksOf(1));
+  assert.match(h, /<section aria-label="Week of Oct 12 in numbers" class="grid grid-cols-2 gap-4 md:grid-cols-\[repeat\(auto-fit,minmax\(220px,1fr\)\)\]"/);
+  assert.match(h, /data-ek-stat="builders" class="[^"]*\bp-5\b[^"]*md:p-\[26px\]/);
+});
+
+test('(h) more builders than the feed shows: one quiet line above the pager with both real numbers; none otherwise', () => {
+  assert.equal(feedShowingLine(20, 1234), 'Showing the top 20 of 1,234 builders');
+  const weeks = weeksOf(1, 20);
+  const more = view(weeks, { stats: { ...STATS, builders: 45 } });
+  assert.ok(text(more).includes('Showing the top 20 of 45 builders'));
+  assert.ok(more.indexOf('Showing the top') < more.indexOf('Feed pages'), 'above the pager');
+  assert.ok(text(view(weeks, { stats: { ...STATS, builders: 45 }, page: 2 })).includes('Showing the top 20 of 45 builders'));
+  for (const builders of [20, 12]) assert.ok(!text(view(weeks, { stats: { ...STATS, builders } })).includes('Showing'), String(builders));
+  assert.ok(!text(view(weeks, { stats: null })).includes('Showing'), 'no stats, no line');
+  assert.doesNotMatch(text(more), /builders this week/);
 });

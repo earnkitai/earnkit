@@ -14,14 +14,15 @@ const shown = (key: keyof FeedWeekStats, n: number): string => (key === 'commits
 
 /**
  * v3.1 site Task 9 (Feed board): the selected week's four numbers (site-data.ts feedWeekStats, plan W5): builders
- * shipped, commits, went live, applications sent. The label above, the number in Kaftan Serif below.
+ * shipped, commits, went live, applications sent. The label above, the number in Kaftan Serif below. Two a row on a
+ * phone, one row of four from md.
  */
 export default function FeedStats({ stats, label }: { stats: FeedWeekStats; label: string }) {
   return (
-    <section aria-label={label} className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+    <section aria-label={label} className="grid grid-cols-2 gap-4 md:grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
       {CARDS.map((c) => (
-        <div key={c.key} data-ek-stat={c.key} className={`flex min-h-[150px] flex-col justify-between gap-3.5 rounded-[32px] p-[26px] text-s-text ${c.fill}`}>
-          <span className={`text-sm ${c.sub}`}>{c.label}</span>
+        <div key={c.key} data-ek-stat={c.key} className={`flex min-h-[150px] flex-col justify-between gap-3.5 rounded-[32px] p-5 text-s-text md:p-[26px] ${c.fill}`}>
+          <span className={`text-sm [overflow-wrap:anywhere] ${c.sub}`}>{c.label}</span>
           <span className="ek-serif text-[48px] leading-[0.9] tabular-nums md:text-[64px]">{shown(c.key, stats[c.key])}</span>
         </div>
       ))}
