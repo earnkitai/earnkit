@@ -2919,7 +2919,7 @@ async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submi
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
   if (!entry)
     throw new NotFoundError(
-      s.project_id ? `No entry ${s.project_id} in ${s.program_id} for this agent.` : `No entry in ${s.program_id} for this agent yet: call confirm first.`,
+      s.project_id ? `No entry ${s.project_id} in ${s.program_id} for this agent.` : `No entry in ${s.program_id} for this agent yet: record a sent application with tell program_status applied.`,
     );
   return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
 }
@@ -3048,6 +3048,38 @@ async function findReply(input: unknown, ctx: ToolContext): Promise<Reply> {
   return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
 }
 
+/**
+ * v3.1 (spec 3.2, 3.4): a curated program's prepare with a host, deploy or build step: the step runs (the deploy first,
+ * its address joining the draft's contracts), then the draft (draft-application.ts) with the build's lead lines and the
+ * deployed line before it (the draft's own last line stays last) and the host block beside it. Never the confirm line: the builder sends the form. A
+ * draft that fails after a deploy still returns the deploy.
+ */
+async function draftWithSteps(
+  prep: Omit<z.infer<typeof PrepareInput>, 'deploy' | 'tips'>,
+  deploy: z.infer<typeof PrepareInput>['deploy'],
+  program: ProgramRow,
+  ctx: ToolContext,
+  join?: BuildJoin,
+): Promise<Reply> {
+  const step = deploy ? await deployStep(deploy, prep, ctx) : null;
+  const address = (step?.deploy as { address?: string } | undefined)?.address;
+  const project = address
+    ? { ...prep.project, contracts: [address, ...(prep.project?.contracts ?? []).filter((c) => c.toLowerCase() !== address.toLowerCase())].slice(0, 2) }
+    : prep.project;
+  const host = prep.host ? await hostBlock(ctx, project?.repo_url ?? prep.answers?.repo_url, project?.name) : null;
+  let r: Reply;
+  try {
+    r = await draftApplication({ program_id: prep.program_id, project, answers: prep.answers }, ctx, program);
+  } catch (err) {
+    if (!step || !address) throw err;
+    const why = err instanceof Error ? err.message : 'error';
+    return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, agent_note: `${step.agent_note ?? ''} The draft failed: ${why} Call prepare again without deploy.`.trim() };
+  }
+  const shown = [join?.lead.join('\n'), step?.line, r.show_to_builder].filter((x): x is string => typeof x === 'string' && x.length > 0).join('\n\n');
+  const note = [r.agent_note, step?.agent_note, join?.noLive && BUILD_NO_LIVE_NOTE].filter((x): x is string => typeof x === 'string' && x.length > 0).join(' ');
+  return { ...r, show_to_builder: shown, ...(step && { deploy: step.deploy }), ...(host && { host }), ...(note && { agent_note: note }) };
+}
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
@@ -3083,11 +3115,11 @@ export const tools = {
       join = b.join;
     }
     const { deploy, tips, ...prep } = PrepareInput.parse(input);
-    // v3.1 (spec 3.2), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted refused).
-    if (!build && !deploy && !tips && !prep.host) {
+    // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
+    // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
+    if (!tips) {
       const program = await getProgramRow(prep.program_id);
-      if (program.source === 'file' && !program.campaign)
-        return draftApplication({ program_id: prep.program_id, project: prep.project, answers: prep.answers }, ctx, program);
+      if (program.source === 'file' && !program.campaign) return draftWithSteps(prep, deploy, program, ctx, join);
     }
     if (tips) {
       // Fix round 2 (ruling): the tip jar's deploy alone; the program only carries it.

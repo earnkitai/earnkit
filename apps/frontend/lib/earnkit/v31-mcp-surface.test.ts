@@ -230,3 +230,46 @@ test('(g) the builder text of a Backing offer, yes and launch never names a tool
   assert.equal(launched.reply?.status, 'launched', launched.text);
   assert.doesNotMatch(show(launched), tool, show(launched));
 }));
+
+test('(h) fix round 1: prepare { host: true } on a curated program returns the draft (no "Ready to submit?", no confirm note), host beside it', db, () => withEnv(OFF, async () => {
+  const b = await ranked('h');
+  const project = { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' };
+  const reqs = committedProgram('base-builder-grants').submission_requirements as { key: string; options?: string[] }[];
+  const answers = {
+    project_name_description: 'Kit: fans tip creators onchain in one tap',
+    live_product_url: 'https://kit.app',
+    demo_loom: 'https://www.loom.com/share/kit-demo',
+    track: (reqs.find((r) => r.key === 'track')!.options ?? [])[0],
+    usage_numbers: '120 transactions in 90 days',
+    primary_challenge: 'User acquisition; Go-to-market strategy',
+  };
+  const first = await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project, host: true });
+  assert.equal(first.isError, false, first.text);
+  assert.ok(Array.isArray(first.reply?.requirements), first.text);
+  assert.ok(first.reply?.host, first.text);
+  const r = await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project, answers, host: true });
+  assert.equal(r.isError, false, r.text);
+  assert.ok(r.reply?.draft, r.text);
+  assert.ok(r.reply?.host, r.text);
+  assert.ok(show(r).endsWith("Tell me once you've sent it."), show(r));
+  assert.doesNotMatch(show(r), /Ready to submit\?/);
+  assert.doesNotMatch(String(r.reply?.agent_note ?? ''), /confirm|skip_token/);
+  const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM projects WHERE installation_id = ${b.id}`;
+  assert.equal(c, 0, 'nothing entered');
+}));
+
+test('(i) fix round 1: /llms.txt describes the draft flow; confirm (Backing only) is named only with EARNKIT_RAISING on', async () => {
+  const { GET } = await import('../../app/llms.txt/route');
+  const read = async () => (await GET()).text();
+  const on = await withEnv(ON, read);
+  const off = await withEnv(OFF, read);
+  const line = "- confirm: only opens Backing, by project_id, after the builder's yes.";
+  assert.ok(on.includes(line), on);
+  assert.ok(!off.includes('- confirm'), off);
+  for (const text of [on, off]) {
+    assert.match(text, /prepare drafts the application/);
+    assert.match(text, /tell program_status applied/);
+    assert.doesNotMatch(text, /confirm line|One "yes" at the confirmation|skip_token|submit kit|launches its token/);
+    assert.doesNotMatch(text, /—/);
+  }
+});

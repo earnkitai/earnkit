@@ -25,21 +25,17 @@ same page.
 
 Then ask your agent: "What can I earn?"
 
-## How an entry goes
+## How an application goes
 
-1. What can I earn: find matches the builder's repos to open programs,
+1. What can I earn: find matches the builder's project to open programs,
    money first, in one line and one question.
-2. The coach: prepare asks at most 3 short questions only the builder can
-   answer (one round per program), the agent drafts every other answer from
-   the repo, and the pre-submit check lists at most 3 fixes.
-3. The confirmation: the draft ends with one confirm line. "Yes" submits the
-   entry and launches the token; "skip the token" submits it without one.
-4. The kit: confirm returns the ready-to-submit kit for the form's platform.
-   The builder checks it and clicks submit on the program's site.
-5. Submitted: tell (submitted) marks the entry submitted and lists up to 3
-   other open programs the same project fits, reusing its answers.
-6. Results: once a program's results are due, find asks once whether the
-   entry won (ask_outcome); pass the answer to tell.
+2. The draft: prepare drafts the application from the ship log and the
+   repo, every answer ready to paste, with the program's form link. It
+   never submits.
+3. The builder sends the form on the program's site.
+4. Sent: tell program_status applied records it.
+5. Results: once a program's results are due, find asks once how it went
+   (ask_outcome); pass the answer to tell.
    Only published results count and alert ("you won $500 in ...").
 
 ## Program guides
@@ -52,8 +48,9 @@ All open programs: https://earnkit.com/programs
 
 ## Tools
 
-The server lists 4 builder tools. Until 2026-11-09 the eight v2.9 tool
-names still work as hidden aliases of these four.
+The server lists 4 builder tools: find, prepare, tell and score. Until
+2026-11-09 the v2.9 tool names still work as hidden aliases; the old entry
+names are refused, since EarnKit no longer submits.
 
 - find: "What can I earn?" in one answer, money first: one line with what
   the builder's best repo can win and one question; more: true shows every
@@ -69,10 +66,10 @@ names still work as hidden aliases of these four.
   change, token fees ready to collect, or a newly listed program the builder's repos
   fit. A builder with an unsubmitted entry closing within 3 days sees one
   deadline line, once a day
-- prepare: compares what the agent knows with what the program requires;
-  returns what is complete, what is missing, and show_to_builder: the draft,
-  prize first, ending with the confirm line (the token and the wallet). With
-  a repo not yet proven it gives the read-only App's install link. No live link yet? When hosting is
+- prepare: drafts the application only. Pass program_id, the project and
+  answers drafted from the repo; the first call lists the requirements.
+  show_to_builder is the draft, every answer ready to paste, with the form
+  link; the builder sends it. No live link yet? When hosting is
   on, pass host: true and EarnKit hosts the built static site free at
   <project>-<login>.earnkit.com: the reply's host block first has the App's
   install link when the repo is not proven yet, then a one-time upload URL (15 minutes) to POST
@@ -85,18 +82,9 @@ names still work as hidden aliases of these four.
   builder's; never tokens, payable constructors or factories; once a day per
   chain and 3 times a month per builder. Put the returned address in the
   project's contracts, never in a description
-- confirm: the builder's one-word answer to the confirm line. yes: true
-  submits the entry, launches its token and returns the submit kit (the form
-  link and every answer, ready to paste); skip_token: true submits it
-  without a token. The kit comes only from this tool. By the form's platform
-  it is a prefilled link, a fill in the builder's own browser (the agent
-  stops at login, captcha, wallet signing and uploads), a paste list (always
-  on DoraHacks and Questbook), or the platform's agent API with the builder's
-  own key. The builder always clicks submit; EarnKit never holds
-  credentials. With project_id instead of program_id it launches or retries
-  an entry's token; check: true reads a token that is still launching
-- tell: what the builder told you: that they submitted on the program's
-  site (submitted, with the entry link when the site has one), a program they applied to outside EarnKit,
+- confirm: only opens Backing, by project_id, after the builder's yes.
+- tell: what the builder told you: that they sent an application
+  (program_status applied), a program they applied to outside EarnKit,
   one they are not interested in, their own result ("Did it win?", find's
   ask_outcome), and per repo the chains it is live on, testnet only, its
   live link, real users, or not theirs. What lowers a match counts at once;
@@ -118,12 +106,10 @@ link. The same proof is needed before EarnKit launches a token, deploys a
 contract or hosts a site. An agent that serves many builders gets no
 install link.
 
-## The coin
+## Plain words
 
-Every entry gets a token on Base: the builder earns 40% of its trading
-fees, paid in WETH. One "yes" at the confirmation launches it; "skip the token"
-means no token. Description fields stay plain words:
-no addresses, hashes or lists of numbers.
+Description fields stay plain words: no addresses, hashes or lists of
+numbers.
 
 ## The leaderboard
 
@@ -153,8 +139,8 @@ public only when the builder asks. Winners never sign anything to receive a priz
 ## What EarnKit does not do
 
 For other organizers' programs, EarnKit does not judge submissions, host
-programs, or pay rewards. The agent builds with its own tools and submits
-on the program's own site. Rewards come from the program organizer.
+programs, or pay rewards. The agent builds with its own tools; the builder
+sends the application on the program's own site. Rewards come from the program organizer.
 
 ## Numbers
 

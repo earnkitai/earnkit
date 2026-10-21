@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_ENTRY_NO_TOKEN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_ENTRY_NO_TOKEN_NOTE, BUILD_NO_LIVE_NOTE, CONFIRM_ENTRY_GONE, BUILD_PENDING_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -1482,7 +1482,9 @@ test('10.11 prepare with deploy: off without DEPLOYER_PRIVATE_KEY (no chain read
   try {
     const on = (await tools.prepare(call, ctx)) as Record<string, unknown> & { show_to_builder: string };
     const line = deployedLine('TipJar', 'base', ADDR, true);
-    assert.ok(on.show_to_builder.endsWith(`\n\n${line}`), on.show_to_builder);
+    // v3.1 fix round 1: a curated program's first call (no answers) is the deployed line alone, the requirements beside it.
+    assert.equal(on.show_to_builder, line);
+    assert.ok(Array.isArray(on.requirements), JSON.stringify(on));
     assert.deepEqual(on.deploy, { address: ADDR, chain: 'base', owner_ok: true });
     // The short address shows once (the deployed line); the full address in no builder text.
     assert.equal(on.show_to_builder.split('0x0000…11ce').length - 1, 1);
@@ -1677,9 +1679,11 @@ test('T11 fix (journey 11.0): prepare with deploy checks this draft with the dep
   try {
     const r = (await tools.prepare({ program_id: f.id, project, answers, coach_asked: true, deploy: { chain: 'arc', bytecode: `0x${'60'.repeat(40)}`, abi, owner_wallet: OWNER } }, ctx)) as Record<string, unknown> & { show_to_builder: string };
     assert.deepEqual(r.deploy, { address: ADDR, chain: 'arc', owner_ok: true });
-    assert.ok(r.show_to_builder.endsWith(`\n\n${deployedLine('TipJar', 'arc', ADDR, true)}`), r.show_to_builder);
-    assert.doesNotMatch(r.show_to_builder, /No contract found/, 'the draft was checked with the deployed contract');
-    assert.equal(r.ready, true, r.show_to_builder);
+    // v3.1 fix round 1: a curated program gets the draft, the deployed line first and the draft's own last line last.
+    assert.ok(r.show_to_builder.startsWith(`${deployedLine('TipJar', 'arc', ADDR, true)}\n\n`), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith("Tell me once you've sent it."), r.show_to_builder);
+    assert.doesNotMatch(r.show_to_builder, /No contract found|Ready to submit\?/);
+    assert.ok(r.draft, 'the draft');
     // Without a deploy (and no contract given) the same draft says so: the check is real.
     const plain = (await handlers.prepare_submission({ program_id: f.id, project, answers, coach_asked: true }, { installationId: id })) as { show_to_builder: string };
     assert.match(plain.show_to_builder, /No contract found on Arc mainnet yet\./);
@@ -2226,7 +2230,7 @@ test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2)
       const other = await confirmSetup('t9tell2');
       await assert.rejects(tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, other.ctx), /No entry/);
       // No entry yet in that program: confirm first.
-      await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /call confirm first/);
+      await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /record a sent application with tell program_status applied/);
     }),
   ));
 
@@ -2495,14 +2499,13 @@ test('final fix I2: the site never goes up: 15 minutes on, prepare with build an
         const j = (await t.prepare({ program_id: t.p.id, project: { name: 'PodTips', repo_url: t.repo }, build: { program_id: t.p.id } }, t.ctx)) as JoinedReply;
         const lines = j.show_to_builder.split('\n');
         assert.equal(lines[0], "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.");
-        assert.doesNotMatch(j.show_to_builder, /is live/);
-        // The usual draft reply after the deployed line: "Before you submit: a live link on Arc mainnet." and the
-        // entry table. At most one question (in fact none: the missing link is a statement, never invented).
-        assert.equal(lines[2], 'Before you submit: a live link on Arc mainnet.');
+        assert.doesNotMatch(j.show_to_builder, /is live|Ready to submit\?/);
+        // v3.1 fix round 1: the draft follows the deployed line; at most one question, the live link never invented.
         atMostOneQuestion(j, 'I2');
-        assert.equal(j.ready, false);
-        assert.ok(String(j.agent_note).endsWith(BUILD_NO_LIVE_NOTE), 'the agent hears the entry waits for the live link');
-        assert.ok(!('live_url' in (j.entry?.project ?? {})), 'no live link invented');
+        assert.ok(String(j.agent_note).endsWith(BUILD_NO_LIVE_NOTE), 'the agent hears the application waits for the live link');
+        assert.doesNotMatch(String(j.agent_note), /confirm/);
+        const live = j.draft?.fields.find((f) => f.key === 'live_deployment_url');
+        assert.ok(!live || !live.answer, `no live link invented: ${JSON.stringify(j.draft)}`);
         assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed'], 'no hosted event');
       }),
     ),
@@ -2523,6 +2526,8 @@ type JoinedReply = ShipReply & {
   ready?: boolean;
   questions?: unknown;
   entry?: { project: Record<string, unknown>; answers: Record<string, string> };
+  /** v3.1 fix round 1: a curated program's prepare is the draft (draft-application.ts). */
+  draft?: { mode: string; url: string; fields: { key: string; answer: string }[] };
   token?: { proposed: { name: string; symbol: string } };
   shown_wallet?: string;
 };
@@ -2571,8 +2576,6 @@ async function joinSetup(tag: string, tc: TestContext, o: Parameters<typeof ship
   return { ...t, ctx, launched, live, joined, confirm };
 }
 
-/** R8 (Task 4 fix round 1): the build path's live reply ends on the plain entry line, never a coin. */
-const T10_CONFIRM = 'Ready to submit?';
 const COIN = /coin|token|40%|tokens\.fun|\$[A-Z]{3,}/i;
 
 test('9.5 hosting off: the deploy runs and the GitHub Pages note goes to the agent; a github.io link of the repo owner that loads writes hosted (github_pages), anyone else\'s writes none', dbTest, (tc) =>
@@ -2726,33 +2729,31 @@ test('10.0 the deploy-and-host call holds the deployed line: the builder sees no
   ),
 );
 
-test('10.1/10.2 after the live link: the entry is drafted from the build with no coach question, and one reply holds the live line, the deployed line and the entry line (R8: never a coin)', dbTest, (tc) =>
+test('10.1/10.2, v3.1 fix round 1: after the live link the application is drafted from the build: one reply holds the live line, the deployed line and the draft (never a coin, never the confirm line)', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
         const t = await joinSetup('join', tc);
         const { upload } = await t.live();
         const j = await t.joined(upload.url);
-        assert.deepEqual(j.show_to_builder.split('\n'), [
-          `PodTips is live: podtips-${t.login}.earnkit.com`,
-          "PodTips is deployed on Arc: 0x0000…11ce. You're the owner.",
-          T10_CONFIRM,
-        ]);
-        assert.equal(j.ready, true);
+        const blocks = j.show_to_builder.split('\n\n');
+        assert.deepEqual(blocks[0].split('\n'), [`PodTips is live: podtips-${t.login}.earnkit.com`, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner."]);
+        assert.equal(blocks[1], 'Your draft for T7 Tip Grants:');
+        assert.ok(j.show_to_builder.endsWith("Tell me once you've sent it."), j.show_to_builder);
+        assert.doesNotMatch(j.show_to_builder, /Ready to submit\?/);
         assert.ok(!('questions' in j), 'no coach question');
         atMostOneQuestion(j, '10.2');
         assert.doesNotMatch(j.show_to_builder, COIN, 'no coin, unasked');
-        assert.doesNotMatch(j.show_to_builder, /What won before|Ready\.|\|/, 'no guide, no draft table');
         // 10.1: the draft, from the build: the hosted link, the repo, the twist description, the owner's GitHub.
-        assert.equal(String(j.entry?.project.live_url).replace(/\/$/, ''), upload.url);
-        assert.equal(j.entry?.project.repo_url, t.repo);
-        assert.equal(j.entry?.project.description, T8_POD.description);
-        assert.deepEqual(j.entry?.project.contracts, [T9_ADDR]);
-        assert.equal(j.entry?.answers.builder_profile, `https://github.com/${t.login}`);
+        const answer = (k: string) => j.draft?.fields.find((f) => f.key === k)?.answer;
+        assert.equal(String(answer('live_deployment_url')).replace(/\/$/, ''), upload.url);
+        assert.equal(answer('repo_url'), t.repo);
+        assert.equal(answer('description'), T8_POD.description);
+        assert.equal(answer('builder_profile'), `https://github.com/${t.login}`);
         assert.equal(j.shown_wallet, undefined, 'no token wallet line');
-        assert.match(j.agent_note ?? '', /entry\.project/);
-        assert.doesNotMatch(j.agent_note ?? '', /skip_token|token:/);
-        // Called again: still no coin, and no coin moment recorded.
+        assert.doesNotMatch(j.agent_note ?? '', /confirm|skip_token|token:/);
+        // Nothing entered, no coin moment; called again, still no coin.
+        assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${t.inst}`).length, 0, 'nothing entered');
         const again = await t.joined(upload.url);
         assert.doesNotMatch(again.show_to_builder, COIN);
         assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${t.inst}`).length, 0);
@@ -2770,10 +2771,11 @@ test('10.2 (T9 concern 6) the GitHub Pages fallback: the live line names the git
         assert.equal(r.show_to_builder, '');
         assert.deepEqual(r.host, { github_pages: true, site_dir: 'site' });
         const j = await t.joined(`https://${t.login}.github.io/podtips/`);
-        const lines = j.show_to_builder.split('\n');
-        assert.deepEqual(lines.slice(0, 2), [`PodTips is live: ${t.login}.github.io/podtips`, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner."]);
-        assert.equal(lines[2], T10_CONFIRM);
-        assert.equal(lines.length, 3);
+        const blocks = j.show_to_builder.split('\n\n');
+        assert.deepEqual(blocks[0].split('\n'), [`PodTips is live: ${t.login}.github.io/podtips`, "PodTips is deployed on Arc: 0x0000…11ce. You're the owner."]);
+        // v3.1 fix round 1: the draft follows, never the confirm line.
+        assert.equal(blocks[1], 'Your draft for T7 Tip Grants:');
+        assert.doesNotMatch(j.show_to_builder, /Ready to submit\?/);
         assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
       }),
     ),
@@ -2800,40 +2802,21 @@ test('10.2 a live link that is not the build\'s own (another site, or a Pages li
   ),
 );
 
-test('10.3 R8 (Task 4 fix round 1): the build path\'s yes enters without a token, even when the agent passes one; nothing launches', dbTest, (tc) =>
-  withEventLog(() =>
-    withTokenEnv(() =>
-      withVars(shipVars(), async () => {
-        const t = await joinSetup('wallet', tc);
-        const { upload } = await t.live();
-        const j = await t.joined(upload.url);
-        const yes = await t.confirm({ project: j.entry!.project, answers: j.entry!.answers, yes: true, token: { name: 'PodTips', symbol: 'PODTIPS' } });
-        assert.ok(yes.kit, JSON.stringify(yes));
-        assert.deepEqual(t.launched, [], 'no coin launched');
-        assert.doesNotMatch(yes.show_to_builder, /Your token|tokens\.fun/);
-      }),
-    ),
-  ),
-);
-
-test('10.4 the yes hands over the DoraHacks kit (copy-paste only); tell submitted marks the entry; the events are built, deployed, hosted, entered, submitted, once each', dbTest, (tc) =>
+test('10.3/10.4, v3.1 fix round 1: the build path never enters or launches: the draft is pasted by the builder, and the events are built, deployed, hosted only', dbTest, (tc) =>
   withEventLog(() =>
     withTokenEnv(() =>
       withVars(shipVars(), async () => {
         const t = await joinSetup('kit', tc);
         const { upload } = await t.live();
         const j = await t.joined(upload.url);
-        const yes = await t.confirm({ project: j.entry!.project, answers: j.entry!.answers, yes: true });
-        assert.equal(yes.kit?.mode, 'copy_paste');
-        assert.match(yes.kit!.show_to_builder, /dorahacks\.io/);
-        assert.doesNotMatch(yes.show_to_builder, /Your token/, 'R8: no coin on the build path');
-        const sub = (await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx as never)) as { show_to_builder: string };
-        assert.match(sub.show_to_builder, /^Entered in T7 Tip Grants\./m);
-        const [row] = await sql()<{ submission_confirmed_at: Date | null }[]>`SELECT submission_confirmed_at FROM projects WHERE id = ${yes.project_id!}`;
-        assert.ok(row.submission_confirmed_at, 'submitted');
-        await tools.tell({ submitted: { program_id: t.p.id } }, t.ctx as never);
-        const events = await buildEventsOf(t.inst);
-        assert.deepEqual(events.map((e) => e.type), ['built', 'deployed', 'hosted', 'entered', 'submitted']);
+        assert.equal(j.draft?.mode, 'copy_paste');
+        assert.match(j.show_to_builder, /dorahacks\.io/);
+        assert.doesNotMatch(j.show_to_builder, /Your token|tokens\.fun/);
+        assert.deepEqual(t.launched, [], 'no coin launched');
+        // An old agent's yes through confirm is refused; nothing is entered.
+        await assert.rejects(tools.confirm({ program_id: t.p.id, project: {}, answers: {}, yes: true }, t.ctx as never), (e: unknown) => e instanceof EntryError && e.message === CONFIRM_ENTRY_GONE);
+        assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${t.inst}`).length, 0, 'nothing entered');
+        assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
       }),
     ),
   ),

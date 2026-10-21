@@ -539,7 +539,7 @@ export async function deployToken(
     SELECT installation_id FROM projects WHERE id = ${a.projectId}`;
   if (!mine || mine.installation_id !== a.installationId)
     throw new LaunchError(
-      `No project ${a.projectId} recorded by you. Call confirm first.`,
+      `No project ${a.projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`,
     );
   const repoKey = a.repoUrl ? normalizeRepoUrl(a.repoUrl) : null;
   if (repoKey) {
@@ -601,7 +601,7 @@ export async function deployToken(
       SELECT token_url, installation_id, repo_url, live_url FROM projects WHERE id = ${a.projectId}`;
     if (!existing || existing.installation_id !== a.installationId) {
       throw new LaunchError(
-        `No project ${a.projectId} recorded by you. Call confirm first.`,
+        `No project ${a.projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`,
       );
     }
     if (!existing.token_url && repoKey) {
