@@ -24,7 +24,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { SHIP_STEP, fitsLine, noFitLine, shareAsk } from './bench-reply';
+import { SHIP_STEP, connectAsk, fitsLine, noFitLine, shareAsk } from './bench-reply';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
@@ -894,6 +894,7 @@ export const v2121Texts: [string, string][] = [
   ['standingNews card', standingNews({ rank: 5, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 19 } }, new Date('2026-10-14T00:00:00Z'), true)!.line],
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   ['SHIP_STEP', SHIP_STEP],
+  ['connectAsk', connectAsk('maya')],
   // Launch ready L5, L6: the weekly target, the weekly moment, its share ask and the yes.
   ...weeklyCopy(),
   ['fitsLine', fitsLine('Recipe Grants', 'up to $5K', 'closes Oct 30', 'It takes any chain and your app is live.')],

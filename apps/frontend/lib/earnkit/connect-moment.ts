@@ -2,8 +2,8 @@ import { sql } from './db';
 import { lastFinishedMonday, weekLabel } from './weeks';
 import { BACKFILL_WEEKS, backfillMondays, factChips, hasFacts, type WeekFacts } from './week-facts';
 import { approveWeek, weekLineRule } from './weekly-moment';
-import { CONNECT_ASK } from './bench-reply';
-export { CONNECT_ASK };
+import { connectAsk } from './bench-reply';
+export { connectAsk };
 
 /**
  * v3 Stage 1 (spec 5.1): approve on connect. When the read-only App connects a repo, backfillOnConnect writes its

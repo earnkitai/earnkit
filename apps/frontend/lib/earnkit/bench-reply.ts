@@ -52,7 +52,7 @@ export const noFitLine = (name: string) => `No open program fits ${name} yet. I'
 /** R8: the ranked state's one next step when no weekly target can be worked out (no Shipping row yet). */
 export const SHIP_STEP = 'Ship this week to climb.';
 /** v3 Stage 1 (spec 5.1): the connect weeks' one question (ranked, once a person); the page stays the link. */
-export const CONNECT_ASK = 'Does this look right? Yes posts them.';
+export const connectAsk = (handle: string) => `Post these weeks to your public page? Yes puts them on ${pageUrl(handle)} and the Feed.`;
 /** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
 export const APPLY_WINDOW_DAYS = 30;
 /** v3 Stage 2: the apply step's one question; `when` is the deadline's day as fundWhen gives it, without "closes" ("Nov 18"). */
@@ -158,14 +158,14 @@ export type ApplyPick = { program_id: string; title: string; when: string };
  * share ask once a week (L6), else the weekly target (L5), else "Ship this week to climb.". Pure.
  */
 export function stateAsk(
-  v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { connect?: boolean; backing?: string | null; apply?: ApplyPick | null },
+  v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & Partial<Pick<BenchView, 'target' | 'share'>> & { handle?: string | null; connect?: boolean; backing?: string | null; apply?: ApplyPick | null },
 ): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
-  if (v.state === 'ranked' && v.connect) return { kind: 'connect', project_key: key, line: CONNECT_ASK };
+  if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.handle) };
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.when) };
   if (v.state === 'ranked')

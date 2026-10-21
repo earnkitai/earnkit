@@ -489,7 +489,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
 
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target
   // (never an entry, a coin or going live).
-  const finalAsk = stateAsk({ state, variant, project, link, target, share: moment?.share ?? null, connect: Boolean(connect), backing: backing?.line ?? null, apply });
+  const finalAsk = stateAsk({ state, variant, project, link, handle, target, share: moment?.share ?? null, connect: Boolean(connect), backing: backing?.line ?? null, apply });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
   const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }) };

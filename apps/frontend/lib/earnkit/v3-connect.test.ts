@@ -9,7 +9,7 @@ import { backfillMondays } from './week-facts';
 import { readStats } from './stats';
 import { pointsTotal } from './points';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { CONNECT_ASK, CONNECT_HEAD, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
+import { connectAsk, CONNECT_HEAD, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
@@ -60,7 +60,7 @@ test('(a) first ranked find after connect shows the last weeks and asks the conn
   assert.ok(s.startsWith(`${CONNECT_HEAD(3)}\nWeek of Oct 5: 2 commits\nWeek of Sep 28: 3 commits\nWeek of Sep 21: 4 commits\n\nWhere you stand`), s);
   assert.equal(CONNECT_HEAD(3), 'Your last 3 weeks:');
   assert.equal(CONNECT_HEAD(1), 'Your last 1 week:');
-  assert.ok(s.endsWith(`How to move up\n${CONNECT_ASK}`), s);
+  assert.ok(s.endsWith(`How to move up\n${connectAsk(me.handle)}`), s);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week you finished|Share your week|—/);
   assert.equal(links(s).length, 1, s);
@@ -73,7 +73,7 @@ test('(a) first ranked find after connect shows the last weeks and asks the conn
   // Shown once: the next reply is the usual one.
   const again = show(await mcpCall(ctx(me.id), 'find', {}));
   assert.doesNotMatch(again, /Your last \d+ weeks?:/, again);
-  assert.doesNotMatch(again, new RegExp(CONNECT_ASK.replace(/[?.]/g, '\\$&')), again);
+  assert.doesNotMatch(again, /Post these weeks to your public page/, again);
 });
 
 test('(b) yes approves all three with via connect, 30 points each, activation counts', db, async () => {
@@ -197,6 +197,17 @@ test('(g) final review: an older stored week outside the backfill is listed and 
   const open = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id} AND NOT COALESCE((facts->>'approved')::boolean, false)`;
   assert.equal(open.length, 0, 'every week confirmed');
   assert.equal(await pointsTotal(me.id), 120);
+});
+
+test('(g2) the connect question names the page and the Feed, one https link, one question', db, async () => {
+  await freshBoard();
+  const me = await ranked('cng2');
+  await backfilled(me.id, me.key);
+  const s = show(await mcpCall(ctx(me.id), 'find', {}));
+  assert.ok(s.endsWith(`How to move up\nPost these weeks to your public page? Yes puts them on earnkit.com/${me.handle} and the Feed.`), s);
+  assert.doesNotMatch(s, /Yes posts them/, s);
+  assert.equal(links(s).length, 1, s);
+  assert.equal(questions(s), 1, s);
 });
 
 test('(h) final review: an empty read before the backfill completes leaves the offer due; the late rows are offered', db, async () => {
