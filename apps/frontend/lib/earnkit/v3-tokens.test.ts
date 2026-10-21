@@ -61,7 +61,7 @@ test('T1.2 contrast: text, body and muted are 4.5:1 or more on the page, the sur
 test('T1.3 globals.css: body is the page colour with no gradient and no glow; no box-shadow outside :focus-visible; selection is brand; the ring draw keeps both reduced-motion rules; the marquee is gone', () => {
   const css = read('app/globals.css');
   assert.doesNotMatch(css, /gradient\(/, 'no gradient anywhere');
-  assert.match(css, /body \{[^}]*background-color: var\(--ek-p-page\)/);
+  assert.match(css, /body \{[^}]*background-color: var\(--ek-s-page\)/, 'v3.1: the body is the site page token');
   assert.doesNotMatch(css, /body \{[^}]*background-image/, 'the body has no background image');
   // (c) box-shadow is allowed only inside a :focus-visible rule.
   const rules = css.split('}');

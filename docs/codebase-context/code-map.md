@@ -242,6 +242,14 @@ apps/frontend/
   app/components/common/Panel.tsx  v3 Stage 3 T1: the flat primitives: COLUMN (1120px), SECTION, H1 (56/36), H2 (32/24),
                                LEDE, NUM (tabular Funnel Display), ROWS/ROW (hairline rows), SURFACE (a flat block
                                that opens with a hairline; kept for callers) and Panel
+  app/components/site/         v3.1 site T1 primitives: ui.ts (CARD_NEUTRAL/BLUE/NAVY/RUST/LIGHT/PANEL, PILL_WHITE/BLUE,
+                               PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
+                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link), Pager
+                               (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
+                               aria-current), useReducedMotion (client)
+  lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
+  app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
+  public/art/                  hero-eckersberg-{800,1600,3200}.jpg, foot-panini-{700,1400,2800}.jpg (pre-sized, plain srcSet)
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
@@ -1672,6 +1680,8 @@ apps/frontend/
                                DOCS_CONTACT, DOCS_DESCRIPTION); pinned by v3-docs.test.ts (under 600 words, no em dash, no emoji)
     v3-tokens.test.ts          v3 Stage 3 T1: THEME values and the globals.css mirror, contrast, no gradient/shadow/marquee, the
                                primitives and buttons, PART_COLORS kept, the shell button, DESIGN.md as the one-page rulebook
+    v31-site-tokens.test.ts    v3.1 site T1: SITE mirror (globals.css, tailwind), contrast pairs, no s-dim on cards, the six
+                               paintings (width, budget), Kaftan, reduced motion, body page/deep, Pager, ScoreText bands
     v3-landing.test.ts         v3 Stage 3 T2: HomeView order, two "Add to your agent" buttons, no video/gradient/uppercase, the
                                featured read (hidden/missing is null), empty landing, FeaturedCard, the install sheet, the /NN scan
     v3-profile.test.ts         v3 Stage 3 T3: the three numbers row, the grid, the tabs, the Money tab rows, Share, the badge line, empty states

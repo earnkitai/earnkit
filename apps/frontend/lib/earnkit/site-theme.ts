@@ -1,0 +1,85 @@
+/**
+ * v3.1 site tokens (docs/design-docs-and-implementation-plans/v3.1-site-design.md; the owner-approved
+ * canvas, with plan deltas S11 and S12 applied for contrast). Each key is mirrored in app/globals.css as
+ * `--ek-s-<kebab>` and read by Tailwind as `s-<kebab>` (tailwind.config.ts). v31-site-tokens.test.ts pins
+ * the mirror and the contrast of every text-on-surface pair.
+ *
+ * The v3 page tokens (theme.ts THEME, --ek-p-*) stay for the pages this redesign does not touch.
+ */
+export const SITE = {
+  page: '#0B0C14',
+  deep: '#05060D',
+  cardTop: '#121629',
+  cardBottom: '#0C0F1E',
+  stepTop: '#11152A',
+  stepBottom: '#0A0D1C',
+  line: 'rgba(255,255,255,0.07)',
+  lineHover: 'rgba(255,255,255,0.16)',
+  blue: '#2D6BE0',
+  blueTop: '#1E4FD8',
+  blueBottom: '#0E2A8A',
+  navy: '#142159',
+  navyInner: '#0E1840',
+  navyTrack: '#22306A',
+  rust: '#241008',
+  rustTop: '#2A1209',
+  rustBottom: '#160904',
+  rustOn: '#FF6A1F',
+  rustOff: '#3A1A0C',
+  rustSoft: '#FF8A4C',
+  rustSub: '#D9B8A6',
+  rustLight: '#FFB088',
+  greenTop: '#0D2A1C',
+  greenBottom: '#07150E',
+  greenSub: '#A6D9BC',
+  light: '#FFFFFF',
+  lightInner: '#F3F6FC',
+  lightHover: '#E8EEFB',
+  ink: '#0B0C14',
+  inkBody: '#2B3550',
+  inkMuted: '#5A6380',
+  inkSoft: '#3A4562',
+  panel: '#161927',
+  panelInner: '#1F2336',
+  panelHover: '#1C2031',
+  text: '#FFFFFF',
+  muted: '#A8B0CC',
+  /** S12: only on the page backgrounds (page, deep), never on a card. */
+  dim: '#747C97',
+  cardBody: '#B6BDD6',
+  cardMeta: '#7E87A6',
+  cardHandle: '#8A93B0',
+  onBlue: '#FFFFFF',
+  /** S11: the canvas's #DCE6FF is 3.92:1 on blue; this is 4.57:1. */
+  onBlueSoft: '#F4F7FF',
+  onNavy: '#A9C2FF',
+  onNavySoft: '#C9D6FF',
+  iconBlue: '#6FA0FF',
+  barOn: '#6FA0FF',
+  barOff: '#2A3C86',
+  live: '#22C55E',
+  goodText: '#4ADE80',
+  midText: '#FDBA74',
+  lowText: '#FCA5A5',
+  goodLight: '#6EE7A0',
+  goodDeep: '#16A34A',
+  midLight: '#FDBA74',
+  midDeep: '#F97316',
+  lowLight: '#FCA5A5',
+  lowDeep: '#E5484D',
+  chip: 'rgba(255,255,255,0.08)',
+  chipLine: 'rgba(255,255,255,0.16)',
+  chipText: '#F3E6D3',
+  stepLine: 'rgba(255,255,255,0.08)',
+  stepText: '#8FB0E8',
+  heroSub: '#E2E5F2',
+  scrim: 'rgba(5,6,13,0.8)',
+  inset: 'rgba(0,0,0,0.16)',
+  inset22: 'rgba(0,0,0,0.22)',
+  footLink: '#C9CFE6',
+} as const;
+
+/** The CSS variable for a SITE key: `onBlueSoft` → `--ek-s-on-blue-soft`. */
+export function siteVar(k: keyof typeof SITE): string {
+  return `--ek-s-${k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
+}

@@ -7155,3 +7155,20 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   `shippingStand`, `SHIP_STEP`, `bestFitLine`, `shareAsk`, `CONNECT_HEAD`, `bench-find.ts fundNeeds`/`needsPicks`/`NEEDS_MAX`,
   and the `needs`, `idea` and `points` FundLine kinds. Tests: `bench-reply.test.ts` (each reply, pure),
   `v31-reply-copy.test.ts` (the journey through mcpCall), `v31-draft.test.ts` (step 6).
+
+## v3.1 site Task 1: tokens, Kaftan, paintings, primitives
+
+- **Tokens.** `lib/earnkit/site-theme.ts SITE` holds the owner-approved canvas colours (deltas S11 `onBlueSoft`
+  `#F4F7FF` and S12 `dim` `#747C97` applied). `app/globals.css` mirrors each as `--ek-s-<kebab>`; Tailwind reads them as
+  `s-<kebab>` (no raw hex in `tailwind.config.ts`; no `/NN` modifier on a token class). The v3 `--ek-p-*` tokens stay for
+  the pages not yet redesigned.
+- **Body.** `background-color: var(--ek-s-page)`; a page that renders `[data-ek-deep]` (landing, feed) turns the body
+  `--ek-s-deep` via `body:has(...)`.
+- **Type.** Kaftan Serif (`app/fonts/kaftan-serif.woff2`, `--font-kaftan`) through `.ek-serif` (font-size-adjust 0.36,
+  weight 400) or `<Serif>`; Funnel Sans stays the body font.
+- **Paintings.** Pre-sized JPEGs in `public/art` (hero 800/1600/3200, footer 700/1400/2800) for a plain `<img srcSet>`;
+  no Next image optimizer.
+- **Motion.** `.ek-drift`, `.ek-pulse`, `.ek-twinkle` all stop under `prefers-reduced-motion`; pointer components also
+  check `useReducedMotion()`.
+- **Primitives** in `app/components/site/` (see code-map). Test: `v31-site-tokens.test.ts`.
+

@@ -20,6 +20,14 @@ const funnellsans = localFont({
   display: 'swap',
 });
 
+// v3.1: Kaftan Serif (owner-owned licence) for names, headlines, big numbers and section titles (.ek-serif).
+const kaftan = localFont({
+  src: './fonts/kaftan-serif.woff2',
+  variable: '--font-kaftan',
+  weight: '400',
+  display: 'swap',
+});
+
 const TITLE = 'EarnKit | Ship every week. Get funded.';
 const DESCRIPTION =
   'Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.';
@@ -100,7 +108,7 @@ export default function RootLayout({
         <SchemaOrg />
       </head>
       <body
-        className={`${funnelDisplay.variable} ${funnellsans.variable} antialiased relative`}
+        className={`${funnelDisplay.variable} ${funnellsans.variable} ${kaftan.variable} antialiased relative`}
         suppressHydrationWarning
       >
         <Header />

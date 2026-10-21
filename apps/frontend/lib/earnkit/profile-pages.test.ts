@@ -44,7 +44,7 @@ test('10.5 (profile-whoop v2) each score keeps one hue family (the profile\'s ac
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.ek-arc \{\s*animation: none;/);
   // R18: one design system. Every page has the deep navy page (body), one header (the layout's), and
   // Tailwind reads the page tokens (ek-page, ek-surface, ek-text...) from the same --ek-p-* variables.
-  assert.match(css, /body \{[^}]*background-color: var\(--ek-p-page\)/);
+  assert.match(css, /body \{[^}]*background-color: var\(--ek-s-page\)/, 'v3.1: the body is the site page token');
   assert.doesNotMatch(css, /data-ek-premium|\.ek-premium/);
   const tw = readFileSync(join(import.meta.dirname, '../../tailwind.config.ts'), 'utf8');
   for (const [k, v] of [['ek-page', 'page'], ['ek-surface', 'surface'], ['ek-text', 'text'], ['ek-body', 'body'], ['ek-muted', 'muted'], ['ek-line', 'border']])
