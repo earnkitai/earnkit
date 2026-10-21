@@ -21,7 +21,7 @@ import { resolveHandle } from './profiles';
 import { refreshPerson, REFRESH_BUDGET_MS, rescorePerson } from './person-score';
 import { mainConfirmed, mainProjectOf } from './main-project';
 import { benchCardFacts, benchRows, parseBenchFilter, profileData } from './bench-data';
-import { NOT_ON_BENCH, VARIANT_COPY } from './bench-reply';
+import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
@@ -41,12 +41,14 @@ import type { TokenFlowDeps } from './token-launch';
 import type { DeployDeps } from './deploy';
 import type { FreshOn } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import type { ProfileTab } from '../../app/[handle]/handle-view';
+import { profileSite } from './site-data';
+import { unsign } from './fixtures/page-words';
 import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13 T16 (spec "Acceptance test" 1 to 7, as the runbook walks them): one person with a project,
@@ -417,15 +419,15 @@ async function advanceRefreshGuard(id: number, ms: number) {
 }
 
 /**
- * The profile at earnkit.com/<handle> on `tab` (F4): the Bench view rendered from profileData, as
- * handle-view.tsx's BenchPage renders it (HandleView itself needs a request for headers()).
+ * The profile at earnkit.com/<handle> (F4): the Bench view rendered from profileData and profileSite, as
+ * handle-view.tsx's BenchPage renders it (HandleView itself needs a request for headers()). v3.1: no tabs.
  */
-async function renderProfile(handle: string, tab: ProfileTab): Promise<string> {
+async function renderProfile(handle: string): Promise<string> {
   const r = await resolveHandle(handle);
   assert.ok(r && !('redirect' in r), `no page at ${handle}`);
   const data = await profileData(r.builderId, new Date());
   assert.ok(data, `no profile data for ${handle}`);
-  return html(React.createElement(BenchProfileView, { data, tab }));
+  return html(React.createElement(BenchProfileView, { data, site: await profileSite(r.builderId, data, new Date()), page: 1 }));
 }
 
 /** The next Monday at 15:30 UTC: the week is finished and the Monday steps have run. */
@@ -522,12 +524,13 @@ const RECIPES_PROJECT = { name: 'Recipe planner', what: 'a recipe planner', repo
 // ---- The journey -------------------------------------------------------------------------------
 
 test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no claim link); after X and the App install it is on the Bench; the page shows the photo, the Started card and the Project tab', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const id = await newInstall();
   MAYA.id = id;
   const r1 = await call('find', { identity: { github_login: 'maya', project: RECIPES_PROJECT } }, ctx(id));
-  assert.equal(r1.show_to_builder.split('\n')[0], 'Where you stand', r1.show_to_builder);
-  // v2.14 T9: signed out, the sign-in link is the one question.
-  assert.equal(r1.show_to_builder.split('\n')[1], NOT_ON_BENCH, r1.show_to_builder);
+  // v2.14 T9: signed out, the sign-in link is the one question (Task 16 step 1).
+  assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
   assert.equal(r1.move_up?.kind, 'sign_in');
   // v2.14 T7: no claim link or claim ask.
   assert.equal(r1.claim, undefined);
@@ -539,7 +542,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks in a row\.)?$/m, r2.show_to_builder);
+  assert.match(r2.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)( · \d+ weeks? in a row)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
   assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
@@ -554,37 +557,34 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
-  const page = await renderProfile('maya_makes', 'log');
+  const page = await renderProfile('maya_makes');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
   assert.ok(page.includes('Started tracking Recipe planner.'), page);
-  assert.ok((await renderProfile('maya_makes', 'project')).includes('https://recipes.app'));
+  assert.ok(page.includes('https://recipes.app'), 'the project panel links the live site');
 });
 
 test('16.1b review focus 3: a second person naming maya/recipes (already on the Bench under maya) is told so and stays off it: no Bench, no update', db, async () => {
   EVE = await newInstall();
   xUser = { id: 'x-eve', username: 'eve_ships', name: 'Eve', avatar: null };
   const r = await call('find', { identity: { github_login: 'eve', project: { ...RECIPES_PROJECT, name: 'My recipes' } } }, ctx(EVE));
-  assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+  assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
   await signInX(EVE);
   await advanceRefreshGuard(EVE, 61_000);
   const again = await call('find', {}, ctx(EVE));
-  assert.ok(again.show_to_builder.includes(`Where you stand\n${VARIANT_COPY.taken.stand('My recipes')}\n`), again.show_to_builder);
-  // D6: the open programs are still named.
-  assert.doesNotMatch(again.show_to_builder, /No program is open/);
+  assert.equal(again.show_to_builder, `Signed in as @eve_ships.\n\n${VARIANT_COPY.taken.stand('My recipes')}\n${VARIANT_COPY.taken.ask()}`);
   assert.notEqual(again.move_up?.kind, 'updates');
   const update = await call('tell', { update: { text: 'Shipped the fridge photo import.' } }, ctx(EVE));
   assert.equal(update.agent_note, NOT_CONFIRMED_NOTE);
   assert.ok(!(await benchRows(parseBenchFilter({}))).rows.some((x) => x.handle === 'eve_ships'));
 });
 
-test('16.2 acceptance 2, without a project: ways to get funded and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
+test('16.2 acceptance 2, without a project: the repo picker and no build offer (v2.14 A18); a starter build from the program guide becomes the one project', db, async () => {
   const id = await newInstall();
   // v2.14: signed in with X at install (attachToX).
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're not on the leaderboard yet\./m, r.show_to_builder);
-  assert.match(r.show_to_builder, /^Ways to get funded\n/m, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\.\nStep 2 of 2: pick the repo you're building\./, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');
@@ -601,8 +601,8 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
   assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
-  const log = await renderProfile('maya_makes', 'log');
-  assert.match(log, /data-shape="long"[\s\S]*Added fridge photo import[\s\S]*commit/, log);
+  const log = await renderProfile('maya_makes');
+  assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);
   // The current (unfinished) week is not in /feed.
   assert.deepEqual(await feedWeeks(new Date(), { only: [id] }), []);
@@ -628,8 +628,10 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(base.rows.length >= 10 && base.rows.every((r) => r.chains.includes('base')), JSON.stringify(base.rows));
   assert.ok(!base.rows.some((r) => r.handle === 'maya_makes'), 'maya is not on Base yet');
   assert.ok(base.chips.includes('base'));
-  assert.match(html(React.createElement(BenchView, { ...base, filter })), /alt="Base"/);
-  assert.match(await renderProfile(BASE_HANDLE, 'log'), /(#\d+ of \d+ builders?|Top \d+(\.\d)?% of builders) on Base/);
+  // v3.1 Task 8: the Base tab is the one marked (the board's rows carry no chain logos).
+  assert.match(html(React.createElement(BenchView, { ...base, filter, page: 1 })), /<a aria-current="page"[^>]*href="\/leaderboard\?chain=base">Base<\/a>/);
+  // v3.1: the Base standing is the metal pill beside the name, its place in the title (RANK_MIN_POOL Base builders).
+  assert.match(await renderProfile(BASE_HANDLE), /data-ek-standing="" title="#\d+ of \d+ builders on Base"[^>]*>[\s\S]*?Top \d+(\.\d)?% on Base</);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
@@ -647,9 +649,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  // v3 Stage 3 (spec 5.6): the pill sits in the Money tab's Backing group; the header carries the Back button.
-  assert.ok((await renderProfile('maya_makes', 'money')).includes(`Backing · $${pill.symbol}`));
-  assert.match(await renderProfile('maya_makes', 'log'), /data-ek-back/);
+  // v3.1 Task 7: the coin is the Token card's ($SYMBOL and the Back pill).
+  const prof = unsign(await renderProfile('maya_makes'));
+  assert.match(prof, new RegExp(`data-ek-token[\\s\\S]*?\\$${pill.symbol}`), prof);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
@@ -659,13 +661,13 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(await pillOf(id), null);
 });
 
-test('16.6 acceptance 6, the landing page: the hero, the Bench top 10 and the feed rows', db, async () => {
+test('16.6 acceptance 6, the landing page: the hero and the Activity cards', db, async () => {
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
-  assert.ok(page.includes('Ship every week. Get funded.') && page.includes('Leaderboard') && page.includes('>Feed</h2>'));
-  assert.ok((landing.bench?.rows.length ?? 0) <= 10);
-  assert.match(page, /data-shape="long"/);
-  assert.ok(landing.bench?.cards.some((c) => c.handle === 'maya_makes'));
+  // v3.1 Task 6: the hero title and the Activity cards (the feed's first three, linking each builder's page).
+  assert.ok(page.includes('Earn from building.') && page.includes('>Activity</h2>'));
+  assert.match(page, /<a [^>]*href="\/maya_makes"/);
+  assert.ok(landing.activity.some((c) => c.handle === 'maya_makes'));
 });
 
 test('16.7 acceptance 7, no builder bonus text anywhere a builder can see', db, async () => {

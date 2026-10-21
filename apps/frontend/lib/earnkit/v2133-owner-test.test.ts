@@ -13,13 +13,10 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { bannedInBench } from './fixtures/banned-words';
 import RaisingPill from '../../app/components/ui/RaisingPill';
-import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
+import { HERO_SUB, STEPS } from './site-copy';
 import { fakeGitHub } from './fixtures/fake-github-branch';
-import {
-  BENCH_HEADS, NOT_ON_BENCH, STATE_COPY, benchReply,
-  SHIP_STEP, needsLine, stateAsk, type BenchView,
-} from './bench-reply';
-import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE, fundNeeds, needsPicks } from './bench-find';
+import { INTRO_LINE, SHIP_ASK, STATE_COPY, applyAsk, pickRepoAsk, stateAsk } from './bench-reply';
+import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
 import { coinLine, coinYes, offerCoin } from './coin-moments';
 import { proveByApp } from './repo-proof';
@@ -33,9 +30,8 @@ import { readSources } from './sources';
 import { readPersonLive } from './person-score';
 import { safeNames } from './page-data';
 import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, toolDescriptions } from './mcp';
-import type { Card } from './present';
 import type { ReaderDeps } from './source-readers';
-import { RANKED_STEP } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13.3, the owner's own production test (2026-10-17), all on the Bench: (1) the older find
@@ -116,7 +112,7 @@ test('1.3 the tester\'s shape (github_user + repos + a live link): identity and 
     assert.deepEqual(sources.map((s) => `${s.kind}:${s.ref}`), [`repo:${key}`, 'site:https://earnkit.com']);
     // v2.14 spec 2: not counted until the read-only App is installed (no proof branch).
     // v2.14 T9: unsigned: not on the Bench yet (the sign-in link is the question).
-    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.equal(r.proof, undefined);
     const [s] = await sql()<{ state: string }[]>`SELECT state FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo'`;
     assert.equal(s.state, 'proposed');
@@ -131,44 +127,19 @@ test('1.4 the Bench find description asks for identity.project and identity.gith
     assert.equal(toolDescriptions(false).find, FIND_DESCRIPTION_BENCH);
   }));
 
-// ---- 2. Ways to get funded always shows -----------------------------------------------------------
+// ---- 2. (Task 16: no "Ways to get funded" list; a fit is named only for a counted project) -----------
 
-const card = (o: Partial<Card>): Card => ({ id: 'p', title: 'P', summary: '', tag: null, each_time: [], max_award_usd: 5000, ...o });
-test('2.1 pure: what each program needs, in plain words; a chain program names its chain', () => {
-  assert.deepEqual(fundNeeds(card({ title: 'Base Builder Grants', chains: ['base'], tag: 'needs a live product', needs_repo: true })),
-    { kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" });
-  assert.deepEqual(fundNeeds(card({ title: 'Avalanche Team1 Mini Grants', chains: ['avalanche'], needs_repo: false, max_award_usd: 10000 })),
-    { kind: 'needs', title: 'Avalanche Team1 Mini Grants', prize: 'up to $10K', needs: 'for an Avalanche app' });
-  assert.equal(fundNeeds(card({ any_chain: true, tag: 'needs a live product' })).needs, 'once your app is live');
-  assert.equal(fundNeeds(card({ any_chain: true, needs_repo: true })).needs, 'once your code is on GitHub');
-  assert.equal(fundNeeds(card({ any_chain: true, needs_repo: false })).needs, 'for any app');
-  assert.equal(fundNeeds(card({ chains: ['base', 'tempo', 'robinhood'], needs_repo: true })).needs, 'for an app on Base, Tempo or Robinhood Chain, once its code is on GitHub');
-  const v: BenchView = { state: 'no_project', variant: null, project: null, rank: null, score: null, why: null, originality: null, target: null, share: null, handle: null, link: null, due: [], held: null,
-    ask: { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() },
-    fund: [{ kind: 'needs', title: 'Base Builder Grants', prize: 'up to $5K', needs: "for a Base app, once it's live" }] };
-  assert.equal(benchReply(v).split('\n').slice(3, 5).join('\n'), "Ways to get funded\nBase Builder Grants: up to $5K for a Base app, once it's live.");
-});
-
-test('2.2 no project and a project not yet confirmed: up to 2 open programs with what each needs, never a fit claimed', dbTest, () =>
+test('2.2 no project and a project not yet confirmed: never a fit claimed', dbTest, () =>
   on(async () => {
     await avalanche();
     const id = await install();
     const r = await find(id, { agent_can_build: false }, NO_MATCH);
-    const parts = r.show_to_builder.split('\n\n');
-    const fund = parts.find((p) => p.startsWith(BENCH_HEADS.fund));
-    assert.ok(fund, r.show_to_builder);
-    const lines = fund!.split('\n').slice(1);
-    assert.ok(lines.length >= 1 && lines.length <= 2, fund);
-    for (const l of lines) assert.match(l, /^[^:]+: .+\.$/, l);
-    assert.doesNotMatch(fund!, / fits /);
+    assert.doesNotMatch(r.show_to_builder, /You qualify|Ways to get funded/, r.show_to_builder);
     // A project being checked (not confirmed): the same.
     const key = `${uniq('maya')}/recipes`;
     const m = await install();
     const rm = await find(m, { agent_can_build: true, identity: { github_login: key.split('/')[0], project: { name: 'Recipe planner', repo: key } } }, NO_MATCH);
-    const f2 = rm.show_to_builder.split('\n\n').find((p) => p.startsWith(BENCH_HEADS.fund));
-    assert.ok(f2, rm.show_to_builder);
-    assert.ok(f2!.split('\n').length - 1 <= 2);
-    assert.doesNotMatch(f2!, / fits /);
+    assert.doesNotMatch(rm.show_to_builder, /You qualify|Ways to get funded/, rm.show_to_builder);
     // v2.14 T9: unsigned: the sign-in link is the one link (no App link before a page exists).
     assert.equal(links(rm.show_to_builder).length, 1, rm.show_to_builder);
     assert.match(links(rm.show_to_builder)[0], /\/signin\//);
@@ -176,9 +147,8 @@ test('2.2 no project and a project not yet confirmed: up to 2 open programs with
 
 // ---- 3. No project: lead with existing work ------------------------------------------------------
 
-test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and existing work first; never a build (v2.14 A18)', dbTest, () =>
+test('3.1 no project (ruling A): "You\'re in" and their work asked for; never a build (v2.14 A18)', dbTest, () =>
   on(async () => {
-    assert.equal(NOT_ON_BENCH, "You're not on the leaderboard yet.");
     // v2.14 spec 4 (no_project): one question, last.
     assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
     // No program with a starter that can compete open: the line, no build offer, money shown.
@@ -186,13 +156,12 @@ test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and exist
     await claimFx(id); // v2.13.4: unclaimed, X is the one ask; this is what follows it
     const r = await find(id, { agent_can_build: true }, { ...NO_MATCH, freshDeps: OWN_FRESH });
     const lines = r.show_to_builder.split('\n');
-    assert.equal(lines[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.match(lines[0], /^You're in, @/, r.show_to_builder);
     assert.equal(lines.at(-1), STATE_COPY.no_project.noApp());
     assert.equal(questions(r.show_to_builder), 1);
     assert.ok(r.show_to_builder.endsWith('?'));
     assert.doesNotMatch(r.show_to_builder, /tip jar/i);
     assert.equal(r.build_offer, undefined);
-    assert.match(r.show_to_builder, new RegExp(`^${BENCH_HEADS.fund}$`, 'm'));
     assert.equal(r.move_up?.kind, 'start');
     assert.equal(r.move_up?.agent_note, START_NOTE);
     assert.match(START_NOTE, /identity/);
@@ -202,7 +171,7 @@ test('3.1 no project (ruling A): "You\'re not on the leaderboard yet." and exist
     const c = await install();
     await claimFx(c);
     const rc = await find(c, { agent_can_build: false }, NO_MATCH);
-    assert.equal(rc.show_to_builder.split('\n')[1], NOT_ON_BENCH);
+    assert.match(rc.show_to_builder.split('\n')[0], /^You're in, @/);
     assert.equal(rc.show_to_builder.split('\n').at(-1), STATE_COPY.no_project.noApp());
     // v2.14 A18: an open program with its own starter changes nothing: no build offered in find.
     const arc = { ...committedProgram('arc-microgrants'), id: `v2133-arc-${RUN}`, status: 'active', ends_at: new Date(Date.now() + 3 * 86_400_000).toISOString(), fresh_build: { starter: STARTER_ID } };
@@ -231,7 +200,7 @@ test('4.1 (v2.14 T7) an unsigned install with a project: no claim link, no claim
     assert.doesNotMatch(r.show_to_builder, /claim/i);
     assert.ok(links(r.show_to_builder).length <= 1);
     assert.equal(questions(r.show_to_builder), 1);
-    assert.ok(r.show_to_builder.endsWith('?'));
+    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
   }));
 
 // ---- 5. Private and org repos through the read-only GitHub App -----------------------------------
@@ -298,7 +267,7 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
     const id = await install();
     await claimFx(id);
     const r = await find(id, named(key, uniq('jenil')), NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[1], STATE_COPY.not_counted.stand('Secret'), r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[0], STATE_COPY.not_counted.stand('Secret'), r.show_to_builder);
     // v2.14 A15: the App off: one small thing to ship, no install link.
     assert.equal(r.move_up?.kind, 'suggest');
     assert.equal(r.proof, undefined);
@@ -307,6 +276,8 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
 
 test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim ask); claimed, the one install link; installed, the setup URL proves it with the installation token and the project confirms and ranks; readings work; no token kept or logged', dbTest, () =>
   withEnv({ ...ON, ...APP }, async () => {
+    // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+    await padPool(9);
     const logged: string[] = [];
     const was = { error: console.error, log: console.log, warn: console.warn };
     const spy = (...a: unknown[]) => void logged.push(a.map(String).join(' '));
@@ -320,12 +291,12 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const id = await install();
       // Unclaimed: no App link yet (S7: it names the page); v2.14 T9: the sign-in link is the one link and question.
       const r1 = await find(id, named(key, login), NO_MATCH);
-      assert.equal(r1.show_to_builder.split('\n')[1], NOT_ON_BENCH, r1.show_to_builder);
+      assert.equal(r1.show_to_builder.split('\n')[0], INTRO_LINE, r1.show_to_builder);
       assert.equal(links(r1.show_to_builder).length, 1, r1.show_to_builder);
       assert.match(links(r1.show_to_builder)[0], /\/signin\//);
       assert.equal(r1.move_up?.kind, 'sign_in');
       assert.equal(questions(r1.show_to_builder), 1);
-      assert.ok(r1.show_to_builder.endsWith('?'));
+      assert.ok(r1.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'));
       assert.notEqual(r1.move_up?.kind, 'install_app');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.
@@ -334,12 +305,12 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const ls = links(r2.show_to_builder);
       assert.equal(ls.length, 1, r2.show_to_builder);
       assert.match(ls[0], /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-      assert.ok(r2.show_to_builder.endsWith(STATE_COPY.not_counted.ask(ls[0])), r2.show_to_builder);
-      assert.ok(r2.show_to_builder.includes(`${STATE_COPY.not_counted.stand('Earnkit')}\nYour page: earnkit.com/`), r2.show_to_builder);
+      assert.ok(r2.show_to_builder.endsWith(`${STATE_COPY.not_counted.ask(ls[0])}\n+30 points when it's connected`), r2.show_to_builder);
+      assert.match(r2.show_to_builder, /^You're in, @/);
       assert.equal(r2.move_up?.kind, 'install_app');
       assert.equal(r2.move_up?.agent_note, INSTALL_APP_NOTE);
       assert.equal(questions(r2.show_to_builder), 1);
-      assert.ok(r2.show_to_builder.endsWith('?'), 'the question is last');
+      assert.ok(r2.show_to_builder.split('\n').at(-2)!.endsWith('?'), 'the question, then the points line');
       assert.equal(r2.proof, undefined, 'no branch before the App can read the repo');
       // Installed: the setup URL (appSetup's last step) reads the repo with the per-call token and proves it.
       await installApp(id, key, login);
@@ -349,7 +320,7 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key}`;
       assert.deepEqual({ ...s }, { state: 'verified', proof: 'github_app' });
       const r3 = await find(id, {}, NO_MATCH);
-      assert.match(r3.show_to_builder.split('\n')[1], /^Earnkit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/, r3.show_to_builder);
+      assert.match(r3.show_to_builder, /^Earnkit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, r3.show_to_builder);
       const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
       assert.equal(live?.ranked, true, 'the project ranks');
       // Readings: the daily read and the live refresh read the private repo with the installation token.
@@ -393,41 +364,46 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
     const r = await find(id, {}, NO_MATCH);
     assert.equal(r.proof, undefined, r.show_to_builder);
     assert.equal(gh.minted.length, 0, 'no token for a proof that is not this person\'s');
-    assert.match(r.show_to_builder, /^Earnkit isn't counted yet\.$/m);
-    assert.match(r.show_to_builder, /Install the read-only EarnKit app on it \(one click\): https:\/\/\S+\nWant me to count it once that's done\?$/);
+    assert.equal(r.move_up?.kind, 'install_app');
+    assert.ok(r.show_to_builder.endsWith(`${pickRepoAsk(links(r.show_to_builder)[0])}\n+30 points when it's connected`), r.show_to_builder);
   }));
 
 // ---- Owner rulings A and B (2026-10-17) ----------------------------------------------------------
 
 test('A.1 pure (R8 supersedes owner ruling A): a ranked project moves up by shipping, never an entry or a community round; one that can\'t join asks for another project', () => {
   const p = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: false, weeks: 0 };
-  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: p, link: null }), { kind: 'ship', project_key: p.key, line: SHIP_STEP });
+  assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: p, link: null }), { kind: 'ship', project_key: p.key, line: SHIP_ASK });
+  // v3.1 spec 3.2 (R1): the drafted application comes before the backing offer; backing waits a reply.
+  const apply = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply, backing: 'Want to open backing?' }).kind, 'apply');
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply: null, backing: 'Want to open backing?' }).kind, 'backing');
   // A project that can't join (v2.14: not counted, taken) asks for a different project, never an entry.
   assert.equal(stateAsk({ state: 'not_counted', variant: 'taken', project: { ...p, confirmed: false }, link: null }).kind, 'other_project');
 });
 
-test('A.2 through find (R8, R12): a project with a fit names it in Ways to get funded with its deadline and why; the step is still to ship', dbTest, () =>
+test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered the draft once (Task 16 step 5), then the step is to ship with the fit named', dbTest, () =>
   on(async () => {
     const prog = await avalanche();
     const key = `${uniq('maya')}/recipes`;
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
-    assert.match(r.show_to_builder, new RegExp(`^${prog.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: up to \\$10K, rolling\\. `, 'm'), r.show_to_builder);
-    assert.match(r.show_to_builder.split('\n').at(-1)!, RANKED_STEP);
-    assert.equal(r.move_up?.kind, 'ship');
+    // v3.1 spec 3.2: the rolling fit is first offered as a draft (once a program); then the step is to ship.
+    assert.ok(r.show_to_builder.endsWith(`${applyAsk(prog.title, '$10,000', null)}\nShip code this week: up to +100 points`), r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'apply');
+    const next = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
+    assert.ok(next.show_to_builder.includes(`\nYou qualify for the ${prog.title}, up to $10,000.\n${SHIP_ASK}\n`), next.show_to_builder);
+    assert.equal(next.move_up?.kind, 'ship');
   }));
 
 test('B.1 (v3 Stage 2) "Backing", never a community round, raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Backing · \$RECIPE</);
-  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, BENCH_HERO_SUBTITLE, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
+  for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, HERO_SUB, `${STEPS[2].text} ${STEPS[2].backing}`, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
   assert.notDeepEqual(bannedInBench('Want to raise for it?', []), []);
   assert.notDeepEqual(bannedInBench('Raising $X', []), []);
   assert.notDeepEqual(bannedInBench('Start a fundraise', []), []);
   assert.notDeepEqual(bannedInBench('Open a community round', []), []);
-  // The needs lines name their chain and pass the copy check.
-  assert.deepEqual(bannedInBench(needsLine('Grants', 'up to $5K', "for a Base app, once it's live"), ['Grants']), []);
 });
 
 // ---- Review fix round (v2.13.3) -----------------------------------------------------------------
@@ -486,7 +462,7 @@ test('R4 (M1) a slow App token mint never holds the reply: find answers in time 
     const ms = Date.now() - t0;
     assert.ok(ms < 3000, `find took ${ms} ms`);
     // Unsigned (v2.14 T9): not on the Bench yet; the reply came in time.
-    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.equal(r.proof, undefined);
   }));
 
@@ -511,14 +487,6 @@ test('R6 (M4) the token is minted for the installation GitHub names for the repo
     assert.equal(await appTokenFor({ installationId: id, repoKey: key }, { fetch: fake(null) }), null, 'fail closed');
     assert.deepEqual(minted, ['88']);
   }));
-
-test('R7 (M5) a program with no known prize is named with what it needs, without a dollar figure', () => {
-  const n = fundNeeds(card({ title: 'Open Grants', max_award_usd: null, any_chain: true, needs_repo: true }));
-  assert.equal(n.prize, null);
-  assert.equal(needsLine(n.title, n.prize, n.needs), 'Open Grants: once your code is on GitHub.');
-  const picks = needsPicks([card({ id: 'a', title: 'Open Grants', max_award_usd: null, any_chain: true, status: 'active' } as Partial<Card>)], new Date(), new Set(), 2);
-  assert.ok(picks.length <= 1);
-});
 
 test('R3 one question, last: the community round and coin lines end on their question (Bench)', () =>
   on(async () => {

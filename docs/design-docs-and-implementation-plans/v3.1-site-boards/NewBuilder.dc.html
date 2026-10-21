@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Example builder, first week</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+body{margin:0;background:#0B0C14}</style>
+</helmet>
+<dc-import name="Profile" data="{{data}}" hint-size="100%,1500px"></dc-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { data: {
+      name: 'Sam', first: 'Sam', handle: 'sam', ghLogin: 'sam', avatar: null,
+      score: 22, rank: null, pool: 1, streak: 1,
+      shipped: [false, false, false, false, false, false, false, false, false, false, false, true],
+      project: 'Ledgerly', logo: 'other', logoColor: '#7C3AED', link: 'github.com/sam/ledgerly', about: '[One line from the repo description or README]',
+      chains: ['Base'], live: false, token: null, lastShip: '3 days ago', thisWeek: 0,
+      record: [
+        { icon: 'start', title: 'Shipping since Oct 12', sub: 'First week on EarnKit' },
+        { icon: 'code', title: 'Base Builder Code', sub: 'Not in the repo yet' }
+      ],
+      next: 'Next update posts Monday, Oct 27',
+      weeks: [
+        { week: 'Week of Oct 12', commits: '9 commits', text: '[The week\u2019s summary, written from its commits]' }
+      ]
+    } };
+  }
+}
+</script>
+</body>
+</html>

@@ -65,9 +65,12 @@ export function badgeSvg(value: string, o: { muted?: boolean } = {}): string {
     `</g></svg>`;
 }
 
-/** The value: "Shipping 72 · #3" (or "Shipping 72 · Top 4%") inside the pool, else "not ranked". Pure. */
-export function badgeValue(f: { rank: string | null; score: number }): string {
-  return f.rank ? `Shipping ${f.score} · ${rankSplit(f.rank).lead}` : BADGE_NOT_RANKED;
+/**
+ * The value: "Shipping 72 · #3" (or "Shipping 72 · Top 4%") inside the pool; "Shipping 72" inside it under RANK_MIN_POOL
+ * (v3.1 F3: no rank shown, but ranked); else "not ranked". Pure.
+ */
+export function badgeValue(f: { rank: string | null; score: number; listed?: boolean }): string {
+  return f.rank ? `Shipping ${f.score} · ${rankSplit(f.rank).lead}` : f.listed ? `Shipping ${f.score}` : BADGE_NOT_RANKED;
 }
 
 /** The README markdown the profile offers: the badge, linking to the page. Pure. */

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Footer from '../../app/components/common/Footer';
-import { EXTERNAL_ALLOW, FOOTER_COLUMNS, BENCH_FOOTER_TAGLINE, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
+import { EXTERNAL_ALLOW, FOOTER_COLUMNS, appRoutes, footerLinkProblems, type FooterColumn } from './footer-links';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root; see
 // public-pages.test.ts).
@@ -41,17 +41,16 @@ test('appRoutes: includes the top-level routes and a dynamic segment', () => {
   for (const r of ['/', '/programs', '/terms', '/programs/[id]']) assert.ok(routes.includes(r), r);
 });
 
-test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link, the tagline and the copyright; R18: no faded wordmark, no column titles', () => {
+test('Footer: renders exactly the FOOTER_COLUMNS hrefs plus the logo link and the copyright; R18: no faded wordmark, no column titles', () => {
   const h = renderToStaticMarkup(React.createElement(Footer));
-  const hrefs = new Set([...h.matchAll(/href="([^"]+)"/g)].map((m) => m[1]));
+  const hrefs = new Set([...h.matchAll(/<a [^>]*href="([^"]+)"/g)].map((m) => m[1]));
   const expected = new Set(['/', ...FOOTER_COLUMNS.flatMap((c) => c.links.map((l) => l.href))]);
   assert.deepEqual(hrefs, expected);
-  assert.ok(h.includes(BENCH_FOOTER_TAGLINE));
   assert.doesNotMatch(h, /data-footer-wordmark/);
   for (const c of FOOTER_COLUMNS) assert.ok(!h.includes(`>${c.title}<`), c.title);
   assert.doesNotMatch(h, />EARNKIT</);
   assert.match(h, new RegExp(`© ${new Date().getFullYear()} Tokenfi Inc\\. All rights reserved\\.`));
-  assert.match(h, /aria-label="@jenilt on X"[^>]*>[\s\S]{0,200}?<svg/);
+  assert.match(h, /aria-label="EarnKit on X"[^>]*>[\s\S]{0,200}?<svg/);
   // No emojis, no em dash, no placeholder links.
   assert.doesNotMatch(h, /\p{Emoji_Presentation}/u);
   assert.doesNotMatch(h, /—/);

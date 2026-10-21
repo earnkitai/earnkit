@@ -5,7 +5,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { BADGE_CACHE, BADGE_MISS_CACHE, badgeFileOk, badgeFor, badgeMarkdown, badgeResponse, badgeSvg, badgeValue, textWidth } from './badge';
-import { DATA } from './fixtures/profile-data';
+import { DATA, siteOf } from './fixtures/profile-data';
 import { isReserved } from './reserved-routes';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { BADGE_COPY_LINE, COPY_FAILED } from '../../app/[handle]/BadgeCopy';
@@ -48,6 +48,8 @@ test('L8 the value: the score and the rank\'s lead inside the pool, else "not ra
   assert.equal(badgeValue({ rank: '#3 of 40 builders', score: 72 }), 'Shipping 72 · #3');
   assert.equal(badgeValue({ rank: 'Top 4% of builders', score: 88 }), 'Shipping 88 · Top 4%');
   assert.equal(badgeValue({ rank: null, score: 72 }), 'not ranked');
+  // v3.1 F3: in the pool but under RANK_MIN_POOL: the score alone.
+  assert.equal(badgeValue({ rank: null, score: 72, listed: true }), 'Shipping 72');
 });
 
 test('L8 the SVG: shields-like, brand colors, sized to its text, text escaped, labelled for screen readers', () => {
@@ -73,19 +75,20 @@ test('L8 the markdown links the badge to the page; a reserved handle\'s page is 
   assert.equal(isReserved('Badge'), true);
 });
 
-test('L8 the profile offers the markdown, quietly, under the sources line', () => {
-  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.ok(h.includes(BADGE_COPY_LINE));
-  assert.ok(h.includes(badgeMarkdown(DATA.handle).replace(/&/g, '&amp;')), 'the markdown is shown');
-  assert.match(h, /aria-label="Copy the badge markdown"/);
-  // v3 Stage 3 (the profile): one quiet line, the image always shown, the markdown behind it.
+test('L8 v3.1 (plan S15): the badge left the profile; the route and the markdown stay', () => {
+  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, site: siteOf(DATA), page: 1 }));
+  assert.ok(!h.includes(BADGE_COPY_LINE));
+  assert.doesNotMatch(h, /\/badge\/|Copy the badge markdown/);
   assert.equal(BADGE_COPY_LINE, 'Badge for your README');
 });
 
 test('L8 a listed builder\'s badge has their score and rank; unlisted (held or hidden) shows no rank or not found; unknown is the not-found badge', dbTest, async () => {
   const a = await listed(41);
   const b = await listed(30);
+  // v3.1 F3: two ranked builders, under RANK_MIN_POOL: the score alone; 8 more below them and the rank shows.
+  assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only: [a.id, b.id] }), { found: true, svg: badgeSvg('Shipping 30') });
   const only = [a.id, b.id];
+  for (let i = 0; i < 8; i++) only.push((await listed(10)).id);
   assert.deepEqual(await badgeFor(`${b.handle}.svg`, { only }), { found: true, svg: badgeSvg('Shipping 30 · #2') });
   // Another case serves the same badge (a README written in lowercase keeps working).
   assert.equal((await badgeFor(`${b.handle.toLowerCase()}.svg`, { only })).svg, badgeSvg('Shipping 30 · #2'));

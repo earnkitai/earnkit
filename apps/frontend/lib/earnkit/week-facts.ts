@@ -81,7 +81,7 @@ export function pointsOf(f: WeekFacts): number {
  * preferring one the current reader wrote (sources.ts REPO_READER). Launch-ready (hotfix carry-over): a reader-1
  * reading (a busy repo's newest 100 commits only) newer than a reader-2 one would otherwise write short weeks.
  */
-const shipReading = (db: Db) => db`(
+export const shipReading = (db: Db) => db`(
   SELECT y.signals FROM (
     (SELECT l.signals, l.read_at AS at FROM source_live l WHERE l.source_id = s.id AND l.ok)
     UNION ALL (SELECT r.signals, r.day::timestamptz AS at FROM source_readings r WHERE r.source_id = s.id AND r.ok

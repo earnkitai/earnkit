@@ -35,6 +35,10 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\bIt is a tradable token on Base and can go to zero\./g,
   // Its "Your coin stays onchain." (RAISE_LINES.off).
   /\bYour coin stays onchain\./g,
+  // v3.1 Task 16: the owner-approved copy (2026-10-21): its own words for the repo and the commits, and the open grant's organizer.
+  /\bpick the repo you're building\b/g,
+  /\bI read your commits every week\b/g,
+  /(?<=\. )[A-Za-z0-9][\w .&'-]{0,40}(?= pays up to \$[\d,]+(?: investment)? right now\.)/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

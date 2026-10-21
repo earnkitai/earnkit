@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { CONFIRM_BACKING_DESCRIPTION, FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 import { POST } from '../../app/mcp/route';
@@ -17,6 +17,7 @@ import { kitReplyNote, submitKit, type KitProgram } from './submit-kit';
 import { awardReply, createReply } from './sponsor-rules';
 import { sql } from './db';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
+import { withEnv } from './fixtures/find';
 
 // Tool replies read alerts from the database when DATABASE_URL is set: close the pool.
 after(async () => {
@@ -119,13 +120,13 @@ async function connected(ctx: Parameters<typeof createMcpServer>[0] = { installa
   return client;
 }
 
-test('confirm is strict: a misnamed key is an error, not silently dropped', async () => {
+test('confirm is strict: a misnamed key is an error, not silently dropped (v3.1: a program_id too)', () => withEnv({ EARNKIT_RAISING: 'on' }, async () => {
   const client = await connected();
   try {
     // Rejected by the input schema, before the tool runs (so no database is touched).
     for (const args of [
       { project_id: 7, yes: true, ticker: 'KITS' },
-      { program_id: 'p', project: { name: 'Kit' }, answers: {}, ticker: 'KITS' },
+      { project_id: 7, program_id: 'p', yes: true },
     ]) {
       const r = await client.callTool({ name: 'confirm', arguments: args });
       assert.equal(r.isError, true);
@@ -134,34 +135,22 @@ test('confirm is strict: a misnamed key is an error, not silently dropped', asyn
   } finally {
     await client.close();
   }
-});
+}));
 
-test('an old record_submission call, aliased, passes confirm\'s schema: token.proposed echoed verbatim, null, a bare ticker, any builder_confirmed', async () => {
-  const client = await connected();
-  const errLog = console.error;
-  console.error = () => {};
-  try {
-    const base = { program_id: 'p', project: { name: 'Kit' }, submission_data: {} };
-    for (const extra of [
-      // token.proposed from prepare, as is (with `image`).
-      { token: { name: 'Chain Kits', symbol: 'CHAIN', image: 'mark' }, builder_confirmed: true },
-      { token: null, builder_confirmed: 'yes' },
-      { token: 'skip' },
-      { token: 'CHAIN', builder_confirmed: true },
-      { token: [], builder_confirmed: true },
-    ]) {
-      const next = aliasCall('record_submission', { ...base, ...extra })!;
-      assert.equal(next.name, 'confirm');
-      // The schema lets it through to the tool; with no database here the tool itself then fails,
-      // which is not an input validation error.
-      const r = await client
-        .callTool({ name: next.name, arguments: next.args })
-        .catch((err: unknown) => ({ isError: true, content: String(err) }));
-      assert.doesNotMatch(JSON.stringify(r.content), /Input validation error/, JSON.stringify(extra));
-    }
-  } finally {
-    console.error = errLog;
-    await client.close();
+test('v3.1 (spec 3.4): an old record_submission call, aliased to confirm, never enters: confirm is not listed (flag off) or refuses program_id (flag on)', async () => {
+  const next = aliasCall('record_submission', { program_id: 'p', project: { name: 'Kit' }, submission_data: {}, builder_confirmed: true })!;
+  assert.equal(next.name, 'confirm');
+  for (const raising of [undefined, 'on']) {
+    const r = await withEnv({ EARNKIT_RAISING: raising }, async () => {
+      const client = await connected();
+      try {
+        return await client.callTool({ name: next.name, arguments: next.args }).catch((err: unknown) => ({ isError: true, content: String(err) }));
+      } finally {
+        await client.close();
+      }
+    });
+    assert.equal(r.isError, true, String(raising));
+    assert.match(JSON.stringify(r.content), raising ? /Unrecognized keys: \\"program_id\\"/ : /Tool confirm not found/, String(raising));
   }
 });
 
@@ -240,10 +229,10 @@ test('v2.8.1 §B6 (fix round 1): every odd find input passes the MCP schema; wit
   }
 });
 
-test('v2.7 §3, Ruling 15/18 (plan): prepare says to call again until ready; the campaign Token row only while one is open; no tool names Clanker', () => {
-  assert.match(TOOL_DESCRIPTIONS.prepare, /Call again until ready is true; then it ends with the confirm line \(no token unless the builder asked for a coin\)\./);
-  assert.match(TOOL_DESCRIPTIONS.prepare, /one Token row \(a token on Base\)/);
-  assert.doesNotMatch(toolDescriptions(false).prepare, /Token row|submission link/);
+test('v3.1 (spec 3.4): prepare only drafts (never submits, never the confirm line, no Token row); no tool names Clanker', () => {
+  assert.match(TOOL_DESCRIPTIONS.prepare, /^Draft an application from the ship log\. .* It never submits: the builder sends the form\. Follow agent_note\./);
+  for (const d of [TOOL_DESCRIPTIONS.prepare, toolDescriptions(false).prepare, toolDescriptions(true).prepare])
+    assert.doesNotMatch(d, /confirm|Token row|submission link|coach_asked|ready is true/);
   for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.doesNotMatch(d, /clanker|protocol cut/i, name);
 });
 
@@ -252,20 +241,14 @@ test('v2.8 Ruling 23 (plan): SERVER_INSTRUCTIONS never says EarnKit "runs its ow
   assert.doesNotMatch(SERVER_INSTRUCTIONS, /runs its own campaigns/);
 });
 
-test('v2.8 Ruling 23 (plan): toolDescriptions(false) drops the campaign sentences; (true) keeps them', () => {
-  const closed = toolDescriptions(false);
-  const open = toolDescriptions(true);
-  for (const name of ['prepare', 'confirm'] as const) {
-    for (const word of ['EarnKit campaign', 'how_to_submit', 'sign_to_enter', 'EIP-191'])
-      assert.ok(!closed[name].includes(word), `${name} (closed): ${word}`);
-    assert.match(open[name], /EarnKit campaign/, name);
-  }
-  // v2.11 T8 review M2: TOOL_DESCRIPTIONS is the longest variant (campaign open, build listed).
-  assert.deepEqual(TOOL_DESCRIPTIONS, toolDescriptions(true, true));
-  assert.equal(toolDescriptions(true, false).prepare, open.prepare, 'deploys off in the test env');
-  // The rest of the text stays.
-  assert.match(closed.prepare, /then it ends with the confirm line/);
-  assert.match(closed.confirm, /yes: true when they say yes/);
+test('v3.1 (spec 3.4): no tool text depends on an open campaign; prepare names build only while deploys are on', () => {
+  assert.deepEqual(toolDescriptions(true), toolDescriptions(false));
+  for (const word of ['EarnKit campaign', 'how_to_submit', 'sign_to_enter', 'EIP-191'])
+    for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.ok(!d.includes(word), `${name}: ${word}`);
+  // v2.11 T8 review M2: TOOL_DESCRIPTIONS is the longest variant (build listed), confirm kept for the copy scan.
+  assert.deepEqual(TOOL_DESCRIPTIONS, { ...toolDescriptions(true, true), confirm: CONFIRM_BACKING_DESCRIPTION });
+  assert.equal(toolDescriptions(true, false).prepare, toolDescriptions(false).prepare, 'deploys off in the test env');
+  assert.match(toolDescriptions(false, true).prepare, / build: a build_offer yes\.$/);
 });
 
 async function registered(opts?: { campaignOpen?: boolean }) {
@@ -278,38 +261,21 @@ async function registered(opts?: { campaignOpen?: boolean }) {
   return tools;
 }
 
-test('v2.8 Ruling 23 (plan): createMcpServer with campaignOpen false (the default) registers the closed text', async () => {
-  for (const tools of [await registered({ campaignOpen: false }), await registered()]) {
+test('v3.1 (spec 3.4, D1): confirm is listed only with EARNKIT_RAISING on, strict, for Backing only (project_id required, no entry fields)', async () => {
+  for (const opts of [{ campaignOpen: false }, { campaignOpen: true }, undefined])
+    assert.ok(!(await withEnv({ EARNKIT_RAISING: undefined }, () => registered(opts))).some((t) => t.name === 'confirm'));
+  for (const opts of [{ campaignOpen: false }, { campaignOpen: true }]) {
+    const tools = await withEnv({ EARNKIT_RAISING: 'on' }, () => registered(opts));
     const confirm = tools.find((t) => t.name === 'confirm')!;
-    const props = confirm.inputSchema.properties as Record<string, { description?: string }>;
-    assert.ok(props.deployer_signature, 'deployer_signature stays registered');
-    assert.ok(props.contracts, 'contracts stays registered');
-    assert.doesNotMatch(props.deployer_signature.description ?? '', /EarnKit campaigns/);
-    assert.match(props.deployer_signature.description ?? '', /deployed by a wallet other than the entry's wallet/);
-    assert.doesNotMatch(props.contracts.description ?? '', /EarnKit campaigns/);
-    assert.equal(confirm.description, toolDescriptions(false).confirm);
+    assert.equal(confirm.description, CONFIRM_BACKING_DESCRIPTION);
+    assert.deepEqual(confirm.inputSchema.required, ['project_id']);
+    const props = confirm.inputSchema.properties as Record<string, unknown>;
+    assert.deepEqual(Object.keys(props).sort(), ['agent', 'builder_x', 'check', 'image_data', 'image_url', 'project_id', 'signed_in', 'token', 'wallet', 'yes']);
+    // v2.14 final fix: an older agent's sign-in code is still accepted (confirm is strict), and only said to be ignored.
+    assert.deepEqual(props.signed_in, { description: 'Not used any more; ignored.' });
     assert.equal(tools.find((t) => t.name === 'prepare')!.description, toolDescriptions(false).prepare);
   }
-  const open = (await registered({ campaignOpen: true })).find((t) => t.name === 'confirm')!;
-  const props = open.inputSchema.properties as Record<string, { description?: string }>;
-  assert.match(props.deployer_signature.description ?? '', /EarnKit campaigns/);
-  assert.match(props.contracts.description ?? '', /^EarnKit campaigns, and other programs/);
-  assert.equal(open.description, toolDescriptions(true).confirm);
-});
-
-test('v2.8 Part C, R15: confirm is registered, strict, takes yes, skip_token, check and project_id, and says the kit is only in its reply', async () => {
-  const tools = await registered();
-  const confirm = tools.find((t) => t.name === 'confirm')!;
-  assert.equal(confirm.description, toolDescriptions(false).confirm);
-  assert.match(confirm.description!, /yes: true when they say yes \(the entry is submitted and the token launches\) or skip_token: true when they say skip the token/);
-  assert.match(confirm.description!, /The submit kit is only in this reply\./);
-  const props = confirm.inputSchema.properties as Record<string, unknown>;
-  for (const k of ['program_id', 'project_id', 'project', 'answers', 'yes', 'skip_token', 'check', 'token', 'wallet', 'agent', 'image_data', 'image_url', 'builder_x', 'contracts', 'deployer_signature'])
-    assert.ok(k in props, k);
-  for (const gone of ['decision', 'builder_confirmed', 'check_back', 'creator_wallet', 'offer']) assert.ok(!(gone in props), gone);
-  // v2.14 final fix: an older agent's sign-in code is still accepted (confirm is strict), and only said to be ignored.
-  assert.deepEqual(props.signed_in, { description: 'Not used any more; ignored.' });
-  const prep = tools.find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>;
+  const prep = (await registered()).find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>;
   assert.ok('agent' in prep);
   // v2.14 final fix: the shared client's GitHub sign-in code is gone (Ruling T6-2).
   assert.ok(!('signed_in' in prep));
@@ -365,9 +331,10 @@ test('final fix wave (M6): the unexpected-error log keeps only name, message and
 
 test('11.8 (F25): the confirm description under 800 characters; their rules are in the replies', () => {
   assert.ok(TOOL_DESCRIPTIONS.confirm.length < 800, `confirm: ${TOOL_DESCRIPTIONS.confirm.length}`);
-  // confirm keeps when to call it, its inputs and to follow agent_note.
-  for (const k of ['yes: true', 'skip_token: true', 'wallet', 'token: { name, symbol }', 'check: true', 'project_id', 'agent_note'])
+  // v3.1 (spec 3.4): confirm keeps when to call it (Backing), its inputs and to follow agent_note; never an entry.
+  for (const k of ['Backing', 'yes: true', 'wallet', 'token', 'check: true', 'project_id', 'agent_note'])
     assert.ok(TOOL_DESCRIPTIONS.confirm.includes(k), k);
+  assert.doesNotMatch(TOOL_DESCRIPTIONS.confirm, /program_id|skip_token|entry|submit/);
   // The kit rules: the kit reply's agent_note (DoraHacks: copy and paste; the builder clicks submit).
   const dora: KitProgram = { title: 'Arc Microgrants', submission_url: 'https://dorahacks.io/hackathon/arc', submission_requirements: [] };
   const note = kitReplyNote(submitKit(dora, {}, { browser: true }), dora);
@@ -483,22 +450,23 @@ test('O2.6 the server instructions (under 800), no old entry-and-token flow; fin
   {
     const on = serverInstructions();
     assert.ok(on.length < 800, String(on.length));
-    assert.ok(on.startsWith('Call find first. Show show_to_builder exactly as written and follow every agent_note.\nA yes or no to the last line goes to tell move_up.\nCall score when they ask where they stand.\nNever name tools, fields or files to the builder'));
+    assert.ok(on.startsWith('Call find first. Show show_to_builder exactly as written and follow every agent_note.\nA yes or no to the question goes to tell move_up.\nCall score when they ask where they stand.\nNever name tools, fields or files to the builder'));
     assert.doesNotMatch(on, /launches the token|submits the entry|since_you_last_checked|prepare until ready/);
     for (const line of SAFETY_LINES) assert.ok(on.includes(line));
     assert.equal((await listed({})).instructions, on);
     assert.doesNotMatch(FIND_DESCRIPTION_BENCH, /build_offer|A yes prepares/);
-    assert.match(FIND_DESCRIPTION_BENCH, /A yes or no to the last line goes to tell move_up\./);
+    assert.match(FIND_DESCRIPTION_BENCH, /A yes or no to the question goes to tell move_up\./);
     assert.ok(FIND_DESCRIPTION_BENCH.length < 800);
   }
 });
 
-// ---- Restored in v2.14 T3 fix round 1: the tool list's live rules (five tools, no old name, the alias route) ----
+// ---- Restored in v2.14 T3 fix round 1: the tool list's live rules (four tools, no old name, the alias route) ----
 const toolNames = async (env: Record<string, string | undefined>) =>
   (await listed(env)).tools.map((t) => t.name).sort();
 
-// v2.10 item 4, v2.14: the 5 builder tools (find, prepare, confirm, tell, score); the 8 v2.9 names are aliases only.
-const FIVE = ['confirm', 'find', 'prepare', 'score', 'tell'];
+// v2.10 item 4, v2.14, v3.1 (spec 3.4): the 4 builder tools (find, prepare, tell, score; confirm only with EARNKIT_RAISING
+// on); the 8 v2.9 names are aliases only.
+const FOUR = ['find', 'prepare', 'score', 'tell'];
 const oldNameRe = new RegExp(`\\b(${OLD_TOOL_NAMES.join('|')})\\b`);
 /** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */
 const oldWords = (v: unknown, used: string): unknown =>
@@ -507,7 +475,7 @@ const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 
 test('9.1 without escrow config the server offers exactly the 4 builder tools; no old name is listed', async () => {
   const { tools } = await listed({});
-  assert.deepEqual(tools.map((t) => t.name).sort(), FIVE);
+  assert.deepEqual(tools.map((t) => t.name).sort(), FOUR);
   for (const t of tools) assert.ok(!(OLD_TOOL_NAMES as readonly string[]).includes(t.name), t.name);
 });
 
@@ -517,16 +485,16 @@ test('an invalid ESCROW_CHAIN leaves the 4 builder tools', async () => {
       ESCROW_FACTORY_ADDRESS: FACTORY,
       ESCROW_CHAIN: 'mainnet',
     }),
-    FIVE,
+    FOUR,
   );
 });
 
 test('9.1 v2.12: a configured escrow adds nothing (sponsor campaigns are archived); still the 4 builder tools and no old name', async () => {
-  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY, ESCROW_CHAIN: 'base-sepolia' }), FIVE);
-  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), FIVE);
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY, ESCROW_CHAIN: 'base-sepolia' }), FOUR);
+  assert.deepEqual(await toolNames({ ESCROW_FACTORY_ADDRESS: FACTORY }), FOUR);
 });
 
-test('9.2 the instructions and each of the 5 descriptions: under 800 characters, no old tool name, no em dash', async () => {
+test('9.2 the instructions and each description: under 800 characters, no old tool name, no em dash', async () => {
   for (const open of [true, false]) {
     const texts: [string, string][] = [
       ['serverInstructions()', serverInstructions()],
@@ -549,7 +517,7 @@ test('9.2 the instructions and each of the 5 descriptions: under 800 characters,
 
 test('3.9, R16: tell writes and find stays read-only; tell takes submitted and the v2.9 statements (v2.14 T7: no pickup); no description names report_outcome', async () => {
   const { tools } = await listed({});
-  assert.equal(tools.length, 5);
+  assert.equal(tools.length, 4);
   assert.equal(tools.find((t) => t.name === 'find')!.annotations?.readOnlyHint, true);
   assert.ok(!tools.some((t) => t.name === 'report_outcome'));
   const tell = tools.find((t) => t.name === 'tell')!;
@@ -617,10 +585,22 @@ test('9.7 (Review Focus 2) the route: an old get_program call returns what find 
       body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} }),
     }));
     const names = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, FIVE);
+    assert.deepEqual(names, FOUR);
   } finally {
     console.log = log;
   }
   assert.deepEqual(logs.filter((l) => l.startsWith('[mcp] alias')), ['[mcp] alias get_program -> find']);
   for (const l of logs) assert.ok(!l.includes(program.id), l);
+});
+
+test('v3.1 final fix 2: the server version moves with the v3.1 tool list (3.1.0)', async () => {
+  const server = createMcpServer({ installationId: 1 });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0' });
+  await Promise.all([server.connect(a), client.connect(b)]);
+  try {
+    assert.deepEqual(client.getServerVersion(), { name: 'earnkit', version: '3.1.0' });
+  } finally {
+    await client.close();
+  }
 });

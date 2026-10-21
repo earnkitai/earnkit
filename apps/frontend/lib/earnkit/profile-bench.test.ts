@@ -5,8 +5,10 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { profileData, type ProfileData } from './bench-data';
-import { DATA } from './fixtures/profile-data';
-import BenchProfileView, { BENCH_SOURCES_LINE, LOG_EMPTY, TAB_LOG, TAB_PROJECT, VISITOR_CTA, confirmingCardLine, noProjectLine, streakWords } from '../../app/[handle]/BenchProfileView';
+import { DATA, siteOf } from './fixtures/profile-data';
+import BenchProfileView, { confirmingCardLine, noProjectLine, streakWords } from '../../app/[handle]/BenchProfileView';
+import { nextUpdateLine } from './site-copy';
+import { profileSite, type ProfileSite } from './site-data';
 import { PRIVATE_NAME } from './page-data';
 import Avatar from '../../app/[handle]/Avatar';
 import UpdateCard from '../../app/components/ui/UpdateCard';
@@ -34,54 +36,48 @@ after(async () => {
   await sql().end();
 });
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
+/** v3.1 Task 7: the page for a ProfileData, with a quiet ProfileSite unless one is given. */
+const view = (data: ProfileData, site: ProfileSite = siteOf(data), page = 1) => html(React.createElement(BenchProfileView, { data, site, page }));
+const words = (h: string) => h.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 
-test('11.1 the header: photo, name, @handle, the score line (R16c) then each chain line with its logo; the pill on the Money tab (v3 Stage 3)', () => {
-  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['Maya Chen', '@maya_makes', 'Shipping 62 · Top 4% of builders', 'Top 4%', 'of builders', 'Top 1% of builders on Base']) assert.ok(h.includes(s), s);
-  assert.ok(h.indexOf('Top 4%') < h.indexOf('Top 1% of builders on Base'));
-  assert.match(h, /alt="Base"/);
-  // v3 Stage 3 (spec 5.6): the header carries Share and the Back button; the coin's pill sits in the Money tab's Backing group.
-  assert.ok(html(React.createElement(BenchProfileView, { data: DATA, tab: 'money' })).includes('Backing · $RECIPE'));
+test('11.1 the hero: photo, name, @handle, the project panel; v3.1: no score line, no chain lines, no rank words (plan S15)', () => {
+  const h = view(DATA);
+  for (const s of ['Maya Chen', '@maya_makes', 'Recipe planner', 'a recipe planner', 'aria-label="Built on Base"']) assert.ok(h.includes(s), s);
+  for (const s of ['Shipping 62 · Top 4% of builders', 'Top 1% of builders on Base', 'Backing · $RECIPE', 'alt="Base"']) assert.ok(!h.includes(s), s);
 });
 
-test('11.2 one Shipping ring (no per-part rings) with the why sentence and the weekly target; the grid has 52 squares and the streak beside it', () => {
-  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  for (const s of ['aria-label="Shipping 62 of 100"', 'Code in 7 of the last 12 weeks, 3 of the last 4.', '6 weeks in a row']) assert.ok(h.includes(s), s);
-  // Launch ready L5: the weekly target under the why, naming only the rank (never another builder); L10: in the page's voice.
-  assert.ok(h.indexOf('Code in 7 of the last 12 weeks') < h.indexOf('Code this week adds +14 points, enough to pass #2.'), 'the target under the why');
+test('11.2 one Shipping ring (no per-part rings); the streak card is the last 12 weeks of the grid with the streak beside it', () => {
+  const h = view(DATA);
+  assert.ok(h.includes('aria-label="Shipping score 62 out of 100"'));
   for (const re of [/Shipped \d+ of/, /Used \d+ of/, /Earned \d+ of/, /Consistency \d+ of/]) assert.doesNotMatch(h, re);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
-  assert.equal((h.match(/data-week=/g) ?? []).length, 52);
-  assert.equal((h.match(/data-on="true"/g) ?? []).length, 6);
+  // DATA's grid: weeks 47 to 52 on, so 6 of the last 12.
+  assert.match(h, /aria-label="Code in 6 of the last 12 weeks"/);
+  assert.equal((h.match(/bg-s-rust-on/g) ?? []).length, 6);
+  assert.ok(words(h).includes('6 weeks'));
+  assert.doesNotMatch(h, /data-week=/, 'no 52-week grid');
   assert.equal(streakWords(1), '1 week in a row');
   assert.equal(streakWords(0), null);
 });
 
-test('11.3 the Ship log tab is the default: long cards newest first, chips alone for a facts-only week, the Started card last', () => {
-  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.ok(h.includes(TAB_LOG) && h.includes(TAB_PROJECT));
-  assert.match(h, /aria-current="page"[^>]*>Ship log/);
-  // The grid's squares carry week titles too: read the order inside the log only.
-  const log = h.slice(h.indexOf('data-shape="long"'));
-  const order = ['Week of Oct 12', 'Week of Oct 5', 'Started tracking Recipe planner.'].map((s) => log.indexOf(s));
+test('11.3 Activity is the page\'s log: cards newest first, the Started card last; the page never says who wrote it', () => {
+  const h = view(DATA);
+  const act = h.slice(h.indexOf('data-ek-activity'));
+  const order = ['Week of Oct 12', 'Week of Oct 5', 'Started tracking Recipe planner.'].map((s) => act.indexOf(s));
   assert.ok(order.every((i) => i >= 0) && order[0] < order[1] && order[1] < order[2], order.join(','));
-  assert.equal((h.match(/data-shape="long"/g) ?? []).length, 3);
-  assert.ok(h.includes(BENCH_SOURCES_LINE));
-  // Text only: the Docs link's #connect-an-agent anchor is not copy; the visitor CTA (L7) is the one place the page names the agent.
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' ').replace(VISITOR_CTA, '').replace('Add to your agent', ''), /written by|agent/i, 'R6');
-  assert.ok(html(React.createElement(BenchProfileView, { data: { ...DATA, log: [] }, tab: 'log' })).includes(LOG_EMPTY));
+  assert.equal((act.match(/<article/g) ?? []).length, 3);
+  // A facts-only week reads its chips.
+  assert.ok(words(act).includes('3 commits'));
+  // R6: no "written by", no agent on the page (the shared footer is checked in v31-site-chrome.test.ts).
+  assert.doesNotMatch(words(h), /written by|agent/i, 'R6');
+  assert.ok(words(view({ ...DATA, log: [] })).includes(nextUpdateLine(new Date())));
 });
 
-test('11.4 the Project tab: name, what, links, chains, the coin, programs entered and won, ways to get funded; never people or money', () => {
-  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'project' }));
-  for (const s of ['Recipe planner', 'a recipe planner', 'https://recipes.app', 'https://github.com/maya/recipes', '$RECIPE on tokens.fun', 'Won Base Builder Grants', 'Ways to get funded', 'Avalanche Team1 Mini Grants pays up to $10K'])
-    assert.ok(h.includes(s), s);
-  assert.doesNotMatch(h, /people use it| earned/);
-  assert.match(h, /aria-current="page"[^>]*>Project/);
-  // Final review: "Won" is text weight, never the accent (it would read as a link).
-  assert.match(h, /<li class="[^"]*font-medium text-ek-text[^"]*">Won Base Builder Grants</);
-  assert.doesNotMatch(h, /text-ek-accent[^"]*">Won/);
+test('11.4 the project panel: name, what, the live link, the GitHub button; never people or money', () => {
+  const h = view(DATA);
+  for (const s of ['Recipe planner', 'a recipe planner', 'href="https://recipes.app"', 'href="https://github.com/maya/recipes"']) assert.ok(h.includes(s), s);
+  assert.doesNotMatch(h, /people use it| earned\b/);
 });
 
 test('11.5 the photo falls back to the initials when it fails to load', async () => {
@@ -127,9 +123,9 @@ test('11.6 profileData reads the page from stored rows: hidden updates never, th
   // Shipping and its why from the stored parts; the old used and earned keys are ignored.
   assert.equal(d.score, 62);
   assert.equal(d.why, 'Code in 6 of the last 12 weeks, 3 of the last 4.');
-  // Launch ready L5: the weekly target (alone in the pool: hold #1).
-  assert.equal(d.target, 'Code this week adds +14 points to hold #1.');
-  assert.equal(d.line, 'Shipping 62 · #1 of 1 builder');
+  // Launch ready L5: the weekly target. v3.1 F3: alone in the pool (under RANK_MIN_POOL), no rank named anywhere.
+  assert.equal(d.target, null);
+  assert.deepEqual([d.bench, d.line, d.rankListed], [null, 'Shipping 62', true]);
   assert.equal(d.grid.length, 52);
   // R18 fix 1: commit weeks only; W30 (a deploy week, in ship_weeks) is not a square.
   assert.equal(d.grid.filter((g) => g.on).length, 2);
@@ -168,43 +164,49 @@ test('11.8 (v2.13.1 O3) a one project not yet confirmed by its repo: one calm ca
   assert.equal(d.project?.confirmed, false);
   assert.deepEqual(d.log, []);
   assert.ok(!('people' in d.project!) && !('money' in d.project!), 'people and money are never on the profile');
-  const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
+  const h = view(d, await profileSite(id, d, new Date()));
   assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Private project')), h);
   assert.equal(confirmingCardLine('Maya Chen', 'Recipe planner'), 'Maya Chen is getting Recipe planner on the leaderboard.');
   assert.doesNotMatch(h, /Claimed\./);
-  assert.doesNotMatch(h, /data-week=/, 'no grid');
-  assert.doesNotMatch(h, /Code in \d+ of|Shipped \d+ of/, 'no grid title, no score parts');
-  assert.doesNotMatch(h, /of 100/, 'no ring');
-  assert.doesNotMatch(h, /Code in \d+ of the last 12/, 'no why');
+  assert.doesNotMatch(h, /data-week=|bg-s-rust-on/, 'no grid, no lit week');
+  assert.doesNotMatch(h, /Shipped \d+ of/, 'no score parts');
+  assert.doesNotMatch(h, /out of 100|class="ek-arc"/, 'no ring');
+  assert.doesNotMatch(h, /Code in \d+ of the last 12 weeks,/, 'no why');
   assert.doesNotMatch(h, /confirmed as theirs/, 'one neutral line: the owner is not detected');
-  assert.ok(h.includes(LOG_EMPTY));
+  assert.ok(h.includes(nextUpdateLine(new Date())));
+  assert.doesNotMatch(h, /<article/);
 });
 
-test('11.8b (v2.13.1 O3) Confirming hides the ring and the grid even when a score and shipping weeks exist', () => {
+test('11.8b (v2.13.1 O3) Confirming hides the ring, the lit weeks and the log even when a score and shipping weeks exist', () => {
   const d: ProfileData = { ...DATA, project: { ...DATA.project!, confirmed: false } };
-  const h = html(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
+  const h = view(d);
   assert.ok(h.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
-  for (const re of [/data-week=/, /Code in \d+ of/, /Shipped \d+ of/, /6 weeks in a row/, /Added fridge photo import/]) assert.doesNotMatch(h, re);
-  // Once confirmed: the full profile as built in v2.13.
-  const full = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
+  for (const re of [/bg-s-rust-on/, /out of 100/, /Shipped \d+ of/, />6 weeks</, /Added fridge photo import/]) assert.doesNotMatch(h, re);
+  // Once confirmed: the full profile.
+  const full = view(DATA);
   assert.ok(!full.includes(confirmingCardLine('Maya Chen', 'Recipe planner')));
-  assert.equal((full.match(/data-week=/g) ?? []).length, 52);
+  assert.equal((full.match(/bg-s-rust-on/g) ?? []).length, 6);
 });
 
-test('11.9 the grid titles each square with its week\'s Monday (week keys go through mondayOfWeek)', () => {
-  const h = html(React.createElement(BenchProfileView, { data: { ...DATA, grid: [{ week: '2026-W42', on: true }] }, tab: 'log' }));
-  assert.match(h, /data-week="2026-W42" data-on="true" title="Week of Oct 12"/);
+test('11.9 the streak squares are the grid\'s last 12 weeks, oldest first (a short grid pads with off weeks)', () => {
+  const h = view({ ...DATA, grid: [{ week: '2026-W42', on: true }] });
+  const sq = h.slice(h.indexOf('aria-label="Code in 1 of the last 12 weeks"'));
+  const spans = sq.slice(0, sq.indexOf('</div>')).match(/<span [^>]*>/g) ?? [];
+  assert.equal(spans.length, 12);
+  assert.match(spans[11], /bg-s-rust-on/);
+  assert.ok(spans.slice(0, 11).every((x) => /bg-s-rust-off/.test(x)));
 });
 
-test('11.10 a new profile: no ring without a rank line, no raising, no chain lines; the Project tab without a project says so', () => {
+test('11.10 a new profile: no ring without a rank line, no raising, no chain lines; without a project the panel says so', () => {
   const fresh: ProfileData = { ...DATA, backing: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
-  const h = html(React.createElement(BenchProfileView, { data: fresh, tab: 'log' }));
-  assert.doesNotMatch(h, /Shipping \d+ of 100/);
-  assert.doesNotMatch(h, /Raising|Community round/);
+  const h = view(fresh);
+  assert.doesNotMatch(h, /Shipping score \d+ out of 100/);
+  assert.doesNotMatch(h, /Raising|Community round|data-ek-token/);
   assert.doesNotMatch(h, /in a row/);
   assert.ok(h.includes('Started tracking Recipe planner.'));
-  const none = html(React.createElement(BenchProfileView, { data: { ...fresh, project: null, log: [] }, tab: 'project' }));
+  const none = view({ ...fresh, project: null, log: [] });
   assert.doesNotMatch(none, /Ways to get funded/);
+  assert.ok(none.includes(noProjectLine('Maya Chen')));
 });
 
 test('11.12 scoring and clarity: no Community round chip on any card (the header carries the pill)', async () => {
@@ -224,10 +226,9 @@ test('11.14 (fix round 1) the share post\'s words: the Bench line, else the conf
   assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');
 });
 
-test('11.15 (fix round 1, v2.13.1 O3) the Project tab of a project not yet confirmed: its name and what it is, plainly; no links, no numbers', () => {
-  const h = html(React.createElement(BenchProfileView, { data: { ...DATA, project: { ...DATA.project!, confirmed: false } }, tab: 'project' }));
-  const tab = h.slice(h.indexOf('aria-label="Tabs"'));
-  assert.ok(tab.includes('Recipe planner') && tab.includes('a recipe planner'), tab);
+test('11.15 (fix round 1, v2.13.1 O3) a project not yet confirmed: one calm line naming it; no links, no numbers', () => {
+  const h = view({ ...DATA, project: { ...DATA.project!, confirmed: false } });
+  assert.ok(h.includes('Recipe planner'), h);
   assert.doesNotMatch(h, /confirmed as theirs/);
   for (const s of ['https://recipes.app', 'https://github.com/maya/recipes', 'Live site', '31 people use it', 'Won Base Builder Grants', 'Ways to get funded'])
     assert.ok(!h.includes(s), s);
@@ -246,13 +247,13 @@ test('11.17 (v2.13.1 O3) logCards: a week with only the start keeps its Started 
     { week: '2026-10-05', text: null, facts: { started: { live: false, weeks: 0, people: 0 } } },
   ], 'Recipe planner');
   assert.deepEqual(cards, [
-    { week: '2026-10-12', text: 'Shipped the parser.', confirmed: false, chips: ['3 commits'] },
+    { week: '2026-10-12', text: 'Shipped the parser.', confirmed: false, commits: 3, chips: ['3 commits'] },
     { week: '2026-10-05', text: null, chips: [], started: 'Started tracking Recipe planner.' },
   ]);
   // Never two cards under one week heading.
   assert.equal(new Set(cards.map((c) => c.week)).size, cards.length);
-  const h = html(React.createElement(BenchProfileView, { data: { ...DATA, log: cards }, tab: 'log' }));
-  assert.equal((h.match(/Week of Oct 12/g) ?? []).length - (h.match(/title="Week of Oct 12"/g) ?? []).length, 1, 'one card heading for the week');
+  const h = view({ ...DATA, log: cards });
+  assert.equal((h.match(/Week of Oct 12/g) ?? []).length, 1, 'one card heading for the week');
 });
 
 test('11.18 (v2.13.1 O3) the grid counts a week with an update and commits, even before the next rescore', dbTest, async () => {
@@ -267,12 +268,12 @@ test('11.18 (v2.13.1 O3) the grid counts a week with an update and commits, even
   assert.deepEqual(d.log.map((c) => [c.week, c.chips]), [['2026-10-12', ['Started tracking', '4 commits']], ['2026-10-05', []]]);
 });
 
-test('11.19 (O3 fix round 1) the grid says "Code in N of the last 52 weeks", never "Shipped", so it never contradicts the score part', async () => {
+test('11.19 (O3 fix round 1) the grid words say "Code in N", never "Shipped", so they never contradict the score part', async () => {
   const { shippedWords } = await import('../../app/[handle]/ShipGrid');
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
-  const h = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.ok(h.includes('Code in 6 of the last 52 weeks'), 'caption');
-  assert.match(h, /aria-label="Code in 6 of the last 52 weeks"/);
+  const h = view(DATA);
+  assert.ok(h.includes('Code in 6 of 12 weeks'), 'the streak note');
+  assert.match(h, /aria-label="Code in 6 of the last 12 weeks"/);
   assert.doesNotMatch(h, /Shipped \d+ of the last/);
 });
 
@@ -294,18 +295,15 @@ test('11.21 (O3 fix round 1) the card links an href only when it is its own pars
   assert.match(card('Live at https://recipes.app/.'), /<a href="https:\/\/recipes\.app\/"/, 'trailing punctuation is not a dot segment');
 });
 
-test('L10 the UX pass on the page: a private repo is never named in the sentence; no project is one calm line; the visitor CTA; the badge only with a rank; no "public data"', () => {
+test('L10 the UX pass on the page: a private repo is never named in the sentence; no project is one calm line; v3.1: no visitor row, no badge', () => {
   assert.equal(confirmingCardLine('Fern Liu', PRIVATE_NAME), 'Fern Liu is getting a private project on the leaderboard.');
   assert.equal(confirmingCardLine('Fern Liu', 'Plantpal'), 'Fern Liu is getting Plantpal on the leaderboard.');
-  assert.doesNotMatch(BENCH_SOURCES_LINE, /public data/, 'the App reads private repos too');
-  const ranked = html(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.ok(ranked.includes(VISITOR_CTA) && ranked.includes('Add to your agent'), 'the visitor CTA');
-  // v3 Stage 3: one collapsed line, the badge image always shown.
-  assert.ok(ranked.includes('Badge for your README') && ranked.includes('src="/badge/maya_makes.svg"'), 'a ranked page offers the badge');
+  const ranked = view(DATA);
+  assert.doesNotMatch(ranked, /Badge for your README|src="\/badge\//, 'v3.1 (plan S15): the badge left the page');
+  assert.doesNotMatch(words(ranked), /public data/);
   const none: ProfileData = { ...DATA, bench: null, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0, grid: DATA.grid.map((g) => ({ ...g, on: false })) };
-  const h = html(React.createElement(BenchProfileView, { data: none, tab: 'log' }));
+  const h = view(none);
   assert.ok(h.includes(noProjectLine(DATA.name)), h);
-  assert.doesNotMatch(h, /Code in 0 of the last/, 'no empty grid');
-  assert.doesNotMatch(h, /Add the badge/, 'no badge without a rank (it would read "not ranked")');
-  assert.ok(h.includes(VISITOR_CTA));
+  assert.ok(words(h).includes('0 weeks') && words(h).includes('Code in 0 of 12 weeks'), 'the streak card still has its words');
+  assert.doesNotMatch(h, /Add the badge/);
 });

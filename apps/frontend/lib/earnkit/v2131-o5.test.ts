@@ -9,7 +9,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NOT_ON_BENCH, STATE_COPY } from './bench-reply';
+import { INTRO_LINE } from './bench-reply';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
@@ -20,11 +20,12 @@ import { EARN_NOTE } from './stand-text';
 import { toolDescriptions } from './mcp';
 import { UPDATE_LINES } from './updates';
 import { rankLines } from './bench-rank';
-import { benchLine } from '../../app/leaderboard/BenchView';
-import BenchTop, { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
+import BenchView from '../../app/leaderboard/BenchView';
+import { BENCH_TOP_EMPTY, EARN_FOOT, EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * v2.13.1 O5 (the second first-run audit, N1 to N16, and round 1's open F11, F15, F16, P1 to P5, P7,
@@ -113,19 +114,19 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(gh.answered(), 0, 'none had answered when the reply went out');
       // v2.14 spec 2: not counted until the App is installed (no proof branch, no GitHub read for it).
       // v2.14 T9: unsigned: not on the Bench yet, and the sign-in link is the one link (no App link: it needs a page).
-      assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+      assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
-      assert.ok(r.show_to_builder.endsWith('?'));
+      assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'));
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
       assert.ok(Date.now() - t2 < 3000, `the second find took ${Date.now() - t2} ms`);
-      assert.equal(r2.show_to_builder.split('\n')[1], NOT_ON_BENCH);
+      assert.equal(r2.show_to_builder.split('\n')[0], INTRO_LINE);
       const t1 = Date.now();
       const s = (await tools.score({}, { installationId: id } as never)) as R;
       assert.ok(Date.now() - t1 < 3000, `score took ${Date.now() - t1} ms`);
-      assert.equal(s.show_to_builder.split('\n')[1], NOT_ON_BENCH);
+      assert.equal(s.show_to_builder.split('\n')[0], INTRO_LINE);
     } finally {
       gh.release();
       globalThis.fetch = was;
@@ -168,7 +169,7 @@ test('O5 N4 a repo never read public stays unnamed ("Private project"); the refr
 
 // ---- N5, v2.14 A16: nothing pending: one small thing to ship, never kept away ------------------------
 
-test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping ("Ship this week to climb."), never a community round; a no never silences it', dbTest, () =>
+test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: the ship question and its points line), never a community round; a no never silences it', dbTest, () =>
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
@@ -179,7 +180,7 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping ("Ship this
     await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
     assert.ok(endsOnRankedStep(s.show_to_builder), s.show_to_builder);
-    assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 0, 'a statement, never a question');
+    assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 1, 'one question');
     const y = (await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
     assert.match(y.agent_note ?? '', /one small thing/);
   }),
@@ -196,7 +197,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.14 T9: signed out: the sign-in question.
-    assert.ok(r.show_to_builder.endsWith(STATE_COPY.signed_out.ask('x').split('\n')[1]), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -223,7 +224,7 @@ test('O5 N13 confirmed but not claimed: the last line never says "on the Bench" 
     const id = await person({ main: key, projects: [{ key, name: 'Hello-World', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     // v2.14 T9: signed out, it is not on the Bench yet (the stand line), and the question is the sign-in.
-    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /is on the leaderboard|post what you ship/, r.show_to_builder);
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.notEqual(r.move_up?.kind, 'updates');
@@ -235,24 +236,25 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const key = `${uniq('ch')}/earny`;
     const id = await install();
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[1], NOT_ON_BENCH, r.show_to_builder);
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('?'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
     assert.equal(questions(r.show_to_builder), 1);
   }),
 );
 
-test('O5 P2 (reversed in v2.13.4): the reply names the rank from 1 ranked ("#1 of 1 builder"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
+test('O5 P2 (reversed in v2.13.4, v3.1 F3): the reply names the rank from RANK_MIN_POOL ranked (never "#1 of 1 builder"), in the stand line with the score (R16c), plain words; P8 the earn note only with a lead', dbTest, () =>
   on(async () => {
     const key = `${uniq('rk')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('rk'), ranked: true, score: 100, projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    assert.equal((await rankLines(id, { only: [id] })).bench, '#1 of 1 builder');
+    const alone = await rankLines(id, { only: [id] });
+    assert.deepEqual([alone.bench, alone.line], [null, 'Shipping 100'], 'one ranked: the score alone');
+    await padPool(9);
     const r = await find(id, {}, NO_MATCH);
-    // The stand line is the score line ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
-    assert.match(r.show_to_builder, /^Hello-World: Shipping 100 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, r.show_to_builder);
-    assert.equal((r.show_to_builder.match(/https?:\/\//g) ?? []).length, 1, 'no second link');
-    // R8: the one next step is the statement "Ship this week to climb.": no question at all.
-    assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 0, 'no question');
+    // Task 16: the standing line names the rank ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
+    assert.match(r.show_to_builder, /^Hello-World · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m, r.show_to_builder);
+    assert.ok((r.show_to_builder.match(/https?:\/\//g) ?? []).length <= 1, 'no second link');
+    assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, 'one question');
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.ok(!(r.note ?? '').includes(EARN_NOTE), r.note);
     assert.equal(r.lead, undefined);
@@ -282,7 +284,8 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
   withEnv(ON, async () => {
     const bench = toolDescriptions(true, true).prepare;
     assert.doesNotMatch(bench, /earnkit\.txt|token: <code>/);
-    assert.match(bench, /A token needs a repo proven yours; EarnKit gives you the install link when it needs one\./);
+    // v3.1 (spec 3.4): prepare only drafts, so it says nothing of a token.
+    assert.doesNotMatch(bench, /token/i);
     assert.ok(bench.length < 800, `${bench.length}`);
   }),
 );
@@ -292,32 +295,32 @@ test('O5 N9 prepare\'s description never teaches the earnkit.txt line', () =>
 (globalThis as { React?: typeof React }).React = React;
 const html = (el: React.ReactElement) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
 
-test('O5 N16, P1, P10 the landing Bench with nobody on it says so; "1 builder who ships"; the money heading includes investments', () => {
-  assert.ok(html(React.createElement(BenchTop, { rows: [], count: 0 })).includes(BENCH_TOP_EMPTY));
+test('O5 N16, P1, P10 the leaderboard with nobody on it says so; "1 builder"; the money heading includes investments', () => {
+  assert.ok(html(React.createElement(BenchView, { rows: [], count: 0, chips: [], filter: { chain: null, weekly: false }, page: 1 })).includes(BENCH_TOP_EMPTY));
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
-  // v2.13.2 (3): "1 builder who ships" (v2132-followups.test.ts covers 0, 1 and many).
-  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
-  assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
+  // v2.13.2 (3), v3.1: "1 builder" (v2132-followups.test.ts covers 0, 1 and many).
+  assert.equal(leaderboardLine(1), '1 builder, ranked by how often they ship');
+  assert.equal(leaderboardLine(2), '2 builders, ranked by how often they ship');
+  // v3.1 Task 6: the landing's money heading is "Earning opportunities" (investments included), never "Grants open now".
   const cards = html(React.createElement(ProgramCards, { tiles: [] }));
-  assert.ok(cards.includes('Money open now'), cards);
+  assert.ok(cards.includes(EARN_TITLE) && cards.includes(EARN_FOOT), cards);
   assert.ok(!cards.includes('Grants open now'));
 });
 
 // ---- O5 fix round 1, item 6: a late match is remembered for the next reply ---------------------------
 
-test('O5 fix round 1: matching cut by the reply wait still lands: the next reply shows Ways to get funded for a big repo', dbTest, () =>
+test('O5 fix round 1: matching cut by the reply wait still lands: the next reply has the fit for a big repo (its lead)', dbTest, () =>
   on(async () => {
     const ava = await avalanche();
     const key = `${uniq('big')}/monorepo`;
     const slow = { matchProjects: async () => { await sleep(2500); return { checked: 1, scored: 1, fits: fitsFor(ava.id, key) }; } };
     const id = await install();
     const r1 = await find(id, named(key), { ...slow, proofBranchFetch: repoFake().f });
-    // v2.13.3 (2): the money section always shows; the first reply just has no fit yet.
-    assert.ok(!r1.show_to_builder.includes(`${ava.title}: up to $10K, rolling.`), 'the first reply did not wait (a fit line, not a needs line)');
+    // Task 16: a signed-out reply names no fit; the lead (the fit the agent prepares) carries it.
+    assert.equal(r1.lead, undefined, 'the first reply did not wait');
     await sleep(1500);
     const r2 = await find(id, {}, { ...slow, proofBranchFetch: repoFake().f });
-    assert.match(r2.show_to_builder, /Ways to get funded/, r2.show_to_builder);
-    assert.ok(r2.show_to_builder.includes(`${ava.title}: up to $10K, rolling.`), r2.show_to_builder);
+    assert.equal((r2.lead as { program_id?: string } | undefined)?.program_id, ava.id, JSON.stringify(r2.lead));
     await sleep(1200);
   }),
 );

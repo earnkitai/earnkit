@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Feed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+.ek-card{transition:transform 200ms ease, border-color 200ms ease}.ek-card:hover{border-color:rgba(255,255,255,0.16)}
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+body{margin:0;background:#05060D}
+a{color:inherit;text-decoration:none}
+.ek-lift{transition:transform 200ms ease}.ek-lift:hover{transform:translateY(-4px)}
+.ek-pg:hover{color:#FFFFFF}
+.ek-wk:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #05060D; color: #FFFFFF; font-family: 'Funnel Sans', system-ui, sans-serif;">
+<dc-import name="Nav" active="Feed" hint-size="100%,80px"></dc-import>
+<main style="max-width: 1240px; margin: 0 auto; padding: 24px 24px 0; display: flex; flex-direction: column; gap: 28px; box-sizing: border-box;">
+
+<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; padding: 0 8px;">
+<h1 style="margin: 0; font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-weight: 400; font-size: 72px; line-height: 1;">Feed</h1>
+<div role="tablist" aria-label="Week" style="display: flex; gap: 4px; padding: 4px; border-radius: 999px; background: #11152A;">
+<sc-for list="{{weeks}}" as="w" hint-placeholder-count="3">
+<button type="button" role="tab" class="ek-wk" aria-selected="{{w.on}}" onClick="{{w.pick}}" style="{{w.style}}">{{w.label}}</button>
+</sc-for>
+</div>
+</div>
+
+<section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+<sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+<div style="{{s.card}}">
+<span style="font-size: 14px; color: {{s.sub}};">{{s.label}}</span>
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 64px; line-height: 0.9;">{{s.value}}</span>
+</div>
+</sc-for>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 12px;">
+<sc-for list="{{items}}" as="u" hint-placeholder-count="9">
+<article class="ek-lift ek-card" style="background: linear-gradient(180deg, #121629 0%, #0C0F1E 100%); border: 1px solid rgba(255,255,255,0.07); color: #FFFFFF; border-radius: 28px; padding: 22px 26px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; box-sizing: border-box;">
+<div style="display: flex; align-items: center; gap: 12px; flex: 0 0 240px; min-width: 0;">
+<sc-if value="{{u.pfp}}" hint-placeholder-val="{{true}}"><img src="{{u.pfp}}" alt="" style="width: 48px; height: 48px; flex-shrink: 0; border-radius: 999px; object-fit: cover;"></sc-if>
+<sc-if value="{{u.noPfp}}" hint-placeholder-val="{{false}}"><span aria-hidden="true" style="width: 48px; height: 48px; flex-shrink: 0; border-radius: 999px; background: linear-gradient(140deg, #3A4366 0%, #1C2238 100%);"></span></sc-if>
+<div style="display: flex; flex-direction: column; min-width: 0;">
+<a href="Profile.dc.html" style="font-size: 16px; font-weight: 600;">{{u.name}}</a>
+<a href="#" style="display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #8A93B0;"><svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path fill="#8A93B0" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"></path></svg>{{u.handle}}</a>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 420px; min-width: 0;">
+<span style="font-size: 13px; font-weight: 600; color: #7E87A6;">{{u.meta}}</span>
+<p style="margin: 0; font-size: 15px; line-height: 1.55; color: #B6BDD6;">{{u.text}}</p>
+</div>
+<span style="{{u.scoreStyle}}">{{u.score}}</span>
+</article>
+</sc-for>
+</section>
+
+<nav aria-label="Feed pages" style="display: flex; gap: 4px; align-items: center; justify-content: center; padding: 8px 0;">
+<button type="button" class="ek-pg" style="height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: #8A93B0; font: 500 14px 'Funnel Sans', sans-serif; opacity: 0.4;">Newer</button>
+<button type="button" style="min-width: 36px; height: 36px; border: 0; border-radius: 999px; background: #1A1F36; color: #FFFFFF; font: 600 14px 'Funnel Sans', sans-serif;">1</button>
+<button type="button" class="ek-pg" style="min-width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: #8A93B0; font: 500 14px 'Funnel Sans', sans-serif; cursor: pointer;">2</button>
+<button type="button" class="ek-pg" style="min-width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: #8A93B0; font: 500 14px 'Funnel Sans', sans-serif; cursor: pointer;">3</button>
+<button type="button" class="ek-pg" style="height: 36px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: #8A93B0; font: 500 14px 'Funnel Sans', sans-serif; cursor: pointer;">Older</button>
+</nav>
+<span style="font-size: 13px; color: #6F7792; padding: 0 8px;">Example data except Jenil.</span>
+</main>
+<div style="height: 96px;"></div>
+<dc-import name="Foot" hint-size="100%,520px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":2000}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { week: 'Oct 12' }; }
+  renderVals() {
+    const serif = "font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36;";
+    const band = (s) => s >= 70 ? '#4ADE80' : s >= 40 ? '#FDBA74' : '#FCA5A5';
+    const wk = this.state.week;
+    const weeks = ['Oct 12', 'Oct 5', 'Sep 28'].map((label) => ({
+      label: 'Week of ' + label, on: String(label === wk), pick: () => this.setState({ week: label }),
+      style: 'height: 38px; padding: 0 16px; border: 0; border-radius: 999px; cursor: pointer; font: 600 14px \'Funnel Sans\', sans-serif; background: ' + (label === wk ? '#FFFFFF' : 'transparent') + '; color: ' + (label === wk ? '#05060D' : '#8A93B0') + ';'
+    }));
+    const stat = (bg) => 'background: ' + bg + '; border-radius: 32px; padding: 26px; display: flex; flex-direction: column; gap: 14px; min-height: 150px; justify-content: space-between; box-sizing: border-box;';
+    const stats = [
+      { label: 'Builders shipped', value: '31', card: stat('linear-gradient(160deg, #1E4FD8 0%, #0E2A8A 100%)'), sub: '#C9D6FF' },
+      { label: 'Commits', value: '1.2K', card: stat('linear-gradient(160deg, #11152A 0%, #0A0D1C 100%)'), sub: '#A8B0CC' },
+      { label: 'Went live', value: '4', card: stat('linear-gradient(160deg, #2A1209 0%, #160904 100%)'), sub: '#D9B8A6' },
+      { label: 'Applications sent', value: '7', card: stat('linear-gradient(160deg, #0D2A1C 0%, #07150E 100%)'), sub: '#A6D9BC' }
+    ];
+    const S = '[The week’s summary, written from its commits]';
+    const rows = [['Jenil', 'jenilt', 'EarnKit', 60, '279 commits', '/_blob/a9439bb9e3b4769da8817eac818ba445']];
+    for (let i = 0; i < 8; i++) rows.push(['[Builder]', '[handle]', '[Project]', [91, 88, 84, 79, 74, 68, 52, 44][i], '[N] commits', null]);
+    const items = rows.map((x) => ({
+      name: x[0], handle: x[1].startsWith('[') ? x[1] : '@' + x[1], score: String(x[3]),
+      meta: x[2] + ' · ' + x[4], text: x[0] === 'Jenil' ? 'Added Sign in with X at the install’s authorize step, plus a fallback sign-in link.' : S,
+      pfp: x[5], noPfp: !x[5], scoreStyle: serif + ' font-size: 32px; line-height: 1; color: ' + band(x[3]) + ';'
+    }));
+    return { weeks, stats, items };
+  }
+}
+</script>
+</body>
+</html>

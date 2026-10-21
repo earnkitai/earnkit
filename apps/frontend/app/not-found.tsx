@@ -1,28 +1,32 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
-import { BTN_SECONDARY } from './components/common/Button';
-import { COLUMN, H1, LEDE } from './components/common/Panel';
+import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
 
 export const NOT_FOUND_TITLE = 'Page not found';
-export const NOT_FOUND_LINE = 'This page or builder is not on EarnKit.';
 
 export const metadata = { title: NOT_FOUND_TITLE, robots: 'noindex' };
 
-/** Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default). */
+/**
+ * Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default).
+ * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Back home"; the full footer.
+ */
 export default function NotFound() {
   return (
     <>
-      <div className={`${COLUMN} pb-16 pt-12 md:pt-20`}>
-        <h1 className={H1}>{NOT_FOUND_TITLE}</h1>
-        <p className={LEDE}>{NOT_FOUND_LINE}</p>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-          <Link href="/leaderboard" className={BTN_SECONDARY}>
-            See the leaderboard
+      <div className={`${PAGE_COL} pb-6 pt-2`}>
+        <section
+          aria-labelledby="not-found-title"
+          className={`${CARD_RUST.replace('rounded-[36px]', 'rounded-[32px] md:rounded-[40px]')} flex flex-col items-center gap-[18px] px-6 py-14 text-center md:px-10 md:py-20`}
+        >
+          <p className="ek-serif text-[96px] leading-[0.9] text-s-rust-on md:text-[140px]">{NOT_FOUND_BIG}</p>
+          <h1 id="not-found-title" className="ek-serif text-[32px] leading-none md:text-[44px]">
+            {NOT_FOUND_TEXT}
+          </h1>
+          <Link href="/" className={`${PILL_WHITE} mt-2`}>
+            {NOT_FOUND_HOME}
           </Link>
-          <Link href="/" className={BTN_SECONDARY}>
-            Home
-          </Link>
-        </div>
+        </section>
       </div>
       <Footer />
     </>

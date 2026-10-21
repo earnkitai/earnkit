@@ -4,9 +4,10 @@ import { norm, shareIntentText, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
 import { summaryShown } from './week-summary';
 import { checkUpdate } from './update-text';
-import { isoWeekOf, lastFinishedMonday, mondayOf } from './weeks';
+import { isoWeekOf, lastFinishedMonday, mondayOf, streakOf } from './weeks';
 import { WEEKLY_HOUR_UTC, hasFacts, type WeekFacts } from './week-facts';
 import { awardWeekPoints, type ApproveVia } from './points';
+import { RANK_MIN_POOL } from './rank';
 
 /**
  * Launch ready L6: one weekly moment. Only the builder's own data: their Shipping, rank and checked titles (never
@@ -22,7 +23,11 @@ export type WeekStanding = { score: number; rank: number; total: number };
  * `checked`: the weekly job has written last week's ship-log row (facts.checked). `approved`: the builder already
  * confirmed it (facts.approved, as the connect yes does), so the moment never asks about it again.
  */
-export type LastWeek = { monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean };
+export type LastWeek = {
+  monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean;
+  /** Task 16 fix round 1: the week's row has facts (week-facts.ts hasFacts), so its approval earns points (approveWeek). */
+  facts: boolean;
+};
 
 /** "+6", "-3", "same". Pure. */
 const scoreDelta = (d: number) => (d === 0 ? 'same' : d > 0 ? `+${d}` : `${d}`);
@@ -32,16 +37,18 @@ const rankDelta = (before: number, now: number) => (before === now ? 'same' : no
 /**
  * "Last week you finished at Shipping 72 (+6), #3 (up 2)." (no week before it: "Last week you finished at Shipping
  * 72, #3."), then the week's titles on one line ("Add dark mode · Fix the login loop"), at most 2, then the new
- * week's line (weekly-target.ts weekStartLine), when there is one. Pure.
+ * week's line (weekly-target.ts weekStartLine), when there is one. v3.1 F3: under RANK_MIN_POOL ranked builders that
+ * week, no rank part ("Last week you finished at Shipping 72 (+6)."). Pure.
  */
 export const MOMENT_TITLES_MAX = 2;
 /** Weekly updates: the builder's optional note under the week's summary (tell update { text }). */
 export const NOTE_LINE = 'Send a line about your week and it goes under your update.';
-export function momentLines(w: Omit<LastWeek, 'approved'>, weekStart: string | null = null): string[] {
+export function momentLines(w: Omit<LastWeek, 'approved' | 'facts'>, weekStart: string | null = null): string[] {
   const { now, before } = w;
-  const head = before
-    ? `Last week you finished at Shipping ${now.score} (${scoreDelta(now.score - before.score)}), #${now.rank} (${rankDelta(before.rank, now.rank)}).`
-    : `Last week you finished at Shipping ${now.score}, #${now.rank}.`;
+  const ranked = now.total >= RANK_MIN_POOL;
+  const score = `Shipping ${now.score}${before ? ` (${scoreDelta(now.score - before.score)})` : ''}`;
+  const rank = ranked ? `, #${now.rank}${before ? ` (${rankDelta(before.rank, now.rank)})` : ''}` : '';
+  const head = `Last week you finished at ${score}${rank}.`;
   const titles = w.titles.slice(0, MOMENT_TITLES_MAX);
   return [head, ...(titles.length > 0 ? [titles.join(' · '), NOTE_LINE] : []), ...(weekStart ? [weekStart] : [])];
 }
@@ -59,13 +66,27 @@ export function momentReady(checked: boolean, now: Date): boolean {
 const LINKISH = /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?:^|[^\p{L}\p{N}@._-])(?:[\p{L}\p{N}-]+\.)+(?:com|net|org|io|dev|app|ai|xyz|co|me|sh|gg|so|fun|site|link|info|tech|cloud|page|ly|to|tv|us|uk|de|eth)\b/iu;
 export const titleHasLink = (t: string) => LINKISH.test(t);
 
-/** The post's text: "My week on EarnKit: Shipping 72 · #3 of 40 builders". Pure. */
+/** The post's text: "My week on EarnKit: Shipping 72 · #3 of 40 builders"; "My week on EarnKit: Shipping 72" under RANK_MIN_POOL (v3.1 F3). Pure. */
 export const shareText = (w: WeekStanding) =>
-  `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} ${w.total === 1 ? 'builder' : 'builders'}`;
+  w.total < RANK_MIN_POOL
+    ? `My week on EarnKit: Shipping ${w.score}`
+    : `My week on EarnKit: Shipping ${w.score} · #${w.rank.toLocaleString('en-US')} of ${w.total.toLocaleString('en-US')} builders`;
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =
-  "show_to_builder ends with a share link for X and one question. A yes or no to it: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
+  "show_to_builder offers a post for X to paste and asks one question. A yes or no to the question: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
+/**
+ * Task 16 step 7: the week's number in "Week 4 done.": weeks with code in a row up to last week (`monday`), the
+ * streak's rule (weeks.ts streakOf); 0 when last week had no code ("Last week done."). Pure.
+ */
+export const weekNumber = (commitWeeks: string[], monday: string) =>
+  commitWeeks.includes(isoWeekOf(new Date(`${monday}T12:00:00Z`))) ? streakOf(commitWeeks, new Date(`${monday}T12:00:00Z`)) : 0;
+/**
+ * Task 16 step 7: where last week left the builder beside their rank: 'still' (the same rank as the week before),
+ * 'now' (moved, or no week before), null under RANK_MIN_POOL ranked builders ("on EarnKit"). Pure.
+ */
+export const momentPlace = (w: Pick<LastWeek, 'now' | 'before'>): 'still' | 'now' | null =>
+  w.now.total < RANK_MIN_POOL ? null : w.before && w.before.rank === w.now.rank ? 'still' : 'now';
 export const APPROVED_LINE = 'Thanks. Last week is confirmed.';
 
 /**
@@ -104,14 +125,14 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
   if (!cur) return null;
   const before = await weekStanding(builderId, new Date(Date.parse(`${monday}T00:00:00Z`) - 7 * DAY_MS).toISOString().slice(0, 10));
   const db = sql();
-  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean; approved: boolean }[]>`
-    SELECT titles, summary, facts ? 'checked' AS checked, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
+  const [u] = await db<{ titles: string[]; summary: string | null; checked: boolean; approved: boolean; facts: WeekFacts | null }[]>`
+    SELECT titles, summary, facts, facts ? 'checked' AS checked, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && (u.titles.length > 0 || u.summary)) {
     const line = (await weekLineRule(builderId, key))(u);
     if (line) titles = [line];
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved: u?.approved ?? false };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved: u?.approved ?? false, facts: hasFacts(u?.facts ?? {}) };
 }
 
 /**

@@ -1,5 +1,5 @@
 import { after, test } from 'node:test';
-import { CONNECT_ASK } from './connect-moment';
+import { connectAsk } from './connect-moment';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
@@ -16,6 +16,7 @@ import { readSources } from './sources';
 import { readPersonLive, rescorePerson } from './person-score';
 import { defaultReaderDeps } from './source-readers';
 import { proveRepo, tokenGate } from './token-gate';
+import { padPool } from './fixtures/rank-pool';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -56,6 +57,8 @@ test('6.1 an unproven repo gets the App install link (purpose app), never a proo
 });
 
 test('6.2 the setup URL proves the repo (github_app), rescoring at once: the next find says it is on the Bench', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const key = `nia${RUN}/notes`;
   const p = await personWith(key, 'nia');
   const gh = fakeGitHub({ [key]: { id: 9001, owner: `nia${RUN}`, installation: 77, private: true } });
@@ -69,7 +72,7 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
-  assert.match(String(r.reply?.show_to_builder), /^Notes: Shipping 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m);
+  assert.match(String(r.reply?.show_to_builder), /^Notes · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
 });
 
 /** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */
@@ -85,6 +88,8 @@ async function connected(key: string, handle: string, gh: ReturnType<typeof fake
 const ago = (weeks: number) => new Date(Date.now() - weeks * 7 * 86_400_000).toISOString();
 
 test('6.2b R5 scored at connect: right after the App setup, a repo with commits has a real Shipping score and a rank', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const key = `gwen${RUN}/ships`;
   const commits = [0, 1, 2, 5].map((w, i) => ({ sha: `c${i}`, message: `change ${i}`, date: ago(w) }));
   const gh = fakeGitHub({ [key]: { id: 9101, owner: `gwen${RUN}`, installation: 91, private: true, commits } });
@@ -97,19 +102,20 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const reads = gh.calls.filter((c) => c.path === '/graphql');
   assert.equal(reads.length, 1);
   assert.equal(reads[0].auth, 'Bearer ghs_fake_91');
-  // v3 Stage 1 Task 5: the first ranked reply after connect leads with the backfilled weeks and asks their one yes.
+  // v3 Stage 1 Task 5, Task 16 step 3: the first ranked reply after connect offers the backfilled weeks in one yes.
   const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(first, /^Your last \d weeks?:\nWeek of /, first);
-  assert.ok(first.endsWith(`How to move up\n${CONNECT_ASK}`), first);
+  assert.match(first, /^Ships is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders), 3 weeks in a row\.\n\n/, first);
+  const m = /\nPost your (\d+) weeks to (https:\/\/earnkit\.com\/\S+) so grant teams can see them\?\n\+(\d+) points$/.exec(first);
+  assert.ok(m && first.endsWith(`${connectAsk(Number(m[1]), m[2])}\n+${Number(m[1]) * 30} points`), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
-  // R16a: one ranked state; the streak lives in the Shipping score (the stand line is the score line alone).
-  assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, text);
+  // R16a: one ranked state; Task 16: the standing line carries the rank and the streak.
+  assert.match(text, /^Ships · (#\d+ of \d+ builders?|Top [\d.]+% of builders) · 3 weeks in a row$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
-  // Next week drops week 5's weight: shipping then is 55, not shipping 42.
-  assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4.\n'), text);
-  // L5: this week has code, so the target says so and what next week adds.
-  assert.match(text, /How to move up\nDone this week: \+\d+ points\. Next week adds up to 13 more\.$/, text);
+  // v3.1 F4: the why sentence stays on the page, never in the reply.
+  assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
+  // L5: this week has code ("Done this week"): the plain points line.
+  assert.ok(text.endsWith('\nShip code this week: up to +100 points'), text);
 });
 
 test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {

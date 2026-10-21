@@ -50,7 +50,8 @@ export async function builderJson(handle: string, now: Date): Promise<BuilderJso
     name: d.name,
     page: `${siteUrl()}${pagePath(d.handle)}`,
     shipping: d.score,
-    rank: d.bench !== null && s.ranked && s.listed ? s.rank : null,
+    // v3.1 F3: the number stays at any pool size (the page hides it under RANK_MIN_POOL).
+    rank: d.rankListed && s.ranked && s.listed ? s.rank : null,
     total: s.total,
     streak: d.streak,
     points: d.points,

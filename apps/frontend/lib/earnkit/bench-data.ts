@@ -8,6 +8,7 @@ import { readOriginality } from './originality';
 import { pointsTotal } from './points';
 import { backersOfCoin } from './backers';
 import { NO_EARNED, earnedUsd } from './earned';
+import { tokenAllowed } from './site-data';
 import { avatarUrl, displayName, norm, projectPrograms, safeNames, shownProjects, type ProgramLabel } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
@@ -62,7 +63,7 @@ export function bestFact(p: { streak: number; weeks_shipping: number; shipped: b
 }
 
 /** R17: `points`, the builder's Shipping score (0 to 100), shown in the leaderboard's points column. v3 Stage 2: `backing`, the Backing pill's coin. */
-export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string };
+export type BenchRow = { rank: number; line: string | null; points: number; handle: string; name: string; avatar: string | null; backing: { symbol: string; url: string } | null; chains: BenchChain[]; project: string; best: string; /** v3.1 site: builder_projects.streak, weeks of code in a row. */ streak: number };
 
 /**
  * The Bench: the listed ranked people whose one project counts as confirmed now (bench-rank
@@ -95,12 +96,15 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
   const [{ total }] = await db<{ total: number }[]>`SELECT count(*)::int AS total FROM ${benchPool(o.only)} x`;
   const pools = await chainPools(o);
   const nameOf = await safeNames(rows.map((r) => r.builder_id));
-  const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url ? { symbol: r.symbol, url: r.url } : null);
+  // v3.1 site Task 8: never for EarnKit's own repo (site-data tokenAllowed, the Token card's rule), so neither the Backed
+  // tag nor the Backed filter ever shows earnkitai/earnkit.
+  const pill = (r: (typeof rows)[number]) => (raisingOn && r.raising && r.symbol && r.url && tokenAllowed(r.key) ? { symbol: r.symbol, url: r.url } : null);
+  const listed = f.backed && raisingOn ? rows.filter((r) => pill(r) !== null) : rows;
   return {
     count: total,
     // R16e: a chain's chip from one ranked project on it.
     chips: BENCH_CHAINS.filter((c) => pools[c] > 0),
-    rows: rows.map((r) => ({
+    rows: listed.map((r) => ({
       rank: r.rank,
       line: rankLine({ ranked: true, rank: r.rank, total }),
       points: r.points,
@@ -111,6 +115,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
       project: nameOf(r.builder_id, r.key),
       best: bestFact(r),
+      streak: r.streak,
     })),
   };
 }
@@ -119,7 +124,11 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
 
 /** One card in the Ship log: the week's Monday, the update (or null), the fact chips; `started` marks the Started card. */
 /** Weekly updates: `summary`, what the week shipped (week-summary.ts summaryShown); `text`, the builder's own note. */
-export type ProfileCard = { week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean };
+export type ProfileCard = {
+  week: string; text: string | null; summary?: string; chips: string[]; started?: string | null; /** facts.approved: the builder's yes; false reads "Not yet confirmed" (never set on a Started card). */ confirmed?: boolean;
+  /** v3.1 site: the week's commits EarnKit checked (facts.shipped_code.n), set only from 1. */
+  commits?: number;
+};
 export type ProjectTabData = {
   name: string; what: string | null; live: string | null; repo: string | null; chains: BenchChain[];
   coin: { symbol: string; url: string } | null; programs: ProgramLabel[]; funds: string[]; confirmed: boolean;
@@ -152,6 +161,8 @@ export type ProfileData = {
    */
   earned: { paid_usd: number; waiting_usd: number };
   bench: string | null;
+  /** v3.1 F3: in the leaderboard's pool (bench-rank RankLines.listed), so a ranked page even while `bench` is null (under RANK_MIN_POOL). */
+  rankListed: boolean;
   /** The header's score line (rank.ts scoreLine: "Shipping 72 · #3 of 40 builders"), null while unranked. */
   line: string | null;
   chainLines: { chain: BenchChain; label: string; line: string }[];
@@ -207,7 +218,12 @@ export function logCards(rows: { week: string; text: string | null; summary?: st
       // O3 fix round 1: one live chip on a start week that went live ("Went live", not also "Live").
       const own = facts.started ? startedChips(facts.started).filter((c) => !(c === 'Live' && facts.went_live)) : [];
       const start = facts.started ? [STARTED_CHIP, ...own] : [];
-      out.push({ week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])] });
+      const n = Number(facts.shipped_code?.n ?? 0);
+      const commits = Number.isFinite(n) ? Math.floor(n) : 0;
+      out.push({
+        week: r.week, text: r.text, confirmed: r.facts?.approved === true, ...(summary && { summary }), ...(commits > 0 && { commits }),
+        chips: [...new Set([...start.slice(0, 1), ...chips, ...start.slice(1)])],
+      });
     } else if (facts.started) out.push({ week: r.week, text: null, chips: startedChips(facts.started), started: startedLine(name) });
   }
   return out;
@@ -289,7 +305,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const backers = pill ? await backersOfCoin(pill.coin) : 0;
   const [live] = await db<{ score: number; parts: unknown }[]>`
     SELECT score::float8 AS score, parts FROM builder_live WHERE builder_id = ${builderId}`;
-  const scored = lines.bench !== null && live;
+  // v3.1 F3: the score shows on a ranked page, with or without the rank phrase.
+  const scored = lines.listed && live;
   const base = {
     handle: p.x_handle,
     name: displayName(p.x_name, p.x_handle),
@@ -298,6 +315,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
     earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },
     bench: lines.bench,
+    rankListed: lines.listed,
     line: lines.line,
     chainLines: lines.chains,
     // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).

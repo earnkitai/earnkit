@@ -2,7 +2,7 @@ import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';
-import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
+import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
@@ -24,8 +24,10 @@ export { endsOf } from './entry-text';
  */
 export type Card = {
   id: string;
+  /** Task 16: the organizer (programs.ts programCard), as the signed-out reply names it ("Base pays up to $5,000"). */
+  organizer?: string;
   /** v3 Stage 2 (programs.ts programCard): `upcoming` is listed (Not open yet), never open. Absent: active. */
-  status?: 'active' | 'closed' | 'upcoming';
+  status?: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens, or null. */
   opens_note?: string | null;
   /** v3 Stage 2: attended in person (the card's "In person" chip). */
@@ -208,8 +210,6 @@ export const APPLIED_OUTSIDE = 'applied outside EarnKit';
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
 const MAX_OTHERS = 5;
-/** Ideas under "Ideas I can build"/"Ideas for these programs" in all (v2.6 §1). */
-const MAX_IDEAS = 6;
 
 /** "0.42" from wei, two decimals, rounded down. Exported for alerts.ts (the bonus win amount). */
 export const eth = (wei: bigint) => {
@@ -223,25 +223,6 @@ export { NO_CELL };
 /** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or NO_CELL with none. Pure. */
 export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
   return c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL;
-}
-
-/** Ideas per program in the ideas list (fix round 1, ruling 3). */
-const IDEAS_PER_PROGRAM = 2;
-
-/**
- * One line per idea, in table order, its program title on every line: "- Arc Microgrants: <idea>".
- * At most 2 ideas per program and 6 ideas in all (v2.6 §1).
- */
-function ideaLines(cards: Card[]) {
-  const lines: string[] = [];
-  let left = MAX_IDEAS;
-  for (const c of cards) {
-    const ideas = (c.ideas ?? []).slice(0, Math.min(IDEAS_PER_PROGRAM, left));
-    for (const idea of ideas) lines.push(`- ${c.title}: ${idea}`);
-    left -= ideas.length;
-    if (left === 0) break;
-  }
-  return lines;
 }
 
 /** Days until a deadline if it's within 3 days, else null. */
@@ -472,6 +453,8 @@ export type Fit = {
   low_reason: string | null;
   /** v2.11 8a (S5): the repo has real use (measured, or the builder's users claim): it outranks traction. */
   real_use: boolean;
+  /** v3.1 F1: the repo's own odds (match.ts productOdds), apart from the row's; absent: unknown (canApply reads it). */
+  repo_odds?: Odds;
 };
 
 /** v2.10 item 6: a low-odds row's label in its "Your repo" cell. Pure. */
@@ -572,13 +555,17 @@ const programCell = (c: Card, entered: Set<string>, noRepoYet: boolean) =>
  * investment, and never a program that counts only new work when the repo is existing work (its
  * verdict still needs new work). Pure.
  */
-export const qualifies = (r: Fit) => canApply(r) && !r.card.investment;
+export const qualifies = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work') && !r.card.investment;
 /**
  * v3 Stage 2 final review: a matched row the builder could apply to from the ship log: good odds and never a
  * program that counts only new work when the repo is existing work. An investment (an accelerator) can be
- * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money and the fit lines. Pure.
+ * applied to, so it is the apply step's candidate too; qualifies leaves it out of the money. v3.1 F1: a row whose
+ * only low odds are users not measured yet ("no users yet", on a repo with good odds of its own) is a candidate
+ * too: the application states the usage itself (Base asks for usage numbers; Alliance considers pre-product teams),
+ * as alerts.ts fitGate with `apply` does on score's path. Pure.
  */
-export const canApply = (r: Fit) => r.odds === 'good' && !r.v.missing.includes('new_work');
+export const canApply = (r: Fit) =>
+  !r.v.missing.includes('new_work') && (r.odds === 'good' || (r.low_reason === NO_USERS_YET && r.repo_odds === 'good'));
 
 /**
  * What the first message shows: the programs the builder's repos fit (each curated program once,
@@ -608,6 +595,7 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
         traction: f.product?.traction ?? 0,
         low_reason: odds.low_reason,
         real_use: f.facts ? hasRealUse(f.facts) : false,
+        ...(f.product?.odds && { repo_odds: f.product.odds }),
       };
       // v2.10 item 6 (Pre-flight P12): per program, the repo with good odds, then more traction; else the first.
       const kept = matched.get(v.program_id);
@@ -900,10 +888,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     );
   }
 
-  // No repo to match: curated ideas for the programs shown (never generated at request time).
-  const ideas = noMatch(m.repos) ? ideaLines(shown) : [];
-  if (ideas.length > 0)
-    sections.push(`${m.agentCanBuild ? 'Ideas I can build:' : 'Ideas for these programs:'}\n${ideas.join('\n')}`);
+  // v3.1 (spec 3.4): no ideas section (EarnKit offers no build); the open programs are the reply.
   const sponsored = m.cards.filter((c) => c.sponsored);
   if (sponsored.length > 0)
     sections.push(
@@ -915,7 +900,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
 
   // The one closing offer.
-  const close = offer(m, byId, rows, ideas.length > 0, entered);
+  // v3.1 (spec 3.4): the ideas list is gone; the close a shown program with curated ideas earned stays the same.
+  const close = offer(m, byId, rows, noMatch(m.repos) && shown.some((c) => (c.ideas ?? []).length > 0), entered);
   if (!given.holdQuestion) sections.push(close.text);
   return done();
 }
@@ -965,8 +951,7 @@ type Offer = {
  * One closing offer, never a menu and never a sponsor campaign (fix round 1, I3). In order: keep
  * going on what they're preparing; build an entry for an open EarnKit campaign; the quickest fit
  * without forms; a fit that needs forms, saying what only they can give; with no repo known (and
- * no open campaign), "Pick one and I'll start." (task 2 fix round 1, Ruling 11) whether or not
- * ideas were shown; with repos known and no fit, build something new for the top program (without
+ * no open campaign), "Pick one and I'll start." (task 2 fix round 1, Ruling 11) when a shown program carries curated ideas; with repos known and no fit, build something new for the top program (without
  * forms first, Ruling 28); with a GitHub user or repo list given/remembered but no repo known,
  * check them; else wait for results or news.
  */
@@ -974,7 +959,7 @@ function offer(
   m: FirstMessage,
   byId: Map<string, Card>,
   rows: Fit[],
-  ideasShown: boolean,
+  withIdeas: boolean,
   entered: Set<string>,
 ): Offer {
   // v2.8.1 §B7, §B9: never an investment (it shows only in the table), never a program entered.
@@ -1009,7 +994,7 @@ function offer(
     return { text: `Want me to start on ${pick.card.title} with ${pick.repo}?${needsForms(pick.card) ? needsText(pick.card) : ''}`, campaign: false };
   if (asTheyAre)
     return { text: `Want me to start on ${asTheyAre.title}?${needsForms(asTheyAre) ? needsText(asTheyAre) : ''}`, campaign: false };
-  if (ideasShown) return { text: "Pick one and I'll start.", campaign: false };
+  if (withIdeas) return { text: "Pick one and I'll start.", campaign: false };
   const curated = m.cards.filter((c) => !c.sponsored);
   const fresh = curated.filter(offerable);
   // Ruling 11 (fix round 1): "You could" already offered a table of programs to pick from (no

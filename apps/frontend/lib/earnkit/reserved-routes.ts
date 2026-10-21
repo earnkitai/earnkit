@@ -10,7 +10,7 @@ export const RESERVED_ROUTES: ReadonlySet<string> = new Set([
   // app/ file routes and Next metadata names
   'favicon', 'sitemap', 'robots', 'manifest', 'icon', 'apple-icon', 'opengraph-image', 'twitter-image', '_next',
   // public/ (extension dropped)
-  'favicon-32x32', 'images', 'llms', 'logo', 'og',
+  'art', 'favicon-32x32', 'images', 'llms', 'logo', 'og',
 ]);
 
 export const isReserved = (handle: string): boolean => RESERVED_ROUTES.has(handle.toLowerCase());

@@ -27,44 +27,56 @@ test('L5.1 weekGains: this week not yet active gains what shipping now adds; onc
   assert.equal(weekGains({}, NOW), null);
 });
 
-test('L5.2 the target: pass the rank above when this week\'s points beat its score, else how far behind (ranks only, never a name)', () => {
-  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, enough to pass #2.');
-  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, 7 short of #2.');
+test('L5.1 the target names the rank only: pass the rank above when this week\'s points beat its score, else move toward it', () => {
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }), 'Ship code this week to pass #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }), 'Ship code this week to move toward #2.');
   // A tie is not a pass.
-  assert.equal(t({ score: 46, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, 1 short of #2.');
-  assert.equal(t({ score: 47, above: { rank: 2, score: 60 } }), 'Ship code this week: +14 points, enough to pass #2.');
+  assert.equal(t({ score: 46, above: { rank: 2, score: 60 } }), 'Ship code this week to move toward #2.');
+  assert.equal(t({ score: 47, above: { rank: 2, score: 60 } }), 'Ship code this week to pass #2.');
 });
 
 test('L5.3 boundaries: #1 holds, no one above, already active, gain 0, outside the pool', () => {
-  assert.equal(t({ rank: 1, above: null }), 'Ship code this week: +14 points to hold #1.');
+  assert.equal(t({ rank: 1, above: null }), 'Ship code this week to hold #1.');
   // Tied at the top: no one scores higher, so #1 holds too.
-  assert.equal(t({ rank: 1, above: null, score: 80 }), 'Ship code this week: +14 points to hold #1.');
+  assert.equal(t({ rank: 1, above: null, score: 80 }), 'Ship code this week to hold #1.');
   // This week already has code: no question, whatever is above.
-  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99 } }), 'Done this week: +14 points. Next week adds up to 13 more.');
-  assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week. Next week adds up to 13 more.');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 }, above: { rank: 1, score: 99 } }), 'Done this week.');
+  assert.equal(t({ gains: { active: true, gain: 0, next: 13 } }), 'Done this week.');
   assert.equal(t({ gains: { active: true, gain: 0, next: 0 } }), 'Done this week.');
+  assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 3 }), 'Ship code this week to hold #3.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }), 'Ship code this week to hold #1.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: null }), 'Ship code this week.');
-  assert.equal(t({ rank: null, above: null }), 'Ship code this week: +14 points.');
+  assert.equal(t({ rank: null, above: null }), 'Ship code this week.');
   for (const s of [t({ rank: 1 }), t({ gains: { active: true, gain: 14, next: 13 } })]) {
     assert.ok(s && !s.includes('?') && !s.includes('—') && !s.includes('–'), s ?? 'null');
   }
 });
 
-test('L10 the page voice (L7: the public profile is read by visitors): the same math, said as a fact, never "Ship code"', () => {
-  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }, 'page'), 'Code this week adds +14 points, enough to pass #2.');
-  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }, 'page'), 'Code this week adds +14 points, 7 short of #2.');
-  assert.equal(t({ rank: 1, above: null }, 'page'), 'Code this week adds +14 points to hold #1.');
-  assert.equal(t({ rank: null, above: null }, 'page'), 'Code this week adds +14 points.');
-  assert.equal(t({ gains: { active: true, gain: 14, next: 13 } }, 'page'), 'Shipped this week: +14 points. Next week adds up to 13 more.');
+test('L10 the page voice (L7: the public profile is read by visitors): the rank as a fact, never "Ship code"', () => {
+  assert.equal(t({ score: 50, above: { rank: 2, score: 60 } }, 'page'), 'Code this week passes #2.');
+  assert.equal(t({ score: 40, above: { rank: 2, score: 60 } }, 'page'), 'Code this week moves toward #2.');
+  assert.equal(t({ rank: 1, above: null }, 'page'), 'Code this week holds #1.');
+  assert.equal(t({ rank: null, above: null }, 'page'), null, 'no rank, nothing to say on the page');
+  assert.equal(t({ gains: { active: true, gain: 14, next: 13 } }, 'page'), 'Shipped this week.');
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 }, rank: 1 }, 'page'), null, 'a week that adds nothing says nothing on the page');
+});
+
+test('F4 (n) no target, page line or week-start line contains "+N" or "points", over every shape', () => {
+  const gainsShapes = [{ active: true, gain: 14, next: 13 }, { active: true, gain: 0, next: 0 }, { active: false, gain: 14, next: 14 }, { active: false, gain: 0, next: 0 }];
+  const places: Partial<TargetIn>[] = [{ rank: null, above: null }, { rank: 1, above: null }, { rank: 3, above: { rank: 2, score: 60 } }, { rank: 3, above: { rank: 2, score: 90 } }];
+  for (const gains of gainsShapes) for (const place of places) {
+    const full = { gains, score: 50, rank: 3, above: null, ...place } as TargetIn;
+    for (const line of [weeklyTarget(full, 'reply'), weeklyTarget(full, 'page'), weekStartLine(full)]) {
+      if (line !== null) assert.ok(!/\+\d|points/.test(line), line);
+    }
+  }
 });
 
 test('L6.1 the moment lines: deltas up, down and same; no week before; titles at most 2 on one line; the new week\'s line last', () => {
   const w = (score: number, rank: number) => ({ score, rank, total: 40 });
-  const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, approved: false, ...o });
-  assert.deepEqual(momentLines(lw({ titles: ['Add dark mode', 'Fix the login loop', 'Third'] }), 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.'),
-    ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', NOTE_LINE, 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.']);
+  const lw = (o: Partial<LastWeek>): LastWeek => ({ monday: '2026-10-12', now: w(72, 3), before: w(66, 5), titles: [], checked: true, approved: false, facts: true, ...o });
+  assert.deepEqual(momentLines(lw({ titles: ['Add dark mode', 'Fix the login loop', 'Third'] }), 'This week starts at Shipping 50: ship code to pass #2.'),
+    ['Last week you finished at Shipping 72 (+6), #3 (up 2).', 'Add dark mode · Fix the login loop', NOTE_LINE, 'This week starts at Shipping 50: ship code to pass #2.']);
   assert.deepEqual(momentLines(lw({ now: w(60, 7) })), ['Last week you finished at Shipping 60 (-6), #7 (down 2).']);
   assert.deepEqual(momentLines(lw({ now: w(66, 5), titles: ['One'] })), ['Last week you finished at Shipping 66 (same), #5 (same).', 'One', NOTE_LINE]);
   assert.deepEqual(momentLines(lw({ now: w(14, 1), before: null })), ['Last week you finished at Shipping 14, #1.']);
@@ -73,11 +85,11 @@ test('L6.1 the moment lines: deltas up, down and same; no week before; titles at
 test('L6.1b the new week\'s line from the target: pass, behind, hold #1; nothing once this week has code', () => {
   const g = { active: false, gain: 14, next: 13 };
   const t = (o: Partial<TargetIn>) => weekStartLine({ gains: g, score: 50, rank: 3, above: null, ...o });
-  assert.equal(t({ above: { rank: 2, score: 60 } }), 'This week starts at Shipping 50: ship code to add +14 points, enough to pass #2.');
-  assert.equal(t({ above: { rank: 2, score: 70 } }), 'This week starts at Shipping 50: ship code to add +14 points, 7 short of #2.');
-  assert.equal(t({ above: { rank: 2, score: 64 } }), 'This week starts at Shipping 50: ship code to add +14 points, 1 short of #2.', 'a tie is not a pass');
-  assert.equal(t({ rank: 1 }), 'This week starts at Shipping 50: ship code to add +14 points to hold #1.');
-  assert.equal(t({ rank: null }), 'This week starts at Shipping 50: ship code to add +14 points.');
+  assert.equal(t({ above: { rank: 2, score: 60 } }), 'This week starts at Shipping 50: ship code to pass #2.');
+  assert.equal(t({ above: { rank: 2, score: 70 } }), 'This week starts at Shipping 50: ship code to move toward #2.');
+  assert.equal(t({ above: { rank: 2, score: 64 } }), 'This week starts at Shipping 50: ship code to move toward #2.', 'a tie is not a pass');
+  assert.equal(t({ rank: 1 }), 'This week starts at Shipping 50: ship code to hold #1.');
+  assert.equal(t({ rank: null }), 'This week starts at Shipping 50: ship code to climb.');
   assert.equal(t({ gains: { active: true, gain: 14, next: 13 } }), null);
   assert.equal(t({ gains: { active: false, gain: 0, next: 0 } }), null);
 });
@@ -108,6 +120,8 @@ test('L6.2 the share link: an X intent URL whose text is the builder\'s own scor
   assert.ok(!/\s/.test(link), 'no raw spaces');
   assert.equal(link.match(/https:\/\//g)?.length, 1, 'the profile URL is encoded inside it: one https link');
   assert.ok(link.includes('%C2%B7'), 'the middle dot is encoded');
-  assert.equal(shareText({ score: 90, rank: 1, total: 1 }), 'My week on EarnKit: Shipping 90 · #1 of 1 builder');
+  // v3.1 F3: under RANK_MIN_POOL ranked builders, the score alone.
+  assert.equal(shareText({ score: 90, rank: 1, total: 1 }), 'My week on EarnKit: Shipping 90');
+  assert.equal(shareText({ score: 90, rank: 1, total: 10 }), 'My week on EarnKit: Shipping 90 · #1 of 10 builders');
   assert.equal(shareText({ score: 40, rank: 1204, total: 3500 }), 'My week on EarnKit: Shipping 40 · #1,204 of 3,500 builders');
 });

@@ -1,51 +1,51 @@
+import { LIVE_BONUS, SHIPPING_WEEKS } from './score-v2';
+
 /**
- * v3 Stage 3, Task 5 (spec 5.6): every string on /docs. The agents' install steps are not here: the page
- * reads them from AGENTS in app/components/sections/AddToAgent.tsx, so the modal and the page never differ.
- * Pinned by v3-docs.test.ts: under 600 words in all, no em dash, no emoji.
+ * v3.1 site Task 10 (Docs board): every string on /docs. The agents' install steps and commands are not here: the
+ * install card reads them from AGENTS (app/components/sections/agents.tsx), so the sheet and the page never differ.
+ * Backing words only while raisingEnabled(): `docsNav` and `docsMoney` drop them with the flag off.
+ * Pinned by v31-site-docs.test.ts and v3-docs.test.ts: under 250 words on the page, no em dash, no emoji, no points.
  */
-export const DOCS_TITLE = 'Docs';
-export const DOCS_LEDE = 'EarnKit is one link your agent connects to. It reads your commits, finds programs that fit and drafts your applications.';
+export const DOCS_NAV: [string, string][] = [
+  ['#install', 'Install'],
+  ['#week', 'How the week works'],
+  ['#score', 'Shipping score'],
+  ['#money', 'Programs and Backing'],
+  ['#selectors', 'For selectors'],
+];
 
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
-export const DOCS_INSTALL_SUB = 'Free. Sign in with X once. Then ask your agent: "What can I earn?"';
+export const DOCS_STEPS = ['Add the server', 'Sign in with X', 'Ask: what can I earn?'];
 
-export const DOCS_DO_TITLE = 'What your agent can do';
-export const DOCS_DO_SUB = 'Five tools: find, prepare, confirm, tell, score.';
-export const DOCS_DO: { label: string; text: string }[] = [
-  { label: 'Where you stand', text: 'Your three numbers, any time you ask.' },
-  { label: 'Your ship log', text: 'Written from your commits. You never type it.' },
-  { label: 'Programs that fit', text: 'The open ones that match what you build, and a drafted application for each.' },
-  { label: 'Backing', text: 'Offered once, after your first confirmed week. It never changes your rank.' },
-  { label: 'Points', text: 'Every confirmed week earns points. Points convert to $EARN in proportion.' },
-];
+export const DOCS_WEEK = {
+  title: 'How the week works',
+  text: 'Ship during the week. Monday, EarnKit writes your update from the commits and emails it. One tap posts it.',
+};
+/** The real scoring (score-v2.ts): weeks with code over the last SHIPPING_WEEKS, plus LIVE_BONUS for a live product. */
+export const DOCS_SCORE = {
+  title: 'Shipping score',
+  text: `0 to 100 over ${SHIPPING_WEEKS} weeks. Weeks with real code count, not commit volume. A live product adds ${LIVE_BONUS}.`,
+};
+export const DOCS_MONEY = {
+  title: 'Programs and Backing',
+  text: 'Your agent drafts applications from your Activity.',
+  backing: 'Backing lets people buy your coin; you keep 40% of fees.',
+};
+/** The money card's title with Backing off. */
+export const DOCS_MONEY_OFF_TITLE = 'Programs';
 
-export const DOCS_NUMBERS_TITLE = 'The three numbers';
-export const DOCS_NUMBERS: { label: string; text: string }[] = [
-  { label: 'Shipping', text: 'How much you shipped, counted from your commits.' },
-  { label: 'Rank', text: 'Where that puts you among builders.' },
-  { label: 'Earned', text: 'Money that reached you through EarnKit: backing fees paid and program prizes.' },
-];
-export const DOCS_ORIGINALITY = 'Originality is a check that the work is yours.';
+export const DOCS_SELECTORS = {
+  title: 'For selectors',
+  text: "Every builder's standing as JSON.",
+  url: 'earnkit.com/api/builders/<handle>.json',
+};
 
-export const DOCS_WEEK_TITLE = 'How the week works';
-export const DOCS_WEEK: { label: string; text: string }[] = [
-  { label: 'Monday', text: 'EarnKit writes your week and emails you the draft.' },
-  { label: 'Looks right or Hide', text: 'Looks right puts it on your page. Hide keeps it off.' },
-  { label: 'Your note', text: 'One line in your words. It shows as a quote.' },
-  { label: 'The share link', text: 'One link posts the week to X.' },
-];
+/** The side nav: the money link reads "Programs" while Backing is off. */
+export const docsNav = (raising: boolean): [string, string][] =>
+  raising ? DOCS_NAV : DOCS_NAV.map(([href, label]) => [href, href === '#money' ? DOCS_MONEY_OFF_TITLE : label]);
 
-export const DOCS_SELECTORS_TITLE = 'For program selectors';
-export const DOCS_SELECTORS_SUB = 'A builder page proves what shipped: commits, weeks and money that reached you, each linked to its source.';
-export const DOCS_SELECTORS: { label: string; text: string }[] = [
-  { label: 'The page', text: 'earnkit.com/<handle>' },
-  { label: 'The JSON', text: '/api/builders/<handle>.json' },
-  { label: 'The badge', text: '/badge/<handle>.svg' },
-];
-export const DOCS_CONTACT_LEAD = 'To list a program or ask a question:';
-export const DOCS_CONTACT = 'j@earnkit.com';
+/** The money card: the title and its text, with the Backing sentence only while Backing is on. */
+export const docsMoney = (raising: boolean): { title: string; text: string } =>
+  raising ? { title: DOCS_MONEY.title, text: `${DOCS_MONEY.text} ${DOCS_MONEY.backing}` } : { title: DOCS_MONEY_OFF_TITLE, text: DOCS_MONEY.text };
 
-export const DOCS_TERMS_TITLE = 'Terms';
-export const DOCS_TERMS_LINK = 'Read the terms';
-
-export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, what it does, the three numbers, the week, and what a builder page proves.';
+export const DOCS_DESCRIPTION = 'How to add EarnKit to your agent, how the week works, the Shipping score, and every builder as JSON for selectors.';

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { resolveSlug } from '../../../lib/earnkit/profiles';
 import { isReserved, pagePath } from '../../../lib/earnkit/reserved-routes';
-import { HandleView, handleMetadata, tabOf } from '../../[handle]/handle-view';
+import { HandleView, handleMetadata, pageOf } from '../../[handle]/handle-view';
 
 /** Read live on every request: a hide, a claim or a rename shows at once. */
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
  */
 export default async function ProfilePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params;
-  if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, tab: tabOf(await searchParams) });
+  if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, page: pageOf(await searchParams) });
   const r = await resolveSlug(slug);
   if (!r) notFound();
   permanentRedirect(pagePath(r.handle));

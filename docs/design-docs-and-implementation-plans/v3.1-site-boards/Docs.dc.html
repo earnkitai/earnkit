@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Docs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+
+body{margin:0;background:#0B0C14}
+a{color:inherit;text-decoration:none}
+.ek-side a:hover{color:#FFFFFF}
+.ek-tab:hover{color:#0B0C14}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0B0C14; color: #FFFFFF; font-family: 'Funnel Sans', system-ui, sans-serif;">
+<dc-import name="Nav" active="Docs" hint-size="100%,80px"></dc-import>
+<main style="max-width: 1200px; margin: 0 auto; padding: 8px 24px 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; box-sizing: border-box;">
+
+<nav class="ek-side" aria-label="Docs" style="flex: 1 1 220px; max-width: 280px; background: #161927; border-radius: 32px; padding: 22px; display: flex; flex-direction: column; gap: 4px; font-size: 15px;">
+<a href="#install" style="padding: 10px 14px; border-radius: 16px; background: #1F2336; color: #FFFFFF; font-weight: 600;">Install</a>
+<a href="#week" style="padding: 10px 14px; border-radius: 16px; color: #A8B0CC;">How the week works</a>
+<a href="#score" style="padding: 10px 14px; border-radius: 16px; color: #A8B0CC;">Shipping score</a>
+<a href="#money" style="padding: 10px 14px; border-radius: 16px; color: #A8B0CC;">Programs and Backing</a>
+<a href="#selectors" style="padding: 10px 14px; border-radius: 16px; color: #A8B0CC;">For selectors</a>
+</nav>
+
+<article style="flex: 4 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px;">
+<section id="install" style="background: #FFFFFF; color: #0B0C14; border-radius: 36px; padding: 36px; display: flex; flex-direction: column; gap: 20px;">
+<h1 style="margin: 0; font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-weight: 400; font-size: 56px; line-height: 1;">Add EarnKit to your agent</h1>
+<div role="tablist" aria-label="Agent" style="display: flex; gap: 4px; flex-wrap: wrap; padding: 4px; border-radius: 999px; background: #F3F6FC; align-self: flex-start;">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button type="button" role="tab" class="ek-tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="{{t.style}}">{{t.label}}</button>
+</sc-for>
+</div>
+<div style="background: #0B0C14; color: #E6EBFA; border-radius: 22px; padding: 20px 22px; display: flex; align-items: center; gap: 14px;">
+<code style="flex-grow: 1; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.6; overflow-x: auto; white-space: pre;">{{cmd}}</code>
+<button type="button" aria-label="Copy" style="width: 40px; height: 40px; flex-shrink: 0; border: 0; border-radius: 12px; background: #1C2031; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#C9D0E6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg></button>
+</div>
+<ol style="margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+<li style="background: #F3F6FC; border-radius: 22px; padding: 18px; display: flex; flex-direction: column; gap: 6px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 32px; line-height: 1; color: #2D6BE0;">{{s.n}}</span>
+<span style="font-size: 15px; color: #2B3550;">{{s.text}}</span>
+</li>
+</sc-for>
+</ol>
+</section>
+
+<section id="week" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px;">
+<div style="background: #142159; border-radius: 32px; padding: 28px; display: flex; flex-direction: column; gap: 10px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 32px; line-height: 1;">How the week works</span>
+<span style="font-size: 15px; line-height: 1.6; color: #C9D6FF;">Ship during the week. Monday, EarnKit writes your update from the commits and emails it. One tap posts it.</span>
+</div>
+<div id="score" style="background: #241008; border-radius: 32px; padding: 28px; display: flex; flex-direction: column; gap: 10px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 32px; line-height: 1;">Shipping score</span>
+<span style="font-size: 15px; line-height: 1.6; color: #E6CBBC;">0 to 100 over 12 weeks. Weeks with real code count, not commit volume. A live product adds 10.</span>
+</div>
+<div id="money" style="background: #161927; border-radius: 32px; padding: 28px; display: flex; flex-direction: column; gap: 10px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 32px; line-height: 1;">Programs and Backing</span>
+<span style="font-size: 15px; line-height: 1.6; color: #A8B0CC;">Your agent drafts applications from your Activity. Backing lets people buy your coin; you keep 40% of fees.</span>
+</div>
+</section>
+
+<section id="selectors" style="background: #2D6BE0; border-radius: 36px; padding: 32px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; justify-content: space-between;">
+<div style="display: flex; flex-direction: column; gap: 8px; flex: 1 1 320px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 40px; line-height: 1;">For selectors</span>
+<span style="font-size: 15px; color: #E4ECFF;">Every builder&#39;s standing as JSON.</span>
+</div>
+<code style="background: rgba(0,0,0,0.22); border-radius: 18px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 14px;">earnkit.com/api/builders/&lt;handle&gt;.json</code>
+</section>
+</article>
+</main>
+<div style="height: 64px;"></div>
+<dc-import name="Foot" hint-size="100%,520px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Grok Bot' }; }
+  renderVals() {
+    const CMDS = {
+      'Grok Bot': 'Add an MCP connector. Paste: https://earnkit.com/mcp',
+      'Claude Code': 'claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp',
+      'Cursor': '~/.cursor/mcp.json  { "mcpServers": { "earnkit": { "url": "https://earnkit.com/mcp" } } }',
+      'Codex': 'codex mcp add earnkit --url https://earnkit.com/mcp',
+      'Muse': 'Add a custom integration. Paste: https://earnkit.com/mcp',
+      'OpenClaw': 'openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http'
+    };
+    const tab = this.state.tab;
+    const tabs = Object.keys(CMDS).map((label) => ({
+      label, on: String(label === tab), pick: () => this.setState({ tab: label }),
+      style: 'height: 38px; padding: 0 16px; border: 0; border-radius: 999px; cursor: pointer; font: 600 14px \'Funnel Sans\', sans-serif; background: ' + (label === tab ? '#FFFFFF' : 'transparent') + '; color: ' + (label === tab ? '#0B0C14' : '#5A6380') + '; box-shadow: ' + (label === tab ? '0 1px 3px rgba(10,20,60,0.12)' : 'none') + ';'
+    }));
+    const steps = [{ n: '1', text: 'Add the server' }, { n: '2', text: 'Sign in with X' }, { n: '3', text: 'Ask: what can I earn?' }];
+    return { tabs, cmd: CMDS[tab], steps };
+  }
+}
+</script>
+</body>
+</html>

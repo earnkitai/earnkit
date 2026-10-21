@@ -5791,7 +5791,7 @@ v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one t
 | `signed_out` | not bound to X and a sign-in link can be made | "You're not on the Bench yet." | the sign-in link | "Sign in with X to get your page (one click): <link>" + "Want me to put your work on the Bench once you're in?" |
 | `no_project` | signed in, no one project | the same + "Your page: earnkit.com/..." | the repo picker's install link (launch ready L2) | "Install the read-only EarnKit app on the repo you want ranked (one click): <link>" + "Want me to rank it once that's done?" (App off: "What's your GitHub, or a link to something you've made?", the page the link) |
 | `not_counted` | a project not confirmed | "<Project> isn't counted yet." | the App install link | "Install the read-only EarnKit app on it (one click): <link>" + "Want me to count it once that's done?" |
-| `ranked` | the one project confirmed | the score line "<Project>: Shipping 72 · #3 of 40 builders this week." and the why | the page (the weekly moment: the X share link) | the weekly target (launch ready L5, e.g. "Ship code this week: +14 points, enough to pass #2."; "Ship this week to climb." only without a Shipping row), or once a week the share ask (L6); never an entry, coin, community round or going live |
+| `ranked` | the one project confirmed | the standing line "<name> · #3 of 40 builders · 4 weeks in a row · $X earned" (v3.1 T16: `bench-reply.ts standingLine`; no rank phrase under `RANK_MIN_POOL`; no why sentence) | the page (the weekly moment: the page link in full) | the weekly target (launch ready L5, v3.1 F4: the rank only, e.g. "Ship code this week to pass #2."; plain "Ship code this week." without a rank), or once a week the share ask (L6); never an entry, coin, community round or going live |
 
 - **Variants (A15).** `taken`, `copy`: "Want to use a different project?"; `no_repo`: "Where does <Project> live on
   GitHub?"; `app_off`: one small thing to ship. A taken project still names the open programs (D6).
@@ -5799,9 +5799,9 @@ v2.14's `proven` and `shipping` are one `ranked` state). The copy lives in one t
 - **One link (A14, D5).** The action link is the one https link and the page is named beside it without https;
   otherwise the page is the link. No page to name means no link (a shared client gets zero links).
 - **One next step (A16, A17, R8).** States 1 to 3 always ask their fixed question; `ranked` says the weekly target line
-  (launch ready L5, `weekly-target.ts weeklyTarget`: "Ship code this week: +14 points, enough to pass #2." / "..., 7 short
-  of #2." / "... to hold #1." / "Done this week: +14 points. Next week adds up to 13 more."; "Ship this week to climb."
-  only without a Shipping row; no question), or once a week the share ask (L6). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
+  (launch ready L5, `weekly-target.ts weeklyTarget`; v3.1 F4 names the rank, never the points: "Ship code this week to pass
+  #2." / "... to move toward #2." / "... to hold #1." / "Done this week."; "Ship code this week." without a rank (under
+  `RANK_MIN_POOL`, or no Shipping row); no question), or once a week the share ask (L6). A coin or community round comes only from `tell { token: 'ask' }`. A held question (find's outcome question, else a submission step) replaces
   the state's question, except signed out, where the sign-in question wins (`signedOutNow`).
 - **Signed in as.** `attachToX` sets `installations.x_signed_in_unseen`; the first Bench reply after it starts with
   "Signed in as @<handle>." and clears it (`takeSignedIn` clears it only with a handle, so a failed read never eats it).
@@ -6048,9 +6048,9 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
   deletes the person's rows with `--apply`, and empties other rows' nearest lists that name the login's repos. The terms
   (`policy.ts PROFILES_POINTS`) say so.
 - **Shown.** On the profile, one small line under the Shipping ring ("Originality 72"; `bench-data.ts profileData.originality`,
-  only while the score shows). In find and score replies, it is appended to the ranked stand line
-  (`bench-reply.ts originalityWords`: "... this week. Originality 72."), only once computed. It is not shown on the
-  feed, the leaderboard or the card.
+  only while the score shows). It was appended to the ranked stand line in find and score replies until v3.1 F4
+  (`bench-reply.ts originalityWords` stays exported, unused by the reply). It is not shown on the feed, the
+  leaderboard or the card.
 - **Tests.** `originality.test.ts` covers the pure formula, the text and the nearest list. It runs the step with a fake
   embedder through the real App connect: a later near copy lowers the earlier project, the same text is not embedded
   again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
@@ -6230,8 +6230,9 @@ ranking higher.
     description: "only when they ask about a token") runs `bench-find.ts tokenAsk`: for the confirmed one project, a
     launched coin not shown yet is the community-round line (`showRaisingLine`, EARNKIT_RAISING on; its yes is `tell
     coin { raising: true }`); a coin out or launching says so; an open offer is shown again (`coin-moments.ts
-    openCoinLine`); else `offerCoin(..., 'countable')`. Not confirmed: `TOKEN_NOT_YET`; nothing offerable (launches
-    off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
+    openCoinLine`); else Backing's offer (`backingOffer`, after the first approved week with code). Not confirmed:
+    `TOKEN_NOT_YET`; nothing offerable (EARNKIT_RAISING off, since confirm is only registered with it on: v3.1 final
+    fix 1; launches off, declines, a private repo): `tokenUnavailable`. The yes is `tell coin` as before, then `confirm
     { project_id }`; `confirm` and `launch` are unchanged; the build path no longer offers a coin (fix round 1).
 - **One fit order (fix round 1).** find and score name the same fits in the same order: `present.ts byDeadline`
   (the soonest `ends_at` first, rolling last, then the bigger `max_award_usd`, then the id). find sorts its qualifying
@@ -6462,12 +6463,13 @@ simple: one number (Shipping), one target this week, one weekly moment.
   builder's X name is text they control, and putting it in an MCP reply is a prompt-injection path (security ruling
   during Task 3; `weekly-moment.test.ts` L5.6 checks a hostile name never reaches find, score, the moment or the share
   link). `weeklyTarget` (pure):
-  - not active, someone above, score + gain > theirs: "Ship code this week: +14 points, enough to pass #2."
-    (not enough, and a tie is not a pass: "Ship code this week: +14 points, 20 behind #2.", the points between them);
-  - #1 (no one higher, ties included): "Ship code this week: +14 points to hold #1.";
-  - this week done: "Done this week: +14 points. Next week adds up to 13 more." (no question; L10 added the units);
-  - outside the pool (held, hidden): "Ship code this week: +14 points."; a week worth 0 points (impossible with
-    today's weights: a week adds at least 13) reads "Ship code this week to hold #k." / "Done this week.".
+  (v3.1 F4 rewrote the lines to name the rank and never the points; the original L5 wording is replaced as below)
+  - not active, someone above, score + gain > theirs: "Ship code this week to pass #2."
+    (not enough, and a tie is not a pass: "Ship code this week to move toward #2.");
+  - #1 (no one higher, ties included): "Ship code this week to hold #1.";
+  - this week done: "Done this week." (no question);
+  - outside the pool (held, hidden) or under `RANK_MIN_POOL` ranked builders (v3.1 R14): "Ship code this week."; a week
+    worth 0 points reads "Ship code this week to hold #k." / "Done this week.".
   `targetFor` never throws (null: the caller keeps `SHIP_STEP`). Replies (`benchView`, find and score) put it as the
   ranked state's one next step (kind `ship`, the yes still `SHIP_NOTE`). The profile (`bench-data.ts
   profileData.target`) shows the same math under the why in the page's voice (L10, `voice: 'page'`; see the UX pass).
@@ -6487,7 +6489,8 @@ simple: one number (Shipping), one target this week, one weekly moment.
   Shipping 30, #1." with no week before; "(same)" for no change), up to 2 titles joined by " · " (the builder's own
   commit titles, checked again with `update-text.ts checkUpdate` at read, and dropped when they hold a link or a host
   name, `titleHasLink`), then the new week's line from the same target (`weekly-target.ts weekStartLine`: "This week
-  starts empty: ship code to add +13 points, 17 behind #1." / "..., enough to pass #2." / "... to hold #1."; none
+  starts at Shipping 50: ship code to pass #2." / "... to move toward #2." / "... to hold #1." / "... to climb."
+  (v3.1 F4: no points); none
   once this week has code). Only the builder's own data is in the moment and the share text. The share link (`shareLink`: `page-data.ts shareIntentText`, `https://x.com/intent/post`
   with `text` "My week on EarnKit: Shipping 50 · #2 of 3 builders" and `url` the profile; no X
   API, no scope) becomes the ranked reply's one link (the page is then named without https) and its step: "Share your
@@ -6520,8 +6523,9 @@ Walked every page (desktop 1440x900, phone 390x844) and the agent replies throug
 and as a designer. Screenshots and the rendered replies were in `docs/screenshots/launch-ready/{before,after}/` (removed 2026-10-20 with the rest of `docs/screenshots/`),
 `replies.md` (after) and `replies-before.md`. The full issue table is in `.superpowers/sdd/launch-ready/task-ux-report.md`.
 
-- **404.** `app/not-found.tsx`: the site's own page ("Page not found", the leaderboard and home) for any unknown path
-  or handle; before, Next's white default.
+- **404.** `app/not-found.tsx`: the site's own page for any unknown path or handle; before, Next's white default.
+  v3.1 site Task 10: the NotFound board's rust card ("404", "Nothing shipped here.", "Back home"); metadata title
+  "Page not found", noindex.
 - **Header.** `Header.tsx` and `brand-page.ts brandShell` link Programs (from 640px, after Feed; the footer's order).
 - **Install modal** (`AddToAgent.tsx`). `INTRO` "Free. Your agent connects with this link:" (not "no account": the agent
   signs the builder in with X). One step is a plain line, two or more a numbered list (no "1. Or add this"). Codex's
@@ -6537,10 +6541,10 @@ and as a designer. Screenshots and the rendered replies were in `docs/screenshot
   and not while confirming (else the badge reads "not ranked"). `BENCH_SOURCES_LINE` drops "from public data" (App
   repos may be private). Project links are 44px on phones.
 - **The weekly target's two voices** (`weekly-target.ts weeklyTarget(t, voice)`). Replies (`'reply'`, the default)
-  are unchanged except the done line: "Done this week: +14 points. Next week adds up to 13 more.". The public page
-  (`'page'`, `targetFor(..., { voice: 'page' })` from `profileData`) states the math to a visitor: "Code this week adds
-  +14 points, enough to pass #2." / "..., 20 behind #2." / "... to hold #1." / "Shipped this week: +14 points. Next
-  week adds up to 13 more."; null when the week adds nothing. Ranks only, as before.
+  are as in L5 (v3.1 F4: "Ship code this week to pass #2.", "Done this week."). The public page
+  (`'page'`, `targetFor(..., { voice: 'page' })` from `profileData`) states the fact to a visitor: "Code this week
+  passes #2." / "... moves toward #2." / "... holds #1." / "Shipped this week."; null when the week adds nothing. Ranks
+  only, as before (the v3.1 profile no longer shows the target line).
 - **Setup and sign-in pages.** `VERIFY_PAGE.done` "say yes" (the reply's question is "Want me to ... once that's
   done?"); the picker's page adds `PICK_PAGE.next`. The paste code is its own unbreakable line (`.ek-code`; it broke
   at a dash on phones): `LINK_TEXT.paste` is now the label "Paste this code to your agent:".
@@ -6555,11 +6559,13 @@ and as a designer. Screenshots and the rendered replies were in `docs/screenshot
   `whitespace-nowrap`), so Cursor's multi-line mcp.json keeps its lines and a flag never splits at its hyphens.
 - **I2 Org picker.** See the picker section above: an organization's installation proves only the one project's repo.
 - **I3 Target copy.** Not passing reads "D short of #k", D = their score - (score + gain) + 1 (passing means strictly
-  above; a tie is 1 short): replies "Ship code this week: +14 points, 7 short of #2.", the page "Code this week adds
-  +14 points, 7 short of #2.", the moment's line likewise (`weekly-target.ts shortOf`).
+  above; a tie is 1 short): replaced by v3.1 F4 ("move toward #2" with no number); `weekly-target.ts shortOf` stays
+  exported and unused by copy.
 - **M1 Share yes.** `answerShare` with no `project_key` answers the one open offer.
 - **M2 Moment line.** "This week starts at Shipping S: ship code to add +G points, ..." (S the new week's score), so
-  the drop from last week's number reads as the new week.
+  the drop from last week's number reads as the new week. v3.1 F4 replaced the "+G points" tail with the rank:
+  `weekly-target.ts weekStartLine` ends "ship code to pass #k." / "to hold #1." / "to move toward #k.", or "to climb."
+  with no rank.
 - **M6 Badge.** `badge.ts badgeFileOk` (X handle, 1 to 15 of `[A-Za-z0-9_]`, plus ".svg"); the route answers
   `badgeMiss()` for anything else before `unstable_cache` or the database.
 
@@ -6610,10 +6616,14 @@ say yes, earn points, get the Monday email.
   50%, else 30 (also with no rank); `CONNECT_POINTS` is 30, `pointsTotal` sums. `approveWeek(..., via)` awards points
   when a week with facts is approved; a week approved before its facts arrive is awarded by `upsertWeekFacts` when they
   do (via its `approved_via`). The profile
-  shows `POINTS_PAGE_LINE`, the reply `POINTS_LINE`, and `/api/stats` returns `points_total`.
+  showed `POINTS_PAGE_LINE` until the v3.1 site (the profile shows no points; owner 2026-10-21: points in agent replies
+  only), replies carry points through v3.1 T16's lines (`bench-reply.ts POINTS_ON_*` and `shipPointsLine`, `connect-moment.ts pointsAddedLine`),
+  and `/api/stats` returns `points_total`.
 - **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
   ranked reply after connect shows every unconfirmed, unhidden week with facts, newest first, at most 12
-  (`CONNECT_HEAD`), and asks `CONNECT_ASK` ("Does this look right? Yes posts them."). `tell move_up { kind: 'connect' }`
+  (v3.1 T16 removed `CONNECT_HEAD` and the weeks list; see "v3.1 P0 Task 16" below), and asks `connectAsk(weeks, page)`
+  (`bench-reply.ts`, re-exported by `connect-moment.ts`; the reply says where the weeks go and carries the page link
+  in full, plus "+P points"). `tell move_up { kind: 'connect' }`
   approves them (via `'connect'`) and counts as activation; the Done line carries the https page link.
   `standing_seen.connect_open/connect_done` track it: an empty read closes the offer only once the backfill is complete
   (`backfillComplete`), and a week whose approval failed reopens the offer with that week for the next yes. The weekly moment skips a week already approved.
@@ -7056,7 +7066,8 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   every literal under `app/` (page metadata included) for "Shipping points", "EARN points", "What builders
   shipped", "the Bench", "community round", a raise, and "this week" after "builders"; `human-text.test.ts` for
   em dashes. The terms' risk disclosure keeps its words and numbering with the headings in sentence case. Links
-  inside running text use `INLINE_LINK` (a 44px hit area without changing the line's height). `ChainLogo` is round
+  inside running text use `INLINE_LINK` (a 44px hit area without changing the line's height: padding below md, an
+  invisible box from md, never both, so neighbouring links never overlap on a phone; v3.1 final fix 5). `ChainLogo` is round
   at every size; `public/images/chains/base.svg` is a solid Base-blue circle drawn inline (Arc and Robinhood stay
   monograms until the owner supplies the files).
 - **Visual check.** Every page at 1440x900 and 390x844 (the landing with the install sheet open, the leaderboard's
@@ -7065,3 +7076,328 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   sign-in page, the GitHub confirm page, two share cards, the badge) lives under the SDD workspace of the stage
   (`.superpowers/sdd/v3-power-user-plan-stage3/shots/task-7/`, with `measurements.txt`: no horizontal scroll, no
   target under 44px, the fonts, no em dash or caps).
+
+## v3.1 P0 Task 1 (F1): the owner's repo gets its fits
+
+- **Root cause.** The matcher skipped every repo in an EarnKit org (`match-projects.ts`, `SKIP_REASONS.earnkit`,
+  v2.10.1 B4) before reading it, so the owner's one project, `earnkitai/earnkit`, never had a match: find's rows were
+  empty and `installations.fit_repos` never held it, so score had none either, and both said "No open program fits
+  EarnKit yet." Now find's Bench match passes `MatchDeps.ownEarnkit` for the one project when `own-brand.ts
+  earnkitOwnRepo` holds (an EarnKit-org repo this builder proved with the read-only App); every other EarnKit repo is
+  still skipped and says so.
+- **Gates.** `alerts.ts fitGate` names the gate that drops a pair (tier, odds, wide, facts, verdict, mentioned, close,
+  hard). The close and Hard gates are alert precision (a nag), so `apply` (the apply step's candidates and the fit
+  lines) skips them; only a program that counts new work still drops. On find's path `present.ts canApply` matches it:
+  a row whose only low reason is users not measured yet ("no users yet": under 50 transactions, no users claim) on a
+  repo with good odds is a candidate, since the application states usage itself. `qualifies` (the money "you qualify
+  for", the first message's lead) keeps the strict rule. No program fact changed.
+- **Fit lines.** Find and score name the same lines (`bench-find.ts fitLines`): every apply candidate, investments
+  included ("up to $400K investment"), in `present.ts byRelevance` order (Base, then any chain; grants before
+  investments; then the deadline), at most 3. The lead and the shown-match record use the lines' grants only. The
+  apply step still picks from every candidate in deadline order.
+
+## v3.1 P0 Task 4 (F4): the ranked reply loses words
+
+- The owner: "too many words". `bench-reply.ts benchReply` no longer shows the why sentence (`BenchView.why` stays for
+  the page and `ship_log`), Originality (`standLine`; `BenchView.originality` and `originalityWords` stay) or the points
+  line (`bench-find.ts benchView` no longer adds a `points` FundLine; the kind and `points.ts POINTS_LINE` stay
+  exported; `approveWeek` still writes `builder_points` and the page still shows points).
+- The upcoming line (a 4-week streak) shows only when the reply names no fit (no `fits` FundLine), after the no-fit
+  line. Task 6's Best fit joins that rule.
+
+## v3.1 P0 Task 10 (spec 3.4, D1): the agent drafts, never submits; confirm only opens Backing
+
+- The agent's tools are find, prepare (draft only, `draft-application.ts`), tell and score. `mcp.ts` registers
+  `confirm` only while `raisingEnabled()` (EARNKIT_RAISING), with `CONFIRM_BACKING_DESCRIPTION` and a strict schema
+  `{ project_id (required), yes?, check?, token?, wallet?, image_url?, image_data?, builder_x?, agent?, signed_in? }`:
+  the coin launch a Backing yes hands over (`coin-moments.ts COIN_YES_NOTE`). No program_id, project, answers,
+  skip_token, contracts, deployer_signature or submitted.
+- `tools.confirm` throws `EntryError(CONFIRM_ENTRY_GONE)` for any `program_id` (an old alias, a direct call) and
+  otherwise is `confirmByProjectId`. Through MCP a program_id is a schema error first ("Unrecognized keys"); with the
+  flag off, "Tool confirm not found". `handlers.confirm_entry` / `record_submission` stay (tell submitted, the
+  by-project_id re-offer); `buildWalletAgain`, `BUILD_WALLET_NOTE`, `SUBMITTED_AGAIN_NOTE`, `withoutTokenLine` are gone.
+- `prepareDescription(buildOn)`: the drafting sentence, the host sentence, and `build: a build_offer yes.` only while
+  deploys are on. No campaign sentence and no token sentence; `toolDescriptions(campaignOpen, buildOn)` no longer
+  varies by campaign. `toolDescriptions().confirm` exists only under the flag; `TOOL_DESCRIPTIONS` always carries it
+  (copy scan).
+- find offers no build: `list_programs` passes `fresh: undefined` (no `build_offer`, no fresh lead line);
+  `presentFirstMessage` has no "Ideas" section (the close keeps "Pick one and I'll start." where a shown program has
+  curated ideas); `bench-find.ts benchView` adds no `idea` FundLine for a builder with no project, so `needsPicks`
+  fills both NEEDS_MAX slots.
+
+## v3.1 P0 Task 16: every reply rewritten for a busy builder (owner-approved copy, 2026-10-21)
+
+- **Supersedes the three-part layout** of v2.13 to Task 6: no "Where you stand" / "Ways to get funded" / "How to move up"
+  headers anywhere. `bench-reply.ts benchReply` writes each state and step as the owner approved it, word for word:
+  plain lines, " · " joining facts, at most one https link, exactly one question, the points line last when the step
+  earns points. The logic stays: four states, one next step each; ranked steps in order connect, apply, backing, share
+  (the weekly moment), ship; the rank phrase only from `RANK_MIN_POOL`; no Backing for `earnkitai/earnkit`.
+- **Step 1 (signed out):** `INTRO_LINE` + `introWhat(open)` (the open grant: `bench-find.ts openGrant`, the first showable
+  grant (never an investment) with a known award by `byRelevance`, its organizer without the parenthesis, `awardAmount` "$5,000"), then the
+  sign-in step, "Done?" and `POINTS_ON_SIGN_IN` (`points.ts CONNECT_POINTS`).
+- **Step 2 (no repo, or a named repo not counted):** `youreIn(handle)`, `pickRepoAsk(link)`, `POINTS_ON_CONNECT`. The reply
+  names the account, so `namesAccount` drops the "Signed in as" line above it.
+- **Step 3 (connect):** `connectStanding` ("Kit is on the leaderboard: #1 of 13 builders, 4 weeks in a row."; "on EarnKit"
+  under the pool), `qualifyLine(best)`, `connectAsk(weeks, page)` (the page in full, the reply's one https link) and "+P points" where P is `points.ts connectOfferPoints`
+  (CONNECT_POINTS for each offered week the ledger has no row for). The weeks list is gone; `connect_open` now carries
+  the Best fit (`ConnectBest`).
+- **Step 4 (connect yes):** `CONNECT_DONE` "You're live: <page link>", then `connectApplyAsk` (the Best fit offered as a
+  draft: `bench-find.ts connectApply` stores the apply ask and claims `apply_asked` through `takeApplyAsk`, unless told,
+  declined or asked), else the weekly email question; then `pointsAddedLine(added, total)` from the ledger (before and
+  after the yes).
+- **Step 5 and the other ranked steps:** `standingLine` (name · rank · streak · "$X earned"), then the money (the apply
+  ask's own line `applyAsk(title, amount, when)`; else `moneyLine`: the Best fit, the first fit, the backing statement or
+  the upcoming program), the question (`SHIP_ASK` for ship, the backing offer, a held question), and for apply and ship
+  `shipPointsLine` ("Ship code this week: up to +100 points"; the ship step leads with the weekly target when it says to
+  ship). `MAX_WEEK_POINTS = pointsForRank(1, 1)`.
+- **Step 6 (the draft):** `submit-kit.ts draftKit`: `draftReadyLine` (filled of shown fields), "You add: <missing>.", the
+  caller's note (Base: the Builder Codes words), the continues line; copy-and-paste drafts keep the answers block and the
+  https:// paste line; a prefilled draft shows only answers that didn't fit the link (`PASTE_LEFT`) and `OPEN_PREFILLED`;
+  `SENT_ASK` "Sent it?". No ship log block, no points line (no points for applying).
+- **Step 7 (Monday):** `momentHead` ("Week 4 done. You're now #3: +70 points."), `MOMENT_POST_HEAD`, `momentPost` (the X post
+  as plain quoted text, no intent link, the page in full: the reply's one https link), `MOMENT_ASK`. Fix round 1: the
+  points clause shows only when the yes pays (`LastWeek.facts`, week-facts.ts hasFacts, and no ledger row yet:
+  `points.ts weekAwarded`); else "Week 4 done. You're now #3.". `weekly-moment.ts weekNumber` (code weeks in a row up to last
+  week, 0: "Last week done."), `momentPlace` (still / now / under the pool "on EarnKit"), `points.ts weekPointsNow` (what
+  the yes awards now, as `awardWeekPoints`). `momentLines` stays for the Monday email.
+- **Agent notes** say "the question" (not "the last line"): the points line is last now (`mcp.ts` instructions, find,
+  tell and score descriptions, every move_up note, `EARN_NOTE`).
+- Removed: `BENCH_HEADS`, `NOT_ON_BENCH`, `NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`,
+  `shippingStand`, `SHIP_STEP`, `bestFitLine`, `shareAsk`, `CONNECT_HEAD`, `bench-find.ts fundNeeds`/`needsPicks`/`NEEDS_MAX`,
+  and the `needs`, `idea` and `points` FundLine kinds. Tests: `bench-reply.test.ts` (each reply, pure),
+  `v31-reply-copy.test.ts` (the journey through mcpCall), `v31-draft.test.ts` (step 6).
+
+## v3.1 replies: P0 Tasks 2, 3, 5, 6, 7, 8 and 9 (Tasks 1, 4, 10 and 16 are above)
+
+Release 1 of v3.1 (spec `v3.1-founder-power-user.md`, plan `v3.1-plan-p0.md`). Tasks 1, 4, 10 and 16 have their own sections
+above; these are the rest, in task order. Task 11 to 15 (Monday X post, Monday email, copy sweep) follow in release 2.
+
+- **Task 2 (F2): the connect question says where the weeks go.** `connectAsk(weeks, page)` (`bench-reply.ts`, re-exported by
+  `connect-moment.ts`) replaced "Does this look right? Yes posts them." (`CONNECT_ASK`, gone). Task 16 later rewrote the
+  whole connect reply (see its Step 3); the weeks list is gone.
+- **Task 3 (F3, R14, R16): no rank below 10 ranked builders.** `rank.ts RANK_MIN_POOL = 10` and `shownRankLine`: under it,
+  replies, news, the weekly target and moment, the X share post, the Monday email subject, the profile (a dash for Rank), the
+  card, the page meta and the badge show the Shipping score and no rank; a chain's line is held to its own chain pool. The
+  leaderboard list and `/api/builders/<handle>.json` keep the number. Test fixtures pad the pool to 10
+  (`fixtures/rank-pool.ts padPool`). The v3.1 site later hid the leaderboard's "#N" and pills under 10 too (S14).
+- **Task 5 (F4): the weekly target names the rank, never the points.** `weekly-target.ts`: "Ship code this week to pass #2." /
+  "to move toward #2." / "to hold #1." / "Done this week."; "Ship code this week." with no rank (under the pool, or no
+  Shipping row). The page voice: "Code this week passes #2." / "Shipped this week.". `weekStartLine` follows. Replaces the
+  "+14 points" lines of launch ready L5 and I3.
+- **Task 6 (spec 3.2): Best fit leads, rolling programs are offered, apply before backing.** `bench-find.ts applyCandidates`
+  (not entered, hidden, declined for 30 days or told; the dated fits closing within `APPLY_WINDOW_DAYS` in deadline order,
+  else the rolling fits in `byRelevance` order) feeds `claimApply` (the apply ask, once a program) and the `BestFit` (the
+  first candidate, `bestFitLine`); the backing offer waits while an apply ask is shown. `applyAsk(title, when | null)` says
+  "is open now (rolling)" for no deadline. Task 16 kept the logic and moved the Best fit into `moneyLine`.
+- **Task 7 (spec 3.3): Builder Codes for Base Builder Grants.** `builder-codes-check.ts checkBuilderCodes` reads the
+  one project's repo through the read-only App (the tree, then at most `BUILDER_CODES_FILES` = 30 code files, the likeliest
+  first, files over 1 MB and text-less paths skipped), looks for the ERC-8021 suffix (`builder-code.ts builderCodesIn`) and
+  keeps the answer in `repo_builder_codes` for a day, tried at most once a day per repo (`codesTried`, one at a time). A failed
+  read answers null and stores nothing, so the reply then says nothing about Builder Codes. `BUILDER_CODES_FIRST` is the
+  not-found sentence ("First step for Base: add Builder Codes."). Security fix: the repo comes only from one this builder
+  proved through the App (`appProvenRepo`: `builder_sources`, proof `github_app`, state `verified`), never from tool input.
+- **Task 8 (spec 3.5): unlisted programs and multi_choice.** `programs.status` also allows `unlisted` (`db/schema.sql`: the
+  CHECK is widened at its first add and again in the appended block, since `schema-rerun.test.ts` needs every repeated add to
+  allow the same values): an off-thesis open program keeps its row for old entries, but nothing lists, matches, offers, counts
+  or guides it (`program-file.ts`, `programs.ts`, `landing.ts`, `leaderboard.ts`, `present.ts`, `also-qualifies.ts`). Avalanche
+  Team1 and ETHGlobal Mumbai are unlisted. A `multi_choice` requirement (`submit-kit.ts`, `submission.ts`) is a checkbox
+  question whose answer is the picked options joined by "; "; Base's primary challenge prefills (`primary_challenge`).
+  `programs/README.md` documents both.
+- **Task 9 (spec 3.2): prepare drafts the application and never submits.** On a curated program `tools.ts prepare` goes to
+  `draft-application.ts draftApplication`: the first call without answers hands the agent the requirements
+  (`DRAFT_FIRST_NOTE`); the second shows the answers, Base's Builder Codes line (the check awaited up to
+  `BUILDER_CODES_WAIT_MS`, 8 s) and how to send: one prefilled Google Form link for Base Builder Grants, copy and paste with
+  the form link for the rest (`submit-kit.ts draftKit`). The builder's page goes into the first answered free-text answer once
+  (`withPageLink`, within `max_chars`). Answers show without their scheme (D7) and a paste draft says "Add https:// to each link
+  when you paste." An unlisted or upcoming program is refused ("not open yet", R15), by `get_program` too, never shown as
+  "closed". Nothing is recorded on prepare. Tests: `v31-draft.test.ts`, `v31-builder-codes.test.ts`, `v31-programs.test.ts`.
+- **Tests.** `v31-fit-gates`, `v31-reply-trim`, `v31-rank-pool`, `v31-best-fit`, `v31-builder-codes`, `v31-programs`, `v31-draft`,
+  `v31-mcp-surface`, `v31-reply-copy`, `bench-reply.test.ts`.
+
+## v3.1 site Task 1: tokens, Kaftan, paintings, primitives
+
+- **Tokens.** `lib/earnkit/site-theme.ts SITE` holds the owner-approved canvas colours (deltas S11 `onBlueSoft`
+  `#F4F7FF` and S12 `dim` `#747C97` applied). `app/globals.css` mirrors each as `--ek-s-<kebab>`; Tailwind reads them as
+  `s-<kebab>` (no raw hex in `tailwind.config.ts`; no `/NN` modifier on a token class). The v3 `--ek-p-*` tokens stay for
+  the pages not yet redesigned.
+- **Body.** `background-color: var(--ek-s-page)`; a page that renders `[data-ek-deep]` (landing, feed) turns the body
+  `--ek-s-deep` via `body:has(...)`.
+- **Type.** Kaftan Serif (`app/fonts/kaftan-serif.woff2`, `--font-kaftan`) through `.ek-serif` (font-size-adjust 0.36,
+  weight 400) or `<Serif>`; Funnel Sans stays the body font.
+- **Paintings.** Pre-sized JPEGs in `public/art` (hero 800/1600/3200, footer 700/1400/2800) for a plain `<img srcSet>`;
+  no Next image optimizer.
+- **Motion.** `.ek-drift`, `.ek-pulse`, `.ek-twinkle` all stop under `prefers-reduced-motion`; pointer components also
+  check `useReducedMotion()`.
+- **Primitives** in `app/components/site/` (see code-map). Test: `v31-site-tokens.test.ts`.
+
+## v3.1 site Task 5: nav, footer, install sheet, programs page removal
+
+- **Chrome.** `Header` (Nav board) and `Footer` (`variant: 'full' | 'minimal'`, Foot board) are rewritten in place on
+  the SITE tokens; every page keeps its import. The footer painting is a plain lazy `<img srcSet>` (no image optimizer);
+  `FooterLight` writes the light's style on pointer moves without re-rendering and renders nothing under reduced motion
+  or `(hover: none)`. New tokens: `footLine`, `footButton`, `footFade`, `footGlow`, `footGlowMid`, `footCtaGlow`.
+- **Links.** `FOOTER_COLUMNS` is Leaderboard, Feed, Docs, Terms and EarnKit's X (`X` now lives in
+  `lib/earnkit/footer-links.ts`, re-exported by `app/lib/links.ts`); `EXTERNAL_ALLOW` is that X url only. The email,
+  `@jenilt` and "For sponsors" left the footer.
+- **Programs (W10).** `/programs` is a `permanentRedirect('/#earn')` (308); guides stay at `/programs/<id>` and in the
+  sitemap; a guide's "All programs" links `/#earn`; the shell header (`brand-page.ts`) lost its Programs link.
+- **Install sheet.** Same behaviour and tabs, restyled: `bg-s-panel` sheet rounded 32px over `bg-s-scrim`, SegTabs pill
+  tabs, code blocks `bg-s-page rounded-[22px]`.
+- **Harness.** `.superpowers/sdd/v3.1-plan-site/seed-site.mts` (scratch DB `earnkit_v31_site` only) and `shoot.mjs`
+  (Playwright screenshots at 1440 and 390 plus phone checks) are untracked tools for Tasks 5 to 11.
+
+## v3.1 site Task 6: the landing
+
+- **Composition (`HomeView`, Landing board).** A `data-ek-deep` root (the body turns `s-deep`) holding a
+  `PAGE_COL_WIDE` column (`gap-[72px] md:gap-32`): `landing/Hero`, `landing/Steps`, `landing/Activity`,
+  `landing/Opportunities` (the `#earn` anchor that `/programs` and the hero chip land on), then the full `Footer`.
+  `landing === null` renders the hero (no chip) and the steps only. Backed by left (S19).
+- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; 44px on a phone,
+  36px from md), the one-line Kaftan title (`clamp(36px,9.6vw,96px)`, `whitespace-nowrap`), the sub line, the white
+  `CTA_INSTALL` button (opens the install sheet) and the four `AgentMark`s (now `currentColor` + `text-s-text`).
+- **HeroArt (client).** One `ek-drift` layer (`data-hero-art`) holding the painting (`<img srcSet>` of the three
+  pre-sized files, `fetchPriority="high"`) and an SVG in the painting's 1600x1036 space (the files are that aspect, so
+  `object-cover` and `xMidYMid slice` frame both alike): the board's arch `clipPath` (`ARCH_PATH`), a dusk tint at
+  rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
+  only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
+  `useReducedMotion()` no listener is attached.
+- **Steps / Activity / Opportunities.** Steps append "Backers can buy in." only with `raisingEnabled()`. Activity is
+  `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
+  else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
+  none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour
+  order (blue, step, rust, step); big number `tile.big`, else the prize text; logo on a white tile or the monogram.
+- **Tokens.** `heroBase`, `heroShade*`, `heroTitleShadow`, `ctaGlow`, `ctaGlowHover`, `dusk*`, `sunset*`, `blueLine`,
+  `rustLine`. `BENCH_TOP_EMPTY` moved to `site-copy.ts`; `BenchView` uses `leaderboardLine`. The OG image's v3 words
+  (`BENCH_HERO_*`) live in `scripts/og.mts` (W11).
+- **Deleted.** `sections/{Hero,FeaturedCard,BenchTop,FeedRows,ProgramRow,BackedBy}.tsx`. `sections/ProgramCards.tsx` is a
+  shim (money line + `Opportunities`) kept only because `copy-review.test.ts` (P0-owned) imports it; nothing under
+  `app/` renders it. Test: `v31-site-landing.test.ts`.
+
+## v3.1 site Task 3: profile reads
+
+- **One module.** `lib/earnkit/site-data.ts profileSite(builderId, d, now)` adds what the v3.1 profile shows beyond
+  `profileData`; every part catches its own error (`[site] <part>`) and falls back to null, 0 or [].
+- **Last shipped / this week.** The one project's verified repo source, its `week-facts.ts shipReading` (now exported):
+  `signals.pushed_at` (null if absent, unparsable, in the future, or the project not Bench-confirmed) and
+  `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
+- **Highlights (W8).** Verifiable facts only, at most 5: live since (first up day of a verified site source), Base Builder
+  Code (Base projects, App-proven repo, stored answer only; never starts a check), contracts on Base (verified
+  `base:` contract sources plus EarnKit `contract_deploys`, distinct addresses), won/applied (`page-data.ts
+  projectProgramsDated`, at most 2), shipping since. No confirmed project: one "On EarnKit since" item. A hidden repo's
+  site is left out when its host is GitHub's or carries the repo name.
+- **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
+  10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is the place, "#N of M builders" (" on Base" for the Base pool; `rank.ts rankLine` only guards validity).
+- **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC
+  at runtime), bucketed into the last 12 ISO weeks.
+- **Shape changes.** `ProfileCard.commits` (facts.shipped_code.n, from 1); `projectProgramsDated` (`toldApplied` reads
+  `max(at)`). Test: `v31-site-data.test.ts`.
+
+
+## v3.1 site Task 7: the profile
+
+The builder page (`app/[handle]/BenchProfileView.tsx` with `app/[handle]/site/*`) is the owner-approved Profile board:
+a blue hero, navy Shipping score, rust Streak, white Activity, the Token card and Highlights, then the minimal footer.
+`handle-view.tsx` BenchPage reads `profileData` then `profileSite` (Task 3) and passes `?page=` (3 weeks a page). Every
+rank on the page is `site.standing` (null under RANK_MIN_POOL, so no pill and no "#N"); Backing is only `site.token`
+(fails closed, never EarnKit's own repo, only while `raisingEnabled()`). Points, Originality, the 52-week grid, Earned,
+tabs (`?tab=` ignored) and the README badge left the page; the badge, share and JSON routes stay. Confirming or no
+project: one calm line in the panel, no score, a 0-week streak and only the dashed next-update line.
+
+## v3.1 site Task 8: the leaderboard
+
+`/leaderboard` (`app/leaderboard/BenchView.tsx`, `Podium.tsx`, `BenchRowItem.tsx`) is the owner-approved Leaderboard
+board: the Kaftan H1 with `leaderboardLine(count)`, a SegTabs rail (All, Base when a Base project is ranked, Backed only
+while `raisingEnabled()`; old `?chain=arc` and `?weekly=1` links still filter and mark no tab, W3), the podium (page 1's
+first three rows on blue, navy and rust cards with gold, silver and bronze place pills; the name is a stretched link to
+the page, the @handle its own X link), then the rest of the page on one panel: each row one link (place, photo, name,
+X glyph and @handle as text, project, Backed tag, streak, score in its band colour). `?page=N` pages the one cached
+read, 20 rows a page (`LEADERBOARD_PAGE`, clamped). Under `RANK_MIN_POOL` ranked builders no "#N" and no metal pill
+(S14). Backing: `bench-data.ts benchRows` sets `row.backing` only while raising is on and never for EarnKit's own repos
+(`site-data.ts tokenAllowed`), and the Backed filter drops those rows too. Test: `v31-site-leaderboard.test.ts`.
+
+## v3.1 site Task 9: the feed
+
+`/feed` (`app/feed/FeedView.tsx`, `FeedStats.tsx`, `FeedRow.tsx`) is the owner-approved Feed board on the deep page
+colour in the 1240px column: the Kaftan H1 with a step-tone SegTabs rail of the newest `FEED_TABS` (3) weeks
+(`?week=<monday>`; an unknown monday falls back to the newest, a 4th week works by URL and marks no tab, W4), the
+selected week's four stat cards (blue, step, rust, green gradients: builders shipped, commits compact, went live,
+applications sent; `site-data.ts feedWeekStats`, read once per request in `page.tsx`, cached per week as
+`['feed-stats-v31', monday]`, 300s, `PROFILE_TAG`; a failed read hides the cards), then the week's cards as full-width
+dark rows (`FeedRow`: photo, name link to the page, @handle link to X, `project · N commits`, the summary else the note
+else the chips, the score in its band colour), `FEED_PAGE` (10) a page with the centred Newer / numbers / Older pager
+(`?page=N`, clamped). No weeks: `FEED_EMPTY` on a neutral card with "See the leaderboard". `FEED_LINE` is only the
+page description now. Test: `v31-site-feed.test.ts`.
+
+## v3.1 site Task 10: docs, 404, guides and terms
+
+`/docs` (`app/docs/DocsView.tsx`, `InstallCard.tsx`) is the Docs board in the 1200px column, rendered per request
+(W9: `raisingEnabled()` is read at run time, no DB read). A panel side nav to the five anchors (a wrapping row above
+the article below lg), the light install card (H1, `InstallCard`: agent tabs on a `SegTabs` 'light' rail in `AGENTS`
+order, Grok Bot first; `AgentPanel` shows the agent's steps as one line, `agent.code ?? MCP_URL`, then `after` /
+`afterCode`, each block with a copy button that announces "Copied" in an `aria-live` region; no command text lives
+outside `agents.tsx`), three numbered steps, the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
+`#money`: "Programs" and no Backing sentence while raising is off), and the blue selectors strip with the builder JSON
+URL. The 404 is the NotFound board's rust card with the full footer. The program guide and terms pages only moved to
+`PAGE_COL` with Kaftan titles (structure unchanged; terms keeps the risk disclosure). Test: `v31-site-docs.test.ts`.
+
+## v3.1 site
+
+The owner-approved redesign (2026-10-21; design `v3.1-site-design.md`, plan `v3.1-plan-site.md`, boards in
+`v3.1-site-boards/`, commits a9b72676 to d4a8757d). The per-task sections above ("v3.1 site Task N") hold the detail; this
+section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
+
+- **Tokens and fonts.** `lib/earnkit/site-theme.ts SITE` is the one colour source (`--ek-s-<kebab>` in `globals.css`, Tailwind
+  `s-<kebab>`, no raw hex, no `/NN` modifier); `app/components/site/ui.ts` holds the class strings (cards, pills, columns,
+  titles, metals). Kaftan Serif (`app/fonts/kaftan-serif.woff2`, `.ek-serif`, `font-size-adjust: 0.36`) is only for names,
+  headlines, big numbers and section titles; Funnel Sans is the body. The v3 `--ek-p-*` tokens stay for the shell pages.
+- **Art.** Two public-domain paintings (Eckersberg for the hero, Panini for the footer) as pre-sized JPEGs in `public/art`
+  (hero 800/1600/3200, footer 700/1400/2800) and a plain `<img srcSet>`. No Next image optimizer: it would add a paid
+  transformation service and a second cache, and the three widths per painting are enough for every screen. The hero's
+  `fetchPriority` is high, the footer lazy; `ART_CREDIT` names both painters.
+- **Pages, components and data.**
+
+| Page | Components | Data |
+|---|---|---|
+| Nav, footer | `Header`, `NavLinks`, `Footer` (`full` / `minimal`), `FooterLight`, `AddToAgent` sheet | `footer-links.ts` (Leaderboard, Feed, Docs, Terms, X) |
+| Landing | `landing/{Hero,HeroArt,Steps,Activity,Opportunities}` | `readLanding`: `open_chip`, `activity` (feed's first 3, W1), `tiles` with `kind`, `big`, `when` (S1, S2), `landingPrograms` (first 4 open, W2) |
+| Profile | `[handle]/site/{HeroCard,ScoreCard,StreakCard,ActivityCard,TokenCard,HighlightsCard}` | `profileData` then `profileSite` (last shipped S6, this week S7, highlights W8, standing S5, backer weeks S8) |
+| Leaderboard | `Podium`, `BenchRowItem`, `SegTabs` filters | `benchRows` (adds `streak`), 20 rows a page (W3) |
+| Feed | `FeedStats`, `FeedRow`, `SegTabs` week tabs | `feedRows` (adds `score`, `commits`), `feedWeekStats` (W4, W5) |
+| Docs, 404, guides, terms | `DocsView`, `InstallCard`, the NotFound rust card; guides and terms move to `PAGE_COL` | `docs-copy.ts`; no DB (W9) |
+
+- **New reads and their fallbacks.** `site-data.ts profileSite` catches every part (`[site] <part>`) and falls back to null,
+  0 or []: no last-shipped line, no commits line, no highlights, no standing pill, empty backer bars. The Token card fails
+  closed (null). `feedWeekStats` is cached per week (`feed-stats-v31`, 300s, `PROFILE_TAG`) and a failed read hides the four
+  cards. `readLanding` rejects when the database is down and the page renders the hero and steps only (the landing cache key
+  is `landing-v31-<raising|off>`); a feed with fewer than 3 cards adds the invite card, none hides Activity; a chip of $0 is
+  hidden. `site-streak.ts withThisWeek` makes the grid, the streak count and Highlights agree.
+- **The Backing guard.** The Token card, the leaderboard's Backed filter and the Backed tag exist only while `raisingEnabled()`
+  (`EARNKIT_RAISING`) and never for EarnKit's own repos (`site-data.ts tokenAllowed`, `bench-data.ts benchRows`). Docs reads the
+  flag per request. A page never offers Backing for `earnkitai/earnkit`.
+- **The pool rule.** `RANK_MIN_POOL = 10` (`rank.ts`): under 10 ranked builders no "#N" and no metal pill on the profile or
+  the leaderboard (S14), no standing pill (S5), "of N builders" only from 10 and points never on a page. The builder JSON
+  keeps the numeric rank.
+- **Removed.** Pages and routes: the programs list (`/programs` is a 308 to `/#earn`; guides stay at `/programs/<id>` and in the
+  sitemap, W10), the profile's Money and Project tabs, the README badge block, the visitor CTA and the sources line (the
+  badge, share and JSON routes stay; `?tab=` is ignored), the landing's "Backed by", the leaderboard's Arc, Robinhood and
+  weekly filters (old links still filter, W3), the nav's Programs link. Files: see "v3.1 site" in the code map.
+- **Rulings W1 to W11** (plan defaults, accepted by the owner 2026-10-21): W1 landing Activity is the feed's first 3 cards;
+  W2 the landing shows the first 4 open programs by relevance; W3 leaderboard 20 rows a page, filters All, Base and Backed;
+  W4 feed has 3 week tabs and 10 rows a page; W5 applications sent counts every builder's entry or told application;
+  W6 profile Activity 3 weeks a page with a dashed next-update line; W7 project tile is the EarnKit mark or a letter on a
+  colour by name; W8 Highlights order and at most 5; W9 docs is rendered per request; W10 `/programs` redirects to `/#earn`;
+  W11 the shell pages, share card, badge and OG image keep the v3 look.
+- **Deltas S1 to S20** (the canvas differed from the data or the rules; what shipped): S1 the program file's real title;
+  S2 the big number is the per-winner max, else the prize text; S3 Alliance has a monogram tile until a logo is sourced
+  (O1); S4 the chip says "grants" or "grants and prizes" by prize kind; S5 the standing pill is the Base pool percentile
+  with 10+ there, else the whole pool; S6 "Shipped N ago" uses the ship reading's `pushed_at`, a green pulse only within 7
+  days; S7 this week's commits come from `commit_counts` through the anti-backdating gate; S8 backer bars time blocks as
+  `BASE_GENESIS_UNIX + 2 * block`; S9 contracts count verified sources plus EarnKit deploys, distinct, hidden at 0;
+  S10 `projectProgramsDated` gives the applied date; S11 `onBlueSoft` `#F4F7FF` (4.57:1); S12 `dim` `#747C97` on page
+  backgrounds only; S13 one set of score text colours; S14 no place labels or metals under 10 (the canvas wins over R16);
+  S15 the profile loses tabs, badge, visitor row and sources line (O6); S16 the full footer adds Terms (O2); S17 the X link is
+  `@EarnKitAI` (O3); S18 CTAs open the install sheet (O8); S19 "Backed by" is removed (O7); S20 Grok's mark ships in the hero
+  row (O5). Owner decisions O1 to O10: every default shipped, the owner said "lmk when live"; the leaderboard filters drop
+  Arc, Robinhood and "Shipping every week" (O10); the OG image keeps its v3 words (O9).
+- **Verification.** `v31-site-sweep.test.ts` walks every page; the visual matrix (1440x900 and 390x844, no horizontal
+  scroll, targets 44px or more) is in the SDD workspace `.superpowers/sdd/v3.1-plan-site/`.

@@ -44,6 +44,10 @@ function unverifiedProblem(req: SubmissionRequirement, verified: KnownInfo['veri
   return null;
 }
 
+/** v3.1: a multi_choice answer's options ("User acquisition; Go-to-market strategy"), trimmed, blanks dropped. Pure. */
+export const multiChoiceParts = (value: string): string[] =>
+  value.split(';').map((v) => v.trim()).filter(Boolean);
+
 function problemWith(req: SubmissionRequirement, value: string): string | null {
   const urlProblem = req.type === 'url' ? builderUrlProblem(value) : null;
   // v2.9 A5: a placeholder link is said as the builder reads it.
@@ -53,6 +57,11 @@ function problemWith(req: SubmissionRequirement, value: string): string | null {
     return 'Not a valid email.';
   if (req.type === 'choice' && req.options && !req.options.includes(value)) {
     return `Must be one of: ${req.options.join(', ')}.`;
+  }
+  // v3.1: a checkbox question's answer is options joined by "; "; each part is one of them.
+  if (req.type === 'multi_choice' && req.options) {
+    const parts = multiChoiceParts(value);
+    if (parts.length === 0 || !parts.every((v) => req.options!.includes(v))) return `Must be one of: ${req.options.join(', ')}.`;
   }
   return null;
 }

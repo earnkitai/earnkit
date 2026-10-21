@@ -5,11 +5,21 @@ const MARK_D = ['M14.5258 6.97539C10.6587 6.97539 7.52377 10.1103 7.52377 13.977
  * The EarnKit logo as the navbar shows it: the mark and the "EarnKit" letters in one path.
  * `decorative`: hidden from screen readers (the footer's large faded copy).
  */
-export function Wordmark({ className = '', decorative = false }: { className?: string; decorative?: boolean }) {
+export function Wordmark({
+  className = '',
+  decorative = false,
+  width = 124,
+  height = 23,
+}: {
+  className?: string;
+  decorative?: boolean;
+  width?: number;
+  height?: number;
+}) {
   return (
     <svg
-      width="124"
-      height="23"
+      width={width}
+      height={height}
       viewBox="0 0 124 23"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"

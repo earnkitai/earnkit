@@ -27,8 +27,8 @@ import { fileCards } from './fixtures/fresh-build';
 import type { PublicStats } from './stats';
 import GuideView from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import ProgramRow from '../../app/components/sections/ProgramRow';
-import ProgramCards from '../../app/components/sections/ProgramCards';
+import HomeView from '../../app/HomeView';
+import { unsign } from './fixtures/page-words';
 
 (globalThis as { React?: typeof React }).React = React;
 appEnv();
@@ -84,10 +84,9 @@ test('(a) an upcoming program is listed with "not open yet", never a fit, never 
   assert.equal(tile?.status, 'upcoming');
   assert.ok(!(await openProgramFacts()).some((p) => p.id === id), 'never a fit');
   assert.equal(openMoneyUsd([c]), 0, 'never in the total');
-  // The row's chip reads "Not open yet"; an in-person program adds "In person".
-  const h = renderToStaticMarkup(React.createElement(ProgramRow, { tile: { ...tile!, in_person: true } }));
-  const chips = [...h.matchAll(/<span class="ek-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
-  assert.deepEqual(chips.slice(0, 2), ['Not open yet', 'In person']);
+  // v3.1 W2: the tile says "Not open yet" and the landing's cards leave it out (open programs only).
+  assert.equal(tile?.when, 'Not open yet');
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(HomeView, { landing: { ...landingFrom(cards, stats, new Date()), tiles: [tile!] } })), new RegExp(`href="/programs/${id}"`));
 });
 
 test('(b) tile order: active first; Base, then any chain, then the rest; grants before investments; dated before rolling', () => {
@@ -148,10 +147,9 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
-  // The two lines, in order, the second muted.
-  const h = renderToStaticMarkup(React.createElement(ProgramCards, { tiles: landing.tiles, figure: landing.open_text, more: landing.open_more }));
-  const t = h.replace(/<[^>]+>/g, ' ');
-  assert.ok(t.indexOf('$100K in grants and prizes open') >= 0 && t.indexOf('$100K in grants and prizes open') < t.indexOf('Plus 1 accelerator and 1 hackathon.'), t);
+  // v3.1 Task 6: the landing shows the hero chip (open_chip, the same figure), never "open right now".
+  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing }))).replace(/<[^>]+>/g, ' ');
+  assert.ok(landing.open_chip && t.includes(landing.open_chip) && landing.open_chip.startsWith('$100K '), t.slice(0, 300));
   assert.doesNotMatch(t, /open right now/);
 });
 
@@ -162,7 +160,7 @@ test('(d) programs:check passes on the committed JSON files', () => {
     assert.match(out, new RegExp(`Valid: ${f.replace('.', '\\.')}`));
 });
 
-test('(e) a ranked builder with a 4-week streak sees one upcoming line after the fits', db, async () => {
+test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming line, the money line (v3.1 F4: none beside a fit, v31-reply-trim.test.ts)', db, async () => {
   await upsertProgram(upcomingFile(`v3-upc-e-${RUN}`, { max_award_usd: 50000, chains: ['arc'] }));
   const t = `ek_v3p_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -185,9 +183,8 @@ test('(e) a ranked builder with a 4-week streak sees one upcoming line after the
   // The first upcoming program by the tile order, with its prize and note.
   const first = (await listPrograms()).filter((p) => p.status === 'upcoming').sort(byRelevance)[0];
   assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, not open yet. ${first.opens_note}`), upc[0]);
-  // Under Ways to get funded, after the fits (or the no-fit line), before How to move up; a statement, no link.
-  const at = lines.indexOf(upc[0]);
-  assert.ok(lines.indexOf('Ways to get funded') < at && at < lines.indexOf('How to move up'), s);
+  // Task 16: the money line, after the standing line, before the question; a statement, no link.
+  assert.equal(lines.indexOf(upc[0]), 1, s);
   assert.doesNotMatch(upc[0], /https?:|\?/);
   // A streak under 4: no upcoming line.
   await streak(3);
@@ -227,6 +224,9 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   assert.ok((await attachToX(own, { id: `96${RUN}7`, username: `vg${RUN}`.slice(0, 15), name: 'vg', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
   const key = `vg${RUN}/kit`;
+  // v3.1 Task 8: ETHGlobal Mumbai is unlisted, so an active copy stands in for an open in-person program.
+  const mumbai = `ethglobal-mumbai-v3g-${process.pid}`;
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('ethglobal-mumbai'), id: mumbai, status: 'active' }));
   // A product repo the matcher calls likely for ETHGlobal Mumbai (in person) and Base Builder Grants.
   const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
@@ -235,21 +235,23 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
   const fits: RepoFit[] = [{
     repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true,
-    verdicts: ['ethglobal-mumbai', 'base-builder-grants'].map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
+    verdicts: [mumbai, 'base-builder-grants'].map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
   }];
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: `vg${RUN}`, gh: fakeGitHub({ [key]: { id: 5092, owner: `vg${RUN}`, installation: 592 } }) });
+  // find names its Best fit (Base: find's fits are this builder's verdicts); score reads every open program, so its Best
+  // fit may be another one closing sooner. Neither ever names the in-person program.
   for (const tool of ['find', 'score'] as const) {
     const s = String((await mcpCall(ctx, tool, {})).reply?.show_to_builder ?? '');
-    assert.match(s, /Base Builder Grant Program: /, `${tool}: ${s}`);
+    if (tool === 'find') assert.match(s, /Base Builder Grant Program/, `${tool}: ${s}`);
     assert.doesNotMatch(s, /ETHGlobal Mumbai/, `${tool}: ${s}`);
   }
   // v3 Stage 2 final review: nor on the profile's Ways to get funded.
   const funds = (await profileData(c.id, new Date()))!.project!.funds;
   assert.ok(funds.some((l) => l.startsWith('Base Builder Grant Program pays ')), JSON.stringify(funds));
   assert.ok(!funds.some((l) => /ETHGlobal/.test(l)), JSON.stringify(funds));
-  const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === 'ethglobal-mumbai');
+  const tile = landingFrom(await listPrograms(), stats, new Date()).tiles.find((x) => x.id === mumbai);
   assert.equal(tile?.in_person, true, 'still listed');
 });
 

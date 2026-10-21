@@ -27,11 +27,12 @@ import {
   feeTable,
 } from '../../../lib/earnkit/policy';
 
+/** An inline link: 44px tall on a phone and up (Button.tsx INLINE_LINK), the lines never move. */
 const link = INLINE_LINK;
 
 /** `aside` sits beside the heading. */
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
-  const heading = <h2 className="font-funnel-display text-2xl font-medium text-ek-text md:text-3xl">{title}</h2>;
+  const heading = <h2 className="ek-serif text-[28px] leading-none text-ek-text md:text-[36px]">{title}</h2>;
   return (
     <div
       id={title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}
@@ -89,7 +90,7 @@ export default function PolicySection() {
   return (
     <>
       <Panel className="py-12 md:py-16" label="Policy">
-        <h2 id="policy" className="scroll-mt-32 font-funnel-display text-2xl font-medium text-ek-text md:text-4xl">
+        <h2 id="policy" className="scroll-mt-32 ek-serif text-[32px] leading-none text-ek-text md:text-[44px]">
           How EarnKit works
         </h2>
         <p className="mt-4 max-w-2xl font-funnel-sans text-base font-light text-ek-body md:text-lg">
@@ -124,7 +125,7 @@ export default function PolicySection() {
               href={`https://basescan.org/address/${SAFE_ADDRESS}`}
               target="_blank"
               rel="noopener noreferrer"
-              className={`block break-all font-funnel-sans text-sm md:text-base ${link} after:-inset-y-2`}
+              className={`${INLINE_LINK} !block break-all font-funnel-sans text-sm md:text-base`}
             >
               {SAFE_ADDRESS}
             </a>

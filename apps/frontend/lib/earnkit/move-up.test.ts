@@ -13,10 +13,11 @@ import { upsertProgram } from './programs';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { scoreFits } from './stand-view';
-import { fitWhy, tokenUnavailable } from './bench-find';
-import { NOT_ON_BENCH, SHIP_STEP, STATE_COPY, VARIANT_COPY, noFitLine } from './bench-reply';
+import { fitLines, fitWhy, tokenUnavailable } from './bench-find';
+import { INTRO_LINE, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import type { RepoFit } from './present';
 import { endsOnRankedStep } from './fixtures/ranked-step';
+import { padPool } from './fixtures/rank-pool';
 
 /**
  * Scoring and clarity, Task 4: four reply states (R16a), moving up by shipping (R8: "Ship this week to climb.",
@@ -37,10 +38,12 @@ after(async () => {
 const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const CLOSED = ['arc-microgrants', 'colosseum-worlds-fair', 'monad-metropolis'] as const;
-const OPEN = ['base-builder-grants', 'avalanche-team1-mini-grants', 'circle-developer-grants'] as const;
+// v3.1 Task 8: Avalanche Team1 Mini Grants is unlisted (v31-programs.test.ts); find.ts avalanche() keeps an active copy.
+const OPEN = ['base-builder-grants', 'circle-developer-grants'] as const;
 const COIN_WORDS = /\bcoin\b|\btokens?\b|community round|tokens\.fun|\$[A-Z]{3,}/i;
 /** R12: "<program>: <award>, <closes Mon D | rolling>. <Why>." */
-const FIT_LINE = /^[^:\n]+: [^,\n]+, (closes [A-Z][a-z]{2} \d{1,2}|rolling)\. [A-Z][^\n]*\.$/;
+/** Task 16: the ranked reply's money line. */
+const FIT_LINE = /^You qualify for the [^\n]+, up to \$[\d,]+( investment)?(, closes [A-Z][a-z]{2} \d{1,2})?\.$/;
 
 /** The program files as committed: R12 closes three, synced into this file's database. */
 async function syncPrograms() {
@@ -93,57 +96,52 @@ async function rankedBuilder(x: string, name: string, gh: number) {
   return { ...a, key };
 }
 
-const fundPart = (s: string) => s.split('\n\n').find((p) => p.startsWith('Ways to get funded'))!.split('\n').slice(1);
 
 test('R12: arc-microgrants, colosseum-worlds-fair and monad-metropolis are closed in their program files', () => {
   for (const id of CLOSED) assert.equal(committedProgram(id).status, 'closed', id);
   for (const id of OPEN) assert.equal(committedProgram(id).status, 'active', id);
 });
 
-test('R8, R12, R16a through find and score: the ranked reply is the score line, the why, at most 3 fits with deadline and why, and "Ship this week to climb."; no coin anywhere; closed programs never show', db, async () => {
+test('R8, R12, R16a through find and score (Task 16): the standing line, one money line (the Best fit), the ship question and its points line; no coin anywhere; closed programs never show', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   await syncPrograms();
   const extra = await avalanche(); // a fourth open program that fits: only 3 are named
   const a = await rankedBuilder('mvu', 'Kit', 7201);
-  const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id]) };
+  // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
+  // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product
+  // repo (v3-apply.test.ts (h)); v3.1 spec 3.2: else a rolling fit is. Every program is marked asked here, so the step is
+  // the ranked one on any date (the Best fit still leads).
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
+  const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19']) };
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);
-  const [stand, , up] = s.split('\n\n');
-  const lines = stand.split('\n');
-  assert.equal(lines[0], 'Where you stand');
-  assert.match(lines[1], /^Kit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/, s);
-  assert.match(lines[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks)/, 'the why sentence');
-  const fund = fundPart(s);
-  assert.ok(fund.length >= 1 && fund.length <= 3, s);
-  for (const l of fund) assert.match(l, FIT_LINE, l);
-  // R12 (fix round 1): one order, present.ts byDeadline: all rolling here, so the bigger award first.
-  assert.equal(fund[0], `${committedProgram('circle-developer-grants').title}: up to $100K, rolling. You deployed on Arc and your app is live.`, s);
-  assert.equal(fund.length, 3);
-  assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'circle-developer-grants', 'the lead is the first named');
-  assert.ok(endsOnRankedStep(up), up);
+  const lines = s.split('\n');
+  assert.match(lines[0], /^Kit · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
+  // v3.1 F4: no why sentence in the reply (the page keeps it); Task 16: no page line, no list of fits.
+  assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks|Your page|Ways to get funded/, s);
+  assert.match(lines[1], FIT_LINE, s);
+  assert.equal(lines.length, 4, s);
+  assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'base-builder-grants', 'the lead is the first fit line (never an investment)');
+  assert.ok(endsOnRankedStep(s), s);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
   assert.doesNotMatch(s, COIN_WORDS, s);
   assert.equal(r.move_up && (r.move_up as { kind: string }).kind, 'ship');
   assert.match(String((r.move_up as { agent_note: string }).agent_note), /suggest one small, real thing to ship this week/);
   assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${a.id}`).length, 0, 'no coin offer recorded');
 
-  // score: the same parts, its fits from the real matcher over what find saw (fit_repos), never a closed program.
-  // v3 Stage 2 final review: an open investment closing within 30 days (a16z speedrun, Alliance) is score's apply step
-  // for this product repo (v3-apply.test.ts (h)); marked asked here, so the step is the ranked one on any date.
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', jsonb_build_object('a16z-speedrun', now()::text, 'alliance-all19', now()::text)) WHERE builder_id = ${a.id}`;
+  // score: the same reply, its fits from the real matcher over what find saw (fit_repos), never a closed program.
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
-  assert.match(t, /^Kit: Shipping \d+ · /m);
-  const fits = fundPart(t);
-  assert.equal(fits.length, 3, t);
-  for (const l of fits) assert.match(l, FIT_LINE, l);
-  assert.deepEqual(fits, fund, 'find and score name the same fits in the same order');
+  assert.match(t, /^Kit · /m);
+  assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
   assert.ok(endsOnRankedStep(t), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
 
-test('R8: asking about a token (tell token: \'ask\', through the MCP schema) returns the offer; find and score never do', db, async () => {
+test('R8: asking about a token (tell token: \'ask\', through the MCP schema) with EARNKIT_RAISING off is not available (v3.1 final fix 1); find and score never offer one', db, async () => {
   await syncPrograms();
   const a = await rankedBuilder('tka', 'Tokenkit', 7202);
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${a.id} AND kind = 'repo'`;
@@ -153,49 +151,44 @@ test('R8: asking about a token (tell token: \'ask\', through the MCP schema) ret
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   try {
     const ctx = { ...a.ctx, tokenDeps: { check: async () => true } };
+    // v3.1 final fix 1: launches on but EARNKIT_RAISING off: confirm isn't registered, so no coin is offered (the
+    // flag-on offer, yes and confirm are v31-mcp-surface (j)).
     const asked = (await mcpCall(ctx, 'tell', { token: 'ask' })).reply!;
-    assert.match(String(asked.show_to_builder), /^A coin pays you 40% of its trading fees\. Want to launch a coin, \$TOKENKIT \(Tokenkit\), for Tokenkit\?$/, JSON.stringify(asked));
-    assert.deepEqual(asked.coin, { project_key: a.key });
-    assert.match(String(asked.agent_note), /tell with coin/);
-    // The default paths stay clean even with an open offer.
+    assert.equal(asked.show_to_builder, tokenUnavailable('Tokenkit'), JSON.stringify(asked));
+    assert.equal(asked.coin, undefined);
+    assert.doesNotMatch(String(asked.agent_note ?? ''), /tell with coin|confirm/);
     for (const tool of ['find', 'score'] as const) assert.doesNotMatch(String((await mcpCall(a.ctx, tool, {})).reply?.show_to_builder), COIN_WORDS, tool);
-    // The existing token path keeps working: the yes to the offer, then confirm { project_id }.
-    const yes = (await mcpCall(ctx, 'tell', { coin: { project_key: a.key, answer: 'yes', wallet: `0x${'e'.repeat(40)}` } })).reply!;
-    assert.equal(typeof yes.project_id, 'number', JSON.stringify(yes));
   } finally {
     delete process.env.TOKENSFUN_DEPLOY_API_KEY;
   }
 });
 
-test('R16a: the four states\' copy, one table (signed_out, no_project, not_counted, ranked)', () => {
-  assert.deepEqual(Object.keys(STATE_COPY), ['signed_out', 'no_project', 'not_counted', 'ranked']);
-  assert.equal(STATE_COPY.signed_out.stand(), NOT_ON_BENCH);
-  assert.equal(STATE_COPY.no_project.stand(), NOT_ON_BENCH);
+test('R16a: the steps\' copy before the account has a page, one table (signed_out, no_project, not_counted); ranked asks to ship', () => {
+  assert.deepEqual(Object.keys(STATE_COPY), ['signed_out', 'no_project', 'not_counted']);
   assert.equal(STATE_COPY.not_counted.stand('Kit'), "Kit isn't counted yet.");
-  assert.equal(STATE_COPY.ranked.stand('Kit', 72, '#3 of 40 builders'), 'Kit: Shipping 72 · #3 of 40 builders.');
-  assert.equal(STATE_COPY.ranked.ask(), 'Ship this week to climb.');
+  assert.equal(SHIP_ASK, 'Want me to suggest one small thing to ship?');
   // The other states keep their next steps: sign in, name a repo, install the App.
-  assert.match(STATE_COPY.signed_out.ask('https://x'), /^Sign in with X/);
+  assert.match(STATE_COPY.signed_out.ask('https://x'), /^Step 1 of 2: sign in with X/);
   assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
-  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Install the read-only EarnKit app/);
-  for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit', 1, null))),
-    ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), noFitLine('Kit')])
+  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Step 2 of 2: pick the repo you're building/);
+  for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit'))),
+    ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), SHIP_ASK])
     assert.doesNotMatch(l, COIN_WORDS, l);
 });
 
-test('R16a through mcpCall: signed out, no project and not counted keep their own step; only ranked says "Ship this week to climb."', db, async () => {
+test('R16a through mcpCall: signed out, no project and not counted keep their own step; only ranked asks to ship', db, async () => {
   const out = await agent();
   const s1 = String((await mcpCall(out.ctx, 'find', {})).reply?.show_to_builder);
-  assert.match(s1, /You're not on the leaderboard yet\.[\s\S]*How to move up\nSign in with X/);
+  assert.match(s1, new RegExp(`^${INTRO_LINE}[\\s\\S]*\\nStep 1 of 2: sign in with X`));
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
   // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.
-  assert.match(s2, /How to move up\nInstall the read-only EarnKit app on the repo you want ranked \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nWant me to rank it once that's done\?$/, s2);
+  assert.match(s2, /\nStep 2 of 2: pick the repo you're building\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?\n\+30 points when it's connected$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
-  assert.match(s3, /Unc isn't counted yet\.[\s\S]*Install the read-only EarnKit app/);
+  assert.match(s3, /^You're in, @\S+\.\nStep 2 of 2: pick the repo/);
   for (const s of [s1, s2, s3]) {
-    assert.ok(!s.includes(SHIP_STEP), s);
+    assert.ok(!s.includes(SHIP_ASK), s);
     assert.doesNotMatch(s, COIN_WORDS, s);
   }
 });
@@ -211,15 +204,18 @@ test('R12 positive match (Task 2c carry): a profiled builder with transactions, 
   assert.equal(repoCanWin(rows.get('base-builder-grants')!, repo), true, 'Base: deployed, live, real use');
   assert.equal(repoCanWin(rows.get('circle-developer-grants')!, repo), true, 'Arc: deployed, live, real use');
   for (const id of CLOSED) assert.equal(rows.has(id), false, `${id} is not open`);
-  // scoreFits over the stored fit repo: byDeadline order, at most 3, each with its why.
+  // scoreFits over the stored fit repo: every apply candidate (v3.1 F1), each with its why; the fit lines are the
+  // first FITS_MAX by byRelevance (bench-find.ts fitLines): Base first.
   const a = await agent('psf');
   await sql()`UPDATE installations SET fit_repos = ${sql().json([repo] as never)} WHERE id = ${a.id}`;
   const { listPrograms } = await import('./programs');
   const fits = await scoreFits(a.id, key, { cards: await listPrograms(), skip: new Set(), now: new Date() });
-  assert.ok(fits.length >= 2 && fits.length <= 3, JSON.stringify(fits.map((f) => f.card.id)));
-  assert.equal(fits[0].card.id, 'circle-developer-grants', 'byDeadline: all rolling, so the biggest award first');
-  assert.ok(fits.some((f) => f.card.id === 'avalanche-team1-mini-grants'), JSON.stringify(fits.map((f) => f.card.id)));
-  assert.equal(fitWhy(fits[0].card, { chains: repo.chains, live: true }), 'You deployed on Arc and your app is live.');
+  const ids = fits.map((f) => f.card.id);
+  for (const id of OPEN) assert.ok(ids.includes(id), JSON.stringify(ids));
+  const lines = fitLines(fits);
+  assert.equal(lines.length, 3, JSON.stringify(ids));
+  assert.equal(lines[0].card.id, 'base-builder-grants', 'byRelevance: Base first');
+  assert.equal(fitWhy(lines[0].card, { chains: repo.chains, live: true }), 'You deployed on Base and your app is live.');
   // A low-odds repo (no traction) gets none.
   const low = { ...repo, product: { ...product, odds: 'low' as const, traction: 0 }, tx_count: 0 };
   await sql()`UPDATE installations SET fit_repos = ${sql().json([low] as never)} WHERE id = ${a.id}`;

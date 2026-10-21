@@ -126,7 +126,7 @@ export type ProgramRow = {
   starts_at: Date | null;
   ends_at: Date | null;
   /** v3 Stage 2: `upcoming` is listed (Not open yet), never a fit, an entry or in the money total. */
-  status: 'active' | 'closed' | 'upcoming';
+  status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
   opens_note?: string | null;
   /** v3 Stage 2: attended in person (the card's "In person" chip). Optional for older fixtures. */
@@ -549,6 +549,8 @@ type StarterRow = {
 export async function getProgram(programId: string) {
   const db = sql();
   const program = await getProgramRow(programId);
+  // v3.1 (D2, R15): an unlisted program is gone, as an unknown id (never "closed" for an open one).
+  if (program.status === 'unlisted') throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);
   // v2.12 spec 9: sponsor campaigns are archived; their rows are not shown while the flag is off.
   if (!archiveFlag('SPONSOR_CAMPAIGNS') && program.campaign?.kind === 'sponsor')
     throw new NotFoundError(`No program with id "${programId}". Call find for current ids.`);

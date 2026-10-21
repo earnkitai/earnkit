@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Example builder with Backing</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+body{margin:0;background:#0B0C14}</style>
+</helmet>
+<dc-import name="Profile" data="{{data}}" hint-size="100%,1800px"></dc-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { data: {
+      name: 'Maya', first: 'Maya', handle: 'maya', ghLogin: 'maya', avatar: null,
+      score: 84, rank: 3, pool: 42, streak: 9,
+      shipped: [true, true, false, true, true, true, true, true, true, true, true, true],
+      project: 'Tipjar', logo: 'other', logoColor: '#FF6A1F', link: 'tipjar.xyz', about: '[One line from the repo description or README]',
+      chains: ['Base'], live: true, lastShip: 'yesterday', thisWeek: 6,
+      token: { ticker: '$TIPJAR', backers: '23', fees: '$412', weekly: [0, 1, 0, 2, 1, 3, 2, 4, 3, 2, 5, 4] },
+      record: [
+        { icon: 'live', title: 'Live at tipjar.xyz', sub: 'Since [month]' },
+        { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' },
+        { icon: 'applied', title: 'Applied to Alliance ALL19', sub: '[date]' },
+        { icon: 'start', title: 'Shipping since [month]', sub: '9 weeks in a row' }
+      ],
+      next: null,
+      weeks: [
+        { week: 'Week of Oct 12', commits: '42 commits', text: '[The week\u2019s summary, written from its commits]' },
+        { week: 'Week of Oct 5', commits: '18 commits', text: '[The week\u2019s summary, written from its commits]' },
+        { week: 'Week of Sep 28', commits: '31 commits', text: '[The week\u2019s summary, written from its commits]' },
+        { week: 'Week of Sep 21', commits: '12 commits', text: '[The week\u2019s summary, written from its commits]' }
+      ]
+    } };
+  }
+}
+</script>
+</body>
+</html>

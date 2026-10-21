@@ -52,7 +52,7 @@ test('Ruling 16 (plan): the scan is not vacuous', () => {
   assert.ok(files.includes('apps/frontend/scripts/programs-sync.mts'), 'scripts');
   assert.ok(files.length >= 140, `only ${files.length} files`);
   // v2.13: llms.txt moved from public/ to lib/earnkit/llms/ (served by app/llms.txt/route.ts), both versions scanned.
-  for (const f of ['apps/frontend/lib/earnkit/llms/v213.txt', 'programs/arc-microgrants.json', 'programs/README.md', 'apps/frontend/app/page.tsx', 'apps/frontend/app/components/sections/Hero.tsx'])
+  for (const f of ['apps/frontend/lib/earnkit/llms/v213.txt', 'programs/arc-microgrants.json', 'programs/README.md', 'apps/frontend/app/page.tsx', 'apps/frontend/app/components/landing/Hero.tsx'])
     assert.ok(files.includes(f), f);
   assert.ok(!files.some((f) => /\.test\.tsx?$/.test(f) || f.includes('/fixtures/') || f.endsWith('/human-text.ts')));
 });
@@ -83,12 +83,9 @@ test('final review M1: humanTextFiles never enters a fixtures directory', () => 
   }
 });
 
-test('final review M1: the client row shares NO_CELL with the agent tables (one empty-cell sentinel)', () => {
+test('final review M1: one empty-cell sentinel (NO_CELL) for the agent tables and the client', () => {
+  // v3.1 Task 6: the landing's cards show no difficulty chip, so ProgramRow left; the sentinel stays shared.
   assert.equal(PRESENT_NO_CELL, NO_CELL);
-  const card = readFileSync(join(ROOT, 'apps/frontend/app/components/sections/ProgramRow.tsx'), 'utf8');
-  assert.match(card, /import \{ NO_CELL \} from '..\/..\/..\/lib\/earnkit\/no-cell';/);
-  assert.match(card, /t\.difficulty !== NO_CELL/);
-  assert.doesNotMatch(card, /!== ''/);
 });
 
 test('11.3 (F21): no hard-coded money total in human text; openFigure and poolTotalText stay inside pool.ts', () => {

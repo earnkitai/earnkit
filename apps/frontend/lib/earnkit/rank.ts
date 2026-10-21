@@ -30,6 +30,15 @@ export function rankLine(s: Standing, o: { chain?: BenchChain } = {}): string | 
   return `#${n(s.rank)} of ${n(s.total)} ${s.total === 1 ? 'builder' : 'builders'}${where}`;
 }
 /**
+ * v3.1 F3: no rank is shown anywhere a builder reads it (replies, the moment, the share post, the email, the profile,
+ * the card) while the pool has fewer than RANK_MIN_POOL ranked builders ("#1 of 1 builder" reads as a joke). The
+ * leaderboard list and the builder JSON keep rankLine and the number. A chain's line is held to its own chain pool. Pure.
+ */
+export const RANK_MIN_POOL = 10;
+export function shownRankLine(s: Standing, o: { chain?: BenchChain } = {}): string | null {
+  return s.total >= RANK_MIN_POOL ? rankLine(s, o) : null;
+}
+/**
  * R16c: the one score line, everywhere it appears (profile header, MCP replies, the card and share
  * text, the page meta): "Shipping 72 · #3 of 40 builders"; "Shipping 72" without a rank. Pure.
  */

@@ -48,7 +48,8 @@ export function fileCards(): Card[] {
           needs_repo: p.needs_repo ?? null,
           // v3 Stage 2: programCard now carries status. The pick rules here run on the files' dates, as
           // before (a closed file such as Arc Microgrants stays pickable at the tests' fixed dates); an
-          // upcoming file stays upcoming (never open).
+          // upcoming file stays upcoming (never open). v3.1 Task 8: an unlisted file (Avalanche, ETHGlobal
+          // Mumbai) stays pickable here as a closed one does, so these fixed-date catalogue tests keep their figures.
           status: p.status === 'upcoming' ? 'upcoming' : 'active',
         },
         [],

@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { NOT_ON_BENCH, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { INTRO_LINE, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { mainProjectOf } from './main-project';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 
@@ -44,8 +44,8 @@ test('O2.1c no project, nothing EarnKit can build (deploys off): no "Pick someth
     const id = await install();
     const r = await find(id, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
     assert.doesNotMatch(r.show_to_builder, /Pick something to build/);
-    // v2.13.3 (3), ruling A: the stand line alone, then existing work and money it can win.
-    assert.match(r.show_to_builder, /^You're not on the leaderboard yet\.$/m);
+    // Task 16 step 1: signed out, the first reply.
+    assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
     // v2.14 T9: signed out: the sign-in link is the one ask.
     assert.equal(r.move_up?.kind, 'sign_in');
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -87,16 +87,17 @@ test('O2.4 B6: a newer project replaces an unconfirmed one; not_mine clears it; 
   }),
 );
 
-test('O2.5 once claimed: find and score show "Your page: https://earnkit.com/<handle>" right after the stand line and its why sentence', dbTest, () =>
+test('O2.5 once claimed: find and score lead with the standing line (Task 16: the page is named only where the step needs it; v3.1 F4: no why sentence)', dbTest, () =>
   on(async () => {
     const key = `${uniq('page')}/recipes`;
     const handle = uniq('pg');
     const id = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const f = await find(id, {}, NO_MATCH);
-    assert.match(f.show_to_builder.split('\n')[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks, \d+ of the last 4)\.$/, 'the why sentence under the stand line');
-    assert.equal(f.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
+    assert.doesNotMatch(f.show_to_builder, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence');
+    assert.equal(f.show_to_builder.split('\n')[0], 'Recipe planner is on EarnKit.');
+    assert.doesNotMatch(f.show_to_builder, /Your page/);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
-    assert.equal(s.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
+    assert.equal(s.show_to_builder.split('\n')[0], 'Recipe planner is on EarnKit.');
   }),
 );
 
@@ -108,8 +109,7 @@ test('O2.9 the last line is one question that fits: no open-all-year grant for a
     const r = await find(id, named(`${uniq('maya')}/hello`), NO_MATCH);
     // v2.13.3 (2): a chain grant is named only with what it needs ("for an Avalanche app"), never as a fit.
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), 'a chain grant that does not fit the project is never claimed');
-    assert.match(r.show_to_builder, /^Ways to get funded$/m);
-    assert.doesNotMatch(r.show_to_builder, /How to move up\n.*on the leaderboard/, 'not on the Bench yet');
+    assert.doesNotMatch(r.show_to_builder, /on the leaderboard/, 'not on the Bench yet');
     assert.doesNotMatch(r.show_to_builder, /post what you ship/);
     assert.notEqual(r.move_up?.kind, 'updates');
     assert.equal(r.show_to_builder.split('\n').filter((l) => l.includes('?')).length, 1, 'one question');
@@ -120,19 +120,19 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
   on(async () => {
     const tell = (id: number, m: Record<string, unknown>) => tools.tell({ move_up: m }, { installationId: id } as never) as Promise<R>;
     const lastQ = (t: string) => t.split('\n').filter((l) => l.includes('?'));
-    // Confirmed, nothing pending (R8): "Ship this week to climb.", a statement whose yes is one small thing to ship.
+    // Confirmed, nothing pending (R8, Task 16): the ship question, whose yes is one small thing to ship.
     const key = `${uniq('gr')}/recipes`;
     const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const r = await find(id, {}, NO_MATCH);
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
-    assert.equal(lastQ(r.show_to_builder).length, 0);
+    assert.equal(lastQ(r.show_to_builder).length, 1);
     const g = await tell(id, { kind: 'ship', project_key: key, answer: 'yes' });
     assert.match(g.agent_note ?? '', /one small thing/);
     // No project, nothing to build: v2.13.3 ruling A, existing work; the yes asks the agent for it.
     const n = await install();
     await claimX(n); // v2.13.4: the asks after the X claim
     const s0 = await find(n, { agent_can_build: true }, { freshDeps: { ...OWN_FRESH, deployOn: () => false } });
-    assert.ok(s0.show_to_builder.includes(NOT_ON_BENCH) && s0.show_to_builder.endsWith(STATE_COPY.no_project.noApp()), s0.show_to_builder);
+    assert.ok(/^You're in, @/.test(s0.show_to_builder) && s0.show_to_builder.endsWith(STATE_COPY.no_project.noApp()), s0.show_to_builder);
     const sy = await tell(n, { kind: 'start', project_key: null, answer: 'yes' });
     assert.match(sy.agent_note ?? '', /identity/);
     // Taken, with a program that fits the held repo: never an entry, never its program, a different project.
@@ -144,7 +144,7 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     const t = await install();
     await claimX(t);
     const tr = await find(t, named(held), { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(ava.id, held) }) });
-    assert.ok(tr.show_to_builder.includes(`Where you stand\n${VARIANT_COPY.taken.stand('Recipes')}\n`), tr.show_to_builder);
+    assert.ok(tr.show_to_builder.includes(`${VARIANT_COPY.taken.stand('Recipes')}\n`), tr.show_to_builder);
     assert.ok(!tr.show_to_builder.includes(`${ava.title} pays`), 'no program claimed for a held repo');
     assert.equal(tr.lead, undefined);
     assert.notEqual(tr.move_up?.kind, 'enter');

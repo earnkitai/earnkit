@@ -78,7 +78,7 @@ test('connect via gives 30', db, async () => {
   assert.deepEqual((await rows(me.id)).map((r) => [r.points, r.via, r.rank, r.total]), [[CONNECT_POINTS, 'connect', null, null]]);
 });
 
-test('profileData.points and the reply line', db, async () => {
+test('profileData.points; v3.1 F4: the reply has no points line', db, async () => {
   await freshBoard();
   const me = await ranked('ptd');
   const monday = lastFinishedMonday(new Date());
@@ -88,9 +88,7 @@ test('profileData.points and the reply line', db, async () => {
   await approveWeek(me.id, me.key, monday, new Date());
   assert.equal((await profileData(me.id, new Date()))?.points, 100);
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.ok(s.includes(POINTS_LINE(100)) && s.includes('Points: 100.'), s);
-  const fund = s.split('How to move up')[0].split('Ways to get funded')[1];
-  assert.ok(fund.trim().endsWith(POINTS_LINE(100)), `the points line is last under Ways to get funded: ${fund}`);
+  assert.ok(!s.includes(POINTS_LINE(100)) && !s.includes('Points:'), s);
   assert.doesNotMatch(s, /—/);
 });
 

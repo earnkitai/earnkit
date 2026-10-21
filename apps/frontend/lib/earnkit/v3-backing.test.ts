@@ -8,7 +8,7 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { withEnv } from './fixtures/find';
 import { BENCH_EXTRA, bannedInBench } from './fixtures/banned-words';
-import { pageWords } from './fixtures/page-words';
+import { pageWords, unsign } from './fixtures/page-words';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
@@ -23,9 +23,9 @@ import { builderJson, builderResponse } from './builder-json';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import ProjectTab from '../../app/[handle]/ProjectTab';
-import BenchView from '../../app/leaderboard/BenchView';
-import { FILTER_BACKED } from '../../app/leaderboard/FilterChip';
+import { profileSite } from './site-data';
+import BenchView, { FILTER_BACKED } from '../../app/leaderboard/BenchView';
+import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import { benchCard } from '../../app/[handle]/card-response';
 import PolicySection from '../../app/terms/sections/PolicySection';
@@ -60,7 +60,7 @@ let n = 0;
 
 type B = { ctx: Parameters<typeof mcpCall>[0]; id: number; key: string; handle: string };
 /** A ranked builder (signed in with X, the repo proven by the App and read public), with a proven wallet. */
-async function builder(tag: string, o: { key?: string; week?: boolean; private?: boolean } = {}): Promise<B> {
+async function builder(tag: string, o: { key?: string; week?: boolean; private?: boolean; programs?: string[] } = {}): Promise<B> {
   n++;
   const t = `ek_v3b_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -74,7 +74,8 @@ async function builder(tag: string, o: { key?: string; week?: boolean; private?:
   const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
   const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
   const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
-  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true, verdicts: [] }];
+  const verdicts = (o.programs ?? []).map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }));
+  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true, verdicts }];
   const ctx = {
     installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never,
     tokenDeps: { check: async () => true },
@@ -128,8 +129,9 @@ test('(a) after the first approved week the backing offer is the one question, o
   const s = show(f);
   const m = lastLine(s).match(OFFER_RE);
   assert.ok(m, s);
-  assert.ok(s.endsWith(`How to move up\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`), s);
-  assert.equal(links(s).length, 1, s);
+  // Task 16: the standing, then the offer as the one question (no points line: backing earns none).
+  assert.equal(s, `Kit is on EarnKit.\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
+  assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—|community round|\braise\b|raising/i);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
@@ -140,6 +142,15 @@ test('(a) after the first approved week the backing offer is the one question, o
   const again = await find(b);
   assert.doesNotMatch(show(again), /backing/i, show(again));
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'backing');
+  // v3.1 spec 3.2 (R1): an apply ask due goes first; backing waits, unclaimed, for the next reply.
+  const both = await builder('a2', { week: true, programs: ['base-builder-grants'] });
+  const first = await find(both);
+  assert.equal((first.reply?.move_up as { kind: string }).kind, 'apply', show(first));
+  assert.doesNotMatch(show(first), /backing/i, show(first));
+  assert.equal((await moments(both.id)).length, 0, 'the backing moment waits unclaimed');
+  const second = await find(both);
+  assert.match(lastLine(show(second)), OFFER_RE, show(second));
+  assert.equal(questions(show(second)), 1, show(second));
 }));
 
 test('(b) yes routes to the coin flow note; no counts a decline', db, () => on(async () => {
@@ -171,7 +182,7 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
     const r = await find(b);
     const s = show(r);
     // Ranked (the offer's own state), so only the rule under test keeps it away.
-    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit: Shipping \d+/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
+    if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit (is on EarnKit\.|· )/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
     assert.doesNotMatch(s, /backing/i, `${label}: ${s}`);
     assert.equal((await moments(b.id)).length, 0, label);
   };
@@ -214,17 +225,17 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   const url = `https://tokens.fun/coin/0x${b.id}`;
   const d = (await profileData(b.id, new Date()))!;
   assert.deepEqual(d.backing, { symbol: sym, url, backers: 0, earned_usd: 0 });
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'log' }));
-  assert.match(html, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*data-ek-back[^>]*>Back ${d.project!.name}</a>`), html);
+  // v3.1 Task 7: the coin is on the Token card (site.token): $SYMBOL, "Back <first>" to the coin's page. The card reads
+  // the coin's backers by its address, which a real launch records.
+  await sql()`UPDATE projects SET coin_address = ${`0x${String(b.id).padStart(40, 'd')}`} WHERE id = ${yes.reply!.project_id as number}`;
+  const site = await profileSite(b.id, d, new Date());
+  assert.ok(site.token, 'the Token card');
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
+  const tok = unsign(html.slice(html.indexOf('data-ek-token')));
+  assert.ok(tok.includes(`$${sym}`), tok);
+  assert.match(tok, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*>Back ${site.first}</a>`), tok);
   assert.doesNotMatch(html, /Community round/);
-  // v3 Stage 3 (spec 5.6): the coin's pill sits in the Money tab's Backing group (the header carries the Back button).
-  const money = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'money' }));
-  assert.match(money, /data-pill="backing"/);
-  assert.ok(money.includes(`Backing · $${sym}`), money);
-  assert.doesNotMatch(money, /Community round/);
   assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'KIT', url })).trim(), 'Backing · $KIT');
-  // The project tab's coin line shows with the flag on.
-  assert.match(renderToStaticMarkup(React.createElement(ProjectTab, { project: d.project })), new RegExp(`\\$${sym} on tokens\\.fun`));
   // The card's pill.
   const card = (await benchCardFacts(b.id))!;
   assert.equal(card.raising, sym);
@@ -242,13 +253,16 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.deepEqual(backed.rows.map((r) => r.handle), [b.handle]);
   assert.deepEqual(backed.rows[0].backing, { symbol: sym, url });
   assert.equal(FILTER_BACKED, 'Backed');
-  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false } }));
+  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
   assert.match(board, /<a[^>]*href="\/leaderboard\?backed=1"[^>]*>Backed<\/a>/, board);
-  assert.ok(board.includes(`Backing · $${sym}`));
+  // v3.1 Task 8: a list row carries the Backed tag (never the coin's symbol or link on the leaderboard).
+  const row = renderToStaticMarkup(React.createElement(BenchRowItem, { r: backed.rows[0], ranked: false }));
+  assert.match(row, /data-ek-backed=""[^>]*>Backed</, row);
+  assert.ok(!row.includes(`$${sym}`) && !row.includes('tokens.fun'));
 
-  // The reply's fund line: a statement under Ways to get funded; one https link still.
+  // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
   const r = show(await find(b));
-  assert.ok(r.includes(`Backing open. Your page: earnkit.com/${b.handle}`), r);
+  assert.ok(r.includes(`\nBacking open. Your page: https://earnkit.com/${b.handle}\n`), r);
   assert.equal(links(r).length, 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.equal(backingLine(0, 0, 'earnkit.com/x'), 'Backing open. Your page: earnkit.com/x');
@@ -310,14 +324,16 @@ test('(f) flag off: no backing text anywhere (reply, page, card, terms, JSON bac
   await off(async () => {
     const d = (await profileData(b.id, new Date()))!;
     assert.equal(d.backing, null);
-    const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, tab: 'project' }));
-    assert.doesNotMatch(html, /data-ek-back|Backing|data-pill|on tokens\.fun/, html);
+    const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
+    assert.doesNotMatch(html, /data-ek-back|data-ek-token|Backing|data-pill|tokens\.fun/, html);
     assert.equal((await benchCardFacts(b.id))!.raising, null);
     assert.deepEqual(parseBenchFilter({ backed: '1' }), { chain: null, weekly: false, backed: false });
     const all = await benchRows({ chain: null, weekly: false, backed: false }, { only: [b.id] });
     assert.ok(all.rows.every((r) => r.backing === null));
-    const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false } }));
+    const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
     assert.doesNotMatch(board, /Backed|Backing|backed=1/);
+    // v3.1 Task 8: a list row of the same builder carries no Backed tag either.
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(BenchRowItem, { r: all.rows[0], ranked: false })), /Backed|Backing/);
     assert.equal((await builderJson(b.handle, new Date()))!.backing, null);
     const r = show(await find(b));
     assert.doesNotMatch(r, /backing/i, r);

@@ -1,5 +1,5 @@
 import Footer from '../components/common/Footer';
-import { COLUMN, H1 } from '../components/common/Panel';
+import { H1_SITE, PAGE_COL } from '../components/site/ui';
 import { PROFILES_ANCHOR, PROFILES_TITLE, RECORDS_HREF, RECORDS_TITLE } from '../../lib/earnkit/policy';
 import PolicySection from './sections/PolicySection';
 import ProfilesSection from './sections/ProfilesSection';
@@ -38,15 +38,15 @@ const SECTIONS = [
 export default function TermsPage() {
   return (
     <>
-      <div className={`${COLUMN} flex flex-col gap-4 pt-8 md:pt-12`}>
+      <div className={`${PAGE_COL} flex flex-col gap-4 pt-8 md:pt-12`}>
         <section aria-label="Terms" className="mb-4">
-          <h1 className={H1}>Terms</h1>
+          <h1 className={H1_SITE}>Terms</h1>
           <nav aria-label="Sections" className="mt-4 flex flex-wrap gap-x-6 gap-y-1 font-funnel-sans text-base">
             {SECTIONS.map((s) => (
               <a
                 key={s.href}
                 href={s.href}
-                className="inline-flex min-h-[44px] items-center text-ek-body underline underline-offset-4 transition-colors hover:text-ek-text"
+                className="inline-flex min-h-[44px] items-center text-ek-body underline underline-offset-4 motion-safe:transition-colors hover:text-ek-text"
               >
                 {s.label}
               </a>

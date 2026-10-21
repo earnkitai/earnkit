@@ -11,7 +11,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE, lastModified: new Date(), changeFrequency: 'weekly', priority: 1 },
     { url: `${SITE}/terms`, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${SITE}/docs`, changeFrequency: 'monthly', priority: 0.6 },
-    { url: `${SITE}/programs`, changeFrequency: 'daily', priority: 0.8 },
   ];
   // The leaderboard and its feed.
   pages.push({ url: `${SITE}/leaderboard`, changeFrequency: 'daily', priority: 0.8 }, { url: `${SITE}/feed`, changeFrequency: 'daily', priority: 0.6 });

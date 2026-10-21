@@ -1693,8 +1693,9 @@ CREATE TABLE IF NOT EXISTS builder_points (
 );
 
 -- v3 Stage 2: upcoming programs (listed, never a fit, never counted in the money total).
+-- v3.1: this add allows 'unlisted' too (the last add's values), so a rerun over unlisted rows passes.
 ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
-ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming'));
+ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming', 'unlisted'));
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS opens_note text;
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS in_person boolean NOT NULL DEFAULT false;
 
@@ -1739,3 +1740,10 @@ BEGIN
     ALTER TABLE creator_fees ADD CONSTRAINT creator_fees_pkey PRIMARY KEY (tx_hash, log_index, coin);
   END IF;
 END $$;
+
+-- v3.1: whether a repo carries Base Builder Codes (ERC-8021), read through the read-only App, once a day.
+CREATE TABLE IF NOT EXISTS repo_builder_codes (repo_key text PRIMARY KEY, found boolean NOT NULL, checked_at timestamptz NOT NULL);
+
+-- v3.1: an unlisted program (off-thesis) keeps its row for old entries; nothing lists, matches, counts or guides it.
+ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
+ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming', 'unlisted'));

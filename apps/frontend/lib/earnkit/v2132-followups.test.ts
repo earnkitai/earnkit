@@ -10,8 +10,8 @@ import { ORG_PROOF_MAX_AGE_MS, expireOrgProofs, orgProofExpiryStep, proveByApp }
 import { rescorePerson } from './person-score';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchPage, { BENCH_EMPTY, benchLine } from '../../app/leaderboard/BenchView';
-import { BENCH_TOP_EMPTY } from '../../app/components/sections/BenchTop';
+import BenchPage, { BENCH_EMPTY } from '../../app/leaderboard/BenchView';
+import { BENCH_TOP_EMPTY, leaderboardLine } from './site-copy';
 import { discoverPerson } from './discovery';
 import type { ReaderDeps } from './source-readers';
 
@@ -111,12 +111,12 @@ test('v2.13.2 1: a user-owned proof at 200 days stays', dbTest, () =>
 
 // ---- 3. The Bench header's counts
 
-test('v2.13.2 3, v3 Stage 3 wording: the Bench header says nobody (BenchView and BenchTop show BENCH_TOP_EMPTY at 0), one builder, or many', () => {
+test('v2.13.2 3, v3.1 wording: the leaderboard header says nobody (BENCH_TOP_EMPTY at 0), one builder, or many', () => {
   assert.equal(BENCH_TOP_EMPTY, 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.');
   assert.ok(page(0).includes(BENCH_TOP_EMPTY) && !page(0).includes('0 builders'));
-  assert.equal(benchLine(1), '1 builder. Ranked by Shipping.');
-  assert.equal(benchLine(2), '2 builders. Ranked by Shipping.');
-  assert.equal(benchLine(1200), '1,200 builders. Ranked by Shipping.');
+  assert.equal(leaderboardLine(1), '1 builder, ranked by how often they ship');
+  assert.equal(leaderboardLine(2), '2 builders, ranked by how often they ship');
+  assert.equal(leaderboardLine(1200), '1,200 builders, ranked by how often they ship');
 });
 
 // ---- Fix round 1
@@ -153,8 +153,8 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 (globalThis as { React?: typeof React }).React = React;
 const page = (count: number, rows = 0, chain: 'base' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
-    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building' })),
-    count, chips: [], filter: { chain, weekly: false },
+    rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building', streak: 0 })),
+    count, chips: [], filter: { chain, weekly: false }, page: 1,
   })).replace(/&#x27;/g, "'");
 
 test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered view with no rows keeps "No one here yet."', () => {
@@ -163,7 +163,7 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
   const filtered = page(5, 0, 'base');
   assert.ok(filtered.includes(BENCH_EMPTY));
-  assert.ok(filtered.includes('5 builders. Ranked by Shipping.'));
+  assert.ok(filtered.includes(leaderboardLine(5)));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });
 

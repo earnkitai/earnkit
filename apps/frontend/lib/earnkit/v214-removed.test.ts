@@ -186,7 +186,13 @@ test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.1
   // confirm and tell still accept an older agent's signed_in (strict schemas), described only as ignored.
   const schemaText = (schema: unknown) =>
     JSON.stringify(schema).replace(/"signed_in":\{"description":"Not used any more; ignored\."\}/g, '"old":{}');
-  const tools = await mcpListTools({ installationId: 1 });
+  // v3.1: confirm (Backing) is listed only with EARNKIT_RAISING on; listed here so its schema is read too.
+  const raising = process.env.EARNKIT_RAISING;
+  process.env.EARNKIT_RAISING = 'on';
+  const tools = await mcpListTools({ installationId: 1 }).finally(() => {
+    if (raising === undefined) delete process.env.EARNKIT_RAISING;
+    else process.env.EARNKIT_RAISING = raising;
+  });
   assert.equal(tools.length, 5);
   const texts: [string, string][] = [
     ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),

@@ -29,7 +29,7 @@ export function completeAnswers(
       ? `https://tipjar.xyz/${r.key}`
       : r.type === 'email'
         ? 'builder@tipjar.xyz'
-        : r.type === 'choice' && r.options?.length
+        : (r.type === 'choice' || r.type === 'multi_choice') && r.options?.length
           ? r.options[0]
           : `${r.key} answer`;
   return { ...Object.fromEntries(requirements.filter((r) => r.required).map((r) => [r.key, value(r)])), ...overrides };

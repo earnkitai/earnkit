@@ -10,11 +10,11 @@ import nextConfig from '../../next.config';
 import { CONTACT_EMAIL, PROFILES_POINTS, RECORDS_ANCHOR, RECORDS_HREF, RECORD_STEPS } from './policy';
 import Footer from '../../app/components/common/Footer';
 import HomeView from '../../app/HomeView';
-import { BENCH_HERO_SUBTITLE } from '../../app/components/sections/Hero';
+import { CTA_INSTALL, EARN_FOOT, EARN_TITLE, HERO_SUB } from './site-copy';
 import Header from '../../app/components/common/Header';
-import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
+import NotFound, { NOT_FOUND_TITLE } from '../../app/not-found';
+import { NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 import { AGENTS, Command, INTRO } from '../../app/components/sections/AddToAgent';
-import { NO_CELL } from './present';
 import ProgramLogo, { monogram } from '../../app/components/sections/ProgramLogo';
 import AddToAgent, { START_PROMPT } from '../../app/components/sections/AddToAgent';
 import type { Landing } from './landing';
@@ -26,12 +26,13 @@ import type { GuidePage } from './landing';
 import { closedGuide, emptyGuide, fullGuide, partialGuide, predecessorGuide } from './fixtures/guide';
 import { gatedGuidePage, guideDescription } from './landing';
 import { shownUrl } from './untrusted-text';
-import { BENCH_FOOTER_TAGLINE } from './footer-links';
+import { unsign } from './fixtures/page-words';
 
 // The test runner compiles JSX with the classic runtime (no tsconfig at the repo root).
 (globalThis as { React?: typeof React }).React = React;
 
-const html = (el: React.ReactElement) => renderToStaticMarkup(el);
+// v3.1 Task 7: Money draws currency signs in their own span; read them as one word.
+const html = (el: React.ReactElement) => unsign(renderToStaticMarkup(el));
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 
 test('footer: links the terms page', () => {
@@ -53,24 +54,32 @@ test('Ruling 1 (plan): no logo renders the monogram, never an <img>; a logo is a
   assert.equal(monogram('Monad'), 'M');
 });
 
-test('v2.7.1, R18: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
+test('v2.7.1, R18, v3.1: one header on every page: Leaderboard, Feed, Docs and the install; the X link is in the footer only', () => {
   const h = html(React.createElement(Header));
   assert.equal((h.match(/<button[^>]*>Add to your agent<\/button>/g) ?? []).length, 1);
   assert.equal((h.match(/<a[^>]*href="\/docs"[^>]*>Docs<\/a>/g) ?? []).length, 1);
   assert.match(h, /href="\/leaderboard"/);
   assert.match(h, /href="\/feed"/);
-  assert.match(h, /<header[^>]*class="[^"]*\bsticky\b/);
-  assert.doesNotMatch(h, /x\.com\/jenilt/);
-  assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/jenilt"/);
+  // v3.1 (Nav board): transparent, not sticky.
+  assert.doesNotMatch(h, /<header[^>]*class="[^"]*\bsticky\b/);
+  assert.doesNotMatch(h, /x\.com\//);
+  assert.match(html(React.createElement(Footer)), /href="https:\/\/x\.com\/EarnKitAI"/);
 });
 
-test('fix round 1, Important 4: the client Hero never imports the server money modules (viem, zod)', () => {
-  const hero = readFileSync(join(import.meta.dirname, '../../app/components/sections/Hero.tsx'), 'utf8');
-  assert.doesNotMatch(hero, /lib\/earnkit\/campaigns|from 'viem'|from 'zod'/);
-  for (const f of ['ProgramCards.tsx', 'ProgramRow.tsx', 'carousel.ts', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
+test('fix round 1, Important 4: the Hero never imports the server money modules (viem, zod)', () => {
+  for (const f of ['Hero.tsx', 'HeroArt.tsx']) {
+    const hero = readFileSync(join(import.meta.dirname, `../../app/components/landing/${f}`), 'utf8');
+    assert.doesNotMatch(hero, /lib\/earnkit\/campaigns|from 'viem'|from 'zod'/, f);
+  }
+  for (const f of ['ProgramCards.tsx', 'carousel.ts', 'ProgramLogo.tsx', 'AddToAgent.tsx'])
     // Final review M1: only no-cell.ts, which imports nothing, may be shared at runtime.
     assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8'), /import (?!type)[^;]*lib\/earnkit\/(?!no-cell';)/, f);
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'no-cell.ts'), 'utf8'), /^import /m, 'no-cell.ts stays import-free');
+  // v3.1 Task 6 fix round 1: the landing's program cards import no db-backed module at runtime (HomeView picks the
+  // programs with landing.ts landingPrograms); only types and the pure site-copy.ts (which imports weeks and site-theme).
+  const opp = readFileSync(join(import.meta.dirname, '../../app/components/landing/Opportunities.tsx'), 'utf8');
+  assert.doesNotMatch(opp, /import (?!type)[^;]*lib\/earnkit\/(?!site-copy';)/);
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, 'site-copy.ts'), 'utf8'), /^import (?!type)[^;]*from '\.\/(?!weeks'|site-theme')/m, 'site-copy stays pure');
 });
 
 test('fix round 1: a logo path that is not a local programs file renders the monogram', () => {
@@ -150,7 +159,7 @@ test('Ruling 22 (plan): a closed program still renders, "· closed", with no "As
   assert.ok(!t.includes('grants · closed'));
   assert.doesNotMatch(t, /Ask your agent/);
   assert.deepEqual(asks(closedGuide), []);
-  assert.match(h, /href="\/programs"/);
+  assert.match(h, /href="\/#earn"/, 'v3.1 W10: "All programs" goes to the landing section');
 });
 
 test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP', () => {
@@ -163,10 +172,8 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(page.includes('This guide is unavailable right now. Try again in a few minutes.'));
   assert.ok(page.includes('description: guideDescription(page)'));
   assert.ok(page.includes('`${page.title} guide · EarnKit`'));
-  const index = read('app/programs/page.tsx');
-  assert.match(index, /export const revalidate = 600;/);
-  assert.ok(index.includes('Programs are unavailable right now.'));
-  assert.doesNotMatch(index, /limit=/);
+  // v3.1 W10: the index is a permanent redirect to the landing's earn section.
+  assert.match(read('app/programs/page.tsx'), /permanentRedirect\('\/#earn'\)/);
   const cache = read('app/lib/landing-cache.ts');
   assert.match(cache, /\['guide-v3'\], \{ revalidate: 600 \}/); // review #7, v3 Stage 3 Task 7: bumped with the GuidePage shape (`chain`)
   assert.match(cache, /\['guide-ids-v27'\], \{ revalidate: 600 \}/);
@@ -174,7 +181,7 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.match(cache, /export const getGuidePage = cache\(/);
   assert.match(cache, /console\.error\('\[guide\]'/);
   const sitemap = read('app/sitemap.ts');
-  assert.ok(sitemap.includes('`${SITE}/programs`'));
+  assert.ok(!sitemap.includes('`${SITE}/programs`'), 'v3.1 W10: the index left the sitemap');
   assert.ok(sitemap.includes('`${SITE}/programs/${p.id}`'));
   assert.match(sitemap, /status = 'active' AND source = 'file' AND campaign IS NULL\s+AND \(ends_at IS NULL OR ends_at > now\(\)\)/);
   // The logo files' sandbox CSP never matches a guide page route.
@@ -185,129 +192,91 @@ test('Ruling 22 (plan): the guide route, the index, the sitemap and the logo CSP
   assert.ok(read('next.config.ts').includes("source: '/programs/:file([a-z0-9-]+\\\\.(?:svg|png))'"));
 });
 
-test('/programs: every open program as rows under an h1, or the unavailable line', async () => {
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
-  assert.match(h, /<h1[^>]*>Money open now<\/h1>/); // v3 Stage 3 Task 4: the landing's heading, on the page too
-  assert.ok(!text(h).includes('By pool')); // v2.8: no eyebrow
-  assert.doesNotMatch(text(h), /Open now/);
-  assert.equal(cardsOf(h).length, homeFixture.tiles.length, 'no limit');
-  assert.doesNotMatch(h, /See all/);
-  // v2.7.1: the same pool total as the landing page, under the h1 (app/programs/page.tsx passes landing.open_text).
-  const fig = text(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text })));
-  assert.ok(fig.includes(` Money open now ${homeFixture.open_text} CW Crypto World`) && !fig.includes('By pool'), fig);
-  const page = readFileSync(join(import.meta.dirname, '../../app/programs/page.tsx'), 'utf8');
-  assert.match(page, /figure=\{landing\.open_text\}/);
-  assert.doesNotMatch(page, /layout=/, 'v3 Stage 3: rows everywhere, no grid or carousel');
+test('the unavailable panel (v3.1 W10: the programs list became the landing\'s #earn cards)', async () => {
   const u = text(html(React.createElement(Unavailable, { text: 'Programs are unavailable right now.' })));
   assert.ok(u.includes('Programs are unavailable right now.'));
-  assert.ok(u.includes(BENCH_FOOTER_TAGLINE), 'the footer');
+  assert.ok(u.includes('EarnKit is a product of Tokenfi Inc.'), 'the footer');
 });
 
-// ---- v2.8 Task 3, v3 Stage 3: the Open programs rows (Rulings 20, 21 (plan); spec 5.6).
-/** The rows: each `<li>` of the section's list, holding its one link. */
-function cardsOf(h: string): string[] {
-  const sec = h.slice(h.indexOf('<section id="open-programs"'));
-  const list = sec.slice(sec.indexOf('<ul'), sec.indexOf('</ul>') + 5);
-  return [...list.matchAll(/<li[ >][\s\S]*?<\/li>/g)].map((m) => m[0]);
-}
-/** The section from its heading to the end of its list. */
+// ---- v2.8 Task 3, v3.1 Task 6: the Earning opportunities cards (Rulings 20, 21 (plan); W2: the first 4 open programs).
+/** The section from its heading to its end. */
 function programsSection(h: string): string {
-  const sec = h.slice(h.indexOf('<section id="open-programs"'));
+  const sec = h.slice(h.lastIndexOf('<section', h.indexOf('id="earn"')));
   return sec.slice(0, sec.indexOf('</section>'));
 }
-const chipsOf = (card: string) => [...card.matchAll(/<span class="[^"]*\bek-chip\b[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
+/** The cards: each whole-card link of the section. */
+function cardsOf(h: string): string[] {
+  return [...programsSection(h).matchAll(/<a [\s\S]*?<\/a>/g)].map((m) => m[0]);
+}
 
-test('3.1 v2.8, R18: the section is the h2, the figure, then a list of whole-row links (no button: each row opens its guide)', () => {
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, figure: homeFixture.open_text }));
-  const sec = programsSection(h);
-  const t = text(sec);
-  assert.match(sec, /<h2[^>]*>Money open now<\/h2>/);
-  const order = ['>Money open now</h2>', `${homeFixture.open_text}</p>`, '<ul'].map((s) => sec.indexOf(s));
-  assert.ok(order.every((n) => n >= 0), String(order));
-  assert.deepEqual([...order].sort((a, b) => a - b), order);
-  assert.ok(!t.includes('Ask your agent') && !h.includes('Ask your agent'), 'R18: no repeated button');
-  const cards = cardsOf(h);
-  assert.equal(cards.length, 7);
+test('3.1 v2.8, R18, v3.1: the section is the h2, then whole-card links to the guides (no button: each card opens its guide), then the foot line', () => {
+  const sec = programsSection(home(homeFixture));
+  assert.match(sec, new RegExp(`<h2[^>]*>${EARN_TITLE}</h2>`));
+  assert.ok(!sec.includes('Ask your agent'), 'R18: no repeated button');
+  const cards = cardsOf(sec);
+  assert.equal(cards.length, 4, 'W2: the first four');
   for (const [i, c] of cards.entries()) {
     const id = homeFixture.tiles[i].id;
-    assert.equal((c.match(/<a /g) ?? []).length, 1, id);
-    assert.match(c, new RegExp(`<a [^>]*href="/programs/${id}"`), id);
+    assert.match(c, new RegExp(`^<a [^>]*href="/programs/${id}"`), id);
     assert.doesNotMatch(c, /<button/, id);
   }
-  assert.doesNotMatch(h, /See all/);
+  assert.ok(text(sec).includes(EARN_FOOT));
+  assert.doesNotMatch(sec, /See all/);
 });
 
-test('3.2 v2.8, v3 Stage 3: each row: logo, title, the award, per-winner line, days left, difficulty word; no bonus pill', () => {
-  const tiles = [
-    ...homeFixture.tiles,
-    { ...homeFixture.tiles[0], id: 'no-note', title: 'No Note Fest', prize_note: null },
-  ];
-  const cards = cardsOf(html(React.createElement(ProgramCards, { tiles })));
-  assert.equal(cards.length, tiles.length);
+test('3.2 v3.1: each card: logo or monogram, when, title, the big number (else the prize text), the kind; no bonus pill, no coin, no em dash', () => {
+  const tiles = [{ ...homeFixture.tiles[3], big: null }, ...homeFixture.tiles];
+  const cards = cardsOf(home({ ...homeFixture, tiles }));
+  assert.equal(cards.length, 4);
   for (const [i, c] of cards.entries()) {
     const tl = tiles[i];
     const ct = text(c);
     assert.match(c, tl.logo ? new RegExp(`<img[^>]*src="${tl.logo}"`) : /aria-hidden="true"[^>]*>[A-Z]{1,2}<\/span>/, tl.id);
-    assert.match(c, new RegExp(`<h3[^>]*>${tl.title.replace(/'/g, '&#x27;')}</h3>`), tl.id);
-    assert.ok(ct.includes(tl.prize), tl.id);
-    if (tl.prize_note) assert.ok(ct.includes(tl.prize_note), tl.id);
-    assert.deepEqual(chipsOf(c), [tl.days_left.charAt(0).toUpperCase() + tl.days_left.slice(1), ...(tl.difficulty === NO_CELL ? [] : [tl.difficulty])], tl.id);
-    assert.doesNotMatch(ct, /\(estimate\)/, tl.id);
-    assert.ok(!ct.includes('Builder bonus'), tl.id);
-    // The whole card's name: "<title>, <prize>", now by aria-labelledby (the title and the award), so the row's content stays readable.
+    for (const s of [tl.title.replace(/'/g, '&#x27;'), tl.big ?? tl.prize, tl.kind, tl.when]) assert.ok(c.includes(s), `${tl.id}: ${s}`);
+    // Named by its content, never an aria-label that hides it.
     assert.doesNotMatch(c, /<a [^>]*aria-label=/, tl.id);
-    const ids = c.match(/<a [^>]*aria-labelledby="([^"]*)"/)?.[1]?.split(' ') ?? [];
-    const byId = (id: string) => c.match(new RegExp(`<[a-z0-9]+ [^>]*id="${id}"[^>]*>([^<]*)<`))?.[1]?.replace(/&#x27;/g, "'");
-    assert.equal(ids.map(byId).join(', '), `${tl.title}, ${tl.prize}`, tl.id);
+    assert.ok(!ct.includes('Builder bonus') && !/\(estimate\)/.test(ct), tl.id);
     assert.doesNotMatch(ct, /\bcoins?\b|\u2014/i, tl.id);
   }
-  // Colosseum: Hard (never "(estimate)"); Program Six: no difficulty chip.
-  assert.deepEqual(chipsOf(cards[0]), ['8 days left', 'Hard']);
-  assert.deepEqual(chipsOf(cards[5]), ['8 days left']);
-  assert.deepEqual(chipsOf(cards[1]), ['Ends today', 'Hard']);
-  assert.deepEqual(chipsOf(cards[2]), ['Rolling', 'Medium']);
+  assert.ok(text(cards[0]).includes('10,000 USDC pool'), 'no big number: the prize text');
 });
 
-test('3.3 v3 Stage 3: no carousel on the landing: no arrows, no snap scroller; the list is named and the rows are hairline rows', () => {
+test('3.3 v3 Stage 3, v3.1: no carousel on the landing: no arrows, no snap scroller; the section is the #earn anchor', () => {
   const sec = programsSection(home(homeFixture));
+  assert.match(sec, /^<section id="earn"/);
   assert.doesNotMatch(sec, /Previous programs|Next programs|snap-x|snap-mandatory|overflow-x-auto|tabindex="0"/);
-  const ul = sec.match(/<ul[^>]*>/)?.[0] ?? '';
-  assert.match(ul, /aria-label="Money open now"/);
-  for (const c of cardsOf(sec)) assert.match(c, /<a [^>]*class="[^"]*\bborder-t\b/);
 });
 
-test('3.4 v2.8: one tile is one row', () => {
-  const sec = programsSection(html(React.createElement(ProgramCards, { tiles: [homeFixture.tiles[0]] })));
-  assert.equal(cardsOf(sec).length, 1);
+test('3.4 v2.8: one tile is one card', () => {
+  assert.equal(cardsOf(home({ ...homeFixture, tiles: [homeFixture.tiles[0]] })).length, 1);
 });
 
-test('3.5 v2.8, v3 Stage 3: zero tiles render the empty line; a failed read renders no section', () => {
+test('3.5 v2.8, v3.1: zero tiles render the title and the foot line; a failed read renders no section', () => {
   const empty = home({ ...homeFixture, tiles: [] });
-  assert.match(empty, /aria-label="Money open now"/);
-  assert.ok(text(empty).includes('No programs are open right now.'));
+  assert.ok(text(programsSection(empty)).includes(EARN_FOOT));
+  assert.equal(cardsOf(empty).length, 0);
   const failed = home(null);
-  assert.doesNotMatch(failed, /aria-label="Money open now"/);
-  assert.ok(!text(failed).includes('Money open now') && !text(failed).includes('No programs are open'));
+  assert.doesNotMatch(failed, /id="earn"/);
+  assert.ok(!text(failed).includes(EARN_TITLE) && !text(failed).includes(EARN_FOOT));
 });
 
-test('3.6 v2.8, R18, v3 Stage 3: /programs is the same rows under an h1, with no button', () => {
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1' }));
-  assert.doesNotMatch(h, /Previous programs|Next programs|snap-x|overflow-x-auto/);
-  assert.ok(!h.includes('Ask your agent'));
-  // The same rows as the landing: same links, same text.
-  const landing = cardsOf(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })));
-  assert.deepEqual(cardsOf(h).map((c) => text(c).trim()), landing.map((c) => text(c).trim()));
-  for (const c of cardsOf(h)) assert.doesNotMatch(c, /<button/);
+test('3.6 v3.1: the copy-review shim (sections/ProgramCards) renders every tile as the landing\'s cards, and the money line', () => {
+  const shim = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: homeFixture.open_text }));
+  assert.ok(text(shim).includes(homeFixture.open_text!));
+  assert.equal(cardsOf(shim).length, homeFixture.tiles.length, 'every tile it is given');
+  assert.deepEqual(cardsOf(shim).slice(0, 4).map((c) => text(c).trim()), cardsOf(home(homeFixture)).map((c) => text(c).trim()));
+  // Nothing under app/ renders it.
+  assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../app/HomeView.tsx'), 'utf8'), /ProgramCards/);
 });
 
-test('3.7 v2.8: keyboard: rows are never taken out of the tab order', () => {
-  const src = (f: string) => readFileSync(join(import.meta.dirname, `../../app/components/sections/${f}`), 'utf8');
-  for (const f of ['ProgramRow.tsx', 'ProgramCards.tsx']) assert.doesNotMatch(src(f), /tabIndex=\{-1\}/, f);
-  const sec = programsSection(home(homeFixture));
-  assert.doesNotMatch(sec, /tabindex="-1"/);
-  // HomeView and /programs pass no card cap.
+test('3.7 v2.8: keyboard: cards are never taken out of the tab order', () => {
+  for (const f of ['landing/Opportunities.tsx', 'sections/ProgramCards.tsx'])
+    assert.doesNotMatch(readFileSync(join(import.meta.dirname, `../../app/components/${f}`), 'utf8'), /tabIndex=\{-1\}/, f);
+  assert.doesNotMatch(programsSection(home(homeFixture)), /tabindex="-1"/);
+  // HomeView passes no card cap of its own (landingPrograms holds W2's four).
   assert.doesNotMatch(readFileSync(join(import.meta.dirname, '../../app/HomeView.tsx'), 'utf8'), /HOME_CARDS|limit=|seeAll/);
 });
+
 
 test('fix round 1, Minor 3: a predecessor round reads "What won before" and names the round', () => {
   const h = guideHtml(predecessorGuide);
@@ -369,7 +338,7 @@ test('10.11 v3 Stage 3: the hero shows neither the stats line nor the won line (
   };
   for (const landing of [homeFixture, { ...homeFixture, won_line: won }, { ...homeFixture, stats_line: null, won_line: won }]) {
     const h = home(landing);
-    assert.deepEqual(heroBits(h), [BENCH_HERO_SUBTITLE, 'Add to your agent']);
+    assert.deepEqual(heroBits(h), [HERO_SUB, CTA_INSTALL]);
     assert.doesNotMatch(text(h), /Builders using EarnKit|agents earning|won \$0/);
   }
 });
@@ -608,17 +577,19 @@ test('4.13 (H6) a private repo matched only from the local copy (App off) shows 
   }
 });
 
-test('L10 the site 404 (never Next\'s white default): title, one line, the way to the leaderboard and home', () => {
+test('L10 the site 404 (never Next\'s white default), v3.1 NotFound board: the rust card, "Nothing shipped here.", the way home', () => {
   const h = renderToStaticMarkup(React.createElement(NotFound));
-  assert.ok(h.includes(NOT_FOUND_TITLE) && h.includes(NOT_FOUND_LINE), h);
-  assert.match(h, /href="\/leaderboard"/);
-  assert.match(h, /href="\/"/);
-  // Final review: one primary per view (the header's); both 404 links are secondary.
-  assert.doesNotMatch(h, /<a [^>]*class="[^"]*bg-ek-brand/);
+  const main = h.split('<footer')[0];
+  assert.ok(main.includes(NOT_FOUND_TEXT), h);
+  assert.match(main, new RegExp(`<a [^>]*href="/"[^>]*>${NOT_FOUND_HOME}</a>`));
+  assert.match(main, /\bbg-s-rust\b/);
+  // One primary per view (the header's): the 404's only link is the white pill, never the blue fill.
+  assert.doesNotMatch(main, /<a [^>]*class="[^"]*(bg-ek-brand|bg-s-blue)/);
+  assert.equal(NOT_FOUND_TITLE, 'Page not found');
 });
 
-test('L10 the header names Programs (the money); the install modal: no "no account", numbers only for two steps or more', () => {
-  assert.match(renderToStaticMarkup(React.createElement(Header)), /href="\/programs"[^>]*>Programs</);
+test('L10, v3.1 W10: the header no longer names Programs; the install modal: no "no account", numbers only for two steps or more', () => {
+  assert.doesNotMatch(renderToStaticMarkup(React.createElement(Header)), /\/programs|>Programs</);
   assert.doesNotMatch(INTRO, /no account/i);
   const h = renderToStaticMarkup(React.createElement(AddToAgent, { onClose: () => {} }));
   assert.ok(h.includes(INTRO), h);

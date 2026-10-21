@@ -17,7 +17,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-20",
+  "verified_at": "2026-10-21",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
@@ -183,9 +183,17 @@
       "label": "What is the primary challenge or bottleneck you are currently facing as you grow your project?",
       "kind": "other",
       "todo": "your main challenge right now",
-      "type": "text",
+      "type": "multi_choice",
       "required": true,
-      "description": "Pick one or more: User acquisition, Go-to-market strategy, Smart contract security/auditing, Liquidity bootstrapping, UI/UX improvements, Regulatory compliance guidance.",
+      "description": "Pick one or more, joined by \"; \".",
+      "options": [
+        "User acquisition",
+        "Go-to-market strategy",
+        "Smart contract security/auditing",
+        "Liquidity bootstrapping",
+        "UI/UX improvements",
+        "Regulatory compliance guidance"
+      ],
       "from": "builder"
     },
     {
@@ -265,10 +273,11 @@
       "revenue": "entry.612337056",
       "gtm_plan": "entry.158694497",
       "builder_code": "entry.703891879",
+      "primary_challenge": "entry.475374687",
       "credits": "entry.1350986773"
     },
     "sign_in": "email_only",
-    "read_at": "2026-10-07"
+    "read_at": "2026-10-21"
   },
   "pitch": { "who": "Base", "for": "a live app" }
 }

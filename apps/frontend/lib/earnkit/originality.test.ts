@@ -15,8 +15,9 @@ import { fakeGitHub, type FakeGitHub, type FakeRepo } from './fixtures/fake-gith
 import { appEnv } from './fixtures/app-install';
 import { attachToX } from './x-install';
 import { profileData } from './bench-data';
-import { DATA } from './fixtures/profile-data';
+import { DATA, siteOf } from './fixtures/profile-data';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
+import { padPool } from './fixtures/rank-pool';
 import {
   DIMS, README_CHARS, README_MAX_BYTES, cosine, workerEmbed, workerScript, nearestOf, originalityOf, originalityStep, originalityText, readOriginality, readReadme, boundedEmbed, EmbedDeadline, stripMarkdown, textHash,
   type Embed,
@@ -124,13 +125,11 @@ test('O4 the model worker never runs in a test unless opted in', { skip: process
   assert.ok(existsSync(workerScript()), workerScript());
 });
 
-test('O5 profile: "Originality 72" is one small line under the Shipping ring, no second ring', () => {
-  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, tab: 'log' }));
-  assert.match(h, /Originality <span[^>]*>72<\/span>/);
+test('O5 v3.1 (owner rule): Originality is not on the profile, as a line or a ring; one Shipping ring', () => {
+  const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: DATA, site: siteOf(DATA), page: 1 }));
+  assert.ok(DATA.originality !== null);
+  assert.doesNotMatch(h, /Originality/);
   assert.equal((h.match(/role="img" aria-label="Shipping/g) ?? []).length, 1, 'one ring');
-  assert.doesNotMatch(h, /aria-label="Originality/, 'no Originality ring');
-  const none = renderToStaticMarkup(React.createElement(BenchProfileView, { data: { ...DATA, originality: null }, tab: 'log' }));
-  assert.doesNotMatch(none, /Originality/);
 });
 
 // ---- the step ----
@@ -368,7 +367,9 @@ test('O8 privacy: a private README is never stored as text; the nearest list nam
   assert.equal(await readOriginality(q.id, k), null, "never another builder's row");
 });
 
-test('O9 shown: the profile and the score reply carry "Originality N" once computed, after the score line; never before', db, async () => {
+test('O9 shown: the profile carries "Originality N" once computed, never before; v3.1 F4: the score reply never does', db, async () => {
+  // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
+  await padPool(9);
   const k = `gus${RUN}/kiln`;
   const gh = fakeGitHub({ [k]: repo(9331, `gus${RUN}`, 331, '# Kiln\nCeramic kiln firing scheduler with thermocouple logging.') });
   const p = await connected(k, 'gus', gh, 331);
@@ -378,7 +379,8 @@ test('O9 shown: the profile and the score reply carry "Originality N" once compu
   await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed: fakeEmbed() });
   const n = (await rowOf(k))!.originality!;
   const text = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(text, new RegExp(`^Kiln: Shipping \\d+ · .+ builders?\\. Originality ${n}\\.$`, 'm'), text);
+  assert.match(text, /^Kiln · .+ builders?( · .+)?$/m, text);
+  assert.doesNotMatch(text, /Originality/, text);
   assert.equal((await profileData(p.id, new Date()))!.originality, n);
 });
 

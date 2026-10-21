@@ -99,19 +99,22 @@ test('6.5 a person who is not listed (unclaimed, hidden or held) or a project no
   assert.deepEqual(weeks, []);
 });
 
-test('6.6 the feed page: long cards, plain words, no "written by", no all-caps labels', () => {
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer and added the shopping list.', chips: ['Went live', '+31 people'], pinned: false };
-  const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }] }));
-  for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner', 'Added fridge photo import.', 'Went live', '+31 people', 'Fixed the timer and added the shopping list.'])
+test('6.6 the feed page: dark rows, plain words, no "written by", no all-caps labels', () => {
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer and added the shopping list.', chips: ['Went live', '+31 people'], pinned: false, score: 62, commits: 12 };
+  const html = renderToStaticMarkup(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card] }], week: null, page: 1, stats: null }));
+  // v3.1 site Task 9: the row shows the week's summary (else the note, else the chips), the project and its commits.
+  for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner · 12 commits', 'Fixed the timer and added the shopping list.'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
-  assert.doesNotMatch(html.replace(/<[^>]+>/g, ' '), /written by|agent/i); // text only: the Docs link's anchor is not copy
+  // Text only: the Docs link's anchor is not copy. v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts.
+  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /written by|agent/i);
+  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /\b[A-Z]{3,}\b/, 'no all-caps labels');
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);
-  // Weekly updates: the square card shows the summary; the builder's note is on the long card, as a quote.
+  // Weekly updates: the square card shows the summary; the builder's note is on the feed row, as a quote.
   assert.ok(square.includes('Fixed the timer') && !square.includes('fridge photo'));
   assert.match(html, /<blockquote data-ek-note=""[^>]*><p[^>]*>Added fridge photo import\.<\/p><\/blockquote>/);
-  assert.equal(renderToStaticMarkup(React.createElement(FeedView, { weeks: [] })).includes('No updates yet'), true);
+  assert.equal(renderToStaticMarkup(React.createElement(FeedView, { weeks: [], week: null, page: 1, stats: null })).includes('No updates yet'), true);
 });
 
 test('6.7b weekly updates: a summary is plain text, never markup or a link', () => {

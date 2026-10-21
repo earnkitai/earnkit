@@ -138,7 +138,7 @@ test('4.6 the first token makes the page from X, and the first find through MCP 
   assert.equal(p.x_name, 'maya');
   assert.equal(p.slug, maya.username.toLowerCase());
   const r = await mcpCall(ctxOf(caller), 'find', {});
-  assert.ok(String(r.reply?.show_to_builder).includes(`https://earnkit.com/${maya.username}`));
+  assert.ok(String(r.reply?.show_to_builder).startsWith(`You're in, @${maya.username}.`), String(r.reply?.show_to_builder));
 });
 
 test('4.7 a second agent signed in with the same X is the same person (acceptance 2); a reconnect too', db, async () => {

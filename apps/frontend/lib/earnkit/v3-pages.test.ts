@@ -8,15 +8,16 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 process.env.EARNKIT_RAISING = 'on';
 
-import BenchView, { benchLine } from '../../app/leaderboard/BenchView';
+import BenchView from '../../app/leaderboard/BenchView';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
-import { Chip } from '../../app/leaderboard/FilterChip';
 import FeedView, { FEED_LINE, FEED_TITLE } from '../../app/feed/FeedView';
-import ProgramCards, { PROGRAMS_TITLE } from '../../app/components/sections/ProgramCards';
+import HomeView from '../../app/HomeView';
+import { EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramLogo from '../../app/components/sections/ProgramLogo';
 import GuideView, { ANY_CHAIN } from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import NotFound, { NOT_FOUND_LINE, NOT_FOUND_TITLE } from '../../app/not-found';
+import NotFound, { NOT_FOUND_TITLE, metadata as notFoundMeta } from '../../app/not-found';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 import { rankLine, rankSplit, scoreLine } from './rank';
 import { shareText } from './weekly-moment';
 import { badgeValue } from './badge';
@@ -32,97 +33,83 @@ import type { BenchRow } from './bench-data';
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week' };
+const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week', streak: 0 };
 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
-test('(a) the leaderboard: "Leaderboard", benchLine, hairline rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
-  const h = html(React.createElement(BenchView, { rows: [ROW, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false } }));
-  assert.match(h, /<h1[^>]*>Leaderboard<\/h1>/);
-  assert.ok(h.includes(benchLine(120)) && benchLine(40) === '40 builders. Ranked by Shipping.');
+test('(a) the leaderboard (v3.1 Task 8): "Leaderboard", leaderboardLine, a podium then rows with data-rank and data-points, no "Shipping points", no "this week"', () => {
+  const top = [1, 2, 3].map((rank) => ({ ...ROW, rank, line: `#${rank} of 120 builders`, handle: `top_${rank}`, name: `Top ${rank}` }));
+  const h = html(React.createElement(BenchView, { rows: [...top, { ...ROW, rank: 4, handle: 'devon_ships', name: 'Devon Park', points: 60 }, { ...ROW, rank: 100, line: '#100 of 120 builders', handle: 'yu_mk', name: 'Yu Makoto', points: 12 }], count: 120, chips: ['base', 'arc'], filter: { chain: null, weekly: false }, page: 1 }));
+  assert.match(h, /<h1 class="ek-serif[^"]*">Leaderboard<\/h1>/);
+  assert.ok(h.includes(leaderboardLine(120)) && leaderboardLine(40) === '40 builders, ranked by how often they ship');
   assert.doesNotMatch(h, /Shipping points/);
-  assert.doesNotMatch(h, /builders?.{0,20}this week/, 'no "this week" after the rank (a best fact may say "31 people this week")');
-  assert.equal((h.match(/data-row="/g) ?? []).length, 3);
-  assert.equal((h.match(/data-rank=""/g) ?? []).length, 3);
-  assert.equal((h.match(/data-points=""/g) ?? []).length, 3);
-  assert.ok(h.includes('>#3<') && h.includes('>#4<') && h.includes('>#100<'), 'the rank number');
-  // The list is ROWS (closes with a hairline); each row opens with one; no Panel wrapper, no middle dot in a row.
-  assert.match(h, /<ol [^>]*class="[^"]*\bborder-b border-ek-line\b/);
+  assert.doesNotMatch(text(h), /builders?.{0,20}this week/, 'no "this week" after the rank');
+  assert.equal((h.match(/data-ek-podium="/g) ?? []).length, 3);
+  assert.equal((h.match(/data-row="/g) ?? []).length, 2);
+  assert.equal((h.match(/data-rank=""/g) ?? []).length, 2);
+  assert.equal((h.match(/data-points=""/g) ?? []).length, 2);
+  assert.ok(h.includes('>#1<') && h.includes('>#4<') && h.includes('>#100<'), 'the rank number');
   const rows = h.match(/<li data-row=[\s\S]*?<\/li>/g) ?? [];
-  assert.equal(rows.length, 3);
   for (const r of rows) {
-    assert.match(r, /class="[^"]*\bborder-t border-ek-line\b/);
-    // Task 7: the phone rank column is 3rem, so "#100" fits on one line.
-    assert.match(r, /\bgrid-cols-\[3rem_minmax\(0,1fr\)_auto\]/);
-    assert.doesNotMatch(r, /·/, 'the project and its best fact are two lines, not a dotted pair');
-    assert.match(r, /md:grid-cols-\[3rem_minmax\(0,1fr\)_minmax\(0,1fr\)_5rem\]/);
-    assert.match(r, /after:absolute after:inset-0/, 'the whole row is the link');
+    assert.match(r, /^<li data-row="[^"]+"><a [^>]*href="\/[^"]+"/, 'the whole row is the link');
+    assert.match(r, /hover:bg-s-panel-hover/);
+    assert.match(r, /data-rank="" class="w-9 shrink-0/, 'a fixed rank column: "#100" fits');
   }
-  assert.ok(h.indexOf('Recipe planner') < h.indexOf('31 people this week'));
 });
 
-test('(a) the chips: hairline pills with aria-pressed, 44px on a phone, the on state inverted (never brand fill)', () => {
-  const off = html(React.createElement(Chip, { on: false, href: '/leaderboard?chain=base' } as React.ComponentProps<typeof Chip>, 'Base'));
-  const on = html(React.createElement(Chip, { on: true, href: '/leaderboard' } as React.ComponentProps<typeof Chip>, 'Base'));
-  assert.match(off, /aria-pressed="false"/);
-  assert.match(on, /aria-pressed="true"/);
-  for (const c of [off, on]) {
-    assert.match(c, /rounded-full/);
-    assert.match(c, /\bh-11\b/);
-    assert.match(c, /\bborder\b/);
-    assert.doesNotMatch(c, /bg-ek-brand/);
-  }
-  assert.match(on, /bg-ek-text text-ek-page/);
-  const h = html(React.createElement(BenchView, { rows: [ROW], count: 40, chips: ['base'], filter: { chain: null, weekly: false } }));
-  assert.match(h, /href="\/leaderboard\?backed=1"[^>]*>Backed</);
-  assert.match(h, /href="\/leaderboard\?weekly=1"[^>]*>Shipping every week</);
+test('(a) the filter tabs: a SegTabs rail of links, 44px on a phone, the current one aria-current and white', () => {
+  const h = html(React.createElement(BenchView, { rows: [ROW], count: 40, chips: ['base'], filter: { chain: null, weekly: false }, page: 1 }));
+  const rail = h.slice(h.indexOf('<nav aria-label="Filters"'), h.indexOf('</nav>', h.indexOf('<nav aria-label="Filters"')));
+  assert.match(rail, /rounded-full p-1 bg-s-panel/);
+  for (const a of rail.match(/<a [^>]*>/g) ?? []) assert.match(a, /\bmin-h-11\b/);
+  assert.match(rail, /<a aria-current="page" class="[^"]*bg-s-light text-s-ink[^"]*" href="\/leaderboard">All<\/a>/);
+  assert.match(rail, /href="\/leaderboard\?backed=1"[^>]*>Backed</);
+  assert.doesNotMatch(rail, /weekly=1|Shipping every week/, 'W3: no weekly tab');
 });
 
 // ---- (f) nothing wider than a phone column -------------------------------------------------------
 
-test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, nothing cut', () => {
-  const long = { ...ROW, name: 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh', project: 'The Recipe Planner For Busy Families Who Cook Every Night', best: 'Went live, 3 weeks in a row, 1,204 people' };
-  const row = html(React.createElement(BenchRowItem, { r: long }));
+test('(f) a 390px leaderboard: no nowrap on row text, no min-w over 20rem, names and projects wrap (only the @handle truncates)', () => {
+  const long = { ...ROW, name: 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh', project: 'The Recipe Planner For Busy Families Who Cook Every Night', best: 'Went live, 3 weeks in a row, 1,204 people', streak: 0 };
+  const row = html(React.createElement(BenchRowItem, { r: long, ranked: true }));
   assert.doesNotMatch(row, /whitespace-nowrap/);
-  assert.doesNotMatch(row, /\btruncate\b|text-ellipsis|line-clamp|max-w-\[/);
-  const page = html(React.createElement(BenchView, { rows: [long], count: 40, chips: ['base', 'arc', 'robinhood'], filter: { chain: null, weekly: false } }));
+  assert.doesNotMatch(row, /text-ellipsis|line-clamp|max-w-\[/);
+  assert.equal((row.match(/\btruncate\b/g) ?? []).length, 1, 'only the @handle');
+  assert.equal((row.match(/\[overflow-wrap:anywhere\]/g) ?? []).length, 2, 'the name and the project wrap');
+  const page = html(React.createElement(BenchView, { rows: [long, long, long, long].map((r, i) => ({ ...r, handle: `h${i}` })), count: 40, chips: ['base', 'arc', 'robinhood'], filter: { chain: null, weekly: false }, page: 1 }));
   for (const m of page.matchAll(/min-w-\[(\d+(?:\.\d+)?)rem\]/g)) assert.ok(Number(m[1]) <= 20, m[0]);
   assert.doesNotMatch(page, /min-w-\[\d+px\]/);
 });
 
 // ---- (b) the feed ----------------------------------------------------------------------------------
 
-test('(b) the feed: H1 "Feed", the line, each week an H2 over a ROWS list of hairline rows (no gapped flex column)', () => {
+test('(b) the feed (v3.1 site Task 9): H1 "Feed", the line as the description, week tabs, full-width dark rows (no grid, no white card), the note quoted', () => {
   assert.equal(FEED_TITLE, 'Feed');
   assert.equal(FEED_LINE, 'What builders on the leaderboard shipped, week by week. Every fact is checked.');
-  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer.', chips: ['Went live'], pinned: false };
-  const h = html(React.createElement(FeedView, { weeks: [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card, { ...card, id: 2, handle: 'devon_ships', name: 'Devon Park' }] }, { monday: '2026-10-05', label: 'Week of Oct 5', cards: [{ ...card, id: 3, week: '2026-10-05' }] }] }));
+  assert.match(readFileSync(join(FRONTEND, 'app/feed/page.tsx'), 'utf8'), /description: FEED_LINE/);
+  const card = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import.', summary: 'Fixed the timer.', chips: ['Went live'], pinned: false, score: 62, commits: 12 };
+  const weeks = [{ monday: '2026-10-12', label: 'Week of Oct 12', cards: [card, { ...card, id: 2, handle: 'devon_ships', name: 'Devon Park' }] }, { monday: '2026-10-05', label: 'Week of Oct 5', cards: [{ ...card, id: 3, week: '2026-10-05' }] }];
+  const h = html(React.createElement(FeedView, { weeks, week: null, page: 1, stats: null }));
   assert.match(h, /<h1[^>]*>Feed<\/h1>/);
-  assert.ok(h.includes(FEED_LINE));
-  assert.match(h, /<h2 class="[^"]*font-funnel-display[^"]*">Week of Oct 12<\/h2>/);
-  assert.match(h, /<h2 class="[^"]*font-funnel-display[^"]*">Week of Oct 5<\/h2>/);
-  assert.equal((h.match(/<ul class="[^"]*\bborder-b border-ek-line\b[^"]*">/g) ?? []).length, 2, 'one ROWS list per week');
-  assert.equal((h.match(/<article [^>]*class="[^"]*\bborder-t border-ek-line\b/g) ?? []).length, 3, 'every row opens with a hairline');
-  assert.doesNotMatch(h, /flex flex-col gap-4/);
-  assert.ok(h.indexOf('Week of Oct 12') < h.indexOf('Week of Oct 5'));
+  assert.match(h, /<nav aria-label="Weeks"[^>]*>[\s\S]*Week of Oct 12[\s\S]*Week of Oct 5[\s\S]*<\/nav>/);
+  // The selected (newest) week's rows only; each a full-width dark card in one column.
+  assert.equal((h.match(/<article data-ek-feed-row="/g) ?? []).length, 2);
+  assert.match(h, /<ul class="flex flex-col gap-3">/);
+  assert.doesNotMatch(h, /grid-cols-3|bg-s-light text-s-ink[^"]*rounded/);
+  // The builder's note stays, quoted under the summary.
+  assert.equal((h.match(/<blockquote data-ek-note=""/g) ?? []).length, 2);
+  assert.match(h, /<article data-ek-feed-row="1" class="[^"]*--ek-s-card-top[^"]*"/);
 });
 
 // ---- (c) the programs page -------------------------------------------------------------------------
 
-test('(c) /programs: H1 "Money open now", the money line and what it leaves out, then the rows', () => {
-  assert.equal(PROGRAMS_TITLE, 'Money open now');
-  const h = html(React.createElement(ProgramCards, { tiles: homeFixture.tiles, heading: 'h1', figure: '$115K in grants and prizes open', more: 'Plus 2 accelerators and 1 hackathon.' }));
-  assert.match(h, /<h1[^>]*>Money open now<\/h1>/);
-  const t = text(h);
-  const at = (s: string) => t.indexOf(s);
-  assert.ok(at('Money open now') < at('$115K in grants and prizes open') && at('$115K in grants and prizes open') < at('Plus 2 accelerators and 1 hackathon.') && at('Plus 2 accelerators') < at("Crypto World's Fair Hackathon"), t);
-  assert.doesNotMatch(h, /Open programs/);
-  const page = readFileSync(join(FRONTEND, 'app/programs/page.tsx'), 'utf8');
-  assert.match(page, /more=\{landing\.open_more\}/);
-  assert.doesNotMatch(page, /Open programs/);
-  // The landing's section is the same heading (h2) with the same words.
-  assert.match(html(React.createElement(ProgramCards, { tiles: homeFixture.tiles })), /<h2[^>]*>Money open now<\/h2>/);
+test('(c) /programs: a permanent redirect to the landing\'s #earn section (v3.1 W10), "Earning opportunities"', () => {
+  assert.match(readFileSync(join(FRONTEND, 'app/programs/page.tsx'), 'utf8'), /permanentRedirect\('\/#earn'\)/);
+  const h = html(React.createElement(HomeView, { landing: homeFixture }));
+  assert.match(h, new RegExp(`<section id="earn"[^>]*>\\s*<h2[^>]*>${EARN_TITLE}</h2>`));
+  assert.doesNotMatch(h, /Open programs|Money open now/);
 });
+
 
 test('(c) a program logo sits on a light disc so a dark mark reads on the black page; the monogram keeps its raised disc', () => {
   const one = html(React.createElement(ProgramLogo, { logo: '/programs/arc-microgrants.svg', title: 'Arc Microgrants', size: 40 }));
@@ -169,7 +156,7 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
   assert.match(h, /<h2[^>]*>What Arc wants now<\/h2>/);
   assert.match(h, /<h2[^>]*>Your best bet<\/h2>/);
   assert.match(h, /Sources:/);
-  assert.match(h, /href="\/programs"/);
+  assert.match(h, /href="\/#earn"/);
   // The parts are a ROWS list: it closes with a hairline, each part opens with one.
   assert.match(h, /<div class="[^"]*\bborder-b border-ek-line\b[^"]*"><section/);
   assert.equal((h.match(/<section [^>]*class="[^"]*\bborder-t border-ek-line\b/g) ?? []).length, 3);
@@ -181,12 +168,14 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
 
 // ---- 404 -------------------------------------------------------------------------------------------
 
-test('404: the title, the line and two links', () => {
+test('404 (v3.1 NotFound board): "404", the line as the h1, one "Back home" link to /; the metadata title stays "Page not found", noindex', () => {
   const h = html(React.createElement(NotFound));
-  assert.match(h, new RegExp(`<h1[^>]*>${NOT_FOUND_TITLE}</h1>`));
-  assert.ok(h.includes(NOT_FOUND_LINE));
-  assert.match(h, /<a [^>]*href="\/leaderboard"/);
-  assert.match(h, /<a [^>]*href="\/"/);
+  const main = h.split('<footer')[0];
+  assert.ok(main.includes(`>${NOT_FOUND_BIG}<`));
+  assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
+  assert.deepEqual([...main.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]), [['/', NOT_FOUND_HOME]]);
+  assert.equal(NOT_FOUND_TITLE, 'Page not found');
+  assert.deepEqual(notFoundMeta, { title: 'Page not found', robots: 'noindex' });
 });
 
 // ---- (e) wording: "of N builders" ---------------------------------------------------------------

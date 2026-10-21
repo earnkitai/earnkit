@@ -16,6 +16,11 @@ export type FakeRepo = {
   pushes?: (string | { at: string; type: string })[] | null; created?: string;
   /** Scoring and clarity R3: the README's markdown (GET /repos/{key}/readme, base64 in JSON); none answers 404, null 500. */
   readme?: string | null;
+  /**
+   * v3.1 Task 7: the default branch's files (path to text), for GET /repos/{key}/git/trees/HEAD?recursive=1 and
+   * GET /repos/{key}/contents/{path} (base64 in JSON); none answers 404, null 500.
+   */
+  files?: Record<string, string> | null;
 };
 /** `routed`: false when no fake route answered (a 404 'fake: not routed'): a test can assert every call was one it fakes (T12 D3). */
 export type FakeGitHub = typeof fetch & { calls: { method: string; path: string; auth: string | null; routed: boolean }[]; repos: Record<string, FakeRepo> };
@@ -102,6 +107,18 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       if (!r || (r.private && r.installation !== inst) || r.readme === undefined) return json(404, {});
       if (r.readme === null) return json(500, {});
       return json(200, { name: 'README.md', encoding: 'base64', content: Buffer.from(r.readme, 'utf8').toString('base64') });
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/git\/trees\/HEAD$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      if (!r || (r.private && r.installation !== inst) || r.files === undefined) return json(404, {});
+      if (r.files === null) return json(500, {});
+      return json(200, { truncated: false, tree: Object.entries(r.files).map(([path, text]) => ({ path, type: 'blob', size: Buffer.byteLength(text) })) });
+    }
+    if ((m = /^\/repos\/([^/]+\/[^/]+)\/contents\/(.+)$/.exec(p))) {
+      const r = repos[m[1].toLowerCase()];
+      const path = m[2].split('/').map(decodeURIComponent).join('/');
+      if (!r || (r.private && r.installation !== inst) || !r.files || !(path in r.files)) return json(404, {});
+      return json(200, { path, encoding: 'base64', content: Buffer.from(r.files[path], 'utf8').toString('base64') });
     }
     if ((m = /^\/repos\/([^/]+\/[^/]+)\/pulls$/.exec(p))) {
       const r = repos[m[1].toLowerCase()];

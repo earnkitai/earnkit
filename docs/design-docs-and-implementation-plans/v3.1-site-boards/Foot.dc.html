@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Site footer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Funnel+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+.ek-fart{background-image:url('/_blob/c67c914d9826e3918a2cca9744bf4c71');background-size:cover;background-position:50% 18%}
+@font-face{font-family:'Kaftan Serif';src:url('/_blob/7afd859208171731e8438b099fe32846') format('woff2');font-display:swap}
+body{margin:0}
+.ek-foot a{color:#C9CFE6;text-decoration:none;transition:color 160ms ease}.ek-foot a:hover{color:#FFFFFF}
+@keyframes ekFEmber{0%,100%{opacity:0.18}50%{opacity:0.32}}
+.ek-fember{animation:ekFEmber 5s ease-in-out infinite}
+.ek-foot .ek-fcta{color:#05060D;transition:box-shadow 240ms ease}.ek-foot .ek-fcta:hover{color:#05060D;box-shadow:0 0 0 6px rgba(255,255,255,0.10),0 18px 60px rgba(255,150,70,0.5)}
+@media (prefers-reduced-motion: reduce){.ek-fember{animation:none}}
+</style>
+</helmet>
+<div style="padding: 0 24px 32px; font-family: 'Funnel Sans', system-ui, sans-serif;">
+
+<sc-if value="{{full}}" hint-placeholder-val="{{true}}">
+<footer class="ek-foot" onMouseMove="{{move}}" onMouseLeave="{{leave}}" style="position: relative; overflow: hidden; isolation: isolate; max-width: 1192px; margin: 0 auto; border-radius: 48px; min-height: 480px; padding: 48px; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; box-sizing: border-box; background: #05060D; color: #FFFFFF;">
+<div aria-hidden="true" class="ek-fart" style="position: absolute; inset: 0; z-index: -3; filter: brightness(0.72) saturate(0.95);"></div>
+<div aria-hidden="true" style="{{lightStyle}}"></div>
+<div aria-hidden="true" style="position: absolute; inset: 0; z-index: -2; background: linear-gradient(180deg, rgba(5,6,13,0) 40%, rgba(5,6,13,0.85) 100%);"></div>
+<div style="display: flex; flex-direction: column; align-items: center; text-align: center; gap: 22px; padding-top: 40px;">
+<span style="font-family: 'Kaftan Serif', serif; font-size-adjust: 0.36; font-size: 64px; line-height: 1; text-shadow: 0 4px 40px rgba(5,6,13,0.8);">{{cta}}</span>
+<a href="Docs.dc.html" class="ek-fcta" style="background: #FFFFFF; height: 52px; padding: 0 28px; border-radius: 999px; font-weight: 700; font-size: 15px; display: inline-flex; align-items: center;">Add EarnKit to your agent</a>
+</div>
+<div style="{{barStyle}}">
+<a href="Landing.dc.html" aria-label="EarnKit home" style="display: inline-flex; color: #FFFFFF;"><svg width="96" height="18" viewBox="0 0 124 23" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="{{wm}}"></path></svg></a>
+<nav aria-label="Footer" style="display: flex; gap: 24px; flex-wrap: wrap; align-items: center;"><a href="Leaderboard.dc.html">Leaderboard</a><a href="Feed.dc.html">Feed</a><a href="Docs.dc.html">Docs</a><span style="font-size: 12px; color: #7E87A6;">Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734</span></nav>
+<a href="https://x.com/earnkit_ai" aria-label="EarnKit on X" style="width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.10); display: inline-flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"></path></svg></a>
+</div>
+</footer>
+</sc-if>
+
+<sc-if value="{{minimal}}" hint-placeholder-val="{{false}}">
+<footer class="ek-foot" style="max-width: 1152px; margin: 0 auto; color: #FFFFFF;">
+<div style="{{barStyle}}">
+<a href="Landing.dc.html" aria-label="EarnKit home" style="display: inline-flex; color: #FFFFFF;"><svg width="96" height="18" viewBox="0 0 124 23" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="{{wm}}"></path></svg></a>
+<nav aria-label="Footer" style="display: flex; gap: 24px; flex-wrap: wrap;"><a href="Docs.dc.html">Get your page</a><a href="Leaderboard.dc.html">Leaderboard</a></nav>
+<a href="https://x.com/earnkit_ai" aria-label="EarnKit on X" style="width: 36px; height: 36px; border-radius: 999px; background: rgba(255,255,255,0.08); display: inline-flex; align-items: center; justify-content: center;"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFFFFF" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"></path></svg></a>
+</div>
+</footer>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"variant":{"editor":"enum","options":["full","minimal"],"default":"full"},"cta":{"editor":"text","default":"Your next week starts now."},"$preview":{"width":1280,"height":520}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { mx: 600, my: 300, on: 0 }; this.dome = Component.dome(); }
+  static dome() {
+    // The Pantheon from the floor: rings of coffers around the oculus, lit from it.
+    const f = (n) => n.toFixed(1), cx = 600, cy = 64, cells = [], stars = [];
+    const ring = [70, 104, 150, 214, 300, 420, 590, 820];
+    const n = 28;
+    const pt = (r, a) => f(cx + r * Math.cos(a)) + ',' + f(cy + r * Math.sin(a));
+    for (let j = 0; j < ring.length - 1; j++) {
+      const r0 = ring[j] + 6, r1 = ring[j + 1] - 6, light = 1 - j / (ring.length - 1);
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2 + 0.015 + (j % 2) * (Math.PI / n), a1 = ((i + 1) / n) * Math.PI * 2 - 0.015 + (j % 2) * (Math.PI / n);
+        const am = (a0 + a1) / 2, ia = (a1 - a0) * 0.18, ir = (r1 - r0) * 0.2;
+        const outer = 'M' + pt(r0, a0) + ' L' + pt(r1, a0) + ' L' + pt(r1, am) + ' L' + pt(r1, a1) + ' L' + pt(r0, a1) + ' Z';
+        const inner = 'M' + pt(r0 + ir, a0 + ia) + ' L' + pt(r1 - ir, a0 + ia) + ' L' + pt(r1 - ir, a1 - ia) + ' L' + pt(r0 + ir, a1 - ia) + ' Z';
+        const sideLit = 0.75 + 0.25 * Math.cos(am - 0.9);
+        const L = Math.max(0.08, light * sideLit);
+        const face = 'rgb(' + Math.round(40 + 150 * L) + ',' + Math.round(34 + 124 * L) + ',' + Math.round(40 + 100 * L) + ')';
+        const deep = 'rgb(' + Math.round(18 + 70 * L) + ',' + Math.round(15 + 56 * L) + ',' + Math.round(22 + 50 * L) + ')';
+        cells.push({ outer, inner, face, deep });
+      }
+    }
+    [[580, 40, 1.2, 0.9], [626, 52, 0.9, 0.7], [604, 88, 1.1, 0.8], [572, 74, 0.7, 0.6], [640, 80, 0.8, 0.6], [598, 30, 0.6, 0.5], [615, 66, 1.4, 1]].forEach((s) => stars.push({ x: s[0], y: s[1], r: s[2], o: s[3] }));
+    return { cells, stars };
+  }
+  renderVals() {
+    const WM = 'M5.37168 11.7803C5.37168 8.82407 7.76817 6.42758 10.7244 6.42758C13.6806 6.42758 16.0771 8.82407 16.0771 11.7803H21.4095C21.4095 5.87909 16.6256 1.09521 10.7244 1.09521C4.82319 1.09521 0.039314 5.87909 0.039314 11.7803H5.37168ZM0 17.1676C2.97529 17.1676 5.38723 14.7557 5.38723 11.7804H10.7196C10.7196 17.7007 5.92027 22.5 0 22.5V17.1676ZM16.0613 11.7803C16.0613 14.7304 18.4529 17.122 21.403 17.122V22.4543C15.5079 22.4543 10.729 17.6754 10.729 11.7803H16.0613ZM111.439 5.60699C112.656 5.60699 113.642 4.62083 113.642 3.40434C113.642 2.18785 112.656 1.2017 111.439 1.2017C110.223 1.2017 109.237 2.18785 109.237 3.40434C109.237 4.62083 110.223 5.60699 111.439 5.60699ZM119.721 11.6079V14.5958C119.731 16.5085 121.209 17.9798 123.763 17.9884L123.748 22.3936C119.42 22.3791 115.337 19.5449 115.316 14.6099L115.316 14.6008L115.316 3.1863H119.721V7.20256H123.755V11.6079H119.721ZM109.237 22.2053V6.90054H113.642V22.2053H109.237ZM60.9593 21.4843V22.2053H65.3646V6.9005H60.9593V7.70528C59.9918 7.25771 58.914 7.00798 57.7778 7.00798C53.5877 7.00798 50.191 10.4047 50.191 14.5948C50.191 18.7849 53.5877 22.1816 57.7778 22.1816C58.914 22.1816 59.9918 21.9319 60.9593 21.4843ZM54.5963 14.5948C54.5963 12.8377 56.0207 11.4133 57.7778 11.4133C59.5349 11.4133 60.9593 12.8377 60.9593 14.5948C60.9593 16.3519 59.5349 17.7763 57.7778 17.7763C56.0207 17.7763 54.5963 16.3519 54.5963 14.5948ZM83.6103 11.4133C81.8532 11.4133 80.4288 12.8377 80.4288 14.5948V22.1744H76.0235V14.5948C76.0235 10.4047 79.4202 7.00801 83.6103 7.00801C87.8004 7.00801 91.1971 10.4047 91.1971 14.5948V22.1744H86.7918V14.5948C86.7918 12.8377 85.3674 11.4133 83.6103 11.4133ZM75.2094 11.4131L75.1573 7.00816L74.2627 7.01873C70.0962 7.02631 66.6683 10.3923 66.6683 14.5948V22.1698H71.0736V14.5948C71.0736 12.8549 72.5024 11.424 74.2768 11.424H74.2898L75.2094 11.4131ZM44.8872 1.6867L44.8457 1.68679L44.7502 1.68679V1.6876C39.1316 1.76092 34.5994 6.33843 34.5994 11.9745C34.5994 17.6105 39.1316 22.188 44.7502 22.2614V22.2623L49.172 22.2622L49.172 17.857L44.8787 17.857C42.4124 17.8534 40.3019 16.3322 39.431 14.1772L47.0371 14.1772V9.77191L39.431 9.7719C40.2991 7.62347 42.3993 6.10492 44.8558 6.09208L49.172 6.09208L49.172 1.68678L44.8872 1.6867ZM92.5515 22.1214V2.87718H96.9568V22.1214H92.5515ZM102.798 2.9487C102.778 5.79026 101.503 9.17073 98.6714 11.2355L97.0126 12.4452L103.112 22.1774H108.311L102.844 13.4538C105.88 10.4527 107.18 6.39581 107.203 2.97904L102.798 2.9487Z';
+    const minimal = (this.props.variant ?? 'full') === 'minimal';
+    const { mx, my, on } = this.state;
+    const move = (e) => { const r = e.currentTarget.getBoundingClientRect(); this.setState({ mx: Math.round(e.clientX - r.left), my: Math.round(e.clientY - r.top), on: 1 }); };
+    const leave = () => this.setState({ on: 0 });
+    return {
+      full: !minimal, minimal, move, leave, lightStyle: 'position: absolute; inset: 0; z-index: -3; pointer-events: none; mix-blend-mode: screen; transition: opacity 700ms ease; opacity: ' + (on ? 1 : 0) + '; background: radial-gradient(260px circle at ' + mx + 'px ' + my + 'px, rgba(255,200,150,0.28) 0%, rgba(255,160,110,0.10) 45%, rgba(255,140,90,0) 75%);', wm: WM, cta: this.props.cta ?? 'Your next week starts now.',
+      glowStyle: 'position: absolute; inset: 0; z-index: -3; opacity: ' + on + '; background: radial-gradient(220px circle at ' + mx + 'px ' + my + 'px, rgba(255,214,150,1) 0%, rgba(255,150,70,0.9) 35%, rgba(255,110,40,0) 72%);',
+      barStyle: 'display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; padding-top: 22px; border-top: 1px solid rgba(255,255,255,' + (minimal ? '0.08' : '0.12') + '); font-size: 14px;' + (minimal ? ' padding-bottom: 8px;' : '')
+    };
+  }
+}
+</script>
+</body>
+</html>

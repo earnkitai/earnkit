@@ -1,109 +1,70 @@
 import { useId } from 'react';
-import { SCORE_COLORS, type Hue } from './score-colors';
+import { scoreBand } from '../../lib/earnkit/site-copy';
+import { SITE } from '../../lib/earnkit/site-theme';
 
-const VIEW = 120;
+/** A number not there yet (no score, confirming, no project). */
+export const DASH = '–';
+
+/** One hue per band, light to deep (the design doc's ring gradients; never multi-hue). */
+const BAND = {
+  good: [SITE.goodLight, SITE.goodDeep],
+  mid: [SITE.midLight, SITE.midDeep],
+  low: [SITE.lowLight, SITE.lowDeep],
+} as const;
+const VIEW = 148;
+const R = 62;
+const STROKE = 12;
 
 /**
- * profile-whoop v2, v3 Stage 3 (spec 5.8): a numeric ring. The arc (value / max of the circle, from 12 o'clock) is
- * a gradient stroke in the score's hue (the site's one gradient) with a rounded cap over a thin track from THEME.
- * No glow. The number sits in the middle in tabular figures. The arc draws in once (globals.css .ek-arc; none under
- * prefers-reduced-motion). The whole ring is one image with a text equivalent (`label`, default "Score 41 of 100").
- * `className` sets the size.
+ * v3.1 (Profile board): the Shipping score ring, 132px. A 12px track on navy and, over it from 12 o'clock, the score's
+ * arc in one hue (its band, light to deep) with round caps; the number in Kaftan Serif in the middle. The arc draws in
+ * once (globals.css .ek-arc; none under reduced motion). No score: the track alone and a dash. One image with a text
+ * equivalent.
  */
-export default function ScoreRing({
-  score,
-  max = 100,
-  hue = SCORE_COLORS.total,
-  label,
-  stroke = 8,
-  track = 3,
-  className = 'h-44 w-44',
-  numberClassName = 'text-[3.25rem] md:text-[4rem]',
-  caption = 'of 100',
-}: {
-  score: number;
-  max?: number;
-  hue?: Hue;
-  label?: string;
-  stroke?: number;
-  /** The track's width (thinner than the arc). */
-  track?: number;
-  className?: string;
-  numberClassName?: string;
-  /** The small line under the number; null for none. */
-  caption?: string | null;
-}) {
+export default function ScoreRing({ score }: { score: number | null }) {
   const id = `ek-ring-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
-  const top = Math.max(1, max);
-  const shown = Math.max(0, Math.min(top, Math.round(score)));
-  const share = (100 * shown) / top;
-  const r = (VIEW - stroke) / 2 - 4;
+  const shown = score === null ? null : Math.max(0, Math.min(100, Math.round(score)));
+  const [light, deep] = BAND[scoreBand(shown ?? 0)];
   const c = VIEW / 2;
   return (
-    <div
-      role="img"
-      aria-label={label ?? `Score ${shown} of ${top}`}
-      className={`relative shrink-0 ${className}`}
-    >
+    <div className="relative h-[132px] w-[132px] shrink-0">
       <svg
+        width="132"
+        height="132"
         viewBox={`0 0 ${VIEW} ${VIEW}`}
-        aria-hidden="true"
-        focusable="false"
-        className="h-full w-full -rotate-90 overflow-visible"
+        role="img"
+        aria-label={shown === null ? 'Shipping score not shown yet' : `Shipping score ${shown} out of 100`}
+        className="block"
       >
-        <defs>
-          {/* In the rotated frame +x is up: `from` at 12 o'clock, `to` around the far side. */}
-          <linearGradient
-            id={id}
-            x1={VIEW}
-            y1="0"
-            x2="0"
-            y2={VIEW}
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0" stopColor={hue.from} />
-            <stop offset="1" stopColor={hue.to} />
-          </linearGradient>
-        </defs>
-        <circle
-          cx={c}
-          cy={c}
-          r={r}
-          fill="none"
-          stroke={SCORE_COLORS.track}
-          strokeWidth={track}
-        />
-        {shown > 0 ? (
+        {shown ? (
+          <defs>
+            <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor={light} />
+              <stop offset="1" stopColor={deep} />
+            </linearGradient>
+          </defs>
+        ) : null}
+        <circle cx={c} cy={c} r={R} fill="none" stroke="var(--ek-s-navy-track)" strokeWidth={STROKE} />
+        {shown ? (
           <circle
             className="ek-arc"
             cx={c}
             cy={c}
-            r={r}
+            r={R}
             fill="none"
             stroke={`url(#${id})`}
-            strokeWidth={stroke}
+            strokeWidth={STROKE}
             strokeLinecap="round"
             pathLength={100}
             strokeDasharray="100 100"
-            strokeDashoffset={100 - share}
+            strokeDashoffset={100 - shown}
+            transform={`rotate(-90 ${c} ${c})`}
           />
         ) : null}
       </svg>
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 flex flex-col items-center justify-center"
-      >
-        <span
-          className={`font-funnel-display font-medium leading-none tracking-[-0.03em] text-ek-text tabular-nums ${numberClassName}`}
-        >
-          {shown}
-        </span>
-        {caption ? (
-          <span className="mt-1.5 font-funnel-sans text-xs font-medium text-ek-muted md:text-sm">
-            {caption}
-          </span>
-        ) : null}
-      </div>
+      <span aria-hidden="true" className={`ek-serif absolute inset-0 flex items-center justify-center text-[56px] leading-none tabular-nums ${shown === null ? 'text-s-on-navy' : 'text-s-text'}`}>
+        {shown === null ? DASH : shown}
+      </span>
     </div>
   );
 }

@@ -62,7 +62,8 @@ export const SubmissionRequirement = z
     key: z.string().regex(/^[a-z0-9_]+$/, 'use snake_case keys'),
     /** The question as the program's form asks it. */
     label: z.string().min(1),
-    type: z.enum(['text', 'url', 'email', 'choice', 'file']),
+    /** v3.1: `multi_choice` (a checkbox question): the answer is options joined by "; ". */
+    type: z.enum(['text', 'url', 'email', 'choice', 'multi_choice', 'file']),
     required: z.boolean(),
     /** Limits, format, or what the organizer is looking for. */
     description: z.string().optional(),
@@ -98,8 +99,8 @@ export const SubmissionRequirement = z
     max_chars: z.number().int().positive().optional(),
   })
   .strict()
-  .refine((r) => r.type !== 'choice' || (r.options && r.options.length > 0), {
-    message: 'choice fields need options',
+  .refine((r) => (r.type !== 'choice' && r.type !== 'multi_choice') || (r.options && r.options.length > 0), {
+    message: 'choice and multi_choice fields need options',
   });
 export type SubmissionRequirement = z.infer<typeof SubmissionRequirement>;
 
@@ -382,9 +383,11 @@ export const ProgramFile = z
     ends_at: z.string().datetime({ offset: true }).nullable(),
     /**
      * v3 Stage 2: `upcoming` is listed (the card reads "Not open yet") but never a fit, an entry or
-     * counted in the money total; it needs `opens_note`.
+     * counted in the money total; it needs `opens_note`. v3.1 (D2): `unlisted` (off-thesis) keeps
+     * its row for old entries, but nothing lists, matches, counts or guides it; its file follows the
+     * active rules.
      */
-    status: z.enum(['active', 'closed', 'upcoming']),
+    status: z.enum(['active', 'closed', 'upcoming', 'unlisted']),
     /** v3 Stage 2: one line on when and how an upcoming program opens (max 140 chars, no links). Only with `upcoming`. */
     opens_note: z
       .string()

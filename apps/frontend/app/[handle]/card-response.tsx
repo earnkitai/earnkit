@@ -124,13 +124,15 @@ function CardNumber({ value, label }: { value: string; label: string }) {
 export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolean) {
   const streak = streakWords(f.streak);
   const named = f.name !== `@${f.handle}`;
-  const rank = f.bench ? rankSplit(f.bench.replace(/^Shipping \d+ · /, '')) : null;
+  // v3.1 F3: under RANK_MIN_POOL the score line is "Shipping 60" alone: no rank headline, the numbers still show.
+  const words = f.bench ? f.bench.replace(/^Shipping \d+(?: · |$)/, '') : '';
+  const rank = words ? rankSplit(words) : null;
   const big = rank ? `${rank.lead}${rank.rest ? ` ${rank.rest}` : ''}` : (f.project ?? f.name);
   const size = headlineSize(big);
-  const numbers: [string, string][] = rank && f.score !== null
+  const numbers: [string, string][] = f.bench && f.score !== null
     ? [[String(f.score), 'Shipping'], ...(f.earned !== null && f.earned > 0 ? [[dollars(f.earned), 'Earned'] as [string, string]] : [])]
     : [];
-  const foot = [f.bench ? f.project : null, streak].filter(Boolean).join(' · ');
+  const foot = [rank ? f.project : null, streak].filter(Boolean).join(' · ');
   return (
     <div
       style={{

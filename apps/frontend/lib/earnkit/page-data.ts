@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { sql } from './db';
 import { standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
-import { rankLine } from './rank';
+import { rankLine, shownRankLine } from './rank';
 import { pagePath } from './reserved-routes';
 
 /**
@@ -56,7 +56,8 @@ export function displayName(xName: string | null, handle: string): string {
   return n && !WALLET.test(n) ? n : `@${handle}`;
 }
 
-export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; people: number; score: number; moment: 'shipped' | 'rank' | null };
+/** `listed`: in the leaderboard's pool, so ranked even while `rank` is null (v3.1 F3: under RANK_MIN_POOL). */
+export type PersonFacts = { name: string; handle: string; avatar: string | null; shipped: number; noun: string; rank: string | null; listed: boolean; people: number; score: number; moment: 'shipped' | 'rank' | null };
 
 /** What the header and the card need about one claimed person. Null when there is no claimed profile. */
 export async function personFacts(builderId: number, o: { only?: number[] } = {}): Promise<PersonFacts | null> {
@@ -70,9 +71,11 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   const apps = n > 0 && kinds.every((k) => k.kind === 'app');
   const noun = apps ? (n === 1 ? 'app' : 'apps') : n === 1 ? 'project' : 'projects';
   // Hotfix 2026-10-19: a public rank only inside the leaderboard's pool (bench-rank rankLines' rule).
-  const rank = s.listed ? rankLine(s) : null;
+  // v3.1 F3: none under RANK_MIN_POOL ranked builders either.
+  const rank = s.listed ? shownRankLine(s) : null;
   const moment = p.moment === 'rank' ? p.moment : 'shipped';
-  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, people: s.people, score: s.score, moment };
+  const listed = s.listed && rankLine(s) !== null;
+  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, listed, people: s.people, score: s.score, moment };
 }
 
 /** The page header; React cache(): the page and its metadata read it once per request. */
@@ -85,8 +88,8 @@ export const pageHead = cache(async (builderId: number, o: { only?: number[] } =
     avatar: f.avatar,
     topLine: f.shipped > 0 ? topLine(f.name, f.shipped, f.noun) : buildingLine(f.name),
     rank: f.rank,
-    // The ring sits only beside a rank (never a bare "0/100").
-    score: f.rank ? f.score : null,
+    // The ring sits only on a ranked page (never a bare "0/100"); v3.1 F3: under RANK_MIN_POOL too, as the profile.
+    score: f.listed ? f.score : null,
   };
 });
 
@@ -185,30 +188,39 @@ async function programEntries(builderId: number) {
  * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project.
  */
 async function toldApplied(builderId: number) {
-  return sql()<{ title: string }[]>`
-    SELECT DISTINCT g.title FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
+  return sql()<{ title: string; at: Date }[]>`
+    SELECT g.title, max(s.at) AS at FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
-    ORDER BY g.title`;
+    GROUP BY g.title ORDER BY g.title`;
 }
 /** A program on the Project tab: won (announced only), else applied (submitted, or the builder said so). */
 export type ProgramLabel = { title: string; won: boolean; applied: boolean };
 /** "Won X", "Applied to X", else nothing (an entry never submitted has no label). Pure. */
 export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${g.title}` : g.applied ? `Applied to ${g.title}` : null);
-/** The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). Pure. */
-const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: string[] = []): ProgramLabel[] => {
+/**
+ * The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). `at`: the
+ * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). Pure.
+ */
+const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date }[] = []): (ProgramLabel & { at: Date })[] => {
   const k = norm(key);
-  const programs = new Map<string, { won: boolean; applied: boolean }>();
-  const add = (title: string, won: boolean, applied: boolean) => {
+  const programs = new Map<string, { won: boolean; applied: boolean; at: Date }>();
+  const add = (title: string, won: boolean, applied: boolean, at: Date) => {
     const was = programs.get(title);
-    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied });
+    // The date comes from a row that earns the label (an entry never submitted dates nothing once another row does).
+    const counts = won || applied;
+    const wasCounts = Boolean(was && (was.won || was.applied));
+    const date = !was || (counts && !wasCounts) ? at : wasCounts && !counts ? was.at : was.at <= at ? was.at : at;
+    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date });
   };
-  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied);
-  for (const title of told) add(title, false, true);
+  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied, new Date(e.submitted_at));
+  for (const t of told) add(t.title, false, true, new Date(t.at));
   return [...programs]
     .map(([title, g]) => ({ title, ...g }))
     .filter((g) => programLabel(g) !== null)
     .sort((a, b) => Number(b.won) - Number(a.won));
 };
+/** v3.1 site S10: the programs the person's project `key` won or applied to (projectPrograms' rule), each with its date. */
+export const projectProgramsDated = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key, await toldApplied(builderId));
 /** v2.13 T11: the programs the person's project `key` won or applied to (v3 Stage 2: told applications too). */
-export const projectPrograms = async (builderId: number, key: string) =>
-  programsOf(await programEntries(builderId), key, (await toldApplied(builderId)).map((r) => r.title));
+export const projectPrograms = async (builderId: number, key: string): Promise<ProgramLabel[]> =>
+  (await projectProgramsDated(builderId, key)).map((g) => ({ title: g.title, won: g.won, applied: g.applied }));

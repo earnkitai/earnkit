@@ -156,8 +156,8 @@ export const unoriginal = (r: Pick<Repo, 'name' | 'fork' | 'is_template' | 'temp
  * own repos, and repos neither created nor pushed in the last 365 days. A tutorial-like name or
  * topic is scored (it costs `original`), never dropped. Pure.
  */
-export function droppedRepo(r: Repo, now: Date, o: { named?: boolean } = {}): boolean {
-  if (notProduct(r)) return true;
+export function droppedRepo(r: Repo, now: Date, o: { named?: boolean; ownEarnkit?: ReadonlySet<string> } = {}): boolean {
+  if (notProduct(r, o.ownEarnkit)) return true;
   // Ruling G3: a repo the builder names is never dropped for age.
   if (o.named) return false;
   const year = now.getTime() - 365 * DAY_MS;
@@ -187,13 +187,16 @@ export async function userRepos(
   const contributed = await contributedRepos(user, names, now);
   const repos = [...own.filter((r) => !droppedRepo(r, now)), ...contributed.repos].sort(byPushed).slice(0, SCORE_LIMIT);
   // v2.10.1 B4: each dropped repo's key with its reason, for a local report of the same repo.
-  const dropped = new Map([...own.filter(notProduct), ...contributed.dropped].map((r) => [keyOf(r), droppedReason(r)] as const));
+  const dropped = new Map([...own.filter((r) => notProduct(r)), ...contributed.dropped].map((r) => [keyOf(r), droppedReason(r)] as const));
   return { repos, found: own.length + contributed.found, dropped, contribReads: contributed.reads };
 }
 
-/** Rulings G4 (I1), G15: dropped as a fork, template, archived or EarnKit repo (never by age or name). Pure. */
-function notProduct(r: Repo) {
-  return r.archived || copiedRepo(r) || earnkitOwner(ownerOf(r));
+/**
+ * Rulings G4 (I1), G15: dropped as a fork, template, archived or EarnKit repo (never by age or name). v3.1 F1: an
+ * EarnKit repo in `ownEarnkit` (the builder's own, proven) is not dropped for its owner. Pure.
+ */
+function notProduct(r: Repo, ownEarnkit?: ReadonlySet<string>) {
+  return r.archived || copiedRepo(r) || (earnkitOwner(ownerOf(r)) && !ownEarnkit?.has(r.full_name.toLowerCase()));
 }
 const keyOf = (r: Repo) => repoKey({ url: r.html_url, name: r.name });
 
@@ -776,6 +779,11 @@ export type MatchDeps = {
    * their public builder score, else null. Absent: v2.10's traction.
    */
   verified?: (repoKey: string) => Promise<{ users: number; money_usd: number } | null>;
+  /**
+   * v3.1 F1: repos in an EarnKit org (`owner/repo`) the caller proved its own with the read-only App (own-brand.ts
+   * earnkitOwnRepo): matched like any named repo, never skipped as EarnKit's kit. Absent: every EarnKit repo is skipped.
+   */
+  ownEarnkit?: readonly string[];
 };
 
 /**
@@ -1232,13 +1240,16 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     if (!skipped.has(key)) skipped.set(key, { name, reason });
   };
   const tokens = new Map<string, string>();
+  // v3.1 F1: an EarnKit repo the builder proved their own is matched; every other EarnKit repo is skipped as EarnKit's.
+  const ownEarnkit = new Set((deps.ownEarnkit ?? []).map((k) => k.toLowerCase()));
+  const earnkits = (n: string) => earnkitOwner(n.split('/')[0]) && !ownEarnkit.has(n.toLowerCase());
   if (input.repos?.length) {
     const names = input.repos.map(fullName);
     found += names.length;
     // v2.10 item 7: each repo read is caught on its own, so one private repo never fails the rest.
-    for (const n of names.filter((n) => earnkitOwner(n.split('/')[0]))) skip(namedKey(n), n.split('/')[1], SKIP_REASONS.earnkit);
+    for (const n of names.filter(earnkits)) skip(namedKey(n), n.split('/')[1], SKIP_REASONS.earnkit);
     const settled = await mapLimit(
-      names.filter((n) => !earnkitOwner(n.split('/')[0])),
+      names.filter((n) => !earnkits(n)),
       6,
       (n) => repoByName(n).then((r) => ({ n, r }), (err: unknown) => ({ n, err })),
     );
@@ -1265,15 +1276,16 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     const firstErr = settled.find((s): s is { n: string; err: unknown } => 'err' in s)?.err;
     if (settled.length > 0 && settled.every((s) => 'err' in s && !(s.err instanceof GitHubError && s.err.status === 404)))
       throw firstErr;
-    dropped = new Map(read.filter(notProduct).map((r) => [keyOf(r), droppedReason(r)] as const));
-    for (const r of read.filter(notProduct)) skip(keyOf(r), r.name, droppedReason(r));
-    const unread = read.filter((r) => !droppedRepo(r, now, { named: true })).sort(byPushed);
+    const notMine = (r: Repo) => notProduct(r, ownEarnkit);
+    dropped = new Map(read.filter(notMine).map((r) => [keyOf(r), droppedReason(r)] as const));
+    for (const r of read.filter(notMine)) skip(keyOf(r), r.name, droppedReason(r));
+    const unread = read.filter((r) => !droppedRepo(r, now, { named: true, ownEarnkit })).sort(byPushed);
     for (const r of unread.slice(SCORE_LIMIT)) skip(keyOf(r), r.name, SKIP_REASONS.limit);
     const kept = unread.slice(0, SCORE_LIMIT);
     // Pre-flight P28: without a builder, a named repo counts like a local one (owned unless EarnKit's).
     for (const r of kept) {
       const owner = ownerOf(r);
-      let owned = !builder || ownerOk(owner, builder);
+      let owned = !builder || ownerOk(owner, builder) || ownEarnkit.has(r.full_name.toLowerCase());
       const token = tokens.get(r.full_name.toLowerCase());
       if (builder && !owned && contribReads++ < CONTRIB_CANDIDATES) {
         // v2.10 item 7b: a private repo read through the App is read through it here too.
@@ -1299,7 +1311,7 @@ export async function matchProjects(input: z.infer<typeof MatchProjectsInput>, d
     found++;
     const gh = r.url ? githubRepo(r.url) : null;
     const key = repoKey({ url: r.url, name: r.name });
-    if (gh && earnkitOwner(gh.owner)) {
+    if (gh && earnkits(`${gh.owner}/${gh.repo}`)) {
       skip(key, r.name, SKIP_REASONS.earnkit);
       continue;
     }

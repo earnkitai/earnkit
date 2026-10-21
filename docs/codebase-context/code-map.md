@@ -62,7 +62,12 @@ apps/frontend/
                                earn?", program guides earnkit.com/programs/<id>, the tools, live numbers
                                (C9)): lib/earnkit/llms/v213.txt (no builder bonus, "The leaderboard" section, earnkit.com/leaderboard);
                                v2.14 T3 deleted v212.txt with the Bench switch
-  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,FilterChip.tsx,bench-load.ts}  scoring and clarity T3 (R9),
+  app/leaderboard/{page.tsx,BenchView.tsx,BenchRowItem.tsx,Podium.tsx,bench-load.ts}  v3.1 site T8 (Leaderboard board):
+                               SegTabs All/Base/Backed (filterTabs; old ?chain=arc/?weekly=1 filter, mark no tab), Podium
+                               (page 1 rows 1-3: blue/navy/rust, METAL place pills), panel rows (BenchRowItem: one link,
+                               XHandle link={false}, Backed tag, streak, ScoreText 30), Pager (?page=, LEADERBOARD_PAGE 20,
+                               pageHref); under RANK_MIN_POOL no "#N"/metal pills; FilterChip deleted. History below:
+                               scoring and clarity T3 (R9),
                                v3 Stage 3 T4 (spec 5.8): /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept):
                                H1, benchLine ("N builders. Ranked by Shipping."; BENCH_TOP_EMPTY at 0), the filters as hairline
                                pills (FilterChip: links with aria-pressed, 44px on a phone, on = white fill with black text;
@@ -73,49 +78,48 @@ apps/frontend/
                                @handle, chain logos and the Backing pill under it, the project over its best fact (two lines,
                                no middle dot), the Shipping number in NUM 24px; names and projects wrap (R11, no truncate,
                                no nowrap); BENCH_EMPTY + BENCH_SHOW_ALL only for a filtered view with no rows
-  app/feed/{page.tsx,FeedView.tsx}  v2.13 T6/T12, v3 Stage 3 T4: /feed (404 flag off): H1 FEED_TITLE "Feed", FEED_LINE,
-                               each finished week an H2 ("Week of Oct 12") over a ROWS list of long UpdateCards (showWeek off);
-                               FEED_EMPTY between two hairlines with a secondary link to the leaderboard
-  app/[handle]/{BenchProfileView,ProjectTab,ShipGrid,MoneyTab,ShareButton}.tsx  v2.13 T11, v3 Stage 3 (spec 5.6): the profile on the
-                               flat system: header row (56px photo, name, @handle, Share, Back button), the three
-                               numbers row `data-ek-numbers` (96px Shipping ring, rank lead and words, Earned; dashes
-                               while confirming, no project or unranked), why + target, chain lines, Originality,
-                               points; hairline 52-week grid filled ek-brand; tabs Ship log / Project / Money
-                               (?tab=money: MoneyTab, FITS_TITLE/APPLIED_TITLE/BACKING_TITLE, the pill, points line);
-                               visitor row, sources line, badge. Avatar falls
-                               back to the initial; card-response and page.tsx branch under the flag;
-                               v2.13.1 O3: while Confirming one calm card (confirmingCardLine) instead of ring
-                               and grid, Project tab shows name and what only; launch ready L10: "a private project" in
-                               the sentence, noProjectLine for no project, VISITOR_CTA (L7) with InstallButton, the badge
-                               line only with a rank, BENCH_SOURCES_LINE without "public data"
-  app/components/sections/{BenchTop,FeedRows,FeaturedCard}.tsx  v2.13 T12, v3 Stage 3 T2: the landing's
-                               Leaderboard top 10 as hairline rows (benchLine "N builders. Ranked by Shipping.",
-                               BENCH_TOP_EMPTY), the Feed section (FEED_SECTION_TITLE, the last finished week's rows as
-                               long UpdateCards, "See all"), and FeaturedCard (the hero's live profile preview: name,
-                               @handle, streak, Shipping / Rank / Earned, two log lines; one link to the page).
-                               UpdateCarousel and CarouselRow are gone (carousel.ts stays, tested, unused)
+  app/feed/{page.tsx,FeedView.tsx,FeedStats.tsx,FeedRow.tsx}  v3.1 site Task 9 (Feed board): /feed: H1, week tabs
+                               (FEED_TABS 3, ?week=<monday>, pickWeek falls back to the newest), FeedStats (feedWeekStats,
+                               cached ['feed-stats-v31', monday]), full-width dark FeedRows, FEED_PAGE 10 a page (?page=);
+                               FEED_EMPTY on a neutral card with "See the leaderboard"
+  app/[handle]/{BenchProfileView,ShareButton}.tsx, app/[handle]/site/*  v3.1 site Task 7 (Profile, BackedBuilder,
+                               NewBuilder boards): BenchProfileView({ data, site, page }) lays out two wrapping rows:
+                               HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,
+                               GitHub, white Share; the inset project panel with the EarnKit mark or a letter tile, the
+                               Base tile, about, link; noProjectLine / confirmingCardLine instead), ScoreCard (navy,
+                               ScoreRing), StreakCard (rust, 12 squares from the grid, this week lit from site.thisWeek by
+                               lib/earnkit/site-streak.ts withThisWeek, which profileSite also applies before Highlights,
+                               streakNote, weekLine), ActivityCard (white, live dot "Shipped <ago>", 3 week cards a page
+                               via ?page=, Pager, dashed nextUpdateLine under 3 cards), TokenCard (only site.token),
+                               HighlightsCard; then Footer minimal. No points, Originality, 52-week grid, rank number,
+                               Earned, tabs, visitor row or badge (plan S15; MoneyTab and ProjectTab deleted).
+                               BenchProfileSkeleton: flat s-panel shapes with the name. ShipGrid/BadgeCopy stay (unused
+                               on the page; shippedWords and the badge route remain)
+  app/components/site/Money.tsx  v3.1 Task 7 fix 1: money text whose currency signs render in Funnel Sans (Kaftan's "$"
+                               reads as "S"); used by the Token card, the landing chip and Opportunities' numbers
   app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
   app/page.tsx                 home (v2.7 §1): revalidate 600; getLanding() then HomeView
-  app/HomeView.tsx             v2.7 §1, v3 Stage 3 T2: the pure home render (Hero, BenchTop, FeedRows,
-                               ProgramCards "Money open now", BackedBy, Footer); landing null (failed read) → hero and
-                               Backed by only (no empty lines); empty bench / no tiles → the one empty line each
-  app/components/sections/Hero.tsx  v3 Stage 3: BENCH_HERO_TITLE, BENCH_HERO_SUBTITLE, one InstallButton
-                               (BTN_PRIMARY) and the FeaturedCard on the right from md; no video, no stats line
+  app/HomeView.tsx             v3.1 site T6 (Landing board): data-ek-deep root, PAGE_COL_WIDE column: landing/Hero, Steps,
+                               Activity, Opportunities (#earn), full Footer; landing null (failed read) → hero (no chip) and Steps
+  app/components/landing/      v3.1 site T6: Hero (chip to #earn, one-line Kaftan H1, HERO_SUB, CTA_INSTALL InstallButton,
+                               AGENT_MARKS), HeroArt (client: painting srcSet + SVG arch clip ARCH_PATH, dusk tint, sunset
+                               glow at the pointer via getScreenCTM, drift; nothing moves under reduced motion), Steps (STEPS;
+                               Earn adds backing only with raisingEnabled), Activity (landing.activity cards, activityMeta,
+                               invite card at 1 to 2, none at 0), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/docs/{page,DocsView}.tsx  v3 Stage 3 T5 (spec 5.6): /docs, one page, every string in lib/earnkit/docs-copy.ts and the
-                               agents' steps from sections/agents.tsx: install per agent (the MCP link as a Code block),
-                               what the agent can do, the three numbers, how the week works, for program selectors
-                               (#selectors; the page, the JSON, the badge, the contact as an INLINE_LINK), the terms link
-  app/programs/page.tsx        v2.7 Ruling 22, v3 Stage 3 T4: /programs is the landing's Money section as a page:
-                               ProgramCards with heading h1 (PROGRAMS_TITLE "Money open now", figure = landing.open_text,
-                               more = landing.open_more); getLanding() null → "Programs are unavailable…"
+  app/docs/{page,DocsView,InstallCard}.tsx  v3.1 site T10 (Docs board): /docs, force-dynamic (W9, no DB read); every string in
+                               lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
+                               (five anchors), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
+                               AgentPanel shows code ?? MCP_URL, copy button + aria-live "Copied"; three numbered steps), the
+                               week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
+  app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
                                the Unavailable panel (HTTP 200, never a 404); generateMetadata
   app/programs/[id]/GuideView.tsx  pure guide render, v3 Stage 3 T4: the 56px ProgramLogo beside the H1, the facts as
@@ -134,31 +138,25 @@ apps/frontend/
                                Grok's logomark; muse.svg is Muse's logo from muse.ai; SVG marks
                                take the tab's one color),
                                `after` approve lines
-  app/components/sections/{ProgramCards,ProgramLogo}.tsx  v2.7 §1 landing sections (HowItWorks.tsx deleted in v2.14 T3);
-                               ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked) at 70% on a white disc
-                               (ek-text, so Arc's navy and a16z's black read on the page), or the Ruling 1 monogram on
-                               the raised disc; PROGRAMS_TITLE "Money open now" is the one title (landing h2, /programs h1);
-                               v2.8 ProgramCards, v3 Stage 3: h2/h1, `figure` and `more` lines, then every tile as a
-                               ProgramRow in one hairline list (ROWS); no carousel, no grid; PROGRAMS_EMPTY with no tiles
-  app/components/sections/ProgramRow.tsx  v2.8 Ruling 21, v3 Stage 3 (was ProgramCard): one hairline row, a whole-row link to
-                               /programs/<id> (aria-label "<title>, <prize>"): logo, title with the days-left / In person /
-                               difficulty chips under it, the award (and per-winner line) on the right from md; no buttons
+  app/components/sections/{ProgramCards,ProgramLogo}.tsx  ProgramLogo (v3 Stage 3 T4): the local <img> (path re-checked)
+                               on a white disc, or the Ruling 1 monogram (monogram() is shared with landing/Opportunities);
+                               ProgramCards (v3.1 T6): a shim (money line + Opportunities) kept only because copy-review.test.ts
+                               (P0-owned) imports it; nothing under app/ renders it. ProgramRow.tsx is gone (v3.1 T6)
   app/components/sections/carousel.ts  v2.8 Ruling 20: pure scrollStep (one card + gap, clamped) and
                                arrowState (prev/next enabled; both off when nothing overflows); v3 Stage 3: no caller
                                (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
                                /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
-  app/components/common/InstallButton.tsx  v2.7 fix round 1: the header's "Add to your agent" (opens AddToAgent);
-                               v2.7.1: Header shows "Docs" (links.ts DOCS) beside it, desktop and mobile;
-                               the X link (now an icon button to x.com/jenilt, v2.8 Ruling 22) is in the
-                               Footer only
-  app/components/common/Footer.tsx  R18: a quiet footer under a hairline (wordmark, FOOTER_TAGLINE, the
-                               FOOTER_COLUMNS links in one row, no titles, no faded wordmark), the copyright
-                               line; renders from lib/earnkit/footer-links.ts; real links only
-  app/components/common/Header.tsx  R18: the one sticky header on every page (was SlimTopBar): wordmark,
-                               Leaderboard, Feed, Programs and Docs (from sm; Programs since launch ready L10), "Add to your agent"
-  app/not-found.tsx            launch ready L10: the site's 404 (NOT_FOUND_TITLE, NOT_FOUND_LINE, the leaderboard and home)
+  app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
+                               (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
+  app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
+                               painting, lazy <img srcSet> of public/art/foot-panini-*, FooterLight, FOOT_CTA in Kaftan, the
+                               install pill, the bar: wordmark, FOOTER_COLUMNS links, ART_CREDIT, EarnKit's X) or 'minimal'
+                               (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
+  app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
+                               (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
+  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME (site-copy.ts), full footer
   app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
                                BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
   apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
@@ -204,9 +202,10 @@ apps/frontend/
   app/[handle]/page.tsx        v2.12.1 T6/T11: earnkit.com/<x-handle> (force-dynamic); HandleView
   app/[handle]/handle-view.tsx  HandleView (resolveHandle: hidden/unclaimed 404, case or a 90-day rename 308 to
                                pagePath) renders BenchProfileView (v2.14 T3: ProfileView and ProjectCards deleted);
+                               v3.1: BenchPage reads profileSite and passes it with pageOf(?page=); tabOf parsed, ignored;
                                handleMetadata (title, og card)
-  app/[handle]/ScoreRing.tsx   (moved from app/b/[slug] in T12) the ring: SCORE_COLORS.total gradient stroke (white to
-                               ek-accent, the site's one gradient), THEME track, no glow (v3 Stage 3); "N of 100" in words
+  app/[handle]/ScoreRing.tsx   v3.1 Task 7: the profile's Shipping ring (132px, viewBox 148, r 62, stroke 12, navy track,
+                               the band's light-to-deep gradient, round caps, .ek-arc draw; null: track and DASH)
   app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
                                picture with a 3 s timeout, CARD_CACHE) and shareResponse (card_shared once a day,
@@ -242,6 +241,22 @@ apps/frontend/
   app/components/common/Panel.tsx  v3 Stage 3 T1: the flat primitives: COLUMN (1120px), SECTION, H1 (56/36), H2 (32/24),
                                LEDE, NUM (tabular Funnel Display), ROWS/ROW (hairline rows), SURFACE (a flat block
                                that opens with a hairline; kept for callers) and Panel
+  app/components/site/         v3.1 site T1 primitives: ui.ts (CARD_NEUTRAL/BLUE/NAVY/RUST/LIGHT/PANEL, PILL_WHITE/BLUE,
+                               PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
+                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
+                               (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
+                               aria-current; segRail/segTab for the install sheet's tabs), useReducedMotion and
+                               useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,
+                               pointer light on the footer; nothing under reduced motion or on touch), AgentMarks (AGENT_MARKS
+                               from the Landing board, lobehub MIT + muse.svg; AgentMark)
+  lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
+  lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
+                               thisWeekCommits (commit_counts via weekCounts), highlights (W8: live, Base Builder Code,
+                               contracts on Base, won/applied, shipping since), standingPill (Top N% from RANK_MIN_POOL),
+                               backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
+                               Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
+  app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
+  public/art/                  hero-eckersberg-{800,1600,3200}.jpg, foot-panini-{700,1400,2800}.jpg (pre-sized, plain srcSet)
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
                                payout, fee refresh)
@@ -560,7 +575,9 @@ apps/frontend/
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
+    mcp.ts(+test)              v3.1 Task 10: registers find, prepare (draft only), tell, score; confirm only while
+                               EARNKIT_RAISING (CONFIRM_BACKING_DESCRIPTION, project_id required, no entry fields).
+                               v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
                                with the Bench descriptions only; serverInstructions() takes no flag); sponsor_campaign is archived
                                (archive/sponsor-campaigns) and never registered.
                                v2.10 item 4: registers find, prepare, confirm, tell (+ sponsor_campaign with escrow, until v2.12);
@@ -800,7 +817,9 @@ apps/frontend/
                                v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
                                yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
                                v2.14 T7: pick_up_entries dropped from OLD_TOOL_NAMES (an unknown tool now).
-    tools.ts                   v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
+    tools.ts                   v3.1 Task 10: confirm refuses program_id (CONFIRM_ENTRY_GONE), else confirmByProjectId;
+                               find passes fresh: undefined (no build_offer). buildWalletAgain is gone.
+                               v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
                                v2.10.2 (v2.11 8a): matchRows ranks by odds (oddsRank), real use, traction, score.
                                v2.11 T8: prepare's build (plan S7, prepareBuild: BuildStart / BuildTwist strict,
@@ -1493,40 +1512,35 @@ apps/frontend/
     bench-rank.ts(+test)       v2.13 T7: benchPool (re-export from person-score), chainPools, rankLines ({ bench: rank line,
                                line: score line, chains }; chain lines from one ranked project, R16e; R10: empty unless the one
                                project counts as confirmed now, so a stale builder_live.ranked never shows a rank)
-    bench-reply.ts(+test)      v2.14 T9, scoring and clarity R16a: the reply as four states, pure. ReplyState (signed_out,
-                               no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off), replyState;
-                               STATE_COPY and VARIANT_COPY (the only place the states' copy lives), NOT_ON_BENCH,
-                               NO_MONEY_LINE, noFitLine; stateAsk (each state's one next step; ranked: the weekly target
-                               line (L5, weekly-target.ts), SHIP_STEP "Ship this week to climb." only without a Shipping row, kind ship); benchReply: stand line (+ the why, "Your page"),
-                               "Ways to get funded" always (R12: at most 3 fits, fitsLine "<title>: <award>, <closes
-                               Oct 30 | rolling>. <why>"), one next step last, exactly one https link (the action link,
-                               else the page; none when there is no page, X off). Launch ready L2: no_project asks the
-                               repo picker (STATE_COPY.no_project.ask(link), kind pick_repo; noApp() and kind start only
-                               while the App link can't be made). Kinds sign_in, start, pick_repo, install_app,
-                               other_project, repo_behind, ship, suggest (app_off). Keeps needsLine, ideasLine,
-                               displayName. R10: rankedState (ranked only); bench-find gates rank_lines, view.rank and
-                               the move-up news on it. Copy says "the leaderboard" (R9). No coin, token or community round.
-                               Launch ready L5, L6: BenchView.target (the weekly target, STATE_COPY.ranked.ask(target), else
-                               SHIP_STEP) and BenchView.share (the weekly moment's X link: then the one link, and stateAsk
-                               gives kind share, shareAsk "Share your week on X: <link>" + "Does last week look right?").
-                               tests reply-states.test.ts, bench-reply.test.ts, move-up.test.ts (through mcpCall)
+    bench-reply.ts(+test)      v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
+                               (signed_out, no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off),
+                               replyState, rankedState; stateAsk (kinds sign_in, start, pick_repo, install_app,
+                               other_project, repo_behind, connect, apply, backing, share, ship, suggest); benchReply per
+                               step: signed out (INTRO_LINE, introWhat(OpenGrant), POINTS_ON_SIGN_IN), step 2 (youreIn,
+                               pickRepoAsk, POINTS_ON_CONNECT; namesAccount), connect (connectStanding, qualifyLine,
+                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, SHIP_ASK,
+                               shipPointsLine), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
+                               ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
+                               displayName. At most one https link, exactly one question, the points line last.
+                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
-                               showRaisingLine, an open offer again via openCoinLine, else offerCoin 'countable';
+                               showRaisingLine, an open offer again via openCoinLine, else backingOffer; EARNKIT_RAISING
+                               off is tokenUnavailable (v3.1 final fix 1: confirm only exists with it on);
                                TOKEN_NOT_YET, tokenUnavailable, tokenHasCoin, RAISE_NOTE), SHIP_STEP_NOTE; R12: fitWhy
                                (the chain: deployed on / deploy to / build for, any chain, a live app) and whyFacts;
                                v2.14 T9: benchView builds the state (repoProof for taken/copy, installLink for the
                                install link, the sign-in link minted for the caller's own installation, D14), the
-                               money (R12: up to 3 fits, never an open-all-year pick; not counted or no project:
-                               needsPicks too; a taken project still names open programs, D6), the stored ask; a held question (find's outcome question or
+                               money (R12: up to 3 fits; Task 16: openGrant for the signed-out reply, connectMoment's
+                               ConnectOffer with connectOfferPoints, weeklyMoment's MomentView), the stored ask; a held question (find's outcome question or
                                submission step, A17) replaces the state's, except signed out (signedOutNow: the
                                sign-in question wins; find skips outcomeToAsk until the bind; a failed mint asks to retry). "Signed in as @<handle>." once on the
                                first reply after an X bind (installations.x_signed_in_unseen; takeSignedIn clears it only with a
                                handle; signedOutNow reads a DB error as signed out, final fix 11, 12). benchMoveUp: taken-once
                                kinds incl. sign_in (SIGN_IN_YES_NOTE), repo_behind (REPO_BEHIND_NOTE), ship (SHIP_NOTE), pick_repo (PICK_REPO_YES_NOTE);
                                retired kinds (OLD_ASKS: enter, coin, raise, go_live, build, grants) are "Okay."; no grants ask,
-                               no build-in-progress view. v2.13.4: fundNeeds(c, has), reportedLive, liveOf;
-                               needsPicks (NEEDS_MAX 2), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
+                               no build-in-progress view. v2.13.4: reportedLive, liveOf (fundNeeds, needsPicks and NEEDS_MAX
+                               were removed in v3.1 T16), START_NOTE, INSTALL_APP_NOTE, BENCH_OUTCOME_NOTE, SHIP_NOTE.
                                Launch ready L2: no_project carries repo-proof.ts pickLink (PICK_REPO_NOTE); rankAnswer (tell
                                main_project: main-project.ts rankRepo, rescore; else that repo's installLink), RANK_LINES,
                                RANK_SET_NOTE, RANK_INSTALL_NOTE. Launch ready L5, L6: benchView sets the ranked target
@@ -1592,8 +1606,8 @@ apps/frontend/
                                sentence: the weeks with code only, launch ready L5), weekGains (L5: active, gain, next, read
                                as of now's week); R16b removed countUse
     weekly-target.ts(+test)    launch ready L5: weeklyTarget (pure, ranks only, never a name: pass #k / N behind #k / hold #1 /
-                               done this week; L10: voice 'page' for the profile, "Code this week adds +N points ..."; final fix I3: "D short of #k"
-                               via shortOf), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
+                               done this week; L10: voice 'page' for the profile, v3.1 F4: the rank only, never points: "Ship code this week to pass #2.",
+                               page voice "Code this week passes #2."; shortOf stays exported, unused by copy), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
                                (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
@@ -1670,12 +1684,17 @@ apps/frontend/
                                proveWallet (EIP-191, once per signature), walletGet, walletPost,
                                walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
     v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
-    docs-copy.ts               v3 Stage 3 T5: every string on /docs (DOCS_TITLE, DOCS_LEDE, the section titles and rows, DOCS_SELECTORS,
-                               DOCS_CONTACT, DOCS_DESCRIPTION); pinned by v3-docs.test.ts (under 600 words, no em dash, no emoji)
+    docs-copy.ts               v3.1 site T10: every string on /docs (DOCS_NAV, DOCS_STEPS, DOCS_WEEK, DOCS_SCORE with score-v2
+                               LIVE_BONUS, DOCS_MONEY, DOCS_SELECTORS, docsNav/docsMoney drop Backing with raising off,
+                               DOCS_DESCRIPTION); pinned by v31-site-docs.test.ts and v3-docs.test.ts (under 250 words)
     v3-tokens.test.ts          v3 Stage 3 T1: THEME values and the globals.css mirror, contrast, no gradient/shadow/marquee, the
                                primitives and buttons, PART_COLORS kept, the shell button, DESIGN.md as the one-page rulebook
-    v3-landing.test.ts         v3 Stage 3 T2: HomeView order, two "Add to your agent" buttons, no video/gradient/uppercase, the
-                               featured read (hidden/missing is null), empty landing, FeaturedCard, the install sheet, the /NN scan
+    v31-site-tokens.test.ts    v3.1 site T1: SITE mirror (globals.css, tailwind), contrast pairs, no s-dim on cards, the six
+                               paintings (width, budget), Kaftan, reduced motion, body page/deep, Pager, ScoreText bands
+    v31-site-landing.test.ts   v3.1 site T6: the landing (hero order, chip, Activity cards and invite, Opportunities #earn, the
+                               raising-gated Earn step, the hero srcset and arch clip path, landing tokens)
+    v3-landing.test.ts         v3 Stage 3 T2, v3.1 T6: HomeView order, one hero install button, no video/uppercase, empty landing,
+                               the hero, Opportunities, the install sheet, the /NN scan
     v3-profile.test.ts         v3 Stage 3 T3: the three numbers row, the grid, the tabs, the Money tab rows, Share, the badge line, empty states
     v3-pages.test.ts           v3 Stage 3 T4 (T7: a rank 100 row, the 3rem phone rank column, capitalised guide facts): the
                                leaderboard, the chips, the feed, ProgramCards/ProgramRow/ProgramLogo, the guide states, the 404, rankLine
@@ -1687,8 +1706,8 @@ apps/frontend/
     stand-view.ts              v2.12.1 T8/T9: startRefresh, standBase ({ standing, claimed, handle, signInLink }: v2.14 T7
                                signInLink for the caller's own installation; Task 4 dropped the projects read and the
                                count-past and tip-jar steps), takeNews, earnPrize, earnWhen, fundWhen (R12: "closes Oct
-                               30" or "rolling"), showable, biggestPick, scoreFits (R12: score's up to 3 fits from
-                               fit_repos and alerts.ts repoCanWin, FITS_MAX 3)
+                               30" or "rolling"), showable, biggestPick, scoreFits (score's apply candidates from
+                               fit_repos and alerts.ts repoCanWin { apply }; v3.1 F1: bench-find.ts fitLines takes FITS_MAX 3)
     attribution.ts(+test)      v2.12.1 T9: personCode (ek_...), attributionSuffix (ERC-8021), baseBuilderCode
                                (EARNKIT_BASE_AGENT_CODES), attributionFor, chainOf
     page-data.ts(+test)        v2.12.1 T11: every public sentence (SOURCES_LINE, NOT_CONFIRMED, NOT_TRACKED,
@@ -2025,3 +2044,80 @@ read (`benchCardFacts(id, { money: false })`, as `landing.ts readFeatured`); `sc
 as muted text on the raised spot; `Button.tsx INLINE_LINK` on the terms and Docs links; the terms' risk headings in sentence case;
 `app/leaderboard/page.tsx` description "Ranked by Shipping."; `copy-review.test.ts` Task 7 rule (builder strings and every literal
 under `app/`); `v3-landing.test.ts` (i) scans divide/fill/stroke/outline/shadow/via too.
+
+v3.1 P0 Task 1 (F1, the owner's repo gets its fits): `alerts.ts` (`FitGate`, `fitGate(p, r, { apply })`: the first gate
+that drops a pair, `repoCanWin` is `fitGate === null`; with `apply` the close and Hard gates are skipped, only new work
+drops), `present.ts` (`Fit.repo_odds`; `canApply` also takes a row whose only low reason is "no users yet" on a
+good-odds repo; `qualifies` keeps the old rule), `bench-find.ts` (`Fit.card`, `fitCard`, `fitLines`: every apply
+candidate, investments included, byRelevance, at most FITS_MAX; lead and recordShown use its grants), `stand-view.ts`
+(`scoreFits` returns every apply candidate, byDeadline; no `investments` option), `match-projects.ts`
+(`MatchDeps.ownEarnkit`: an EarnKit-org repo proven the builder's own is matched, never skipped as EarnKit's),
+`tools.ts` (find's Bench match passes `ownEarnkit` when `own-brand.ts earnkitOwnRepo` holds). New:
+`fixtures/earnkit-repo.ts`, `v31-fit-gates.test.ts`.
+
+v3.1 P0 Task 4 (F4, fewer words): `bench-reply.ts benchReply` drops the why sentence, Originality and the points line,
+and shows the upcoming line only with no `fits` line; `bench-find.ts benchView` no longer reads `pointsTotal`. New:
+`v31-reply-trim.test.ts`.
+
+v3.1 P0 Task 10 (spec 3.4, D1, the agent drafts, never submits): `mcp.ts` (`prepareDescription(buildOn)` draft-only,
+`CONFIRM_BACKING_DESCRIPTION`, `confirm` registered only under `raisingEnabled()` with the Backing-only strict schema,
+`toolDescriptions().confirm` only under the flag, `TOOL_DESCRIPTIONS` keeps it), `tools.ts` (`CONFIRM_ENTRY_GONE`,
+confirm refuses `program_id`, find `fresh: undefined`), `present.ts` (no ideas section; `ideaLines` gone),
+`bench-find.ts` (no `idea` FundLine for no_project; `noProjectIdea`/`ideaFitsOffer` gone). New: `v31-mcp-surface.test.ts`.
+
+v3.1 P0 Task 2 (F2): `bench-reply.ts connectAsk` (later Task 16) says where the connected weeks go; `connect-moment.ts` re-exports it.
+v3.1 P0 Task 3 (F3, no rank below 10): `rank.ts` (`RANK_MIN_POOL = 10`, `shownRankLine`), `bench-rank.ts`, `stand-text.ts`,
+`ship-log-facts.ts`, `page-data.ts`, `bench-data.ts`, `badge.ts`, `builder-json.ts` (keeps the number), `card-response.tsx` and
+`BenchProfileView.tsx` (a dash for Rank) read it. New: `fixtures/rank-pool.ts` (`padPool`), `v31-rank-pool.test.ts`.
+v3.1 P0 Task 5 (F4, rank only): `weekly-target.ts` names the rank, never the points ("Ship code this week to pass #2.").
+v3.1 P0 Task 6 (Best fit leads): `bench-find.ts` (`applyCandidates`, `claimApply`, `openCandidates`, `Fit` exported), `bench-reply.ts`
+(`BestFit`, `bestFitLine`, later `moneyLine`; `applyAsk(title, when | null)` for a rolling program). New: `v31-best-fit.test.ts`.
+v3.1 P0 Task 7 (Builder Codes for Base): new `builder-codes-check.ts` (`checkBuilderCodes`, `codePaths`, `appProvenRepo`: the
+App reads the repo's tree and at most 30 code files, once a day, results in `repo_builder_codes`), `builder-code.ts`
+(`builderCodesIn`, `BUILDER_CODES_FIRST`, `builderCodesFound`, `BASE_GRANTS_ID`); `scripts/events-redact.mts` lists the table;
+`fixtures/fake-github.ts`. New: `v31-builder-codes.test.ts`.
+v3.1 P0 Task 8 (unlisted programs): `programs.status` allows `unlisted` (`db/schema.sql`), `program-file.ts`, `programs.ts`,
+`landing.ts`, `leaderboard.ts`, `present.ts`, `also-qualifies.ts` skip it; `submit-kit.ts` and `submission.ts` take
+`multi_choice` requirements; `programs/base-builder-grants.json` prefills its primary challenge; Avalanche and ETHGlobal
+Mumbai are unlisted; `programs/README.md` documents both. New: `v31-programs.test.ts`.
+v3.1 P0 Task 9 (prepare drafts, never submits): new `draft-application.ts` (`draftApplication`, `DRAFT_FIRST_NOTE`, `DRAFT_NOTE`,
+`withPageLink`, `BUILDER_CODES_WAIT_MS`), `submit-kit.ts draftKit` (`draftReadyLine`, `PASTE_LEFT`, `OPEN_PREFILLED`, `SENT_ASK`),
+`tools.ts` (prepare on a curated program goes to the draft; an unlisted or upcoming program is refused), `programs.ts`.
+New: `v31-draft.test.ts`.
+v3.1 P0 Task 16 (every reply rewritten): `bench-reply.ts` (see its entry above), `points.ts` (`connectOfferPoints`, `weekPointsNow`, `weekAwarded`, `MAX_WEEK_POINTS`), `bench-reply.ts` (`POINTS_ON_SIGN_IN`,
+`POINTS_ON_CONNECT`), `connect-moment.ts` (`pointsAddedLine`, `connectApplyAsk`), `weekly-moment.ts` (`weekNumber`,
+`momentPlace`), `bench-find.ts` (`openGrant`, `connectApply`, `takeApplyAsk`). Removed: `BENCH_HEADS`, `NOT_ON_BENCH`,
+`NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`, `shippingStand`, `SHIP_STEP`, `shareAsk`, `CONNECT_HEAD`,
+`fundNeeds`, `needsPicks`, `NEEDS_MAX`. New: `v31-reply-copy.test.ts`, `bench-reply.test.ts` rewritten.
+
+v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/frontend/`):
+
+New, tokens and data:
+- `lib/earnkit/site-theme.ts`: `SITE` colours (mirrored `--ek-s-*`, Tailwind `s-*`), `siteVar`.
+- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText`, `programKind`, `logoColor`.
+- `lib/earnkit/site-data.ts`: `profileSite` and its parts (`lastShippedAt`, `thisWeekCommits`, `highlights`, `standingPill`, `backerWeeks`, `tokenAllowed`), `feedWeekStats`.
+- `lib/earnkit/site-streak.ts`: `withThisWeek`, the page's one streak (grid and count).
+- `app/fonts/kaftan-serif.woff2`: Kaftan Serif (moved from `public/fonts`).
+- `public/art/{hero-eckersberg,foot-panini}-{...}.jpg`: the pre-sized paintings (hero 800/1600/3200, footer 700/1400/2800).
+
+New, primitives (`app/components/site/`):
+- `ui.ts` card, pill, column, title and metal class strings; `Serif.tsx` Kaftan wrapper; `Money.tsx` currency signs in Funnel Sans.
+- `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail.
+- `NavLinks.tsx` active-link nav; `FooterLight.tsx` pointer light; `AgentMarks.tsx` the four hero marks.
+- `useReducedMotion.ts` (with `useMediaQuery`).
+
+New, landing (`app/components/landing/`): `Hero.tsx`, `HeroArt.tsx` (painting, arch light, drift), `Steps.tsx`, `Activity.tsx`, `Opportunities.tsx`.
+New, profile (`app/[handle]/site/`): `HeroCard.tsx`, `ScoreCard.tsx`, `StreakCard.tsx`, `ActivityCard.tsx`, `TokenCard.tsx`, `HighlightsCard.tsx`.
+New, lists: `app/leaderboard/Podium.tsx`; `app/feed/FeedStats.tsx`, `app/feed/FeedRow.tsx`.
+New, tests (`lib/earnkit/`): `v31-site-tokens`, `v31-site-copy`, `v31-site-data`, `v31-site-lists`, `v31-site-chrome`, `v31-site-landing`, `v31-site-profile`, `v31-site-leaderboard`, `v31-site-feed`, `v31-site-docs`, `v31-site-sweep` (`.test.ts`).
+
+Rewritten in place (same path): `app/HomeView.tsx`, `app/[handle]/{BenchProfileView,handle-view,ScoreRing,Avatar,ShareButton}.tsx`, `app/leaderboard/{BenchView,BenchRowItem,page}`,
+`app/feed/{FeedView,page}`, `app/docs/*`, `app/not-found.tsx`, `app/components/common/{Header,Footer,Button,InstallButton}.tsx`, `app/components/sections/AddToAgent.tsx`,
+`app/programs/page.tsx` (a permanent redirect to `/#earn`), `app/programs/[id]/GuideView.tsx` and `app/terms/*` (column and Kaftan titles only), `app/layout.tsx`, `app/globals.css`, `tailwind.config.ts`,
+`lib/earnkit/{landing,feed,bench-data,page-data,week-facts,docs-copy,footer-links,brand-page}.ts`, `app/lib/landing-cache.ts` (key `landing-v31-*`), `scripts/og.mts`.
+
+Deleted: `app/[handle]/MoneyTab.tsx`, `app/[handle]/ProjectTab.tsx`, `app/components/sections/{BackedBy,BenchTop,FeaturedCard,FeedRows,Hero,ProgramRow}.tsx`,
+`app/leaderboard/FilterChip.tsx`, `public/art/eckersberg-colosseum-arches.jpg`, `public/art/panini-pantheon-dome.jpg`.
+`app/components/sections/ProgramCards.tsx` stays as a shim because `copy-review.test.ts` imports it.
+
+Docs: `apps/frontend/DESIGN.md` rewritten for the v3.1 system (pinned by `v3-tokens.test.ts` T1.8).

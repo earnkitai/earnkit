@@ -28,6 +28,128 @@
   --ek-p-muted: #7E8694;
   --ek-p-accent: #3D7BFF;
   --ek-p-brand: #0052FF;
+
+  /* v3.1 site tokens (lib/earnkit/site-theme.ts SITE; v31-site-tokens.test.ts pins the mirror) */
+  --ek-s-page: #0B0C14;
+  --ek-s-deep: #05060D;
+  --ek-s-card-top: #121629;
+  --ek-s-card-bottom: #0C0F1E;
+  --ek-s-step-top: #11152A;
+  --ek-s-step-bottom: #0A0D1C;
+  --ek-s-line: rgba(255,255,255,0.07);
+  --ek-s-line-hover: rgba(255,255,255,0.16);
+  --ek-s-blue: #2D6BE0;
+  --ek-s-blue-top: #1E4FD8;
+  --ek-s-blue-bottom: #0E2A8A;
+  --ek-s-navy: #142159;
+  --ek-s-navy-inner: #0E1840;
+  --ek-s-navy-track: #22306A;
+  --ek-s-rust: #241008;
+  --ek-s-rust-top: #2A1209;
+  --ek-s-rust-bottom: #160904;
+  --ek-s-rust-on: #FF6A1F;
+  --ek-s-rust-off: #3A1A0C;
+  --ek-s-rust-soft: #FF8A4C;
+  --ek-s-rust-sub: #D9B8A6;
+  --ek-s-rust-light: #FFB088;
+  --ek-s-green-top: #0D2A1C;
+  --ek-s-green-bottom: #07150E;
+  --ek-s-green-sub: #A6D9BC;
+  --ek-s-light: #FFFFFF;
+  --ek-s-light-inner: #F3F6FC;
+  --ek-s-light-hover: #E8EEFB;
+  --ek-s-ink: #0B0C14;
+  --ek-s-ink-body: #2B3550;
+  --ek-s-ink-muted: #5A6380;
+  --ek-s-ink-soft: #3A4562;
+  --ek-s-panel: #161927;
+  --ek-s-panel-inner: #1F2336;
+  --ek-s-panel-hover: #1C2031;
+  --ek-s-text: #FFFFFF;
+  --ek-s-muted: #A8B0CC;
+  --ek-s-dim: #747C97;
+  --ek-s-card-body: #B6BDD6;
+  --ek-s-card-meta: #7E87A6;
+  --ek-s-card-handle: #8A93B0;
+  --ek-s-on-blue: #FFFFFF;
+  --ek-s-on-blue-soft: #F4F7FF;
+  --ek-s-on-navy: #A9C2FF;
+  --ek-s-on-navy-soft: #C9D6FF;
+  --ek-s-icon-blue: #6FA0FF;
+  --ek-s-bar-on: #6FA0FF;
+  --ek-s-bar-off: #2A3C86;
+  --ek-s-live: #22C55E;
+  --ek-s-good-text: #4ADE80;
+  --ek-s-mid-text: #FDBA74;
+  --ek-s-low-text: #FCA5A5;
+  --ek-s-good-light: #6EE7A0;
+  --ek-s-good-deep: #16A34A;
+  --ek-s-mid-light: #FDBA74;
+  --ek-s-mid-deep: #F97316;
+  --ek-s-low-light: #FCA5A5;
+  --ek-s-low-deep: #E5484D;
+  --ek-s-chip: rgba(255,255,255,0.08);
+  --ek-s-chip-line: rgba(255,255,255,0.16);
+  --ek-s-chip-text: #F3E6D3;
+  --ek-s-step-line: rgba(255,255,255,0.08);
+  --ek-s-step-text: #8FB0E8;
+  --ek-s-hero-sub: #E2E5F2;
+  --ek-s-scrim: rgba(5,6,13,0.8);
+  --ek-s-inset: rgba(0,0,0,0.16);
+  --ek-s-inset22: rgba(0,0,0,0.22);
+  --ek-s-foot-link: #C9CFE6;
+  --ek-s-gold-top: #FFE8A3;
+  --ek-s-gold-mid: #F2C14E;
+  --ek-s-gold-bottom: #C98A1E;
+  --ek-s-gold-ink: #3A2500;
+  --ek-s-gold-glow: rgba(242,193,78,0.45);
+  --ek-s-silver-top: #FFFFFF;
+  --ek-s-silver-mid: #DDE3EE;
+  --ek-s-silver-bottom: #A7B1C4;
+  --ek-s-silver-ink: #1E2533;
+  --ek-s-silver-glow: rgba(221,227,238,0.4);
+  --ek-s-bronze-top: #FFD7B5;
+  --ek-s-bronze-mid: #E0985E;
+  --ek-s-bronze-bottom: #A9602C;
+  --ek-s-bronze-ink: #3A1A05;
+  --ek-s-bronze-glow: rgba(224,152,94,0.4);
+  --ek-s-metal-shine: rgba(255,255,255,0.6);
+  --ek-s-avatar-top: #3A4366;
+  --ek-s-avatar-bottom: #1C2238;
+  --ek-s-logo-orange: #FF6A1F;
+  --ek-s-logo-violet: #7C3AED;
+  --ek-s-logo-green: #16A34A;
+  --ek-s-logo-blue: #2D6BE0;
+  --ek-s-logo-pink: #DB2777;
+  --ek-s-logo-cyan: #0891B2;
+  --ek-s-logo-amber: #CA8A04;
+  --ek-s-foot-line: rgba(255,255,255,0.12);
+  --ek-s-foot-button: rgba(255,255,255,0.10);
+  --ek-s-foot-fade: rgba(5,6,13,0.85);
+  --ek-s-foot-glow: rgba(255,200,150,0.28);
+  --ek-s-foot-glow-mid: rgba(255,160,110,0.10);
+  --ek-s-foot-cta-glow: rgba(255,150,70,0.5);
+  --ek-s-hero-base: #0B0907;
+  --ek-s-hero-shade: rgba(8,7,14,0.35);
+  --ek-s-hero-shade-clear: rgba(8,7,14,0);
+  --ek-s-hero-shade-deep: rgba(8,7,14,0.72);
+  --ek-s-hero-shade-end: rgba(5,6,13,0.96);
+  --ek-s-hero-title-shadow: rgba(5,6,13,0.7);
+  --ek-s-cta-glow: rgba(255,150,90,0.30);
+  --ek-s-cta-glow-hover: rgba(255,150,90,0.5);
+  --ek-s-dusk-top: #3B2A6B;
+  --ek-s-dusk-mid: #F08A5D;
+  --ek-s-dusk-bottom: #F2B07A;
+  --ek-s-sunset-core: #FFC58A;
+  --ek-s-sunset-mid: #FF9A62;
+  --ek-s-sunset-edge: #FF8A55;
+  --ek-s-blue-line: rgba(255,255,255,0.12);
+  --ek-s-rust-line: rgba(255,138,76,0.18);
+  --ek-s-blue-button: rgba(255,255,255,0.14);
+  --ek-s-blue-button-hover: rgba(255,255,255,0.24);
+  --ek-s-base-blue: #0000FF;
+  --ek-s-light-dash: #C3CCE0;
+  --ek-s-coin-ring: rgba(255,255,255,0.25);
 }
 
 @layer utilities {
@@ -46,13 +168,25 @@
   box-sizing: border-box;
 }
 
-/* Every page: black. Nothing behind the type. */
+/* v3.1: the page colour (profile, leaderboard, docs, 404); the landing and the feed mark themselves
+   data-ek-deep and the body turns deep. */
 body {
   min-height: 100dvh;
   color: var(--ek-p-body);
-  background-color: var(--ek-p-page);
+  background-color: var(--ek-s-page);
   font-family: var(--font-funnel-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+body:has([data-ek-deep]) {
+  background-color: var(--ek-s-deep);
+}
+
+/* Kaftan Serif: names, headlines, big numbers and section titles only. */
+.ek-serif {
+  font-family: var(--font-kaftan), Georgia, serif;
+  font-size-adjust: 0.36;
+  font-weight: 400;
 }
 
 /* Browser surfaces are part of the design, not defaults. */
@@ -111,5 +245,47 @@ html {
 @media (prefers-reduced-motion: reduce) {
   .ek-arc {
     animation: none;
+  }
+}
+
+/* v3.1 motion: the hero and footer paintings drift with the pointer, the live dot pulses, the hero
+   twinkles breathe. All of it stops under reduced motion (the pointer components also check
+   useReducedMotion()). */
+.ek-drift {
+  transition: transform 1200ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes ek-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+.ek-pulse {
+  animation: ek-pulse 2s ease-in-out infinite;
+}
+@keyframes ek-twinkle {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+.ek-twinkle {
+  animation: ek-twinkle 4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ek-drift,
+  .ek-pulse,
+  .ek-twinkle {
+    animation: none;
+    transition: none;
+    transform: none;
   }
 }

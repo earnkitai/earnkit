@@ -730,7 +730,7 @@ async function runTokenFlow(
 async function ownProject(store: FlowStore, projectId: number, installationId: number) {
   const project = await store.load(projectId);
   if (!project || project.installation_id !== installationId)
-    throw new LaunchError(`No project ${projectId} recorded by you. Call confirm first.`);
+    throw new LaunchError(`No project ${projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`);
   return project;
 }
 

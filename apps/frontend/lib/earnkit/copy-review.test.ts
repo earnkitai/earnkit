@@ -24,7 +24,9 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { SHIP_STEP, fitsLine, noFitLine, shareAsk } from './bench-reply';
+import { MOMENT_ASK, SHIP_ASK, applyAsk, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { connectApplyAsk, pointsAddedLine } from './connect-moment';
+import { OPEN_PREFILLED, SENT_ASK, draftReadyLine } from './submit-kit';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
@@ -34,7 +36,7 @@ import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from '.
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_WALLET_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_AGAIN_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -877,13 +879,18 @@ function weeklyCopy(): [string, string][] {
     ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],
     // Launch ready L10: the profile's voice (said to a visitor).
     ['page target pass', weeklyTarget({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } }, 'page')!],
+    ['page target behind', weeklyTarget({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 90 } }, 'page')!],
+    ['page target hold', weeklyTarget({ gains: g, score: 50, rank: 1, above: null }, 'page')!],
     ['page target done', weeklyTarget({ gains: { active: true, gain: 14, next: 13 }, score: 50, rank: 2, above: null }, 'page')!],
     ['moment', momentLines({ monday: '2026-10-12', now: w, before: { score: 66, rank: 5, total: 40 }, titles: ['Add dark mode', 'Fix the login loop'], checked: true },
       weekStartLine({ gains: g, score: 50, rank: 2, above: { rank: 1, score: 60 } })).join('\n')],
     ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
-    // The real link carries its query; the rule counts question marks in the text, so it is left off here.
-    ['shareAsk', shareAsk('https://x.com/intent/post')],
+    // v3.1 Task 16 step 7: the moment, the post to paste and its question.
+    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
+    ['momentHead first', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
+    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/lee')],
+    ['MOMENT_ASK', MOMENT_ASK],
     ['APPROVED_LINE', APPROVED_LINE],
   ];
 }
@@ -893,11 +900,21 @@ function weeklyCopy(): [string, string][] {
 export const v2121Texts: [string, string][] = [
   ['standingNews card', standingNews({ rank: 5, at: '2026-10-10T00:00:00Z' }, { standing: { ranked: true, rank: 3, total: 19 } }, new Date('2026-10-14T00:00:00Z'), true)!.line],
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
-  ['SHIP_STEP', SHIP_STEP],
+  // v3.1 Task 16: the ranked replies' lines (steps 3, 4, 5 and the ship step) and the draft's (step 6).
+  ['SHIP_ASK', SHIP_ASK],
+  ['shipPointsLine', shipPointsLine()],
+  ['connectAsk', connectAsk(3, 'earnkit.com/maya')],
+  ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 2)],
+  ['standingLine', standingLine('Recipes', '#3 of 12 builders', 2, 340)],
+  ['applyAsk', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
+  ['connectApplyAsk', connectApplyAsk('Recipe Grants')],
+  ['pointsAddedLine', pointsAddedLine(90, 1240)],
+  ['draftReadyLine', draftReadyLine('Recipe Grants', 6, 16)],
+  ['OPEN_PREFILLED', OPEN_PREFILLED],
+  ['SENT_ASK', SENT_ASK],
   // Launch ready L5, L6: the weekly target, the weekly moment, its share ask and the yes.
   ...weeklyCopy(),
-  ['fitsLine', fitsLine('Recipe Grants', 'up to $5K', 'closes Oct 30', 'It takes any chain and your app is live.')],
-  ['noFitLine', noFitLine('Recipes')],
+  ['qualifyLine', qualifyLine({ title: 'Recipe Grants', amount: '$5,000', when: 'closes Oct 30' })],
   ['TOKEN_NOT_YET', TOKEN_NOT_YET],
   ['tokenUnavailable', tokenUnavailable('Recipes')],
   ['tokenHasCoin', tokenHasCoin('Recipes')],
@@ -1044,7 +1061,6 @@ const agentFacing: [string, string][] = [
   // v2.11 T10: the held deployed line, the fresh-push refusal, the joined reply and the build wallet rule.
   ['BUILD_HOLD_NOTE', BUILD_HOLD_NOTE],
   ['BUILD_ENTRY_NOTE', BUILD_ENTRY_NOTE],
-  ['BUILD_WALLET_NOTE', BUILD_WALLET_NOTE],
   ['BUILD_PENDING_NOTE', BUILD_PENDING_NOTE],
   ['BUILD_NO_LIVE_NOTE', BUILD_NO_LIVE_NOTE],
   ...buildKit(STARTERS['arc-tipjar'], {
@@ -1085,7 +1101,6 @@ const agentFacing: [string, string][] = [
   // v2.10 item 4 (Task 9 fix rounds): the confirm and tell notes for shared clients, re-offers and a dropped submitted mark.
   ['CONFIRM_SHARED_NOTE', CONFIRM_SHARED_NOTE],
   ['PROJECT_REOFFER_NOTE', PROJECT_REOFFER_NOTE],
-  ['SUBMITTED_AGAIN_NOTE', SUBMITTED_AGAIN_NOTE],
   ['SUBMITTED_SHARED_NOTE', SUBMITTED_SHARED_NOTE],
   ['SIGN_IN_NOTE', SIGN_IN_NOTE],
   // The shared-client note and the score tool's description.
@@ -1355,7 +1370,8 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
     assert.doesNotMatch(text.replace(/\$[A-Z0-9]+\b/g, '$X'), /\b[A-Z]{3,}\b(?<!USDC)/, label);
     assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
     assert.ok((text.match(/\?/g) ?? []).length <= 1, label);
-    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$]|Name)/, `${label}: ${line}`);
+    // Task 16: a points line starts "+30 points" and the post for X is quoted (the owner's copy).
+    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
   }
 });
 
