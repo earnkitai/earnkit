@@ -80,14 +80,14 @@ test('Task 16 step 3: the first ranked reply with weeks to post (connect)', () =
     'Recipe planner is on the leaderboard: #1 of 13 builders, 4 weeks in a row.',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     '',
-    'Post your 3 weeks to earnkit.com/maya so grant teams can see them?',
+    'Post your 3 weeks to https://earnkit.com/maya so grant teams can see them?',
     '+90 points',
   ].join('\n'));
   oneAsk(out);
   // Under RANK_MIN_POOL (no rank phrase), and with no Best fit.
   assert.equal(benchReply({ ...v, rank: null, best: null }).split('\n\n')[0], 'Recipe planner is on EarnKit: 4 weeks in a row.');
   assert.equal(connectStanding('Kit', null, 1), 'Kit is on EarnKit: 1 week in a row.');
-  assert.equal(stateAsk({ ...v, connect: { weeks: 1, points: 30 } }).line, 'Post your week to earnkit.com/maya so grant teams can see it?');
+  assert.equal(stateAsk({ ...v, connect: { weeks: 1, points: 30 } }).line, 'Post your week to https://earnkit.com/maya so grant teams can see it?');
 });
 
 test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
@@ -143,13 +143,15 @@ test('Task 16 step 7: the weekly moment, a post for X as plain text (no intent l
   assert.equal(out, [
     "Week 4 done. You're now #3: +70 points.",
     'A post for X, ready to paste:',
-    '"Week 4 shipping Recipe planner. earnkit.com/maya"',
+    '"Week 4 shipping Recipe planner. https://earnkit.com/maya"',
     'Does last week look right?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /intent/);
   assert.match(benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, points: 70 } }), /^Week 4 done\. You're still #3: \+70 points\.$/m);
-  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, points: 30 } }), /^Last week done\. You're on EarnKit: \+30 points\.\n.*\n"Shipping Recipe planner\. earnkit\.com\/maya"$/m);
+  // Fix round 1: a yes that pays nothing (no facts, or already paid) promises nothing.
+  assert.match(benchReply({ ...v, moment: { week: 4, place: 'now', rank: 3, points: null } }), /^Week 4 done\. You're now #3\.\nA post for X/);
+  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, points: 30 } }), /^Last week done\. You're on EarnKit: \+30 points\.\n.*\n"Shipping Recipe planner\. https:\/\/earnkit\.com\/maya"$/m);
 });
 
 test('Task 16: the ranked order is connect, apply, backing, share, ship', () => {

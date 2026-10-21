@@ -26,6 +26,12 @@ export async function weekPointsNow(builderId: number): Promise<number> {
   return s.ranked ? pointsForRank(s.rank, s.total) : pointsForRank(null, null);
 }
 
+/** Task 16 fix round 1: whether the ledger already has the builder's row for `week` (a Monday): its approval then adds 0. */
+export async function weekAwarded(builderId: number, week: string): Promise<boolean> {
+  const [r] = await sql()`SELECT 1 FROM builder_points WHERE builder_id = ${builderId} AND week = ${week}::date`;
+  return Boolean(r);
+}
+
 /**
  * Task 16: the points a connect yes would add for these weeks (Mondays): CONNECT_POINTS for each week the ledger has
  * no row for yet (awardWeekPoints adds nothing to a week that has one). Throws on a database error.

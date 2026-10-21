@@ -7,7 +7,8 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { APPLY_YES_NOTE } from './bench-find';
+import { APPLY_YES_NOTE, openGrant } from './bench-find';
+import type { Card } from './present';
 import { BASE_GRANTS_ID } from './builder-code';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf } from './weeks';
@@ -113,7 +114,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     `Kit is on the leaderboard: #1 of 13 builders, ${streak} weeks in a row.`,
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     '',
-    `Post your 3 weeks to earnkit.com/${handle} so grant teams can see them?`,
+    `Post your 3 weeks to https://earnkit.com/${handle} so grant teams can see them?`,
     '+90 points',
   ].join('\n'));
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect');
@@ -172,8 +173,19 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.equal(s7, [
     "Week 4 done. You're now #1: +100 points.",
     'A post for X, ready to paste:',
-    `"Week 4 shipping Kit. earnkit.com/${handle}"`,
+    `"Week 4 shipping Kit. https://earnkit.com/${handle}"`,
     'Does last week look right?',
   ].join('\n'));
   assert.equal((r7.reply?.move_up as { kind: string }).kind, 'share');
+});
+
+test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {
+  const now = new Date('2026-10-21T12:00:00Z');
+  const card = (o: Partial<Card>): Card => ({ id: 'p', title: 'P', summary: '', tag: null, each_time: [], status: 'active', ...o });
+  const batches = card({ id: 'batches', organizer: 'Base', chains: ['base'], max_award_usd: 100000, investment: true });
+  const grant = card({ id: 'circle', organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 });
+  // Base first by the program list's order, but an investment: the grant is named, its organizer without the parenthesis.
+  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000' });
+  assert.equal(openGrant([batches], now, new Set()), null, 'only an investment open: no sentence');
+  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000' });
 });

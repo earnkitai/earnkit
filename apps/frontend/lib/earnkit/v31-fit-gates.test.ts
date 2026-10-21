@@ -1,5 +1,5 @@
 import './fixtures/no-network-checks';
-import { after, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -214,20 +214,25 @@ async function syncTwo() {
 }
 
 test('(e) mcpCall find for a ranked builder whose kept match holds both: the reply names one (Task 16), the lead is Base, never "No open program fits"', db, async () => {
-  await syncTwo();
-  const b = await rankedBuilder('e', `f1e${RUN}/earnkit`, (k) => earnkitRepoFit([committedFacts('base-builder-grants'), committedFacts('alliance-all19')], k));
-  const r = await mcpCall(b.ctx, 'find', {});
-  const s = show(r);
-  assert.ok(!/No open program fits/.test(s), s);
-  // Both matched: Base is the lead (the fit lines' first grant, byRelevance); the reply names the Best fit (Alliance while it
-  // closes within 30 days, else Base).
-  assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, 'base-builder-grants', s);
-  const found = named(s, [ALLIANCE_TITLE, BASE_TITLE]);
-  assert.ok(found, s);
-  if (found === ALLIANCE_TITLE) assert.match(s, /Alliance ALL19 closes Nov 18, up to \$400,000 investment\. /, s);
-  assert.ok(links(s).length <= 1, s);
-  assert.equal(questions(s), 1, s);
-  assert.doesNotMatch(s, /—/);
+  // A fixed day 28 days before Alliance ALL19 closes (Nov 18): within APPLY_WINDOW_DAYS, so it is the Best fit.
+  mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-21T12:00:00Z') });
+  try {
+    await syncTwo();
+    const b = await rankedBuilder('e', `f1e${RUN}/earnkit`, (k) => earnkitRepoFit([committedFacts('base-builder-grants'), committedFacts('alliance-all19')], k));
+    const r = await mcpCall(b.ctx, 'find', {});
+    const s = show(r);
+    assert.ok(!/No open program fits/.test(s), s);
+    // Both matched: Base is the lead (the fit lines' first grant, byRelevance); the reply names the Best fit, Alliance (the
+    // dated fit within 30 days), as the apply step.
+    assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, 'base-builder-grants', s);
+    assert.equal(named(s, [ALLIANCE_TITLE, BASE_TITLE]), ALLIANCE_TITLE, s);
+    assert.match(s, /\nAlliance ALL19 closes Nov 18, up to \$400,000 investment\. I can draft it in a minute\.\nWant me to\?\n/, s);
+    assert.ok(links(s).length <= 1, s);
+    assert.equal(questions(s), 1, s);
+    assert.doesNotMatch(s, /—/);
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 test('(f) mcpCall score: Base is the lead there too (score reads every open program, so its Best fit may close sooner)', db, async () => {

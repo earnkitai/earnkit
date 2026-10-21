@@ -67,9 +67,10 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const me = await pool('rpa', 9);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", the post to paste with no rank; #3 of 9 earns 50 points.
-  assert.equal(s, `Last week done. You're on EarnKit: +50 points.\nA post for X, ready to paste:\n"Shipping App. earnkit.com/${me.handle}"\nDoes last week look right?`);
-  assert.equal(links(s).length, 0, s);
+  // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", the post to paste with no rank. Last week has no ship-log row with
+  // facts, so its yes pays nothing and no points are promised (fix round 1).
+  assert.equal(s, `Last week done. You're on EarnKit.\nA post for X, ready to paste:\n"Shipping App. https://earnkit.com/${me.handle}"\nDoes last week look right?`);
+  assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');
   assert.deepEqual((f.reply as { rank_lines?: string[] }).rank_lines ?? [], []);
@@ -84,7 +85,7 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const me = await pool('rpb', 10);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.equal(s.split('\n')[0], "Last week done. You're now #3: +50 points.", s);
+  assert.equal(s.split('\n')[0], "Last week done. You're now #3.", s);
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
   assert.match(t, /^App · #3 of 10 builders/, t);
   assert.ok(t.endsWith('\nShip code this week to move toward #1: up to +100 points'), t);

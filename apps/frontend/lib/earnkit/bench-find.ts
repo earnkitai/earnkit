@@ -45,7 +45,7 @@ import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
   type ConnectBest,
 } from './connect-moment';
-import { connectOfferPoints, pointsTotal, weekPointsNow } from './points';
+import { connectOfferPoints, pointsTotal, weekAwarded, weekPointsNow } from './points';
 import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
@@ -477,7 +477,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
  * without the parenthesis ("Arc House (Circle)": "Arc House"). Null: none. Pure.
  */
 export function openGrant(cards: Card[], now: Date, skip: Set<string>): OpenGrant | null {
-  const c = cards.filter((x) => showable(x, now, skip) && (x.max_award_usd ?? 0) > 0 && x.organizer?.trim()).sort(byRelevance)[0];
+  // Fix round 1: a grant (showable already drops investments; checked here too, so "pays" never names one).
+  const c = cards.filter((x) => showable(x, now, skip) && x.investment !== true && (x.max_award_usd ?? 0) > 0 && x.organizer?.trim()).sort(byRelevance)[0];
   const amount = c ? awardAmount(c) : null;
   return c && amount ? { org: c.organizer!.replace(/\s*\([^)]*\)/g, '').trim(), amount } : null;
 }
@@ -561,7 +562,7 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
 
 /**
  * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
- * left the builder; the points the yes adds, points.ts weekPointsNow), when this installation hasn't seen this week's
+ * left the builder; the points the yes adds, points.ts weekPointsNow, null when it adds none), when this installation hasn't seen this week's
  * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
  * it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown (takeMoment); the
  * offer then stays open for the week (openShare). Never throws.
@@ -575,8 +576,10 @@ async function weeklyMoment(own: number, id: number, key: string, commitWeeks: s
     await takeMoment(own, now);
     return null;
   }
-  const points = await weekPointsNow(id).catch(logged('moment points'));
-  if (points === null) return null;
+  // Task 16 fix round 1: the yes pays only for a week with facts and no ledger row yet (approveWeek, awardWeekPoints).
+  const paid = last.facts && !(await weekAwarded(id, last.monday).catch(() => true));
+  const points = paid ? await weekPointsNow(id).catch(logged('moment points')) : null;
+  if (paid && points === null) return null;
   if (!(await takeMoment(own, now))) return null;
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
   return { week: weekNumber(commitWeeks, last.monday), place: momentPlace(last), rank: last.now.rank, points };

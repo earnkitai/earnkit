@@ -105,7 +105,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // v3 Stage 1 Task 5, Task 16 step 3: the first ranked reply after connect offers the backfilled weeks in one yes.
   const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
   assert.match(first, /^Ships is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders), 3 weeks in a row\.\n\n/, first);
-  const m = /\nPost your (\d+) weeks to (earnkit\.com\/\S+) so grant teams can see them\?\n\+(\d+) points$/.exec(first);
+  const m = /\nPost your (\d+) weeks to (https:\/\/earnkit\.com\/\S+) so grant teams can see them\?\n\+(\d+) points$/.exec(first);
   assert.ok(m && first.endsWith(`${connectAsk(Number(m[1]), m[2])}\n+${Number(m[1]) * 30} points`), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);

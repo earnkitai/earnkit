@@ -60,10 +60,10 @@ test('(a) first ranked find after connect offers the last weeks and the points (
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
-  assert.equal(s, `App is on EarnKit.\n\n${connectAsk(3, `earnkit.com/${me.handle}`)}\n+90 points`);
+  assert.equal(s, `App is on EarnKit.\n\n${connectAsk(3, `https://earnkit.com/${me.handle}`)}\n+90 points`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week|Share your week|—/);
-  assert.equal(links(s).length, 0, s);
+  assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}`], 'the page is the one link');
   assert.equal(questions(s), 1, s);
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['connect', me.key]);
@@ -199,13 +199,13 @@ test('(g) final review: an older stored week outside the backfill is listed and 
   assert.equal(await pointsTotal(me.id), 120);
 });
 
-test('(g2) the connect question names the page (without its scheme), one question, the points line last', db, async () => {
+test('(g2) the connect question names the page (the one https link), one question, the points line last', db, async () => {
   await freshBoard();
   const me = await ranked('cng2');
   await backfilled(me.id, me.key);
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.ok(s.endsWith(`Post your 3 weeks to earnkit.com/${me.handle} so grant teams can see them?\n+90 points`), s);
-  assert.ok(links(s).length <= 1, s);
+  assert.ok(s.endsWith(`Post your 3 weeks to https://earnkit.com/${me.handle} so grant teams can see them?\n+90 points`), s);
+  assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
 });
 

@@ -9,6 +9,7 @@ import { profileData } from './bench-data';
 import { readStats } from './stats';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { SHIP_ASK } from './bench-reply';
+import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
 
 /**
@@ -155,10 +156,10 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   assert.equal(s, [
     "Week 3 done. You're now #2: +70 points.",
     'A post for X, ready to paste:',
-    `"Week 3 shipping App. earnkit.com/${me.handle}"`,
+    `"Week 3 shipping App. https://earnkit.com/${me.handle}"`,
     'Does last week look right?',
   ].join('\n'));
-  assert.equal(links(s).length, 0, s);
+  assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}"`], 'the page in the post (before its closing quote) is the one link');
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /intent|Ship code this week/, 'a post to paste, never an intent link; the moment replaces the step');
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
@@ -200,12 +201,13 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const me = await builder('wmsc', 'Sam', [1, 2]);
   await history(me.id, plusDays(monday, 6), 30);
   await pad('wmpb', 9, [plusDays(monday, 6)]);
-  // A private repo (no public reading) with titles stored: the moment shows facts only.
+  // A private repo (no public reading) with titles stored, checked with no facts: the moment shows no titles, and (fix
+  // round 1) promises no points, since its yes pays none (approveWeek awards only a week with facts).
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
-    VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)}, ${['Secret launch']}::text[])`;
+    VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
-  assert.equal(s, `Last week done. You're now #1: +100 points.\nA post for X, ready to paste:\n"Shipping App. earnkit.com/${me.handle}"\nDoes last week look right?`);
+  assert.equal(s, `Last week done. You're now #1.\nA post for X, ready to paste:\n"Shipping App. https://earnkit.com/${me.handle}"\nDoes last week look right?`);
   assert.doesNotMatch(s, /Secret launch/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
@@ -215,6 +217,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
+  assert.equal(await pointsTotal(me.id), 0, 'nothing promised, nothing paid');
 
   // v3 Stage 1 Task 5 fix round 1: a week already confirmed is never asked about again, by any agent.
   const [{ id: third }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`wm-third-${RUN}-${Date.now()}`}, ${me.id}) RETURNING id`;
@@ -247,7 +250,7 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
     const r = await mcpCall(ctx(me.id), tool, {});
     replies.push(JSON.stringify(r.reply));
   }
-  assert.ok(replies[0].includes("Last week done. You're now #2: "), 'the moment showed');
+  assert.ok(replies[0].includes("Last week done. You're now #2."), 'the moment showed (no ship-log row: no points promised)');
   assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1: ')), 'the target showed');
   for (const r of replies) {
     noHostile(r);
@@ -271,7 +274,7 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));
-    assert.ok(late.startsWith("Last week done. You're now #1: "), late);
+    assert.ok(late.startsWith("Last week done. You're now #1."), late);
     // The next week the offer is closed: a yes is "Okay." and approves nothing.
     mock.timers.setTime(Date.parse('2026-10-12T16:00:00Z'));
     assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.');
@@ -291,4 +294,28 @@ test('Task 16 step 7: the week\'s number and where last week left the builder', 
   assert.equal(momentPlace({ now: w(2, 12), before: w(3, 12) }), 'now');
   assert.equal(momentPlace({ now: w(2, 12), before: null }), 'now');
   assert.equal(momentPlace({ now: w(1, 9), before: w(1, 9) }), null, 'under RANK_MIN_POOL: "on EarnKit"');
+});
+
+test('Task 16 fix round 1: the Monday yes adds exactly the points the moment promised; a week with no facts promises and adds none', db, async () => {
+  await freshBoard();
+  const monday = lastFinishedMonday(new Date());
+  const paid = await builder('wmpd', 'Pia', [1, 2]);
+  await history(paid.id, plusDays(monday, 6), 30);
+  await pad('wmpp', 9, [plusDays(monday, 6)]);
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${paid.id}, ${paid.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
+  const s = show(await mcpCall(ctx(paid.id), 'find', {}));
+  const promised = Number(/: \+(\d+) points\.\n/.exec(s)?.[1]);
+  assert.ok(promised > 0, s);
+  const before = await pointsTotal(paid.id);
+  assert.equal(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal((await pointsTotal(paid.id)) - before, promised, 'exactly the promised points');
+
+  const none = await builder('wmpn', 'Nia', [1, 2]);
+  await history(none.id, plusDays(monday, 6), 25);
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${none.id}, ${none.key}, ${monday}, ${sql().json({ checked: true } as never)})`;
+  const t = show(await mcpCall(ctx(none.id), 'find', {}));
+  assert.match(t, /^Last week done\. You're (now|still) #\d+\.\n/, t);
+  assert.doesNotMatch(t, /points/, t);
+  assert.equal(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(await pointsTotal(none.id), 0, '0 promised, 0 added');
 });

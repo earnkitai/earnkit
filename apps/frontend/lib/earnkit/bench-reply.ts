@@ -61,9 +61,9 @@ export type ConnectOffer = { weeks: number; points: number };
 /**
  * Task 16: the weekly moment (step 7): the week's number (the project's weeks shipping), where the builder stands
  * (`place`: 'still' or 'now' beside the rank, null under RANK_MIN_POOL: "on EarnKit"), last week's rank, and the points
- * the yes adds (points.ts weekPointsNow).
+ * the yes adds (points.ts weekPointsNow; fix round 1: null when it adds none, a week with no facts or already paid).
  */
-export type MomentView = { week: number; place: 'still' | 'now' | null; rank: number; points: number };
+export type MomentView = { week: number; place: 'still' | 'now' | null; rank: number; points: number | null };
 
 /** Task 16, step 1: the signed-out reply's two lines. */
 export const INTRO_LINE = 'EarnKit gets you paid for building.';
@@ -90,9 +90,12 @@ export const applyAsk = (title: string, amount: string | null, when: string | nu
 export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
 /** Task 16, step 7: the weekly moment's question. */
 export const MOMENT_ASK = 'Does last week look right?';
-/** Task 16, step 7: "Week 4 done. You're now #3: +70 points." ("Last week done." with no week counted yet). Pure. */
+/**
+ * Task 16, step 7: "Week 4 done. You're now #3: +70 points." ("Last week done." with no week counted yet; fix round 1:
+ * no points clause when the yes adds none, "Week 4 done. You're now #3."). Pure.
+ */
 export const momentHead = (m: MomentView) =>
-  `${m.week > 0 ? `Week ${m.week} done.` : 'Last week done.'} You're ${m.place ? `${m.place} #${m.rank.toLocaleString('en-US')}` : 'on EarnKit'}: +${m.points} points.`;
+  `${m.week > 0 ? `Week ${m.week} done.` : 'Last week done.'} You're ${m.place ? `${m.place} #${m.rank.toLocaleString('en-US')}` : 'on EarnKit'}${m.points ? `: +${m.points} points` : ''}.`;
 /** Task 16, step 7: the post for X, plain text to paste (never an intent link): "Week 4 shipping Kit. https://earnkit.com/maya". Pure. */
 export const momentPost = (week: number, name: string, page: string) => `"${week > 0 ? `Week ${week} shipping ${name}.` : `Shipping ${name}.`} ${page}"`;
 export const MOMENT_POST_HEAD = 'A post for X, ready to paste:';
@@ -198,7 +201,8 @@ export function stateAsk(
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
-  if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, pageUrl(v.handle)) };
+  // Fix round 1 ruling: the page is the connect reply's one https link.
+  if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, `https://${pageUrl(v.handle)}`) };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked') return v.share ? { kind: 'share', project_key: key, line: MOMENT_ASK } : { kind: 'ship', project_key: key, line: SHIP_ASK };
@@ -248,7 +252,8 @@ export function benchReply(v: BenchView): string {
       [ask, v.connect.points > 0 ? `+${v.connect.points} points` : null],
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
-    return paras([momentHead(v.moment), MOMENT_POST_HEAD, momentPost(v.moment.week, name, pageUrl(v.handle)), ask]);
+    // Fix round 1 ruling: the post keeps the full page URL (the reply's one https link), so it is clickable when pasted.
+    return paras([momentHead(v.moment), MOMENT_POST_HEAD, momentPost(v.moment.week, name, `https://${pageUrl(v.handle)}`), ask]);
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
   const points = !v.held && v.ask.kind === 'ship' ? shipPointsLine(shipLead(v.target)) : null;
