@@ -369,7 +369,7 @@ test('O8 privacy: a private README is never stored as text; the nearest list nam
   assert.equal(await readOriginality(q.id, k), null, "never another builder's row");
 });
 
-test('O9 shown: the profile and the score reply carry "Originality N" once computed, after the score line; never before', db, async () => {
+test('O9 shown: the profile carries "Originality N" once computed, never before; v3.1 F4: the score reply never does', db, async () => {
   // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
   await padPool(9);
   const k = `gus${RUN}/kiln`;
@@ -381,7 +381,8 @@ test('O9 shown: the profile and the score reply carry "Originality N" once compu
   await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed: fakeEmbed() });
   const n = (await rowOf(k))!.originality!;
   const text = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(text, new RegExp(`^Kiln: Shipping \\d+ · .+ builders?\\. Originality ${n}\\.$`, 'm'), text);
+  assert.match(text, /^Kiln: Shipping \d+ · .+ builders?\.$/m, text);
+  assert.doesNotMatch(text, /Originality/, text);
   assert.equal((await profileData(p.id, new Date()))!.originality, n);
 });
 

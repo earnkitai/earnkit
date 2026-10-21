@@ -6048,9 +6048,9 @@ Spec: R3 of `docs/design-docs-and-implementation-plans/scoring-and-clarity.md`, 
   deletes the person's rows with `--apply`, and empties other rows' nearest lists that name the login's repos. The terms
   (`policy.ts PROFILES_POINTS`) say so.
 - **Shown.** On the profile, one small line under the Shipping ring ("Originality 72"; `bench-data.ts profileData.originality`,
-  only while the score shows). In find and score replies, it is appended to the ranked stand line
-  (`bench-reply.ts originalityWords`: "... this week. Originality 72."), only once computed. It is not shown on the
-  feed, the leaderboard or the card.
+  only while the score shows). It was appended to the ranked stand line in find and score replies until v3.1 F4
+  (`bench-reply.ts originalityWords` stays exported, unused by the reply). It is not shown on the feed, the
+  leaderboard or the card.
 - **Tests.** `originality.test.ts` covers the pure formula, the text and the nearest list. It runs the step with a fake
   embedder through the real App connect: a later near copy lowers the earlier project, the same text is not embedded
   again, a description change is due at once, and a failed README read keeps the vector. It also covers privacy and the
@@ -7084,3 +7084,12 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   included ("up to $400K investment"), in `present.ts byRelevance` order (Base, then any chain; grants before
   investments; then the deadline), at most 3. The lead and the shown-match record use the lines' grants only. The
   apply step still picks from every candidate in deadline order.
+
+## v3.1 P0 Task 4 (F4): the ranked reply loses words
+
+- The owner: "too many words". `bench-reply.ts benchReply` no longer shows the why sentence (`BenchView.why` stays for
+  the page and `ship_log`), Originality (`standLine`; `BenchView.originality` and `originalityWords` stay) or the points
+  line (`bench-find.ts benchView` no longer adds a `points` FundLine; the kind and `points.ts POINTS_LINE` stay
+  exported; `approveWeek` still writes `builder_points` and the page still shows points).
+- The upcoming line (a 4-week streak) shows only when the reply names no fit (no `fits` FundLine), after the no-fit
+  line. Task 6's Best fit joins that rule.

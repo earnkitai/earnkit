@@ -2035,3 +2035,7 @@ candidate, investments included, byRelevance, at most FITS_MAX; lead and recordS
 (`MatchDeps.ownEarnkit`: an EarnKit-org repo proven the builder's own is matched, never skipped as EarnKit's),
 `tools.ts` (find's Bench match passes `ownEarnkit` when `own-brand.ts earnkitOwnRepo` holds). New:
 `fixtures/earnkit-repo.ts`, `v31-fit-gates.test.ts`.
+
+v3.1 P0 Task 4 (F4, fewer words): `bench-reply.ts benchReply` drops the why sentence, Originality and the points line,
+and shows the upcoming line only with no `fits` line; `bench-find.ts benchView` no longer reads `pointsTotal`. New:
+`v31-reply-trim.test.ts`.

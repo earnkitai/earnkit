@@ -101,7 +101,7 @@ test('R12: arc-microgrants, colosseum-worlds-fair and monad-metropolis are close
   for (const id of OPEN) assert.equal(committedProgram(id).status, 'active', id);
 });
 
-test('R8, R12, R16a through find and score: the ranked reply is the score line, the why, at most 3 fits with deadline and why, and "Ship this week to climb."; no coin anywhere; closed programs never show', db, async () => {
+test('R8, R12, R16a through find and score: the ranked reply is the score line, the page (v3.1 F4: no why), at most 3 fits with deadline and why, and "Ship this week to climb."; no coin anywhere; closed programs never show', db, async () => {
   // v3.1 F3: the pool reaches RANK_MIN_POOL, so a rank shows.
   await padPool(9);
   await syncPrograms();
@@ -119,7 +119,9 @@ test('R8, R12, R16a through find and score: the ranked reply is the score line, 
   const lines = stand.split('\n');
   assert.equal(lines[0], 'Where you stand');
   assert.match(lines[1], /^Kit: Shipping \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/, s);
-  assert.match(lines[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks)/, 'the why sentence');
+  // v3.1 F4: no why sentence in the reply (the page keeps it).
+  assert.match(lines[2], /^Your page: /, s);
+  assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks/, s);
   const fund = fundPart(s);
   assert.ok(fund.length >= 1 && fund.length <= 3, s);
   for (const l of fund) assert.match(l, FIT_LINE, l);

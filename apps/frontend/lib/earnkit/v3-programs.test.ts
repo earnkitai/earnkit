@@ -162,7 +162,7 @@ test('(d) programs:check passes on the committed JSON files', () => {
     assert.match(out, new RegExp(`Valid: ${f.replace('.', '\\.')}`));
 });
 
-test('(e) a ranked builder with a 4-week streak sees one upcoming line after the fits', db, async () => {
+test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming line after the no-fit line (v3.1 F4: none beside a fit, v31-reply-trim.test.ts)', db, async () => {
   await upsertProgram(upcomingFile(`v3-upc-e-${RUN}`, { max_award_usd: 50000, chains: ['arc'] }));
   const t = `ek_v3p_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -185,8 +185,9 @@ test('(e) a ranked builder with a 4-week streak sees one upcoming line after the
   // The first upcoming program by the tile order, with its prize and note.
   const first = (await listPrograms()).filter((p) => p.status === 'upcoming').sort(byRelevance)[0];
   assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, not open yet. ${first.opens_note}`), upc[0]);
-  // Under Ways to get funded, after the fits (or the no-fit line), before How to move up; a statement, no link.
+  // Under Ways to get funded, after the no-fit line, before How to move up; a statement, no link.
   const at = lines.indexOf(upc[0]);
+  assert.ok(lines.indexOf('No open program fits App yet.') < at, s);
   assert.ok(lines.indexOf('Ways to get funded') < at && at < lines.indexOf('How to move up'), s);
   assert.doesNotMatch(upc[0], /https?:|\?/);
   // A streak under 4: no upcoming line.

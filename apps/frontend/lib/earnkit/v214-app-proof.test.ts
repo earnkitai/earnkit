@@ -112,8 +112,8 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // R16a: one ranked state; the streak lives in the Shipping score (the stand line is the score line alone).
   assert.match(text, /^Ships: Shipping 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
-  // Next week drops week 5's weight: shipping then is 55, not shipping 42.
-  assert.ok(text.includes('Code in 4 of the last 12 weeks, 3 of the last 4.\n'), text);
+  // v3.1 F4: the why sentence stays on the page, never in the reply.
+  assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
   // L5: this week has code, so the target says so and what next week adds.
   assert.match(text, /How to move up\nDone this week: \+\d+ points\. Next week adds up to 13 more\.$/, text);
 });

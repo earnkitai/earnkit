@@ -53,14 +53,14 @@ test('9.2 the four replies, word for word', () => {
   assert.equal(ranked, [
     'Where you stand',
     'Recipes: Shipping 14 · #1 of 1 builder.',
-    'Code in 1 of the last 12 weeks, 1 of the last 4.',
     'Your page: https://earnkit.com/maya_makes', '',
     'Ways to get funded', 'Base Builder Grants: up to $5K, rolling. You deployed on Base and your app is live.', '',
     'How to move up', 'Ship this week to climb.',
   ].join('\n'));
   oneLinkShipStep(ranked);
   assert.ok(benchReply(view({ state: 'ranked', rank: null })).includes('Recipes: Shipping 14.\n'));
-  // The why sentence is a statement under the ranked stand line only; never in another state.
+  // v3.1 F4: the why sentence is never in a reply, ranked or not (the page keeps it).
+  assert.ok(!ranked.includes('Code in'));
   assert.ok(!benchReply(view({ state: 'not_counted', project: { ...P, confirmed: false }, link: 'https://x' })).includes('Code in'));
 });
 

@@ -9,7 +9,7 @@ import {
 process.env.EARNKIT_URL = 'https://earnkit.com';
 const RECIPE = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: true, weeks: 6 };
 
-test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, fits with deadline and why; L5: the weekly target)', () => {
+test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, v3.1 F4: no why sentence, the page the one link, fits with deadline and why; L5: the weekly target)', () => {
   const v: BenchView = {
     state: 'ranked', variant: null, project: RECIPE, rank: 'Top 18% of builders', handle: 'maya_makes', link: null,
     score: 62, why: 'Code in 7 of the last 12 weeks, 3 of the last 4.', originality: null,
@@ -20,7 +20,6 @@ test('8.1 spec 2a, word for word (R8, R12, R16a: ranked, the page the one link, 
   assert.equal(benchReply(v), [
     'Where you stand',
     'Recipe planner: Shipping 62 · Top 18% of builders.',
-    'Code in 7 of the last 12 weeks, 3 of the last 4.',
     'Your page: https://earnkit.com/maya_makes',
     '',
     'Ways to get funded',

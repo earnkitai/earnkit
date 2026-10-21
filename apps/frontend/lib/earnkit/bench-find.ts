@@ -1,4 +1,3 @@
-import { pointsTotal } from './points';
 import { sql } from './db';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
@@ -465,7 +464,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   fund = [...fund, ...needsPicks(o.cards, now, new Set([...o.skip, ...named]), room, taken ? [] : (row?.chains ?? []), has)];
 
   // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
-  // the program list's order (byRelevance), after the fits and before the points.
+  // the program list's order (byRelevance), shown only when no fit is (benchReply).
   if (ranked && streak >= UPCOMING_STREAK) {
     const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
     if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
@@ -479,12 +478,6 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; m
   if (ranked && handle && pill) {
     const backers = (await backersOfCoin(pill.coin).catch(logged('backers'))) ?? 0;
     fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}` }];
-  }
-
-  // v3 Stage 1: a ranked builder's points, last under Ways to get funded.
-  if (ranked) {
-    const total = await pointsTotal(id).catch(logged('points'));
-    if (total) fund = [...fund, { kind: 'points', total }];
   }
 
   // R8, L5, L6: each state's one next step; ranked: the share ask (the weekly moment), else the weekly target

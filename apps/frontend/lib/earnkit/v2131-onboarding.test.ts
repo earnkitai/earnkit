@@ -87,16 +87,16 @@ test('O2.4 B6: a newer project replaces an unconfirmed one; not_mine clears it; 
   }),
 );
 
-test('O2.5 once claimed: find and score show "Your page: https://earnkit.com/<handle>" right after the stand line and its why sentence', dbTest, () =>
+test('O2.5 once claimed: find and score show "Your page: https://earnkit.com/<handle>" right after the stand line (v3.1 F4: no why sentence)', dbTest, () =>
   on(async () => {
     const key = `${uniq('page')}/recipes`;
     const handle = uniq('pg');
     const id = await person({ main: key, claimed: handle, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
     const f = await find(id, {}, NO_MATCH);
-    assert.match(f.show_to_builder.split('\n')[2], /^(No code in the last 12 weeks|Code in \d+ of the last 12 weeks, \d+ of the last 4)\.$/, 'the why sentence under the stand line');
-    assert.equal(f.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
+    assert.doesNotMatch(f.show_to_builder, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence');
+    assert.equal(f.show_to_builder.split('\n')[2], `Your page: https://earnkit.com/${handle}`);
     const s = (await tools.score({}, { installationId: id } as never)) as R;
-    assert.equal(s.show_to_builder.split('\n')[3], `Your page: https://earnkit.com/${handle}`);
+    assert.equal(s.show_to_builder.split('\n')[2], `Your page: https://earnkit.com/${handle}`);
   }),
 );
 

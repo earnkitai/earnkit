@@ -1,7 +1,6 @@
 import { siteUrl } from './entry-text';
 import { pagePath, pageUrl } from './reserved-routes';
 import { scoreLine } from './rank';
-import { POINTS_LINE } from './points';
 
 /**
  * v2.13 spec "2a", "2b", "5. Ways to get funded", "The last line", v2.14 spec 4: the reply in three parts
@@ -29,7 +28,7 @@ export type FundLine =
   | { kind: 'idea'; who: string; prize: string; for: string }
   /** v2.13.3 (2): an open program and what it needs, in plain words (never a fit claimed). */
   | { kind: 'needs'; title: string; prize: string | null; needs: string }
-  /** v3 Stage 1: the ranked builder's points so far (points.ts), last under Ways to get funded. */
+  /** v3 Stage 1: the ranked builder's points so far (points.ts). v3.1 F4: no longer added nor shown in the reply (the page keeps them). */
   | { kind: 'points'; total: number }
   /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
   | { kind: 'upcoming'; title: string; prize: string; note: string }
@@ -182,8 +181,8 @@ function standLine(v: BenchView): string {
   if (v.state === 'signed_out' || v.state === 'no_project') return NOT_ON_BENCH;
   if (v.state === 'not_counted') return STATE_COPY.not_counted.stand(name);
   const stand = STATE_COPY.ranked.stand(name, v.score, v.rank);
-  const line = Math.round(v.earned ?? 0) > 0 ? `${stand} ${earnedWords(v.earned!)}` : stand;
-  return v.originality !== null && v.score !== null ? `${line} ${originalityWords(v.originality)}` : line;
+  // v3.1 F4: Originality stays on the page, never in the reply.
+  return Math.round(v.earned ?? 0) > 0 ? `${stand} ${earnedWords(v.earned!)}` : stand;
 }
 function fundLines(v: BenchView): string[] {
   const ideas = v.fund.filter((f): f is Extract<FundLine, { kind: 'idea' }> => f.kind === 'idea');
@@ -198,18 +197,16 @@ export function benchReply(v: BenchView): string {
   // question (A17) carries no link, so the page is then the link.
   const linked = Boolean(v.link) && (!v.held || v.state === 'signed_out');
   const page = v.handle ? `Your page: ${linked && v.state !== 'signed_out' ? pageUrl(v.handle) : `${siteUrl()}${pagePath(v.handle)}`}` : null;
-  // The why sentence sits under the ranked stand line: a statement, never a second question.
-  const why = v.state === 'ranked' && v.why ? [v.why] : [];
-  const stand = [BENCH_HEADS.stand, standLine(v), ...why, ...(page && v.state !== 'signed_out' ? [page] : [])];
+  // v3.1 F4 (fewer words): the why sentence stays on the page and in the ship log, never in the reply.
+  const stand = [BENCH_HEADS.stand, standLine(v), ...(page && v.state !== 'signed_out' ? [page] : [])];
   const fund = fundLines(v);
   const none = v.state === 'ranked' && v.project ? noFitLine(v.project.name) : NO_MONEY_LINE;
-  // v3 Stage 1: the points statement is last, and never stands in for the no-fit line.
-  const pts = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'points' && f.total > 0 ? [POINTS_LINE(f.total)] : [])) : [];
-  // v3 Stage 2: at most one upcoming line, after the fits (or the no-fit line) and before the points.
-  const soon = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'upcoming' ? [upcomingLine(f.title, f.prize, f.note)] : [])).slice(0, 1) : [];
+  // v3 Stage 2, v3.1 F4: at most one upcoming line, after the no-fit line, only when the reply names no fit.
+  const fit = v.fund.some((f) => f.kind === 'fits');
+  const soon = v.state === 'ranked' && !fit ? v.fund.flatMap((f) => (f.kind === 'upcoming' ? [upcomingLine(f.title, f.prize, f.note)] : [])).slice(0, 1) : [];
   // v3 Stage 2: the backing line, a statement after the upcoming line; its page is the reply's link only when no other is.
   const backing = v.state === 'ranked' ? v.fund.flatMap((f) => (f.kind === 'backing' ? [backingLine(f.backers, f.earned_usd, page || linked ? pageUrlOf(f.page) : f.page)] : [])).slice(0, 1) : [];
-  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...soon, ...backing, ...pts];
+  const money = [BENCH_HEADS.fund, ...(fund.length ? fund : [none]), ...soon, ...backing];
   // Fix round 1 (ruling 4): signed out, the sign-in step always wins.
   const up = [BENCH_HEADS.up, v.state === 'signed_out' ? v.ask.line : (v.held ?? v.ask.line)];
   return [stand, money, up].map((x) => x.join('\n')).join('\n\n');
