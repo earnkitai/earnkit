@@ -96,10 +96,10 @@ const jpegWidth = (b: Buffer): number | null => {
 
 test('(d) the six paintings are JPEGs at their widths and under their byte budgets', () => {
   const files: [string, number, number][] = [
-    ['hero-eckersberg-3200.jpg', 3200, 900_000],
-    ['hero-eckersberg-1600.jpg', 1600, 300_000],
+    ['hero-eckersberg-3200.jpg', 3200, 1_700_000],
+    ['hero-eckersberg-1600.jpg', 1600, 400_000],
     ['hero-eckersberg-800.jpg', 800, 110_000],
-    ['foot-panini-2800.jpg', 2800, 600_000],
+    ['foot-panini-2800.jpg', 2800, 1_000_000],
     ['foot-panini-1400.jpg', 1400, 220_000],
     ['foot-panini-700.jpg', 700, 80_000],
   ];

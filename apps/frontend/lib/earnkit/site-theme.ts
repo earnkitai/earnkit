@@ -112,10 +112,11 @@ export const SITE = {
   footCtaGlow: 'rgba(255,150,70,0.5)',
   /** Task 6: the landing (Landing board): the hero's base, readability shade, title shadow and CTA glow; the arch light's dusk tint and sunset; the blue and rust program card borders. */
   heroBase: '#0B0907',
-  heroShade: 'rgba(8,7,14,0.35)',
   heroShadeClear: 'rgba(8,7,14,0)',
-  heroShadeDeep: 'rgba(8,7,14,0.72)',
-  heroShadeEnd: 'rgba(5,6,13,0.96)',
+  /** Owner "option 1" (2026-10-22): the shade only behind the words, a halo (centre, mid) and a low band under the agent marks. */
+  heroHalo: 'rgba(8,7,14,0.62)',
+  heroHaloMid: 'rgba(8,7,14,0.38)',
+  heroBand: 'rgba(5,6,13,0.55)',
   /** QA item 7: the hero's money chip on a phone, a dark glass so its words hold over the painting's sky. */
   heroChipPhone: 'rgba(8,7,14,0.42)',
   heroTitleShadow: 'rgba(5,6,13,0.7)',

@@ -76,7 +76,8 @@ White pill `PILL_WHITE` and blue pill `PILL_BLUE` are 44px tall.
 ## Paintings
 
 Plain `<img srcSet>` of pre-sized JPEGs in `public/art` (no Next image optimizer: no new paid service, one file per
-width, cached by the CDN). Public domain, from the Google Art Project scans.
+width, cached by the CDN). Public domain, from the Google Art Project scans. Re-exported 2026-10-22 from the full scans
+(Panini from the 5401px Google Art Project scan), lanczos3 and a light sharpen, mozjpeg q88.
 
 | Where | Painting | Files |
 |---|---|---|
@@ -85,6 +86,9 @@ width, cached by the CDN). Public domain, from the Google Art Project scans.
 
 The footer's headline sits under the oculus at every width (the crop is 45% down from md and 59% across on a phone, the
 headline block drops below it), never on the bright sky. The footer's credit line is `site-copy.ts ART_CREDIT`: "Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734". The hero
+painting sits at `brightness(0.95) saturate(1.04) contrast(1.04)` so the art reads crisp, with a shade only behind the
+words (owner "option 1", 2026-10-22): a soft ellipse centred on the chip, title, sub line and CTA (`hero-halo` to
+`hero-halo-mid` to clear) and a low band under the agent marks (`hero-band`); the arches and sky stay clear. It
 adds an SVG arch clip path and a sunset circle that follows the mouse; the footer a faint warm light that follows
 the mouse. The footer's only social link is X, https://x.com/EarnKitAI (owner-confirmed 2026-10-22).
 
@@ -100,8 +104,10 @@ Under `prefers-reduced-motion` all of them stop, and the pointer components atta
 Designed at 390px: no horizontal scroll, 16px side gutters (`px-4`), every tap target 44px or taller (a text link
 inside a line uses `INLINE_LINK`'s 44px hit area), 2-up feed stats, the profile's cards 28px radius, rails that wrap.
 A rail that scrolls sideways instead (feed weeks, leaderboard filters, the install sheet's agent tabs) fades its cut edge
-over 40px while it overflows (`FadeRail`, `SegTabs RAIL_FADE`). The landing hero's shade rises on a phone (deep from 44%,
-not 72%) and its money chip is dark glass (`hero-chip-phone`), so the chip, title and sub line hold over the painting.
+over 40px while it overflows (`FadeRail`, `SegTabs RAIL_FADE`). The landing hero's ellipse is wider and higher on a phone (86% by
+44% at 63%, not 44% by 36% at 68%) and its money chip is dark glass (`hero-chip-phone`), so the chip, title and sub
+line hold over the painting (measured 2026-10-22 from screenshots, 95th-percentile background: chip 4.86:1, sub 9.29:1
+at 1440; chip 9.24:1, sub 7.85:1 at 390).
 Checked at 1440x900 and 390x844 for every page (`v31-site-sweep.test.ts` and the SDD screenshots).
 
 ## Contrast

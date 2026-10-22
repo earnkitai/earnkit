@@ -74,7 +74,7 @@ export default function HeroArt() {
         fetchPriority="high"
         decoding="async"
         alt=""
-        className={`${LAYER} object-cover [filter:brightness(0.82)_saturate(1.04)_contrast(1.04)]`}
+        className={`${LAYER} object-cover [filter:brightness(0.95)_saturate(1.04)_contrast(1.04)]`}
       />
       <svg ref={svg} viewBox="0 0 1600 1036" preserveAspectRatio="xMidYMid slice" aria-hidden="true" className={LAYER}>
         <defs>

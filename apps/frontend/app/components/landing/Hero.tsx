@@ -5,11 +5,12 @@ import { CTA_INSTALL, HERO_SUB, HERO_TITLE } from '../../../lib/earnkit/site-cop
 import Money from '../site/Money';
 
 /**
- * The readability shade over the painting: light at the top, clear through the arches, deep under the words. On a phone
- * the words start higher in a 560px hero (the chip at about 40%), so the deep stop rises to 44% there (QA item 7).
+ * The readability shade, only behind the words (owner "option 1", 2026-10-22): a soft ellipse centred on the chip,
+ * title, sub line and CTA, and a low band under the agent marks; the arches and their sky stay clear. On a phone the
+ * words fill more of a 560px hero, so the ellipse is wider and a little higher.
  */
 const SHADE =
-  'bg-[linear-gradient(180deg,var(--ek-s-hero-shade)_0%,var(--ek-s-hero-shade-clear)_16%,var(--ek-s-hero-shade-clear)_24%,var(--ek-s-hero-shade-deep)_44%,var(--ek-s-hero-shade-end)_100%)] md:bg-[linear-gradient(180deg,var(--ek-s-hero-shade)_0%,var(--ek-s-hero-shade-clear)_22%,var(--ek-s-hero-shade-clear)_48%,var(--ek-s-hero-shade-deep)_72%,var(--ek-s-hero-shade-end)_100%)]';
+  'bg-[radial-gradient(ellipse_86%_44%_at_50%_63%,var(--ek-s-hero-halo)_0%,var(--ek-s-hero-halo-mid)_55%,var(--ek-s-hero-shade-clear)_100%),linear-gradient(180deg,var(--ek-s-hero-shade-clear)_82%,var(--ek-s-hero-band)_100%)] md:bg-[radial-gradient(ellipse_44%_36%_at_50%_68%,var(--ek-s-hero-halo)_0%,var(--ek-s-hero-halo-mid)_55%,var(--ek-s-hero-shade-clear)_100%),linear-gradient(180deg,var(--ek-s-hero-shade-clear)_84%,var(--ek-s-hero-band)_100%)]';
 
 /** The white CTA: a soft warm glow at rest; on hover a 1px lift (not under reduced motion) and a white ring. */
 const CTA =

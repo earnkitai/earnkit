@@ -280,6 +280,18 @@ test('(g) the hero painting: srcset of the three files, fetchpriority high; the 
   assert.match(src, /getScreenCTM\(\)/);
 });
 
+test('(g2) owner "option 1": the painting at brightness 0.95; the shade is an ellipse behind the words and a low band, never a full-height dark gradient', () => {
+  const h = html(LANDING);
+  assert.match(h.match(/<img[^>]*hero-eckersberg[^>]*>/)?.[0] ?? '', /brightness\(0\.95\)_saturate\(1\.04\)_contrast\(1\.04\)/);
+  const hero = h.slice(0, h.indexOf('</section>'));
+  const shade = hero.match(/<div aria-hidden="true" class="absolute inset-0 -z-\[1\] ([^"]+)"/)?.[1] ?? '';
+  // Phone and desktop: each one ellipse on the words plus a band under the marks.
+  assert.equal((shade.match(/radial-gradient\(ellipse_/g) ?? []).length, 2, shade);
+  assert.equal((shade.match(/var\(--ek-s-hero-band\)_100%/g) ?? []).length, 2, shade);
+  assert.doesNotMatch(shade, /hero-shade-deep|hero-shade-end/);
+  for (const t of ['heroHalo', 'heroHaloMid', 'heroBand'] as const) assert.match(SITE[t], /^rgba\(\d+,\d+,\d+,0\.\d+\)$/);
+});
+
 test('(h) the landing colours are SITE tokens: the new card text pairs pass 4.5:1', () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
