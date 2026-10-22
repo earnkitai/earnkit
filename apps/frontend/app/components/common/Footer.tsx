@@ -90,12 +90,12 @@ export default function Footer({ variant = 'full' }: { variant?: 'full' | 'minim
           decoding="async"
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 z-[-3] h-full w-full object-cover object-[50%_18%] brightness-[0.72] saturate-[0.95]"
+          className="absolute inset-0 z-[-3] h-full w-full object-cover object-[59%_50%] md:object-[50%_45%] brightness-[0.72] saturate-[0.95]"
         />
         <FooterLight />
         <div aria-hidden="true" className="absolute inset-0 z-[-2] bg-[linear-gradient(180deg,transparent_40%,var(--ek-s-foot-fade)_100%)]" />
 
-        <div className="flex flex-col items-center gap-[22px] pt-10 text-center">
+        <div className="flex flex-col items-center gap-[22px] pt-[220px] text-center md:pt-[160px] lg:pt-[140px]">
           <span className="ek-serif text-balance text-[40px] leading-none [text-shadow:0_4px_40px_var(--ek-s-scrim)] md:text-[64px]">{FOOT_CTA}</span>
           <InstallButton
             label={CTA_INSTALL}
