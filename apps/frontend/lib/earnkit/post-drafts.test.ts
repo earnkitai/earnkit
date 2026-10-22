@@ -13,6 +13,7 @@ import {
   PAST_OFFER_LIMIT,
   TAP_CAP,
   VISIT_CAP,
+  VISIT_DAY_CAP,
   createDraft,
   draftByCode,
   newCode,
@@ -182,6 +183,25 @@ test('noteVisit counts page opens with ?m, and from X apart, capped; never anoth
   assert.equal(await noteVisit(code, id, true), false);
   row = (await draftByCode(code))!;
   assert.deepEqual([row.visits, row.x_visits], [VISIT_CAP, VISIT_CAP]);
+});
+
+test('final review 4: page opens count at most VISIT_DAY_CAP per post per UTC day (nothing about the visitor is kept)', dbTest, async () => {
+  const id = person();
+  const r = await createDraft(draft(id), NOW);
+  assert.ok(r.ok);
+  const code = r.draft.code;
+  const day1 = new Date('2026-10-20T10:00:00Z');
+  for (let i = 0; i < VISIT_DAY_CAP; i++) assert.equal(await noteVisit(code, id, i % 2 === 0, day1), true, String(i));
+  assert.equal(await noteVisit(code, id, true, new Date('2026-10-20T23:59:00Z')), false, 'the day is full');
+  let row = (await draftByCode(code))!;
+  assert.deepEqual([row.visits, row.x_visits], [VISIT_DAY_CAP, VISIT_DAY_CAP / 2]);
+  // The next day counts again.
+  assert.equal(await noteVisit(code, id, true, new Date('2026-10-21T00:01:00Z')), true);
+  row = (await draftByCode(code))!;
+  assert.deepEqual([row.visits, row.x_visits], [VISIT_DAY_CAP + 1, VISIT_DAY_CAP / 2 + 1]);
+  const [cols] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns
+    WHERE table_name = 'post_drafts' AND (column_name ILIKE '%ip%' OR column_name ILIKE '%agent%' OR column_name ILIKE '%ua%')`;
+  assert.equal(cols.n, 0, 'no IP or user agent column');
 });
 
 test('recentDrafts: newest first, with shape, text, moment, key and when tapped', dbTest, async () => {

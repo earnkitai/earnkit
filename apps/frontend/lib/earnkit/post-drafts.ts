@@ -14,6 +14,11 @@ export type PostMoment = (typeof POST_MOMENTS)[number];
 export const DRAFT_TTL_DAYS = 14;
 export const TAP_CAP = 100;
 export const VISIT_CAP = 10_000;
+/**
+ * Final review 4: page opens counted per post per UTC day, at most (a capped day counter stands in for dedupe: nothing
+ * about the visitor is stored, so a forged referrer or a loop adds at most this many a day).
+ */
+export const VISIT_DAY_CAP = 20;
 export const OFFERED_PER_WEEK = 1;
 export const ASKED_PER_DAY = 1;
 export const DRAFTS_PER_WEEK = 3;
@@ -132,12 +137,19 @@ export async function tapDraft(code: string, builderId: number, now: Date = new 
   return { taps: r.taps };
 }
 
-/** A page open carrying ?m=<code> (Task 5): visits, and x_visits when it came from X; both capped at VISIT_CAP. */
-export async function noteVisit(code: string, builderId: number, fromX: boolean): Promise<boolean> {
+/**
+ * A page open carrying ?m=<code> (Task 5): visits, and x_visits when it came from X; both capped at VISIT_CAP, and at
+ * VISIT_DAY_CAP opens per post per UTC day (final review 4; visit_day and day_visits count the day). Internal only:
+ * not on the public stats.
+ */
+export async function noteVisit(code: string, builderId: number, fromX: boolean, now: Date = new Date()): Promise<boolean> {
   if (!CODE_PATTERN.test(code)) return false;
+  const day = now.toISOString().slice(0, 10);
   const r = await sql()`
-    UPDATE post_drafts SET visits = visits + 1, x_visits = x_visits + ${fromX ? 1 : 0}
+    UPDATE post_drafts SET visits = visits + 1, x_visits = x_visits + ${fromX ? 1 : 0},
+      day_visits = CASE WHEN visit_day = ${day}::date THEN day_visits + 1 ELSE 1 END, visit_day = ${day}::date
     WHERE code = ${code} AND builder_id = ${builderId} AND visits < ${VISIT_CAP} AND (${!fromX}::boolean OR x_visits < ${VISIT_CAP})
+      AND (visit_day IS DISTINCT FROM ${day}::date OR day_visits < ${VISIT_DAY_CAP})
     RETURNING 1`;
   return r.length > 0;
 }

@@ -26,7 +26,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
   // v3 Stage 2: backing_open and backers (0 with EARNKIT_RAISING off, as here) and earned_usd last.
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 })).slice(-3), [0, 0, 0], 'flag off: 0');
   assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 }, new Date(), true)).slice(-3), [2, 9, 0]);
 });
@@ -401,10 +401,11 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });
 
-test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, post_x_visits, backers_after_post (within 7 days of a first tap, backing open, flag on); keys and labels; never a test installation', db, async () => {
+test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_post (within 7 days of a first tap, backing open, flag on); keys and labels; never a test installation; page opens are never public (final review 4)', db, async () => {
   const i = STATS_KEYS.indexOf('shared');
-  assert.deepEqual(STATS_KEYS.slice(i + 1, i + 5), ['posts_drafted', 'posts_tapped', 'post_x_visits', 'backers_after_post']);
-  for (const k of ['posts_drafted', 'posts_tapped', 'post_x_visits', 'backers_after_post'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
+  assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['posts_drafted', 'posts_tapped', 'backers_after_post']);
+  assert.ok(!(STATS_KEYS as readonly string[]).includes('post_x_visits'), 'page opens from X stay internal');
+  for (const k of ['posts_drafted', 'posts_tapped', 'backers_after_post'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
   assert.equal(statsFrom({ ...emptyRow, backers_after_post: 4 }, new Date(), false).backers_after_post, 0, 'flag off: 0');
   const tag = `stats-posts-${process.pid}-${Date.now()}`;
   const DAY = 86_400_000;
@@ -444,8 +445,9 @@ test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, post_x_visits,
       return e.result;
     });
     const d = (k: string, a = out.after) => a[k] - out.before[k];
-    assert.deepEqual([d('posts_drafted'), d('posts_tapped'), d('post_x_visits'), d('backers_after_post')], [4, 2, 6, 4]);
-    assert.deepEqual([d('posts_drafted', out.withTest), d('posts_tapped', out.withTest), d('post_x_visits', out.withTest), d('backers_after_post', out.withTest)], [2, 1, 3, 2], 'a test installation never counts');
+    assert.deepEqual([d('posts_drafted'), d('posts_tapped'), d('backers_after_post')], [4, 2, 4]);
+    assert.deepEqual([d('posts_drafted', out.withTest), d('posts_tapped', out.withTest), d('backers_after_post', out.withTest)], [2, 1, 2], 'a test installation never counts');
+    assert.equal('post_x_visits' in out.after, false);
   } finally {
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
