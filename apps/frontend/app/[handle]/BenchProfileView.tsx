@@ -4,7 +4,6 @@ import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import type { ProfileSite } from '../../lib/earnkit/site-data';
-import { withThisWeek } from '../../lib/earnkit/site-streak';
 import { PAGE_COL, phoneRadius, CARD_BLUE } from '../components/site/ui';
 import Avatar from './Avatar';
 import ActivityCard from './site/ActivityCard';
@@ -79,7 +78,8 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
   const now = new Date();
   const confirming = d.project !== null && !d.project.confirmed;
   const quiet = confirming || d.project === null;
-  const streak = withThisWeek(d, site.thisWeek);
+  // The page's own streak and grid (profileData, streak.ts); a quiet page never shows a run.
+  const streak = quiet ? { streak: 0, grid: d.grid.map((g) => ({ ...g, on: false })) } : d;
   const line = d.project === null ? noProjectLine(d.name) : confirming ? confirmingCardLine(d.name, d.project.name) : null;
   return (
     <>
@@ -89,7 +89,7 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
           <HeroCard data={d} site={site} line={line} />
           <div className="flex min-w-0 flex-col gap-4">
             <ScoreCard score={quiet ? null : d.score} first={site.first} />
-            {/* withThisWeek: the same streak profileSite gave Highlights (this week's commits light this week). */}
+            {/* profileData's streak and grid (streak.ts streaksFor): the one value every surface reads. */}
             <StreakCard streak={streak.streak} weeks={last12(streak.grid)} thisWeek={quiet ? 0 : site.thisWeek} />
           </div>
         </section>

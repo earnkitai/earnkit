@@ -1203,7 +1203,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
   'page_joined','page_detached',
   -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
-  'signed_in_by_code'));
+  'signed_in_by_code',
+  -- v3.1 one-tap posts: a post for X drafted; its short link's first tap.
+  'post_drafted','post_tapped'));
 -- v2.12 T7 review: the consent line is marked shown as the reply goes out (shown once, never lost).
 ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS consent_shown_at timestamptz;
 -- v2.12 T7 review: an X handle claim refused because another profile shows it (GitHub's
@@ -1369,7 +1371,9 @@ ALTER TABLE builder_events ADD CONSTRAINT builder_events_type_check CHECK (type 
   -- v2.13.4 (R1, R6): an agent joined a page from the claim page's one button; one was detached again.
   'page_joined','page_detached',
   -- v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
-  'signed_in_by_code'));
+  'signed_in_by_code',
+  -- v3.1 one-tap posts: a post for X drafted; its short link's first tap.
+  'post_drafted','post_tapped'));
 -- Spec S7 (plan): the internal program a coin-only entry belongs to. Closed, so nothing lists it.
 INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, token_policy, builder_bonus, agent_completable)
 VALUES ('earnkit-coin', 'EarnKit', 'Your coin', 'A coin for a project the builder already has (v2.12.1 step 3b).',
@@ -1753,3 +1757,58 @@ ALTER TABLE coin_backers ADD COLUMN IF NOT EXISTS first_seen_at timestamptz;
 UPDATE coin_backers SET first_seen_at = 'epoch' WHERE first_seen_at IS NULL;
 ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET DEFAULT now();
 ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET NOT NULL;
+
+-- v3.1 Highlights: the file a found Builder Code is in (the item links to it on GitHub), and a verified contract's
+-- onchain creation time (Blockscout, read once when discovery verifies it; "First deployed"). Both nullable: rows
+-- from before stay null until the next check or verification fills them.
+ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS path text;
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS deployed_at timestamptz;
+
+-- v3.1 Highlights fix round 1: every Builder Codes attempt (success or failure) per repo, so a repo that keeps failing
+-- waits a day like a checked one (replaces the in-process backoff) and never holds a slot of the cron's daily batch;
+-- and when a verified contract's creation time was last asked of Blockscout (the bounded backfill of deployed_at).
+CREATE TABLE IF NOT EXISTS repo_builder_codes_attempts (repo_key text PRIMARY KEY, attempted_at timestamptz NOT NULL);
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS origin_read_at timestamptz;
+
+-- v3.1 one-tap posts (design 3): a drafted post for X behind earnkit.com/<handle>/post/<code>. The tap counts only a
+-- number (no IP, no user agent); visits and x_visits count page opens carrying ?m=<code>. moment_key names the one
+-- moment (weekly:<project>:<week>, won:<program>, ...) for the cooldowns; asked: the builder asked for it (else offered);
+-- proof_url: the public page that verified an accepted, funded or won moment (owner ruling 3). card: the moment's
+-- facts frozen when drafted. Additive; a rerun is a no-op.
+CREATE TABLE IF NOT EXISTS post_drafts (
+  code         text PRIMARY KEY CHECK (code ~ '^[a-z2-7]{10}$'),
+  builder_id   integer NOT NULL,
+  project_key  text,
+  moment       text NOT NULL,
+  moment_key   text NOT NULL,
+  shape        text NOT NULL,
+  text         text NOT NULL CHECK (char_length(text) <= 240),
+  card         jsonb NOT NULL DEFAULT '{}',
+  week         date,
+  asked        boolean NOT NULL DEFAULT false,
+  proof_url    text,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  expires_at   timestamptz NOT NULL,
+  taps         integer NOT NULL DEFAULT 0,
+  first_tap_at timestamptz,
+  visits       integer NOT NULL DEFAULT 0,
+  x_visits     integer NOT NULL DEFAULT 0,
+  said_posted  boolean
+);
+CREATE INDEX IF NOT EXISTS post_drafts_builder ON post_drafts (builder_id, created_at DESC);
+
+-- v3.1 one-tap posts, fix round (owner ruling 3): the program's own X accounts, from its file (program-file.ts x_handles).
+-- A post on one of them proves an outcome; none listed: no X post is proof for that program.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS x_handles text[] NOT NULL DEFAULT '{}';
+-- v3.1 one-tap posts, fix round: when the builder said they applied (kept through a later accepted or funded), so an
+-- outcome post needs an application told before it (post-moments.ts hasEntry), never the outcome's own row.
+ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS applied_at timestamptz;
+UPDATE builder_program_status SET applied_at = at WHERE status = 'applied' AND applied_at IS NULL;
+
+-- v3.1 final review 1: the program's own proof hosts (program-file.ts proof_hosts, owner-reviewed, never derived from
+-- its listing or submission page). A page there or on a subdomain may prove an outcome; none and no x_handles: no link is proof.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS proof_hosts text[] NOT NULL DEFAULT '{}';
+-- v3.1 final review 4: page opens counted per post per day, capped (post-drafts.ts VISIT_DAY_CAP); no IP or user agent
+-- is stored. visit_day: the UTC day day_visits counts.
+ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS visit_day date;
+ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS day_visits integer NOT NULL DEFAULT 0;

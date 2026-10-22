@@ -35,7 +35,7 @@ function UpdateCard({ c }: { c: FeedCard }) {
           </Link>
           <XHandle handle={c.handle} className="-mb-[13px] min-h-11 md:mb-0 md:min-h-0" />
         </div>
-        {c.score !== null ? <ScoreText score={c.score} size={32} className="shrink-0" /> : null}
+        {c.score !== null ? <ScoreText score={c.score} size={32} unit="text-s-card-meta" className="shrink-0" /> : null}
       </div>
       {body ? <p className="line-clamp-5 text-[15px] leading-[1.6] text-s-card-body [overflow-wrap:anywhere]">{body}</p> : null}
       <span className="mt-auto text-[13px] text-s-card-meta [overflow-wrap:anywhere]">{activityMeta(c)}</span>
@@ -43,10 +43,10 @@ function UpdateCard({ c }: { c: FeedCard }) {
   );
 }
 
-/** The invite beside one or two real cards: where the visitor's week would be. */
-function InviteCard() {
+/** The invite beside one or two real cards: where the visitor's week would be. Beside one card it spans the two free columns. */
+function InviteCard({ wide }: { wide: boolean }) {
   return (
-    <article className={`${CARD} items-start`}>
+    <article data-ek-invite="" className={`${CARD} items-start${wide ? ' md:col-span-2' : ''}`}>
       <h3 className="ek-serif text-[32px] leading-none">{ACTIVITY_INVITE_TITLE}</h3>
       <p className="text-[15px] leading-[1.6] text-s-card-body">{ACTIVITY_INVITE_TEXT}</p>
       <InstallButton
@@ -59,7 +59,8 @@ function InviteCard() {
 
 /**
  * "Activity" (Landing board, W1): the feed's first three cards (landing.activity) with "See the leaderboard";
- * one or two cards add the invite card; none hides the section.
+ * one or two cards add the invite card once (beside one card it is two columns wide, so the row is always full); none
+ * hides the section. The cards are one a builder (landing.ts oneEach).
  */
 export default function Activity({ cards }: { cards: FeedCard[] }) {
   if (cards.length === 0) return null;
@@ -77,7 +78,7 @@ export default function Activity({ cards }: { cards: FeedCard[] }) {
         {cards.map((c) => (
           <UpdateCard key={c.id} c={c} />
         ))}
-        {cards.length < 3 ? <InviteCard /> : null}
+        {cards.length < 3 ? <InviteCard wide={cards.length === 1} /> : null}
       </div>
     </section>
   );

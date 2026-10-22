@@ -30,14 +30,14 @@ test('9.1 which state (R16a: four states; proven and shipping are one, ranked)',
 test('9.2 the four replies (Task 16 copy)', () => {
   const link = 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA';
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link }));
-  assert.equal(out, [INTRO_LINE, introWhat(null), '', `Step 1 of 2: sign in with X (one click): ${link}`, 'Done?', '+30 points when you finish step 2'].join('\n'));
+  assert.equal(out, [INTRO_LINE, introWhat(null), '', `Step 1 of 2: sign in with X (one click): ${link}`, 'Done?'].join('\n'));
   oneQuestion(out);
   const none = benchReply(view({ state: 'no_project', project: null }));
   assert.equal(none, "You're in, @maya_makes.\nWhat's your GitHub, or a link to something you've made?");
   oneQuestion(none, false);
   const verify = 'https://earnkit.com/github/verify?n=abc';
   const unc = benchReply(view({ state: 'not_counted', project: { ...P, confirmed: false }, link: verify }));
-  assert.equal(unc, `You're in, @maya_makes.\n${pickRepoAsk(verify)}\n+30 points when it's connected`);
+  assert.equal(unc, `You're in, @maya_makes.\n${pickRepoAsk(verify)}`);
   oneQuestion(unc);
   const ranked = benchReply(view({ state: 'ranked', fund: [{ kind: 'fits', title: 'Base Builder Grants', amount: '$5,000', when: 'rolling' }] }));
   assert.equal(ranked, ['Recipes · #1 of 10 builders · 2 weeks in a row', 'You qualify for the Base Builder Grants, up to $5,000.', SHIP_ASK, 'Ship code this week: up to +100 points'].join('\n'));
@@ -50,7 +50,7 @@ test('9.3 variants of not counted: taken, copy, a link only, the App off', () =>
   const p = { ...P, confirmed: false };
   for (const [variant, stand, question] of [
     ['taken', 'Recipes is already on the leaderboard under another account.', 'Want to use a different project?'],
-    ['copy', "Recipes is a copy of someone else's project. Use your own.", 'Want to use a different project?'],
+    ['copy', "Recipes is a copy of someone else's project. If you made it from a template, make a copy in your own account, then connect that.", 'Want to use a different project?'],
     ['no_repo', "Recipes isn't counted yet.", 'Where does Recipes live on GitHub?'],
     ['app_off', "Recipes isn't counted yet.", 'Want me to suggest one small thing to ship in Recipes this week?'],
   ] as const) {
@@ -89,8 +89,8 @@ test('9.6b v3.1 spec 3.2: the apply step comes before backing; the Best fit show
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
     STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x'), STATE_COPY.not_counted.stand('A'),
-    STATE_COPY.not_counted.ask('https://x'), SHIP_ASK, MOMENT_ASK, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000' }), connectAsk(3, 'earnkit.com/a'),
-    momentHead({ week: 2, place: 'now', rank: 3, points: 70 }), applyAsk('A', '$5,000', null),
+    STATE_COPY.not_counted.ask('https://x'), SHIP_ASK, MOMENT_ASK, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk(3, 'earnkit.com/a'),
+    momentHead({ week: 2, place: 'now', rank: 3 }), applyAsk('A', '$5,000', null),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ];
   for (const l of lines) {
@@ -112,7 +112,7 @@ test('9.5b a held question in place of the install question: no link, no points 
 
 test('9.5c fix round 1: signed out, the sign-in question wins over a held one', () => {
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link: 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA', held: 'Did Recipes win anything in Base Builder Grants?' }));
-  assert.ok(out.endsWith('Done?\n+30 points when you finish step 2'), out);
+  assert.ok(out.endsWith('Done?'), out);
   assert.doesNotMatch(out, /Did Recipes win/);
   oneQuestion(out);
 });

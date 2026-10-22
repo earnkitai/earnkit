@@ -75,12 +75,13 @@ const tile = (id: string, o: Partial<Tile> = {}): Tile => ({
   logo: null,
   kind: 'grant',
   big: '$5K',
-  when: 'Rolling',
+  when: 'Rolling, apply anytime',
+  organizer: id,
   ...o,
 });
 const TILES: Tile[] = [
   tile('base-builder-grants', { title: 'Base Builder Grant Program', logo: '/programs/base-builder-grants.svg' }),
-  tile('alliance-all19', { title: 'Alliance ALL19', big: '$400K', prize_usd: 400000, kind: 'investment', when: 'Closes Nov 18' }),
+  tile('alliance-all19', { title: 'Alliance ALL19', organizer: 'Alliance', big: '$400K', prize_usd: 400000, kind: 'investment', when: 'Closes Nov 18' }),
   tile('a16z-speedrun', { title: 'a16z speedrun SR008', big: '$1M', prize_usd: 1000000, kind: 'investment', when: 'Closes Nov 2', logo: '/programs/a16z-speedrun.png' }),
   tile('circle-developer-grants', { title: 'Circle Developer Grants', big: null, prize_usd: 0, prize: 'milestone-based USDC grants', kind: 'grant, in USDC' }),
   tile('monad-nitro', { title: 'Monad Nitro', big: '$500K' }),
@@ -88,7 +89,7 @@ const TILES: Tile[] = [
 const LANDING: Landing = {
   open_text: '$105K in grants open',
   open_more: null,
-  open_chip: '$105K in grants open now',
+  open_chip: '$5K in Base grants open now',
   tiles: TILES,
   stats_line: null,
   won_line: null,
@@ -208,7 +209,7 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   const links = [...earn.matchAll(/<a [^>]*href="(\/programs\/[^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(links, ['/programs/base-builder-grants', '/programs/alliance-all19', '/programs/a16z-speedrun', '/programs/circle-developer-grants']);
   const cards = earn.split('<a ').slice(1).map(text);
-  assert.ok(cards[0].includes('Base Builder Grant Program') && cards[0].includes('$5K') && cards[0].includes('grant') && cards[0].includes('Rolling'));
+  assert.ok(cards[0].includes('Base Builder Grant Program') && cards[0].includes('$5K') && cards[0].includes('grant') && cards[0].includes('Rolling, apply anytime'));
   assert.ok(cards[1].includes('$400K') && cards[1].includes('investment') && cards[1].includes('Closes Nov 18'));
   assert.ok(cards[2].includes('$1M') && cards[2].includes('Closes Nov 2'));
   assert.ok(cards[3].includes('milestone-based USDC grants') && cards[3].includes('grant, in USDC'));
@@ -220,9 +221,11 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   assert.match(fills[1], /from-s-step-top/);
   assert.match(fills[2], /var\(--ek-s-rust-top\)/);
   assert.match(fills[3], /from-s-step-top/);
-  // A logo file on a white tile; no file: the monogram.
+  // A logo file on a white tile; no file (Alliance): the organizer's name on the same white tile, never initials.
   assert.match(earn, /<img[^>]*src="\/programs\/base-builder-grants\.svg"/);
-  assert.ok(text(earn).includes(' AA '), 'Alliance ALL19 monogram');
+  assert.match(earn, /<span data-ek-logo-name="" aria-hidden="true" class="[^"]*bg-s-light[^"]*text-s-ink[^"]*"><span class="truncate">Alliance<\/span><\/span>/);
+  assert.ok(!text(earn).includes(' AA '), 'no monogram');
+  assert.equal((earn.match(/data-ek-logo-name/g) ?? []).length, 2, 'Alliance and Circle (no logo in this fixture)');
   // Below the fold: lazy, so React does not preload the logos (the browser's "preloaded but unused" warning).
   const logos = [...earn.matchAll(/<img[^>]*src="\/programs\/[^>]*>/g)].map((m) => m[0]);
   assert.ok(logos.length >= 2 && logos.every((l) => l.includes('loading="lazy"')), logos.join('\n'));
@@ -237,21 +240,31 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   assert.deepEqual([...up.matchAll(/href="(\/programs\/[^"]+)"/g)].map((m) => m[1]), ['/programs/base-builder-grants']);
 });
 
-test('(f) the Earn step ends "Backers can buy in." only with EARNKIT_RAISING=on', () => {
+test('(f) the Get funded step ends "People can back you by buying your coin." only with EARNKIT_RAISING=on', () => {
   const was = process.env.EARNKIT_RAISING;
   try {
     delete process.env.EARNKIT_RAISING;
     const off = text(html(LANDING));
     assert.ok(off.includes(STEPS[2].text));
-    assert.ok(!off.includes('Backers can buy in.'));
+    assert.ok(!off.includes('People can back you by buying your coin.'));
     process.env.EARNKIT_RAISING = 'on';
     const on = text(html(LANDING));
-    assert.ok(on.includes(`${STEPS[2].text} Backers can buy in.`));
+    assert.ok(on.includes(`${STEPS[2].text} People can back you by buying your coin.`));
     for (const s of STEPS) assert.ok(on.includes(s.title) && on.includes(s.text), s.title);
   } finally {
     if (was === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = was;
   }
+});
+
+test('(f2) the three step cards: the icon in one 56px box, the title at a fixed gap after it (never mt-auto), so the titles align', () => {
+  const how = section(html(LANDING), 'how');
+  const icons = how.match(/<svg data-ek-step-icon=""[^>]*>/g) ?? [];
+  assert.equal(icons.length, 3);
+  for (const i of icons) assert.match(i, /class="block h-14 w-14 shrink-0 /);
+  const titles = how.match(/<h3 class="[^"]*"/g) ?? [];
+  assert.equal(titles.length, 3);
+  for (const t of titles) assert.ok(t.includes('mt-8') && !t.includes('mt-auto'), t);
 });
 
 test('(g) the hero painting: srcset of the three files, fetchpriority high; the arch clip path is the board\'s', () => {
@@ -280,6 +293,18 @@ test('(g) the hero painting: srcset of the three files, fetchpriority high; the 
   assert.match(src, /getScreenCTM\(\)/);
 });
 
+test('(g2) owner "option 1": the painting at brightness 0.95; the shade is an ellipse behind the words and a low band, never a full-height dark gradient', () => {
+  const h = html(LANDING);
+  assert.match(h.match(/<img[^>]*hero-eckersberg[^>]*>/)?.[0] ?? '', /brightness\(0\.95\)_saturate\(1\.04\)_contrast\(1\.04\)/);
+  const hero = h.slice(0, h.indexOf('</section>'));
+  const shade = hero.match(/<div aria-hidden="true" class="absolute inset-0 -z-\[1\] ([^"]+)"/)?.[1] ?? '';
+  // Phone and desktop: each one ellipse on the words plus a band under the marks.
+  assert.equal((shade.match(/radial-gradient\(ellipse_/g) ?? []).length, 2, shade);
+  assert.equal((shade.match(/var\(--ek-s-hero-band\)_100%/g) ?? []).length, 2, shade);
+  assert.doesNotMatch(shade, /hero-shade-deep|hero-shade-end/);
+  for (const t of ['heroHalo', 'heroHaloMid', 'heroBand'] as const) assert.match(SITE[t], /^rgba\(\d+,\d+,\d+,0\.\d+\)$/);
+});
+
 test('(h) the landing colours are SITE tokens: the new card text pairs pass 4.5:1', () => {
   const lum = (hex: string) => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
@@ -302,7 +327,7 @@ test('(i) fix round 1: every landing transition runs only without reduced motion
 test('(j) Task 7 fix round 1: the chip and the program numbers draw "$" in Funnel Sans (Money), the digits stay Kaftan', () => {
   const h = raw(LANDING);
   const sign = /<span data-ek-sign="" class="font-funnel-sans font-normal">\$<\/span>/;
-  assert.match(h, new RegExp(`<span>${sign.source}105K in grants open now</span>`), 'the chip: one flex item, so the gap never splits the sign');
+  assert.match(h, new RegExp(`<span class="text-balance">${sign.source}5K in Base grants open now</span>`), 'the chip: one flex item, so the gap never splits the sign');
   const earn = section(h, 'earn');
   assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}5K</span>`), 'a big number');
   assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}1M</span>`));

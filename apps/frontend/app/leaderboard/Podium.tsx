@@ -1,11 +1,11 @@
 import Link from 'next/link';
 import Avatar from '../[handle]/Avatar';
-import { streakCount } from '../[handle]/site/StreakCard';
 import Serif from '../components/site/Serif';
 import XHandle, { type XHandleTone } from '../components/site/XHandle';
 import { METAL } from '../components/site/ui';
 import type { BenchRow } from '../../lib/earnkit/bench-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
+import { SCORE_UNIT, streakRun } from '../../lib/earnkit/site-copy';
 
 /** The three podium cards, first to third on the page (Leaderboard board): blue, navy, rust. */
 const CARDS: { fill: string; sub: string; tone: XHandleTone }[] = [
@@ -45,7 +45,7 @@ export default function Podium({ rows, ranked }: { rows: BenchRow[]; ranked: boo
               ) : (
                 <span />
               )}
-              {r.streak > 0 && <span className={`text-[13px] ${c.sub}`}>{streakCount(r.streak)}</span>}
+              {r.streak > 0 && <span className={`text-[13px] ${c.sub}`}>{streakRun(r.streak)}</span>}
             </div>
             <div className="flex min-w-0 items-center gap-3.5">
               <Avatar src={r.avatar} handle={r.handle} className="h-14 w-14 text-xl" />
@@ -67,7 +67,7 @@ export default function Podium({ rows, ranked }: { rows: BenchRow[]; ranked: boo
               <Serif size={56} className="tabular-nums leading-[0.9]">
                 {r.points}
               </Serif>
-              <span className={`text-sm ${c.sub}`}>Shipping</span>
+              <span className={`text-sm ${c.sub}`}>{SCORE_UNIT}</span>
             </div>
           </article>
         );

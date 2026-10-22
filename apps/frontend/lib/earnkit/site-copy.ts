@@ -67,8 +67,13 @@ export function logoColor(name: string): string {
   return LOGO_COLORS[h % LOGO_COLORS.length];
 }
 
+/**
+ * The landing hero chip, "$5K in Base grants open now" (and prizes when one it sums is a prize program); null at 0. The
+ * caller passes only programs open to Base builders (landing.ts openToBase): the site is Base-first, so the chip never
+ * counts an Arc-only grant (owner, install fixes 2026-10-22).
+ */
 export function heroChipText(usd: number, prizes: boolean): string | null {
-  return usd > 0 ? `${compactUsd(usd)} in grants${prizes ? ' and prizes' : ''} open now` : null;
+  return usd > 0 ? `${compactUsd(usd)} in Base grants${prizes ? ' and prizes' : ''} open now` : null;
 }
 
 /** A program that is a prize or a hackathon by kind: in person, or its reward text says prize(s). Never an investment. Pool size is not the test (a grant can have a pool). */
@@ -88,27 +93,37 @@ export function nextUpdateLine(now: Date): string {
   return `Next update posts Monday, ${monthDay(next)}`;
 }
 
-export const HERO_TITLE = 'Earn from building.';
+export const HERO_TITLE = 'Get funded for shipping.';
 export const HERO_SUB = 'Ship. Get ranked. Get funded. All from your agent.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
 export const STEPS_TITLE = 'From commit to capital';
 export const STEPS = [
-  { title: 'Connect', text: 'Add EarnKit to your agent. Sign in with X. Pick one repo.' },
-  { title: 'Ship', text: 'Every Monday your week writes itself from your commits.' },
-  { title: 'Earn', text: 'Your agent drafts the application.', backing: 'Backers can buy in.' },
+  { title: 'Connect', text: "Add EarnKit to your agent, sign in with X and pick the repo you're building." },
+  { title: 'Ship', text: 'Every day we read your commits and score how steadily you ship, out of 100.' },
+  { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
 ] as const;
 export const ACTIVITY_TITLE = 'Activity';
 export const ACTIVITY_MORE = 'See the leaderboard';
 export const ACTIVITY_INVITE_TITLE = 'Your week goes here.';
 export const ACTIVITY_INVITE_TEXT = 'Add EarnKit and your first update posts on Monday.';
 export const EARN_TITLE = 'Earning opportunities';
+/** A program card's deadline when it has none (clarity batch: was "Rolling"). */
+export const ROLLING = 'Rolling, apply anytime';
 export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 export const FOOT_GET_PAGE = 'Get your page';
 export const SCORE_TITLE = 'Shipping score';
+/** The small caption under a bare Shipping score number (Activity cards, feed rows, leaderboard rows). */
+export const SCORE_UNIT = 'Shipping';
+/** A streak beside a name (leaderboard rows and podium): "5-week streak". The profile's Streak card keeps "5 weeks" under its title. */
+export const streakRun = (n: number): string => `${n}-week streak`;
 export const scoreNote = (first: string): string => `How often ${first} ships, out of 100, over 12 weeks.`;
+/** Clarity batch: where the profile's score comes from, and the link to how it's scored (/docs#score). */
+export const SCORE_SOURCE = 'From GitHub commits, not self-reported.';
+export const SCORE_HOW = "How it's scored";
+export const SCORE_HOW_HREF = '/docs#score';
 export const SCORE_PENDING = 'Shows once the project is on the leaderboard.';
 export const STREAK_TITLE = 'Streak';
 export const PROFILE_ACTIVITY = 'Activity';
@@ -120,8 +135,17 @@ export const keepsLine = (first: string): string => `${first} keeps 40% of fees`
 export const feesBy = (first: string): string => `earned by ${first}`;
 export const BACKERS = 'backers';
 export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by how often they ship`;
+/** Clarity batch: after the leaderboard's count line, so a grant lead sees the score is read, not claimed. */
+export const BENCH_VERIFIED = 'From GitHub commits, read daily. Not self-reported.';
 /** v2.13.1 O5 N16: the leaderboard with nobody ranked yet (moved here from the landing's old BenchTop; Task 8 keeps the wording). */
 export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
+/** Few builders (under RANK_MIN_POOL ranked): the count line drops its number and "ranked" (a list of 1 to 9 is not a ranking yet). */
+export const BENCH_EARLY = 'Scored by how often they ship, out of 100';
+/** Few builders: one quiet line at the foot of the list, beside the install CTA (the install sheet). */
+export const BENCH_INVITE = 'Be the next builder here.';
+/** A filter with no rows: what is missing, in plain words (the "Show everyone" pill sits beside it). */
+export const BENCH_EMPTY_BASE = 'No builder on Base yet.';
+export const BENCH_EMPTY_BACKED = 'No builder has opened Backing yet.';
 export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
 export const BACKED_TAG = 'Backed';
 /** Above the feed's pager when a week has more builders than the feed shows (FEED_WEEK_MAX cards a week). */

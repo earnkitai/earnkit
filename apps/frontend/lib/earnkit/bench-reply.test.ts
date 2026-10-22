@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MOMENT_ASK, OTHER_PROJECT_ASK, SHIP_ASK, applyAsk, awardAmount, benchReply, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
-  type ApplyPick, type BenchView, type BestFit,
+  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
+  type ApplyPick, type BenchView, type BestFit, type EventPost,
 } from './bench-reply';
 
 // v3.1 Task 16: the owner-approved copy (2026-10-21), word for word, for each reply benchReply writes (steps 1, 2, 3, 5
@@ -27,16 +27,15 @@ test('Task 16 step 1: signed out, the first reply after install', () => {
   const link = 'https://earnkit.com/signin/abc';
   const v: BenchView = {
     state: 'signed_out', variant: null, project: null, rank: null, streak: 0, target: null, handle: null, link, fund: [], due: [], held: null,
-    ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000' },
+    ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000', chain: 'Base' },
   };
   const out = benchReply(v);
   assert.equal(out, [
     'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 right now.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
     '',
     `Step 1 of 2: sign in with X (one click): ${link}`,
     'Done?',
-    '+30 points when you finish step 2',
   ].join('\n'));
   oneAsk(out);
   // With no open grant to name, the sentence is dropped.
@@ -55,10 +54,11 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
   };
   const want = [
     "You're in, @maya.",
-    `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}`,
+    `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
     'Done?',
-    "+30 points when it's connected",
   ].join('\n');
+  assert.doesNotMatch(want, /points/, '2026-10-22: no points in the first two replies');
   assert.equal(benchReply(pick), want);
   oneAsk(benchReply(pick));
   assert.equal(pick.ask.kind, 'pick_repo');
@@ -135,23 +135,51 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
 });
 
-test('Task 16 step 7: the weekly moment, a post for X as plain text (no intent link)', () => {
-  const v = ranked({ moment: { week: 4, place: 'now', rank: 3, points: 70 } });
+test('Task 16 step 7, v3.1 one-tap posts: the weekly moment with last week\'s post and its one-tap link; with none, the page; no points', () => {
+  const link = 'https://earnkit.com/maya/post/abcdefghij';
+  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link } } });
   v.ask = stateAsk({ ...v, share: true });
   assert.deepEqual(v.ask, { kind: 'share', project_key: RECIPE.key, line: MOMENT_ASK });
   const out = benchReply(v);
   assert.equal(out, [
-    "Week 4 done. You're now #3: +70 points.",
-    'A post for X, ready to paste:',
-    '"Week 4 shipping Recipe planner. https://earnkit.com/maya"',
+    "Week 6 done. You're now #3.",
+    'Your post for X, with your page card:',
+    '"Recipe planner, week 6: added offline mode and fixed several sync bugs."',
+    `Post it in one tap: ${link}`,
     'Does last week look right?',
   ].join('\n'));
   oneAsk(out);
-  assert.doesNotMatch(out, /intent/);
-  assert.match(benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, points: 70 } }), /^Week 4 done\. You're still #3: \+70 points\.$/m);
-  // Fix round 1: a yes that pays nothing (no facts, or already paid) promises nothing.
-  assert.match(benchReply({ ...v, moment: { week: 4, place: 'now', rank: 3, points: null } }), /^Week 4 done\. You're now #3\.\nA post for X/);
-  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, points: 30 } }), /^Last week done\. You're on EarnKit: \+30 points\.\n.*\n"Shipping Recipe planner\. https:\/\/earnkit\.com\/maya"$/m);
+  assert.doesNotMatch(out, /points|intent/);
+  // Nothing new to say: the page is the one link.
+  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null } });
+  assert.equal(none, "Week 4 done. You're still #3.\nYour page: https://earnkit.com/maya\nDoes last week look right?");
+  oneAsk(none);
+  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null } }), /^Last week done\. You're on EarnKit\.\n/);
+});
+
+test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {
+  const link = 'https://earnkit.com/maya/post/abcdefghij';
+  const post: EventPost = { head: 'Recipe planner went live this week.', text: 'Recipe planner is live. 9 weeks from first commit.', link };
+  const v = ranked({ post });
+  v.ask = stateAsk({ ...v, post, apply: { program_id: 'p', title: 'P', amount: null, when: null } });
+  assert.deepEqual(v.ask, { kind: 'post', project_key: RECIPE.key, line: POST_ASK }, 'ahead of apply when benchView offers it');
+  const out = benchReply(v);
+  assert.equal(out, [
+    'Recipe planner went live this week.',
+    'Your post for X, with your page card:',
+    '"Recipe planner is live. 9 weeks from first commit."',
+    `Post it in one tap: ${link}`,
+    'Want a different version?',
+  ].join('\n'));
+  oneAsk(out);
+  const now = new Date('2026-10-22T12:00:00Z');
+  assert.equal(eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: '2026-10-18T00:00:00Z' } }, now), 'Tally went live this week.');
+  assert.equal(eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: '2026-10-10T00:00:00Z' } }, now), 'Tally is live.', 'never "this week" when it was not');
+  assert.equal(eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Base Builder Grant' } }, now), 'Ledgerline won the Base Builder Grant.');
+  // Fix round: the profile doesn't show an acceptance or funding; the news is on the page as the update.
+  for (const moment of ['accepted', 'funded']) assert.equal(eventHead({ moment, input: { name: 'Kit', program: 'X' } }, now), '', 'no head: the reply starts at "Your post for X"');
+  assert.equal(eventHead({ moment: 'news', input: { note: 'x' } }, now), 'Added to your page.');
+  assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), 'Backing is open on your page.');
 });
 
 test('Task 16: the ranked order is connect, apply, backing, share, ship', () => {

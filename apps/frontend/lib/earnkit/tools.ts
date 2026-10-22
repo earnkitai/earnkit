@@ -1,3 +1,5 @@
+import { newsPost, outcomePost } from './post-reply';
+import { hasEntry } from './post-moments';
 import { z } from 'zod';
 import { yesNo } from './yes-no';
 import { hasRealUse, oddsRank, rowOdds } from './match';
@@ -794,12 +796,12 @@ export { yesNo };
 export const ASK_OUTCOME_NOTE =
   'Results for this entry were due. After showing show_to_builder, ask the builder this question once, as written. ' +
   'Then call tell with program_status: this program_id and project_id, their result (won, placed or lost), ' +
-  "and prize_usd if they won money. If they don't know yet, call nothing.";
+  "and prize_usd if they won money. If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url.";
 
 /** v3 Stage 2: ask_outcome's note for an application (no entry) on the short reply. */
 export const APPLY_ASK_OUTCOME_NOTE =
   "An application's deadline passed 14 days ago. After showing show_to_builder, ask the builder this question once, as written. " +
-  "Then call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing.";
+  "Then call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url.";
 
 /** v3 Stage 2: ask_outcome's fields; an application's question names no entry (no project_id). Pure. */
 const askOutcome = (ask: OutcomeAsk, agent_note: string) => ({
@@ -3189,7 +3191,12 @@ export const tools = {
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {
         const now = new Date();
-        if (update?.text !== undefined) replies.push(await postUpdate(ctx.installationId, update.text, now, ctx.ownInstallationId ?? ctx.installationId));
+        if (update?.text !== undefined) {
+          const posted = await postUpdate(ctx.installationId, update.text, now, ctx.ownInstallationId ?? ctx.installationId);
+          // v3.1 one-tap posts (design 6): the builder's news, posted to the page, becomes their post for X when it can be drafted.
+          const news = posted.show_to_builder && !posted.agent_note ? await newsPost(ctx.installationId, update.text, now) : null;
+          replies.push(news ?? posted);
+        }
         if (update?.hide !== undefined) replies.push(await hideUpdate(ctx.installationId, update.hide));
         if (updates) replies.push(await setShipTitles(ctx.installationId, updates, now));
       }
@@ -3204,8 +3211,23 @@ export const tools = {
         );
       }
     if (submitted) replies.push((await markSubmitted(submitted, ctx)) as Reply);
+    // v3.1 one-tap posts (owner ruling 3): an accepted, funded or won outcome is drafted as a post only with the proof
+    // link the agent checked, for a program the builder had an entry or application in before this tell (read first, as
+    // the tell itself stores the status); without the link, the builder is asked for it. The first such outcome only;
+    // a self-report never becomes a post or a card on its own.
+    const told = !ctx.sharedClient && statements.program_status !== undefined ? TellInput.safeParse(defined({ ...statements })) : null;
+    const outcome = told?.success ? told.data.program_status?.find((x) => x.status === 'accepted' || x.status === 'funded' || x.status === 'won') : undefined;
+    const entered = outcome ? await hasEntry(ctx.installationId, outcome.program_id) : false;
     if (Object.keys(statements).length > 0 || replies.length === 0)
       replies.push((await handlers.tell_earnkit(defined({ ...statements }), ctx)) as Reply);
+    if (outcome) {
+      const r = await outcomePost(ctx.installationId, { program_id: outcome.program_id, status: outcome.status as 'accepted' | 'funded' | 'won', proof_url: outcome.proof_url }, { entered }, new Date());
+      if (r) {
+        // The reply now shows something: the saved note's "nothing to show" no longer holds.
+        for (const x of replies) if (typeof x.agent_note === 'string') x.agent_note = x.agent_note.replace(TELL_SAVED_NOTE, 'Saved.');
+        replies.push(r);
+      }
+    }
     return joinReplies(replies);
   },
 

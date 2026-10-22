@@ -7,6 +7,7 @@ import {
   pageViewRefresh,
 } from '../../lib/earnkit/person-score';
 import { clientIp } from '../../lib/earnkit/rate-limit';
+import { CODE_PATTERN, draftByCode, noteVisit, visitFrom } from '../../lib/earnkit/post-drafts';
 import { pageHead } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
@@ -26,6 +27,27 @@ export const pageOf = (q: Query): number => {
   const n = Number(Array.isArray(q?.page) ? q.page[0] : q?.page);
   return Number.isInteger(n) && n >= 1 ? n : 1;
 };
+
+/** v3.1 one-tap posts (Task 5): `?m=<code>`, the post a visit came from (a well-formed code, else null). Pure. */
+export const postOf = (q: Query): string | null => {
+  const m = Array.isArray(q?.m) ? q.m[0] : q?.m;
+  return typeof m === 'string' && CODE_PATTERN.test(m) ? m : null;
+};
+
+/**
+ * v3.1 one-tap posts (Task 5): a page open carrying ?m=<code> counts one visit on that post, from X apart (post-drafts.ts
+ * noteVisit: this person's code only, capped). Only the count is kept: no IP, no user agent. A bot is never counted.
+ * Never throws.
+ */
+async function countVisit(builderId: number, code: string): Promise<void> {
+  try {
+    const h = await headers();
+    const from = visitFrom(h.get('user-agent'), h.get('referer'));
+    if (from) await noteVisit(code, builderId, from === 'x');
+  } catch (err) {
+    console.error('[post] visit', err instanceof Error ? err.name : 'error');
+  }
+}
 
 /**
  * v2.13: the whole Bench profile, after a fresh read of the person's sources when the last is over a day old
@@ -56,18 +78,25 @@ export async function HandleView({
   handle,
   path,
   page = 1,
+  post = null,
 }: {
   handle: string;
   path: string;
   /** v3 Stage 3's tab: ignored since v3.1 (no tabs). */
   tab?: ProfileTab;
   page?: number;
+  /** v3.1 one-tap posts: the post this visit came from (postOf). */
+  post?: string | null;
 }) {
   const r = await resolveHandle(handle);
   if (!r) notFound();
-  if ('redirect' in r) permanentRedirect(r.redirect);
+  // Final review 8: a redirect keeps the post's ?m=<code> (postOf: a well-formed code only), so the visit still counts
+  // and the post's own card stays.
+  const keep = (to: string) => (post ? `${to}?m=${post}` : to);
+  if ('redirect' in r) permanentRedirect(keep(r.redirect));
   // A reserved handle reached at the root (/Terms) lives at /b/Terms.
-  if (pagePath(r.handle) !== path) permanentRedirect(pagePath(r.handle));
+  if (pagePath(r.handle) !== path) permanentRedirect(keep(pagePath(r.handle)));
+  if (post) await countVisit(r.builderId, post);
   return (
     <Suspense fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}>
       <BenchPage id={r.builderId} page={page} />
@@ -75,13 +104,18 @@ export async function HandleView({
   );
 }
 
-/** The page's title, description and share card; the 404's title for a page that is not public (page() calls notFound()). */
-export async function handleMetadata(handle: string): Promise<Metadata> {
+/**
+ * The page's title, description and share card; the 404's title for a page that is not public (page() calls notFound()).
+ * v3.1 one-tap posts (Task 5): with `post` (?m=<code>, this person's draft), the card is that post's own
+ * (card.png?m=<code>), so X keeps one card per post.
+ */
+export async function handleMetadata(handle: string, post: string | null = null): Promise<Metadata> {
   const r = await resolveHandle(handle);
   if (!r) return NOT_FOUND_METADATA;
   if ('redirect' in r) return {};
   const h = await pageHead(r.builderId);
-  const card = `${pagePath(r.handle)}/card.png`;
+  const own = post ? (await draftByCode(post).catch(() => null))?.builder_id === r.builderId : false;
+  const card = `${pagePath(r.handle)}/card.png${own ? `?m=${post}` : ''}`;
   const title = `${h.name} on EarnKit`;
   // The score line ("Shipping 62 · Top 4% of builders") describes the page; without one, the v2.12.1 top line.
   const description = (await rankLines(r.builderId)).line ?? h.topLine;

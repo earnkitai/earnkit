@@ -14,7 +14,7 @@ import TermsPage from '../../app/terms/page';
 import { fullGuide, upcomingGuide } from './fixtures/guide';
 import { AGENTS, MCP_URL } from '../../app/components/sections/agents';
 import { LIVE_BONUS, SHIPPING_WEEKS } from './score-v2';
-import { DOCS_NAV, DOCS_SELECTORS, DOCS_STEPS } from './docs-copy';
+import { DOCS_GITHUB, DOCS_NAV, DOCS_SELECTORS, DOCS_STEPS } from './docs-copy';
 import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 
 /**
@@ -98,7 +98,9 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   assert.deepEqual(tabs.filter((t) => t.on).map((t) => t.name), ['Grok Bot']);
   assert.match(h, /<h1[^>]*>Add EarnKit to your agent<\/h1>/);
   assert.deepEqual(codes(h), [MCP_URL]);
-  assert.ok(text(h).includes(AGENTS[0].steps.join(' ')), 'Grok steps as one line');
+  // Install fixes: two or more steps are numbered, as in the install sheet.
+  const grokSteps = [...h.matchAll(/<li>([^<]*)<\/li>/g)].map((m) => m[1]);
+  assert.deepEqual(grokSteps, AGENTS[0].steps, 'Grok steps as a numbered list');
   // The copy button: labelled, an aria-live span for "Copied".
   assert.match(h, /<button [^>]*aria-label="Copy the command"/);
   assert.match(h, /<span [^>]*aria-live="polite"/);
@@ -114,8 +116,43 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   }
   const claude = AGENTS.find((a) => a.name === 'Claude Code')!;
   assert.deepEqual(codes(renderToStaticMarkup(React.createElement(AgentPanel, { agent: claude }))), [claude.code]);
+  // Install fixes: Claude (claude.ai) shows the EarnKit link first (review fix: the steps say paste it), then its note and five steps.
+  const chat = AGENTS.find((a) => a.name === 'Claude')!;
+  const cp = renderToStaticMarkup(React.createElement(AgentPanel, { agent: chat }));
+  assert.deepEqual(codes(cp), [MCP_URL]);
+  assert.ok(cp.indexOf('data-ek-code') < cp.indexOf('Free plan allows'), 'the link above the note');
+  assert.ok(cp.indexOf('data-ek-code') < cp.indexOf('<ol'), 'the link above the steps');
+  assert.equal((cp.match(/<li>/g) ?? []).length, 5);
+  // A command agent keeps its steps above its command.
+  const cc = renderToStaticMarkup(React.createElement(AgentPanel, { agent: claude }));
+  assert.ok(cc.indexOf('<p>') < cc.indexOf('data-ek-code'));
+  // Review fix: the connector line once on the card, above the tabs.
+  assert.equal(h.split('A connector lets your AI use EarnKit.').length - 1, 1);
+  assert.ok(h.indexOf('A connector lets') < h.indexOf('role="tablist"'));
+  // Cursor's single step still reads "Add" (no deep link above it on the docs).
+  assert.ok(text(renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS.find((a) => a.name === 'Cursor')! }))).startsWith('Add this to'));
   // No command text written outside AGENTS.
   for (const f of ['app/docs/InstallCard.tsx', 'app/docs/DocsView.tsx', 'lib/earnkit/docs-copy.ts']) assert.doesNotMatch(read(f), /mcp add|mcp login|mcp\.json|earnkit\.com\/mcp|--transport/, f);
+});
+
+test('(b2) install fixes: "No GitHub yet?" on the install card: Lovable and Bolt confirmed steps, the v0 note, no Replit', () => {
+  for (const raising of [false, true]) {
+    const h = docs(raising);
+    const install = h.match(/<section [^>]*id="install"[^>]*>([\s\S]*)<\/section>\s*<div class="grid/)?.[1] ?? '';
+    const help = install.match(/<section [^>]*id="github"[^>]*>([\s\S]*?)<\/section>/)?.[1] ?? '';
+    assert.match(help, /<h2[^>]*>No GitHub yet\?<\/h2>/);
+    assert.deepEqual([...help.matchAll(/<dt[^>]*>([^<]+)<\/dt>/g)].map((m) => m[1]), ['Lovable', 'Bolt']);
+    const t = text(help);
+    for (const [, steps] of DOCS_GITHUB.tools) assert.ok(t.includes(steps), steps);
+    assert.ok(t.endsWith('v0 saves changes to a working branch until you Publish. Publish so your work reaches main.'), t);
+    assert.doesNotMatch(t, /Replit/);
+    assert.doesNotMatch(t, /\u2014/);
+  }
+  // The research doc's confirmed button names, as written there.
+  for (const label of ['"Add connection"', '"Install & Authorize"', '"Connect"']) assert.ok(DOCS_GITHUB.tools[0][1].includes(label), label);
+  for (const label of ['"Log in to GitHub"', '"Authorize"', '"Install the GitHub App"', '"Create repository"']) assert.ok(DOCS_GITHUB.tools[1][1].includes(label), label);
+  // The v0 note matters because the score reads the default branch's history.
+  assert.match(readFileSync(join(import.meta.dirname, 'person-github.ts'), 'utf8'), /defaultBranchRef \{ name target \{ \.\.\. on Commit \{ history\(/);
 });
 
 test('(c) "A live product adds 10." uses LIVE_BONUS; raising off: no Backing, the nav label "Programs"; raising on: the Backing sentence', () => {
@@ -210,20 +247,24 @@ test('(g) Task 11: the install tabs wrap on a phone, rove with the arrow keys, a
   assert.equal(tabKeyTarget('End', 0, n), n - 1);
   assert.equal(tabKeyTarget('Enter', 0, n), null);
   assert.deepEqual(COPY_SAID, { idle: '', copied: 'Copied', failed: 'Copy failed' });
-  // The other rails (the sheet, the leaderboard filters, the feed weeks) still scroll in one row.
-  const src = read('app/components/site/SegTabs.tsx');
-  assert.match(src, /if \(tone === 'light'\) return `flex max-w-full flex-wrap/);
+  // Install fixes: both agent rails (docs card, install sheet) wrap; the link rails (leaderboard filters, feed weeks) still scroll in one row.
+  for (const tone of ['light', 'sheet'] as const) {
+    assert.match(segRail(tone), /(^| )flex-wrap( |$)/, tone);
+    assert.doesNotMatch(segRail(tone), /overflow-x-auto|mask-image/, tone);
+  }
+  for (const tone of ['panel', 'step'] as const) assert.match(segRail(tone), /overflow-x-auto/, tone);
 });
 
 test('(QA 8) a rail that scrolls fades its cut edge: RAIL_FADE on the scrolling tones only, one mask per data-fade, FadeNav on SegTabs', () => {
-  for (const tone of ['panel', 'step', 'sheet'] as const) assert.ok(segRail(tone).endsWith(RAIL_FADE), tone);
-  assert.ok(!segRail('light').includes('mask-image'), 'the docs rail wraps, nothing to fade');
+  for (const tone of ['panel', 'step'] as const) assert.ok(segRail(tone).endsWith(RAIL_FADE), tone);
+  for (const tone of ['light', 'sheet'] as const) assert.ok(!segRail(tone).includes('mask-image'), `${tone}: the agent rail wraps, nothing to fade`);
   for (const at of ['end', 'start', 'both']) assert.match(RAIL_FADE, new RegExp(`data-\\[fade=${at}\\]:\\[mask-image:linear-gradient\\(90deg,`), at);
   // Server markup carries no data-fade: only the browser knows whether the rail overflows.
   const rail = renderToStaticMarkup(React.createElement(SegTabs, { label: 'Weeks', tone: 'step', items: [{ label: 'Week of Oct 12', href: '/feed', on: true }] }));
   assert.match(rail, /^<nav aria-label="Weeks" class="[^"]*data-\[fade=end\]:\[mask-image/);
   assert.doesNotMatch(rail, /data-fade/);
-  assert.match(read('app/components/sections/AddToAgent.tsx'), /<div ref=\{rail\} role="tablist"/);
+  // Install fixes: the sheet's agent rail wraps, so it no longer carries the edge fade.
+  assert.doesNotMatch(read('app/components/sections/AddToAgent.tsx'), /useEdgeFade|FadeRail/);
 });
 
 test('(h) Task 11: terms section headings are Kaftan; every inline link is 44px tall on a phone', () => {

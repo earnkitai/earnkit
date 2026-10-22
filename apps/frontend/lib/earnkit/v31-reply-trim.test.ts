@@ -52,7 +52,7 @@ test('(a) a ranked reply has no why sentence, no Originality and no points total
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   await approveWeek(me.id, me.key, monday, new Date());
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
-  assert.match(s, /^App is on EarnKit\.$/m, s);
+  assert.match(s, /^App · 1 week in a row$/m, s);
   assert.ok(s.endsWith('\nShip code this week: up to +100 points'), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);
@@ -83,6 +83,10 @@ test('(a) benchReply: the ranked reply is the standing, the question and the poi
 test('(b) the upcoming line shows only with no fit', db, async () => {
   // A 4-week streak and no fit: the upcoming line is the money line (Task 16: after the standing, before the question).
   const lone = await ranked('rtb', 4);
+  // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
+  const q = show(await mcpCall(ctxOf(lone.id), 'find', {}));
+  assert.doesNotMatch(q, / not open yet\. /, q);
+  await mcpCall(ctxOf(lone.id), 'tell', { move_up: { kind: 'qualify', project_key: lone.key, answer: 'no' } });
   const s = show(await mcpCall(ctxOf(lone.id), 'find', {}));
   assert.equal(s.split('\n')[1], UPCOMING, s);
   // A 4-week streak and a fit: no upcoming line.

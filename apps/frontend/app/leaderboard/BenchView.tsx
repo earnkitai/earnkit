@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import Footer from '../components/common/Footer';
+import InviteRow from '../components/site/InviteRow';
 import Pager from '../components/site/Pager';
 import SegTabs from '../components/site/SegTabs';
 import { CARD_PANEL, H1_SITE, PAGE_COL, PILL_WHITE, phoneRadius } from '../components/site/ui';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { CHAIN_LABEL, RANK_MIN_POOL, type BenchChain } from '../../lib/earnkit/rank';
-import { BENCH_TOP_EMPTY, leaderboardLine } from '../../lib/earnkit/site-copy';
+import { BENCH_EARLY, BENCH_EMPTY_BACKED, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from '../../lib/earnkit/site-copy';
 import BenchRowItem from './BenchRowItem';
 import Podium from './Podium';
 
@@ -21,6 +22,13 @@ export const FILTER_BACKED = 'Backed';
 export const FILTER_WEEKLY = 'Shipping every week';
 /** Rows per page; the podium is rows 1 to 3 of page 1 (plan W3). */
 export const LEADERBOARD_PAGE = 20;
+
+/** Pure. A filter with no rows says what is missing: Base, Backed, else BENCH_EMPTY (an old ?chain= or ?weekly= link). */
+export function emptyLine(f: BenchFilter): string {
+  if (f.backed && !f.chain && !f.weekly) return BENCH_EMPTY_BACKED;
+  if (f.chain === 'base' && !f.weekly && !f.backed) return BENCH_EMPTY_BASE;
+  return BENCH_EMPTY;
+}
 
 /** Pure. A page of a filter variant: the filter's URL, plus `page=N` from page 2. */
 export function pageHref(f: BenchFilter, n: number): string {
@@ -44,19 +52,24 @@ export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: bo
 /**
  * Pure. The count under the title: the whole pool on the plain view, the filter's rows on a filtered one (QA item 2), so
  * "Base" never shows the pool's number. Null on a filter with no rows (its panel says BENCH_EMPTY), BENCH_TOP_EMPTY
- * with nobody ranked. The 10-ranked rule keeps reading the pool (`count`), never this line.
+ * with nobody ranked. The 10-ranked rule keeps reading the pool (`count`), never this line. A count is followed by
+ * BENCH_VERIFIED on the same line (clarity batch): the score is read from GitHub daily, never self-reported. Under
+ * RANK_MIN_POOL ranked builders the line has no number and no "ranked" (BENCH_EARLY): "1 builder, ranked" reads lonely.
  */
 export function countLine(filter: BenchFilter, rows: number, count: number): string | null {
   if (count === 0) return BENCH_TOP_EMPTY;
   const filtered = Boolean(filter.chain || filter.weekly || filter.backed);
-  if (!filtered) return leaderboardLine(count);
-  return rows > 0 ? leaderboardLine(rows) : null;
+  const n = filtered ? rows : count;
+  if (n === 0) return null;
+  return `${count >= RANK_MIN_POOL ? leaderboardLine(n) : BENCH_EARLY}. ${BENCH_VERIFIED}`;
 }
 
 /**
  * v3.1 site Task 8 (Leaderboard board): the title and its count line, the filter rail, the podium (page 1's first three
  * rows), then the rest of the page's rows on one panel with quiet pagination, LEADERBOARD_PAGE rows a page. Under
  * RANK_MIN_POOL ranked builders no "#N" and no metal pill anywhere (plan S14); the count line never says "of N".
+ * Few builders (solo launch, 2026-10-22): under RANK_MIN_POOL there is no podium and no filter rail; every builder is
+ * a plain row on the panel, and the panel ends with one quiet invite (BENCH_INVITE and the install CTA).
  */
 export default function BenchView({ rows, count, chips, filter, page }: { rows: BenchRow[]; count: number; chips: BenchChain[]; filter: BenchFilter; page: number }) {
   const ranked = count >= RANK_MIN_POOL;
@@ -64,7 +77,7 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
   // A hand-edited ?page= reads as the nearest page (as Pager clamps its links).
   const at = Math.min(Math.max(Math.trunc(page) || 1, 1), pages);
   const shown = rows.slice((at - 1) * LEADERBOARD_PAGE, at * LEADERBOARD_PAGE);
-  const podium = at === 1 ? shown.slice(0, 3) : [];
+  const podium = at === 1 && ranked ? shown.slice(0, 3) : [];
   const list = shown.slice(podium.length);
   const line = countLine(filter, rows.length, count);
   return (
@@ -75,13 +88,13 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
             <h1 className={H1_SITE}>{BENCH_TITLE}</h1>
             {line && <p className="text-[15px] text-s-muted">{line}</p>}
           </div>
-          {count > 0 && <SegTabs label="Filters" items={filterTabs(filter, chips, raisingEnabled())} />}
+          {ranked && <SegTabs label="Filters" items={filterTabs(filter, chips, raisingEnabled())} />}
         </section>
         {/* Nobody ranked: the header's empty line is the only one; a filtered view with no rows says BENCH_EMPTY. */}
         {count > 0 &&
           (rows.length === 0 ? (
             <div className={`${phoneRadius(CARD_PANEL)} flex flex-wrap items-center justify-between gap-3 p-6`}>
-              <p className="text-[15px] text-s-muted">{BENCH_EMPTY}</p>
+              <p className="text-[15px] text-s-muted">{emptyLine(filter)}</p>
               <Link href={filterHref({ chain: null, weekly: false })} className={PILL_WHITE}>
                 {BENCH_SHOW_ALL}
               </Link>
@@ -89,7 +102,7 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
           ) : (
             <>
               <Podium rows={podium} ranked={ranked} />
-              {(list.length > 0 || pages > 1) && (
+              {(list.length > 0 || pages > 1 || !ranked) && (
                 <section aria-label="Builders" className={`${phoneRadius(CARD_PANEL)} flex flex-col p-3`}>
                   {list.length > 0 && (
                     <ol start={(at - 1) * LEADERBOARD_PAGE + podium.length + 1} className="flex flex-col">
@@ -99,6 +112,7 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
                     </ol>
                   )}
                   <Pager page={at} pages={pages} href={(n) => pageHref(filter, n)} tone="dark" className="px-3.5 pb-1.5 pt-2.5" />
+                  {!ranked && <InviteRow text={BENCH_INVITE} sub="text-s-muted" className="mx-[18px] mb-2 mt-2 border-t border-s-line pt-5" />}
                 </section>
               )}
             </>

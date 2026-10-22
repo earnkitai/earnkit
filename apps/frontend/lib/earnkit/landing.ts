@@ -6,8 +6,9 @@ import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
+import { GUIDE_ID, guideProgramSql } from './guide-pages';
 import { carouselCards, type FeedCard } from './feed';
-import { compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
+import { ROLLING, compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
 export { byRelevance };
@@ -53,8 +54,10 @@ export type Tile = {
   kind: string;
   /** v3.1 site: the per-winner max compacted ("$5K"), null without one. */
   big: string | null;
-  /** v3.1 site: "Not open yet", "Closes Nov 18" or "Rolling". */
+  /** v3.1 site: "Not open yet", "Closes Nov 18" or "Rolling, apply anytime" (site-copy ROLLING). */
   when: string;
+  /** Clarity batch: who runs it ("Alliance"; the title without an organizer), the landing's tile text when there is no logo file. */
+  organizer: string;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
@@ -65,7 +68,7 @@ export type Landing = {
   open_text: string | null;
   /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
   open_more: string | null;
-  /** v3.1 site: the hero chip, "$105K in grants open now" (site-copy heroChipText), null when nothing is open. */
+  /** v3.1 site: the hero chip, "$5K in Base grants open now" (site-copy heroChipText over openToBase), null when none is open. */
   open_chip: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning", or null below the threshold. */
@@ -78,10 +81,18 @@ export type Landing = {
 
 /** The landing's Activity section shows this many cards. */
 export const LANDING_ACTIVITY = 3;
+/**
+ * Pure. One card a builder (their first, the newest), in order: the Activity row never shows the same person twice, so
+ * with one builder it is one card and the invite (Activity.tsx), never three weeks of the same name.
+ */
+export const oneEach = <C extends { handle: string }>(cards: C[]): C[] => cards.filter((c, i) => cards.findIndex((d) => d.handle === c.handle) === i);
 /** The landing's Earning opportunities section shows this many open programs. */
 export const LANDING_PROGRAMS = 4;
 /** The open tiles the landing shows, in the tiles' own (byRelevance) order. Pure. */
 export const landingPrograms = (tiles: Tile[]): Tile[] => tiles.filter((t) => t.status === 'active').slice(0, LANDING_PROGRAMS);
+
+/** A program a Base builder can enter: its chains include Base, or it is open to any chain (byRelevance's first two reaches). Pure. */
+export const openToBase = (c: Pick<Card, 'chains' | 'any_chain'>): boolean => (c.chains ?? []).includes('base') || c.any_chain === true;
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
 export function statsLine(s: PublicStats): string | null {
@@ -117,15 +128,18 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       in_person: c.in_person === true,
       kind: programKind(c),
       big: perWinner > 0 ? compactUsd(perWinner) : null,
-      when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : 'Rolling',
+      when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : ROLLING,
+      organizer: c.organizer?.trim() || c.title,
     };
   });
-  // The chip says "and prizes" when a program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
-  const prizes = kept.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
+  // Install fixes (owner, chip honesty): the chip counts only programs open to Base builders. It says "and prizes" when a
+  // program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
+  const onBase = kept.filter(openToBase);
+  const prizes = onBase.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
   return {
     open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
     open_more: openMoneyWords(kept, now),
-    open_chip: heroChipText(openMoneyUsd(kept, now), prizes),
+    open_chip: heroChipText(openMoneyUsd(onBase, now), prizes),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),
@@ -141,7 +155,7 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
 export async function readLanding(now = new Date()): Promise<Landing> {
   const cards: Card[] = await listPrograms();
   const stats = await readStats(now);
-  const activity = (await carouselCards(now)).slice(0, LANDING_ACTIVITY);
+  const activity = oneEach(await carouselCards(now)).slice(0, LANDING_ACTIVITY);
   return { ...landingFrom(cards, stats, now), activity };
 }
 
@@ -205,13 +219,12 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
   };
 }
 
-/** A guide page id: a program file's id shape. Anything else is a 404 with no read. */
-export const GUIDE_ID = /^[a-z0-9-]{1,64}$/;
+export { GUIDE_ID };
 
 /** Every curated program id, closed ones included (Ruling 22: old links keep working); never an unlisted one (v3.1 D2: its guide is a 404, not "closed"). */
 export async function readGuideIds(): Promise<string[]> {
-  const rows = await sql()<{ id: string }[]>`
-    SELECT id FROM programs WHERE source = 'file' AND campaign IS NULL AND status <> 'unlisted' ORDER BY id`;
+  const db = sql();
+  const rows = await db<{ id: string }[]>`SELECT g.id FROM programs g WHERE ${guideProgramSql(db)} ORDER BY g.id`;
   return rows.map((r) => r.id);
 }
 

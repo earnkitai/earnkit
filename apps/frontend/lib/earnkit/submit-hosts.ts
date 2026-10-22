@@ -69,3 +69,23 @@ export function apiPlatformOf(host: string): { platform: 'superteam' | 'karma'; 
   if (host === 'gap.karmahq.xyz') return { platform: 'karma', name: 'Karma GAP' };
   return null;
 }
+
+/**
+ * Fix round (owner ruling 3, security): hosts where anyone can publish a page, so a page there never proves an outcome,
+ * even when the program is listed there (a hackathon on DoraHacks, a grant on Questbook).
+ */
+export const SHARED_HOSTS = [
+  'github.io', 'github.com', 'dorahacks.io', 'questbook.app', 'forms.gle', 'docs.google.com', 'vercel.app', 'netlify.app', 'notion.site',
+  'notion.so', 'medium.com', 'mirror.xyz', 'paragraph.xyz', 'substack.com', 'gitbook.io', 'pages.dev', 'x.com', 'twitter.com',
+] as const;
+/** Public suffixes of more than one label (a proof host must have a name of its own under them). */
+export const MULTI_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'ne.jp', 'or.jp', 'co.in', 'co.kr',
+  'com.br', 'com.cn', 'com.sg', 'com.mx', 'com.tr', 'co.za', 'com.hk', 'com.tw', 'co.il', 'com.ar', 'co.id', 'com.my', 'com.ph',
+]);
+/**
+ * Final review 1: whether `host` may be a program's proof host: not a public suffix, not earnkit.com, and not a shared
+ * host or a subdomain of one (anyone can publish a page there). Pure.
+ */
+export const proofHostAllowed = (host: string) =>
+  !MULTI_SUFFIXES.has(host) && ![...SHARED_HOSTS, 'earnkit.com'].some((h) => host === h || host.endsWith(`.${h}`));

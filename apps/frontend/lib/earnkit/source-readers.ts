@@ -24,6 +24,9 @@ export type RepoSignals = {
   fork: boolean; template: boolean; stargazers: Who[]; forkers: Who[]; issue_authors: Who[]; contributors: Who[]; commit_weeks: string[]; partial: boolean;
   /** v2.13: commits on the default branch per ISO week, last 52 weeks (the newest 100 read; earlier weeks from the previous reading). */
   commit_counts?: Record<string, number>;
+  /** v3.1 Highlights: the default branch's name (a Builder Code file's link) and its commit count since the read's 52-week `since` (GitHub's history totalCount); absent on older readings. */
+  default_branch?: string | null;
+  commits_year?: number | null;
 };
 export type SiteSignals = { status: number; up: boolean };
 export type PackageSignals = { weekly: number; repo_url: string | null };

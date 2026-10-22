@@ -57,7 +57,7 @@ test('8.6 a fresh install with identity.project: v2.14 T9 signed out: not on the
     const r = await find(id, { identity: { github_login: `mayav${RUN}`, project: { name: 'Recipe planner', what: 'a recipe planner', repo: `mayav${RUN}/recipes` } } }, { matchProjects: async () => ({ checked: 1, scored: 0, fits: [] }) });
     const lines = r.show_to_builder.split('\n');
     assert.equal(lines[0], INTRO_LINE);
-    assert.match(r.show_to_builder, /Step 1 of 2: sign in with X \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nDone\?\n\+30 points when you finish step 2$/);
+    assert.match(r.show_to_builder, /Step 1 of 2: sign in with X \(one click\): https:\/\/\S+\/signin\/[A-Za-z0-9_-]{22}\nDone\?$/);
     assert.equal(r.move_up?.kind, 'sign_in');
     // v2.14 T7: no claim link and no claim ask.
     assert.equal((r as { claim?: unknown }).claim, undefined);
@@ -105,7 +105,7 @@ test('8.8 no project, signed out: the sign-in question; no build offer (v2.14 A1
       // v2.14 T7: no claim ask first; an unsigned install gets the start ask at once.
       const r = await find(id, { agent_can_build: true }, { freshDeps: OWN_FRESH });
       assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE);
-      assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+      assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
       assert.equal(r.build_offer, undefined);
       assert.equal(r.move_up?.kind, 'sign_in');
     } finally {

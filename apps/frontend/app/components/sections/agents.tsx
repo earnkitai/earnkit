@@ -1,7 +1,19 @@
 // Plain module (no 'use client'): the install steps and Command are read by the modal (client) and by the /docs page (server).
 export const MCP_URL = 'https://earnkit.com/mcp';
 
-export type AgentName = 'Grok Bot' | 'Muse' | 'OpenClaw' | 'Claude Code' | 'Cursor' | 'Codex';
+/** Review fix: "connector" explained once, in the intro both install surfaces show above the tabs (Grok Bot's tab, the default, uses the word). */
+export const CONNECTOR_LINE = 'A connector lets your AI use EarnKit.';
+
+/** Pure. The tab a key moves to from `at` among `n` tabs (arrows wrap, Home and End jump), or null for any other key. */
+export function tabKeyTarget(key: string, at: number, n: number): number | null {
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (at + 1) % n;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (at - 1 + n) % n;
+  if (key === 'Home') return 0;
+  if (key === 'End') return n - 1;
+  return null;
+}
+
+export type AgentName = 'Grok Bot' | 'Claude' | 'Muse' | 'OpenClaw' | 'Claude Code' | 'Cursor' | 'Codex';
 
 export type Agent = {
   name: AgentName;
@@ -10,6 +22,8 @@ export type Agent = {
    * elsewhere. An SVG mark is drawn in one color (the tab's); a PNG is the app's own icon, in color.
    */
   icon: string;
+  /** One plain line above the steps (Claude: the Free plan's limit). */
+  note?: string;
   /** One-click install deep link, when the agent supports one. */
   install?: string;
   steps: string[];
@@ -49,7 +63,11 @@ export type Agent = {
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
  * (codex mcp add <name> --url <url>, then codex mcp login <name>); OpenClaw per https://docs.openclaw.ai/tools/mcp
  * (openclaw mcp add <name> --url <url> --transport streamable-http, then openclaw mcp login <name>).
- * The personal agents (Grok Bot, Muse, OpenClaw) lead; Instinct documents no way to add an MCP server, so it has no tab.
+ * Claude (claude.ai and the desktop app) per https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
+ * (install fixes 2026-10-22, the confirmed steps in docs/design-docs-and-implementation-plans/v3.1-install-research.md);
+ * its icon is the same Claude Spark as Claude Code's. ChatGPT has no tab: OpenAI's official pages could not be read
+ * on 2026-10-22, so its steps are unconfirmed.
+ * Grok Bot leads (owner: the most popular), then Claude, then the other personal agents (Muse, OpenClaw); Instinct documents no way to add an MCP server, so it has no tab.
  * Launch-ready L1: Claude Code's line is user scope (EarnKit works in every folder). One-click links only where the
  * agent documents one: Cursor's MCP install deep link (Cursor docs, "Add to Cursor" links:
  * cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>), shown first in
@@ -62,6 +80,18 @@ export const AGENTS: Agent[] = [
     steps: [
       'Add an MCP connector in Grok Bot.',
       'Paste the EarnKit link and save.',
+    ],
+  },
+  {
+    name: 'Claude',
+    icon: '/images/agents/claude-code.svg',
+    note: "Claude's Free plan allows one custom connector.",
+    steps: [
+      'In claude.ai or the desktop app, open "Customize", then "Connectors".',
+      'Choose "+ Add", then "Add custom connector".',
+      'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+      'Choose "Sign in now", then "Add". Sign in with X.',
+      'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
   },
   {

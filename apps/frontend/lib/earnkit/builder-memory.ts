@@ -40,6 +40,11 @@ const ProgramStatus = z
     /** For won, placed and lost: the entry; else the installation's newest entry in the program. */
     project_id: z.number().int().positive().optional(),
     prize_usd: z.number().nonnegative().optional(),
+    /**
+     * v3.1 one-tap posts (owner ruling 3): for accepted, funded or won, the public page the agent checked that shows it
+     * (post-moments.ts proofUrlOk decides; never stored in the builder's memory).
+     */
+    proof_url: z.string().max(2048).optional(),
   })
   .strict();
 
@@ -268,10 +273,12 @@ export async function tell(
       if (!isMemory(s.status)) continue;
       const label = s.status === 'not_interested' ? null : roundLabel(byId.get(s.program_id)!);
       await tx`
-        INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label, at)
-        VALUES (${memory!.installationId}, ${memory!.login}, ${s.program_id}, ${s.status}, ${label}, ${now})
+        INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label, at, applied_at)
+        VALUES (${memory!.installationId}, ${memory!.login}, ${s.program_id}, ${s.status}, ${label}, ${now}, ${s.status === 'applied' ? now : null})
         ON CONFLICT (installation_id, login, program_id) DO UPDATE SET
-          status = EXCLUDED.status, round_label = EXCLUDED.round_label, at = EXCLUDED.at`;
+          status = EXCLUDED.status, round_label = EXCLUDED.round_label, at = EXCLUDED.at,
+          -- v3.1 one-tap posts (fix round): when they said they applied, kept through a later accepted or funded.
+          applied_at = COALESCE(builder_program_status.applied_at, EXCLUDED.applied_at)`;
       saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : s.status === 'not_interested' ? 'not interested' : `${s.status} (their own report)`}`);
     }
     for (const o of outcomes) {

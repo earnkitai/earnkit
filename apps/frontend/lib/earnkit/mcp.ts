@@ -492,6 +492,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
                   status: z.enum(['applied', 'not_interested', 'accepted', 'funded', 'rejected', 'won', 'placed', 'lost']),
                   project_id: z.number().int().positive().optional().describe("For won, placed or lost: ask_outcome's project_id (an application's accepted, funded or rejected needs none)"),
                   prize_usd: z.number().nonnegative().optional().describe('What they won, in USD, if they said'),
+                  proof_url: z.string().max(2048).optional().describe("For accepted, funded or won: a public page you opened that shows it (the program's X post or results page)"),
                 })
                 .strict(),
             )

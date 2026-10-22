@@ -170,7 +170,7 @@ test('R16a: the steps\' copy before the account has a page, one table (signed_ou
   // The other states keep their next steps: sign in, name a repo, install the App.
   assert.match(STATE_COPY.signed_out.ask('https://x'), /^Step 1 of 2: sign in with X/);
   assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
-  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Step 2 of 2: pick the repo you're building/);
+  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Step 2 of 2: connect your app's code on GitHub/);
   for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit'))),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), SHIP_ASK])
     assert.doesNotMatch(l, COIN_WORDS, l);
@@ -183,10 +183,10 @@ test('R16a through mcpCall: signed out, no project and not counted keep their ow
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
   // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.
-  assert.match(s2, /\nStep 2 of 2: pick the repo you're building\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?\n\+30 points when it's connected$/, s2);
+  assert.match(s2, /\nStep 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first\.\nDone\?$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
-  assert.match(s3, /^You're in, @\S+\.\nStep 2 of 2: pick the repo/);
+  assert.match(s3, /^You're in, @\S+\.\nStep 2 of 2: connect your app's code on GitHub/);
   for (const s of [s1, s2, s3]) {
     assert.ok(!s.includes(SHIP_ASK), s);
     assert.doesNotMatch(s, COIN_WORDS, s);

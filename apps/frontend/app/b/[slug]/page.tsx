@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import { resolveSlug as readSlug } from '../../../lib/earnkit/profiles';
 import { isReserved, pagePath } from '../../../lib/earnkit/reserved-routes';
 import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
-import { HandleView, handleMetadata, pageOf } from '../../[handle]/handle-view';
+import { HandleView, handleMetadata, pageOf, postOf } from '../../[handle]/handle-view';
 
 /** One lookup per request: generateMetadata and the page share it. */
 const resolveSlug = cache(readSlug);
@@ -13,9 +13,9 @@ const resolveSlug = cache(readSlug);
 export const dynamic = 'force-dynamic';
 
 /** A reserved handle's page carries the same title and card as any other (its card is /b/<handle>/card.png). */
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
   const { slug } = await params;
-  if (isReserved(slug)) return handleMetadata(slug);
+  if (isReserved(slug)) return handleMetadata(slug, postOf(await searchParams));
   return (await resolveSlug(slug)) ? {} : NOT_FOUND_METADATA;
 }
 
@@ -26,8 +26,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
  */
 export default async function ProfilePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params;
-  if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, page: pageOf(await searchParams) });
+  const q = await searchParams;
+  if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, page: pageOf(q), post: postOf(q) });
   const r = await resolveSlug(slug);
   if (!r) notFound();
-  permanentRedirect(pagePath(r.handle));
+  // Final review 8: the post's ?m=<code> (a well-formed one only) goes along, as the page's own redirects keep it.
+  const post = postOf(q);
+  permanentRedirect(post ? `${pagePath(r.handle)}?m=${post}` : pagePath(r.handle));
 }

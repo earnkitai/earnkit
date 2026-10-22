@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import FeedView, { FEED_EMPTY, FEED_PAGE, FEED_TABS, FEED_TITLE } from '../../app/feed/FeedView';
+import FeedView, { FEED_EMPTY, FEED_FEW, FEED_PAGE, FEED_TABS, FEED_TITLE } from '../../app/feed/FeedView';
 import type { FeedCard } from './feed';
 import type { FeedWeekStats } from './site-data';
-import { FEED_STATS, feedShowingLine } from './site-copy';
+import { ACTIVITY_INVITE_TEXT, ACTIVITY_INVITE_TITLE, CTA_INSTALL, FEED_STATS, feedShowingLine } from './site-copy';
 
 /**
  * v3.1 site Task 9: the feed (Feed board): the title, the newest FEED_TABS weeks as tabs (`?week=<monday>`), the selected
@@ -37,7 +37,7 @@ const MONDAYS = ['2026-10-12', '2026-10-05', '2026-09-28', '2026-09-21'];
 const LABELS = ['Week of Oct 12', 'Week of Oct 5', 'Week of Sep 28', 'Week of Sep 21'];
 const weeksOf = (n: number, cards = 2): Week[] =>
   MONDAYS.slice(0, n).map((monday, w) => ({ monday, label: LABELS[w], cards: Array.from({ length: cards }, (_, i) => card(w * 100 + i + 1, { week: monday })) }));
-const STATS: FeedWeekStats = { builders: 2, commits: 1234, went_live: 1, applications: 7 };
+const STATS: FeedWeekStats = { builders: 3, commits: 1234, went_live: 1, applications: 7 };
 const view = (weeks: Week[], o: { week?: string | null; page?: number; stats?: FeedWeekStats | null } = {}) =>
   renderToStaticMarkup(React.createElement(FeedView, { weeks, week: o.week ?? null, page: o.page ?? 1, stats: o.stats === undefined ? STATS : o.stats }))
     .replace(/&#x27;|&#39;/g, "'")
@@ -70,19 +70,22 @@ test('(a) three tabs for four weeks, the selected week aria-current; ?week of an
   assert.equal(tabs(view(weeksOf(1))).length, 1);
 });
 
-test('(b) stats cards show "2", "1.2K", "1", "7" with their labels in order', () => {
+test('(b) stats cards show "3", "1.2K", "1", "7" with their labels in order', () => {
   const h = view(weeksOf(1));
   const found = [...h.matchAll(/<div data-ek-stat="[a-z_]+"[^>]*><span[^>]*>([^<]+)<\/span><span[^>]*>([^<]+)<\/span><\/div>/g)].map((m) => [m[1], m[2]]);
   assert.deepEqual(found, [
-    [FEED_STATS.builders, '2'],
+    [FEED_STATS.builders, '3'],
     [FEED_STATS.commits, '1.2K'],
     [FEED_STATS.live, '1'],
     [FEED_STATS.applications, '7'],
   ]);
-  // Values of 0 show "0"; a failed read (null) hides the cards.
-  const zero = view(weeksOf(1), { stats: { builders: 0, commits: 0, went_live: 0, applications: 0 } });
+  // Values of 0 show "0" (from FEED_FEW builders); a failed read (null) hides the cards.
+  const zero = view(weeksOf(1), { stats: { builders: 3, commits: 0, went_live: 0, applications: 0 } });
   assert.equal((zero.match(/data-ek-stat="/g) ?? []).length, 4);
-  assert.equal([...zero.matchAll(/<span[^>]*ek-serif[^>]*>0<\/span>/g)].length, 4);
+  assert.equal([...zero.matchAll(/<span[^>]*ek-serif[^>]*>0<\/span>/g)].length, 3);
+  // Few builders (solo launch): under FEED_FEW builders shipped, no cards ("Builders shipped 1" reads lonely).
+  assert.equal(FEED_FEW, 3);
+  for (const builders of [0, 1, 2]) assert.doesNotMatch(view(weeksOf(1), { stats: { ...STATS, builders } }), /data-ek-stat=/, String(builders));
   assert.doesNotMatch(view(weeksOf(1), { stats: null }), /data-ek-stat=/);
   // The four fills: blue, step, rust, green gradients.
   for (const fill of ['--ek-s-blue-top', '--ek-s-step-top', '--ek-s-rust-top', '--ek-s-green-top']) assert.ok(h.includes(fill), fill);
@@ -194,4 +197,17 @@ test('(h) more builders than the feed shows: one quiet line above the pager with
   for (const builders of [20, 12]) assert.ok(!text(view(weeks, { stats: { ...STATS, builders } })).includes('Showing'), String(builders));
   assert.ok(!text(view(weeks, { stats: null })).includes('Showing'), 'no stats, no line');
   assert.doesNotMatch(text(more), /builders this week/);
+});
+
+test('(i) few rows (solo launch): a week under FEED_FEW rows ends with one invite (the landing\'s words and the install CTA); from FEED_FEW rows, none', () => {
+  for (const n of [1, 2]) {
+    const h = view(weeksOf(1, n));
+    assert.equal((h.match(/data-ek-invite=/g) ?? []).length, 1, String(n));
+    assert.ok(h.lastIndexOf('data-ek-feed-row=') < h.indexOf('data-ek-invite='), 'after the rows');
+    const t = text(h);
+    assert.ok(t.includes(ACTIVITY_INVITE_TITLE) && t.includes(ACTIVITY_INVITE_TEXT));
+    assert.match(h, new RegExp(`data-ek-invite=[\\s\\S]*<button type="button"[^>]*>${CTA_INSTALL}</button>`));
+  }
+  for (const n of [3, 14]) assert.doesNotMatch(view(weeksOf(1, n)), /data-ek-invite=/, String(n));
+  assert.doesNotMatch(view([], { stats: null }), /data-ek-invite=/, 'no weeks: the empty card only');
 });

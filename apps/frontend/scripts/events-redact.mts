@@ -99,6 +99,8 @@ const JSON_COLUMNS: [string, string][] = [
   ['sponsor_campaigns', 'fallback_plan'],
   ['sponsor_campaigns', 'award_plan'],
   ['sponsor_campaigns', 'award_onchain'],
+  // v3.1 one-tap posts (fix round): a draft's frozen card (its project's name and facts).
+  ['post_drafts', 'card'],
 ];
 /** Keys made of ':'-separated parts, one of which can be the login or wallet (short-lived). */
 const KEY_COLUMNS: [string, string][] = [
@@ -147,9 +149,17 @@ const NAMED_COLUMNS: [string, string][] = [
   ['project_embeddings', 'project_key'],
   // v3.1 Task 7: whether a repo carries Base Builder Codes.
   ['repo_builder_codes', 'repo_key'],
+  // v3.1 Highlights: when each repo's Builder Codes were last attempted.
+  ['repo_builder_codes_attempts', 'repo_key'],
+  // v3.1 one-tap posts: a drafted post's project, its text and its moment key (which names the project).
+  ['post_drafts', 'project_key'],
+  ['post_drafts', 'text'],
+  ['post_drafts', 'moment_key'],
+  // Fix round: the proof link of an accepted, funded or won post.
+  ['post_drafts', 'proof_url'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
-const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings'] as const;
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings', 'post_drafts'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {

@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AGENTS, Command, MCP_URL } from './agents';
+import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget } from './agents';
 import { segRail, segTab } from '../site/SegTabs';
-import { useEdgeFade } from '../site/FadeRail';
 
 export { AGENTS, Command };
 export type { Agent, AgentName } from './agents';
@@ -37,7 +36,8 @@ function CopyButton({ text, label, primary = false }: { text: string; label: str
 }
 
 /** Launch ready L10: no "no account" (the agent signs the builder in with X once). */
-export const INTRO = 'Free. Your agent connects with this link:';
+/** Review fix: the connector line, so the default (Grok Bot) tab has it too. */
+export const INTRO = `Free. ${CONNECTOR_LINE} Your agent connects with this link:`;
 
 /** v2.7: the starting phrase, everywhere (spec Decisions). */
 export const START_PROMPT = 'What can I earn?';
@@ -45,13 +45,13 @@ export const START_PROMPT = 'What can I earn?';
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
  * starting phrase, or a program's own ("What can I earn on Arc Microgrants?") from its card.
- * v3.1 (SITE tokens): a panel sheet rounded 32px over the scrim, the agent tabs as a SegTabs pill rail,
+ * v3.1 (SITE tokens): a panel sheet rounded 32px over the scrim, the agent tabs as a SegTabs pill rail that wraps,
  * code blocks on the page colour; a bottom sheet on a phone (fixed to the bottom edge, scrolling inside),
  * a centred sheet from sm. Every target is 44px; focus rings come from the page's own :focus-visible rule.
  */
 export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
   const [active, setActive] = useState(0);
-  const rail = useEdgeFade<HTMLDivElement>();
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
 
@@ -105,14 +105,29 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" primary />
         </div>
 
-        <div ref={rail} role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6 flex-nowrap`}>
+        {/* Every agent's tab shows in full: the rail wraps onto more rows on a narrow sheet (never scrolls or fades). */}
+        <div role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6`}>
+          {/* The tab pattern, as on /docs (InstallCard): only the chosen tab is in the Tab order; arrows, Home and End move and choose. */}
           {AGENTS.map((a, i) => (
             <button
               key={a.name}
+              ref={(el) => {
+                tabs.current[i] = el;
+              }}
+              id={`sheet-tab-${i}`}
               type="button"
               role="tab"
               aria-selected={i === active}
+              aria-controls="sheet-agent-panel"
+              tabIndex={i === active ? 0 : -1}
               onClick={() => setActive(i)}
+              onKeyDown={(e) => {
+                const next = tabKeyTarget(e.key, i, AGENTS.length);
+                if (next === null) return;
+                e.preventDefault();
+                setActive(next);
+                tabs.current[next]?.focus();
+              }}
               className={`${segTab('sheet', i === active)} gap-2 pl-3`}
             >
               {/* An SVG mark takes the tab's text colour (ink on the white current tab, white dimmed otherwise); an app icon (PNG) keeps its colors. */}
@@ -129,7 +144,8 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           ))}
         </div>
 
-        <div role="tabpanel" className="mt-5 text-base text-s-card-body">
+        <div id="sheet-agent-panel" role="tabpanel" aria-labelledby={`sheet-tab-${active}`} className="mt-5 text-base text-s-card-body">
+          {agent.note && <p className="mb-3 text-s-muted">{agent.note}</p>}
           {agent.install && (
             <a href={agent.install} className={`${COPY_PRIMARY} mb-4`}>
               Add to {agent.name}

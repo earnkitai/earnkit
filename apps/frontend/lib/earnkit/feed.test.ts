@@ -60,6 +60,14 @@ test('6.2 the feed ranks a finished week by points, ties by the Bench score; no 
   assert.deepEqual(week.cards[0].chips, ['Went live']);
 });
 
+test('6.2b clarity batch: a feed card without an X picture shows the GitHub one of the proven login', dbTest, async () => {
+  const a = await listed(55, [{ monday: '2026-10-12', text: 'Shipped the import.', facts: { went_live: true } }]);
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}f`} WHERE builder_id = ${a.id}`;
+  await rankFeed(NOW);
+  const [week] = await feedWeeks(NOW, { only: [a.id] });
+  assert.equal(week.cards[0].avatar, `https://avatars.githubusercontent.com/gh${RUN}f?s=200`);
+});
+
 test('6.3 the owner\'s pin leads its week; the owner\'s hide leaves the feed and stays on the profile; facts-only weeks show their chips', dbTest, async () => {
   const a = await listed(10, [{ monday: '2026-10-12', text: 'Small thing.', facts: { shipped_code: { n: 1 } } }]);
   const b = await listed(90, [{ monday: '2026-10-12', text: 'Big thing.', facts: { went_live: true, users_up: { n: 31 } } }]);
@@ -106,8 +114,10 @@ test('6.6 the feed page: dark rows, plain words, no "written by", no all-caps la
   for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner · 12 commits', 'Fixed the timer and added the shopping list.'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
   // Text only: the Docs link's anchor is not copy. v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts.
-  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /written by|agent/i);
-  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /\b[A-Z]{3,}\b/, 'no all-caps labels');
+  // Solo launch: one row adds the invite (its install CTA names the agent; v31-site-feed.test.ts (i)), so it is left out too.
+  const words = html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<div data-ek-invite=""[\s\S]*?<\/button><\/div>/, '').replace(/<[^>]+>/g, ' ');
+  assert.doesNotMatch(words, /written by|agent/i);
+  assert.doesNotMatch(words, /\b[A-Z]{3,}\b/, 'no all-caps labels');
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);

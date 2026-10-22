@@ -4,7 +4,8 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import AddToAgent, { AGENTS } from '../../app/components/sections/AddToAgent';
+import AddToAgent, { AGENTS, INTRO } from '../../app/components/sections/AddToAgent';
+import { CONNECTOR_LINE } from '../../app/components/sections/agents';
 import { logoFileProblem } from './program-file';
 
 // v2.8 Ruling 18 (plan), Ruling C1: the install tabs (Muse kept as the 5th), local icons, no
@@ -23,12 +24,50 @@ const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 const CLAUDE_CODE = 'claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp';
 const CODEX = 'codex mcp add earnkit --url https://earnkit.com/mcp';
 
-test('the tabs: the personal agents first (Grok Bot, Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
-  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
+test('the tabs: Grok Bot first (owner: most popular), Claude, the other personal agents (Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
+  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Claude', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
+  // ChatGPT's steps could not be confirmed from OpenAI's own pages (2026-10-22): no tab.
+  assert.ok(!AGENTS.some((a) => /chatgpt/i.test(a.name)));
   const first = html.match(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>(.*?)<\/button>/);
   assert.ok(first, 'a selected tab');
   assert.match(first[1], /Grok Bot$/);
   assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
+});
+
+test('Claude (claude.ai and desktop): the confirmed connector steps (install research), the link pasted, X sign-in; "connector" explained once', () => {
+  const c = byName('Claude');
+  assert.equal(c.code, undefined, 'no command: the builder pastes the EarnKit link');
+  assert.deepEqual(c.steps, [
+    'In claude.ai or the desktop app, open "Customize", then "Connectors".',
+    'Choose "+ Add", then "Add custom connector".',
+    'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+    'Choose "Sign in now", then "Add". Sign in with X.',
+    'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
+  ]);
+  assert.equal(c.note, "Claude's Free plan allows one custom connector.");
+  // Review fix: "connector" is explained once, in the intro above the tabs (Grok Bot's default tab uses the word), never in a tab.
+  assert.equal(CONNECTOR_LINE, 'A connector lets your AI use EarnKit.');
+  assert.equal(INTRO, 'Free. A connector lets your AI use EarnKit. Your agent connects with this link:');
+  assert.ok(!AGENTS.some((a) => [a.note, ...a.steps].join(' ').includes('A connector lets')));
+  assert.equal(html.split('A connector lets').length - 1, 1, 'once in the sheet');
+  for (const t of [c.note!, ...c.steps]) assert.doesNotMatch(t, /\u2014|\u2013/, 'no em or en dash');
+  // The sheet renders the note above the steps for any agent that has one.
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.ok(src.indexOf('{agent.note && ') > 0 && src.indexOf('{agent.note && ') < src.indexOf('agent.steps.length > 1'));
+});
+
+test('review fix: the sheet\'s agent tabs are a full tab pattern: ids, aria-controls, roving tabIndex, arrow keys, a labelled panel', () => {
+  const tabs = [...html.matchAll(/<button [^>]*role="tab"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(tabs.length, AGENTS.length);
+  tabs.forEach((t, i) => {
+    assert.match(t, new RegExp(`id="sheet-tab-${i}"`));
+    assert.match(t, /aria-controls="sheet-agent-panel"/);
+    assert.match(t, new RegExp(`tabindex="${i === 0 ? '0' : '-1'}"`, 'i'));
+  });
+  assert.match(html, /<div id="sheet-agent-panel" role="tabpanel" aria-labelledby="sheet-tab-0"/);
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.match(src, /onKeyDown=\{\(e\) => \{\s*const next = tabKeyTarget\(e\.key, i, AGENTS\.length\);/);
+  assert.match(src, /tabs\.current\[next\]\?\.focus\(\)/);
 });
 
 test('OpenClaw: openclaw mcp add over streamable HTTP, then log in (docs.openclaw.ai/tools/mcp)', () => {

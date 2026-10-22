@@ -60,8 +60,8 @@ test('(e) metal pill, avatar and logo tokens carry the board values', () => {
 });
 
 test('(f) heroChipText, streakNote, weekLine, monthDay, monthYear', () => {
-  assert.equal(heroChipText(105_000, false), '$105K in grants open now');
-  assert.equal(heroChipText(105_000, true), '$105K in grants and prizes open now');
+  assert.equal(heroChipText(5_000, false), '$5K in Base grants open now');
+  assert.equal(heroChipText(25_000, true), '$25K in Base grants and prizes open now');
   assert.equal(heroChipText(0, true), null);
   assert.equal(streakNote(1, 1), 'Week 2 starts Monday');
   assert.equal(streakNote(3, 9), 'Code in 9 of 12 weeks');
@@ -87,16 +87,24 @@ test('(h) programKind on the four committed program files', () => {
 });
 
 test('(i) copy constants are exact', () => {
-  assert.equal(copy.HERO_TITLE, 'Earn from building.');
+  assert.equal(copy.HERO_TITLE, 'Get funded for shipping.');
   assert.equal(copy.HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
   assert.equal(copy.NAV_INSTALL, 'Add to your agent');
   assert.equal(copy.STEPS_TITLE, 'From commit to capital');
   assert.deepEqual(copy.STEPS, [
-    { title: 'Connect', text: 'Add EarnKit to your agent. Sign in with X. Pick one repo.' },
-    { title: 'Ship', text: 'Every Monday your week writes itself from your commits.' },
-    { title: 'Earn', text: 'Your agent drafts the application.', backing: 'Backers can buy in.' },
+    { title: 'Connect', text: "Add EarnKit to your agent, sign in with X and pick the repo you're building." },
+    { title: 'Ship', text: 'Every day we read your commits and score how steadily you ship, out of 100.' },
+    { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
   ]);
+  assert.equal(copy.SCORE_UNIT, 'Shipping');
+  assert.equal(copy.ROLLING, 'Rolling, apply anytime');
+  assert.equal(copy.BENCH_VERIFIED, 'From GitHub commits, read daily. Not self-reported.');
+  assert.equal(copy.SCORE_SOURCE, 'From GitHub commits, not self-reported.');
+  assert.equal(copy.SCORE_HOW, "How it's scored");
+  assert.equal(copy.SCORE_HOW_HREF, '/docs#score');
+  assert.equal(copy.streakRun(5), '5-week streak');
+  assert.equal(copy.streakRun(1), '1-week streak');
   assert.equal(copy.ACTIVITY_TITLE, 'Activity');
   assert.equal(copy.ACTIVITY_MORE, 'See the leaderboard');
   assert.equal(copy.ACTIVITY_INVITE_TITLE, 'Your week goes here.');
@@ -140,7 +148,7 @@ test('(copy) every exported string and every function output has no banned punct
     compactUsd: [750, 5000, 1_250_000], compactCount: [999, 12_000], agoWords: [now], firstName: ['Maya Chen'], logoColor: ['Relay'],
     heroChipText: [105_000], programKind: [{ investment: true }], streakNote: [1, 3], weekLine: [0, 1, 14], nextUpdateLine: [now],
     monthDay: [now], monthYear: [now], scoreNote: ['Maya'], shippedAgo: ['2h ago'], backOn: ['Maya'], backLabel: ['Maya'],
-    keepsLine: ['Maya'], feesBy: ['Maya'], leaderboardLine: [0, 1, 1234],
+    keepsLine: ['Maya'], feesBy: ['Maya'], leaderboardLine: [0, 1, 1234], streakRun: [1, 5],
   };
   for (const [name, v] of Object.entries(copy)) {
     if (typeof v !== 'function') { walk(v); continue; }

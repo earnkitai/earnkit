@@ -37,7 +37,7 @@ function HomeMark() {
 
 function CompanyLine() {
   return (
-    <p className="mt-4 text-[12px] text-s-dim">
+    <p className="mt-4 text-center text-[12px] text-s-dim">
       EarnKit is a product of Tokenfi Inc. &copy; {new Date().getFullYear()} Tokenfi Inc. All rights reserved.
     </p>
   );

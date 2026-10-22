@@ -14,8 +14,9 @@ const ICONS: [string, string, string][] = [
 ];
 
 /**
- * "From commit to capital" (Landing board): Connect, Ship, Earn on the step cards. The Earn card adds
- * "Backers can buy in." only while Backing is on (raisingEnabled).
+ * "From commit to capital" (Landing board): Connect, Ship, Get funded on the step cards. The Get funded card adds
+ * "People can back you by buying your coin." only while Backing is on (raisingEnabled). Every icon sits in the same
+ * 56px box and the title follows it at a fixed gap, so the three titles share one line whatever the text's length.
  */
 export default function Steps() {
   const backing = raisingEnabled();
@@ -30,12 +31,12 @@ export default function Steps() {
             key={s.title}
             className="flex min-h-[220px] flex-col gap-3.5 rounded-[28px] border border-s-step-line bg-gradient-to-b from-s-step-top to-s-step-bottom p-6 text-s-text md:min-h-[260px] md:rounded-[36px] md:p-8"
           >
-            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="stroke-s-icon-blue">
+            <svg data-ek-step-icon="" width="56" height="56" viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="block h-14 w-14 shrink-0 stroke-s-icon-blue">
               {ICONS[i].map((d) => (
                 <path key={d} d={d} />
               ))}
             </svg>
-            <h3 className="ek-serif mt-auto text-[32px] leading-none md:text-[40px]">{s.title}</h3>
+            <h3 className="ek-serif mt-8 text-[32px] leading-none md:text-[40px]">{s.title}</h3>
             <p className="text-[16px] leading-normal text-s-step-text">{'backing' in s && backing ? `${s.text} ${s.backing}` : s.text}</p>
           </div>
         ))}

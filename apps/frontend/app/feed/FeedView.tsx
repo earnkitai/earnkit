@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import Footer from '../components/common/Footer';
+import InviteRow from '../components/site/InviteRow';
 import Pager from '../components/site/Pager';
 import SegTabs from '../components/site/SegTabs';
 import { CARD_NEUTRAL, H1_SITE, PAGE_COL_WIDE, PILL_WHITE } from '../components/site/ui';
 import type { FeedCard } from '../../lib/earnkit/feed';
 import type { FeedWeekStats } from '../../lib/earnkit/site-data';
-import { ACTIVITY_MORE, feedShowingLine } from '../../lib/earnkit/site-copy';
+import { ACTIVITY_INVITE_TEXT, ACTIVITY_INVITE_TITLE, ACTIVITY_MORE, feedShowingLine } from '../../lib/earnkit/site-copy';
 import FeedRow from './FeedRow';
 import FeedStats from './FeedStats';
 
@@ -17,6 +18,11 @@ export const FEED_EMPTY = 'No updates yet. New ones post every Monday.';
 export const FEED_TABS = 3;
 /** Rows per page (plan W4). */
 export const FEED_PAGE = 10;
+/**
+ * Few builders (solo launch, 2026-10-22): the four numbers show from this many builders shipped in the week ("Builders
+ * shipped 1" reads lonely), and a week with fewer rows than this ends with the invite (the landing's words).
+ */
+export const FEED_FEW = 3;
 
 type FeedWeek = { monday: string; label: string; cards: FeedCard[] };
 
@@ -30,7 +36,8 @@ export const feedHref = (monday: string, n = 1): string => `/feed?week=${monday}
 
 /**
  * v3.1 site Task 9 (Feed board) on the deep page colour: the title with the week tabs (the newest FEED_TABS), the
- * selected week's four numbers (hidden when the read failed), its cards as full-width dark rows, FEED_PAGE a page,
+ * selected week's four numbers (hidden when the read failed or under FEED_FEW builders shipped), its cards as full-width
+ * dark rows, FEED_PAGE a page, the invite under FEED_FEW rows,
  * with quiet pagination (Newer, the numbers, Older). No weeks: the empty card and the way to the leaderboard. Pure.
  */
 export default function FeedView({ weeks, week, page, stats }: { weeks: FeedWeek[]; week: string | null; page: number; stats: FeedWeekStats | null }) {
@@ -58,7 +65,7 @@ export default function FeedView({ weeks, week, page, stats }: { weeks: FeedWeek
           </div>
         ) : (
           <>
-            {stats && <FeedStats stats={stats} label={`${sel.label} in numbers`} />}
+            {stats && stats.builders >= FEED_FEW && <FeedStats stats={stats} label={`${sel.label} in numbers`} />}
             <section aria-label={sel.label}>
               <ul className="flex flex-col gap-3">
                 {shown.map((c) => (
@@ -68,6 +75,9 @@ export default function FeedView({ weeks, week, page, stats }: { weeks: FeedWeek
                 ))}
               </ul>
             </section>
+            {cards.length < FEED_FEW && (
+              <InviteRow title={ACTIVITY_INVITE_TITLE} text={ACTIVITY_INVITE_TEXT} sub="text-s-card-body" className={`${CARD_NEUTRAL} rounded-[28px] px-[26px] py-[22px]`} />
+            )}
             {/* The week has more builders than the feed shows (FEED_WEEK_MAX): say so, with both real numbers. */}
             {stats && stats.builders > cards.length && <p className="px-2 text-center text-[13px] text-s-muted">{feedShowingLine(cards.length, stats.builders)}</p>}
             {/* Centred as on the board: the nav shrinks to its links. One page: none. */}

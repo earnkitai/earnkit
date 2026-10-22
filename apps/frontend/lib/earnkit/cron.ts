@@ -30,6 +30,9 @@ import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { githubAppEnabled } from './github-app';
+import { runBuilderCodes } from './builder-codes-check';
+import { backfillContractOrigins } from './contract-origins';
+import type { ContractOrigin } from './source-readers';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
@@ -101,7 +104,16 @@ export type CronDeps = {
   usage?: UsageDeps;
   /** v2.12 spec 6: the builder score's reads and people (tests); with `only`, the steps run only when given. */
   builderScore?: ScoreCronDeps;
+  /** v3.1 Highlights: the Builder Codes step's GitHub fetch and builders (tests); with `only`, the step runs only when given. */
+  builderCodes?: { fetch?: typeof fetch; only?: number[] };
+  /** v3.1 Highlights fix round 1: the contract origins backfill's read and builders (tests); with `only`, the step runs only when given. */
+  contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
 };
+
+/** v3.1 Highlights fix round 1: the Builder Codes step's time, at most a minute and never past the run's deadline. */
+export const BUILDER_CODES_SLICE_MS = 60_000;
+/** When the Builder Codes step stops starting checks: BUILDER_CODES_SLICE_MS from `start`, or the run's deadline if sooner. Pure. */
+export const builderCodesSliceEnd = (start: number, deadline: number) => Math.min(deadline, start + BUILDER_CODES_SLICE_MS);
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
 const openReview = (p: Program, now: Date) => sql()`
@@ -372,6 +384,31 @@ export async function runCron(
       digest = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most one attempt a day,
+  // at most BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare.
+  // After the weekly email (fix round 1: Monday's send is never squeezed) and within its own slice
+  // (builderCodesSliceEnd). Off without the GitHub App.
+  let builderCodes: Awaited<ReturnType<typeof runBuilderCodes>> | { step: 'error'; note: string } | undefined;
+  if (githubAppEnabled() && (!opts.only || deps.builderCodes)) {
+    try {
+      builderCodes = await runBuilderCodes(now, { ...deps.builderCodes, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] builder codes', err instanceof Error ? err.name : 'error');
+      builderCodes = { step: 'error', note: STEP_FAILED };
+    }
+  }
+  // v3.1 Highlights fix round 1: "First deployed" for contracts verified before their creation time was kept
+  // (contract-origins.ts: Blockscout, free, at most ORIGIN_READS_PER_RUN a run, each contract once), after the email,
+  // in its own slice.
+  let origins: Awaited<ReturnType<typeof backfillContractOrigins>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.contractOrigins) {
+    try {
+      origins = await backfillContractOrigins(now, { ...deps.contractOrigins, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] contract origins', err instanceof Error ? err.name : 'error');
+      origins = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -430,6 +467,8 @@ export async function runCron(
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     ...(usage && { usage_checks: usage }),
     ...(builderScore && { builder_score: builderScore }),
+    ...(builderCodes && { builder_codes: builderCodes }),
+    ...(origins && { contract_origins: origins }),
     needs_owner,
   };
 }

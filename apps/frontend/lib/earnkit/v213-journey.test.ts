@@ -25,7 +25,7 @@ import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
-import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
+import { NOT_CONFIRMED_NOTE } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
 import { weeklyFactsStep } from './week-facts';
@@ -584,7 +584,7 @@ test('16.2 acceptance 2, without a project: the repo picker and no build offer (
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're in, @maya2_builds\.\nStep 2 of 2: pick the repo you're building\./, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\.\nStep 2 of 2: connect your app's code on GitHub\./, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');
@@ -600,7 +600,8 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.notEqual(ask.move_up?.kind, 'updates');
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
-  assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
+  // v3.1 one-tap posts (design 6): posted to the page, and the builder's news becomes their post for X (its one-tap link).
+  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X, with your page card:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant to change any words\?$/);
   const log = await renderProfile('maya_makes');
   assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);
@@ -665,7 +666,7 @@ test('16.6 acceptance 6, the landing page: the hero and the Activity cards', db,
   const landing = await readLanding(nextMonday15(NOW));
   const page = html(React.createElement(HomeView, { landing }));
   // v3.1 Task 6: the hero title and the Activity cards (the feed's first three, linking each builder's page).
-  assert.ok(page.includes('Earn from building.') && page.includes('>Activity</h2>'));
+  assert.ok(page.includes('Get funded for shipping.') && page.includes('>Activity</h2>'));
   assert.match(page, /<a [^>]*href="\/maya_makes"/);
   assert.ok(landing.activity.some((c) => c.handle === 'maya_makes'));
 });

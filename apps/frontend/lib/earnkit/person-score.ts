@@ -343,7 +343,7 @@ export async function personInputsV2(
       chains: chainList,
       ship_weeks: [...ship].filter((w) => last53.has(w)).sort(),
       commit_weeks: [...commits].filter((w) => last53.has(w)).sort(),
-      // Final follow-ups 1: the streak is commit weeks in a row (the grid's weeks, same anti-backdating rule).
+      // builder_projects.streak is a rescore-time cache of commit weeks in a row; no surface reads it (streak.ts streaksFor is the one read).
       streak: streakOf(commits, now),
       weeks_shipping: weeksShipping(ship, now),
     });

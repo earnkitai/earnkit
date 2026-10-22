@@ -379,6 +379,9 @@ export function sponsorProgramFile(a: {
     any_chain: false,
     investment: false,
     in_person: false,
+    // A sponsor campaign lists no X accounts: no X post proves an outcome there.
+    x_handles: [],
+    proof_hosts: [],
     min_product_score: 0,
     // v2.8 Part E: entered on EarnKit, never through a platform agent API.
     submit_api: false,

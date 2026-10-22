@@ -17,6 +17,22 @@ export const DOCS_NAV: [string, string][] = [
 export const DOCS_INSTALL_TITLE = 'Add EarnKit to your agent';
 export const DOCS_STEPS = ['Add the server', 'Sign in with X', 'Ask: what can I earn?'];
 
+/**
+ * Install fixes (owner 2026-10-22): the "No GitHub yet?" help under the install steps. Only the steps
+ * docs/design-docs-and-implementation-plans/v3.1-install-research.md marks confirmed (Lovable, Bolt); no Replit steps
+ * (unconfirmed). The v0 line is true because EarnKit reads the default branch's commits (person-github.ts
+ * defaultBranchRef history; the REST /commits reads name no branch, so GitHub answers with the default one).
+ */
+export const DOCS_GITHUB = {
+  title: 'No GitHub yet?',
+  text: 'EarnKit reads your commits on GitHub. Connect your app builder once:',
+  tools: [
+    ['Lovable', 'Project settings, then Git, then GitHub. Choose "Add connection", pick your account on GitHub, "Install & Authorize", then "Connect".'],
+    ['Bolt', 'The GitHub icon top right: "Log in to GitHub", "Authorize", then "Install the GitHub App", "Install & Authorize". Click the GitHub icon again, name the repo, "Create repository".'],
+  ] as [string, string][],
+  v0: 'v0 saves changes to a working branch until you Publish. Publish so your work reaches main.',
+};
+
 export const DOCS_WEEK = {
   title: 'How the week works',
   text: 'Ship during the week. Monday, EarnKit writes your update from the commits and emails it. One tap posts it.',

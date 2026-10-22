@@ -6,7 +6,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { cachedFeesUsd, feeAlert } from './fees';
 import { campaignCandidates } from './leaderboard';
 import { difficultyOf, rowDifficulty, type Difficulty } from './guide';
-import { applyBuilderFacts, EFFORT_ORDER, fitsWideProgram, matchRepo, onlyMentioned, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts } from './match';
+import { applyBuilderFacts, EFFORT_ORDER, fitsWideProgram, matchRepo, onlyMentioned, type Chain, type Detection, type Product, type ProgramFacts, type RepoFacts, type Verdict } from './match';
 import { hiddenIds, hiddenPrograms, type BuilderMemory, type SaidRepo } from './builder-memory';
 import type { PastRound } from './program-file';
 import { winLine } from './outcomes';
@@ -293,6 +293,15 @@ export function alertFit(p: NewProgram, repos: FitRepo[], skip: AlertSkip, now: 
   if (skip.entered.has(p.id) || skip.hidden.has(p.id)) return null;
   if (p.ends_at && p.ends_at.getTime() - now.getTime() < ALERT_MIN_DAYS * 86_400_000) return null;
   return repos.find((r) => repoCanWin(p, r)) ?? null;
+}
+
+/**
+ * 2026-10-22: the matcher's verdict for one remembered repo and one program, with what the builder said applied, and
+ * the facts it read (null: no verdict, the repo has no facts or the matcher gives the pair no row). Pure.
+ */
+export function programVerdict(p: NewProgram, r: FitRepo): { v: Verdict | null; chains: Detection } | null {
+  const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
+  return f ? { v: matchRepo(f, [programFacts(p)])[0] ?? null, chains: f.chains } : null;
 }
 
 /** v3.1 F1: the gate that drops a program for a repo (fitGate), in the order a pair meets them. */

@@ -60,7 +60,7 @@ test('(c) nothing of the old kit in the HTML: no video, no builder image, no upp
     assert.doesNotMatch(h, /<video|builder-blue|\buppercase\b|animate-marquee|rounded-\[24px\]/);
   }
   assert.ok(!page({ ...full, stats_line: '120 agents earning', won_line: 'Builders using EarnKit won $12,500' }).includes('agents earning'));
-  assert.equal(HERO_TITLE, 'Earn from building.');
+  assert.equal(HERO_TITLE, 'Get funded for shipping.');
   assert.equal(HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
 });
 
@@ -79,10 +79,15 @@ test('(e) HomeView with landing = null and with no programs renders the hero and
 });
 
 test('(f) the hero: the chip (to #earn) only with money open, the one-line title, the sub line, the four agent marks', () => {
-  const h = html(React.createElement(Hero, { chip: '$105K in grants open now' }));
-  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$105K in grants open now<\/span><\/a>/);
+  const h = html(React.createElement(Hero, { chip: '$5K in Base grants open now' }));
+  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$5K in Base grants open now<\/span><\/a>/);
+  // Review fix: the chip grows to two lines on a narrow phone instead of overflowing a fixed height: a 44px minimum,
+  // vertical padding, a 22px radius (a pill on one line, a rounded card on two), full pill from md.
+  const chip = h.match(/<a [^>]*href="#earn"[^>]*class="([^"]*)"/)?.[1] ?? h.match(/<a [^>]*class="([^"]*)"[^>]*href="#earn"/)?.[1] ?? '';
+  for (const c of ['min-h-11', 'py-2', 'rounded-[22px]', 'max-w-full', 'md:min-h-9', 'md:rounded-full']) assert.ok(chip.split(' ').includes(c), c);
+  for (const c of ['h-11', 'md:h-9']) assert.ok(!chip.split(' ').includes(c), c);
   assert.doesNotMatch(html(React.createElement(Hero, { chip: null })), /href="#earn"/);
-  assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Earn from building.<\/h1>/);
+  assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Get funded for shipping.<\/h1>/);
   assert.equal((h.match(/role="img"/g) ?? []).length, 4);
   assert.doesNotMatch(h, /\buppercase\b/);
 });
@@ -99,12 +104,12 @@ test('(i) the install modal: v3.1 SITE sheet (panel, 32px radius, scrim), a bott
   const panel = h.match(/<div class="([^"]*)"[^>]*><button[^>]*aria-label="Close"/)?.[1] ?? '';
   for (const c of ['fixed', 'inset-x-0', 'bottom-0', 'bg-s-panel', 'rounded-t-[32px]', 'sm:rounded-[32px]']) assert.ok(panel.split(' ').includes(c), c);
   assert.doesNotMatch(panel, /gradient|shadow/);
-  // Tabs: one SegTabs rail (page colour) that scrolls on a phone, the current tab a white pill, 44px tall.
+  // Tabs: one SegTabs rail (page colour) that wraps (install fixes: never cut off, no scroll), the current tab a white pill, 44px tall.
   const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*aria-selected="(true|false)"[^>]*class="([^"]*)"/g)];
-  assert.equal(tabs.length, 6);
+  assert.equal(tabs.length, 7);
   const rail = h.match(/<div role="tablist"[^>]*class="([^"]*)"/)?.[1] ?? '';
-  assert.doesNotMatch(rail, /(^| )flex-wrap( |$)/, rail);
-  for (const c of ['flex-nowrap', 'overflow-x-auto', 'no-scrollbar', 'rounded-full', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
+  for (const c of ['flex-wrap', 'rounded-[26px]', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
+  for (const c of ['flex-nowrap', 'overflow-x-auto']) assert.ok(!rail.split(' ').includes(c), c);
   for (const [, on, c] of tabs) {
     assert.match(c, /(^| )min-h-11( |$)/);
     assert.match(c, /(^| )rounded-full( |$)/);

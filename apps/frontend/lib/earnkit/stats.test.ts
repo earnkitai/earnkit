@@ -26,7 +26,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
   // v3 Stage 2: backing_open and backers (0 with EARNKIT_RAISING off, as here) and earned_usd last.
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 })).slice(-3), [0, 0, 0], 'flag off: 0');
   assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 }, new Date(), true)).slice(-3), [2, 9, 0]);
 });
@@ -400,4 +400,59 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   assert.equal(s.open_money_usd, 105000);
   assert.equal(s.open_money_text, '$105K in grants and prizes open');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
+});
+
+test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_post (within 7 days of a first tap, backing open, flag on); keys and labels; never a test installation; page opens are never public (final review 4)', db, async () => {
+  const i = STATS_KEYS.indexOf('shared');
+  assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['posts_drafted', 'posts_tapped', 'backers_after_post']);
+  assert.ok(!(STATS_KEYS as readonly string[]).includes('post_x_visits'), 'page opens from X stay internal');
+  for (const k of ['posts_drafted', 'posts_tapped', 'backers_after_post'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
+  assert.equal(statsFrom({ ...emptyRow, backers_after_post: 4 }, new Date(), false).backers_after_post, 0, 'flag off: 0');
+  const tag = `stats-posts-${process.pid}-${Date.now()}`;
+  const DAY = 86_400_000;
+  const tap = new Date(Date.now() - 10 * DAY);
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  const prevRaising = process.env.EARNKIT_RAISING;
+  process.env.EARNKIT_RAISING = 'on';
+  const code = () => Math.random().toString(32).replace(/[^a-z2-7]/g, '').padEnd(10, 'a').slice(0, 10);
+  try {
+    const out = await sql().begin('isolation level repeatable read', async (tx) => {
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const before = await readStats(new Date(), tx);
+      const people: number[] = [];
+      for (const n of [0, 1]) {
+        const [{ id }] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-${n}`}) RETURNING id`;
+        people.push(id);
+        await tx`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle) VALUES (${id}, ${`${tag}-${id}`}, ${`x${id}`}, ${`h${id}`})`;
+        const coin = `0x${String(id).padStart(40, 'c')}`;
+        await tx`INSERT INTO projects (program_id, name, installation_id, token_status, token_url, coin_address, raising_at)
+          VALUES ('earnkit-coin', 'Kit', ${id}, 'launched', 'https://tokens.fun/x', ${coin}, now())`;
+        // Two drafts: one tapped (3 opens from X), one never tapped.
+        await tx`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, asked, expires_at, taps, first_tap_at, visits, x_visits)
+          VALUES (${code()}, ${id}, 'weekly', ${`weekly:${tag}:${n}`}, 'change', 'Added search.', false, now() + interval '14 days', 2, ${tap}, 5, 3),
+            (${code()}, ${id}, 'went_live', ${`went_live:${tag}:${n}`}, 'live', 'Kit is live.', false, now() + interval '14 days', 0, NULL, 0, 0)`;
+        // Backers: one before the tap, two within 7 days after it (one wallet twice is one), one 8 days after.
+        const w = (k: string) => `0x${k.repeat(40)}`;
+        await tx`INSERT INTO coin_backers (coin, wallet, first_block, first_seen_at) VALUES
+          (${coin}, ${w('1')}, 1, ${new Date(tap.getTime() - DAY)}), (${coin}, ${w('2')}, 2, ${new Date(tap.getTime() + DAY)}),
+          (${coin}, ${w('3')}, 3, ${new Date(tap.getTime() + 6 * DAY)}), (${coin}, ${w('4')}, 4, ${new Date(tap.getTime() + 8 * DAY)})`;
+      }
+      const after = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(people[1]);
+      const withTest = await readStats(new Date(), tx);
+      throw Object.assign(new Error('rollback'), { result: { before, after, withTest } });
+    }).catch((e: { result?: Record<string, Record<string, number>> }) => {
+      if (!e.result) throw e;
+      return e.result;
+    });
+    const d = (k: string, a = out.after) => a[k] - out.before[k];
+    assert.deepEqual([d('posts_drafted'), d('posts_tapped'), d('backers_after_post')], [4, 2, 4]);
+    assert.deepEqual([d('posts_drafted', out.withTest), d('posts_tapped', out.withTest), d('backers_after_post', out.withTest)], [2, 1, 2], 'a test installation never counts');
+    assert.equal('post_x_visits' in out.after, false);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    if (prevRaising === undefined) delete process.env.EARNKIT_RAISING;
+    else process.env.EARNKIT_RAISING = prevRaising;
+  }
 });

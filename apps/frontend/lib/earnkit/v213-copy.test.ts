@@ -12,7 +12,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  INTRO_LINE, MOMENT_ASK, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat, momentHead,
+  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat, momentHead,
   qualifyLine, shipPointsLine, standingLine, youreIn,
 } from './bench-reply';
 import { fitWhy } from './bench-find';
@@ -21,7 +21,7 @@ import { fitWhy } from './bench-find';
 (globalThis as { React?: typeof React }).React = React;
 
 /** Builder and public text added in v2.13, checked by the v2.13 rule (plan B17). Names (projects, programs, $TICKERS) are exempt. */
-const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
+const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'Builder Codes', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
 const s = (rank: number, total: number) => ({ ranked: true, rank, total });
 export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19), s(70, 100)].flatMap((x) => [rankLine(x)!, scoreLine(62, rankLine(x))]),
@@ -29,10 +29,12 @@ export const TEXTS: string[] = [
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
   // v2.14 T9, R16a, v3.1 Task 16: the states' copy (STATE_COPY, VARIANT_COPY) and the owner-approved reply lines. R12: each
   // why the matcher can give (the page's fit lines).
-  INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000' }), introWhat(null), POINTS_ON_SIGN_IN, youreIn('maya'), POINTS_ON_CONNECT,
+  INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), introWhat(null), youreIn('maya'), TITLES_ASK,
+  grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' }), qualifyMissing('Recipe planner', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!, qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3),
+  qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk(3, 'earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
-  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4, place: 'now', rank: 3, points: 70 }), MOMENT_ASK,
+  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4, place: 'now', rank: 3 }), MOMENT_ASK,
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
     { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },
@@ -104,12 +106,12 @@ test('11.11 the profile\'s words pass the v2.13 rule; chain names only in the Ba
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
   assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
   // v3.1 Task 7: the approved Profile boards name commits ("279 commits", "This week: 14 commits"), the repo in the
-  // Builder Code highlight ("Found in the repo") and contracts ("[N] contracts on Base"), so those words are allowed on the
+  // Builder Code highlight ("Builder Code in the repo", owner-approved 2026-10-22) and contracts ("[N] contracts on Base"), so those words are allowed on the
   // profile; every other word is checked.
   const allowed = [String(/\bcommits?\b/i), String(/\brepos?\b/i), String(/\bcontracts?\b/i)];
   const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => !allowed.includes(w));
   assert.ok(bannedInBench('This week: 14 commits', []).every((w) => allowed.includes(w)));
-  const names = ['Maya Chen', 'Maya', 'Jenil', 'Sam', 'Recipe planner', 'EarnKit', 'Tipjar', 'Ledgerly', '$TIPJAR', 'Alliance ALL19', 'Base Builder Grant Program', 'Base Builder Code', ...Object.values(CHAIN_LABEL)];
+  const names = ['Maya Chen', 'Maya', 'Jenil', 'Sam', 'Recipe planner', 'EarnKit', 'Tipjar', 'Ledgerly', '$TIPJAR', 'Alliance ALL19', 'Base Builder Grant Program', 'Base Builder Code', 'Builder Code in the repo', ...Object.values(CHAIN_LABEL)];
   const exempt = [...names, 'https://recipes.app', 'earnkit.com', 'tipjar.xyz', 'github.com/sam/ledgerly'];
   const confirming = { ...DATA, project: { ...DATA.project!, confirmed: false } };
   for (const [d, site] of [[DATA, siteOf(DATA)], [confirming, siteOf(confirming)], [JENIL, JENIL_SITE], [MAYA, MAYA_SITE], [SAM, SAM_SITE]] as const) {
@@ -125,11 +127,11 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const c = await import('./site-copy');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
   // The owner-approved v3.1 Landing board names commits ("From commit to capital", "279 commits"), so that word of the
-  // v2.13 Bench rule is allowed on the landing. "repo" is allowed only inside the Connect step's own text ("Pick one
-  // repo."): the step is removed before the scan, so a repo word anywhere else still fails. Every other word is checked.
+  // v2.13 Bench rule is allowed on the landing. "repo" is allowed only in the steps' owner-approved phrases (clarity batch:
+  // "pick the repo you're building", "We match your repo to open grants"), so a repo word anywhere else still fails.
   const commits = String(/\bcommits?\b/i);
-  const banned = (t: string, exempt: string[]) => bannedInBench(t.split(c.STEPS[0].text).join(' '), exempt).filter((w) => w !== commits);
-  assert.ok(bannedInBench(c.STEPS[0].text, EXEMPT).includes(String(/\brepos?\b/i)), 'the Connect step is the one repo word');
+  const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => w !== commits);
+  for (const s of c.STEPS) assert.deepEqual(bannedInBench(s.text, EXEMPT), [], s.text);
   assert.ok(banned('Pick your repo.', EXEMPT).length > 0, 'repo outside the Connect step still fails');
   for (const t of [c.HERO_TITLE, c.HERO_SUB, c.CTA_INSTALL, c.STEPS_TITLE, ...c.STEPS.flatMap((s) => [s.title, s.text]), c.ACTIVITY_TITLE, c.ACTIVITY_MORE, c.ACTIVITY_INVITE_TITLE, c.ACTIVITY_INVITE_TEXT, c.EARN_TITLE, c.EARN_FOOT, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(banned(t, EXEMPT), [], t);

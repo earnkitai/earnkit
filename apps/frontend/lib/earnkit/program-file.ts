@@ -4,7 +4,7 @@ import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
 import { amountStated, poolStated } from './pool';
 import { STARTERS, type Starter } from './starters';
-import { apiPlatformOf, prefillKindOf, urlHost } from './submit-hosts';
+import { apiPlatformOf, prefillKindOf, proofHostAllowed, urlHost } from './submit-hosts';
 
 /**
  * The format of `programs/<slug>.json`, the file Claude Code writes when a
@@ -396,6 +396,26 @@ export const ProgramFile = z
       .refine((t) => !/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|xyz|io|org|app|net)\b/i.test(t), 'opens_note has no links')
       .refine((t) => !/—/.test(t), 'opens_note: no em dashes')
       .optional(),
+    /**
+     * v3.1 one-tap posts (owner ruling 3, fix round): the program's own X accounts (handles without @), only as its
+     * source page shows them. A post on one of these is proof of an outcome; empty (the default): no X post is proof.
+     */
+    x_handles: z.array(z.string().regex(/^[A-Za-z0-9_]{1,15}$/, 'an X handle, without @')).max(5).default([]),
+    /**
+     * Final review 1: the program's own hosts (exact lowercase hosts, no scheme or path) whose pages may prove a
+     * builder's accepted, funded or won outcome, a subdomain included. Only from the program's own source page and
+     * owner-reviewed; never a shared host (anyone can publish there). Empty (the default) with no x_handles: no link
+     * the builder sends is proof, and outcome posts come only from announced outcomes.
+     */
+    proof_hosts: z
+      .array(
+        z
+          .string()
+          .regex(/^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, 'an exact lowercase host, like "base.org"')
+          .refine(proofHostAllowed, 'not a shared host, a public suffix or earnkit.com'),
+      )
+      .max(5)
+      .default([]),
     /** v3 Stage 2: the program is attended in person (an in-person hackathon); the card adds "In person". */
     in_person: z.boolean().default(false),
     /** The day these facts were last checked against source_url (YYYY-MM-DD). */

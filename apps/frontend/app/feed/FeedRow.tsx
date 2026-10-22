@@ -60,8 +60,7 @@ export default function FeedRow({ c }: { c: FeedCard }) {
       </div>
       {c.score !== null ? (
         <span className="col-start-2 row-start-1 shrink-0">
-          <ScoreText score={c.score} size={32} />
-          <span className="sr-only"> Shipping</span>
+          <ScoreText score={c.score} size={32} unit="text-s-card-meta" />
         </span>
       ) : null}
     </article>

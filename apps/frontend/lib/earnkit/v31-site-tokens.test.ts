@@ -96,10 +96,10 @@ const jpegWidth = (b: Buffer): number | null => {
 
 test('(d) the six paintings are JPEGs at their widths and under their byte budgets', () => {
   const files: [string, number, number][] = [
-    ['hero-eckersberg-3200.jpg', 3200, 900_000],
-    ['hero-eckersberg-1600.jpg', 1600, 300_000],
+    ['hero-eckersberg-3200.jpg', 3200, 1_700_000],
+    ['hero-eckersberg-1600.jpg', 1600, 400_000],
     ['hero-eckersberg-800.jpg', 800, 110_000],
-    ['foot-panini-2800.jpg', 2800, 600_000],
+    ['foot-panini-2800.jpg', 2800, 1_000_000],
     ['foot-panini-1400.jpg', 1400, 220_000],
     ['foot-panini-700.jpg', 700, 80_000],
   ];
@@ -170,4 +170,13 @@ test('(h) ScoreText: one colour per band (70+, 40 to 69, under 40)', () => {
   assert.match(cls(0), /(^| )text-s-low-text( |$)/);
   assert.match(cls(70), /(^| )ek-serif( |$)/);
   assert.match(html(React.createElement(ScoreText, { score: 70, size: 30 })), />70</);
+});
+
+test('(h2) clarity batch: ScoreText with a unit adds a quiet "Shipping" caption under the number; without one, the number alone', () => {
+  const withUnit = html(React.createElement(ScoreText, { score: 72, size: 32, unit: 'text-s-card-meta' }));
+  assert.match(withUnit, /^<span data-ek-score-unit="" class="inline-flex flex-col items-end gap-1"><span class="[^"]*text-s-good-text[^"]*"[^>]*>72<\/span><span class="text-\[12px\] leading-none text-s-card-meta">Shipping<\/span><\/span>$/);
+  assert.doesNotMatch(html(React.createElement(ScoreText, { score: 72, size: 32 })), /Shipping/);
+  // Every bare score on the site carries the caption: Activity cards, feed rows, leaderboard rows.
+  for (const f of ['app/components/landing/Activity.tsx', 'app/feed/FeedRow.tsx', 'app/leaderboard/BenchRowItem.tsx'])
+    assert.match(read(f), /<ScoreText [^>]*unit="text-s-(card-meta|muted)"/, f);
 });

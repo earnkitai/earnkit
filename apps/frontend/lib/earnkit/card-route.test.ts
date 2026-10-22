@@ -1,3 +1,4 @@
+import { weeksEndingLast } from './fixtures/find';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -140,7 +141,7 @@ test('11.13 (v2.13 fix round 1) the card and the share post never name a confirm
   const text = async () => new URL((await share(new Request(`http://x/${handle}/share`), { params: Promise.resolve({ handle }) })).headers.get('location')!).searchParams.get('text');
   try {
     await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, main_project_key) VALUES (${id}, ${`bc${id}`}, ${`7${id}`}, ${handle}, ${key})`;
-    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak) VALUES (${id}, ${key}, 'Not Mine App', 'app', true, true, 3)`;
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, commit_weeks) VALUES (${id}, ${key}, 'Not Mine App', 'app', true, true, 3, ${weeksEndingLast(3)})`;
     await sql()`UPDATE builder_profiles SET identity = '{"projects":[{"name":"Not Mine App"}]}'::jsonb WHERE builder_id = ${id}`;
     // Confirming (no proof from the repo): the card and the post never name it.
     const f = (await benchCardFacts(id))!;
@@ -183,4 +184,82 @@ test('11.7 /<handle>/share: a 302 to the X intent with the headline and the page
     await sql()`DELETE FROM builder_projects WHERE builder_id = ${id}`;
     await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
   }
+});
+
+// ---- v3.1 one-tap posts, Task 5: each post's card at card.png?m=<code>, and the page's ?m ----
+
+test('Task 5: card.png?m=<code> draws that post\'s card (a PNG unlike the page\'s); another person\'s or an unknown code draws the page\'s; a rename keeps ?m', dbTest, async () => {
+  const { sql, card } = await loadV2121();
+  const { createDraft } = await import('./post-drafts');
+  const { handleMetadata, postOf } = await import('../../app/[handle]/handle-view');
+  const id = 2_147_000_000 + Math.floor(Math.random() * 100_000);
+  const other = id + 100_001;
+  const handle = `Pc${id}`.slice(0, 15);
+  const get = async (h: string, q = '') => card(new Request(`http://x/${h}/card.png${q}`), { params: Promise.resolve({ handle: h }) });
+  const bytes = async (r: Response) => Buffer.from(await r.arrayBuffer()).toString('base64');
+  try {
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name) VALUES (${id}, ${`pc${id}`}, ${`8${id}`}, ${handle}, 'Maya'), (${other}, ${`pc${other}`}, ${`8${other}`}, ${`Po${other}`.slice(0, 15)}, 'Other')`;
+    const grid = Array.from({ length: 12 }, (_, i) => i > 4);
+    const mine = await createDraft({ builderId: id, projectKey: 'k', moment: 'weekly', momentKey: `weekly:k:${id}`, shape: 'change', text: 'Added offline mode.', card: { project: 'Recipes', streak: 6, week: 6, summary: 'Added offline mode and fixed sync.', commits: 14, score: 72, rank: null, grid }, asked: false });
+    const theirs = await createDraft({ builderId: other, projectKey: 'k', moment: 'weekly', momentKey: `weekly:k:${other}`, shape: 'change', text: 'Added search.', card: { project: 'Other', week: 2, summary: 'Added search.' }, asked: false });
+    assert.ok(mine.ok && theirs.ok);
+    const page = await get(handle);
+    const post = await get(handle, `?m=${mine.draft.code}`);
+    assert.equal(post.status, 200);
+    assert.equal(post.headers.get('content-type'), 'image/png');
+    const pageBytes = await bytes(page);
+    assert.notEqual(await bytes(post), pageBytes, 'the post\'s own card');
+    assert.equal(await bytes(await get(handle, `?m=${theirs.draft.code}`)), pageBytes, 'another person\'s code: the page\'s card');
+    assert.equal(await bytes(await get(handle, '?m=zzzzzzzzzz')), pageBytes);
+    const moved = await get(handle.toLowerCase(), `?m=${mine.draft.code}`);
+    assert.deepEqual([moved.status, moved.headers.get('location')], [308, `/${handle}/card.png?m=${mine.draft.code}`]);
+    const bad = await get(handle.toLowerCase(), '?m=x%22y');
+    assert.equal(bad.headers.get('location'), `/${handle}/card.png`, 'a malformed code never reaches the Location');
+    // The page's metadata: ?m=<own code> points og:image at that post's card; anything else at the page's.
+    const img = async (q: Record<string, string>) => {
+      const m = await handleMetadata(handle, postOf(q));
+      return (m.openGraph?.images as { url: string }[])[0].url;
+    };
+    assert.equal(await img({ m: mine.draft.code }), `/${handle}/card.png?m=${mine.draft.code}`);
+    assert.equal(await img({ m: theirs.draft.code }), `/${handle}/card.png`);
+    assert.equal(await img({ m: '../../evil' }), `/${handle}/card.png`);
+    assert.equal(await img({}), `/${handle}/card.png`);
+  } finally {
+    await sql()`DELETE FROM post_drafts WHERE builder_id IN (${id}, ${other})`;
+    await sql()`DELETE FROM builder_profiles WHERE builder_id IN (${id}, ${other})`;
+  }
+});
+
+test('final review 8: the page\'s redirects (another case, a rename) keep ?m=<code>, so the visit counts and the post\'s card stays', dbTest, async () => {
+  const { sql } = await loadV2121();
+  const { HandleView } = await import('../../app/[handle]/handle-view');
+  const id = 2_147_000_000 + Math.floor(Math.random() * 100_000);
+  const handle = `Pr${id}`.slice(0, 15);
+  const code = 'abcdefghij';
+  const where = async (o: { handle: string; path: string; post: string | null }) =>
+    HandleView({ ...o }).then(() => 'rendered', (e: { digest?: string }) => String(e.digest).split(';').slice(2, 3).join(''));
+  try {
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name) VALUES (${id}, ${`pr${id}`}, ${`8${id}`}, ${handle}, 'Maya')`;
+    assert.equal(await where({ handle: handle.toLowerCase(), path: `/${handle.toLowerCase()}`, post: code }), `/${handle}?m=${code}`);
+    assert.equal(await where({ handle: handle.toLowerCase(), path: `/${handle.toLowerCase()}`, post: null }), `/${handle}`);
+  } finally {
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+  }
+});
+
+test('Task 5: a visit carrying ?m counts on that post (from X apart: a t.co referrer); a bot never; only a number is kept', async () => {
+  const { visitFrom } = await import('./post-drafts');
+  const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+  assert.equal(visitFrom(safari, 'https://t.co/'), 'x');
+  assert.equal(visitFrom(safari, 'https://x.com/maya/status/1'), 'x');
+  assert.equal(visitFrom(safari, 'https://www.google.com/'), 'web');
+  assert.equal(visitFrom(safari, null), 'web');
+  for (const bot of ['Twitterbot/1.0', 'facebookexternalhit/1.1', 'Slackbot-LinkExpanding 1.0', 'curl/8.4.0', 'Mozilla/5.0 (compatible; Discordbot/2.0)', 'Googlebot/2.1'])
+    assert.equal(visitFrom(bot, 'https://t.co/'), null, bot);
+  assert.equal(visitFrom(null, 'https://t.co/'), null);
+  // The page counts it (handle-view.tsx countVisit: post-drafts noteVisit, the count only).
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const src = readFileSync(join(import.meta.dirname, '../../app/[handle]/handle-view.tsx'), 'utf8');
+  assert.match(src, /noteVisit\(code, builderId, from === 'x'\)/);
 });

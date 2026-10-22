@@ -7167,6 +7167,52 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   and the `needs`, `idea` and `points` FundLine kinds. Tests: `bench-reply.test.ts` (each reply, pure),
   `v31-reply-copy.test.ts` (the journey through mcpCall), `v31-draft.test.ts` (step 6).
 
+## v3.1 reply fixes for the vibecoding founder (owner-approved, 2026-10-22)
+
+The ideal user is a non-technical solo founder who vibecodes (Lovable, Bolt, v0, Replit). Changes on top of Task 16
+(exact lines in `v3.1-founder-power-user.md`, "Reply copy changes 2026-10-22"):
+
+- **No points in the first two replies.** `benchReply` drops the points line from signed out (step 1) and step 2;
+  `POINTS_ON_SIGN_IN` and `POINTS_ON_CONNECT` are gone. Every later points line stays.
+- **The honest hook.** `OpenGrant` gains `chain` (`base-qualify.ts grantOf`: the program's one chain's name, null for
+  any chain or several); `bench-reply.ts grantHook` writes "Base pays up to $5,000 for apps on Base." (any chain: "for
+  apps."). `introWhat` uses it; `bench-find.ts openGrant` builds it with `grantOf`.
+- **Step 2 in plain words.** `pickRepoAsk`: "Step 2 of 2: connect your app's code on GitHub. ..." plus `NO_GITHUB_HINT`
+  (Lovable and Bolt only, the confirmed ones in `v3.1-install-research.md`; a statement so the reply keeps one
+  question). App pages (`github-app.ts`): `PICK_HINT` "Choose Only select repositories and pick your app." (GitHub's
+  own labels) in `PICK_PAGE.none` and `APP_PAGE.notListed`; `TEMPLATE_HINT` in `PICK_PAGE.noneCounted`;
+  `VARIANT_COPY.copy` carries the same way out as a statement.
+- **No fit leads to money (`qualify`).** A ranked reply whose step would be ship, with no fit at all (`o.fits` empty),
+  asks `qualifyAsk` instead when `base-qualify.ts qualifyOffer` returns an offer: Base Builder Grants is in the shown
+  cards (`showable`: open, listed, not entered or hidden) with an award, not declined within `DECLINE_MS`
+  (`declined['qualify:<key>']`), and not in `builder_program_status`. Its three steps come only from the program
+  file's rules (`QUALIFY_STEPS`: base, codes, use). Each step's status (`qualifyStatus`) comes from the matcher's own
+  verdict for the remembered repo (`installations.fit_repos`, `alerts.ts programVerdict` = applyBuilderFacts +
+  matchRepo): base is met when the matcher credits a Base deploy and has no `mainnet_deploy` missing, use is met only on
+  a likely verdict and missing on `live_url`/`real_users`; codes from `repo_builder_codes` (only for an App-proven
+  repo). A step is dropped only when known met, named missing (`qualifyMissing`) only when known missing; every step met
+  is no offer (`qualifyPlan` null: never a claim of eligibility). The reply: standing, `grantHook`, the missing line, the
+  question ("Want the 3 steps to qualify for Base's $5,000 grant?"; fewer: "toward"), the ship points line; the
+  upcoming program's line yields to it (`moneyLine({ upcoming: false })`). The stored ask carries `qualify: { grant,
+  steps }`; `benchMoveUp` kind `qualify` (taken once) answers a yes with `qualifySteps` (numbered lines, the Builder
+  Codes guide `BUILDER_CODES_GUIDE` as the one link, `QUALIFY_NEXT`, `QUALIFY_HELP_ASK`) and `QUALIFY_STEPS_NOTE`; a no
+  keeps it away 30 days and the ship step returns. Closed, unlisted or hidden: the ship step as before. Fix round 1: a
+  yes is remembered too (`standing_seen.qualify_given[<lowercase key>]`, held back `DECLINE_MS`); the missing line shows
+  only when every remaining step is known missing (`qualifyMissing(name, { missing, steps })`), so it names exactly the
+  steps the question counts; `qualifyOffer` starts `refreshBuilderCodes` for an App-proven repo (background, once a day
+  through `repo_builder_codes_attempts`, `codesFetch` injectable), backing `QUALIFY_NEXT` ("I check your code for
+  Builder Codes and offer to draft your application once Base fits.").
+- **Private repo titles (`titles`).** `updates.ts titlesAskDue`: the one project is App-proven, GitHub said it is
+  private (proof read: `gh_repo_id` set and `public_at` null, or the latest reading's `signals.private`) and it doesn't
+  read public now, it is the main project (`mainProjectOf`, the project `setShipTitles` turns on), `ship_titles_at` is
+  null and `standing_seen.titles_asked` is unset; `takeTitlesAsk` claims it once.
+  Asked in the connect yes reply when no draft is offered (`bench-find.ts connectTitles`, before the email question),
+  else as a ranked step after share and before qualify/ship. `TITLES_ASK` "Show your commit titles on your page? Your
+  code stays private."; a yes is `setShipTitles(id, { titles: true })` (the same path as tell `updates { titles }`).
+- Ranked order is now connect, apply, backing, share, titles, qualify or ship. Tests: `v31-reply-fixes.test.ts` (pure
+  copy, statuses from real `matchRepo` verdicts, closed fallback, and the qualify and titles journeys through mcpCall);
+  `fixtures/ranked-step.ts endsOnRankedStep` accepts the qualify question.
+
 ## v3.1 replies: P0 Tasks 2, 3, 5, 6, 7, 8 and 9 (Tasks 1, 4, 10 and 16 are above)
 
 Release 1 of v3.1 (spec `v3.1-founder-power-user.md`, plan `v3.1-plan-p0.md`). Tasks 1, 4, 10 and 16 have their own sections
@@ -7252,7 +7298,8 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   `PAGE_COL_WIDE` column (`gap-[72px] md:gap-32`): `landing/Hero`, `landing/Steps`, `landing/Activity`,
   `landing/Opportunities` (the `#earn` anchor that `/programs` and the hero chip land on), then the full `Footer`.
   `landing === null` renders the hero (no chip) and the steps only. Backed by left (S19).
-- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; 44px on a phone,
+- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; install fixes
+  2026-10-22: only programs open to Base builders, `openToBase`, "$5K in Base grants open now", none when none; 44px on a phone,
   36px from md), the one-line Kaftan title (`clamp(36px,9.6vw,96px)`, `whitespace-nowrap`), the sub line, the white
   `CTA_INSTALL` button (opens the install sheet) and the four `AgentMark`s (now `currentColor` + `text-s-text`).
 - **HeroArt (client).** One `ek-drift` layer (`data-hero-art`) holding the painting (`<img srcSet>` of the three
@@ -7261,7 +7308,7 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
   only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
   `useReducedMotion()` no listener is attached.
-- **Steps / Activity / Opportunities.** Steps append "Backers can buy in." only with `raisingEnabled()`. Activity is
+- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "People can back you by buying your coin." only with `raisingEnabled()`. Activity is
   `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
   else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
   none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour
@@ -7280,11 +7327,40 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
 - **Last shipped / this week.** The one project's verified repo source, its `week-facts.ts shipReading` (now exported):
   `signals.pushed_at` (null if absent, unparsable, in the future, or the project not Bench-confirmed) and
   `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
-- **Highlights (W8).** Verifiable facts only, at most 5: live since (first up day of a verified site source), Base Builder
-  Code (Base projects, App-proven repo, stored answer only; never starts a check), contracts on Base (verified
-  `base:` contract sources plus EarnKit `contract_deploys`, distinct addresses), won/applied (`page-data.ts
-  projectProgramsDated`, at most 2), shipping since. No confirmed project: one "On EarnKit since" item. A hidden repo's
-  site is left out when its host is GitHub's or carries the repo name.
+- **Highlights (W8, redesigned 2026-10-22).** Every item is a fact a judge can check in one click and links its proof
+  (`Highlight.href`, new tab, `rel="noopener noreferrer"`); at most 5, in order, each only when true:
+  1. live: "Live at <host>" for a verified site source whose newest ok reading is up (down at its last read: no item;
+     a failed read, ok false, is EarnKit's failure and never hides it),
+     sub "Up N of the last D days checked" (`liveSub`: D the days of the last 30 EarnKit read the site, a day not read
+     counts nowhere; from 7), else "Since <Mon YYYY>"; one query; links the site's https origin (`siteHref`). Owner
+     ruling (fix round 1): a proven site shows though the repo is private; only a hidden repo's GitHub-hosted site is
+     left out (`shownProjects`' link rule).
+  2. contract: "N contracts on Base" (verified `base:` sources plus EarnKit `contract_deploys`, distinct), sub "First
+     deployed <Mon YYYY>" only when every counted contract has a known time (`contract_deploys.created_at`;
+     `builder_sources.deployed_at`, kept by `sources.ts claimContract` at verification and backfilled by
+     `contract-origins.ts`), else "Verified onchain"; links Basescan (`basescanHref`), the earliest when dated.
+  3. code: "Builder Code in the repo" (Base projects, App-proven repo, stored answer only), sub "Base, checked <Mon D>";
+     links the file (`repo_builder_codes.path`, `githubFileHref`, the ship reading's `default_branch`, else `HEAD`).
+  4. repo: "Building <name> since <Mon YYYY>" from the ship reading's `created_at`, sub "<N> commits" (or "... in the
+     last year" for a repo older than the read's 52 weeks) from `commits_year` (GraphQL `history.totalCount`, already
+     asked; `person-github.ts repoFrom` now keeps it and `default_branch`); a hidden repo's name never shows ("Building since").
+  5. won/applied (`page-data.ts projectProgramsDated`, at most 2, sub "<Mon YYYY>"), linked to `/programs/<id>` only
+     when that guide page exists (`guide-pages.ts guideProgramSql`, the predicate `landing.ts readGuideIds` uses: a
+     file program, not a campaign, not unlisted). A guide link opens in the same tab; other proof in a new tab.
+  A repo link (items 3 and 4) needs the repo shown public and a reading that is not private: never a link to a 404. No
+  confirmed project: one "On EarnKit since" item; a confirmed one with none of the five: "On EarnKit since", "On the
+  leaderboard". The weeks-in-a-row line moved out (the Streak card owns it). A hidden repo's site is left out when its
+  host is GitHub's or carries the repo name.
+- **Builder Codes daily.** `cron.ts runCron` runs `builder-codes-check.ts runBuilderCodes` (GitHub App on) after the
+  weekly email, in its own slice (`builderCodesSliceEnd`, at most `BUILDER_CODES_SLICE_MS` = 1 minute): the App-proven
+  repos of Base projects not attempted within the day and whose stored answer is missing or a day old
+  (`builderCodesDue`, at most `BUILDER_CODES_PER_RUN` = 50). Every attempt, success or failure, is stored
+  (`repo_builder_codes_attempts`, claimed atomically by `claimAttempt`), so a failing repo waits a day and never holds
+  a slot, and find, prepare and the cron share one attempt a day across processes. Answer: `builder_codes: { due,
+  checked, found }`.
+- **Contract origins backfill.** `contract-origins.ts backfillContractOrigins`, after the email in the same slice rule:
+  verified Base contract sources without `deployed_at`, at most 20 a run, Blockscout's creation time (free), each asked
+  once or again after a week without a time (`builder_sources.origin_read_at`). Answer: `contract_origins: { due, dated }`.
 - **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
   10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is the place, "#N of M builders" (" on Base" for the Base pool; `rank.ts rankLine` only guards validity).
 - **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC
@@ -7333,9 +7409,10 @@ page description now. Test: `v31-site-feed.test.ts`.
 `/docs` (`app/docs/DocsView.tsx`, `InstallCard.tsx`) is the Docs board in the 1200px column, rendered per request
 (W9: `raisingEnabled()` is read at run time, no DB read). A panel side nav to the five anchors (a wrapping row above
 the article below lg), the light install card (H1, `InstallCard`: agent tabs on a `SegTabs` 'light' rail in `AGENTS`
-order, Grok Bot first; `AgentPanel` shows the agent's steps as one line, `agent.code ?? MCP_URL`, then `after` /
+order, Grok Bot first, wrapping onto more rows; `AgentPanel` shows the agent's note, its steps (numbered from two), `agent.code ?? MCP_URL`, then `after` /
 `afterCode`, each block with a copy button that announces "Copied" in an `aria-live` region; no command text lives
-outside `agents.tsx`), three numbered steps, the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
+outside `agents.tsx`), three numbered steps, "No GitHub yet?" (`#github`, `DOCS_GITHUB`: Lovable and Bolt steps, the
+v0 note "Publish so your work reaches main", which matters because EarnKit reads the default branch), the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
 `#money`: "Programs" and no Backing sentence while raising is off), and the blue selectors strip with the builder JSON
 URL. The 404 is the NotFound board's rust card with the full footer. The program guide and terms pages only moved to
 `PAGE_COL` with Kaftan titles (structure unchanged; terms keeps the risk disclosure). Test: `v31-site-docs.test.ts`.
@@ -7370,7 +7447,7 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   closed (null). `feedWeekStats` is cached per week (`feed-stats-v31`, 300s, `PROFILE_TAG`) and a failed read hides the four
   cards. `readLanding` rejects when the database is down and the page renders the hero and steps only (the landing cache key
   is `landing-v31-<raising|off>`); a feed with fewer than 3 cards adds the invite card, none hides Activity; a chip of $0 is
-  hidden. `site-streak.ts withThisWeek` makes the grid, the streak count and Highlights agree.
+  hidden. `site-streak.ts withThisWeek` makes the grid and the streak count agree (Highlights no longer repeats the streak).
 - **The Backing guard.** The Token card, the leaderboard's Backed filter and the Backed tag exist only while `raisingEnabled()`
   (`EARNKIT_RAISING`) and never for EarnKit's own repos (`site-data.ts tokenAllowed`, `bench-data.ts benchRows`). Docs reads the
   flag per request. A page never offers Backing for `earnkitai/earnkit`.
@@ -7406,7 +7483,7 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   (`BenchView countLine`; the 10-ranked rule still reads the pool); the profile's two card rows share one grid template
   (one seam from 844px); the docs side nav lights the section in view (`DocsNav readingNow`); an unranked score ring is an
   empty track (no glyph); the phone hero's shade rises and its chip is dark glass (`heroChipPhone`); sideways rails fade a
-  cut edge (`FadeRail`, `SegTabs RAIL_FADE`); one 404 title "Not found | EarnKit" (`NOT_FOUND_METADATA` in `site-copy.ts`; a page that
+  cut edge (`FadeRail`, `SegTabs RAIL_FADE`; install fixes 2026-10-22: the agent tabs wrap instead, in the sheet too); one 404 title "Not found | EarnKit" (`NOT_FOUND_METADATA` in `site-copy.ts`; a page that
   calls `notFound()` keeps its segment's metadata in the browser, so each such route returns it from `generateMetadata`). The feed's row order (pinned, then the week's progress points,
   then the live score; v2.13 R7 "ranked by verified progress") is intended and unchanged.
 
@@ -7448,3 +7525,111 @@ the rewritten replies (Task 16). They are not repeated here.
 - **Rulings.** Task 11 (Monday X post) is superseded by Task 16 step 7 (`MOMENT_POST_HEAD`, `momentPost`, no intent link, shipped
   in release 1). Task 13 (page hides: Originality, points, grid) is superseded by the site plan (profile rewritten; no
   Originality, points or grid on pages; docs has no points); the site design is frozen and owner-approved.
+
+## v3.1 one-tap posts (design: v3.1-one-tap-posts.md, owner rulings 2026-10-22)
+
+Backing volume comes from builders posting on X, and builders rarely post. EarnKit drafts the post; the reply's one link is
+a short earnkit.com link that opens X's composer prefilled; the builder taps Post; the page link in the post unfurls that
+post's own card. No X API, no model call, no new service. (Task 16 step 7's `MOMENT_POST_HEAD`/`momentPost` paste post is
+gone; the Monday moment now carries a drafted post.)
+
+- **Store (`post-drafts.ts`, `post_drafts`).** One row per draft, keyed by a 10-character base32 code. `moment` and
+  `moment_key` (`weekly:<project>:<week>`, `went_live:<project>`, `won:<program>`, `coin_intro:<coin>`, `news:<project>:<at>`)
+  drive the cooldowns; `asked` splits builder-asked drafts from offered ones; `proof_url` keeps the public page that verified
+  an accepted, funded or won moment; `card` freezes the moment's facts for the card. Limits are checked and written under a
+  per-person advisory lock: 1 offered a 7 days (went live, won and funded skip it, `PAST_OFFER_LIMIT`, controller ruling:
+  a real win is never crowded out by an ordinary weekly), 1 asked a 24 hours, 3 in all a 7 days. A draft lives 14 days. A tap is a
+  number only (no IP, no user agent): `taps` stops at 100, `first_tap_at` is kept, `post_tapped` is recorded once; visits
+  carrying `?m=<code>` (Task 5) count apart, and from X apart, capped. Events `post_drafted` and `post_tapped` are in
+  `EVENT_TYPES` and in every `builder_events_type_check` re-add.
+- **Writer (`post-writer.ts`, pure).** Shapes from the design plus `this_week` ("This week: <summary>"), the second wordings
+  `live_alt`, `won_alt`, `accepted`/`accepted_alt`, `funded`/`funded_alt`, and `coin_intro` (owner ruling 1: "<Name> has a coin
+  now, $SYM. <n> weeks shipping so far.", the only shape that may name the ticker, once ever). Rotation: never one of the
+  person's last 2 shapes and never the last post's opening word, relaxed to "not the last shape"; a weekly with nothing that
+  fits is no post, an event takes its first wording that passes. The builder's note wins and goes in verbatim unless it holds
+  a shill word, hashtag, cashtag or link (their own "!" stays). Every EarnKit-written text passes `postProblems` (the design's
+  banned list, test-enforced) and stays under 200 characters.
+- **Moments (`post-moments.ts`).** `offeredMoment` reads existing data in order: an announced win (`entry_outcomes` basis
+  `announcement` with its `source_url`, the proof), going live (`week-facts.ts firstLiveAt`, extracted from `weekFactsFor`; it
+  settles 2 days so a flapping site probe never posts, and is stale after 14), the coin intro (`raising.ts pillCoin`: launched,
+  backing open, `EARNKIT_RAISING` on), last week (facts, the summary as the profile shows it via `weekLineRule`, the note via
+  `checkUpdate`, the streak; milestones 4, 8, 12, 26, 52 fold in). `verifiedOutcomeCandidate` (owner ruling 3) drafts accepted,
+  funded or won only with a proof link that `proofUrlOk` accepts: https, an X post (`x.com/<user>/status/<id>`) or the program's
+  own site (its source or submission link's domain), never earnkit.com, the builder's own site or repo; EarnKit does not fetch
+  it. `newsCandidate` is the builder's `tell update` text. Never a post: backing opened, applied, first users, a streak alone, a
+  self-reported win without proof, a private project's name (name-led shapes need a shown name). `draftMoment` writes and stores.
+- **Tap route (`app/[handle]/post-response.ts`).** `/<handle>/post/<code>` and `/b/<handle>/post/<code>`: the code is checked
+  first, then the live row as the card checks it (hidden or unknown 404, rename 308 to the page's own post link), then the code
+  must be this person's (else 404); expired goes to the page; otherwise the tap counts and a no-store 302 opens
+  `x.com/intent/post` with the row's text and `https://earnkit.com<page>?m=<code>`, encoded with `URLSearchParams`. Nothing in
+  the request reaches the target.
+- **Card (`post-card.ts`, `app/[handle]/post-card-image.tsx`, Task 5).** `draftMoment` freezes the card's facts with the
+  draft (`freezeCard`: the shown project, streak, Shipping while a score line shows, the rank phrase only from
+  RANK_MIN_POOL, the 12 weeks of code; the moment's own facts on top). The post's page link carries `?m=<code>`:
+  `handleMetadata(handle, post)` points og:image at `card.png?m=<code>` when the code is this person's (X caches a card
+  per URL), and `cardResponse(handle, path, m)` draws `postCardView` (pure): `number` (weekly, went live, news),
+  `milestone` (4, 8, 12, 26, 52 weeks) or `text` (verified win, acceptance, funding; coin intro). The Backing pill and
+  backer count are live (`pillCoin`: EARNKIT_RAISING on; backers from 5); never a price; an accepted, funded or won draft
+  without `proof_url` draws the page's card. Fonts: Kaftan Serif from `assets/fonts/kaftan-serif.woff` beside Funnel
+  Display (`loadFonts`). A rename's 308 keeps a well-formed `?m`. A page open with `?m` counts a visit (`HandleView`
+  `countVisit`: `visitFrom` on the user agent and referrer, bots never, t.co or x.com as from X; only the counts are kept).
+- **Replies (`post-reply.ts`, `bench-reply.ts`, Task 6).** Copy (owner ruling 5: no points in post replies): the Monday
+  moment is `Week <n> done. You're <now|still #r|on EarnKit>.` then either `Your post for X, with your page card:`,
+  the post in quotes, `Post it in one tap: <short link>`, or `Your page: <page>`, then `Does last week look right?`
+  (`weeklyPost`, numbered as the head names the week). Events (`eventPost`: an announced win, going live, the coin's
+  intro; `offeredMoment(..., { weekly: false })`) reply `<head>` + the post block + `Want a different version?`
+  (`eventHead`: "<Name> went live this week." (else "is live." past 7 days), "<Name> won the <program>.", "Backing is
+  open on your page.", else "Added to your page."). Order in `benchView`: connect, a hot event (went live or won under
+  `HOT_HOURS` 48 since it could be posted: `MomentCandidate.at`), apply, backing, the Monday moment, an event, titles,
+  qualify, ship. The event stores its own ask (`bench_ask { kind: 'post', code, head, moment }`); the yes
+  (`redraftAnswer`) drafts the next shape as asked, else `redraftLine` (today's limit, the only wording, or the builder's
+  own words) with the post they have. `tell update { text }` posts to the page and, through `newsPost`, replies with the
+  news as their post (24 h apart; else the update's own reply). `tell program_status` accepted, funded or won takes
+  `proof_url` (MCP schema, `builder-memory.ts ProgramStatus`; the outcome notes tell the agent to open a public page and
+  pass it); `outcomePost` drafts only with a link `proofUrlOk` accepts, else replies `PROOF_ASK` ("Send me a public link
+  that shows it, like the program's post.") with `PROOF_NOTE`. `SHARE_NOTE` and `POST_NOTE` say "Show the post text
+  exactly as given. Never rewrite it."
+- **Fix round (review and security check, controller rulings).** Proof (`proofUrlOk`, owner ruling 3): only a page
+  on the program's own listed host or a subdomain (www. aside; never a multi-label public suffix such as co.uk, never a
+  shared host in `SHARED_HOSTS`: github.io, github.com, dorahacks.io, questbook.app, forms.gle, vercel.app, netlify.app,
+  notion.site, medium.com, mirror.xyz, paragraph.xyz and kin, never ethglobal.com/showcase, never the listing page
+  itself), or an X status by one of the program's `x_handles` (program file field, synced to `programs.x_handles`;
+  empty everywhere today, so X proof is off until a handle is verified from a program's own source); never the
+  builder's own X account, site or repo, never earnkit.com. An outcome post also needs `hasEntry` read before the tell
+  is stored: an entry (`projects`), an application told (`builder_program_status.applied_at`, kept through later
+  statuses), or a verified outcome drafted before; the award is only an announced prize (`entry_outcomes` basis
+  announcement), never `prize_usd` from the agent. Notes: a builder's note with a hype word, two or more emoji, "!!",
+  an em dash or a link falls back to EarnKit's wording. Writer: `hasLink` (any word.letters host but `NOT_LINKS` such as
+  Node.js), emails refused, a hashtag only as # then a letter, no @mention in EarnKit text, `lowered` only for a verb or a
+  plain word ("Stripe", "New York" keep their case). Taps: `countsAsTap` ignores HEAD and unfurlers or scripts
+  (`visitFrom`), no header kept. Moments: went live also needs the project up now (`upNow`: an up site reading within
+  `UP_WITHIN_DAYS` 3, an EarnKit-hosted site serving, or a deployed contract); the coin intro only within 14 days of
+  `coin_launched_at`; the moment's hold runs again inside `createDraft`'s per-person lock (`NewDraft.hold`); a different
+  version only of the latest, unexpired draft. Replies: accepted or funded have no head (the reply starts at "Your post
+  for X, with your page card:"); news asks "Want to change any words?" and its yes asks for new words (`NEWS_REWORD_NOTE`), which
+  `tell update` then puts in the same draft (`rewordDraft`: same code, key and link). `events-redact` lists
+  `post_drafts.card` and `post_drafts.proof_url`.
+- **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0) and
+  `backers_after_post` (distinct person and wallet first seen within 7 days after a first tap on an open backing; 0 while
+  EARNKIT_RAISING is off; correlation only), people only (`notTest`); labels in `STATS_LABELS`; the route's cache key
+  moved to `public-stats-posts`. Page opens from X (`post_drafts.x_visits`) are internal only (final review 4).
+- **Final review fix wave (2026-10-23).** (1) Proof hosts are an owner-reviewed allowlist: program files may list
+  `proof_hosts` (exact lowercase hosts, at most 5; `program-file.ts` refuses a shared host, a public suffix or
+  earnkit.com via `submit-hosts.ts proofHostAllowed`, which now holds `SHARED_HOSTS` and `MULTI_SUFFIXES`), synced to
+  `programs.proof_hosts`. `proofUrlOk` takes `ProofContext.proofHosts` and never derives a host from `source_url` or
+  `submission_url` (those pages stay excluded as proof). A program with neither `proof_hosts` nor `x_handles` (all of
+  them today) gives `verifiedOutcomeCandidate` 'no_proof_source', and `outcomePost` replies `OUTCOME_NOTED`
+  ("Congrats. Saved.") instead of `PROOF_ASK`; its outcome posts come only from announced outcomes. (2) The writer's
+  link rule exempts the project's shown name exactly (`postProblems(..., { name })`; never a name with a scheme, www. or
+  a path), so a private repo named by its site host ("earnkit.com") gets every named shape. (3) `eventPost` drafts the
+  first of `offeredMoments` that drafts (one that can't gives way to the next) and, when none can, remembers that in
+  process for the UTC day under `eventStamp` (one query: coin launched or backing opened, announced outcome, hosted
+  deploy, main project), so a quiet reply reads one stamp instead of about 10 queries; going live that settles later
+  in the day waits for the next day. (4) `noteVisit` counts at most `VISIT_DAY_CAP` (20) opens per post per UTC day
+  (`post_drafts.visit_day`, `day_visits`; nothing about the visitor stored). (5) EarnKit's post wording turns "?" into
+  "."; a note with "?" falls back to EarnKit's wording (their news with "?" is no post). (6) `checkBuilderCodes` takes
+  the cron slice's `deadline`: each read's timeout is min(10 s, time left) (`AbortSignal.any`), and no read starts past
+  it. (7) `page-data.ts SHARED_PLATFORMS` adds the vibecoder hosts (lovable.app, lovable.dev, replit.dev, bolt.new,
+  framer.website, framer.app, webflow.io, wixsite.com, carrd.co, railway.app, github.io and kin). (8) The page's
+  redirects (another case, a rename, a reserved handle at the root, an old /b slug) keep `?m=<code>`. (10)
+  `benchCardFacts`, `postCardFacts` and `personFacts` use `avatarUrl(x, github_login)` like the page.

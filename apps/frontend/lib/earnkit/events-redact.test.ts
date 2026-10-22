@@ -162,6 +162,20 @@ test('12.3 the listing finds the login and wallet in rate-limit keys, and the lo
   assert.match(r.out, /\n  repo_public_reads\.repo_key: 1\n/, 'an owner part only, never a substring');
 });
 
+test('fix round: the listing names a post draft\'s frozen card and its proof link', dbTest, async () => {
+  const t = tag();
+  const login = `pd-${t}`;
+  const db = sql();
+  const [{ id }] = await db<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`pd-${t}`}) RETURNING id`;
+  await db`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, card, asked, proof_url, expires_at)
+    VALUES (${`a${t}`.replace(/[^a-z2-7]/g, 'a').padEnd(10, 'a').slice(0, 10)}, ${id}, 'won', 'won:x', 'won', 'Kit won the X.', ${db.json({ repo: `https://github.com/${login}/kit` } as never)}, false,
+      ${`https://${login}.github.io/won`}, now() + interval '14 days')`;
+  const r = run('--login', login);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /\n  post_drafts\.card: 1\n/);
+  assert.match(r.out, /\n  post_drafts\.proof_url: 1\n/);
+});
+
 test('12.3 owner-run only: no package script, predeploy, Railway config, cron or app code runs the script', () => {
   for (const f of ['package.json', 'apps/frontend/package.json', 'railway.toml', 'apps/frontend/railway.toml'])
     if (existsSync(join(root, f))) assert.doesNotMatch(readFileSync(join(root, f), 'utf8'), /events-redact/, f);
@@ -228,7 +242,7 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
   try {
     const dry = run('--login', X);
     assert.equal(dry.code, 0, dry.err);
-    assert.match(dry.out, /Page data that --apply will clear or delete \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1\)/);
+    assert.match(dry.out, /Page data that --apply will clear or delete \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0\)/);
     assert.deepEqual(await count(idX), [1, 1, 1, 1, 1, 1]);
     assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
 
@@ -241,7 +255,7 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
 
     const r = run('--login', X, '--apply');
     assert.equal(r.code, 0, r.err);
-    assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1\)/);
+    assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0\)/);
     const px = await profile(idX);
     for (const k of ['x_user_id', 'x_name', 'x_avatar_url', 'reported_github', 'base_builder_code', 'github_basis', 'x_handle', 'fallback_handle']) assert.equal(px[k], null, k);
     assert.equal(await boundTo(X), 0, 'v2.14: its installations are unbound from the X account');

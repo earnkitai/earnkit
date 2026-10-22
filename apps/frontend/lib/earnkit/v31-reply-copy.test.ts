@@ -63,11 +63,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
     'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 right now.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
     '',
     `Step 1 of 2: sign in with X (one click): ${signIn}`,
     'Done?',
-    '+30 points when you finish step 2',
   ].join('\n'));
 
   // Step 2: signed in, no repo (the picker), then a named repo the App can't count yet (its install link).
@@ -87,9 +86,9 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   const step2 = (link: string) => [
     `You're in, @${handle}.`,
-    `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}`,
+    `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
     'Done?',
-    "+30 points when it's connected",
   ].join('\n');
   const s2 = rule(show(await mcpCall({ ...ctx, matchProjects: none }, 'find', {})));
   assert.equal(s2, step2(links(s2)[0]!));
@@ -160,8 +159,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     VALUES (${p.id}, '2026-10-18', 0, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true) ON CONFLICT DO NOTHING`;
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${c.id}, '2026-10-18', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true) ON CONFLICT DO NOTHING`;
-  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${c.id}, ${key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary) VALUES (${c.id}, ${key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)}, 'Added tipping in one tap.')
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts, summary = EXCLUDED.summary`;
   const weeks = ['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12'].map((d) => isoWeekOf(new Date(`${d}T12:00:00Z`)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[] WHERE builder_id = ${c.id}`;
   // Read just now (the daily read's), so this reply never re-reads GitHub (the fake is offline by now).
@@ -169,14 +168,19 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await sql()`UPDATE source_live SET read_at = ${new Date()} WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${c.id})`;
   const r7 = await mcpCall(ctx, 'find', {});
   const s7 = rule(show(r7));
-  // The yes awards the points of the builder's standing now (#1: 100).
+  // v3.1 one-tap posts (design 6): last week's post (4 in a row: the milestone shape) and its one-tap link (the reply's one
+  // link); no points (owner ruling 5).
+  const tap = links(s7)[0]!;
+  assert.match(tap, new RegExp(`^https://earnkit\\.com/${handle}/post/[a-z2-7]{10}$`));
   assert.equal(s7, [
-    "Week 4 done. You're now #1: +100 points.",
-    'A post for X, ready to paste:',
-    `"Week 4 shipping Kit. https://earnkit.com/${handle}"`,
+    "Week 4 done. You're now #1.",
+    'Your post for X, with your page card:',
+    '"4 weeks shipping Kit without missing one. This week: added tipping in one tap."',
+    `Post it in one tap: ${tap}`,
     'Does last week look right?',
   ].join('\n'));
-  assert.equal((r7.reply?.move_up as { kind: string }).kind, 'share');
+  assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
+  assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show the post text exactly as given\. Never rewrite it\./);
 });
 
 test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {
@@ -185,7 +189,7 @@ test('Task 16 fix round 1: the signed-out reply\'s open grant is never an invest
   const batches = card({ id: 'batches', organizer: 'Base', chains: ['base'], max_award_usd: 100000, investment: true });
   const grant = card({ id: 'circle', organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 });
   // Base first by the program list's order, but an investment: the grant is named, its organizer without the parenthesis.
-  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000' });
+  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000', chain: null });
   assert.equal(openGrant([batches], now, new Set()), null, 'only an investment open: no sentence');
-  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000' });
+  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000', chain: 'Base' });
 });

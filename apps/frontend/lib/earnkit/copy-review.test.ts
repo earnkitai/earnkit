@@ -1,3 +1,4 @@
+import { NEWS_REWORD_NOTE, POST_NOTE, PROOF_NOTE } from './post-reply';
 import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
@@ -25,11 +26,12 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, applyAsk, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
+import { postProblems, writePost, type PostInput } from './post-writer';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
@@ -463,7 +465,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -889,9 +891,16 @@ function weeklyCopy(): [string, string][] {
     ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
     // v3.1 Task 16 step 7: the moment, the post to paste and its question.
-    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
-    ['momentHead first', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
-    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/lee')],
+    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3 })],
+    ['momentHead first', momentHead({ week: 0, place: null, rank: 1 })],
+    ['postReply went live', postReply({ head: eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: new Date().toISOString() } }), text: 'Tally is live.', link: 'https://earnkit.com/sam/post/abcdefghij' }, POST_ASK)],
+    ['postReply won', postReply({ head: eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Spring Builder Grant' } }), text: 'Ledgerline won the Spring Builder Grant ($5,000).', link: 'https://earnkit.com/lee/post/abcdefghij' }, POST_ASK)],
+    ['pageLine', pageLine('https://earnkit.com/lee')],
+    ['PROOF_ASK', PROOF_ASK],
+    ['OUTCOME_NOTED', OUTCOME_NOTED],
+    ['redraft limit', redraftLine('limit', 'https://earnkit.com/lee/post/abcdefghij')],
+    ['redraft only', redraftLine('only', 'https://earnkit.com/lee/post/abcdefghij')],
+    ['NEWS_ASK', NEWS_ASK],
     ['MOMENT_ASK', MOMENT_ASK],
     ['APPROVED_LINE', APPROVED_LINE],
   ];
@@ -1046,6 +1055,9 @@ const agentFacing: [string, string][] = [
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['SHIP_STEP_NOTE', SHIP_STEP_NOTE],
   ['SHARE_NOTE', SHARE_NOTE],
+  ['POST_NOTE', POST_NOTE],
+  ['PROOF_NOTE', PROOF_NOTE],
+  ['NEWS_REWORD_NOTE', NEWS_REWORD_NOTE],
   ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
@@ -1332,7 +1344,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
-  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
+  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
   const landing = landingFrom(cards, zero, now);
   // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.
   assert.equal(landing.open_text, `${fig} in grants and prizes open`);
@@ -1381,8 +1393,8 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
 
 // ---- v3.1 Task 14: the copy sweep. Every new builder-facing string of v3.1 (replies, draft, email) through the v2.12.1 T8
 // rule (plain sentences, no jargon, one question at most), the banned-word review and the em dash scan. "Base" and
-// "Builder Codes" are the grant program's own words; "pick the repo you're building" and "I read your commits every week"
-// are the owner-approved Task 16 lines (BENCH_PITCH_ALLOWED), so only those exact phrases are stripped.
+// "Builder Codes" are the grant program's own words; "I read your commits every week" is the owner-approved Task 16
+// line (BENCH_PITCH_ALLOWED), so only those exact phrases are stripped.
 function v31Texts(): [string, string][] {
   const g = { active: false, gain: 14, next: 13 };
   const t = (o: Partial<Parameters<typeof weeklyTarget>[0]>) => weeklyTarget({ gains: g, score: 50, rank: 2, above: null, ...o });
@@ -1403,12 +1415,18 @@ function v31Texts(): [string, string][] {
   const open = { title: 'Base Builder Grant Program', amount: '$5,000' };
   return [
     ['INTRO_LINE', INTRO_LINE],
-    ['introWhat', introWhat({ org: 'Base', amount: '$5,000' })],
+    ['introWhat', introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['introWhat no grant', introWhat(null)],
     ['youreIn', youreIn('maya')],
     ['pickRepoAsk', pickRepoAsk('https://earnkit.com/github/verify?n=x')],
-    ['POINTS_ON_SIGN_IN', POINTS_ON_SIGN_IN],
-    ['POINTS_ON_CONNECT', POINTS_ON_CONNECT],
+    // 2026-10-22: the no-fit path to Base's grant, and a private repo's titles question.
+    ['grantHook', grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' })],
+    ['grantHook any chain', grantHook({ org: 'Arc House', amount: '$10,000', chain: null })],
+    ['qualifyMissing', qualifyMissing('Recipes', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!],
+    ['qualifyAsk all', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3)],
+    ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 2)],
+    ['qualifySteps', qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'])],
+    ['TITLES_ASK', TITLES_ASK],
     ['connectAsk', connectAsk(1, 'earnkit.com/maya')],
     ['connectAsk weeks', connectAsk(4, 'earnkit.com/maya')],
     ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 4)],
@@ -1431,11 +1449,10 @@ function v31Texts(): [string, string][] {
     ['week start behind', ws({ above: { rank: 1, score: 90 } })],
     ['week start hold', ws({ rank: 1 })],
     ['week start unranked', ws({ rank: null })],
-    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
-    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3, points: null })],
-    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
-    ['MOMENT_POST_HEAD', MOMENT_POST_HEAD],
-    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/maya')],
+    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3 })],
+    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3 })],
+    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1 })],
+    ['POST_HEAD', POST_HEAD],
     ['MOMENT_ASK', MOMENT_ASK],
     ['draft prefilled', prefilled.show_to_builder],
     ['draft copy and paste', paste.show_to_builder],
@@ -1457,12 +1474,17 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
   // that legitimately carry them, keyed by label.
   const fixtureNames = ['Recipes', 'Recipe Grants'];
   const GRANT = 'Base Builder Grant Program';
-  const REPO_PHRASE = "pick the repo you're building";
   const COMMITS_PHRASE = 'I read your commits every week';
   const allowed: Record<string, string[]> = {
     introWhat: ['Base', COMMITS_PHRASE],
     'introWhat no grant': [COMMITS_PHRASE],
-    pickRepoAsk: [REPO_PHRASE],
+    grantHook: ['Base'],
+    'grantHook any chain': ['Arc House'],
+    TITLES_ASK: ['commit titles'],
+    qualifyMissing: ['Base', 'Builder Codes'],
+    'qualifyAsk all': ['Base'],
+    'qualifyAsk some': ['Base'],
+    qualifySteps: ['Base', 'Builder Codes'],
     'Best fit dated': [GRANT],
     'Best fit rolling': [GRANT],
     builderCodesFound: ['Builder Codes'],
@@ -1630,4 +1652,31 @@ test('Ruling 31: every launch_token note is plain builder text; technical detail
   assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
   assert.match(byLabel.get('launch note: gate: App not installed')!.note ?? '', /read-only EarnKit app/);
   assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
+});
+
+test('v3.1 one-tap posts: every EarnKit-written post shape is plain copy (sentence case, no em dash, no emoji, no banned word)', () => {
+  const inputs: PostInput[] = [
+    { moment: 'weekly', name: 'Recipes', week: 6, summary: 'Added offline mode and fixed several sync bugs.', note: null },
+    { moment: 'weekly', name: null, week: 6, summary: 'Rebuilt search so it works on ingredients.', note: null },
+    { moment: 'weekly', name: 'Ledgerline', week: 12, summary: 'Added CSV export.', note: null },
+    { moment: 'weekly', name: 'Pollen', week: 26, summary: null, note: null },
+    { moment: 'went_live', name: 'Tally', weeks: 9 },
+    { moment: 'won', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
+    { moment: 'accepted', name: 'Ledgerline', program: 'Arc Microgrants', award: null },
+    { moment: 'funded', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
+    { moment: 'coin_intro', name: 'Tally', symbol: 'TALLY', weeks: 9 },
+  ];
+  const seen = new Set<string>();
+  for (const i of inputs) {
+    // Each input with no history, and again after a post that opened the same way, so the second wordings are swept too.
+    for (const history of [[], [{ shape: 'name_week', text: `${'name' in i && i.name ? i.name : 'Recipes'}, week 2: added search.` }]]) {
+      const p = writePost(i, history);
+      assert.ok(p, JSON.stringify(i));
+      seen.add(p.shape);
+      assert.match(p.text, /^[A-Z0-9]/, p.text);
+      assert.doesNotMatch(p.text, /\u2014|\p{Extended_Pictographic}|!/u, p.text);
+      assert.deepEqual(postProblems(p.text, { ticker: i.moment === 'coin_intro' ? 'TALLY' : undefined }), [], p.text);
+    }
+  }
+  assert.ok(seen.size >= 10, `shapes swept: ${[...seen]}`);
 });

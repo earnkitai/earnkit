@@ -117,7 +117,7 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
-      assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'));
+      assert.ok(r.show_to_builder.endsWith('Done?'));
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
@@ -173,6 +173,11 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    // 2026-10-22: with no fit, Base's grant steps first; a no to them brings the ship step back.
+    const q = await find(id, {}, NO_MATCH);
+    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
+    assert.equal(q.move_up?.kind, 'qualify');
+    await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const r = await find(id, {}, NO_MATCH);
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
@@ -197,7 +202,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.14 T9: signed out: the sign-in question.
-    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -238,7 +243,7 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
     assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
     assert.equal(questions(r.show_to_builder), 1);
   }),
 );
@@ -272,7 +277,9 @@ test('O5 N14 (F15), P3, P4 the update replies carry the full page link; an older
     const yes = (await tools.tell({ updates: { on: true, scheduled: true } }, ctx)) as R;
     assert.equal(yes.show_to_builder, UPDATE_LINES.auto);
     const p = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow this week.' } }, ctx)) as R;
-    assert.equal(p.show_to_builder, `Posted this week's update: https://earnkit.com/${handle}`);
+    // v3.1 one-tap posts: the first is the builder's news, their post for X (its one-tap link); a change within 24 hours
+    // (the news cooldown) says so with the page link.
+    assert.match(String(p.show_to_builder), new RegExp(`^Added to your page\\.\\n[\\s\\S]*Post it in one tap: https://earnkit\\.com/${handle}/post/[a-z2-7]{10}\\n`));
     const c = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow and a new page.' } }, ctx)) as R;
     assert.equal(c.show_to_builder, `Updated this week's post: https://earnkit.com/${handle}`);
   }),

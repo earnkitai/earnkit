@@ -4,12 +4,15 @@ import { ImageResponse } from 'next/og';
 import { WORDMARK_D } from '../components/ui/Logo';
 import { benchCardFacts, benchShareText, dollars, streakWords, type BenchCardFacts } from '../../lib/earnkit/bench-data';
 import { noteEvent } from '../../lib/earnkit/events';
+import { postCardFacts } from '../../lib/earnkit/post-card';
+import { CODE_PATTERN } from '../../lib/earnkit/post-drafts';
 import { shareIntentText } from '../../lib/earnkit/page-data';
 import { resolveHandle } from '../../lib/earnkit/profiles';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath, pageUrl } from '../../lib/earnkit/reserved-routes';
 import { CARD_CACHE } from '../../lib/earnkit/share';
 import { THEME as T } from '../../lib/earnkit/theme';
+import { postCard } from './post-card-image';
 
 /**
  * v2.12.1 spec "Card": the share card of the page at `path` and its share link, used by
@@ -25,8 +28,8 @@ import { THEME as T } from '../../lib/earnkit/theme';
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
-/** The live row behind `handle` at `path`: the person, or the 404 or 308 to send. */
-async function live(handle: string, path: string, suffix: string): Promise<{ builderId: number; handle: string } | Response> {
+/** The live row behind `handle` at `path`: the person, or the 404 or 308 (to `<page>/<suffix>`) to send. */
+export async function live(handle: string, path: string, suffix: string): Promise<{ builderId: number; handle: string } | Response> {
   const r = await resolveHandle(handle);
   if (!r) return notFound();
   const move = (to: string) => new Response(null, { status: 308, headers: { Location: `${to}/${suffix}`, 'Cache-Control': 'no-store' } });
@@ -35,18 +38,25 @@ async function live(handle: string, path: string, suffix: string): Promise<{ bui
   return r;
 }
 
-export type CardFont = { name: string; data: ArrayBuffer; weight: 500 | 700; style: 'normal' };
+export type CardFont = { name: string; data: ArrayBuffer; weight: 400 | 500 | 700; style: 'normal' };
 
-// Funnel Display, read once per process (assets/fonts, OFL). A missing file draws the default font.
+// Funnel Display, read once per process (assets/fonts, OFL), and v3.1 one-tap posts: Kaftan Serif (owner-owned licence;
+// app/fonts/kaftan-serif.woff2 as woff, which the image renderer reads) for the post card's headline and numbers. A
+// missing file draws the default font.
+const FONT_FILES: { name: string; file: string; weight: CardFont['weight'] }[] = [
+  { name: 'Funnel Display', file: 'funnel-display-latin-500.woff', weight: 500 },
+  { name: 'Funnel Display', file: 'funnel-display-latin-700.woff', weight: 700 },
+  { name: 'Kaftan Serif', file: 'kaftan-serif.woff', weight: 400 },
+];
 let fonts: Promise<CardFont[]> | null = null;
 export function loadFonts() {
   fonts ??= (async () => {
     const out: CardFont[] = [];
-    for (const weight of [500, 700] as const) {
+    for (const f of FONT_FILES) {
       for (const dir of [join(process.cwd(), 'assets/fonts'), join(process.cwd(), 'apps/frontend/assets/fonts')]) {
         try {
-          const b = await readFile(join(dir, `funnel-display-latin-${weight}.woff`));
-          out.push({ name: 'Funnel Display', data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, weight, style: 'normal' });
+          const b = await readFile(join(dir, f.file));
+          out.push({ name: f.name, data: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer, weight: f.weight, style: 'normal' });
           break;
         } catch {
           // Try the next place.
@@ -58,7 +68,7 @@ export function loadFonts() {
   return fonts;
 }
 
-// The X picture as a data URL, kept 10 minutes per URL (at most 200): X's own host only (page-data avatarUrl), 3 s, 1 MB, jpeg or png.
+// The picture as a data URL, kept 10 minutes per URL (at most 200): X's own host or GitHub's avatars host only (page-data avatarUrl), 3 s, 1 MB, jpeg or png.
 const AVATAR_TTL_MS = 10 * 60_000;
 const avatars = new Map<string, { at: number; data: string | null }>();
 export async function avatarData(url: string | null, f: typeof fetch = fetch): Promise<string | null> {
@@ -178,9 +188,22 @@ export function benchCard(f: BenchCardFacts, avatar: string | null, font: boolea
   );
 }
 
-export async function cardResponse(handle: string, path: string): Promise<Response> {
-  const who = await live(handle, path, 'card.png');
+/**
+ * The card at `path`. v3.1 one-tap posts (Task 5): with `m`, a post's code on this page, that post's card
+ * (post-card.ts); an unknown code, another person's or a moment without a card of its own draws the page's card.
+ */
+export async function cardResponse(handle: string, path: string, m: string | null = null): Promise<Response> {
+  const code = m && CODE_PATTERN.test(m) ? m : null;
+  // A rename or another case keeps the post's card (the code is checked before it goes in the Location).
+  const who = await live(handle, path, code ? `card.png?m=${code}` : 'card.png');
   if (who instanceof Response) return who;
+  const post = code ? await postCardFacts(who.builderId, code) : null;
+  if (post) {
+    const [font, avatar] = await Promise.all([loadFonts(), avatarData(post.avatar)]);
+    return new ImageResponse(postCard(post, avatar), {
+      width: 1200, height: 630, ...(font.length ? { fonts: font } : {}), headers: { 'Cache-Control': CARD_CACHE, 'X-Content-Type-Options': 'nosniff' },
+    });
+  }
   const f = await benchCardFacts(who.builderId);
   if (!f) return notFound();
   const [font, avatar] = await Promise.all([loadFonts(), avatarData(f.avatar)]);

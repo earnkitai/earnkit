@@ -147,9 +147,12 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
-  // v3.1 Task 6: the landing shows the hero chip (open_chip, the same figure), never "open right now".
-  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing }))).replace(/<[^>]+>/g, ' ');
-  assert.ok(landing.open_chip && t.includes(landing.open_chip) && landing.open_chip.startsWith('$100K '), t.slice(0, 300));
+  // Install fixes: the chip counts only programs open to Base builders, so an Arc-only grant shows none.
+  assert.equal(landing.open_chip, null);
+  // v3.1 Task 6: the landing shows the hero chip (open_chip), never "open right now".
+  const onBase = landingFrom([a16z, { ...circle, chains: ['base'] }, eth], stats, now);
+  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing: onBase }))).replace(/<[^>]+>/g, ' ');
+  assert.ok(onBase.open_chip && t.includes(onBase.open_chip) && onBase.open_chip.startsWith('$100K in Base grants'), t.slice(0, 300));
   assert.doesNotMatch(t, /open right now/);
 });
 
@@ -174,8 +177,13 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   await rescorePerson(c.id, new Date());
   const weeks = [21, 14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
   const streak = async (n: number) =>
-    sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
+    sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[], commit_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
   await streak(4);
+  // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
+  const q = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
+  assert.doesNotMatch(q, / not open yet\. /, q);
+  assert.match(q, /\nBase pays up to \$5,000 for apps on Base\.\n/, q);
+  await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   const lines = s.split('\n');
   const upc = lines.filter((l) => / not open yet\. /.test(l));

@@ -808,5 +808,37 @@ const fsRows = await db<{ wallet: string; at: Date }[]>`SELECT wallet, first_see
 ok(fsRows.length === 2 && fsRows[0]!.wallet === '0xnew' && Date.now() - fsRows[0]!.at.getTime() < 60_000 && fsRows[1]!.at.getTime() === 0,
   'v3.1: a new coin_backers row is seen now, and the schema running again keeps both values');
 
+// v3.1 Highlights: repo_builder_codes.path (the file a found Builder Code is in) and builder_sources.deployed_at (a
+// verified contract's onchain creation time), both nullable; a row from before reads null and a rerun keeps both values.
+ok((await cols('repo_builder_codes')).includes('path'), 'v3.1 Highlights: repo_builder_codes.path');
+ok((await cols('builder_sources')).includes('deployed_at'), 'v3.1 Highlights: builder_sources.deployed_at');
+await db`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES ('hl-check/old', true, now())`;
+await db`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES ('hl-check/new', true, now(), 'src/tx.ts')`;
+await db`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by, deployed_at) VALUES (-133, 'contract', ${`base:${W}`}, 'hl-check', 'verified', 'deployer', 'server', '2025-06-10T00:00:00Z')`;
+await db.unsafe(now);
+const hlPaths = await db<{ repo_key: string; path: string | null }[]>`SELECT repo_key, path FROM repo_builder_codes WHERE repo_key LIKE 'hl-check/%' ORDER BY repo_key`;
+const [hlAt] = await db<{ at: Date | null }[]>`SELECT deployed_at AS at FROM builder_sources WHERE builder_id = -133`;
+ok(hlPaths.length === 2 && hlPaths[0]!.path === 'src/tx.ts' && hlPaths[1]!.path === null && hlAt?.at?.toISOString() === '2025-06-10T00:00:00.000Z',
+  'v3.1 Highlights: an old repo_builder_codes row reads path null, and the schema running again keeps path and deployed_at');
+
+// v3.1 Highlights fix round 1: Builder Codes attempts (a failing repo backs off a day) and the origin backfill's read time.
+ok((await cols('repo_builder_codes_attempts')).includes('attempted_at'), 'v3.1 Highlights: repo_builder_codes_attempts');
+ok((await cols('builder_sources')).includes('origin_read_at'), 'v3.1 Highlights: builder_sources.origin_read_at');
+await db`INSERT INTO repo_builder_codes_attempts (repo_key, attempted_at) VALUES ('hl-check/att', '2026-10-01T00:00:00Z')`;
+await db`UPDATE builder_sources SET origin_read_at = '2026-10-02T00:00:00Z' WHERE builder_id = -133`;
+await db.unsafe(now);
+const [att] = await db<{ at: Date }[]>`SELECT attempted_at AS at FROM repo_builder_codes_attempts WHERE repo_key = 'hl-check/att'`;
+const [orr] = await db<{ at: Date | null }[]>`SELECT origin_read_at AS at FROM builder_sources WHERE builder_id = -133`;
+ok(att?.at.toISOString() === '2026-10-01T00:00:00.000Z' && orr?.at?.toISOString() === '2026-10-02T00:00:00.000Z',
+  'v3.1 Highlights: an attempt and an origin read time survive the schema running again');
+
+// v3.1 one-tap posts: post_drafts (a drafted post for X behind a short code); a row survives the schema running again.
+ok((await cols('post_drafts')).includes('first_tap_at'), 'v3.1 one-tap posts: post_drafts');
+await db`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, expires_at, taps)
+  VALUES ('dbcheckaaa', -134, 'weekly', 'weekly:k:2026-10-12', 'change', 'Added offline mode.', '2026-11-01T00:00:00Z', 2)`;
+await db.unsafe(now);
+const [pd] = await db<{ taps: number; first: Date | null }[]>`SELECT taps, first_tap_at AS first FROM post_drafts WHERE code = 'dbcheckaaa'`;
+ok(pd?.taps === 2 && pd.first === null, 'v3.1 one-tap posts: a post_drafts row survives the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

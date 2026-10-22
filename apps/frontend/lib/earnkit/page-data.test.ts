@@ -80,7 +80,16 @@ test('11.0 the words: top line, one place for every public sentence', () => {
   assert.equal(avatarUrl('https://pbs.twimg.com/profile_images/1/a_normal.jpg'), 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg');
   for (const bad of [null, '', 'http://pbs.twimg.com/a.jpg', 'https://evil.example/a.jpg', 'javascript:alert(1)', 'https://pbs.twimg.com.evil.com/a.jpg'])
     assert.equal(avatarUrl(bad), null, String(bad));
-  const u = new URL(shareIntentText('lee', 'Shipped 3 apps with AI on EarnKit.'));
+  // Clarity batch: X first; without a usable X picture, GitHub's of the proven login, exactly that host and shape.
+  const gh = 'https://avatars.githubusercontent.com/jenilt?s=200';
+  assert.equal(avatarUrl('https://pbs.twimg.com/profile_images/1/a_normal.jpg', 'jenilt'), 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg', 'X wins');
+  assert.equal(avatarUrl(null, 'jenilt'), gh);
+  assert.equal(avatarUrl('https://evil.example/a.jpg', 'jenilt'), gh, 'a bad X url falls to GitHub');
+  assert.equal(avatarUrl(null, 'a-b-c'), 'https://avatars.githubusercontent.com/a-b-c?s=200');
+  assert.equal(avatarUrl(null, 'x'.repeat(39)), `https://avatars.githubusercontent.com/${'x'.repeat(39)}?s=200`);
+  for (const bad of [null, undefined, '', '-lead', 'trail-', 'two--dash', 'x'.repeat(40), '../evil', 'a/b', 'a?b', 'evil.com', 'a b', 'jenilt#x'])
+    assert.equal(avatarUrl(null, bad), null, String(bad));
+  const u =new URL(shareIntentText('lee', 'Shipped 3 apps with AI on EarnKit.'));
   assert.equal(u.origin + u.pathname, 'https://x.com/intent/post');
   assert.equal(u.searchParams.get('text'), 'Shipped 3 apps with AI on EarnKit.');
   assert.equal(u.searchParams.get('url'), 'https://earnkit.com/lee');

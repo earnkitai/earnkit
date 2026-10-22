@@ -134,7 +134,7 @@ test('4.5 a finished week\'s facts: commits, going live once, a win; R16b: no mo
   const monday = mondayOf(new Date(NOW.getTime() - 7 * DAY));
   const inWeek = new Date(Date.parse(`${monday}T12:00:00Z`) + DAY);
   await person(id, key, { [isoWeekOf(inWeek)]: 12 });
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, ship_weeks) VALUES (${id}, ${key}, 'Shop', 'app', true, true, ${[isoWeekOf(new Date(inWeek.getTime() - 7 * DAY)), isoWeekOf(inWeek)]})`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, ship_weeks, commit_weeks) VALUES (${id}, ${key}, 'Shop', 'app', true, true, ${[isoWeekOf(new Date(inWeek.getTime() - 7 * DAY)), isoWeekOf(inWeek)]}, ${[isoWeekOf(new Date(inWeek.getTime() - 7 * DAY))]})`;
   await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at)
     VALUES (${id}, ${`k${id}`}, ${key}, 'base', ${`0x${'c'.repeat(64)}`}, ${`0x${'d'.repeat(40)}`}, 'deployed', 1, ${inWeek})`;
   // F13: a wallet of this run only, so reruns in the same week never add earlier claims.

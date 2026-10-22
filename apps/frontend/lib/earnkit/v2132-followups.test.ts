@@ -151,7 +151,7 @@ test('v2.13.2 fix 1 (concern 3), v2.14: a stale org repo comes back only through
 );
 
 (globalThis as { React?: typeof React }).React = React;
-const page = (count: number, rows = 0, chain: 'base' | null = null) =>
+const page = (count: number, rows = 0, chain: 'base' | 'arc' | null = null) =>
   renderToStaticMarkup(React.createElement(BenchPage, {
     rows: Array.from({ length: rows }, (_, i) => ({ rank: i + 1, line: null, points: 10, handle: `h${i}`, name: `H${i}`, avatar: null, backing: null, chains: [], project: 'P', best: 'Building', streak: 0 })),
     count, chips: [], filter: { chain, weekly: false }, page: 1,
@@ -161,7 +161,8 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   const empty = page(0);
   assert.equal(empty.split(BENCH_TOP_EMPTY).length - 1, 1, 'the empty line once');
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
-  const filtered = page(5, 0, 'base');
+  // Solo launch: an empty Base filter says BENCH_EMPTY_BASE (v31-site-leaderboard.test.ts (c3)); another chain keeps BENCH_EMPTY.
+  const filtered = page(5, 0, 'arc');
   assert.ok(filtered.includes(BENCH_EMPTY));
   // QA item 2: the count line follows the filter, so a filter with no rows shows no pool count beside BENCH_EMPTY.
   assert.ok(!filtered.includes(leaderboardLine(5)));

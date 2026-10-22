@@ -1,3 +1,4 @@
+import { weeksEndingLast } from './fixtures/find';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -7,6 +8,7 @@ import { sql } from './db';
 import { WEEKLY_STREAK, benchRows, bestFact, filterHref, parseBenchFilter } from './bench-data';
 import { pillOf } from './raising';
 import BenchView, { BENCH_EMPTY, BENCH_SHOW_ALL, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
+import { BENCH_EMPTY_BASE } from './site-copy';
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
@@ -64,7 +66,7 @@ async function listed(score: number, o: { chains?: string[]; raising?: boolean; 
   const key = `bn${RUN}/p${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v213bn-${id}`}, ${key}, ${`bnx${id}`}, ${`bn${RUN}${id}`}, 'Maya')`;
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains, streak) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true, ${o.chains ?? []}, ${o.streak ?? 0})`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains, streak, commit_weeks) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true, ${o.chains ?? []}, ${o.streak ?? 0}, ${weeksEndingLast(o.streak ?? 0)})`;
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
   if (o.raising)
     await sql()`INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at)
@@ -99,6 +101,17 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
   assert.equal(weekly.rows.length, 2);
 });
 
+test('10.3b clarity batch: a row without an X picture shows the GitHub one of the proven login; X first; neither, no picture', dbTest, async () => {
+  const ids = [await listed(70), await listed(71), await listed(72)];
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}a`} WHERE builder_id = ${ids[0]}`;
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}b`}, x_avatar_url = 'https://pbs.twimg.com/profile_images/2/b_normal.png' WHERE builder_id = ${ids[1]}`;
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: ids });
+  const avatar = (id: number) => rows.find((r) => r.handle === `bn${RUN}${id}`)!.avatar;
+  assert.equal(avatar(ids[0]), `https://avatars.githubusercontent.com/gh${RUN}a?s=200`);
+  assert.equal(avatar(ids[1]), 'https://pbs.twimg.com/profile_images/2/b_400x400.png');
+  assert.equal(avatar(ids[2]), null);
+});
+
 test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, streak, score, "#N" (the rank line to screen readers); the header count line; the tabs', () => {
   const row = { rank: 4, line: 'Top 16% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week', streak: 5 };
   const top = [1, 2, 3].map((n) => ({ ...row, rank: n, line: null, handle: `top_${n}`, name: `Top ${n}`, backing: null, points: 90 - n }));
@@ -106,7 +119,7 @@ test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, strea
     renderToStaticMarkup(React.createElement(BenchView, { rows, count, chips: ['base'], filter, page: 1 }));
   const html = render({ chain: null, weekly: false });
   const li = html.slice(html.indexOf('data-row="maya_makes"'));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', '>Backed<', 'Recipe planner', '5 weeks', '>#4<', '<span class="sr-only">Top 16% of builders</span>', '>62<'])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', '>Backed<', 'Recipe planner', '5-week streak', '>#4<', '<span class="sr-only">Top 16% of builders</span>', '>62<'])
     assert.ok(li.includes(s), s);
   assert.ok(html.includes('25 builders, ranked by how often they ship'));
   // The tag only: the coin's symbol and link stay off the leaderboard (they are on the profile's Token card).
@@ -121,9 +134,11 @@ test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, strea
   const tab = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
   assert.match(tab(render({ chain: 'base', weekly: false }), '/leaderboard?chain=base'), /aria-current="page"/);
   assert.doesNotMatch(render({ chain: 'base', weekly: true }), /aria-current="page"/);
-  // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
+  // v2.13.2 fix 1: a filtered view with no rows (others ranked) says what is missing (Base, else BENCH_EMPTY); nobody
+  // ranked, only the header's empty line.
   const filtered = render({ chain: 'base', weekly: false }, [], 3);
-  assert.ok(filtered.includes(BENCH_EMPTY));
+  assert.ok(filtered.includes(BENCH_EMPTY_BASE) && !filtered.includes(BENCH_EMPTY));
+  assert.ok(render({ chain: 'arc', weekly: false }, [], 3).includes(BENCH_EMPTY));
   // Launch ready L10: the way back from an empty filter is one link to everyone.
   assert.match(filtered, new RegExp(`href="/leaderboard"[^>]*>${BENCH_SHOW_ALL}</a>`), filtered);
   assert.ok(!render({ chain: 'base', weekly: false }, [], 0).includes(BENCH_EMPTY));

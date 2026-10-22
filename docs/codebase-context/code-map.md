@@ -66,7 +66,10 @@ apps/frontend/
                                SegTabs All/Base/Backed (filterTabs; old ?chain=arc/?weekly=1 filter, mark no tab), Podium
                                (page 1 rows 1-3: blue/navy/rust, METAL place pills), panel rows (BenchRowItem: one link,
                                XHandle link={false}, Backed tag, streak, ScoreText 30), Pager (?page=, LEADERBOARD_PAGE 20,
-                               pageHref); under RANK_MIN_POOL no "#N"/metal pills; FilterChip deleted. History below:
+                               pageHref); under RANK_MIN_POOL no "#N"/metal pills, and (solo launch) no podium, no SegTabs,
+                               every builder a plain row, countLine says BENCH_EARLY (no number), the panel ends with one
+                               InviteRow (BENCH_INVITE + install CTA); emptyLine (Base, Backed, else BENCH_EMPTY);
+                               FilterChip deleted. History below:
                                scoring and clarity T3 (R9),
                                v3 Stage 3 T4 (spec 5.8): /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept):
                                H1, benchLine ("N builders. Ranked by Shipping."; BENCH_TOP_EMPTY at 0), the filters as hairline
@@ -81,17 +84,19 @@ apps/frontend/
   app/feed/{page.tsx,FeedView.tsx,FeedStats.tsx,FeedRow.tsx}  v3.1 site Task 9 (Feed board): /feed: H1, week tabs
                                (FEED_TABS 3, ?week=<monday>, pickWeek falls back to the newest), FeedStats (feedWeekStats,
                                cached ['feed-stats-v31', monday]), full-width dark FeedRows, FEED_PAGE 10 a page (?page=);
-                               FEED_EMPTY on a neutral card with "See the leaderboard"
+                               FEED_EMPTY on a neutral card with "See the leaderboard"; solo launch: FeedStats only from
+                               FEED_FEW (3) builders shipped, and a week under FEED_FEW rows ends with one InviteRow
+                               (ACTIVITY_INVITE_TITLE/TEXT + install CTA)
   app/[handle]/{BenchProfileView,ShareButton}.tsx, app/[handle]/site/*  v3.1 site Task 7 (Profile, BackedBuilder,
                                NewBuilder boards): BenchProfileView({ data, site, page }) lays out two wrapping rows:
                                HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,
                                GitHub, white Share; the inset project panel with the EarnKit mark or a letter tile, the
                                Base tile, about, link; noProjectLine / confirmingCardLine instead), ScoreCard (navy,
                                ScoreRing), StreakCard (rust, 12 squares from the grid, this week lit from site.thisWeek by
-                               lib/earnkit/site-streak.ts withThisWeek, which profileSite also applies before Highlights,
+                               lib/earnkit/site-streak.ts withThisWeek,
                                streakNote, weekLine), ActivityCard (white, live dot "Shipped <ago>", 3 week cards a page
                                via ?page=, Pager, dashed nextUpdateLine under 3 cards), TokenCard (only site.token),
-                               HighlightsCard; then Footer minimal. No points, Originality, 52-week grid, rank number,
+                               HighlightsCard (a linked item is an <a> in a new tab with an arrow); then Footer minimal. No points, Originality, 52-week grid, rank number,
                                Earned, tabs, visitor row or badge (plan S15; MoneyTab and ProjectTab deleted).
                                BenchProfileSkeleton: flat s-panel shapes with the name. ShipGrid/BadgeCopy stay (unused
                                on the page; shippedWords and the badge route remain)
@@ -108,7 +113,8 @@ apps/frontend/
                                AGENT_MARKS), HeroArt (client: painting srcSet + SVG arch clip ARCH_PATH, dusk tint, sunset
                                glow at the pointer via getScreenCTM, drift; nothing moves under reduced motion), Steps (STEPS;
                                Earn adds backing only with raisingEnabled), Activity (landing.activity cards, activityMeta,
-                               invite card at 1 to 2, none at 0), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
+                               invite card once at 1 to 2, md:col-span-2 beside one card, none at 0; the cards are one a
+                               builder, landing.ts oneEach), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
@@ -118,7 +124,10 @@ apps/frontend/
                                lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
                                (five anchors; DocsNav, client: the lit item follows the hash and the section in view, readingNow
                                pure, aria-current="location"), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
-                               AgentPanel shows code ?? MCP_URL, copy button + aria-live "Copied"; three numbered steps), the
+                               wrapping, CONNECTOR_LINE above; AgentPanel shows the EarnKit link first for a paste-the-link agent, the note,
+                               the steps (numbered from two), the command, copy button + aria-live
+                               "Copied"; three numbered steps; GitHubHelp #github "No GitHub yet?" from docs-copy DOCS_GITHUB: Lovable,
+                               Bolt, the v0 note), the
                                week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
   app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
@@ -148,7 +157,8 @@ apps/frontend/
                                (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
-                               /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
+                               /docs (server): MCP_URL, CONNECTOR_LINE, tabKeyTarget (both tab rails), AGENTS (name, local icon, optional note, the install steps per agent;
+                               install fixes 2026-10-22: Grok Bot, Claude, Muse, OpenClaw, Claude Code, Cursor, Codex), Command
   app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
                                (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
   app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
@@ -207,14 +217,29 @@ apps/frontend/
                                handleMetadata (title, og card)
   app/[handle]/ScoreRing.tsx   v3.1 Task 7: the profile's Shipping ring (132px, viewBox 148, r 62, stroke 12, navy track,
                                the band's light-to-deep gradient, round caps, .ek-arc draw; null: track and DASH)
-  app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
+  app/[handle]/Avatar.tsx      the X picture, else (clarity batch) the GitHub one of builder_profiles.github_login
+                               (avatarUrl(x, login): pbs.twimg.com, then avatars.githubusercontent.com/<login>?s=200 only), or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
                                picture with a 3 s timeout, CARD_CACHE) and shareResponse (card_shared once a day,
                                302 to the X intent); both check the live row (no-store 404, 308 to pagePath).
                                v3 Stage 3 Task 6: benchCard on THEME (black, CardWordmark, the Backing pill, the
                                rank line as the 64px headline, CardNumber for Shipping and Earned, project and
-                               streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts
-  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
+                               streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts.
+                               v3.1 one-tap posts Task 5: loadFonts adds Kaftan Serif (assets/fonts/kaftan-serif.woff);
+                               cardResponse(handle, path, m) draws a post's card (post-card.ts postCardFacts) for ?m=<code>,
+                               else the page's; a rename's 308 keeps a well-formed ?m
+  app/[handle]/post-card-image.tsx  v3.1 one-tap posts Task 5: postCard (pure): the number, milestone and text layouts on
+                               the v3.1 SITE tokens, Kaftan headline and numbers, the 12 weeks as squares, the live Backing
+                               pill; clip, textHeadSize
+  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (live is exported for post-response.ts);
+                               card.png passes ?m
+  app/[handle]/handle-view.tsx  (v3.1 one-tap posts) postOf (?m, a well-formed code), handleMetadata(handle, post): og:image
+                               card.png?m=<code> for this person's draft; HandleView countVisit (visitFrom + noteVisit)
+  app/[handle]/post-response.ts  v3.1 one-tap posts Task 4: postResponse (code checked first, live row as the card: 404 or
+                               308 to <page>/post/<code>; another builder's or unknown code 404; expired 302 to the page;
+                               else tapDraft and a no-store 302 to postIntent: x.com/intent/post with the row's text and
+                               url https://earnkit.com<page>?m=<code>, built from the row only)
+  app/[handle]/post/[code]/route.ts  thin route over postResponse
   app/[handle]/BadgeCopy.tsx   launch-ready L8, v3 Stage 3: the badge image, then "Badge for your README" as a details/summary
                                that opens to the markdown and a Copy button (client)
   app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
@@ -224,6 +249,8 @@ apps/frontend/
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
                                cardResponse/shareResponse at /b/<handle>; a claimed v2.12 slug 308s to
                                pagePath(handle)/card.png or /share; else 404
+  app/b/[slug]/post/[code]/route.ts  v3.1 one-tap posts: a reserved handle through postResponse at /b/<handle>; a claimed
+                               v2.12 slug 308s to pagePath(handle)/post/<code>; a bad code or anything else 404
   app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
                                PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
@@ -244,17 +271,20 @@ apps/frontend/
                                that opens with a hairline; kept for callers) and Panel
   app/components/site/         v3.1 site T1 primitives: ui.ts (CARD_NEUTRAL/BLUE/NAVY/RUST/LIGHT/PANEL, PILL_WHITE/BLUE,
                                PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
-                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
+                               ScoreText (band colour via site-copy.ts scoreBand), InviteRow (optional Kaftan title, a line,
+                               the white install pill via InstallButton; leaderboard and feed with few builders), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
-                               aria-current; segRail/segTab for the install sheet's tabs; RAIL_FADE masks a cut edge),
+                               aria-current; segRail/segTab for the agent tabs, which wrap ('sheet', 'light'); RAIL_FADE masks a link rail's cut edge),
                                FadeRail (client: useEdgeFade sets data-fade end/start/both while a rail overflows; FadeNav), useReducedMotion and
                                useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,
                                pointer light on the footer; nothing under reduced motion or on touch), AgentMarks (AGENT_MARKS
                                from the Landing board, lobehub MIT + muse.svg; AgentMark)
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
   lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
-                               thisWeekCommits (commit_counts via weekCounts), highlights (W8: live, Base Builder Code,
-                               contracts on Base, won/applied, shipping since), standingPill (Top N% from RANK_MIN_POOL),
+                               thisWeekCommits (commit_counts via weekCounts), highlights (W8, each linking its proof:
+                               live + liveSub, contracts on Base + first deployed, Builder Code file, repo track record
+                               via repoItem, won/applied + guide link; siteHref, basescanHref, githubRepoHref,
+                               githubFileHref build the escaped links), standingPill (Top N% from RANK_MIN_POOL),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
@@ -1041,7 +1071,8 @@ apps/frontend/
                                the application continues on a16z's site."). Pure
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
                                the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
-                               platforms by host. Pure, no imports
+                               platforms by host; v3.1 final review: SHARED_HOSTS, MULTI_SUFFIXES, proofHostAllowed
+                               (program-file.ts proof_hosts). Pure, no imports
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,
@@ -1099,6 +1130,7 @@ apps/frontend/
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
     alerts.ts(+test)           v2.10.2 (v2.11 8a): repoCanWin refuses an unknown-odds repo as it does a low one.
+                               2026-10-22: programVerdict (the matcher's verdict for a remembered repo and one program, base-qualify.ts)
                                v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
                                v2.10 item 15: AlertFacts.entries, DeadlineEntry, deadlineLine, DEADLINE_DAYS, takeDeadlineLine
                                (installations.deadline_shown, once per entry per UTC day); no "(as WETH)" in the bonus win alert.
@@ -1156,6 +1188,7 @@ apps/frontend/
                                APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>."); pageWith
                                (fix round 1: a setup success page with its one link)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
+                               2026-10-22: PICK_HINT, TEMPLATE_HINT in PICK_PAGE.none/noneCounted and APP_PAGE.notListed;
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
                                and metadata read; never stored or logged), appProof (R8: listed, and own account or
@@ -1318,6 +1351,8 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
+                               v3.1 one-tap posts Task 7: posts_drafted, posts_tapped, backers_after_post (post_x_visits dropped: internal only)
+                               (within 7 days of a first tap, open backing, flag on; correlation only), after shared;
                                launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
                                (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
@@ -1509,7 +1544,9 @@ apps/frontend/
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
-    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles;
+                               2026-10-22: titlesAskDue (main project, App-proven, private on GitHub's word, titles off, never asked),
+                               takeTitlesAsk (standing_seen.titles_asked, once)
                                (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
                                option (posted_by still written)
@@ -1521,14 +1558,21 @@ apps/frontend/
     bench-reply.ts(+test)      v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
                                (signed_out, no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off),
                                replyState, rankedState; stateAsk (kinds sign_in, start, pick_repo, install_app,
-                               other_project, repo_behind, connect, apply, backing, share, ship, suggest); benchReply per
-                               step: signed out (INTRO_LINE, introWhat(OpenGrant), POINTS_ON_SIGN_IN), step 2 (youreIn,
-                               pickRepoAsk, POINTS_ON_CONNECT; namesAccount), connect (connectStanding, qualifyLine,
-                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, SHIP_ASK,
-                               shipPointsLine), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
+                               other_project, repo_behind, connect, apply, backing, share, titles, qualify, ship, suggest);
+                               benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
+                               2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
+                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
+                               path: grantHook, qualifyMissing, qualifyAsk, else SHIP_ASK; shipPointsLine), qualifySteps
+                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
+                               PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. At most one https link, exactly one question, the points line last.
-                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
+                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall),
+                               v31-reply-fixes.test.ts (2026-10-22 fixes)
+    base-qualify.ts            2026-10-22: the no-fit path to Base Builder Grants. grantOf (organizer, award, one chain),
+                               qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
+                               Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
+                               or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
                                (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
@@ -1556,7 +1600,10 @@ apps/frontend/
                                link is the ranked link; momentReady gates it; openShare keeps the offer open all week);
                                benchMoveUp kind share goes to answerShare (once, that week only; APPROVED_LINE); SHARE_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
-                               repo-picker.test.ts, weekly-moment.test.ts
+                               repo-picker.test.ts, weekly-moment.test.ts. 2026-10-22: benchView asks titles (updates.ts
+                               titlesAskDue/takeTitlesAsk) then qualify (base-qualify.ts qualifyOffer, no fit only);
+                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE);
+                               connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
@@ -1625,6 +1672,45 @@ apps/frontend/
                                else inserted), openShare / answerShare (standing_seen.share_open), SHARE_NOTE, APPROVED_LINE;
                                weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
                                fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
+    post-drafts.ts(+test)      v3.1 one-tap posts Task 1: the post_drafts store. POST_MOMENTS, newCode (10 base32 chars,
+                               CODE_PATTERN), createDraft (per-person advisory lock; 1 offered a 7 days, 1 asked a 24 hours,
+                               3 in all a 7 days; 14-day expiry; post_drafted event), draftByCode, tapDraft (own, unexpired;
+                               taps capped at TAP_CAP 100; first_tap_at; post_tapped on the first; no IP or UA), noteVisit
+                               (visits and x_visits, VISIT_CAP), recentDrafts (newest first); Task 5 visitFrom (UA and
+                               referrer: bot null, t.co/x.com 'x', else 'web'); PAST_OFFER_LIMIT (went_live, won, funded skip
+                               the one offered a week; controller ruling); fix round: NewDraft.hold (the moment's hold
+                               under the lock), rewordDraft (news in new words, in place)
+    post-card.ts(+test)        v3.1 one-tap posts Task 5: freezeCard (project, streak, score, rank from RANK_MIN_POOL, 12-week
+                               grid, frozen at drafting), cardWeeks, postCardView (pure: layouts, stats, BACKERS_SHOWN_FROM 5,
+                               never a price, proof needed for accepted/funded/won), postCardFacts (live pillCoin + backers)
+    post-reply.ts              v3.1 one-tap posts Task 6: shortLink, weeklyPost (the Monday moment's post), eventPost (hot:
+                               went live or won under HOT_HOURS; else any event), isHot, newsPost (tell update), outcomePost
+                               (tell program_status with proof_url, else PROOF_ASK + PROOF_NOTE; OUTCOME_NOTED when the program
+                               lists no proof hosts or X accounts), redraftAnswer (the yes to "Want a different version?"),
+                               POST_NOTE; final review: eventPost tries each offered moment in turn and remembers nothing to
+                               draft for the UTC day under eventStamp; v31-post-replies.test.ts through mcpCall
+    post-writer.ts(+test)      v3.1 one-tap posts Task 2: the pure writer. POST_SHAPES (note, name_week, change, this_week,
+                               count, bare, live/live_alt, won/won_alt, accepted/accepted_alt, funded/funded_alt, coin_intro),
+                               writePost(input, history) (rotation: never one of the last 2 shapes nor the last opening word,
+                               relaxed to not the last shape; weekly null when nothing fits, an event its first passing
+                               wording), postProblems (banned hype and shill words, hashtags, cashtags but the coin intro's one
+                               ticker, links but the shown name, emoji, em dash, "!", repeat, "just shipped" twice; "?" in
+                               our wording reads "." and a note with "?" is not used), openingWord, isMilestone,
+                               POST_MAX 200; copy-review.test.ts sweeps every shape
+    post-moments.ts(+test)     v3.1 one-tap posts Task 3: which moments get a post. holdOf (pure cooldowns: weekly 13 days
+                               after a tapped one unless a big week, one offer a week; once a project or program; one kind in
+                               28 days; news 24 h; coin intro once ever), liveTiming (settles 2 days, stale after 14),
+                               proofUrlOk (owner ruling 3: https X post or the program's own site; never earnkit, the
+                               builder's site or repo), weeklyCandidate, wentLiveCandidate (week-facts firstLiveAt),
+                               announcedWinCandidates (entry_outcomes announcement + source_url), verifiedOutcomeCandidate,
+                               coinIntroCandidate (pillCoin), newsCandidate (checkUpdate), offeredMoment (won, went live,
+                               coin intro, weekly; { weekly: false } the events only), draftMoment (writer + freezeCard +
+                               createDraft; an asked redraft skips the hold); Task 6: MomentCandidate.at, HOT_HOURS 48,
+                               weeklyCandidate(..., { week }) numbered as the moment names it; fix round: proofUrlOk
+                               (ProofContext: listings, xHandles, builderHandle; SHARED_HOSTS, public suffixes, never the
+                               listing page), hasEntry, upNow/UP_WITHIN_DAYS, coin intro within 14 days of launch; final
+                               review: ProofContext.proofHosts (program proof_hosts only, never the listing hosts),
+                               'no_proof_source', offeredMoments (every offerable moment in order), eventStamp
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
@@ -1839,7 +1925,8 @@ apps/frontend/
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
                                events-redact.test.ts runs it as a child process); v2.14 T7: the profile clear also unbinds the
                                person's installations (x_user_id) and deletes their x_signin_links rows; v2.12: also the profile's login,
-                               X handle, fallback, slug and slug history, sources' ref/project_key/deployer
+                               X handle, fallback, slug and slug history, sources' ref/project_key/deployer; v3.1 one-tap
+                               posts: post_drafts (project_key, text, moment_key listed; its rows deleted with the page data)
                                v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
                                (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
                                (owner-run, one READ ONLY transaction; v212-journey.test.ts 15.5 runs it)
@@ -2110,7 +2197,7 @@ v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/f
 
 New, tokens and data:
 - `lib/earnkit/site-theme.ts`: `SITE` colours (mirrored `--ek-s-*`, Tailwind `s-*`), `siteVar`.
-- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText`, `programKind`, `logoColor`.
+- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText` ("$5K in Base grants open now", over `landing.ts openToBase` programs only), `programKind`, `logoColor`.
 - `lib/earnkit/site-data.ts`: `profileSite` and its parts (`lastShippedAt`, `thisWeekCommits`, `highlights`, `standingPill`, `backerWeeks`, `tokenAllowed`), `feedWeekStats`.
 - `lib/earnkit/site-streak.ts`: `withThisWeek`, the page's one streak (grid and count).
 - `app/fonts/kaftan-serif.woff2`: Kaftan Serif (moved from `public/fonts`).
@@ -2119,7 +2206,7 @@ New, tokens and data:
 New, primitives (`app/components/site/`):
 - `ui.ts` card, pill, column, title and metal class strings; `Serif.tsx` Kaftan wrapper; `Money.tsx` currency signs in Funnel Sans.
 - `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail;
-  `FadeRail.tsx` the overflow edge fade for sideways rails (SegTabs, the install sheet's agent tabs).
+  `FadeRail.tsx` the overflow edge fade for sideways link rails (SegTabs: feed weeks, leaderboard filters); the agent tabs wrap instead.
 - `NavLinks.tsx` active-link nav; `FooterLight.tsx` pointer light; `AgentMarks.tsx` the four hero marks.
 - `useReducedMotion.ts` (with `useMediaQuery`).
 
@@ -2138,3 +2225,37 @@ Deleted: `app/[handle]/MoneyTab.tsx`, `app/[handle]/ProjectTab.tsx`, `app/compon
 `app/components/sections/ProgramCards.tsx` stays as a shim because `copy-review.test.ts` imports it.
 
 Docs: `apps/frontend/DESIGN.md` rewritten for the v3.1 system (pinned by `v3-tokens.test.ts` T1.8).
+
+v3.1 site clarity batch (branch `v3.1-site-clarity`, 2026-10-22; every file under `apps/frontend/`):
+- `Footer.tsx` CompanyLine centred (full and minimal).
+- Hero: `HeroArt.tsx` painting at brightness 0.95; `Hero.tsx` SHADE is an ellipse behind the words plus a low band
+  (`SITE.heroHalo`, `heroHaloMid`, `heroBand`; `heroShade`, `heroShadeDeep`, `heroShadeEnd` removed); `HERO_TITLE`
+  "Get funded for shipping." at `clamp(28px,9.6vw,96px)`, one line down to 320px; `layout.tsx` TITLE follows;
+  `public/art/*` re-exported (byte budgets in `v31-site-tokens.test.ts` raised).
+- `site-copy.ts`: STEPS (Connect, Ship, Get funded; backing line), `SCORE_UNIT`, `streakRun`, `BENCH_VERIFIED`,
+  `SCORE_SOURCE`, `SCORE_HOW`, `SCORE_HOW_HREF` (/docs#score), `ROLLING`. `Steps.tsx` icon box + fixed title gap.
+- `ScoreText.tsx` `unit` prop (a quiet "Shipping" caption) used by `landing/Activity.tsx`, `feed/FeedRow.tsx`,
+  `leaderboard/BenchRowItem.tsx`; `BenchRowItem` and `Podium` use `streakRun`; `BenchView.countLine` appends
+  BENCH_VERIFIED; `[handle]/site/ScoreCard.tsx` adds SCORE_SOURCE and the "How it's scored" INLINE_LINK.
+- `page-data.ts avatarUrl(raw, githubLogin?)` (X, then GitHub, then null); `feed.ts`, `bench-data.ts` (benchRows,
+  profileData) read `github_login`. `benchCardFacts`/`personFacts` (the share card) stay X-only.
+- Few builders (solo launch: one builder, `jenilt`): `site/InviteRow.tsx`; `BenchView` (no podium, no rail, BENCH_EARLY,
+  invite under RANK_MIN_POOL; `emptyLine`), `FeedView` (FEED_FEW), `landing/Activity.tsx` (wide invite), `landing.ts
+  oneEach`; copy `BENCH_EARLY`, `BENCH_INVITE`, `BENCH_EMPTY_BASE`, `BENCH_EMPTY_BACKED` in `site-copy.ts`.
+- `landing.ts Tile.organizer` and `when` ROLLING; `landing/Opportunities.tsx` shows the organizer's name on the white
+  tile when there is no logo file (no monogram). `fixtures/banned-words.ts` allows the owner's new phrases.
+
+v3.1 Highlights redesign (2026-10-22): `site-data.ts` (highlights in the new order, `uptimeOf`, `repoItem`, link
+builders, `Highlight.href`), `app/[handle]/site/HighlightsCard.tsx` (links, `repo` icon), `builder-codes-check.ts`
+(`path` stored, `storedBuilderCode`, `builderCodesDue`, `runBuilderCodes`), `cron.ts` (`builder_codes` step, deps
+`builderCodes`), `page-data.ts` (`projectProgramsDated` carries `guide`), `sources.ts claimContract`
+(`deployed_at`), `person-github.ts` (`default_branch`, `commits_year`), `source-readers.ts RepoSignals`; schema
+appends `repo_builder_codes.path` and `builder_sources.deployed_at` (`db-check.mts`, `schema-rerun.test.ts`). New:
+`v31-highlights.test.ts`; `v31-site-data.test.ts (c)-(c4)`, `v31-builder-codes.test.ts (i)-(j)`.
+Highlights fix round 1: `guide-pages.ts` (`GUIDE_ID`, `guideProgramSql`: one guide predicate for `landing.ts
+readGuideIds` and `page-data.ts` links), `contract-origins.ts` (`backfillContractOrigins`), `builder-codes-check.ts`
+(`claimAttempt`, attempts stored in `repo_builder_codes_attempts`; the in-memory backoff is gone), `cron.ts` (both steps
+after the email, `builderCodesSliceEnd`), `site-data.ts` (`liveSub`, newest ok reading up (a failed read never hides a live site), date only when all dated),
+`HighlightsCard.tsx` (guide links in the same tab with a chevron), `streak.ts` (updates grouped once),
+`bench-find.ts` (no streak read: no weeks, never the cache). Schema: `repo_builder_codes_attempts`,
+`builder_sources.origin_read_at`.

@@ -20,8 +20,8 @@ const root = join(import.meta.dirname, '..', '..');
 test('a: /docs (v3.1 Docs board): the install H1, the three card H2s and the selectors H2 in order, a tab per agent, the link, the selectors JSON', () => {
   const h2 = [...html.matchAll(/<h2[^>]*>(.*?)<\/h2>/g)].map((m) => m[1]);
   assert.match(html, /<h1[^>]*>Add EarnKit to your agent<\/h1>/);
-  assert.deepEqual(h2, ['How the week works', 'Shipping score', 'Programs', 'For selectors']);
-  for (const a of ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']) assert.match(html, new RegExp(`<button[^>]*role="tab"[^>]*>${a}</button>`));
+  assert.deepEqual(h2, ['No GitHub yet?', 'How the week works', 'Shipping score', 'Programs', 'For selectors']);
+  for (const a of ['Grok Bot', 'Claude', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']) assert.match(html, new RegExp(`<button[^>]*role="tab"[^>]*>${a}</button>`));
   assert.match(html, /<pre[^>]*>(<span[^>]*>)*https:\/\/earnkit\.com\/mcp/);
   assert.match(html, /id="selectors"/);
   assert.match(html.replace(/<wbr\/>/g, ''), /earnkit\.com\/api\/builders\/&lt;handle&gt;\.json/);
