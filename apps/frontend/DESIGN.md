@@ -85,7 +85,7 @@ width, cached by the CDN). Public domain, from the Google Art Project scans.
 
 The footer's credit line is `site-copy.ts ART_CREDIT`: "Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734". The hero
 adds an SVG arch clip path and a sunset circle that follows the mouse; the footer a faint warm light that follows
-the mouse.
+the mouse. The footer's only social link is X, https://x.com/EarnKitAI (owner-confirmed 2026-10-22).
 
 ## Motion
 
