@@ -7,7 +7,6 @@ import type { ProfileSite } from '../../lib/earnkit/site-data';
 import { withThisWeek } from '../../lib/earnkit/site-streak';
 import { PAGE_COL, phoneRadius, CARD_BLUE } from '../components/site/ui';
 import Avatar from './Avatar';
-import { DASH } from './ScoreRing';
 import ActivityCard from './site/ActivityCard';
 import HeroCard from './site/HeroCard';
 import HighlightsCard from './site/HighlightsCard';
@@ -24,7 +23,7 @@ export const confirmingCardLine = (name: string, project: string) =>
   `${name} is getting ${project === PRIVATE_NAME ? 'a private project' : project} on the leaderboard.`;
 /** Launch ready L10: a page with no project yet: one calm line in place of the project. */
 export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
-export { DASH, streakWords, rankSplit, dollars };
+export { streakWords, rankSplit, dollars };
 
 /** The 12 squares of the Streak card: the grid's last 12 weeks (padded with off weeks on a short grid). Pure. */
 const last12 = (grid: ProfileData['grid']): boolean[] => {

@@ -2,9 +2,6 @@ import { useId } from 'react';
 import { scoreBand } from '../../lib/earnkit/site-copy';
 import { SITE } from '../../lib/earnkit/site-theme';
 
-/** A number not there yet (no score, confirming, no project). */
-export const DASH = '–';
-
 /** One hue per band, light to deep (the design doc's ring gradients; never multi-hue). */
 const BAND = {
   good: [SITE.goodLight, SITE.goodDeep],
@@ -18,8 +15,8 @@ const STROKE = 12;
 /**
  * v3.1 (Profile board): the Shipping score ring, 132px. A 12px track on navy and, over it from 12 o'clock, the score's
  * arc in one hue (its band, light to deep) with round caps; the number in Kaftan Serif in the middle. The arc draws in
- * once (globals.css .ek-arc; none under reduced motion). No score: the track alone and a dash. One image with a text
- * equivalent.
+ * once (globals.css .ek-arc; none under reduced motion). No score: the empty track alone, no glyph (the card's line says why;
+ * QA item 5). One image with a text equivalent.
  */
 export default function ScoreRing({ score }: { score: number | null }) {
   const id = `ek-ring-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
@@ -62,9 +59,11 @@ export default function ScoreRing({ score }: { score: number | null }) {
           />
         ) : null}
       </svg>
-      <span aria-hidden="true" className={`ek-serif absolute inset-0 flex items-center justify-center text-[56px] leading-none tabular-nums ${shown === null ? 'text-s-on-navy' : 'text-s-text'}`}>
-        {shown === null ? DASH : shown}
-      </span>
+      {shown === null ? null : (
+        <span aria-hidden="true" className="ek-serif absolute inset-0 flex items-center justify-center text-[56px] leading-none tabular-nums text-s-text">
+          {shown}
+        </span>
+      )}
     </div>
   );
 }

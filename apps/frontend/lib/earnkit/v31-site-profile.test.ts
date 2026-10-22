@@ -144,7 +144,10 @@ test('(e) the standing pill: metal, its place as the title; standing null shows 
 test('(f) first week, no project, confirming: every card has text; nothing reads undefined, null, NaN, "[" or points', () => {
   const sam = page(SAM, SAM_SITE);
   const score = block(sam, 'data-ek-score');
-  assert.ok(text(score).includes('–') && text(score).includes(SCORE_PENDING));
+  // QA item 5: no placeholder glyph in the ring (no dash of any kind, no number); the card line explains it.
+  assert.ok(text(score).includes(SCORE_PENDING));
+  assert.doesNotMatch(text(score), /[-\u2013\u2014]|\d/, text(score));
+  assert.doesNotMatch(score, /ek-serif absolute inset-0/, 'no number span in the ring');
   assert.doesNotMatch(score, /ek-arc|<stop /, 'track only');
   assert.match(score, /aria-label="Shipping score not shown yet"/);
   const t = text(sam);
