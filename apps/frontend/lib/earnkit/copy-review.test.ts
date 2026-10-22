@@ -1,4 +1,4 @@
-import { POST_NOTE, PROOF_NOTE } from './post-reply';
+import { NEWS_REWORD_NOTE, POST_NOTE, PROOF_NOTE } from './post-reply';
 import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
@@ -26,7 +26,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
@@ -899,7 +899,7 @@ function weeklyCopy(): [string, string][] {
     ['PROOF_ASK', PROOF_ASK],
     ['redraft limit', redraftLine('limit', 'https://earnkit.com/lee/post/abcdefghij')],
     ['redraft only', redraftLine('only', 'https://earnkit.com/lee/post/abcdefghij')],
-    ['redraft own words', redraftLine('own_words', 'https://earnkit.com/lee/post/abcdefghij')],
+    ['NEWS_ASK', NEWS_ASK],
     ['MOMENT_ASK', MOMENT_ASK],
     ['APPROVED_LINE', APPROVED_LINE],
   ];
@@ -1056,6 +1056,7 @@ const agentFacing: [string, string][] = [
   ['SHARE_NOTE', SHARE_NOTE],
   ['POST_NOTE', POST_NOTE],
   ['PROOF_NOTE', PROOF_NOTE],
+  ['NEWS_REWORD_NOTE', NEWS_REWORD_NOTE],
   ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],

@@ -1,4 +1,4 @@
-import { CODE_PATTERN, draftByCode, tapDraft } from '../../lib/earnkit/post-drafts';
+import { CODE_PATTERN, draftByCode, tapDraft, visitFrom } from '../../lib/earnkit/post-drafts';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { live } from './card-response';
 
@@ -23,13 +23,22 @@ export function postIntent(handle: string, code: string, text: string): string {
   return u.toString();
 }
 
-export async function postResponse(handle: string, path: string, code: string, now: Date = new Date()): Promise<Response> {
+/**
+ * Fix round: a tap counts only from a person: never a HEAD request or a link unfurler or script (post-drafts.ts
+ * visitFrom: Twitterbot, facebookexternalhit, Slackbot, Discordbot, TelegramBot, LinkedInBot, WhatsApp, curl, ...). Only
+ * the decision is made from the headers; nothing of them is kept. Pure.
+ */
+export const countsAsTap = (req: Request | undefined) =>
+  !req || (req.method !== 'HEAD' && visitFrom(req.headers.get('user-agent'), null) !== null);
+
+export async function postResponse(handle: string, path: string, code: string, o: { now?: Date; request?: Request } = {}): Promise<Response> {
+  const now = o.now ?? new Date();
   if (!CODE_PATTERN.test(code)) return notFound();
   const who = await live(handle, path, `post/${code}`);
   if (who instanceof Response) return who;
   const row = await draftByCode(code);
   if (!row || row.builder_id !== who.builderId) return notFound();
   if (row.expires_at.getTime() <= now.getTime()) return to(pagePath(who.handle));
-  await tapDraft(code, who.builderId, now);
+  if (countsAsTap(o.request)) await tapDraft(code, who.builderId, now);
   return to(postIntent(who.handle, code, row.text));
 }

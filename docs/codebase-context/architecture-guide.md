@@ -7589,6 +7589,26 @@ gone; the Monday moment now carries a drafted post.)
   pass it); `outcomePost` drafts only with a link `proofUrlOk` accepts, else replies `PROOF_ASK` ("Send me a public link
   that shows it, like the program's post.") with `PROOF_NOTE`. `SHARE_NOTE` and `POST_NOTE` say "Show the post text
   exactly as given. Never rewrite it."
+- **Fix round (review and security check, controller rulings).** Proof (`proofUrlOk`, owner ruling 3): only a page
+  on the program's own listed host or a subdomain (www. aside; never a multi-label public suffix such as co.uk, never a
+  shared host in `SHARED_HOSTS`: github.io, github.com, dorahacks.io, questbook.app, forms.gle, vercel.app, netlify.app,
+  notion.site, medium.com, mirror.xyz, paragraph.xyz and kin, never ethglobal.com/showcase, never the listing page
+  itself), or an X status by one of the program's `x_handles` (program file field, synced to `programs.x_handles`;
+  empty everywhere today, so X proof is off until a handle is verified from a program's own source); never the
+  builder's own X account, site or repo, never earnkit.com. An outcome post also needs `hasEntry` read before the tell
+  is stored: an entry (`projects`), an application told (`builder_program_status.applied_at`, kept through later
+  statuses), or a verified outcome drafted before; the award is only an announced prize (`entry_outcomes` basis
+  announcement), never `prize_usd` from the agent. Notes: a builder's note with a hype word, two or more emoji, "!!",
+  an em dash or a link falls back to EarnKit's wording. Writer: `hasLink` (any word.letters host but `NOT_LINKS` such as
+  Node.js), emails refused, a hashtag only as # then a letter, no @mention in EarnKit text, `lowered` only for a verb or a
+  plain word ("Stripe", "New York" keep their case). Taps: `countsAsTap` ignores HEAD and unfurlers or scripts
+  (`visitFrom`), no header kept. Moments: went live also needs the project up now (`upNow`: an up site reading within
+  `UP_WITHIN_DAYS` 3, an EarnKit-hosted site serving, or a deployed contract); the coin intro only within 14 days of
+  `coin_launched_at`; the moment's hold runs again inside `createDraft`'s per-person lock (`NewDraft.hold`); a different
+  version only of the latest, unexpired draft. Replies: accepted or funded heads "Here's your post for X." (the profile
+  doesn't show them); news asks "Want to change any words?" and its yes asks for new words (`NEWS_REWORD_NOTE`), which
+  `tell update` then puts in the same draft (`rewordDraft`: same code, key and link). `events-redact` lists
+  `post_drafts.card` and `post_drafts.proof_url`.
 - **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0), `post_x_visits` (sum) and
   `backers_after_post` (distinct person and wallet first seen within 7 days after a first tap on an open backing; 0 while
   EARNKIT_RAISING is off; correlation only), people only (`notTest`); labels in `STATS_LABELS`; the route's cache key

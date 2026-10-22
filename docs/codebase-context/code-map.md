@@ -1677,7 +1677,8 @@ apps/frontend/
                                taps capped at TAP_CAP 100; first_tap_at; post_tapped on the first; no IP or UA), noteVisit
                                (visits and x_visits, VISIT_CAP), recentDrafts (newest first); Task 5 visitFrom (UA and
                                referrer: bot null, t.co/x.com 'x', else 'web'); PAST_OFFER_LIMIT (went_live, won, funded skip
-                               the one offered a week; controller ruling)
+                               the one offered a week; controller ruling); fix round: NewDraft.hold (the moment's hold
+                               under the lock), rewordDraft (news in new words, in place)
     post-card.ts(+test)        v3.1 one-tap posts Task 5: freezeCard (project, streak, score, rank from RANK_MIN_POOL, 12-week
                                grid, frozen at drafting), cardWeeks, postCardView (pure: layouts, stats, BACKERS_SHOWN_FROM 5,
                                never a price, proof needed for accepted/funded/won), postCardFacts (live pillCoin + backers)
@@ -1701,7 +1702,9 @@ apps/frontend/
                                coinIntroCandidate (pillCoin), newsCandidate (checkUpdate), offeredMoment (won, went live,
                                coin intro, weekly; { weekly: false } the events only), draftMoment (writer + freezeCard +
                                createDraft; an asked redraft skips the hold); Task 6: MomentCandidate.at, HOT_HOURS 48,
-                               weeklyCandidate(..., { week }) numbered as the moment names it
+                               weeklyCandidate(..., { week }) numbered as the moment names it; fix round: proofUrlOk
+                               (ProofContext: listings, xHandles, builderHandle; SHARED_HOSTS, public suffixes, never the
+                               listing page), hasEntry, upNow/UP_WITHIN_DAYS, coin intro within 14 days of launch
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),

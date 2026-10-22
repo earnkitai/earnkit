@@ -176,3 +176,31 @@ test('26 simulated weeks: every week with something to say gets a post, and no s
   // No more than 2 of any 3 in a row share a shape.
   for (let i = 2; i < posts.length; i++) assert.ok(new Set([posts[i - 2]!.shape, posts[i - 1]!.shape, posts[i]!.shape]).size >= 2);
 });
+
+test('fix round: links are any word.letters host (Node.js and Next.js are tools); emails; # then a letter only; no @mention in our text', () => {
+  for (const t of ['Moved docs to recipes.dev.', 'See kit.example.', 'Mail hi@kit.app for access.', 'Thanks @base for the grant.', 'Added #search.'])
+    assert.ok(postProblems(t).length > 0, t);
+  assert.deepEqual(postProblems('Moved docs to recipes.dev.'), ['link']);
+  assert.ok(postProblems('Mail hi@kit.app for access.').includes('email'));
+  assert.deepEqual(postProblems('Thanks @base for the grant.'), ['mention']);
+  for (const ok of ['Moved the app to Next.js and Node.js 22.', 'Fixed #123 and #45.', 'Cut load time by 2.5x.', 'Added v1.2 of the API.'])
+    assert.deepEqual(postProblems(ok), [], ok);
+  assert.equal(write(weekly({ name: 'Kit', week: 3, summary: 'Fixed #123 on slow phones.' }))!.text, 'Kit, week 3: fixed #123 on slow phones.');
+});
+
+test('fix round: a builder\'s note with a hype word, more than one emoji, "!!", an em dash or a link falls back to our wording', () => {
+  for (const note of ['Excited to share the new search', 'New search \u{1F680}\u{1F525}', 'New search!!', 'New search — finally', 'Docs at kit.dev', 'Thrilled with this week'])
+    assert.equal(write(weekly({ name: 'Kit', week: 5, summary: 'Added search.', note }))!.shape, 'name_week', note);
+  assert.equal(write(weekly({ name: 'Kit', week: 5, summary: 'Added search.', note: 'Search works offline now \u{1F680}' }))!.shape, 'note', 'one emoji is theirs');
+  assert.equal(write({ moment: 'news', note: 'We are so excited!!' }), null, 'news in hype words: no post');
+});
+
+test('fix round: brand case is kept; only a common word is lowered', () => {
+  const t = (summary: string) => write(weekly({ name: 'Kit', week: 3, summary }))!.text;
+  assert.equal(t('Stripe checkout is live.'), 'Kit, week 3: Stripe checkout is live.');
+  assert.equal(t('Supabase auth replaced the old login.'), 'Kit, week 3: Supabase auth replaced the old login.');
+  assert.equal(t('New York users get local prices.'), 'Kit, week 3: New York users get local prices.');
+  assert.equal(t('New search page.'), 'Kit, week 3: new search page.');
+  assert.equal(t('Added CSV export.'), 'Kit, week 3: added CSV export.');
+  assert.equal(t('Rebuilt the editor.'), 'Kit, week 3: rebuilt the editor.');
+});

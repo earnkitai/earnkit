@@ -1,7 +1,9 @@
 import { sql } from './db';
 import { siteUrl } from './entry-text';
-import { POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
-import type { DraftRow } from './post-drafts';
+import { NEWS_ASK, POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
+import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-drafts';
+import { writePost } from './post-writer';
+import { checkUpdate } from './update-text';
 import {
   HOT_HOURS, draftMoment, newsCandidate, offeredMoment, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
 } from './post-moments';
@@ -32,8 +34,14 @@ const logged = (where: string) => (err: unknown) => {
 export const shortLink = (handle: string, code: string) => `${siteUrl()}${pagePath(handle)}/post/${code}`;
 const offerOf = (handle: string, d: DraftRow): PostOffer => ({ text: d.text, link: shortLink(handle, d.code) });
 
+/** Fix round: the yes to "Want to change any words?" (the builder's news): their new words go to tell update. */
+export const NEWS_REWORD_NOTE =
+  "Ask the builder in one short question for the new words of their post, then call tell with update: { text } in their own words. Don't show this note.";
+/** The question a moment's post asks: a different version, or for the builder's own news, their words. Pure. */
+const askOf = (c: Pick<MomentCandidate, 'moment'>) => (c.moment === 'news' ? NEWS_ASK : POST_ASK);
+
 /** The ask a post reply stores (standing_seen.bench_ask): its yes redrafts this moment. */
-type PostAsk = { kind: 'post'; key: string | null; code: string; head: string; moment: MomentCandidate };
+type PostAsk = { kind: 'post'; key: string | null; code: string; head: string; moment: MomentCandidate; reword?: true };
 async function storePostAsk(id: number, ask: PostAsk): Promise<void> {
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('store ask'));
@@ -89,9 +97,23 @@ async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now:
   const head = eventHead(c, now);
   await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head, moment: c });
   return {
-    show_to_builder: postReply({ head, ...offerOf(handle, d.draft) }, POST_ASK),
+    show_to_builder: postReply({ head, ...offerOf(handle, d.draft) }, askOf(c)),
     move_up: { kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE },
   };
+}
+
+/** The open post ask (standing_seen.bench_ask kind 'post'), if any. */
+async function openPostAsk(id: number): Promise<PostAsk | null> {
+  const [p] = await sql()<{ ask: PostAsk | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const a = p?.ask;
+  return a && a.kind === 'post' && typeof a.code === 'string' && a.moment && typeof a.moment === 'object' ? a : null;
+}
+/** Fix round: `code` is the person's latest draft and still within its 14-day life (only that one is redrafted). */
+async function latestLive(id: number, code: string, now: Date): Promise<boolean> {
+  const [last] = await recentDrafts(id, 1);
+  if (last?.code !== code) return false;
+  const d = await draftByCode(code);
+  return Boolean(d && d.builder_id === id && d.expires_at.getTime() > now.getTime());
 }
 
 /**
@@ -99,20 +121,46 @@ async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now:
  * hours apart). Null when no post is drafted (the update's own reply stands). Never throws.
  */
 export async function newsPost(id: number, text: unknown, now: Date): Promise<Record<string, unknown> | null> {
+  // Fix round: new words after a yes to the news post's "Want to change any words?" (the ask marked reword) reword that draft in place:
+  // the same moment key, code and link, never a second news post.
+  const open = await openPostAsk(id).catch(logged('open ask'));
+  if (open?.reword && (open.moment as MomentCandidate).moment === 'news' && (await latestLive(id, open.code, now).catch(() => false))) {
+    const reworded = await rewordNews(id, open, text, now).catch(logged('reword'));
+    if (reworded) return reworded;
+  }
   const c = await newsCandidate(id, text, now).catch(logged('news'));
   if (!c || typeof c === 'string') return null;
   return draftedReply(id, c, true, now);
 }
 
+/** The news post `open` in the builder's new words (checked as an update and as a note is), its ask kept. Null: not usable. */
+async function rewordNews(id: number, open: PostAsk, text: unknown, now: Date): Promise<Record<string, unknown> | null> {
+  const handle = await handleOf(id);
+  const own = await (await import('./updates')).ownLinks(id);
+  const checked = checkUpdate(text, own);
+  if (!handle || !checked.ok) return null;
+  const post = writePost({ moment: 'news', note: checked.text }, []);
+  if (!post) return null;
+  const d = await rewordDraft(open.code, id, post.text, now);
+  if (!d) return null;
+  await storePostAsk(id, { ...open, reword: undefined });
+  return {
+    show_to_builder: postReply({ head: open.head, ...offerOf(handle, d) }, NEWS_ASK),
+    move_up: { kind: 'post', project_key: open.key, agent_note: POST_NOTE },
+  };
+}
+
 /**
  * tell program_status accepted, funded or won (owner ruling 3): drafted only with a proof link the agent checked
- * (proofUrlOk); without one, the builder is asked for it. Null: no page or project to post for, or a limit holds it.
+ * (proofUrlOk) for a program the builder had an entry or application in (`entered`, read before the tell was stored);
+ * without the link, the builder is asked for it. Null: no entry, no page or project to post for, or a limit holds it.
  * Never throws.
  */
 export async function outcomePost(
-  id: number, s: { program_id: string; status: 'accepted' | 'funded' | 'won'; proof_url?: unknown; prize_usd?: number }, now: Date,
+  id: number, s: { program_id: string; status: 'accepted' | 'funded' | 'won'; proof_url?: unknown }, o: { entered: boolean }, now: Date,
 ): Promise<Record<string, unknown> | null> {
-  const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, awardUsd: s.prize_usd ?? null }).catch(logged('outcome'));
+  // Fix round: never an amount the agent states (prize_usd is not read here); the award is the announced one only.
+  const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }).catch(logged('outcome'));
   if (c === 'no_proof') return { show_to_builder: PROOF_ASK, agent_note: PROOF_NOTE };
   if (!c || typeof c === 'string') return null;
   return draftedReply(id, c, false, now);
@@ -120,14 +168,22 @@ export async function outcomePost(
 
 /**
  * The yes to "Want a different version?": the stored moment drafted again with the next shape (asked by the builder,
- * so the asked limit holds). Its reply asks again; when no new version can be written (the limit, or no other wording)
- * the post they have stays, its link the reply's one link. Never throws.
+ * so the asked limit holds), only for the person's latest draft within its 14-day life. Its reply asks again; when no
+ * new version can be written (the limit, or no other wording) the post they have stays, its link the reply's one link.
+ * The yes to "Want to change any words?" (the builder's news) asks for their words (NEWS_REWORD_NOTE). Never throws.
  */
 export async function redraftAnswer(id: number, ask: { key: string | null; code?: unknown; head?: unknown; moment?: unknown }, now: Date): Promise<Record<string, unknown> | null> {
   const c = ask.moment as MomentCandidate | undefined;
   if (!c || typeof c !== 'object' || typeof c.momentKey !== 'string' || typeof ask.code !== 'string' || typeof ask.head !== 'string') return null;
   const handle = await handleOf(id);
   if (!handle) return null;
+  // Fix round: only the latest draft, within its 14-day life.
+  if (!(await latestLive(id, ask.code, now).catch(() => false))) return null;
+  // The builder's own news: their new words (tell update), the same draft reworded; the ask stays open for them.
+  if (c.moment === 'news') {
+    await storePostAsk(id, { kind: 'post', key: c.projectKey, code: ask.code, head: ask.head, moment: c, reword: true });
+    return { show_to_builder: '', agent_note: NEWS_REWORD_NOTE };
+  }
   const d = await draftMoment(id, c, { asked: true }, now).catch(logged('redraft'));
   if (d?.ok) {
     await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head: ask.head, moment: c });
@@ -136,6 +192,6 @@ export async function redraftAnswer(id: number, ask: { key: string | null; code?
       move_up: { kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE },
     };
   }
-  const why = d && !d.ok && d.reason === 'no_post' ? (c.moment === 'news' ? 'own_words' : 'only') : 'limit';
+  const why = d && !d.ok && d.reason === 'no_post' ? 'only' : 'limit';
   return { show_to_builder: redraftLine(why, shortLink(handle, ask.code)) };
 }

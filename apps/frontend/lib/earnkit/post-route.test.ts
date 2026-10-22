@@ -30,8 +30,9 @@ async function withDraft(text = 'Recipes, week 6: added offline mode & fixed #3 
   assert.ok(d.ok);
   return { id, handle, code: d.draft.code };
 }
-const get = async (handle: string, code: string, query = '') =>
-  (await load()).post(new Request(`http://x/${handle}/post/${code}${query}`), { params: Promise.resolve({ handle, code }) });
+const SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+const get = async (handle: string, code: string, query = '', init: RequestInit = { headers: { 'user-agent': SAFARI } }) =>
+  (await load()).post(new Request(`http://x/${handle}/post/${code}${query}`, init), { params: Promise.resolve({ handle, code }) });
 
 test('the tap: a 302 to X\'s composer with the draft\'s exact text and the page link with ?m=<code>, never a target from the request', dbTest, async () => {
   const { draftByCode } = await load();
@@ -107,7 +108,7 @@ test('a reserved handle: /b/<handle>/post/<code> taps; /<handle>/post/<code> mov
   await sql()`UPDATE builder_profiles SET x_handle = NULL, x_user_id = NULL WHERE lower(x_handle) = 'mcp'`;
   const r = await withDraft('Added search.', { handle: 'mcp' });
   try {
-    const bGet = (slug: string, code: string) => bPost(new Request(`http://x/b/${slug}/post/${code}`), { params: Promise.resolve({ slug, code }) });
+    const bGet = (slug: string, code: string) => bPost(new Request(`http://x/b/${slug}/post/${code}`, { headers: { 'user-agent': SAFARI } }), { params: Promise.resolve({ slug, code }) });
     const ok = await bGet('mcp', r.code);
     assert.equal(ok.status, 302);
     assert.equal(new URL(ok.headers.get('location')!).searchParams.get('url'), `https://earnkit.com/b/mcp?m=${r.code}`);
@@ -123,4 +124,21 @@ test('a reserved handle: /b/<handle>/post/<code> taps; /<handle>/post/<code> mov
   } finally {
     await sql()`UPDATE builder_profiles SET x_handle = NULL, x_user_id = NULL WHERE builder_id = ${r.id}`;
   }
+});
+
+test('fix round: a HEAD request, a link unfurler or a script opens X but is never counted (nothing of the request is kept)', dbTest, async () => {
+  const { draftByCode } = await load();
+  const { handle, code } = await withDraft();
+  const head = await get(handle, code, '', { method: 'HEAD', headers: { 'user-agent': SAFARI } });
+  assert.equal(head.status, 302);
+  for (const ua of ['Twitterbot/1.0', 'facebookexternalhit/1.1', 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)', 'Mozilla/5.0 (compatible; Discordbot/2.0)',
+    'TelegramBot (like TwitterBot)', 'LinkedInBot/1.0', 'WhatsApp/2.23', 'curl/8.4.0']) {
+    const r = await get(handle, code, '', { headers: { 'user-agent': ua } });
+    assert.equal(r.status, 302, ua);
+  }
+  assert.equal((await get(handle, code, '', {})).status, 302, 'no user agent');
+  const row = (await draftByCode(code))!;
+  assert.deepEqual([row.taps, row.first_tap_at], [0, null], 'no tap and no first_tap_at from any of them');
+  await get(handle, code);
+  assert.equal((await draftByCode(code))!.taps, 1, 'a person\'s tap counts');
 });

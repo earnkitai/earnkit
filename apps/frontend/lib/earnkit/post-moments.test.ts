@@ -12,6 +12,7 @@ import {
   announcedWinCandidates,
   coinIntroCandidate,
   draftMoment,
+  hasEntry,
   holdOf,
   liveTiming,
   newsCandidate,
@@ -90,18 +91,45 @@ test('news: 24 hours; coin intro: once ever, whatever the coin', () => {
   assert.equal(holdOf(coin, [], NOW), null);
 });
 
-test('proof (owner ruling 3): an X post or the program\'s own site, over https; never earnkit.com, the builder\'s own site or repo, or any other host', () => {
-  const o = { programUrls: ['https://www.base.org/builders/grants', null], own: { sites: ['https://recipes.app'], repo: 'maya/recipes' } };
+test('proof (owner ruling 3, fix round): the program\'s own host or a subdomain, or a post by its own X account; nothing else', () => {
+  const o = {
+    listings: ['https://www.base.org/builders/grants', 'https://forms.base.org/apply'], xHandles: ['base', 'BuildOnBase'], builderHandle: 'maya',
+    own: { sites: ['https://recipes.app'], repo: 'maya/recipes' },
+  };
   assert.equal(proofUrlOk('https://x.com/base/status/1849000000000000000', o), 'https://x.com/base/status/1849000000000000000');
-  assert.equal(proofUrlOk('https://twitter.com/base/status/18490#reply', o), 'https://twitter.com/base/status/18490');
+  assert.equal(proofUrlOk('https://twitter.com/buildonbase/status/18490#reply', o), 'https://twitter.com/buildonbase/status/18490');
   assert.equal(proofUrlOk('https://blog.base.org/grant-winners-october', o), 'https://blog.base.org/grant-winners-october');
+  assert.equal(proofUrlOk('https://www.base.org/builders/grants/round-3-winners', o), 'https://www.base.org/builders/grants/round-3-winners');
   for (const bad of [
     undefined, null, 42, '', 'not a link', 'http://x.com/base/status/1', 'https://x.com/base', 'https://x.com/i/flow/login',
+    // Another account's post, or the builder's own (even if listed).
+    'https://x.com/randomperson/status/1849000000000000000', 'https://x.com/maya/status/1',
+    // The listing pages themselves, with or without a slash, query or fragment.
+    'https://www.base.org/builders/grants', 'https://base.org/builders/grants/', 'https://forms.base.org/apply?x=1', 'https://www.base.org/builders/grants#top',
+    // Look-alike hosts and public suffixes.
+    'https://base.org.evil.com/winners', 'https://evilbase.org/winners', 'https://co.uk/winners',
     'https://earnkit.com/maya', 'https://recipes.app/we-won', 'https://github.com/maya/recipes/releases', 'https://medium.com/@maya/we-won',
     'https://user:pw@base.org/winners', 'https://203.0.113.9/winners', 'https://base.org:8443/winners', `https://base.org/${'a'.repeat(2050)}`,
     'javascript:alert(1)',
   ])
     assert.equal(proofUrlOk(bad, o), null, String(bad).slice(0, 60));
+  // A program on a co.uk host: only that host and its subdomains, never another name under co.uk.
+  const uk = { ...o, listings: ['https://www.grants.co.uk/apply'], xHandles: [] };
+  assert.equal(proofUrlOk('https://news.grants.co.uk/winners', uk), 'https://news.grants.co.uk/winners');
+  assert.equal(proofUrlOk('https://other.co.uk/winners', uk), null);
+  // No X accounts listed: no X post is proof.
+  assert.equal(proofUrlOk('https://x.com/base/status/1', uk), null);
+  // A program listed on a shared host: no page there is proof (anyone can publish one).
+  for (const [listing, page] of [
+    ['https://dorahacks.io/hackathon/x', 'https://dorahacks.io/hackathon/x/winners'], ['https://circle.questbook.app/', 'https://circle.questbook.app/winners'],
+    ['https://grants.github.io/', 'https://grants.github.io/winners'], ['https://forms.gle/abc', 'https://forms.gle/winners'],
+    ['https://ethglobal.com/events/mumbai', 'https://ethglobal.com/showcase/my-project-abc'], ['https://fund.vercel.app/', 'https://fund.vercel.app/winners'],
+    ['https://x.notion.site/grants', 'https://x.notion.site/winners'], ['https://mirror.xyz/fund', 'https://mirror.xyz/fund/winners'],
+    ['https://paragraph.xyz/@fund', 'https://paragraph.xyz/@fund/winners'], ['https://fund.netlify.app/', 'https://fund.netlify.app/winners'],
+  ])
+    assert.equal(proofUrlOk(page, { ...o, listings: [listing] }), null, page);
+  // ethglobal.com outside /showcase is its own site.
+  assert.equal(proofUrlOk('https://ethglobal.com/events/mumbai/prizes', { ...o, listings: ['https://ethglobal.com/events/mumbai'] }), 'https://ethglobal.com/events/mumbai/prizes');
 });
 
 // ---- From the data ----
@@ -210,6 +238,14 @@ test('went live: offered once it settles, ahead of the weekly; named with the we
   assert.equal(holdOf(r.moment!, [{ ...d.draft }], new Date(NOW.getTime() + 30 * DAY)), 'once');
   await sql()`UPDATE hosted_sites SET deployed_at = ${ago(20)} WHERE installation_id = ${id}`;
   assert.equal(await wentLiveCandidate(id, NOW), 'stale');
+  // Fix round: live needs a recent up reading. A site (not EarnKit-hosted) last seen up 5 days ago is not offered.
+  const site = await maya({ weeks: [isoWeekOf(ago(30))] });
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${site.id}, 'site', 'https://recipes.example', ${site.key}, 'verified', 'repo_link', 'agent') RETURNING id::int AS sid`;
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${ago(5).toISOString().slice(0, 10)}, '{"up": true}'::jsonb, true)`;
+  assert.equal(await wentLiveCandidate(site.id, NOW), 'not_up', 'up 5 days ago, nothing since');
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${ago(1).toISOString().slice(0, 10)}, '{"up": true}'::jsonb, true)`;
+  assert.equal((await wentLiveCandidate(site.id, NOW) as MomentCandidate).moment, 'went_live');
   const never = await maya();
   assert.equal(await wentLiveCandidate(never.id, NOW), 'not_live');
 });
@@ -243,18 +279,28 @@ test('won: an announced win with its source link is offered first, with the awar
   assert.deepEqual(await announcedWinCandidates(id, new Date(NOW.getTime() + 15 * DAY)), []);
 });
 
-test('accepted, funded or won as told: only with a proof link the agent checked, stored with the draft', dbTest, async () => {
+test('accepted, funded or won as told: only with a proof link the agent checked, for a program they entered; the award only as announced', dbTest, async () => {
   const { id, key } = await maya();
-  const { program } = await entered(id, key);
-  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: undefined }), 'no_proof', 'never on the builder\'s word alone');
-  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: 'https://medium.com/@maya/in' }), 'no_proof');
-  assert.equal(await verifiedOutcomeCandidate(id, { programId: 'no-such-program', result: 'won', proofUrl: 'https://x.com/base/status/2' }), 'no_program');
-  const c = await verifiedOutcomeCandidate(id, { programId: program, result: 'funded', proofUrl: 'https://www.base.org/builders/grants-round-3#winners', awardUsd: 3000 });
+  const { program, pid } = await entered(id, key);
+  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: undefined, entered: true }), 'no_proof', 'never on the builder\'s word alone');
+  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: 'https://medium.com/@maya/in', entered: true }), 'no_proof');
+  assert.equal(await verifiedOutcomeCandidate(id, { programId: 'no-such-program', result: 'won', proofUrl: 'https://x.com/base/status/2', entered: true }), 'no_program');
+  // No entry or application before the tell: no moment, whatever the proof.
+  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'funded', proofUrl: 'https://www.base.org/builders/grants-round-3', entered: false }), 'no_entry');
+  assert.equal(await hasEntry(id, program), true);
+  assert.equal(await hasEntry(id, 'no-such-program'), false);
+  // An amount the agent states is never printed (the input takes none); none announced: no award.
+  const c = await verifiedOutcomeCandidate(id, { programId: program, result: 'funded', proofUrl: 'https://www.base.org/builders/grants-round-3#winners', entered: true });
   assert.ok(typeof c !== 'string');
   const d = await draftMoment(id, c, { asked: true }, NOW);
   assert.ok(d.ok);
-  assert.equal(d.draft.text, 'Recipes was funded by the Base Builder Grant ($3,000).');
+  assert.equal(d.draft.text, 'Recipes was funded by the Base Builder Grant.');
   assert.equal(d.draft.proof_url, 'https://www.base.org/builders/grants-round-3');
+  // An announced prize (the outcomes file) is the award.
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, source_url, captured_at)
+    VALUES (${pid}, ${program}, 'R1', 'won', 3000, 'announcement', 'https://www.base.org/builders/winners', ${ago(1)})`;
+  const w = (await verifiedOutcomeCandidate(id, { programId: program, result: 'won', proofUrl: 'https://www.base.org/builders/winners-r1', entered: true })) as MomentCandidate;
+  assert.deepEqual(w.input, { moment: 'won', name: 'Recipes', program: 'Base Builder Grant', award: '$3,000' });
 });
 
 test('builder\'s news: checked like an update; 24 hours apart', dbTest, async () => {
@@ -273,17 +319,22 @@ test('coin intro (owner ruling 1): once the coin is launched and the page shows 
   const before = process.env.EARNKIT_RAISING;
   try {
     const { id, key } = await maya({ weeksShipping: 9 });
-    await sql()`INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at, coin_address)
-      VALUES ('earnkit-coin', 'Recipes', ${`https://github.com/${key}`}, ${`github.com/${key}`}, ${id}, 'RCP', 'launched', 'https://tokens.fun/c/1', now(), ${`0x${randomBytes(20).toString('hex')}`})`;
+    await sql()`INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at, coin_address, coin_launched_at)
+      VALUES ('earnkit-coin', 'Recipes', ${`https://github.com/${key}`}, ${`github.com/${key}`}, ${id}, 'RCP', 'launched', 'https://tokens.fun/c/1', now(), ${`0x${randomBytes(20).toString('hex')}`}, ${ago(20)})`;
     delete process.env.EARNKIT_RAISING;
-    assert.equal(await coinIntroCandidate(id), 'no_coin', 'backing off: no intro');
+    assert.equal(await coinIntroCandidate(id, NOW), 'no_coin', 'backing off: no intro');
+    process.env.EARNKIT_RAISING = 'on';
+    // Fix round: launched 20 days ago: old news, no intro.
+    assert.equal(await coinIntroCandidate(id, NOW), 'stale');
+    await sql()`UPDATE projects SET coin_launched_at = ${ago(2)} WHERE installation_id = ${id} AND program_id = 'earnkit-coin'`;
+    delete process.env.EARNKIT_RAISING;
     process.env.EARNKIT_RAISING = 'on';
     const r = await offeredMoment(id, NOW);
     assert.equal(r.moment?.moment, 'coin_intro');
     const d = await draftMoment(id, r.moment!, { asked: false }, NOW);
     assert.ok(d.ok);
     assert.equal(d.draft.text, 'Recipes has a coin now, $RCP. 9 weeks shipping so far.');
-    const later = await offeredMoment(id, new Date(NOW.getTime() + 100 * DAY));
+    const later = await offeredMoment(id, new Date(NOW.getTime() + 5 * DAY));
     assert.notEqual(later.moment?.moment, 'coin_intro');
     assert.ok(later.skipped.includes('once'));
   } finally {
@@ -316,4 +367,16 @@ test('a private project (no name to show) gets only nameless weekly shapes; no w
   assert.ok(d.ok);
   assert.equal(d.draft.text, 'Added search.');
   assert.equal(await wentLiveCandidate(id, NOW), 'no_project');
+});
+
+test('fix round: one moment drafted at once from several replies is written once (the hold runs under the store\'s lock)', dbTest, async () => {
+  const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`pmc${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live', ${ago(3)})`;
+  const c = (await wentLiveCandidate(id, NOW)) as MomentCandidate;
+  // Went live skips the one-offered-a-week limit, so only the hold keeps a second copy out.
+  const all = await Promise.all(Array.from({ length: 6 }, () => draftMoment(id, c, { asked: false }, NOW)));
+  assert.equal(all.filter((r) => r.ok).length, 1, JSON.stringify(all.map((r) => (r.ok ? 'ok' : r.reason))));
+  assert.ok(all.every((r) => r.ok || r.reason === 'once'));
+  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${id}`).length, 1);
 });

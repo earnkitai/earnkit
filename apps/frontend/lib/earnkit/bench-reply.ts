@@ -186,6 +186,8 @@ export const POST_HEAD = 'Your post for X, with your page card:';
 export const postLines = (p: PostOffer) => [POST_HEAD, `"${p.text}"`, `Post it in one tap: ${p.link}`];
 /** The event reply's question (a yes redrafts with the next shape). */
 export const POST_ASK = 'Want a different version?';
+/** Fix round: the builder's news is their own words (it can't be redrafted): a yes asks for new words. */
+export const NEWS_ASK = 'Want to change any words?';
 /** The Monday moment with no post to offer: the page is the reply's one link. Pure. */
 export const pageLine = (page: string) => `Your page: ${page}`;
 /** Owner ruling 3: an accepted, funded or won outcome told without its proof link. */
@@ -196,7 +198,8 @@ const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);
 /**
  * The event reply's head (design 6): "Tally went live this week." (else "Tally is live." when it went live over 7
  * days ago, so the line stays true), "Ledgerline won the Base Builder Grant.", the coin's "Backing is open on your
- * page.", else "Added to your page." (accepted, funded, the builder's news). Pure.
+ * page.", accepted or funded "Here's your post for X." (the profile doesn't show them), else "Added to your page."
+ * (the builder's news, on the page as their update). Pure.
  */
 export function eventHead(c: { moment: string; input: object; card?: Record<string, unknown> }, now: Date = new Date()): string {
   const i = c.input as { name?: string | null; program?: string };
@@ -207,14 +210,15 @@ export function eventHead(c: { moment: string; input: object; card?: Record<stri
   }
   if (c.moment === 'won' && name && i.program) return `${name} won ${theProgram(i.program)}.`;
   if (c.moment === 'coin_intro') return 'Backing is open on your page.';
+  // Fix round: the profile doesn't show an acceptance or funding, so never "Added to your page." for them.
+  if (c.moment === 'accepted' || c.moment === 'funded') return "Here's your post for X.";
   return 'Added to your page.';
 }
 /**
- * The yes to "Want a different version?" when no new one can be written: the limit for today, no other wording, or
- * the builder's own words (kept as they wrote them). The post they have stays; its link is the reply's one link. Pure.
+ * The yes to "Want a different version?" when no new one can be written: the limit for today or no other wording. The
+ * post they have stays; its link is the reply's one link. Pure.
  */
-export function redraftLine(why: 'limit' | 'only' | 'own_words', link: string): string {
-  if (why === 'own_words') return `Your post is in your own words, so it stays as you wrote it. Post it in one tap: ${link}`;
+export function redraftLine(why: 'limit' | 'only', link: string): string {
   if (why === 'only') return `That's the only version I can write for this one. Post it in one tap: ${link}`;
   return `That's the last new version for today. The one you have still works: ${link}`;
 }

@@ -49,11 +49,24 @@ const SHILL: [string, RegExp][] = [
   ['LFG', /\bLFG\b/i], ['WAGMI', /\bWAGMI\b/i], ['moon', /\bmoon(?:s|ing)?\b/i], ['gem', /\bgems?\b/i], ['alpha', /\balpha\b/i],
   ['100x', /\b100x\b/i], ['don\'t miss', /\bdon['’]?t miss\b/i], ['buy', /\bbuy(?:s|ing)?\b/i], ['back me', /\bback me\b/i],
   ['back the', /\bback the\b/i], ['ape', /\bap(?:e|es|ed|ing)\b/i], ['on EarnKit', /\bon EarnKit\b/i],
-  ['hashtag', /(?:^|[^\p{L}\p{N}&])#[\p{L}\p{N}_]/u], ['cashtag', /\$[A-Za-z]/],
-  // One link per post: the page X adds. Any other link or host name is a second one.
-  ['link', /[a-z][a-z0-9+.-]*:\/\/|\bwww\.|(?:^|[^\p{L}\p{N}@._-])(?:[\p{L}\p{N}-]+\.)+(?:com|net|org|io|dev|app|ai|xyz|co|me|sh|gg|so|fun|site|link|info|tech|cloud|page|ly|to|tv|us|uk|de|eth)\b/iu],
+  // A hashtag is # then a letter ("#3" is an issue number, not one).
+  ['hashtag', /(?:^|[^\p{L}\p{N}&])#\p{L}/u], ['cashtag', /\$[A-Za-z]/],
+  ['email', /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/u],
 ];
-const MARKS: [string, RegExp][] = [['emoji', /\p{Extended_Pictographic}/u], ['em dash', /—/], ['exclamation', /!/]];
+/** Names that look like host names but are tools (fix round: a small allow list). */
+const NOT_LINKS = new Set(['node.js', 'next.js', 'vue.js', 'nuxt.js', 'react.js', 'three.js', 'd3.js', 'express.js', 'nest.js', 'svelte.js', 'deno.js', 'bun.js', 'p5.js', 'chart.js', 'socket.io']);
+/** Any scheme, www., or word.letters host name not on NOT_LINKS. Pure. */
+export function hasLink(t: string): boolean {
+  if (/[a-z][a-z0-9+.-]*:\/\/|\bwww\./i.test(t)) return true;
+  for (const m of t.matchAll(/(?:^|[^\p{L}\p{N}@._/-])((?:[\p{L}\p{N}-]+\.)+[a-z]{2,})(?![\p{L}\p{N}-])/giu))
+    if (!NOT_LINKS.has(m[1]!.toLowerCase())) return true;
+  return false;
+}
+const MARKS: [string, RegExp][] = [
+  ['emoji', /\p{Extended_Pictographic}/u], ['em dash', /—/], ['exclamation', /!/],
+  // Fix round: EarnKit never tags anyone (a builder's own note may).
+  ['mention', /(?:^|[^\p{L}\p{N}_.@])@[A-Za-z0-9_]{1,15}\b/u],
+];
 const JUST_SHIPPED = /\bjust shipped\b/i;
 
 /**
@@ -65,13 +78,24 @@ export function postProblems(text: string, o: { ticker?: string; prev?: string }
   let t = text;
   if (o.ticker) t = t.replace(`$${o.ticker}`, 'TICKER');
   for (const [why, re] of [...HYPE, ...SHILL, ...MARKS]) if (re.test(t)) out.push(why);
+  // One link per post: the page X adds. Any other link or host name (a word, a dot, two or more letters) is a second one.
+  if (hasLink(t)) out.push('link');
   if (text.length > POST_MAX || text.trim().length === 0) out.push('length');
   if (o.prev !== undefined && o.prev.trim().toLowerCase() === text.trim().toLowerCase()) out.push('repeat');
   if (o.prev !== undefined && JUST_SHIPPED.test(text) && JUST_SHIPPED.test(o.prev)) out.push('just shipped twice');
   return out;
 }
-/** A builder's note may keep their own "!", emoji or dash; never a shill word, a hashtag, a cashtag or a link. */
-const noteProblems = (note: string) => [...SHILL].filter(([, re]) => re.test(note)).map(([why]) => why);
+/**
+ * A builder's note may keep their own "!" and one emoji; never a hype or shill word, a hashtag, a cashtag, a link,
+ * more than one emoji, "!!" or an em dash (fix round: our wording is used instead). Pure.
+ */
+export const noteProblems = (note: string) => [
+  ...[...HYPE, ...SHILL].filter(([, re]) => re.test(note)).map(([why]) => why),
+  ...(hasLink(note) ? ['link'] : []),
+  ...((note.match(/\p{Extended_Pictographic}/gu) ?? []).length > 1 ? ['emoji'] : []),
+  ...(/!!/.test(note) ? ['!!'] : []),
+  ...(/—/.test(note) ? ['em dash'] : []),
+];
 
 /** The first word, lowercase, without punctuation. Pure. */
 export const openingWord = (text: string) => (text.trim().split(/\s+/)[0] ?? '').replace(/[^\p{L}\p{N}$]/gu, '').toLowerCase();
@@ -82,8 +106,23 @@ const sentence = (s: string) => {
   const t = s.trim().replace(/\s+/g, ' ');
   return /[.?]$/.test(t) ? t : `${t}.`;
 };
-/** First letter lowered for an ordinary word ("Added" to "added"); an acronym or a brand ("CSV", "iOS") keeps its case. */
-const lowered = (s: string) => (/^(?:A|[A-Z][a-z'’]+)(?=\s|$|[,.:;])/.test(s) ? s[0]!.toLowerCase() + s.slice(1) : s);
+/** Common opening words that are never a name. */
+const VERBS = new Set(['built', 'rebuilt', 'made', 'wrote', 'rewrote', 'cut', 'ran', 'sent', 'got', 'put', 'set', 'began', 'took', 'gave', 'add', 'fix', 'ship', 'make', 'build']);
+const WORDS = new Set(['a', 'an', 'the', 'new', 'more', 'less', 'better', 'faster', 'first', 'now', 'this', 'that', 'some', 'two', 'three', 'lots', 'most', 'every', 'all', 'one']);
+/**
+ * First letter lowered only for a common word: a verb ("Added", "Rebuilt") or a plain word ("A", "New") not followed by
+ * another capital ("New York"); a name, an acronym or a brand ("Stripe", "CSV", "iOS", "I") keeps its case. Pure.
+ */
+export function lowered(s: string): string {
+  const m = /^([A-Z][a-z'’]*)(?:[\s,.:;]+(\S))?/.exec(s);
+  if (!m) return s;
+  const w = m[1]!.toLowerCase();
+  // A verb ("Added", "Rebuilt") is lowered whatever follows ("added CSV export"); another common word only before a
+  // lowercase word ("New York" stays).
+  const verb = VERBS.has(w) || (/ed$/.test(w) && w.length > 3);
+  const word = WORDS.has(w) && !(m[2] && /^\p{Lu}/u.test(m[2]));
+  return verb || word ? s[0]!.toLowerCase() + s.slice(1) : s;
+}
 const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);
 const withAward = (award: string | null) => (award ? ` (${award})` : '');
 

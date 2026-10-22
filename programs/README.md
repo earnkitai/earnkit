@@ -72,6 +72,10 @@ program is never closed under it either.
    - `in_person` (optional): `true` when the program must be attended in person (an ETHGlobal
      hackathon); the card adds an "In person" chip. An in-person program is never named as a fit in
      a ranked builder's reply; it stays on the landing and /programs.
+   - `x_handles` (optional): the program's own X accounts, without `@` (at most 5), only as the
+     program's own source page links them. A post by one of them proves a builder's accepted, funded
+     or won outcome for a one-tap post. Leave it out when the source names none: then no X post is
+     proof for that program. Never add an account from a search or a guess.
    - `builder_bonus` (optional): leave it out for the default (`true`, on). Set `false` only when
      EarnKit should never book entries of this program's coins to a builder bonus round.
    - `verified_at`: today's date (`YYYY-MM-DD`). Agents trust facts checked within 7 days and

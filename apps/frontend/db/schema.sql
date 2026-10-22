@@ -1796,3 +1796,11 @@ CREATE TABLE IF NOT EXISTS post_drafts (
   said_posted  boolean
 );
 CREATE INDEX IF NOT EXISTS post_drafts_builder ON post_drafts (builder_id, created_at DESC);
+
+-- v3.1 one-tap posts, fix round (owner ruling 3): the program's own X accounts, from its file (program-file.ts x_handles).
+-- A post on one of them proves an outcome; none listed: no X post is proof for that program.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS x_handles text[] NOT NULL DEFAULT '{}';
+-- v3.1 one-tap posts, fix round: when the builder said they applied (kept through a later accepted or funded), so an
+-- outcome post needs an application told before it (post-moments.ts hasEntry), never the outcome's own row.
+ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS applied_at timestamptz;
+UPDATE builder_program_status SET applied_at = at WHERE status = 'applied' AND applied_at IS NULL;

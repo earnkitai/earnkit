@@ -17,12 +17,12 @@ import { lastFinishedMonday, mondayOfWeek } from './weeks';
  *
  * | Moment | Trigger | Cooldown | Never when |
  * | Weekly | last finished week's ship-log row with facts and a summary or note | 13 days after a tapped weekly (not for a milestone, went live or a win) | no facts, or the streak alone |
- * | Went live | the project's first live moment (week-facts.ts firstLiveAt), within 14 days | once a project | under 2 days old (a site probe can flap) |
+ * | Went live | the project's first live moment (week-facts.ts firstLiveAt), within 14 days | once a project | under 2 days old (a site probe can flap); not up within 3 days |
  * | Won | an announced win (entry_outcomes basis 'announcement', with its source link), within 14 days | once a program | self-reported only |
  * | Accepted, funded or won (told) | the agent passes a public proof link it checked (owner ruling 3) | once a program | no proof, or proof on the builder's own site |
  * | Streak milestone | 4, 8, 12, 26, 52 weeks in a row | folds into the weekly | never a post of its own |
  * | Builder's news | tell update { text } | 24 hours | the text fails checkUpdate |
- * | Coin intro | the coin is launched and the page shows backing (raising.ts pillCoin; owner ruling 1) | once ever | a coin already introduced |
+ * | Coin intro | the coin is launched and the page shows backing (raising.ts pillCoin; owner ruling 1) | once ever | a coin already introduced; launched over 14 days ago |
  * | Backing opened, applied, first users | none | | never a post |
  *
  * Besides these, one non-weekly moment kind is drafted at most once in 28 days (the builder's news excepted: its
@@ -53,8 +53,8 @@ export type MomentCandidate = {
 };
 export type Hold = 'drafted' | 'cooldown' | 'once' | 'same_kind';
 export type Skip =
-  | 'no_page' | 'no_project' | 'no_week' | 'no_facts' | 'nothing_to_say' | 'not_live' | 'settling' | 'stale' | 'no_coin'
-  | 'no_program' | 'no_proof' | 'text';
+  | 'no_page' | 'no_project' | 'no_week' | 'no_facts' | 'nothing_to_say' | 'not_live' | 'not_up' | 'settling' | 'stale' | 'no_coin'
+  | 'no_program' | 'no_proof' | 'no_entry' | 'text';
 type Log = Pick<RecentDraft, 'moment' | 'moment_key' | 'created_at' | 'first_tap_at' | 'asked'>[];
 
 /** Why this moment waits or is never drafted again, given the person's drafts; null: it may be drafted. Pure. */
@@ -85,32 +85,100 @@ export function liveTiming(first: Date, now: Date): 'settling' | 'stale' | null 
   return null;
 }
 
-const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com']);
-const X_POST = /^\/[A-Za-z0-9_]{1,15}\/status\/\d{1,25}\/?$/;
-/** The last two labels of a host name ("blog.base.org" to "base.org"). */
-const site = (host: string) => host.toLowerCase().replace(/^www\./, '').split('.').slice(-2).join('.');
-const hostOf = (u: string) => (URL.canParse(u) ? new URL(u).hostname.toLowerCase() : null);
-
+const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.x.com', 'www.twitter.com']);
+const X_POST = /^\/([A-Za-z0-9_]{1,15})\/status\/\d{1,25}\/?$/;
 /**
- * Owner ruling 3: the public page that verifies an accepted, funded or won moment, as the agent passes it. An https
- * link (no credentials, no IP address) that is either a post on X (x.com/<user>/status/<id>) or on the program's own
- * site (its source or submission link's domain); never earnkit.com, the builder's own site or their own repo. The
- * stored form drops the fragment. Null: not proof. EarnKit does not fetch it (the agent checked it). Pure.
+ * Fix round (owner ruling 3, security): hosts where anyone can publish a page, so a page there never proves an outcome,
+ * even when the program is listed there (a hackathon on DoraHacks, a grant on Questbook).
  */
-export function proofUrlOk(raw: unknown, o: { programUrls: (string | null)[]; own: OwnLinks }): string | null {
+export const SHARED_HOSTS = [
+  'github.io', 'github.com', 'dorahacks.io', 'questbook.app', 'forms.gle', 'docs.google.com', 'vercel.app', 'netlify.app', 'notion.site',
+  'notion.so', 'medium.com', 'mirror.xyz', 'paragraph.xyz', 'substack.com', 'gitbook.io', 'pages.dev', 'x.com', 'twitter.com',
+] as const;
+/** Shared paths on an otherwise single-owner host: anyone's project page. */
+const SHARED_PATHS: [string, RegExp][] = [['ethglobal.com', /^\/showcase(?:\/|$)/i]];
+/** Public suffixes of more than one label (a host must have a name of its own under them). */
+const MULTI_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'ne.jp', 'or.jp', 'co.in', 'co.kr',
+  'com.br', 'com.cn', 'com.sg', 'com.mx', 'com.tr', 'co.za', 'com.hk', 'com.tw', 'co.il', 'com.ar', 'co.id', 'com.my', 'com.ph',
+]);
+const under = (host: string, base: string) => host === base || host.endsWith(`.${base}`);
+const bare = (host: string) => host.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
+/** A listed host EarnKit can trust as the program's own: not a public suffix, not a shared host. Pure. */
+function ownHost(url: string | null): string | null {
+  if (!url || !URL.canParse(url)) return null;
+  const base = bare(new URL(url).hostname);
+  const labels = base.split('.');
+  if (labels.length < 2 || MULTI_SUFFIXES.has(base)) return null;
+  if (SHARED_HOSTS.some((h) => under(base, h))) return null;
+  return base;
+}
+/** A page's identity for "is it the listing page itself": host without www, path without a trailing slash. Pure. */
+const pageId = (u: URL) => `${bare(u.hostname)}${u.pathname.replace(/\/+$/, '').toLowerCase()}`;
+
+export type ProofContext = {
+  /** The program's listing pages (source_url, submission_url): their hosts are its own site, the pages themselves never proof. */
+  listings: (string | null)[];
+  /** The program's own X accounts (program file x_handles); none: no X post is proof. */
+  xHandles: string[];
+  /** The builder's own X handle: a post of theirs is never proof. */
+  builderHandle: string | null;
+  own: OwnLinks;
+};
+/**
+ * Owner ruling 3, fix round: the public page that verifies an accepted, funded or won moment, as the agent passes it.
+ * An https link (no credentials, no port, no IP address) that is either (a) a page on the program's own listed host or
+ * a subdomain of it (www. aside; never a public suffix or a shared host such as github.io or dorahacks.io, never
+ * ethglobal.com/showcase, never the listing page itself), or (b) a post on X (x.com/<user>/status/<id>) by one of the
+ * program's own X accounts. Never earnkit.com, the builder's own site, repo or X account. The stored form drops the
+ * fragment. Null: not proof. EarnKit does not fetch it (the agent checked it). Pure.
+ */
+export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   if (typeof raw !== 'string' || raw.length > 2048 || !URL.canParse(raw.trim())) return null;
   const u = new URL(raw.trim());
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
-  const host = u.hostname.toLowerCase();
+  const host = u.hostname.toLowerCase().replace(/\.$/, '');
   if (/^[\d.]+$/.test(host) || host.includes(':') || !host.includes('.')) return null;
-  if (site(host) === 'earnkit.com') return null;
-  if (o.own.sites.some((s) => hostOf(s) === host)) return null;
-  if (o.own.repo && site(host) === 'github.com' && u.pathname.toLowerCase().startsWith(`/${o.own.repo.toLowerCase()}`)) return null;
-  const onX = X_HOSTS.has(host) && X_POST.test(u.pathname);
-  const programSites = new Set(o.programUrls.flatMap((p) => (p && hostOf(p) ? [site(hostOf(p)!)] : [])));
-  if (!onX && !programSites.has(site(host))) return null;
+  if (under(bare(host), 'earnkit.com')) return null;
+  if (o.own.sites.some((s) => URL.canParse(s) && bare(new URL(s).hostname) === bare(host))) return null;
+  if (o.own.repo && under(bare(host), 'github.com') && u.pathname.toLowerCase().startsWith(`/${o.own.repo.toLowerCase()}`)) return null;
   u.hash = '';
+  if (X_HOSTS.has(host)) {
+    const who = X_POST.exec(u.pathname)?.[1]?.toLowerCase();
+    if (!who || who === o.builderHandle?.toLowerCase()) return null;
+    return o.xHandles.some((h) => h.toLowerCase() === who) ? u.toString() : null;
+  }
+  if (SHARED_HOSTS.some((h) => under(bare(host), h))) return null;
+  if (SHARED_PATHS.some(([h, re]) => under(bare(host), h) && re.test(u.pathname))) return null;
+  const own = o.listings.map(ownHost).filter((h): h is string => h !== null);
+  if (!own.some((h) => under(bare(host), h))) return null;
+  const listed = new Set(o.listings.flatMap((l) => (l && URL.canParse(l) ? [pageId(new URL(l))] : [])));
+  if (listed.has(pageId(u))) return null;
   return u.toString();
+}
+
+/**
+ * Fix round: the builder has an entry in the program (projects) or told EarnKit they applied (builder_program_status
+ * applied_at, kept through later statuses; an accepted or funded row alone could be the unverified tell itself), or a
+ * verified outcome of it was drafted before; read before what they just told is stored. Never throws (a failed read is
+ * no).
+ */
+export async function hasEntry(builderId: number, programId: string): Promise<boolean> {
+  try {
+    const [r] = await sql()<{ yes: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM projects x JOIN installations i ON i.id = x.installation_id
+          WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.program_id = ${programId})
+        OR EXISTS (SELECT 1 FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+          WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.program_id = ${programId} AND s.applied_at IS NOT NULL)
+        -- A verified outcome of this program drafted before (an acceptance, then funding): the status row now says
+        -- accepted, which an unverified tell could also have written, so only the draft vouches for it.
+        OR EXISTS (SELECT 1 FROM post_drafts d WHERE d.builder_id = ${builderId}
+          AND d.moment_key IN (${`accepted:${programId}`}, ${`funded:${programId}`}, ${`won:${programId}`}) AND d.proof_url IS NOT NULL) AS yes`;
+    return r?.yes === true;
+  } catch (err) {
+    console.error('[post] entry', err instanceof Error ? err.name : 'error');
+    return false;
+  }
 }
 
 // --- What the moments read ---------------------------------------------------------------------------------------------
@@ -179,12 +247,32 @@ export async function wentLiveCandidate(builderId: number, now: Date): Promise<M
   if (!first) return 'not_live';
   const timing = liveTiming(first, now);
   if (timing) return timing;
+  // Fix round: live now, by a recent reading (a site probe can flap): an up reading of its site within UP_WITHIN_DAYS,
+  // its EarnKit-hosted site serving, or a deployed contract (onchain; it can't go down).
+  if (!(await upNow(builderId, p.key, now))) return 'not_up';
   const weeks = weeksFromFirstCommit(p.commitWeeks, first);
   return {
     moment: 'went_live', momentKey: `went_live:${p.key.toLowerCase()}`, projectKey: p.key, week: null, proofUrl: null,
     at: new Date(first.getTime() + LIVE_SETTLE_DAYS * DAY),
     input: { moment: 'went_live', name: p.name, weeks }, card: { live_at: first.toISOString(), weeks },
   };
+}
+
+/** Fix round: a went-live post needs the project up within this many days. */
+export const UP_WITHIN_DAYS = 3;
+/** The project `key` is up now (wentLiveCandidate's rule). Throws on a database error. */
+async function upNow(builderId: number, key: string, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - UP_WITHIN_DAYS * DAY);
+  const [r] = await sql()<{ up: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM hosted_sites h JOIN installations i ON i.id = h.installation_id
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(h.repo_key) = lower(${key}) AND h.status = 'live')
+      OR EXISTS (SELECT 1 FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND d.status = 'deployed' AND lower(d.repo_key) = lower(${key}))
+      OR EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified'
+        AND lower(s.project_key) = lower(${key}) AND (
+          EXISTS (SELECT 1 FROM source_readings r WHERE r.source_id = s.id AND r.ok AND r.signals->>'up' = 'true' AND r.day >= ${since}::date)
+          OR EXISTS (SELECT 1 FROM source_live l WHERE l.source_id = s.id AND l.ok AND l.signals->>'up' = 'true' AND l.read_at >= ${since}))) AS up`;
+  return r?.up === true;
 }
 
 /** Announced wins of the one project (the owner-committed outcome files, each with its source link), newest first. */
@@ -209,20 +297,30 @@ export async function announcedWinCandidates(builderId: number, now: Date): Prom
 
 /**
  * Owner ruling 3: an accepted, funded or won moment the builder told, verified by a public proof link the agent
- * checked and passes (proofUrlOk). Never on the builder's word alone: no proof, no moment. The program is a listed one.
+ * checked and passes (proofUrlOk). Never on the builder's word alone: no proof, no moment. Fix round: the program is a
+ * listed one the builder had an entry or application in (`entered`, read before the tell was stored: hasEntry), and
+ * an award is only the announced one (entry_outcomes basis 'announcement', the owner-committed outcomes files), never
+ * an amount the agent or builder states.
  */
 export async function verifiedOutcomeCandidate(
-  builderId: number, o: { programId: string; result: 'accepted' | 'funded' | 'won'; proofUrl: unknown; awardUsd?: number | null },
+  builderId: number, o: { programId: string; result: 'accepted' | 'funded' | 'won'; proofUrl: unknown; entered: boolean },
 ): Promise<MomentCandidate | Skip> {
   const p = await posterOf(builderId);
   if (typeof p === 'string') return p;
   if (!p.name) return 'no_project';
-  const [g] = await sql()<{ title: string; source_url: string | null; submission_url: string | null }[]>`
-    SELECT title, source_url, submission_url FROM programs WHERE id = ${o.programId} AND id <> ${COIN_PROGRAM}`;
+  const [g] = await sql()<{ title: string; source_url: string | null; submission_url: string | null; x_handles: string[] }[]>`
+    SELECT title, source_url, submission_url, x_handles FROM programs WHERE id = ${o.programId} AND id <> ${COIN_PROGRAM}`;
   if (!g) return 'no_program';
-  const proof = proofUrlOk(o.proofUrl, { programUrls: [g.source_url, g.submission_url], own: await ownLinksOf(builderId) });
+  if (!o.entered) return 'no_entry';
+  const [b] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const proof = proofUrlOk(o.proofUrl, {
+    listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own: await ownLinksOf(builderId),
+  });
   if (!proof) return 'no_proof';
-  const award = o.result !== 'accepted' && o.awardUsd && o.awardUsd > 0 ? usd(o.awardUsd) : null;
+  const [won] = o.result === 'accepted' ? [] : await sql()<{ prize: number | null }[]>`
+    SELECT max(o.prize_usd)::float8 AS prize FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN installations i ON i.id = x.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.program_id = ${o.programId} AND o.basis = 'announcement' AND o.prize_usd > 0`;
+  const award = won?.prize && won.prize > 0 ? usd(won.prize) : null;
   return {
     moment: o.result, momentKey: `${o.result}:${o.programId}`, projectKey: p.key, week: null, proofUrl: proof,
     input: { moment: o.result, name: p.name, program: g.title, award }, card: { program: g.title, award, proof_url: proof },
@@ -230,12 +328,15 @@ export async function verifiedOutcomeCandidate(
 }
 
 /** Owner ruling 1: the coin's one intro, once it is launched and the page shows backing (pillCoin). */
-export async function coinIntroCandidate(builderId: number): Promise<MomentCandidate | Skip> {
+export async function coinIntroCandidate(builderId: number, now: Date = new Date()): Promise<MomentCandidate | Skip> {
   const p = await posterOf(builderId);
   if (typeof p === 'string') return p;
   if (!p.name) return 'no_project';
   const c = await pillCoin(builderId);
   if (!c) return 'no_coin';
+  // Fix round: only while the coin is news (within EVENT_FRESH_DAYS of its launch).
+  const [l] = await sql()<{ at: Date | null }[]>`SELECT coin_launched_at AS at FROM projects WHERE id = ${c.project_id}`;
+  if (!l?.at || now.getTime() - l.at.getTime() > EVENT_FRESH_DAYS * DAY) return 'stale';
   return {
     moment: 'coin_intro', momentKey: `coin_intro:${c.coin ?? `project:${c.project_id}`}`, projectKey: p.key, week: null, proofUrl: null,
     input: { moment: 'coin_intro', name: p.name, symbol: c.symbol, weeks: p.weeksShipping }, card: { symbol: c.symbol },
@@ -271,7 +372,7 @@ export async function offeredMoment(
   const found: (MomentCandidate | Skip)[] = [
     ...(await announcedWinCandidates(builderId, now)),
     await wentLiveCandidate(builderId, now),
-    await coinIntroCandidate(builderId),
+    await coinIntroCandidate(builderId, now),
     ...(o.weekly === false ? [] : [await weeklyCandidate(builderId, now)]),
   ];
   const skipped: (Skip | Hold)[] = [];
@@ -297,7 +398,8 @@ export async function draftMoment(
 ): Promise<{ ok: true; draft: DraftRow } | { ok: false; reason: Hold | DraftLimit | 'no_post' }> {
   const log = await recentDrafts(builderId, 500);
   // A redraft the builder asks for is the same moment again; only its limits apply.
-  const hold = o.asked && log.some((d) => d.moment_key === c.momentKey) ? null : holdOf(c, log, now);
+  const redraft = o.asked && log.some((d) => d.moment_key === c.momentKey);
+  const hold = redraft ? null : holdOf(c, log, now);
   if (hold) return { ok: false, reason: hold };
   const post = writePost(c.input, log.slice(0, 5));
   if (!post) return { ok: false, reason: 'no_post' };
@@ -306,5 +408,7 @@ export async function draftMoment(
   return createDraft({
     builderId, projectKey: c.projectKey, moment: c.moment, momentKey: c.momentKey, shape: post.shape, text: post.text,
     card: { ...frozen, ...c.card }, week: c.week, asked: o.asked, proofUrl: c.proofUrl,
-  }, now);
+    // Fix round: the hold again, under the store's per-person lock (two drafts of one moment at once).
+    ...(!redraft && { hold: (inLock: RecentDraft[]) => holdOf(c, inLock, now) }),
+  }, now) as Promise<{ ok: true; draft: DraftRow } | { ok: false; reason: Hold | DraftLimit | 'no_post' }>;
 }

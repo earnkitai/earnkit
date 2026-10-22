@@ -1,4 +1,5 @@
 import { newsPost, outcomePost } from './post-reply';
+import { hasEntry } from './post-moments';
 import { z } from 'zod';
 import { yesNo } from './yes-no';
 import { hasRealUse, oddsRank, rowOdds } from './match';
@@ -3210,14 +3211,17 @@ export const tools = {
         );
       }
     if (submitted) replies.push((await markSubmitted(submitted, ctx)) as Reply);
-    if (Object.keys(statements).length > 0 || replies.length === 0)
-      replies.push((await handlers.tell_earnkit(defined({ ...statements }), ctx)) as Reply);
     // v3.1 one-tap posts (owner ruling 3): an accepted, funded or won outcome is drafted as a post only with the proof
-    // link the agent checked; without one, the builder is asked for it. The first such outcome only.
+    // link the agent checked, for a program the builder had an entry or application in before this tell (read first, as
+    // the tell itself stores the status); without the link, the builder is asked for it. The first such outcome only;
+    // a self-report never becomes a post or a card on its own.
     const told = !ctx.sharedClient && statements.program_status !== undefined ? TellInput.safeParse(defined({ ...statements })) : null;
     const outcome = told?.success ? told.data.program_status?.find((x) => x.status === 'accepted' || x.status === 'funded' || x.status === 'won') : undefined;
+    const entered = outcome ? await hasEntry(ctx.installationId, outcome.program_id) : false;
+    if (Object.keys(statements).length > 0 || replies.length === 0)
+      replies.push((await handlers.tell_earnkit(defined({ ...statements }), ctx)) as Reply);
     if (outcome) {
-      const r = await outcomePost(ctx.installationId, { ...outcome, status: outcome.status as 'accepted' | 'funded' | 'won' }, new Date());
+      const r = await outcomePost(ctx.installationId, { program_id: outcome.program_id, status: outcome.status as 'accepted' | 'funded' | 'won', proof_url: outcome.proof_url }, { entered }, new Date());
       if (r) {
         // The reply now shows something: the saved note's "nothing to show" no longer holds.
         for (const x of replies) if (typeof x.agent_note === 'string') x.agent_note = x.agent_note.replace(TELL_SAVED_NOTE, 'Saved.');

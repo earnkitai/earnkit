@@ -176,7 +176,9 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   assert.equal(eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: '2026-10-18T00:00:00Z' } }, now), 'Tally went live this week.');
   assert.equal(eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: '2026-10-10T00:00:00Z' } }, now), 'Tally is live.', 'never "this week" when it was not');
   assert.equal(eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Base Builder Grant' } }, now), 'Ledgerline won the Base Builder Grant.');
-  for (const moment of ['accepted', 'funded', 'news']) assert.equal(eventHead({ moment, input: { name: 'Kit', program: 'X' } }, now), 'Added to your page.');
+  // Fix round: the profile doesn't show an acceptance or funding; the news is on the page as the update.
+  for (const moment of ['accepted', 'funded']) assert.equal(eventHead({ moment, input: { name: 'Kit', program: 'X' } }, now), "Here's your post for X.");
+  assert.equal(eventHead({ moment: 'news', input: { note: 'x' } }, now), 'Added to your page.');
   assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), 'Backing is open on your page.');
 });
 

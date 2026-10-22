@@ -51,6 +51,11 @@ export type NewDraft = {
   asked: boolean;
   /** The public page that verified an accepted, funded or won moment (owner ruling 3). */
   proofUrl?: string | null;
+  /**
+   * Fix round: the moment's own hold (post-moments.ts holdOf: once, 28 days, cooldowns), checked under the same lock as
+   * the limits against the person's drafts, so two drafts of one moment at once never both pass. Its reason refuses.
+   */
+  hold?: (log: RecentDraft[]) => string | null;
 };
 export type DraftRow = {
   code: string; builder_id: number; project_key: string | null; moment: PostMoment; moment_key: string; shape: string; text: string;
@@ -67,7 +72,7 @@ const COLUMNS = `code, builder_id, project_key, moment, moment_key, shape, text,
  * once never pass together), then records post_drafted. The text is the writer's (post-writer.ts); only its size is
  * checked here.
  */
-export async function createDraft(d: NewDraft, now: Date = new Date()): Promise<{ ok: true; draft: DraftRow } | { ok: false; reason: DraftLimit }> {
+export async function createDraft(d: NewDraft, now: Date = new Date()): Promise<{ ok: true; draft: DraftRow } | { ok: false; reason: DraftLimit | string }> {
   const text = d.text.trim();
   if (!text || text.length > DRAFT_TEXT_MAX) return { ok: false, reason: 'text' };
   const week = new Date(now.getTime() - 7 * DAY);
@@ -82,6 +87,13 @@ export async function createDraft(d: NewDraft, now: Date = new Date()): Promise<
     if (!d.asked && n!.offered >= OFFERED_PER_WEEK && !PAST_OFFER_LIMIT.includes(d.moment)) return 'offered_limit' as const;
     if (d.asked && n!.asked >= ASKED_PER_DAY) return 'asked_limit' as const;
     if (n!.all >= DRAFTS_PER_WEEK) return 'week_limit' as const;
+    if (d.hold) {
+      const log = await tx<RecentDraft[]>`
+        SELECT code, moment, moment_key, shape, text, asked, created_at, first_tap_at, proof_url FROM post_drafts
+        WHERE builder_id = ${d.builderId} ORDER BY created_at DESC, code LIMIT 500`;
+      const held = d.hold(log);
+      if (held) return held;
+    }
     const [row] = await tx<DraftRow[]>`
       INSERT INTO post_drafts (code, builder_id, project_key, moment, moment_key, shape, text, card, week, asked, proof_url, created_at, expires_at)
       VALUES (${newCode()}, ${d.builderId}, ${d.projectKey}, ${d.moment}, ${d.momentKey}, ${d.shape}, ${text}, ${tx.json((d.card ?? {}) as never)},
@@ -149,4 +161,17 @@ export function visitFrom(userAgent: string | null, referrer: string | null): 'x
   if (!userAgent || BOT_UA.test(userAgent)) return null;
   const host = referrer && URL.canParse(referrer) ? new URL(referrer).hostname.toLowerCase().replace(/^www\./, '') : null;
   return host && X_REFERRERS.has(host) ? 'x' : 'web';
+}
+
+/**
+ * Fix round: the builder's own news post in their new words, in place (the same code, key and link; never a second
+ * news post), while it is the person's and unexpired. The text is the writer's (checked by the caller). Null otherwise.
+ */
+export async function rewordDraft(code: string, builderId: number, text: string, now: Date = new Date()): Promise<DraftRow | null> {
+  const t = text.trim();
+  if (!CODE_PATTERN.test(code) || !t || t.length > DRAFT_TEXT_MAX) return null;
+  const [r] = await sql()<DraftRow[]>`
+    UPDATE post_drafts SET text = ${t} WHERE code = ${code} AND builder_id = ${builderId} AND moment = 'news' AND expires_at > ${now}
+    RETURNING ${sql().unsafe(COLUMNS)}`;
+  return r ?? null;
 }

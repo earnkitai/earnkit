@@ -601,7 +601,7 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
   // v3.1 one-tap posts (design 6): posted to the page, and the builder's news becomes their post for X (its one-tap link).
-  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X, with your page card:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant a different version\?$/);
+  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X, with your page card:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant to change any words\?$/);
   const log = await renderProfile('maya_makes');
   assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);

@@ -83,7 +83,8 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
   assert.equal(d1.moment, 'went_live');
   assert.equal(d1.card.weeks, 8);
 
-  // Yes: a different version (the next shape; the builder asked).
+  // Yes, a minute later: a different version (the next shape; the builder asked).
+  mock.timers.setTime(WEDNESDAY + 60_000);
   const r2 = await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } });
   const s2 = rule(show(r2));
   const tap2 = links(s2)[0]!;
@@ -96,6 +97,7 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
     'Want a different version?',
   ].join('\n'));
   // Again: one asked draft a day, so the post they have stays.
+  mock.timers.setTime(WEDNESDAY + 120_000);
   const s3 = rule(show(await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } })), 0);
   assert.equal(s3, `That's the last new version for today. The one you have still works: ${tap2}`);
   // Answered once: another yes is "Okay.".
@@ -111,7 +113,7 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
   }
 });
 
-test('the builder\'s news (tell update): posted to the page and drafted in their own words; a different version keeps their words', db, async () => {
+test('the builder\'s news (tell update): posted to the page and drafted in their own words; a change asks for their words and rewords the same post', db, async () => {
   const k = await kit('pn');
   const r = await mcpCall(k.ctx, 'tell', { update: { text: 'first paying customer today, $9/mo, from a stranger' } });
   const s = rule(show(r));
@@ -122,18 +124,44 @@ test('the builder\'s news (tell update): posted to the page and drafted in their
     'Your post for X, with your page card:',
     '"first paying customer today, $9/mo, from a stranger"',
     `Post it in one tap: ${tap}`,
-    'Want a different version?',
+    'Want to change any words?',
   ].join('\n'));
   assert.equal(moveUp(r)?.kind, 'post');
   const [u] = await sql()<{ text: string }[]>`SELECT text FROM project_updates WHERE builder_id = ${k.id} AND text IS NOT NULL`;
   assert.equal(u.text, 'first paying customer today, $9/mo, from a stranger', 'on the page as before');
-  const again = rule(show(await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } })), 0);
-  assert.equal(again, `Your post is in your own words, so it stays as you wrote it. Post it in one tap: ${tap}`);
+  // Yes: the agent asks for the new words (nothing shown, no second post).
+  const yes = await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } });
+  assert.equal(show(yes), '');
+  assert.match(String(yes.reply?.agent_note), /new words.*tell with update/);
+  // Their words: the same post (the same link and moment), reworded.
+  const again = await mcpCall(k.ctx, 'tell', { update: { text: 'first paying customer today, from a stranger' } });
+  assert.equal(rule(show(again)), [
+    'Added to your page.',
+    'Your post for X, with your page card:',
+    '"first paying customer today, from a stranger"',
+    `Post it in one tap: ${tap}`,
+    'Want to change any words?',
+  ].join('\n'));
+  const rows = await sql()<{ text: string; moment_key: string }[]>`SELECT text, moment_key FROM post_drafts WHERE builder_id = ${k.id}`;
+  assert.equal(rows.length, 1, 'never a second news post');
+  assert.equal(rows[0].text, 'first paying customer today, from a stranger');
+  // Hype words in the new words: not used; the update's own reply stands.
+  const hype = show(await mcpCall(k.ctx, 'tell', { update: { text: 'so excited about our first customer!!' } }));
+  assert.doesNotMatch(hype, /Your post for X/);
 });
 
 test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked, it is drafted', db, async () => {
   const k = await kit('po');
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
+  const proof = 'https://docs.base.org/get-started/grant-recipients-october';
+  // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
+  const stranger = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
+  assert.equal(show(stranger), '', 'only the saved note');
+  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
+  // The unverified tell itself wrote an accepted row: it never counts as the entry.
+  assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] })), '');
+  // They applied (as told earlier): now the acceptance can be a post.
+  await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const none = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
   assert.equal(show(none), "Send me a public link that shows it, like the program's post.");
   assert.match(String(none.reply?.agent_note), /proof_url/);
@@ -141,11 +169,15 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   // A link on the builder's own site is not proof.
   const own = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: `https://github.com/${k.key}` }] });
   assert.equal(show(own), "Send me a public link that shows it, like the program's post.");
-  const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: 'https://x.com/base/status/1849000000000000000' }] });
+  // An X post from an account the program file doesn't list, the listing page itself, or a shared host: not proof.
+  for (const bad of ['https://x.com/base/status/1849000000000000000', 'https://docs.base.org/get-started/builders', 'https://forms.gle/urqjBJYJjR6Vqqre6/viewanalytics'])
+    assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), "Send me a public link that shows it, like the program's post.", bad);
+  // An award the agent passes is never printed.
+  const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof, prize_usd: 50000 }] });
   const s = rule(show(r));
   const tap = links(s)[0]!;
   assert.equal(s, [
-    'Added to your page.',
+    "Here's your post for X.",
     'Your post for X, with your page card:',
     `"Kit was accepted into the ${title}."`,
     `Post it in one tap: ${tap}`,
@@ -153,5 +185,27 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   ].join('\n'));
   assert.doesNotMatch(String(r.reply?.agent_note), /nothing to show the builder/);
   const d = (await draftByCode(tap.split('/').pop()!))!;
-  assert.equal(d.proof_url, 'https://x.com/base/status/1849000000000000000');
+  assert.equal(d.proof_url, proof);
+  assert.doesNotMatch(s, /50,000|\$/);
+});
+
+test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {
+  const k = await kit('pr');
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`pr${k.id}`}, 'kit', ${k.key}, ${k.id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
+  assert.equal(moveUp(await mcpCall(k.ctx, 'find', {}))?.kind, 'post');
+  const [{ ask }] = await sql()<{ ask: unknown }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${k.id}`;
+  const reopen = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb) WHERE builder_id = ${k.id}`;
+  const yes = async () => show(await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } }));
+  // A newer draft exists: the old one is not redrafted.
+  const { createDraft } = await import('./post-drafts');
+  const newer = await createDraft({ builderId: k.id, projectKey: k.key, moment: 'news', momentKey: `news:${k.key}:x`, shape: 'note', text: 'Kit has dark mode.', asked: true }, new Date(Date.now() + 60_000));
+  assert.ok(newer.ok);
+  assert.equal(await yes(), 'Okay.');
+  // The latest again, but expired: not redrafted either.
+  await sql()`DELETE FROM post_drafts WHERE code = ${newer.ok ? newer.draft.code : ''}`;
+  await sql()`UPDATE post_drafts SET expires_at = ${new Date(Date.now() - 60_000)} WHERE builder_id = ${k.id}`;
+  await reopen();
+  assert.equal(await yes(), 'Okay.');
+  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 1, 'no new draft');
 });
