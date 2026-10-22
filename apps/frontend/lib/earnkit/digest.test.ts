@@ -66,7 +66,7 @@ test('10.2 digestDue: opt-in, unsubscribe, sent or considered this week; P17: a 
   assert.equal(digestDue(tuesday, at('2026-10-19T16:00:00Z')), true);
 });
 
-const noFacts: DigestFacts = { week: null, handle: null, newPrograms: [], wins: [], deadlines: [] };
+const noFacts: DigestFacts = { week: null, handle: null, money: [], newPrograms: [], wins: [], deadlines: [] };
 const avalanche = { title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: at('2026-11-02T23:59:00Z') };
 
 test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines; plain words only', () => {
@@ -94,7 +94,11 @@ test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines;
   ]);
   const wins = digestBody({ ...noFacts, wins: [{ name: 'PayLink', program: 'Arc', prize_usd: 500 }] })!;
   assert.equal(wins.subject, 'Your EarnKit week');
-  for (const b of [one, all, wins]) {
+  // v3.1 Task 12: money lines alone still send; with sections they come first.
+  const money = digestBody({ ...noFacts, money: ['2 new backers this week.'] })!;
+  assert.deepEqual(money, { subject: 'Your EarnKit week', text: '2 new backers this week.' });
+  assert.ok(digestBody({ ...noFacts, money: ['2 new backers this week.'], newPrograms: [avalanche] })!.text.startsWith('2 new backers this week.\n\nNew: Avalanche'));
+  for (const b of [one, all, wins, money]) {
     const t = `${b.subject}\n${b.text}`;
     assert.doesNotMatch(t, /\p{Extended_Pictographic}/u, 'no emoji');
     assert.doesNotMatch(t, /—/, 'no em dash');

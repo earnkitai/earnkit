@@ -228,8 +228,10 @@ test('(a) indexBackers counts distinct recipients, skips zero/pool/locker/safe, 
   assert.equal((await backersOf([coin])).get(coin), 2);
   const [cur] = await sql()<{ block: string }[]>`SELECT block::text AS block FROM coin_backer_cursor WHERE coin = ${coin}`;
   assert.equal(cur.block, '7500');
-  const rows = await sql()<{ wallet: string; first_block: string }[]>`SELECT wallet, first_block::text AS first_block FROM coin_backers WHERE coin = ${coin} ORDER BY first_block`;
+  const rows = await sql()<{ wallet: string; first_block: string; seen: Date }[]>`SELECT wallet, first_block::text AS first_block, first_seen_at AS seen FROM coin_backers WHERE coin = ${coin} ORDER BY first_block`;
   assert.deepEqual(rows.map((r) => [r.wallet, r.first_block]), [[w1, '6000'], [w2, '7000']]);
+  // v3.1 Task 12: each row carries when EarnKit first saw it (the run's clock), for the Monday email's new backers.
+  for (const r of rows) assert.ok(r.seen instanceof Date && Date.now() - r.seen.getTime() < 60_000, String(r.seen));
 
   // The next run resumes after the cursor.
   f.s.ranges = [];

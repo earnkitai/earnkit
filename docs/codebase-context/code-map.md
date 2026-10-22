@@ -1350,10 +1350,14 @@ apps/frontend/
                                unsubHeaders, idempotencyKey, MAX_SEND_FAILURES, Mailer/MailError/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
-                               free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post
+                               free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post;
+                               v3.1 Task 12: DigestFacts.money (moneyLines: the Best fit's draft via best-fit.ts, new
+                               backers via backers.ts newBackers) leads the body, above the week
+    best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
     builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
-    backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin
+    backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin;
+                               v3.1 Task 12: coin_backers.first_seen_at ('epoch' before v3.1), newBackers (pillCoin's coin)
     earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
@@ -1523,7 +1527,8 @@ apps/frontend/
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. At most one https link, exactly one question, the points line last.
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
-    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
+                               (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
                                showRaisingLine, an open offer again via openCoinLine, else backingOffer; EARNKIT_RAISING
                                off is tokenUnavailable (v3.1 final fix 1: confirm only exists with it on);

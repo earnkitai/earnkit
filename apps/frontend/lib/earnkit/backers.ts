@@ -11,6 +11,7 @@ import {
   type BonusChain,
   type BonusRpc,
 } from './bonus-ledger';
+import { pillCoin } from './raising';
 import { SHARED_BASE_CONTRACTS, tradeVenue } from './shared-contracts';
 import { CLANKER_ADDRESSES } from './traction';
 
@@ -137,7 +138,7 @@ export async function indexBackers(now: Date, o: IndexOpts = {}) {
             // Too many for one range: read it again smaller (scanForward halves a range on this wording).
             if (first.size > RECIPIENTS_PER_RANGE) throw new Error(`too many results in this range: over ${RECIPIENTS_PER_RANGE} recipients`);
           }
-          const values = [...first].map(([wallet, block]) => ({ coin: r.coin, wallet, first_block: block.toString() }));
+          const values = [...first].map(([wallet, block]) => ({ coin: r.coin, wallet, first_block: block.toString(), first_seen_at: now }));
           try {
             let inRange = 0;
             await sql().begin(async (tx) => {
@@ -176,4 +177,22 @@ export async function backersOf(coins: string[]): Promise<Map<string, number>> {
 /** The backers of one coin (lowercase address; 0 for null or none), e.g. raising.ts pillCoin's `coin`. */
 export async function backersOfCoin(coin: string | null): Promise<number> {
   return coin ? ((await backersOf([coin])).get(lower(coin)) ?? 0) : 0;
+}
+
+/**
+ * v3.1 (spec 3.3): the backers EarnKit first saw after `since` (coin_backers.first_seen_at; a row from before v3.1 is
+ * 'epoch', never new) on the builder's coin whose backing is open (raising.ts pillCoin: EARNKIT_RAISING on, launched,
+ * opened, the one project confirmed). 0 with the flag off, no such coin, or on a read error. Never throws.
+ */
+export async function newBackers(builderId: number, since: Date): Promise<number> {
+  try {
+    const c = await pillCoin(builderId);
+    if (!c?.coin) return 0;
+    const [r] = await sql()<{ n: number }[]>`
+      SELECT count(DISTINCT wallet)::int AS n FROM coin_backers WHERE coin = ${lower(c.coin)} AND first_seen_at > ${since}`;
+    return r?.n ?? 0;
+  } catch (err) {
+    console.error('[backers] new', err instanceof Error ? err.name : 'error');
+    return 0;
+  }
 }

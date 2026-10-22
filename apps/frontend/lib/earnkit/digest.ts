@@ -1,5 +1,7 @@
 import { brandShell } from './brand-page';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { bestFitFor } from './best-fit';
+import { newBackers } from './backers';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
 import { sql, type Db } from './db';
@@ -20,6 +22,8 @@ import { weekUrl } from './week-links';
  * RESEND_API_KEY unset the whole feature is off: no question, no send.
  * v3 Stage 1 (spec 5.4): it leads with the Monday moment: last week's lines, then Looks right and Hide this week
  * links (week-links.ts) that work without the agent; a subscription whose week is not written yet waits (pending).
+ * v3.1 Task 12 (spec 3.3): above the week, the money action (the Best fit's draft, bench-find.ts) and the week's new
+ * backers (backers.ts newBackers, only while backing is on), each only when true; never points.
  * Then (in this order): new programs one of the builder's remembered repos could really win
  * (alerts.ts alertFit, the alert rule), wins by EarnKit builders (announced only), and the builder's
  * own deadlines and decision dates in the coming week. Ruling G21: on a hosted agent (shared_client)
@@ -98,6 +102,8 @@ export type DigestFacts = {
   handle: string | null;
   /** The week is not written yet: neither sent nor considered (the next hourly run tries again). */
   pending?: true;
+  /** v3.1 Task 12: the money lines above the week (the Best fit's draft, new backers); none on a shared client or a per-login subscription. */
+  money: string[];
   newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null }[];
   wins: { name: string; program: string; prize_usd: number | null }[];
   deadlines: { program: string; what: 'closes' | 'decision'; at: Date }[];
@@ -136,8 +142,9 @@ export function cleanName(name: string, fallback: string): string {
 }
 
 /**
- * The email: last week's moment (its lines, then Looks right and Hide this week while it is unconfirmed), then new
- * programs, wins and the builder's deadlines; null when there is no week and all three are empty. Every
+ * The email: the money lines first (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
+ * week while it is unconfirmed), then new programs, wins and the builder's deadlines; null when there are no money
+ * lines, no week and all three are empty (money lines alone still send, as "Your EarnKit week"). Every
  * builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
  */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
@@ -149,14 +156,14 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
     ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
     ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? 'closes' : 'results due'} ${day(d.at)}.`),
   ];
-  if (lines.length === 0 && !week) return null;
+  if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
     ? `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
     : f.newPrograms[0]
       ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
       : 'Your EarnKit week';
   const sections = lines.length > 0 ? `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` : null;
-  return { subject, text: [week, sections].filter(Boolean).join('\n\n') };
+  return { subject, text: [f.money.join('\n'), week, sections].filter(Boolean).join('\n\n') };
 }
 
 const mac = (k: SubKey, secret: string) =>
@@ -351,43 +358,66 @@ type SubRow = DigestState & { installation_id: number; login: string; email: str
  * weekStart (a project the weekly job never writes, an unconfirmed one, is not pending). None on a shared client or
  * a per-login subscription (no verified person). A failed read is no week, never a failed email.
  */
-async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFacts, 'week' | 'handle' | 'pending'>> {
-  if (s.shared || s.login) return { week: null, handle: null };
+async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFacts, 'week' | 'handle' | 'pending'> & { person: number | null }> {
+  if (s.shared || s.login) return { week: null, handle: null, person: null };
   const [p] = await db<{ id: number; key: string | null; handle: string | null }[]>`
     SELECT x.id, b.main_project_key AS key, b.x_handle AS handle
     FROM (SELECT COALESCE((SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = i.x_user_id), i.builder_id, i.id) AS id
           FROM installations i WHERE i.id = ${s.installation_id}) x
     LEFT JOIN builder_profiles b ON b.builder_id = x.id`;
   const handle = p?.handle ?? null;
-  if (!p?.key) return { week: null, handle };
+  const person = p?.id ?? null;
+  if (!p?.key) return { week: null, handle, person };
   const key = p.key;
   try {
     const last = await lastWeekOf(p.id, key, now);
-    if (!last) return { week: null, handle };
+    if (!last) return { week: null, handle, person };
     if (!last.checked) {
       const [hid] = await db<{ hidden: boolean }[]>`
         SELECT hidden FROM project_updates WHERE builder_id = ${p.id} AND lower(project_key) = lower(${key}) AND week = ${last.monday}`;
       const waiting = !hid?.hidden && now.getTime() < weekStart(now).getTime() + PENDING_MAX_MS && (await mainConfirmed(p.id));
-      return waiting ? { week: null, handle, pending: true } : { week: null, handle };
+      return waiting ? { week: null, handle, person, pending: true } : { week: null, handle, person };
     }
     const link = (action: 'approve' | 'hide') => weekUrl({ builderId: p.id, key, monday: last.monday, action });
-    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved }, handle };
+    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved }, handle, person };
   } catch (err) {
     console.error('[digest] week', err instanceof Error ? err.name : 'error');
-    return { week: null, handle };
+    return { week: null, handle, person };
   }
 }
 
+/** The whole days until `end`, at least 1 (D5). Pure. */
+const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() - now.getTime()) / DAY));
+
 /**
- * One subscription's facts, read on `db`. New programs: opened since the last send (else the opt-in),
+ * v3.1 Task 12 (spec 3.3, D5): the email's money lines for `person`: the Best fit's draft (best-fit.ts bestFitFor, as
+ * find and score name it; never one the builder applied to or declined), then the week's new backers (backers.ts
+ * newBackers, 0 while EARNKIT_RAISING is off). No points. Never throws (each read is none on an error).
+ */
+async function moneyLines(person: number, now: Date): Promise<string[]> {
+  const [best, k] = await Promise.all([bestFitFor(person, now), newBackers(person, new Date(now.getTime() - 7 * DAY))]);
+  const lines: string[] = [];
+  if (best) {
+    const n = best.ends_at ? daysTo(best.ends_at, now) : 0;
+    lines.push(best.ends_at
+      ? `${best.title} closes in ${n} ${n === 1 ? 'day' : 'days'}. Your draft is one yes away.`
+      : `${best.title} is open (rolling), and your draft is one yes away.`);
+  }
+  if (k > 0) lines.push(`${k} new ${k === 1 ? 'backer' : 'backers'} this week.`);
+  return lines;
+}
+
+/**
+ * One subscription's facts, read on `db`. Money (v3.1 Task 12): the person's money lines (moneyLines), none on a shared
+ * client or a per-login subscription. New programs: opened since the last send (else the opt-in),
  * still open, that a remembered repo could really win (alertFit; never on a shared client, whose
  * remembered repos are none). Wins: announced won or placed outcomes of the last 7 days, never a
  * test installation's. Deadlines: the builder's entered programs closing, or with results expected,
  * in the next 7 days.
  */
 export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise<DigestFacts> {
-  const moment = await digestWeek(s, now, db);
-  if (moment.pending) return { ...moment, newPrograms: [], wins: [], deadlines: [] };
+  const { person, ...moment } = await digestWeek(s, now, db);
+  if (moment.pending) return { ...moment, money: [], newPrograms: [], wins: [], deadlines: [] };
   const since = s.last_sent_at ?? s.opted_in_at ?? now;
   const week = new Date(now.getTime() + 7 * DAY);
   const ids = testInstallationIds();
@@ -397,7 +427,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     ? db`AND p.id IN (SELECT project_id FROM github_verifications
         WHERE installation_id = ${id} AND login = ${s.login.toLowerCase()} AND project_id IS NOT NULL)`
     : db``;
-  const [curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
+  const [money, curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
+    person === null ? Promise.resolve([] as string[]) : moneyLines(person, now),
     s.shared || s.login
       ? Promise.resolve([] as (NewProgramRow & { opened_at: Date })[])
       : db<(NewProgramRow & { opened_at: Date })[]>`
@@ -462,6 +493,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     .slice(0, MAX_LINES);
   return {
     ...moment,
+    money,
     newPrograms,
     wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),
     deadlines,

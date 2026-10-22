@@ -406,7 +406,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v3.1 (spec 3.2): the apply candidates: a fit closing within APPLY_WINDOW_DAYS (deadline order), else the rolling fits
   // (byRelevance), none the builder told EarnKit about. The first is the Best fit, the reply's money line.
   const open = ranked && project && !taken && !held
-    ? applyCandidates((await openCandidates(id, o.applies ?? o.fits.slice(0, 3))) ?? [], read.seen, o.skip, now)
+    ? ((await bestApplies(id, o.applies ?? o.fits.slice(0, 3), read.seen, o.skip, now)) ?? [])
     : [];
   // v3.1 Task 7: Base Builder Grants' Builder Codes answer (the stored one; a check for the draft starts in the background).
   const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null;
@@ -741,27 +741,11 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const own = ctx.ownInstallationId ?? id;
   const read = await benchRead(id, own);
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
-  const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
-  const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
-    .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
-  // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.
-  const upcoming = all.filter((p) => p.status === 'upcoming');
-  const cards = all.filter((p) => p.status !== 'upcoming');
-  const hidden = memory ? hiddenIds(hiddenPrograms(memory, cards.map((c) => ({ id: c.id, starts_at: c.starts_at, ends_at: c.ends_at ?? null, opened_at: c.opened_at })))) : new Set<string>();
-  const entered = new Set(entries.map((e) => e.program_id));
-  const shown = cards.filter((c) => !hidden.has(c.id));
-  const main = read.main?.toLowerCase() ?? null;
-  // v3 Stage 2 final review: the apply step's candidates include an open investment. v3.1 F1: so do the fit lines (fitLines).
-  const applies: Fit[] = main
-    ? (await scoreFits(id, main, { cards: shown, skip: new Set([...entered, ...hidden]), now })).map((f) => ({
-        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
-        investment: f.card.investment === true, card: fitCard(f.card),
-      }))
-    : [];
+  const { applies, cards: shown, upcoming, skip } = await scoreApplies(id, read.main, now);
   const fits: Fit[] = fitLines(applies);
   const leadFit = fits.find((f) => !f.investment);
   const { view, fields } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip: new Set([...entered, ...hidden]), held: null,
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip, held: null,
     due: [], live, check: ctx.tokenDeps?.check, deadline: start + REPLY_WAIT_MS, codesFetch: ctx.codesFetch,
   });
   await noteEvent('score_viewed', () => ({
@@ -776,6 +760,44 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     ...fields,
     ...(leadFit && view.variant !== 'taken' && { lead: { program_id: leadFit.program_id }, note: EARN_NOTE }),
   };
+}
+
+/**
+ * score's money without a matcher (v3.1 Task 12: the Monday email's Best fit reads the same): the open, listed cards
+ * (programs.ts listPrograms; never unlisted) not hidden (builder memory), the upcoming ones, what to skip (entered or
+ * hidden) and the one project's apply candidates (stand-view.ts scoreFits; investments included, R12). A failed read is
+ * none. Never throws.
+ */
+export async function scoreApplies(id: number, main: string | null, now: Date): Promise<{ applies: Fit[]; cards: Card[]; upcoming: Card[]; skip: Set<string> }> {
+  const [programs, entries, memory] = await Promise.all([listPrograms().catch(() => []), openEntries(id).catch(() => []), readMemory(id).catch(() => null)]);
+  const all = (programs as (Card & { agent_completable?: boolean; earnkit_campaign?: boolean; starts_at: Date | null; opened_at: Date | null })[])
+    .filter((p) => p.agent_completable !== false && !p.earnkit_campaign);
+  // v3 Stage 2: an upcoming program is never a fit or an offer; it only feeds the one upcoming line.
+  const upcoming = all.filter((p) => p.status === 'upcoming');
+  const cards = all.filter((p) => p.status !== 'upcoming');
+  const hidden = memory ? hiddenIds(hiddenPrograms(memory, cards.map((c) => ({ id: c.id, starts_at: c.starts_at, ends_at: c.ends_at ?? null, opened_at: c.opened_at })))) : new Set<string>();
+  const entered = new Set(entries.map((e) => e.program_id));
+  const shown = cards.filter((c) => !hidden.has(c.id));
+  const skip = new Set([...entered, ...hidden]);
+  const key = main?.toLowerCase() ?? null;
+  // v3 Stage 2 final review: the apply step's candidates include an open investment. v3.1 F1: so do the fit lines (fitLines).
+  const applies: Fit[] = key
+    ? (await scoreFits(id, key, { cards: shown, skip, now })).map((f) => ({
+        program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
+        investment: f.card.investment === true, card: fitCard(f.card),
+      }))
+    : [];
+  return { applies, cards: shown, upcoming, skip };
+}
+
+/**
+ * v3.1 Task 12: the apply candidates as benchView offers them, the first being the Best fit: `applies` minus the
+ * programs the builder told EarnKit about (builder_program_status, any status), then applyCandidates. Null on a read
+ * error. Never throws.
+ */
+export async function bestApplies(id: number, applies: Fit[], seen: Seen, skip: Set<string>, now: Date): Promise<Fit[] | null> {
+  const told = await openCandidates(id, applies);
+  return told === null ? null : applyCandidates(told, seen, skip, now);
 }
 
 /** T8 fix round 1: ask kinds a pre-v2.14 reply may have stored (the updates yes and the week's post). */

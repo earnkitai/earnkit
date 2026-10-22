@@ -1007,13 +1007,14 @@ const builderFacing: [string, string][] = [
     const b = digestBody({
       week: null,
       handle: null,
+      money: [],
       newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: new Date('2026-11-02T00:00:00Z') }],
       wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }],
       deadlines: [{ program: 'Arc Microgrants', what: 'decision', at: new Date('2026-10-20T00:00:00Z') }],
     })!;
     const w = digestBody({
       week: { lines: ['Last week you finished at Shipping 72 (+6), #3 (up 2).'], standing: { score: 72, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false },
-      handle: null, newPrograms: [], wins: [], deadlines: [],
+      handle: null, money: [], newPrograms: [], wins: [], deadlines: [],
     })!;
     return [['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
   })(),
