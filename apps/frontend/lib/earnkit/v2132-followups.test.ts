@@ -163,7 +163,8 @@ test('v2.13.2 fix 1 (concern 4): nobody ranked: the empty line once; a filtered 
   assert.ok(!empty.includes(BENCH_EMPTY), 'no second empty line');
   const filtered = page(5, 0, 'base');
   assert.ok(filtered.includes(BENCH_EMPTY));
-  assert.ok(filtered.includes(leaderboardLine(5)));
+  // QA item 2: the count line follows the filter, so a filter with no rows shows no pool count beside BENCH_EMPTY.
+  assert.ok(!filtered.includes(leaderboardLine(5)));
   assert.ok(!page(1, 1).includes(BENCH_EMPTY));
 });
 
