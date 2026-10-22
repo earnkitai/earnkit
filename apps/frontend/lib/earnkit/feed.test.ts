@@ -60,6 +60,14 @@ test('6.2 the feed ranks a finished week by points, ties by the Bench score; no 
   assert.deepEqual(week.cards[0].chips, ['Went live']);
 });
 
+test('6.2b clarity batch: a feed card without an X picture shows the GitHub one of the proven login', dbTest, async () => {
+  const a = await listed(55, [{ monday: '2026-10-12', text: 'Shipped the import.', facts: { went_live: true } }]);
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}f`} WHERE builder_id = ${a.id}`;
+  await rankFeed(NOW);
+  const [week] = await feedWeeks(NOW, { only: [a.id] });
+  assert.equal(week.cards[0].avatar, `https://avatars.githubusercontent.com/gh${RUN}f?s=200`);
+});
+
 test('6.3 the owner\'s pin leads its week; the owner\'s hide leaves the feed and stays on the profile; facts-only weeks show their chips', dbTest, async () => {
   const a = await listed(10, [{ monday: '2026-10-12', text: 'Small thing.', facts: { shipped_code: { n: 1 } } }]);
   const b = await listed(90, [{ monday: '2026-10-12', text: 'Big thing.', facts: { went_live: true, users_up: { n: 31 } } }]);

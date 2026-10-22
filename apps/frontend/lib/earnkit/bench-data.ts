@@ -76,11 +76,11 @@ export type BenchRow = { rank: number; line: string | null; points: number; hand
 export async function benchRows(f: BenchFilter, o: { limit?: number; only?: number[] } = {}): Promise<{ rows: BenchRow[]; count: number; chips: BenchChain[] }> {
   const db = sql();
   const raisingOn = raisingEnabled();
-  const rows = await db<{ builder_id: number; rank: number; points: number; handle: string; x_name: string | null; avatar: string | null; chains: string[]; key: string;
+  const rows = await db<{ builder_id: number; rank: number; points: number; handle: string; x_name: string | null; avatar: string | null; github_login: string | null; chains: string[]; key: string;
     streak: number; weeks_shipping: number; shipped: boolean; raising: boolean; symbol: string | null; url: string | null }[]>`
     WITH ranked AS (
       SELECT x.builder_id, x.score, rank() OVER (ORDER BY x.score DESC)::int AS rank FROM ${benchPool(o.only)} x)
-    SELECT r.builder_id, r.rank, r.score::int AS points, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, b.chains, b.project_key AS key, b.streak, b.weeks_shipping, b.shipped,
+    SELECT r.builder_id, r.rank, r.score::int AS points, p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, p.github_login, b.chains, b.project_key AS key, b.streak, b.weeks_shipping, b.shipped,
       COALESCE(c.token_status = 'launched' AND c.raising_at IS NOT NULL, false) AS raising, c.token_symbol AS symbol, c.token_url AS url
     FROM ranked r JOIN builder_profiles p USING (builder_id)
     JOIN builder_projects b ON b.builder_id = r.builder_id AND lower(b.project_key) = lower(p.main_project_key) AND ${benchConfirmedSql(db)}
@@ -110,7 +110,7 @@ export async function benchRows(f: BenchFilter, o: { limit?: number; only?: numb
       points: r.points,
       handle: r.handle,
       name: displayName(r.x_name, r.handle),
-      avatar: avatarUrl(r.avatar),
+      avatar: avatarUrl(r.avatar, r.github_login),
       backing: pill(r),
       chains: BENCH_CHAINS.filter((c) => r.chains.includes(c)),
       project: nameOf(r.builder_id, r.key),
@@ -291,8 +291,8 @@ async function fundFits(builderId: number, key: string, now: Date): Promise<Mone
  */
 export async function profileData(builderId: number, now: Date, o: { only?: number[] } = {}): Promise<ProfileData | null> {
   const db = sql();
-  const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null; titles_on: boolean }[]>`
-    SELECT x_handle, x_name, x_avatar_url, main_project_key AS main, (ship_titles_at IS NOT NULL) AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; github_login: string | null; main: string | null; titles_on: boolean }[]>`
+    SELECT x_handle, x_name, x_avatar_url, github_login, main_project_key AS main, (ship_titles_at IS NOT NULL) AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
   const [lines, pill, earned] = await Promise.all([
     rankLines(builderId, o),
@@ -310,7 +310,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
   const base = {
     handle: p.x_handle,
     name: displayName(p.x_name, p.x_handle),
-    avatar: avatarUrl(p.x_avatar_url),
+    avatar: avatarUrl(p.x_avatar_url, p.github_login),
     initials: initialsOf(p.x_handle),
     backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
     earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },

@@ -44,7 +44,7 @@ export type FeedCard = { id: number; handle: string; name: string; avatar: strin
   /** v3.1 site: the week's commits EarnKit checked (facts.shipped_code.n), 0 without. */ commits: number };
 type Row = {
   id: number; builder_id: number; key: string; week: string; text: string | null; summary: string | null; facts: WeekFacts; pinned: boolean; handle: string;
-  x_name: string | null; avatar: string | null; project: string; score: number | null;
+  x_name: string | null; avatar: string | null; github_login: string | null; project: string; score: number | null;
 };
 
 /**
@@ -57,7 +57,7 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
   const rows = await db<(Omit<Row, 'project'> & { titles: string[]; titles_on: boolean })[]>`
     SELECT * FROM (
       SELECT u.id::int AS id, u.builder_id::int AS builder_id, b.project_key AS key, u.week::text AS week, u.text, u.titles, u.summary, u.facts, u.pinned,
-        p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, l.score::float8 AS score, (p.ship_titles_at IS NOT NULL) AS titles_on,
+        p.x_handle AS handle, p.x_name, p.x_avatar_url AS avatar, p.github_login, l.score::float8 AS score, (p.ship_titles_at IS NOT NULL) AS titles_on,
         row_number() OVER (PARTITION BY u.week ORDER BY u.pinned DESC, u.points DESC, l.score DESC, u.id) AS n
       FROM project_updates u
       JOIN ${listedRanked(db, only)} l ON l.builder_id = u.builder_id
@@ -74,7 +74,7 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
   });
 }
 const toCard = (r: Row): FeedCard => ({
-  id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar), project: r.project, week: r.week,
+  id: r.id, handle: r.handle, name: displayName(r.x_name, r.handle), avatar: avatarUrl(r.avatar, r.github_login), project: r.project, week: r.week,
   text: r.text, summary: r.summary, chips: factChips(r.facts), pinned: r.pinned, confirmed: r.facts?.approved === true,
   score: r.score === null ? null : Math.round(r.score), commits: r.facts?.shipped_code?.n ?? 0,
 });

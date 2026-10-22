@@ -33,13 +33,31 @@ export function shareIntentText(handle: string, text: string): string {
   return u.toString();
 }
 
-/** X's own image host only, over https; the 400px size instead of X's 48px default. Null otherwise. Pure. */
-export function avatarUrl(raw: string | null | undefined): string | null {
+/**
+ * A builder's picture, in order: their X picture (pbs.twimg.com only, over https, at 400px instead of X's 48px default),
+ * else their GitHub picture from the proven login (avatars.githubusercontent.com only), else null (the initial). Pure.
+ */
+export function avatarUrl(raw: string | null | undefined, githubLogin?: string | null): string | null {
+  return xAvatar(raw) ?? githubAvatar(githubLogin);
+}
+
+/** X's own image host only, at its 400x400 size. Pure. */
+function xAvatar(raw: string | null | undefined): string | null {
   if (!raw || !URL.canParse(raw)) return null;
   const u = new URL(raw);
   if (u.protocol !== 'https:' || u.hostname !== 'pbs.twimg.com' || u.username || u.password || u.port) return null;
   u.pathname = u.pathname.replace(/_(normal|bigger|mini)(\.[a-z]+)$/i, '_400x400$2');
   return u.toString();
+}
+
+/** GitHub's login rule: letters, digits and single inner hyphens, 1 to 39 characters. */
+const GITHUB_LOGIN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+/**
+ * Clarity batch: with no X picture, the GitHub one of the builder's proven login (builder_profiles.github_login), as
+ * exactly `https://avatars.githubusercontent.com/<login>?s=200`; any other login shape gives null (then the initial). Pure.
+ */
+function githubAvatar(login: string | null | undefined): string | null {
+  return login && GITHUB_LOGIN.test(login) ? `https://avatars.githubusercontent.com/${login}?s=200` : null;
 }
 
 export type PageHead = { handle: string; name: string; avatar: string | null; topLine: string; rank: string | null; score: number | null };

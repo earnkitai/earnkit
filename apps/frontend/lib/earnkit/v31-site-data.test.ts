@@ -349,3 +349,14 @@ test('(i) Task 7 fix round 2: Highlights and the Streak card read one streak (wi
   assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: { ...proj, confirmed: false } }, 3), { grid: g([false, false]), streak: 0 });
   assert.deepEqual(withThisWeek({ grid: g([true]), streak: 1, project: null }, 3), { grid: g([false]), streak: 0 });
 });
+
+test('(j) clarity batch: profileData\'s avatar is the X picture, else the GitHub one of the proven login, else null', db, async () => {
+  const b = await builder();
+  const login = `gh${RUN}${n}`;
+  await sql()`UPDATE builder_profiles SET x_avatar_url = NULL, github_login = ${login} WHERE builder_id = ${b.id}`;
+  assert.equal((await profileData(b.id, NOW))!.avatar, `https://avatars.githubusercontent.com/${login}?s=200`);
+  await sql()`UPDATE builder_profiles SET x_avatar_url = 'https://pbs.twimg.com/profile_images/9/me_normal.jpg' WHERE builder_id = ${b.id}`;
+  assert.equal((await profileData(b.id, NOW))!.avatar, 'https://pbs.twimg.com/profile_images/9/me_400x400.jpg');
+  await sql()`UPDATE builder_profiles SET x_avatar_url = NULL, github_login = NULL WHERE builder_id = ${b.id}`;
+  assert.equal((await profileData(b.id, NOW))!.avatar, null);
+});

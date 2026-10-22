@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * v2.12.1 T11, v2.13 R12: a person's X picture (page-data.ts avatarUrl: X's own image host only),
- * else (none, or it fails to load: a stale picture after an X change, including a failure before
+ * v2.12.1 T11, v2.13 R12: a person's picture (page-data.ts avatarUrl: their X picture, else their GitHub one; those two
+ * hosts only), else (none, or it fails to load: a stale picture after an X change, including a failure before
  * the page was interactive) the first letter of their handle on navy. Decorative: the name or
  * @handle always sits beside it. The server markup is v2.12.1's for both branches. v3.1 `tone="blue"`
  * (the profile's blue hero): no ring, and the initial in Kaftan Serif, blue on white.
@@ -31,7 +31,7 @@ export default function Avatar({
   }, [src]);
   if (src && !failed)
     return (
-      // eslint-disable-next-line @next/next/no-img-element -- X's image host; next/image would proxy it through this server
+      // eslint-disable-next-line @next/next/no-img-element -- X's or GitHub's image host; next/image would proxy it through this server
       <img
         ref={img}
         src={src}

@@ -99,6 +99,17 @@ test('10.3 chain and weekly filter the rows; ranks are the whole Bench\'s; chips
   assert.equal(weekly.rows.length, 2);
 });
 
+test('10.3b clarity batch: a row without an X picture shows the GitHub one of the proven login; X first; neither, no picture', dbTest, async () => {
+  const ids = [await listed(70), await listed(71), await listed(72)];
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}a`} WHERE builder_id = ${ids[0]}`;
+  await sql()`UPDATE builder_profiles SET github_login = ${`gh${RUN}b`}, x_avatar_url = 'https://pbs.twimg.com/profile_images/2/b_normal.png' WHERE builder_id = ${ids[1]}`;
+  const { rows } = await benchRows({ chain: null, weekly: false }, { only: ids });
+  const avatar = (id: number) => rows.find((r) => r.handle === `bn${RUN}${id}`)!.avatar;
+  assert.equal(avatar(ids[0]), `https://avatars.githubusercontent.com/gh${RUN}a?s=200`);
+  assert.equal(avatar(ids[1]), 'https://pbs.twimg.com/profile_images/2/b_400x400.png');
+  assert.equal(avatar(ids[2]), null);
+});
+
 test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, streak, score, "#N" (the rank line to screen readers); the header count line; the tabs', () => {
   const row = { rank: 4, line: 'Top 16% of builders', points: 62, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' }, chains: ['base' as const], project: 'Recipe planner', best: '31 people this week', streak: 5 };
   const top = [1, 2, 3].map((n) => ({ ...row, rank: n, line: null, handle: `top_${n}`, name: `Top ${n}`, backing: null, points: 90 - n }));
