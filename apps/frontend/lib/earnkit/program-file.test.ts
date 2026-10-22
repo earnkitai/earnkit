@@ -166,6 +166,14 @@ test('ProgramFile (v3.1 one-tap posts fix round): x_handles default to none; onl
     assert.equal(ProgramFile.safeParse({ ...base, x_handles: bad }).success, false, JSON.stringify(bad));
 });
 
+test('ProgramFile (final review 1): proof_hosts default to none; only exact lowercase hosts, never a shared host, at most 5', () => {
+  const base = baseProgram();
+  assert.deepEqual(ProgramFile.parse(base).proof_hosts, [], 'none listed: no page is proof for this program');
+  assert.deepEqual(ProgramFile.parse({ ...base, proof_hosts: ['base.org', 'blog.base.org'] }).proof_hosts, ['base.org', 'blog.base.org']);
+  for (const bad of [['https://base.org'], ['Base.org'], ['base'], ['base.org/winners'], ['github.io'], ['fund.vercel.app'], ['dorahacks.io'], ['earnkit.com'], ['co.uk'], ['x.com'], ['a.io', 'b.io', 'c.io', 'd.io', 'e.io', 'f.io']])
+    assert.equal(ProgramFile.safeParse({ ...base, proof_hosts: bad }).success, false, JSON.stringify(bad));
+});
+
 // v2.7 §2: program guide facts (logo, past_rounds, focus, best_bet, difficulty_override, winners_per_round).
 // `valid` is arc-microgrants.json (the first program file), id "arc-microgrants".
 test('ProgramFile: with no new fields, past_rounds is [] and difficulty_override is null', () => {

@@ -93,7 +93,7 @@ test('news: 24 hours; coin intro: once ever, whatever the coin', () => {
 
 test('proof (owner ruling 3, fix round): the program\'s own host or a subdomain, or a post by its own X account; nothing else', () => {
   const o = {
-    listings: ['https://www.base.org/builders/grants', 'https://forms.base.org/apply'], xHandles: ['base', 'BuildOnBase'], builderHandle: 'maya',
+    proofHosts: ['base.org'], listings: ['https://www.base.org/builders/grants', 'https://forms.base.org/apply'], xHandles: ['base', 'BuildOnBase'], builderHandle: 'maya',
     own: { sites: ['https://recipes.app'], repo: 'maya/recipes' },
   };
   assert.equal(proofUrlOk('https://x.com/base/status/1849000000000000000', o), 'https://x.com/base/status/1849000000000000000');
@@ -114,7 +114,7 @@ test('proof (owner ruling 3, fix round): the program\'s own host or a subdomain,
   ])
     assert.equal(proofUrlOk(bad, o), null, String(bad).slice(0, 60));
   // A program on a co.uk host: only that host and its subdomains, never another name under co.uk.
-  const uk = { ...o, listings: ['https://www.grants.co.uk/apply'], xHandles: [] };
+  const uk = { ...o, proofHosts: ['grants.co.uk'], listings: ['https://www.grants.co.uk/apply'], xHandles: [] };
   assert.equal(proofUrlOk('https://news.grants.co.uk/winners', uk), 'https://news.grants.co.uk/winners');
   assert.equal(proofUrlOk('https://other.co.uk/winners', uk), null);
   // No X accounts listed: no X post is proof.
@@ -127,9 +127,24 @@ test('proof (owner ruling 3, fix round): the program\'s own host or a subdomain,
     ['https://x.notion.site/grants', 'https://x.notion.site/winners'], ['https://mirror.xyz/fund', 'https://mirror.xyz/fund/winners'],
     ['https://paragraph.xyz/@fund', 'https://paragraph.xyz/@fund/winners'], ['https://fund.netlify.app/', 'https://fund.netlify.app/winners'],
   ])
-    assert.equal(proofUrlOk(page, { ...o, listings: [listing] }), null, page);
-  // ethglobal.com outside /showcase is its own site.
-  assert.equal(proofUrlOk('https://ethglobal.com/events/mumbai/prizes', { ...o, listings: ['https://ethglobal.com/events/mumbai'] }), 'https://ethglobal.com/events/mumbai/prizes');
+    assert.equal(proofUrlOk(page, { ...o, proofHosts: [new URL(listing).hostname.replace(/^www\./, '')], listings: [listing] }), null, page);
+  // ethglobal.com outside /showcase is its own site, when the program file lists it.
+  assert.equal(proofUrlOk('https://ethglobal.com/events/mumbai/prizes', { ...o, proofHosts: ['ethglobal.com'], listings: ['https://ethglobal.com/events/mumbai'] }), 'https://ethglobal.com/events/mumbai/prizes');
+});
+
+test('proof (final review 1): only the owner-reviewed proof_hosts; never a host taken from the listing or submission page', () => {
+  const o = { proofHosts: [] as string[], listings: ['https://www.base.org/builders/grants', 'https://forms.base.org/apply'], xHandles: [], builderHandle: 'maya', own: { sites: [], repo: null } };
+  for (const page of ['https://blog.base.org/grant-winners-october', 'https://www.base.org/builders/grants/round-3-winners', 'https://forms.base.org/winners'])
+    assert.equal(proofUrlOk(page, o), null, page);
+  // A listed host and its subdomains, nothing else; the listing page itself is still never proof.
+  const listed = { ...o, proofHosts: ['blog.base.org'] };
+  assert.equal(proofUrlOk('https://blog.base.org/grant-winners-october', listed), 'https://blog.base.org/grant-winners-october');
+  assert.equal(proofUrlOk('https://news.blog.base.org/w', listed), 'https://news.blog.base.org/w');
+  assert.equal(proofUrlOk('https://www.base.org/builders/grants/round-3-winners', listed), null);
+  assert.equal(proofUrlOk('https://evilblog.base.org/w', listed), null);
+  // A shared host listed by mistake is still denied; the builder's own site is never proof.
+  assert.equal(proofUrlOk('https://fund.vercel.app/winners', { ...o, proofHosts: ['fund.vercel.app'] }), null);
+  assert.equal(proofUrlOk('https://recipes.app/won', { ...o, proofHosts: ['recipes.app'], own: { sites: ['https://recipes.app'], repo: null } }), null);
 });
 
 // ---- From the data ----
@@ -251,10 +266,11 @@ test('went live: offered once it settles, ahead of the weekly; named with the we
 });
 
 /** A program and an entry of the person's one project in it. */
-async function entered(id: number, key: string) {
+async function entered(id: number, key: string, o: { proofHosts?: string[] | null } = {}) {
   const program = `pm-${randomBytes(4).toString('hex')}`;
   await sql()`INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work)
     VALUES (${program}, 'Base', 'Base Builder Grant', 'd', 'https://www.base.org/builders', 'https://forms.base.org/apply', 'r', 's', 'active', 'allowed')`;
+  if (o.proofHosts !== null) await sql()`UPDATE programs SET proof_hosts = ${o.proofHosts ?? ['base.org']}::text[] WHERE id = ${program}`;
   const [{ pid }] = await sql()<{ pid: number }[]>`INSERT INTO projects (program_id, name, installation_id, repo_key) VALUES (${program}, 'Recipes', ${id}, ${key}) RETURNING id AS pid`;
   return { program, pid };
 }
@@ -301,6 +317,17 @@ test('accepted, funded or won as told: only with a proof link the agent checked,
     VALUES (${pid}, ${program}, 'R1', 'won', 3000, 'announcement', 'https://www.base.org/builders/winners', ${ago(1)})`;
   const w = (await verifiedOutcomeCandidate(id, { programId: program, result: 'won', proofUrl: 'https://www.base.org/builders/winners-r1', entered: true })) as MomentCandidate;
   assert.deepEqual(w.input, { moment: 'won', name: 'Recipes', program: 'Base Builder Grant', award: '$3,000' });
+});
+
+test('final review 1: a program with no proof_hosts and no x_handles: no told outcome is ever proof (the announced outcomes only)', dbTest, async () => {
+  const { id, key } = await maya();
+  const { program } = await entered(id, key, { proofHosts: null });
+  for (const proofUrl of [undefined, 'https://www.base.org/builders/grants-round-3', 'https://x.com/base/status/1'])
+    assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl, entered: true }), 'no_proof_source', String(proofUrl));
+  // An X account listed is enough to ask for proof.
+  await sql()`UPDATE programs SET x_handles = '{base}' WHERE id = ${program}`;
+  assert.equal(await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: undefined, entered: true }), 'no_proof');
+  assert.ok(typeof (await verifiedOutcomeCandidate(id, { programId: program, result: 'accepted', proofUrl: 'https://x.com/base/status/1', entered: true })) !== 'string');
 });
 
 test('builder\'s news: checked like an update; 24 hours apart', dbTest, async () => {

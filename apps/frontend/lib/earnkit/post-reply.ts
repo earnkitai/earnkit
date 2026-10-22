@@ -1,6 +1,6 @@
 import { sql } from './db';
 import { siteUrl } from './entry-text';
-import { NEWS_ASK, POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
+import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
 import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-drafts';
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
@@ -153,7 +153,8 @@ async function rewordNews(id: number, open: PostAsk, text: unknown, now: Date): 
 /**
  * tell program_status accepted, funded or won (owner ruling 3): drafted only with a proof link the agent checked
  * (proofUrlOk) for a program the builder had an entry or application in (`entered`, read before the tell was stored);
- * without the link, the builder is asked for it. Null: no entry, no page or project to post for, or a limit holds it.
+ * without the link, the builder is asked for it; for a program that lists no proof hosts or X accounts, a plain
+ * acknowledgement (final review 1: no link could prove it). Null: no entry, no page or project to post for, or a limit holds it.
  * Never throws.
  */
 export async function outcomePost(
@@ -162,6 +163,8 @@ export async function outcomePost(
   // Fix round: never an amount the agent states (prize_usd is not read here); the award is the announced one only.
   const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }).catch(logged('outcome'));
   if (c === 'no_proof') return { show_to_builder: PROOF_ASK, agent_note: PROOF_NOTE };
+  // Final review 1: the program lists no proof hosts or X accounts, so no link could prove it: a plain acknowledgement.
+  if (c === 'no_proof_source') return { show_to_builder: OUTCOME_NOTED };
   if (!c || typeof c === 'string') return null;
   return draftedReply(id, c, false, now);
 }

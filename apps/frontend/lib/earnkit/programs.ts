@@ -751,6 +751,8 @@ export async function upsertProgram(
       in_person: p.in_person ?? false,
       // v3.1 one-tap posts: the file is the source of truth (a removed handle clears it).
       x_handles: p.x_handles ?? [],
+      // Final review 1: the owner-reviewed proof hosts, from the file (a removed host clears it).
+      proof_hosts: p.proof_hosts ?? [],
       verified_at: p.verified_at,
       rules: p.rules,
       submission_requirements: tx.json(p.submission_requirements),

@@ -192,6 +192,8 @@ export const NEWS_ASK = 'Want to change any words?';
 export const pageLine = (page: string) => `Your page: ${page}`;
 /** Owner ruling 3: an accepted, funded or won outcome told without its proof link. */
 export const PROOF_ASK = "Send me a public link that shows it, like the program's post.";
+/** Final review 1: an outcome told for a program that lists no proof hosts or X accounts (no link could prove it). */
+export const OUTCOME_NOTED = 'Congrats. Saved.';
 /** The event reply: its head, the post block and `ask`, one block. Pure. */
 export const postReply = (e: EventPost, ask: string) => [e.head, ...postLines(e), ask].filter(Boolean).join('\n');
 const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);

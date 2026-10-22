@@ -1804,3 +1804,11 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS x_handles text[] NOT NULL DEFAULT 
 -- outcome post needs an application told before it (post-moments.ts hasEntry), never the outcome's own row.
 ALTER TABLE builder_program_status ADD COLUMN IF NOT EXISTS applied_at timestamptz;
 UPDATE builder_program_status SET applied_at = at WHERE status = 'applied' AND applied_at IS NULL;
+
+-- v3.1 final review 1: the program's own proof hosts (program-file.ts proof_hosts, owner-reviewed, never derived from
+-- its listing or submission page). A page there or on a subdomain may prove an outcome; none and no x_handles: no link is proof.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS proof_hosts text[] NOT NULL DEFAULT '{}';
+-- v3.1 final review 4: page opens counted per post per day, capped (post-drafts.ts VISIT_DAY_CAP); no IP or user agent
+-- is stored. visit_day: the UTC day day_visits counts.
+ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS visit_day date;
+ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS day_visits integer NOT NULL DEFAULT 0;

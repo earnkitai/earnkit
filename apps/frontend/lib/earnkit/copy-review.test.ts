@@ -26,7 +26,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
@@ -897,6 +897,7 @@ function weeklyCopy(): [string, string][] {
     ['postReply won', postReply({ head: eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Spring Builder Grant' } }), text: 'Ledgerline won the Spring Builder Grant ($5,000).', link: 'https://earnkit.com/lee/post/abcdefghij' }, POST_ASK)],
     ['pageLine', pageLine('https://earnkit.com/lee')],
     ['PROOF_ASK', PROOF_ASK],
+    ['OUTCOME_NOTED', OUTCOME_NOTED],
     ['redraft limit', redraftLine('limit', 'https://earnkit.com/lee/post/abcdefghij')],
     ['redraft only', redraftLine('only', 'https://earnkit.com/lee/post/abcdefghij')],
     ['NEWS_ASK', NEWS_ASK],

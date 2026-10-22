@@ -6,6 +6,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { createDraft, recentDrafts, type DraftLimit, type DraftRow, type PostMoment, type RecentDraft } from './post-drafts';
 import { isMilestone, writePost, type PostInput } from './post-writer';
 import { pillCoin } from './raising';
+import { SHARED_HOSTS } from './submit-hosts';
 import { checkUpdate, type OwnLinks } from './update-text';
 import { firstLiveAt, hasFacts, type WeekFacts } from './week-facts';
 import { weekLineRule } from './weekly-moment';
@@ -54,7 +55,7 @@ export type MomentCandidate = {
 export type Hold = 'drafted' | 'cooldown' | 'once' | 'same_kind';
 export type Skip =
   | 'no_page' | 'no_project' | 'no_week' | 'no_facts' | 'nothing_to_say' | 'not_live' | 'not_up' | 'settling' | 'stale' | 'no_coin'
-  | 'no_program' | 'no_proof' | 'no_entry' | 'text';
+  | 'no_program' | 'no_proof' | 'no_proof_source' | 'no_entry' | 'text';
 type Log = Pick<RecentDraft, 'moment' | 'moment_key' | 'created_at' | 'first_tap_at' | 'asked'>[];
 
 /** Why this moment waits or is never drafted again, given the person's drafts; null: it may be drafted. Pure. */
@@ -87,37 +88,20 @@ export function liveTiming(first: Date, now: Date): 'settling' | 'stale' | null 
 
 const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.x.com', 'www.twitter.com']);
 const X_POST = /^\/([A-Za-z0-9_]{1,15})\/status\/\d{1,25}\/?$/;
-/**
- * Fix round (owner ruling 3, security): hosts where anyone can publish a page, so a page there never proves an outcome,
- * even when the program is listed there (a hackathon on DoraHacks, a grant on Questbook).
- */
-export const SHARED_HOSTS = [
-  'github.io', 'github.com', 'dorahacks.io', 'questbook.app', 'forms.gle', 'docs.google.com', 'vercel.app', 'netlify.app', 'notion.site',
-  'notion.so', 'medium.com', 'mirror.xyz', 'paragraph.xyz', 'substack.com', 'gitbook.io', 'pages.dev', 'x.com', 'twitter.com',
-] as const;
 /** Shared paths on an otherwise single-owner host: anyone's project page. */
 const SHARED_PATHS: [string, RegExp][] = [['ethglobal.com', /^\/showcase(?:\/|$)/i]];
-/** Public suffixes of more than one label (a host must have a name of its own under them). */
-const MULTI_SUFFIXES = new Set([
-  'co.uk', 'org.uk', 'ac.uk', 'gov.uk', 'me.uk', 'com.au', 'net.au', 'org.au', 'co.nz', 'co.jp', 'ne.jp', 'or.jp', 'co.in', 'co.kr',
-  'com.br', 'com.cn', 'com.sg', 'com.mx', 'com.tr', 'co.za', 'com.hk', 'com.tw', 'co.il', 'com.ar', 'co.id', 'com.my', 'com.ph',
-]);
 const under = (host: string, base: string) => host === base || host.endsWith(`.${base}`);
 const bare = (host: string) => host.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
-/** A listed host EarnKit can trust as the program's own: not a public suffix, not a shared host. Pure. */
-function ownHost(url: string | null): string | null {
-  if (!url || !URL.canParse(url)) return null;
-  const base = bare(new URL(url).hostname);
-  const labels = base.split('.');
-  if (labels.length < 2 || MULTI_SUFFIXES.has(base)) return null;
-  if (SHARED_HOSTS.some((h) => under(base, h))) return null;
-  return base;
-}
 /** A page's identity for "is it the listing page itself": host without www, path without a trailing slash. Pure. */
 const pageId = (u: URL) => `${bare(u.hostname)}${u.pathname.replace(/\/+$/, '').toLowerCase()}`;
 
 export type ProofContext = {
-  /** The program's listing pages (source_url, submission_url): their hosts are its own site, the pages themselves never proof. */
+  /**
+   * Final review 1: the program file's proof_hosts, owner-reviewed exact hosts (a page there or on a subdomain may be
+   * proof). Never derived from the listing or submission page.
+   */
+  proofHosts: string[];
+  /** The program's listing pages (source_url, submission_url): the pages themselves are never proof. */
   listings: (string | null)[];
   /** The program's own X accounts (program file x_handles); none: no X post is proof. */
   xHandles: string[];
@@ -127,8 +111,9 @@ export type ProofContext = {
 };
 /**
  * Owner ruling 3, fix round: the public page that verifies an accepted, funded or won moment, as the agent passes it.
- * An https link (no credentials, no port, no IP address) that is either (a) a page on the program's own listed host or
- * a subdomain of it (www. aside; never a public suffix or a shared host such as github.io or dorahacks.io, never
+ * An https link (no credentials, no port, no IP address) that is either (a) a page on one of the program file's
+ * proof_hosts or a subdomain of it (final review 1: an owner-reviewed allowlist, never a host taken from the listing or
+ * submission page; www. aside; never a shared host such as github.io or dorahacks.io even when listed, never
  * ethglobal.com/showcase, never the listing page itself), or (b) a post on X (x.com/<user>/status/<id>) by one of the
  * program's own X accounts. Never earnkit.com, the builder's own site, repo or X account. The stored form drops the
  * fragment. Null: not proof. EarnKit does not fetch it (the agent checked it). Pure.
@@ -150,8 +135,7 @@ export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   }
   if (SHARED_HOSTS.some((h) => under(bare(host), h))) return null;
   if (SHARED_PATHS.some(([h, re]) => under(bare(host), h) && re.test(u.pathname))) return null;
-  const own = o.listings.map(ownHost).filter((h): h is string => h !== null);
-  if (!own.some((h) => under(bare(host), h))) return null;
+  if (!o.proofHosts.some((h) => under(bare(host), bare(h)))) return null;
   const listed = new Set(o.listings.flatMap((l) => (l && URL.canParse(l) ? [pageId(new URL(l))] : [])));
   if (listed.has(pageId(u))) return null;
   return u.toString();
@@ -298,7 +282,7 @@ export async function announcedWinCandidates(builderId: number, now: Date): Prom
 /**
  * Owner ruling 3: an accepted, funded or won moment the builder told, verified by a public proof link the agent
  * checked and passes (proofUrlOk). Never on the builder's word alone: no proof, no moment. Fix round: the program is a
- * listed one the builder had an entry or application in (`entered`, read before the tell was stored: hasEntry), and
+ * listed one (with proof_hosts or x_handles, else 'no_proof_source') the builder had an entry or application in (`entered`, read before the tell was stored: hasEntry), and
  * an award is only the announced one (entry_outcomes basis 'announcement', the owner-committed outcomes files), never
  * an amount the agent or builder states.
  */
@@ -308,13 +292,15 @@ export async function verifiedOutcomeCandidate(
   const p = await posterOf(builderId);
   if (typeof p === 'string') return p;
   if (!p.name) return 'no_project';
-  const [g] = await sql()<{ title: string; source_url: string | null; submission_url: string | null; x_handles: string[] }[]>`
-    SELECT title, source_url, submission_url, x_handles FROM programs WHERE id = ${o.programId} AND id <> ${COIN_PROGRAM}`;
+  const [g] = await sql()<{ title: string; source_url: string | null; submission_url: string | null; x_handles: string[]; proof_hosts: string[] }[]>`
+    SELECT title, source_url, submission_url, x_handles, proof_hosts FROM programs WHERE id = ${o.programId} AND id <> ${COIN_PROGRAM}`;
   if (!g) return 'no_program';
   if (!o.entered) return 'no_entry';
+  // Final review 1: no proof hosts and no X accounts listed: no link could prove it (its posts come from announced outcomes only).
+  if (!g.proof_hosts?.length && !g.x_handles?.length) return 'no_proof_source';
   const [b] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId}`;
   const proof = proofUrlOk(o.proofUrl, {
-    listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own: await ownLinksOf(builderId),
+    proofHosts: g.proof_hosts ?? [], listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own: await ownLinksOf(builderId),
   });
   if (!proof) return 'no_proof';
   const [won] = o.result === 'accepted' ? [] : await sql()<{ prize: number | null }[]>`

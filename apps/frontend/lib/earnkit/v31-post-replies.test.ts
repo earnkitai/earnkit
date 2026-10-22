@@ -150,7 +150,32 @@ test('the builder\'s news (tell update): posted to the page and drafted in their
   assert.doesNotMatch(hype, /Your post for X/);
 });
 
-test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked, it is drafted', db, async () => {
+/** Final review 1: the program file's owner-reviewed proof hosts, for one test (restored after). */
+async function withProofHosts(hosts: string[], run: () => Promise<void>) {
+  const [{ before }] = await sql()<{ before: string[] }[]>`SELECT proof_hosts AS before FROM programs WHERE id = ${BASE_GRANTS_ID}`;
+  await sql()`UPDATE programs SET proof_hosts = ${hosts}::text[] WHERE id = ${BASE_GRANTS_ID}`;
+  try {
+    await run();
+  } finally {
+    await sql()`UPDATE programs SET proof_hosts = ${before}::text[] WHERE id = ${BASE_GRANTS_ID}`;
+  }
+}
+
+test('final review 1: a program that lists no proof hosts or X accounts: an acceptance told is acknowledged, never asked for a proof link, never a post', db, async () => {
+  const k = await kit('pn');
+  const [{ hosts, handles }] = await sql()<{ hosts: string[]; handles: string[] }[]>`SELECT proof_hosts AS hosts, x_handles AS handles FROM programs WHERE id = ${BASE_GRANTS_ID}`;
+  assert.deepEqual([hosts, handles], [[], []], 'no program file lists any today');
+  await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
+  for (const proof_url of [undefined, 'https://docs.base.org/get-started/grant-recipients-october']) {
+    const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', ...(proof_url && { proof_url }) }] });
+    const s = rule(show(r), 0);
+    assert.equal(s, 'Congrats. Saved.');
+    assert.doesNotMatch(String(r.reply?.agent_note ?? ''), /proof_url|nothing to show the builder/);
+  }
+  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
+});
+
+test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked, it is drafted', db, () => withProofHosts(['docs.base.org'], async () => {
   const k = await kit('po');
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
@@ -186,7 +211,7 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const d = (await draftByCode(tap.split('/').pop()!))!;
   assert.equal(d.proof_url, proof);
   assert.doesNotMatch(s, /50,000|\$/);
-});
+}));
 
 test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {
   const k = await kit('pr');
