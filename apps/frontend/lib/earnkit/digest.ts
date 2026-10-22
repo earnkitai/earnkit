@@ -164,9 +164,10 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
     : f.newPrograms[0]
       ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
       : 'Your EarnKit week';
-  // The ask line closes the email once: after the sections, or after the money lines when they are all there is.
+  // The ask line closes the email once: after the sections, or last when money lines have no sections after them, so
+  // "one yes away" always says where the yes goes (never read as the week's Looks right link).
   const sections = lines.length > 0 ? lines.join('\n') : null;
-  const closer = sections || week ? null : ASK_LINE;
+  const closer = !sections && f.money.length > 0 ? ASK_LINE : null;
   return { subject, text: [f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
 }
 

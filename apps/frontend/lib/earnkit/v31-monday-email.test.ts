@@ -161,6 +161,17 @@ test('(b) a rolling Base fit: "Base Builder Grant Program is open (rolling), and
   assert.deepEqual((await digestFacts({ ...sub(b, 'b@example.com'), login: 'someone' }, new Date())).money, []);
 });
 
+test('money lines and a week with no sections: the ask line comes last, after the week', () => {
+  const money = ['Base Builder Grant Program is open (rolling), and your draft is one yes away.'];
+  const week = { ...WEEK, approved: false };
+  const text = digestBody({ ...NO_FACTS, money, week })!.text;
+  assert.ok(text.startsWith(`${money[0]}\n\nLast week you finished at Shipping 40, #3.`), text);
+  assert.ok(text.endsWith(`Hide this week: ${WEEK.hideUrl}\n\nAsk your agent "What can I earn?" to start.`), text);
+  assert.equal(text.split('Ask your agent').length, 2);
+  // A week alone still has no ask line.
+  assert.ok(!digestBody({ ...NO_FACTS, week })!.text.includes('Ask your agent'));
+});
+
 test('(c) applied (builder_program_status) or declined: no money line', db, async () => {
   for (const status of ['applied', 'not_interested'] as const) {
     const b = await builder(`c${status[0]}`, [ROLLING]);

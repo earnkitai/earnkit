@@ -138,7 +138,7 @@ test('(b) digestBody with a week leads with the moment and both links', () => {
   // Already confirmed (by the agent): the lines stay, no links to act on.
   // v3.1 Task 12: the money lines come first, above the week.
   const money = digestBody({ ...base, week, money: ['Base Builder Grant Program is open (rolling), and your draft is one yes away.', '2 new backers this week.'] })!;
-  assert.equal(money.text, `Base Builder Grant Program is open (rolling), and your draft is one yes away.\n2 new backers this week.\n\n${b.text}`);
+  assert.equal(money.text, `Base Builder Grant Program is open (rolling), and your draft is one yes away.\n2 new backers this week.\n\n${b.text}\n\nAsk your agent "What can I earn?" to start.`);
   assert.equal(money.subject, b.subject, 'the week still leads the subject');
   const done = digestBody({ ...base, week: { ...week, approved: true } })!;
   assert.doesNotMatch(done.text, /Looks right|Hide this week|https:/);
