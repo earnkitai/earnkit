@@ -7609,7 +7609,27 @@ gone; the Monday moment now carries a drafted post.)
   for X, with your page card:"); news asks "Want to change any words?" and its yes asks for new words (`NEWS_REWORD_NOTE`), which
   `tell update` then puts in the same draft (`rewordDraft`: same code, key and link). `events-redact` lists
   `post_drafts.card` and `post_drafts.proof_url`.
-- **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0), `post_x_visits` (sum) and
+- **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0) and
   `backers_after_post` (distinct person and wallet first seen within 7 days after a first tap on an open backing; 0 while
   EARNKIT_RAISING is off; correlation only), people only (`notTest`); labels in `STATS_LABELS`; the route's cache key
-  moved to `public-stats-posts`.
+  moved to `public-stats-posts`. Page opens from X (`post_drafts.x_visits`) are internal only (final review 4).
+- **Final review fix wave (2026-10-23).** (1) Proof hosts are an owner-reviewed allowlist: program files may list
+  `proof_hosts` (exact lowercase hosts, at most 5; `program-file.ts` refuses a shared host, a public suffix or
+  earnkit.com via `submit-hosts.ts proofHostAllowed`, which now holds `SHARED_HOSTS` and `MULTI_SUFFIXES`), synced to
+  `programs.proof_hosts`. `proofUrlOk` takes `ProofContext.proofHosts` and never derives a host from `source_url` or
+  `submission_url` (those pages stay excluded as proof). A program with neither `proof_hosts` nor `x_handles` (all of
+  them today) gives `verifiedOutcomeCandidate` 'no_proof_source', and `outcomePost` replies `OUTCOME_NOTED`
+  ("Congrats. Saved.") instead of `PROOF_ASK`; its outcome posts come only from announced outcomes. (2) The writer's
+  link rule exempts the project's shown name exactly (`postProblems(..., { name })`; never a name with a scheme, www. or
+  a path), so a private repo named by its site host ("earnkit.com") gets every named shape. (3) `eventPost` drafts the
+  first of `offeredMoments` that drafts (one that can't gives way to the next) and, when none can, remembers that in
+  process for the UTC day under `eventStamp` (one query: coin launched or backing opened, announced outcome, hosted
+  deploy, main project), so a quiet reply reads one stamp instead of about 10 queries; going live that settles later
+  in the day waits for the next day. (4) `noteVisit` counts at most `VISIT_DAY_CAP` (20) opens per post per UTC day
+  (`post_drafts.visit_day`, `day_visits`; nothing about the visitor stored). (5) EarnKit's post wording turns "?" into
+  "."; a note with "?" falls back to EarnKit's wording (their news with "?" is no post). (6) `checkBuilderCodes` takes
+  the cron slice's `deadline`: each read's timeout is min(10 s, time left) (`AbortSignal.any`), and no read starts past
+  it. (7) `page-data.ts SHARED_PLATFORMS` adds the vibecoder hosts (lovable.app, lovable.dev, replit.dev, bolt.new,
+  framer.website, framer.app, webflow.io, wixsite.com, carrd.co, railway.app, github.io and kin). (8) The page's
+  redirects (another case, a rename, a reserved handle at the root, an old /b slug) keep `?m=<code>`. (10)
+  `benchCardFacts`, `postCardFacts` and `personFacts` use `avatarUrl(x, github_login)` like the page.

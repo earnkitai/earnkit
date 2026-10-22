@@ -1071,7 +1071,8 @@ apps/frontend/
                                the application continues on a16z's site."). Pure
     submit-hosts.ts            v2.8 Task 10: HOST_MODES and ENTRY_LINK_HOSTS (Rulings 27, 28),
                                the no-agent hosts (DoraHacks, Questbook), prefill and agent-API
-                               platforms by host. Pure, no imports
+                               platforms by host; v3.1 final review: SHARED_HOSTS, MULTI_SUFFIXES, proofHostAllowed
+                               (program-file.ts proof_hosts). Pure, no imports
     coach.ts(+test)            v2.8 Task 9: the application coach. DEFAULT_GUIDANCE per field kind,
                                guidanceFor, coachFields, askableKeys, questionsFor (Ruling 26,
                                C15), coachIntro,
@@ -1350,7 +1351,7 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
-                               v3.1 one-tap posts Task 7: posts_drafted, posts_tapped, post_x_visits, backers_after_post
+                               v3.1 one-tap posts Task 7: posts_drafted, posts_tapped, backers_after_post (post_x_visits dropped: internal only)
                                (within 7 days of a first tap, open backing, flag on; correlation only), after shared;
                                launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
                                (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
@@ -1684,14 +1685,17 @@ apps/frontend/
                                never a price, proof needed for accepted/funded/won), postCardFacts (live pillCoin + backers)
     post-reply.ts              v3.1 one-tap posts Task 6: shortLink, weeklyPost (the Monday moment's post), eventPost (hot:
                                went live or won under HOT_HOURS; else any event), isHot, newsPost (tell update), outcomePost
-                               (tell program_status with proof_url, else PROOF_ASK + PROOF_NOTE), redraftAnswer (the yes to
-                               "Want a different version?"), POST_NOTE; v31-post-replies.test.ts through mcpCall
+                               (tell program_status with proof_url, else PROOF_ASK + PROOF_NOTE; OUTCOME_NOTED when the program
+                               lists no proof hosts or X accounts), redraftAnswer (the yes to "Want a different version?"),
+                               POST_NOTE; final review: eventPost tries each offered moment in turn and remembers nothing to
+                               draft for the UTC day under eventStamp; v31-post-replies.test.ts through mcpCall
     post-writer.ts(+test)      v3.1 one-tap posts Task 2: the pure writer. POST_SHAPES (note, name_week, change, this_week,
                                count, bare, live/live_alt, won/won_alt, accepted/accepted_alt, funded/funded_alt, coin_intro),
                                writePost(input, history) (rotation: never one of the last 2 shapes nor the last opening word,
                                relaxed to not the last shape; weekly null when nothing fits, an event its first passing
                                wording), postProblems (banned hype and shill words, hashtags, cashtags but the coin intro's one
-                               ticker, links, emoji, em dash, "!", repeat, "just shipped" twice), openingWord, isMilestone,
+                               ticker, links but the shown name, emoji, em dash, "!", repeat, "just shipped" twice; "?" in
+                               our wording reads "." and a note with "?" is not used), openingWord, isMilestone,
                                POST_MAX 200; copy-review.test.ts sweeps every shape
     post-moments.ts(+test)     v3.1 one-tap posts Task 3: which moments get a post. holdOf (pure cooldowns: weekly 13 days
                                after a tapped one unless a big week, one offer a week; once a project or program; one kind in
@@ -1704,7 +1708,9 @@ apps/frontend/
                                createDraft; an asked redraft skips the hold); Task 6: MomentCandidate.at, HOT_HOURS 48,
                                weeklyCandidate(..., { week }) numbered as the moment names it; fix round: proofUrlOk
                                (ProofContext: listings, xHandles, builderHandle; SHARED_HOSTS, public suffixes, never the
-                               listing page), hasEntry, upNow/UP_WITHIN_DAYS, coin intro within 14 days of launch
+                               listing page), hasEntry, upNow/UP_WITHIN_DAYS, coin intro within 14 days of launch; final
+                               review: ProofContext.proofHosts (program proof_hosts only, never the listing hosts),
+                               'no_proof_source', offeredMoments (every offerable moment in order), eventStamp
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
