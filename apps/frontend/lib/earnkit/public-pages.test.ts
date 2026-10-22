@@ -224,14 +224,15 @@ test('3.1 v2.8, R18, v3.1: the section is the h2, then whole-card links to the g
   assert.doesNotMatch(sec, /See all/);
 });
 
-test('3.2 v3.1: each card: logo or monogram, when, title, the big number (else the prize text), the kind; no bonus pill, no coin, no em dash', () => {
+test('3.2 v3.1: each card: logo or (clarity batch) the organizer name, when, title, the big number (else the prize text), the kind; no bonus pill, no coin, no em dash', () => {
   const tiles = [{ ...homeFixture.tiles[3], big: null }, ...homeFixture.tiles];
   const cards = cardsOf(home({ ...homeFixture, tiles }));
   assert.equal(cards.length, 4);
   for (const [i, c] of cards.entries()) {
     const tl = tiles[i];
     const ct = text(c);
-    assert.match(c, tl.logo ? new RegExp(`<img[^>]*src="${tl.logo}"`) : /aria-hidden="true"[^>]*>[A-Z]{1,2}<\/span>/, tl.id);
+    const name = tl.organizer.replace(/'/g, '&#x27;');
+    assert.ok(tl.logo ? new RegExp(`<img[^>]*src="${tl.logo}"`).test(c) : c.includes(`data-ek-logo-name="" aria-hidden="true"`) && c.includes(`<span class="truncate">${name}</span>`), tl.id);
     for (const s of [tl.title.replace(/'/g, '&#x27;'), tl.big ?? tl.prize, tl.kind, tl.when]) assert.ok(c.includes(s), `${tl.id}: ${s}`);
     // Named by its content, never an aria-label that hides it.
     assert.doesNotMatch(c, /<a [^>]*aria-label=/, tl.id);
