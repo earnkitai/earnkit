@@ -28,7 +28,7 @@ import { EARN_NOTE, standingNews } from './stand-text';
 import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, applyAsk, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
-import { BASE_GRANTS_ID, BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
+import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
