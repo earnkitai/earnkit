@@ -34,6 +34,8 @@ export const EVENT_TYPES = [
   'page_joined', 'page_detached',
   // v2.14 (T5, S2): an installation bound to an X account by the fallback link's paste code.
   'signed_in_by_code',
+  // v3.1 one-tap posts: a post for X drafted (post-drafts.ts); its short link's first tap.
+  'post_drafted', 'post_tapped',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 export const LOGIN_BASES = ['signin', 'app', 'proof_line', 'repo_owner', 'x_match'] as const;

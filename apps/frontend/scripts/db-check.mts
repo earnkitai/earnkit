@@ -832,5 +832,13 @@ const [orr] = await db<{ at: Date | null }[]>`SELECT origin_read_at AS at FROM b
 ok(att?.at.toISOString() === '2026-10-01T00:00:00.000Z' && orr?.at?.toISOString() === '2026-10-02T00:00:00.000Z',
   'v3.1 Highlights: an attempt and an origin read time survive the schema running again');
 
+// v3.1 one-tap posts: post_drafts (a drafted post for X behind a short code); a row survives the schema running again.
+ok((await cols('post_drafts')).includes('first_tap_at'), 'v3.1 one-tap posts: post_drafts');
+await db`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, expires_at, taps)
+  VALUES ('dbcheckaaa', -134, 'weekly', 'weekly:k:2026-10-12', 'change', 'Added offline mode.', '2026-11-01T00:00:00Z', 2)`;
+await db.unsafe(now);
+const [pd] = await db<{ taps: number; first: Date | null }[]>`SELECT taps, first_tap_at AS first FROM post_drafts WHERE code = 'dbcheckaaa'`;
+ok(pd?.taps === 2 && pd.first === null, 'v3.1 one-tap posts: a post_drafts row survives the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

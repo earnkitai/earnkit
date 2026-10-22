@@ -86,3 +86,21 @@ test('v3.1 Highlights fix round 1: repo_builder_codes_attempts and builder_sourc
   await sql()`DELETE FROM repo_builder_codes_attempts WHERE repo_key = ${key}`;
   await sql()`DELETE FROM builder_sources WHERE id = ${id}`;
 });
+
+test('v3.1 one-tap posts: post_drafts and its index survive a rerun with their rows; a bad code or an over-long text is refused', dbTest, async () => {
+  const code = `rr${'a'.repeat(8)}`;
+  await sql()`DELETE FROM post_drafts WHERE code = ${code}`;
+  await sql()`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, expires_at, taps)
+    VALUES (${code}, ${-process.pid}, 'weekly', 'weekly:k:2026-10-12', 'change', 'Added offline mode.', now() + interval '14 days', 3)`;
+  await sql().unsafe(SCHEMA);
+  await sql().unsafe(SCHEMA);
+  const [row] = await sql()<{ taps: number; text: string }[]>`SELECT taps, text FROM post_drafts WHERE code = ${code}`;
+  assert.deepEqual(row, { taps: 3, text: 'Added offline mode.' });
+  const [ix] = await sql()`SELECT 1 FROM pg_indexes WHERE tablename = 'post_drafts' AND indexname = 'post_drafts_builder'`;
+  assert.ok(ix);
+  await assert.rejects(sql()`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, expires_at)
+    VALUES ('BAD-CODE!!', 1, 'weekly', 'k', 'change', 't', now())`, /check/i);
+  await assert.rejects(sql()`INSERT INTO post_drafts (code, builder_id, moment, moment_key, shape, text, expires_at)
+    VALUES ('bbbbbbbbbb', 1, 'weekly', 'k', 'change', ${'x'.repeat(241)}, now())`, /check/i);
+  await sql()`DELETE FROM post_drafts WHERE code = ${code}`;
+});
