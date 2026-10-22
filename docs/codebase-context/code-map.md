@@ -124,7 +124,9 @@ apps/frontend/
                                lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
                                (five anchors; DocsNav, client: the lit item follows the hash and the section in view, readingNow
                                pure, aria-current="location"), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
-                               AgentPanel shows code ?? MCP_URL, copy button + aria-live "Copied"; three numbered steps), the
+                               wrapping; AgentPanel shows the note, the steps (numbered from two), code ?? MCP_URL, copy button + aria-live
+                               "Copied"; three numbered steps; GitHubHelp #github "No GitHub yet?" from docs-copy DOCS_GITHUB: Lovable,
+                               Bolt, the v0 note), the
                                week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
   app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
   app/programs/[id]/page.tsx   v2.7 §2: the guide page; revalidate 600; null → notFound(); 'error' →
@@ -154,7 +156,8 @@ apps/frontend/
                                (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
-                               /docs (server): MCP_URL, AGENTS (name, local icon, the install steps per agent), Command
+                               /docs (server): MCP_URL, AGENTS (name, local icon, optional note, the install steps per agent;
+                               install fixes 2026-10-22: Grok Bot, Claude, Muse, OpenClaw, Claude Code, Cursor, Codex), Command
   app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
                                (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
   app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
@@ -254,7 +257,7 @@ apps/frontend/
                                ScoreText (band colour via site-copy.ts scoreBand), InviteRow (optional Kaftan title, a line,
                                the white install pill via InstallButton; leaderboard and feed with few builders), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
-                               aria-current; segRail/segTab for the install sheet's tabs; RAIL_FADE masks a cut edge),
+                               aria-current; segRail/segTab for the agent tabs, which wrap ('sheet', 'light'); RAIL_FADE masks a link rail's cut edge),
                                FadeRail (client: useEdgeFade sets data-fade end/start/both while a rail overflows; FadeNav), useReducedMotion and
                                useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,
                                pointer light on the footer; nothing under reduced motion or on touch), AgentMarks (AGENT_MARKS
@@ -2133,7 +2136,7 @@ v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/f
 
 New, tokens and data:
 - `lib/earnkit/site-theme.ts`: `SITE` colours (mirrored `--ek-s-*`, Tailwind `s-*`), `siteVar`.
-- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText`, `programKind`, `logoColor`.
+- `lib/earnkit/site-copy.ts`: every page string, `scoreBand`, `standingTier`, `compactUsd`, `monthDay`, `agoWords`, `heroChipText` ("$5K in Base grants open now", over `landing.ts openToBase` programs only), `programKind`, `logoColor`.
 - `lib/earnkit/site-data.ts`: `profileSite` and its parts (`lastShippedAt`, `thisWeekCommits`, `highlights`, `standingPill`, `backerWeeks`, `tokenAllowed`), `feedWeekStats`.
 - `lib/earnkit/site-streak.ts`: `withThisWeek`, the page's one streak (grid and count).
 - `app/fonts/kaftan-serif.woff2`: Kaftan Serif (moved from `public/fonts`).
@@ -2142,7 +2145,7 @@ New, tokens and data:
 New, primitives (`app/components/site/`):
 - `ui.ts` card, pill, column, title and metal class strings; `Serif.tsx` Kaftan wrapper; `Money.tsx` currency signs in Funnel Sans.
 - `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail;
-  `FadeRail.tsx` the overflow edge fade for sideways rails (SegTabs, the install sheet's agent tabs).
+  `FadeRail.tsx` the overflow edge fade for sideways link rails (SegTabs: feed weeks, leaderboard filters); the agent tabs wrap instead.
 - `NavLinks.tsx` active-link nav; `FooterLight.tsx` pointer light; `AgentMarks.tsx` the four hero marks.
 - `useReducedMotion.ts` (with `useMediaQuery`).
 
@@ -2191,7 +2194,7 @@ appends `repo_builder_codes.path` and `builder_sources.deployed_at` (`db-check.m
 Highlights fix round 1: `guide-pages.ts` (`GUIDE_ID`, `guideProgramSql`: one guide predicate for `landing.ts
 readGuideIds` and `page-data.ts` links), `contract-origins.ts` (`backfillContractOrigins`), `builder-codes-check.ts`
 (`claimAttempt`, attempts stored in `repo_builder_codes_attempts`; the in-memory backoff is gone), `cron.ts` (both steps
-after the email, `builderCodesSliceEnd`), `site-data.ts` (`liveSub`, newest reading up, date only when all dated),
+after the email, `builderCodesSliceEnd`), `site-data.ts` (`liveSub`, newest ok reading up (a failed read never hides a live site), date only when all dated),
 `HighlightsCard.tsx` (guide links in the same tab with a chevron), `streak.ts` (updates grouped once),
 `bench-find.ts` (no streak read: no weeks, never the cache). Schema: `repo_builder_codes_attempts`,
 `builder_sources.origin_read_at`.

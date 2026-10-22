@@ -140,8 +140,10 @@ Under `prefers-reduced-motion` all of them stop, and the pointer components atta
 
 Designed at 390px: no horizontal scroll, 16px side gutters (`px-4`), every tap target 44px or taller (a text link
 inside a line uses `INLINE_LINK`'s 44px hit area), 2-up feed stats, the profile's cards 28px radius, rails that wrap.
-A rail that scrolls sideways instead (feed weeks, leaderboard filters, the install sheet's agent tabs) fades its cut edge
-over 40px while it overflows (`FadeRail`, `SegTabs RAIL_FADE`). The landing hero's ellipse is wider and higher on a phone (86% by
+A rail that scrolls sideways instead (feed weeks, leaderboard filters) fades its cut edge over 40px while it overflows
+(`FadeRail`, `SegTabs RAIL_FADE`). The agent tabs never scroll or fade: the install sheet and the docs install card wrap
+them onto more rows (`segRail` 'sheet' and 'light', 26px radius), so every full name shows at every width (owner
+2026-10-22, "in the modal tabs get cut off"; checked at 1440, 1024, 768, 390 and 320). The landing hero's ellipse is wider and higher on a phone (86% by
 44% at 63%, not 44% by 36% at 68%) and its money chip is dark glass (`hero-chip-phone`), so the chip, title and sub
 line hold over the painting (measured 2026-10-22 from screenshots, 95th-percentile background: chip 4.86:1, sub 9.29:1
 at 1440; chip 9.24:1, sub 7.85:1 at 390).
@@ -156,6 +158,18 @@ adjusted to pass:
 |---|---|---|
 | `#DCE6FF` on blue (3.92:1) | `on-blue-soft` `#F4F7FF` (4.57:1) | Secondary text on blue and podium #1 |
 | `#6F7792` on page (4.39:1) | `dim` `#747C97` (4.71:1) | Used only on `page` and `deep` |
+
+## Install tabs and the hero chip
+
+Agent tabs in this order: Grok Bot (owner: most popular), Claude (claude.ai and the desktop app), Muse, OpenClaw,
+Claude Code, Cursor, Codex (`agents.tsx AGENTS`). Claude's steps are only the confirmed ones in
+`docs/design-docs-and-implementation-plans/v3.1-install-research.md`, with one plain line above them ("A connector lets
+your AI use EarnKit.", the only place the word is explained). ChatGPT gets a tab only once OpenAI's own help page
+confirms the steps (unreadable on 2026-10-22). /docs carries "No GitHub yet?" on the install card (a light-inner tile:
+Lovable and Bolt steps, the v0 note; no Replit until confirmed).
+
+The hero chip counts only programs open to Base builders (chains include Base, or any chain: `landing.ts openToBase`),
+"$5K in Base grants open now"; nothing open to Base, no chip. The cards below may list other chains; each says its chain.
 
 ## Copy rules
 

@@ -7292,7 +7292,8 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   `PAGE_COL_WIDE` column (`gap-[72px] md:gap-32`): `landing/Hero`, `landing/Steps`, `landing/Activity`,
   `landing/Opportunities` (the `#earn` anchor that `/programs` and the hero chip land on), then the full `Footer`.
   `landing === null` renders the hero (no chip) and the steps only. Backed by left (S19).
-- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; 44px on a phone,
+- **Hero.** Bottom-aligned words over a readability shade: the chip (`landing.open_chip`, to `#earn`; install fixes
+  2026-10-22: only programs open to Base builders, `openToBase`, "$5K in Base grants open now", none when none; 44px on a phone,
   36px from md), the one-line Kaftan title (`clamp(36px,9.6vw,96px)`, `whitespace-nowrap`), the sub line, the white
   `CTA_INSTALL` button (opens the install sheet) and the four `AgentMark`s (now `currentColor` + `text-s-text`).
 - **HeroArt (client).** One `ek-drift` layer (`data-hero-art`) holding the painting (`<img srcSet>` of the three
@@ -7322,7 +7323,8 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
 - **Highlights (W8, redesigned 2026-10-22).** Every item is a fact a judge can check in one click and links its proof
   (`Highlight.href`, new tab, `rel="noopener noreferrer"`); at most 5, in order, each only when true:
-  1. live: "Live at <host>" for a verified site source whose newest reading is up (down at its last read: no item),
+  1. live: "Live at <host>" for a verified site source whose newest ok reading is up (down at its last read: no item;
+     a failed read, ok false, is EarnKit's failure and never hides it),
      sub "Up N of the last D days checked" (`liveSub`: D the days of the last 30 EarnKit read the site, a day not read
      counts nowhere; from 7), else "Since <Mon YYYY>"; one query; links the site's https origin (`siteHref`). Owner
      ruling (fix round 1): a proven site shows though the repo is private; only a hidden repo's GitHub-hosted site is
@@ -7401,9 +7403,10 @@ page description now. Test: `v31-site-feed.test.ts`.
 `/docs` (`app/docs/DocsView.tsx`, `InstallCard.tsx`) is the Docs board in the 1200px column, rendered per request
 (W9: `raisingEnabled()` is read at run time, no DB read). A panel side nav to the five anchors (a wrapping row above
 the article below lg), the light install card (H1, `InstallCard`: agent tabs on a `SegTabs` 'light' rail in `AGENTS`
-order, Grok Bot first; `AgentPanel` shows the agent's steps as one line, `agent.code ?? MCP_URL`, then `after` /
+order, Grok Bot first, wrapping onto more rows; `AgentPanel` shows the agent's note, its steps (numbered from two), `agent.code ?? MCP_URL`, then `after` /
 `afterCode`, each block with a copy button that announces "Copied" in an `aria-live` region; no command text lives
-outside `agents.tsx`), three numbered steps, the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
+outside `agents.tsx`), three numbered steps, "No GitHub yet?" (`#github`, `DOCS_GITHUB`: Lovable and Bolt steps, the
+v0 note, true because EarnKit reads the default branch), the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
 `#money`: "Programs" and no Backing sentence while raising is off), and the blue selectors strip with the builder JSON
 URL. The 404 is the NotFound board's rust card with the full footer. The program guide and terms pages only moved to
 `PAGE_COL` with Kaftan titles (structure unchanged; terms keeps the risk disclosure). Test: `v31-site-docs.test.ts`.
@@ -7474,7 +7477,7 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   (`BenchView countLine`; the 10-ranked rule still reads the pool); the profile's two card rows share one grid template
   (one seam from 844px); the docs side nav lights the section in view (`DocsNav readingNow`); an unranked score ring is an
   empty track (no glyph); the phone hero's shade rises and its chip is dark glass (`heroChipPhone`); sideways rails fade a
-  cut edge (`FadeRail`, `SegTabs RAIL_FADE`); one 404 title "Not found | EarnKit" (`NOT_FOUND_METADATA` in `site-copy.ts`; a page that
+  cut edge (`FadeRail`, `SegTabs RAIL_FADE`; install fixes 2026-10-22: the agent tabs wrap instead, in the sheet too); one 404 title "Not found | EarnKit" (`NOT_FOUND_METADATA` in `site-copy.ts`; a page that
   calls `notFound()` keeps its segment's metadata in the browser, so each such route returns it from `generateMetadata`). The feed's row order (pinned, then the week's progress points,
   then the live score; v2.13 R7 "ranked by verified progress") is intended and unchanged.
 
