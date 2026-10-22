@@ -389,6 +389,19 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
 /** The whole days until `end`, at least 1 (D5). Pure. */
 const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() - now.getTime()) / DAY));
 
+/** v3.1 Task 12: the email's money lines (the Best fit's draft, new backers). Pure. */
+export function moneyTexts(best: { title: string; ends_at: Date | null } | null, newBackerCount: number, now: Date): string[] {
+  const lines: string[] = [];
+  if (best) {
+    const n = best.ends_at ? daysTo(best.ends_at, now) : 0;
+    lines.push(best.ends_at
+      ? `${best.title} closes in ${n} ${n === 1 ? 'day' : 'days'}. Your draft is one yes away.`
+      : `${best.title} is open (rolling), and your draft is one yes away.`);
+  }
+  if (newBackerCount > 0) lines.push(`${newBackerCount} new ${newBackerCount === 1 ? 'backer' : 'backers'} this week.`);
+  return lines;
+}
+
 /**
  * v3.1 Task 12 (spec 3.3, D5): the email's money lines for `person`: the Best fit's draft (best-fit.ts bestFitFor, as
  * find and score name it; never one the builder applied to or declined), then the week's new backers (backers.ts
@@ -397,14 +410,7 @@ const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() -
  */
 async function moneyLines(person: number, now: Date): Promise<{ lines: string[]; best: string | null }> {
   const [best, k] = await Promise.all([bestFitFor(person, now), newBackers(person, new Date(now.getTime() - 7 * DAY))]);
-  const lines: string[] = [];
-  if (best) {
-    const n = best.ends_at ? daysTo(best.ends_at, now) : 0;
-    lines.push(best.ends_at
-      ? `${best.title} closes in ${n} ${n === 1 ? 'day' : 'days'}. Your draft is one yes away.`
-      : `${best.title} is open (rolling), and your draft is one yes away.`);
-  }
-  if (k > 0) lines.push(`${k} new ${k === 1 ? 'backer' : 'backers'} this week.`);
+  const lines = moneyTexts(best, k, now);
   return { lines, best: best?.program_id ?? null };
 }
 
