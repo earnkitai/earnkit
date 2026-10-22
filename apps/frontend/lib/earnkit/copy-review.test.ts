@@ -1440,7 +1440,7 @@ function v31Texts(): [string, string][] {
     ['draft copy and paste', paste.show_to_builder],
     ['SENT_ASK', SENT_ASK],
     ['CONFIRM_ENTRY_GONE', CONFIRM_ENTRY_GONE],
-    ...moneyTexts({ title: 'Base Builder Grant Program', ends_at: new Date('2026-11-18T00:00:00Z') }, 1, now).map((x): [string, string] => ['email money dated', x]),
+    ...moneyTexts({ title: 'Base Builder Grant Program', ends_at: new Date('2026-11-18T00:00:00Z') }, 1, now).map((x, i): [string, string] => ['email money dated ' + (i === 0 ? 'best fit' : 'backers'), x]),
     ['email money 1 day', moneyTexts({ title: 'Recipe Grants', ends_at: new Date('2026-10-23T12:00:00Z') }, 0, now)[0]],
     ['email money rolling', moneyTexts({ title: 'Base Builder Grant Program', ends_at: null }, 0, now)[0]],
     ['email money backers', moneyTexts(null, 3, now)[0]],
@@ -1451,17 +1451,40 @@ function v31Texts(): [string, string][] {
 test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T8 rule, the banned words and no em dash', () => {
   const texts = v31Texts();
   assert.ok(texts.length >= 40, 'the sweep covers every new string');
-  const names = ['Recipes', 'Recipe Grants', 'Base Builder Grant Program', 'Base', 'Builder Codes'];
-  const phrases = [/pick the repo you're building/g, /I read your commits every week/g];
+  // Fixture names (a project, a grant title) are the builder's own words anywhere. The program's own words
+  // ("Base", "Builder Codes", its title) and the owner-approved Task 16 phrases are allowed only in the strings
+  // that legitimately carry them, keyed by label.
+  const fixtureNames = ['Recipes', 'Recipe Grants'];
+  const GRANT = 'Base Builder Grant Program';
+  const REPO_PHRASE = "pick the repo you're building";
+  const COMMITS_PHRASE = 'I read your commits every week';
+  const allowed: Record<string, string[]> = {
+    introWhat: ['Base', COMMITS_PHRASE],
+    'introWhat no grant': [COMMITS_PHRASE],
+    pickRepoAsk: [REPO_PHRASE],
+    'Best fit dated': [GRANT],
+    'Best fit rolling': [GRANT],
+    builderCodesFound: ['Builder Codes'],
+    BUILDER_CODES_FIRST: ['Base', 'Builder Codes'],
+    'draft prefilled': [GRANT, 'Builder Codes'],
+    'draft copy and paste': [GRANT, 'Base', 'Builder Codes'],
+    'email money dated best fit': [GRANT],
+    'email money rolling': [GRANT],
+  };
   // A schemeless doc link (docs.base.org/...) is a URL, not prose.
   const noUrl = (x: string) => x.replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ');
-  const strip = (x: string) => phrases.reduce((a, r) => a.replace(r, ' '), names.reduce((a, n) => a.split(n).join('Name'), noUrl(x)));
   const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
-  const exempt = ['EarnKit', 'Recipes', 'Recipe Grants', 'Base Builder Grant Program', 'Base', 'Builder Codes', "pick the repo you're building", 'I read your commits every week'];
+  assert.ok(Object.keys(allowed).every((l) => texts.some(([x]) => x === l)), 'every allowlist key is a real label');
   for (const [label, text] of texts) {
     assert.ok(text.length > 0, label);
-    assert.doesNotMatch(strip(text), banned, label);
-    assert.deepEqual(bannedIn(noUrl(text), exempt), [], label);
+    const exempt = [...allowed[label] ?? [], ...fixtureNames].sort((x, y) => y.length - x.length);
+    const unnamed = exempt.reduce((a, n) => a.split(n).join('Name'), noUrl(text));
+    assert.doesNotMatch(unnamed, banned, label);
+    assert.deepEqual(bannedIn(noUrl(text), ['EarnKit', ...exempt]), [], label);
+    // A coin's ticker ($TIP) is its name; USDC is the one allowed all-caps word.
+    assert.doesNotMatch(unnamed.replace(/\$[A-Z0-9]+\b/g, '$X'), /\b[A-Z]{3,}\b(?<!USDC)/, label);
+    // Task 16: a points line starts "+30 points" and the post for X is quoted (the owner's copy).
+    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
     assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
     assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
     assert.ok((text.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length <= 1, label);
