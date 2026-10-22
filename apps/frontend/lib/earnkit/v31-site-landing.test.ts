@@ -89,7 +89,7 @@ const TILES: Tile[] = [
 const LANDING: Landing = {
   open_text: '$105K in grants open',
   open_more: null,
-  open_chip: '$105K in grants open now',
+  open_chip: '$5K in Base grants open now',
   tiles: TILES,
   stats_line: null,
   won_line: null,
@@ -327,7 +327,7 @@ test('(i) fix round 1: every landing transition runs only without reduced motion
 test('(j) Task 7 fix round 1: the chip and the program numbers draw "$" in Funnel Sans (Money), the digits stay Kaftan', () => {
   const h = raw(LANDING);
   const sign = /<span data-ek-sign="" class="font-funnel-sans font-normal">\$<\/span>/;
-  assert.match(h, new RegExp(`<span>${sign.source}105K in grants open now</span>`), 'the chip: one flex item, so the gap never splits the sign');
+  assert.match(h, new RegExp(`<span>${sign.source}5K in Base grants open now</span>`), 'the chip: one flex item, so the gap never splits the sign');
   const earn = section(h, 'earn');
   assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}5K</span>`), 'a big number');
   assert.match(earn, new RegExp(`<span class="ek-serif[^"]*">${sign.source}1M</span>`));

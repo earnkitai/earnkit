@@ -68,7 +68,7 @@ export type Landing = {
   open_text: string | null;
   /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
   open_more: string | null;
-  /** v3.1 site: the hero chip, "$105K in grants open now" (site-copy heroChipText), null when nothing is open. */
+  /** v3.1 site: the hero chip, "$5K in Base grants open now" (site-copy heroChipText over openToBase), null when none is open. */
   open_chip: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning", or null below the threshold. */
@@ -90,6 +90,9 @@ export const oneEach = <C extends { handle: string }>(cards: C[]): C[] => cards.
 export const LANDING_PROGRAMS = 4;
 /** The open tiles the landing shows, in the tiles' own (byRelevance) order. Pure. */
 export const landingPrograms = (tiles: Tile[]): Tile[] => tiles.filter((t) => t.status === 'active').slice(0, LANDING_PROGRAMS);
+
+/** A program a Base builder can enter: its chains include Base, or it is open to any chain (byRelevance's first two reaches). Pure. */
+export const openToBase = (c: Pick<Card, 'chains' | 'any_chain'>): boolean => (c.chains ?? []).includes('base') || c.any_chain === true;
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
 export function statsLine(s: PublicStats): string | null {
@@ -129,12 +132,14 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       organizer: c.organizer?.trim() || c.title,
     };
   });
-  // The chip says "and prizes" when a program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
-  const prizes = kept.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
+  // Install fixes (owner, chip honesty): the chip counts only programs open to Base builders. It says "and prizes" when a
+  // program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
+  const onBase = kept.filter(openToBase);
+  const prizes = onBase.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
   return {
     open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
     open_more: openMoneyWords(kept, now),
-    open_chip: heroChipText(openMoneyUsd(kept, now), prizes),
+    open_chip: heroChipText(openMoneyUsd(onBase, now), prizes),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),

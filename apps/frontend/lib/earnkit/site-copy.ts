@@ -67,8 +67,13 @@ export function logoColor(name: string): string {
   return LOGO_COLORS[h % LOGO_COLORS.length];
 }
 
+/**
+ * The landing hero chip, "$5K in Base grants open now" (and prizes when one it sums is a prize program); null at 0. The
+ * caller passes only programs open to Base builders (landing.ts openToBase): the site is Base-first, so the chip never
+ * counts an Arc-only grant (owner, install fixes 2026-10-22).
+ */
 export function heroChipText(usd: number, prizes: boolean): string | null {
-  return usd > 0 ? `${compactUsd(usd)} in grants${prizes ? ' and prizes' : ''} open now` : null;
+  return usd > 0 ? `${compactUsd(usd)} in Base grants${prizes ? ' and prizes' : ''} open now` : null;
 }
 
 /** A program that is a prize or a hackathon by kind: in person, or its reward text says prize(s). Never an investment. Pool size is not the test (a grant can have a pool). */

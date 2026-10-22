@@ -18,7 +18,7 @@ const CTA =
 
 /**
  * The landing hero (Landing board): Eckersberg's painting with its arch light (HeroArt), the money chip
- * ("$105K in grants open now", to #earn; none when nothing is open), the title on one line, the sub line, the
+ * ("$5K in Base grants open now", to #earn; none when nothing is open), the title on one line, the sub line, the
  * install CTA and the four agent marks along the bottom. Words are bottom-aligned over the readability shade.
  */
 export default function Hero({ chip }: { chip: string | null }) {

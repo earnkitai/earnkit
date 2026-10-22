@@ -60,8 +60,8 @@ test('(e) metal pill, avatar and logo tokens carry the board values', () => {
 });
 
 test('(f) heroChipText, streakNote, weekLine, monthDay, monthYear', () => {
-  assert.equal(heroChipText(105_000, false), '$105K in grants open now');
-  assert.equal(heroChipText(105_000, true), '$105K in grants and prizes open now');
+  assert.equal(heroChipText(5_000, false), '$5K in Base grants open now');
+  assert.equal(heroChipText(25_000, true), '$25K in Base grants and prizes open now');
   assert.equal(heroChipText(0, true), null);
   assert.equal(streakNote(1, 1), 'Week 2 starts Monday');
   assert.equal(streakNote(3, 9), 'Code in 9 of 12 weeks');

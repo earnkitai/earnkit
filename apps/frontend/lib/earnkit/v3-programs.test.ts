@@ -147,9 +147,12 @@ test('(c) the money total excludes investments, pool-only and in-person programs
   assert.equal(landing.open_text, '$100K in grants and prizes open');
   assert.equal(landing.open_more, 'Plus 1 accelerator and 1 hackathon.');
   assert.equal(landingFrom([], stats, now).open_text, null, 'nothing open: no line');
-  // v3.1 Task 6: the landing shows the hero chip (open_chip, the same figure), never "open right now".
-  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing }))).replace(/<[^>]+>/g, ' ');
-  assert.ok(landing.open_chip && t.includes(landing.open_chip) && landing.open_chip.startsWith('$100K '), t.slice(0, 300));
+  // Install fixes: the chip counts only programs open to Base builders, so an Arc-only grant shows none.
+  assert.equal(landing.open_chip, null);
+  // v3.1 Task 6: the landing shows the hero chip (open_chip), never "open right now".
+  const onBase = landingFrom([a16z, { ...circle, chains: ['base'] }, eth], stats, now);
+  const t = unsign(renderToStaticMarkup(React.createElement(HomeView, { landing: onBase }))).replace(/<[^>]+>/g, ' ');
+  assert.ok(onBase.open_chip && t.includes(onBase.open_chip) && onBase.open_chip.startsWith('$100K in Base grants'), t.slice(0, 300));
   assert.doesNotMatch(t, /open right now/);
 });
 

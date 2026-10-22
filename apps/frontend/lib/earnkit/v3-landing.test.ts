@@ -79,8 +79,8 @@ test('(e) HomeView with landing = null and with no programs renders the hero and
 });
 
 test('(f) the hero: the chip (to #earn) only with money open, the one-line title, the sub line, the four agent marks', () => {
-  const h = html(React.createElement(Hero, { chip: '$105K in grants open now' }));
-  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$105K in grants open now<\/span><\/a>/);
+  const h = html(React.createElement(Hero, { chip: '$5K in Base grants open now' }));
+  assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$5K in Base grants open now<\/span><\/a>/);
   assert.doesNotMatch(html(React.createElement(Hero, { chip: null })), /href="#earn"/);
   assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Get funded for shipping.<\/h1>/);
   assert.equal((h.match(/role="img"/g) ?? []).length, 4);
