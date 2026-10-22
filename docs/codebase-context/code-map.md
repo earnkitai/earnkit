@@ -66,7 +66,10 @@ apps/frontend/
                                SegTabs All/Base/Backed (filterTabs; old ?chain=arc/?weekly=1 filter, mark no tab), Podium
                                (page 1 rows 1-3: blue/navy/rust, METAL place pills), panel rows (BenchRowItem: one link,
                                XHandle link={false}, Backed tag, streak, ScoreText 30), Pager (?page=, LEADERBOARD_PAGE 20,
-                               pageHref); under RANK_MIN_POOL no "#N"/metal pills; FilterChip deleted. History below:
+                               pageHref); under RANK_MIN_POOL no "#N"/metal pills, and (solo launch) no podium, no SegTabs,
+                               every builder a plain row, countLine says BENCH_EARLY (no number), the panel ends with one
+                               InviteRow (BENCH_INVITE + install CTA); emptyLine (Base, Backed, else BENCH_EMPTY);
+                               FilterChip deleted. History below:
                                scoring and clarity T3 (R9),
                                v3 Stage 3 T4 (spec 5.8): /leaderboard ("Leaderboard"; moved from app/bench, identifiers kept):
                                H1, benchLine ("N builders. Ranked by Shipping."; BENCH_TOP_EMPTY at 0), the filters as hairline
@@ -81,7 +84,9 @@ apps/frontend/
   app/feed/{page.tsx,FeedView.tsx,FeedStats.tsx,FeedRow.tsx}  v3.1 site Task 9 (Feed board): /feed: H1, week tabs
                                (FEED_TABS 3, ?week=<monday>, pickWeek falls back to the newest), FeedStats (feedWeekStats,
                                cached ['feed-stats-v31', monday]), full-width dark FeedRows, FEED_PAGE 10 a page (?page=);
-                               FEED_EMPTY on a neutral card with "See the leaderboard"
+                               FEED_EMPTY on a neutral card with "See the leaderboard"; solo launch: FeedStats only from
+                               FEED_FEW (3) builders shipped, and a week under FEED_FEW rows ends with one InviteRow
+                               (ACTIVITY_INVITE_TITLE/TEXT + install CTA)
   app/[handle]/{BenchProfileView,ShareButton}.tsx, app/[handle]/site/*  v3.1 site Task 7 (Profile, BackedBuilder,
                                NewBuilder boards): BenchProfileView({ data, site, page }) lays out two wrapping rows:
                                HeroCard (blue: photo, Kaftan name, metal standing pill from site.standing, @handle, X,
@@ -108,7 +113,8 @@ apps/frontend/
                                AGENT_MARKS), HeroArt (client: painting srcSet + SVG arch clip ARCH_PATH, dusk tint, sunset
                                glow at the pointer via getScreenCTM, drift; nothing moves under reduced motion), Steps (STEPS;
                                Earn adds backing only with raisingEnabled), Activity (landing.activity cards, activityMeta,
-                               invite card at 1 to 2, none at 0), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
+                               invite card once at 1 to 2, md:col-span-2 beside one card, none at 0; the cards are one a
+                               builder, landing.ts oneEach), Opportunities (landingPrograms cards, #earn, EARN_FOOT)
   app/lib/landing-cache.ts     v2.7: getLanding() = unstable_cache(readLanding, 600 s); failure → logs
                                [landing], await connection() (never prerendered), null;
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
@@ -245,7 +251,8 @@ apps/frontend/
                                that opens with a hairline; kept for callers) and Panel
   app/components/site/         v3.1 site T1 primitives: ui.ts (CARD_NEUTRAL/BLUE/NAVY/RUST/LIGHT/PANEL, PILL_WHITE/BLUE,
                                PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
-                               ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
+                               ScoreText (band colour via site-copy.ts scoreBand), InviteRow (optional Kaftan title, a line,
+                               the white install pill via InstallButton; leaderboard and feed with few builders), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
                                aria-current; segRail/segTab for the install sheet's tabs; RAIL_FADE masks a cut edge),
                                FadeRail (client: useEdgeFade sets data-fade end/start/both while a rail overflows; FadeNav), useReducedMotion and
@@ -2153,5 +2160,8 @@ v3.1 site clarity batch (branch `v3.1-site-clarity`, 2026-10-22; every file unde
   BENCH_VERIFIED; `[handle]/site/ScoreCard.tsx` adds SCORE_SOURCE and the "How it's scored" INLINE_LINK.
 - `page-data.ts avatarUrl(raw, githubLogin?)` (X, then GitHub, then null); `feed.ts`, `bench-data.ts` (benchRows,
   profileData) read `github_login`. `benchCardFacts`/`personFacts` (the share card) stay X-only.
+- Few builders (solo launch: one builder, `jenilt`): `site/InviteRow.tsx`; `BenchView` (no podium, no rail, BENCH_EARLY,
+  invite under RANK_MIN_POOL; `emptyLine`), `FeedView` (FEED_FEW), `landing/Activity.tsx` (wide invite), `landing.ts
+  oneEach`; copy `BENCH_EARLY`, `BENCH_INVITE`, `BENCH_EMPTY_BASE`, `BENCH_EMPTY_BACKED` in `site-copy.ts`.
 - `landing.ts Tile.organizer` and `when` ROLLING; `landing/Opportunities.tsx` shows the organizer's name on the white
   tile when there is no logo file (no monogram). `fixtures/banned-words.ts` allows the owner's new phrases.

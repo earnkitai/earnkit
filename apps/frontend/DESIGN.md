@@ -55,6 +55,20 @@ top 25%). Each is a 135deg gradient with its ink, a soft glow and a top shine (`
 when the builder's project is on Base and the Base pool has 10 or more, else "Top N% of builders" from the whole
 pool of 10 or more. Under 10 ranked builders: no pill, no "#N" on the profile or the leaderboard.
 
+## Few builders
+
+The site launches with one builder and must look intentional at 1 to 9 (all data-driven, the same pages at 10 and up):
+
+| Where | Under the rule | From the rule |
+|---|---|---|
+| Leaderboard (RANK_MIN_POOL, 10 ranked) | No podium, no filter rail, every builder a plain panel row, the line "Scored by how often they ship, out of 100." (no count), the panel ends with one quiet line "Be the next builder here." and the white install pill | Podium, All / Base / Backed, "N builders, ranked by how often they ship" |
+| Landing Activity (3 cards) | One card a builder; the invite card once, two columns wide beside one card | Three builders' cards |
+| Feed stats (3 builders shipped that week) | No stat cards | The four cards |
+| Feed rows (3 rows in the week) | The invite ("Your week goes here.") as the last row | No invite |
+
+An empty filter says what is missing: "No builder on Base yet.", "No builder has opened Backing yet.", with "Show
+everyone". Every invite's button opens the install sheet (`InstallButton`, `site/InviteRow.tsx`).
+
 ## Type
 
 Kaftan Serif (`app/fonts/kaftan-serif.woff2`, `--font-kaftan`, weight 400, owner-owned licence) only for names,
