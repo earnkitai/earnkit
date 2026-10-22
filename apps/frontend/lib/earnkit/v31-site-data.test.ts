@@ -273,9 +273,10 @@ test('(c4) a private repo: the Builder Code and the track record show without a 
   h = h.slice(1);
   assert.deepEqual(h, [
     { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' },
-    { icon: 'repo', title: 'Building since Mar 2025', sub: '40 commits in the last year' },
+    // 2026-10-22: with no name of its own the project reads as its proven site's host.
+    { icon: 'repo', title: 'Building stealthy.app since Mar 2025', sub: '40 commits in the last year' },
   ]);
-  for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy|github\.com/i);
+  for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy\/|github\.com/i);
 });
 
 test('(d) backerWeeks buckets first_block by BASE_GENESIS_UNIX + 2 * block into the last 12 ISO weeks; an older backer counts nowhere; length is 12', db, async () => {
@@ -404,7 +405,8 @@ test('(g) a hidden repo: Private project, no repo, no link unless a non-GitHub s
 });
 
 test('(g2) a hidden repo with a proven site is named by the site host; never GitHub, never one that holds the repo name', db, async () => {
-  assert.equal(siteName('https://www.earnkit.com/', 'earnkit'), null, 'the host holds the repo name');
+  assert.equal(siteName('https://www.earnkit.com/', 'earnkit'), 'earnkit.com', 'an owned domain may hold the repo name');
+  assert.equal(siteName('https://earnkit.vercel.app', 'earnkit'), null, 'a shared platform subdomain holding it would reveal it');
   assert.equal(siteName('https://earnkit.com', 'core'), 'earnkit.com');
   assert.equal(siteName('https://x.github.io/y', 'core'), null);
   assert.equal(siteName('not a url', 'core'), null);
