@@ -7280,11 +7280,30 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
 - **Last shipped / this week.** The one project's verified repo source, its `week-facts.ts shipReading` (now exported):
   `signals.pushed_at` (null if absent, unparsable, in the future, or the project not Bench-confirmed) and
   `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
-- **Highlights (W8).** Verifiable facts only, at most 5: live since (first up day of a verified site source), Base Builder
-  Code (Base projects, App-proven repo, stored answer only; never starts a check), contracts on Base (verified
-  `base:` contract sources plus EarnKit `contract_deploys`, distinct addresses), won/applied (`page-data.ts
-  projectProgramsDated`, at most 2), shipping since. No confirmed project: one "On EarnKit since" item. A hidden repo's
-  site is left out when its host is GitHub's or carries the repo name.
+- **Highlights (W8, redesigned 2026-10-22).** Every item is a fact a judge can check in one click and links its proof
+  (`Highlight.href`, new tab, `rel="noopener noreferrer"`); at most 5, in order, each only when true:
+  1. live: "Live at <host>", sub "Up N of the last D days" (`uptimeOf`: daily `source_readings` of the first verified
+     site source to read up, D = 30, fewer for a young site, a day unread counts as not up; only from 7 readings in the
+     window and a newest reading at most a day old), else "Since <Mon YYYY>"; links the site's https origin (`siteHref`).
+  2. contract: "N contracts on Base" (verified `base:` sources plus EarnKit `contract_deploys`, distinct), sub "First
+     deployed <Mon YYYY>" from the earliest known time (`contract_deploys.created_at`; `builder_sources.deployed_at`,
+     the Blockscout creation time `discovery.ts` already reads, kept by `sources.ts claimContract` at verification; no
+     extra call, so a contract verified before this has no date: "Verified onchain"); links Basescan (`basescanHref`).
+  3. code: "Builder Code in the repo" (Base projects, App-proven repo, stored answer only), sub "Base, checked <Mon D>";
+     links the file (`repo_builder_codes.path`, `githubFileHref`, the ship reading's `default_branch`, else `HEAD`).
+  4. repo: "Building <name> since <Mon YYYY>" from the ship reading's `created_at`, sub "<N> commits" (or "... in the
+     last year" for a repo older than the read's 52 weeks) from `commits_year` (GraphQL `history.totalCount`, already
+     asked; `person-github.ts repoFrom` now keeps it and `default_branch`); a hidden repo's name never shows ("Building since").
+  5. won/applied (`page-data.ts projectProgramsDated`, at most 2, sub "<Mon YYYY>"), linked to `/programs/<id>` only
+     when that guide page exists (`guide`: a file program that is not a campaign).
+  A repo link (items 3 and 4) needs the repo shown public and a reading that is not private: never a link to a 404. No
+  confirmed project: one "On EarnKit since" item; a confirmed one with none of the five: "On EarnKit since", "On the
+  leaderboard". The weeks-in-a-row line moved out (the Streak card owns it). A hidden repo's site is left out when its
+  host is GitHub's or carries the repo name.
+- **Builder Codes daily.** `cron.ts runCron` runs `builder-codes-check.ts runBuilderCodes` (GitHub App on): the App-proven
+  repos of Base projects whose stored answer is missing or a day old (`builderCodesDue`, at most `BUILDER_CODES_PER_RUN`
+  = 50, never checked first), each through `refreshBuilderCodes` (the 1-day cache and the in-process `codesTried`
+  backoff), none started past the run's deadline; the cron answer carries `builder_codes: { due, checked, found }`.
 - **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
   10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is the place, "#N of M builders" (" on Base" for the Base pool; `rank.ts rankLine` only guards validity).
 - **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC
@@ -7370,7 +7389,7 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   closed (null). `feedWeekStats` is cached per week (`feed-stats-v31`, 300s, `PROFILE_TAG`) and a failed read hides the four
   cards. `readLanding` rejects when the database is down and the page renders the hero and steps only (the landing cache key
   is `landing-v31-<raising|off>`); a feed with fewer than 3 cards adds the invite card, none hides Activity; a chip of $0 is
-  hidden. `site-streak.ts withThisWeek` makes the grid, the streak count and Highlights agree.
+  hidden. `site-streak.ts withThisWeek` makes the grid and the streak count agree (Highlights no longer repeats the streak).
 - **The Backing guard.** The Token card, the leaderboard's Backed filter and the Backed tag exist only while `raisingEnabled()`
   (`EARNKIT_RAISING`) and never for EarnKit's own repos (`site-data.ts tokenAllowed`, `bench-data.ts benchRows`). Docs reads the
   flag per request. A page never offers Backing for `earnkitai/earnkit`.

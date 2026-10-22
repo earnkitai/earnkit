@@ -93,10 +93,10 @@ apps/frontend/
                                GitHub, white Share; the inset project panel with the EarnKit mark or a letter tile, the
                                Base tile, about, link; noProjectLine / confirmingCardLine instead), ScoreCard (navy,
                                ScoreRing), StreakCard (rust, 12 squares from the grid, this week lit from site.thisWeek by
-                               lib/earnkit/site-streak.ts withThisWeek, which profileSite also applies before Highlights,
+                               lib/earnkit/site-streak.ts withThisWeek,
                                streakNote, weekLine), ActivityCard (white, live dot "Shipped <ago>", 3 week cards a page
                                via ?page=, Pager, dashed nextUpdateLine under 3 cards), TokenCard (only site.token),
-                               HighlightsCard; then Footer minimal. No points, Originality, 52-week grid, rank number,
+                               HighlightsCard (a linked item is an <a> in a new tab with an arrow); then Footer minimal. No points, Originality, 52-week grid, rank number,
                                Earned, tabs, visitor row or badge (plan S15; MoneyTab and ProjectTab deleted).
                                BenchProfileSkeleton: flat s-panel shapes with the name. ShipGrid/BadgeCopy stay (unused
                                on the page; shippedWords and the badge route remain)
@@ -261,8 +261,10 @@ apps/frontend/
                                from the Landing board, lobehub MIT + muse.svg; AgentMark)
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
   lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
-                               thisWeekCommits (commit_counts via weekCounts), highlights (W8: live, Base Builder Code,
-                               contracts on Base, won/applied, shipping since), standingPill (Top N% from RANK_MIN_POOL),
+                               thisWeekCommits (commit_counts via weekCounts), highlights (W8, each linking its proof:
+                               live + uptimeOf, contracts on Base + first deployed, Builder Code file, repo track record
+                               via repoItem, won/applied + guide link; siteHref, basescanHref, githubRepoHref,
+                               githubFileHref build the escaped links), standingPill (Top N% from RANK_MIN_POOL),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
@@ -2165,3 +2167,11 @@ v3.1 site clarity batch (branch `v3.1-site-clarity`, 2026-10-22; every file unde
   oneEach`; copy `BENCH_EARLY`, `BENCH_INVITE`, `BENCH_EMPTY_BASE`, `BENCH_EMPTY_BACKED` in `site-copy.ts`.
 - `landing.ts Tile.organizer` and `when` ROLLING; `landing/Opportunities.tsx` shows the organizer's name on the white
   tile when there is no logo file (no monogram). `fixtures/banned-words.ts` allows the owner's new phrases.
+
+v3.1 Highlights redesign (2026-10-22): `site-data.ts` (highlights in the new order, `uptimeOf`, `repoItem`, link
+builders, `Highlight.href`), `app/[handle]/site/HighlightsCard.tsx` (links, `repo` icon), `builder-codes-check.ts`
+(`path` stored, `storedBuilderCode`, `builderCodesDue`, `runBuilderCodes`), `cron.ts` (`builder_codes` step, deps
+`builderCodes`), `page-data.ts` (`projectProgramsDated` carries `guide`), `sources.ts claimContract`
+(`deployed_at`), `person-github.ts` (`default_branch`, `commits_year`), `source-readers.ts RepoSignals`; schema
+appends `repo_builder_codes.path` and `builder_sources.deployed_at` (`db-check.mts`, `schema-rerun.test.ts`). New:
+`v31-highlights.test.ts`; `v31-site-data.test.ts (c)-(c4)`, `v31-builder-codes.test.ts (i)-(j)`.
