@@ -404,6 +404,16 @@ test('(g) a hidden repo: Private project, no repo, no link unless a non-GitHub s
   assert.deepEqual((await profileSite(b.id, await page(b.id), NOW)).project?.link, { href: 'https://sauce.example/', text: 'sauce.example' });
 });
 
+test('(g3) final review 7: a vibecoder platform subdomain holding the private repo\'s name never names it', () => {
+  const hosts = ['lovable.app', 'lovable.dev', 'replit.app', 'replit.dev', 'repl.co', 'bolt.new', 'netlify.app', 'vercel.app', 'framer.website', 'framer.app',
+    'webflow.io', 'wixsite.com', 'carrd.co', 'glitch.me', 'pages.dev', 'github.io', 'onrender.com', 'fly.dev', 'railway.app', 'up.railway.app', 'herokuapp.com'];
+  for (const h of hosts) {
+    assert.equal(siteName(`https://my-app.${h}`, 'my-app'), null, h);
+    assert.equal(siteName(`https://www.my-app-prod.${h}/x`, 'my-app'), null, h);
+  }
+  assert.equal(siteName('https://my-app.com', 'my-app'), 'my-app.com', 'an owned domain may hold it');
+});
+
 test('(g2) a hidden repo with a proven site is named by the site host; never GitHub, never one that holds the repo name', db, async () => {
   assert.equal(siteName('https://www.earnkit.com/', 'earnkit'), 'earnkit.com', 'an owned domain may hold the repo name');
   assert.equal(siteName('https://earnkit.vercel.app', 'earnkit'), null, 'a shared platform subdomain holding it would reveal it');

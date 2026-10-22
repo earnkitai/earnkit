@@ -67,12 +67,17 @@ export const PRIVATE_NAME = 'Private project';
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
 export const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+// Final review 7: the vibecoder hosts too (Lovable, Replit, Bolt, Framer, Webflow, Wix, Carrd).
+const SHARED_PLATFORMS = new RegExp(`(^|\\.)(${[
+  'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'onrender.com', 'railway.app', 'up.railway.app', 'herokuapp.com', 'fly.dev', 'web.app',
+  'firebaseapp.com', 'surge.sh', 'glitch.me', 'replit.app', 'replit.dev', 'repl.co', 'lovable.app', 'lovable.dev', 'bolt.new', 'framer.website',
+  'framer.app', 'webflow.io', 'wixsite.com', 'carrd.co', 'github.io',
+].map((h) => h.replace(/\./g, '\\.')).join('|')})$`);
 /**
  * A proven site's host as a project name ("earnkit.com"; no reliable host-to-brand mapping exists, so the host itself).
  * Null for a GitHub host, or a host on a shared platform (a free subdomain the repo's name could be in) that holds the
  * private repo's name. A domain the builder owns may hold it ("earnkit.com" for a private "earnkit"): it is their public brand. Pure.
  */
-const SHARED_PLATFORMS = /(^|\.)(vercel\.app|netlify\.app|pages\.dev|workers\.dev|onrender\.com|up\.railway\.app|herokuapp\.com|fly\.dev|web\.app|firebaseapp\.com|surge\.sh|glitch\.me|replit\.app|repl\.co)$/;
 export function siteName(ref: string, repoName: string): string | null {
   const u = URL.canParse(ref) ? new URL(ref) : URL.canParse(`https://${ref}`) ? new URL(`https://${ref}`) : null;
   const host = u?.hostname.toLowerCase().replace(/^www\./, '') ?? '';
