@@ -392,9 +392,10 @@ const daysTo = (end: Date, now: Date) => Math.max(1, Math.floor((end.getTime() -
 /**
  * v3.1 Task 12 (spec 3.3, D5): the email's money lines for `person`: the Best fit's draft (best-fit.ts bestFitFor, as
  * find and score name it; never one the builder applied to or declined), then the week's new backers (backers.ts
- * newBackers, 0 while EARNKIT_RAISING is off). No points. Never throws (each read is none on an error).
+ * newBackers, 0 while EARNKIT_RAISING is off). No points. `best`: the Best fit's program, never also a new program line
+ * (fix round 1). Never throws (each read is none on an error).
  */
-async function moneyLines(person: number, now: Date): Promise<string[]> {
+async function moneyLines(person: number, now: Date): Promise<{ lines: string[]; best: string | null }> {
   const [best, k] = await Promise.all([bestFitFor(person, now), newBackers(person, new Date(now.getTime() - 7 * DAY))]);
   const lines: string[] = [];
   if (best) {
@@ -404,7 +405,7 @@ async function moneyLines(person: number, now: Date): Promise<string[]> {
       : `${best.title} is open (rolling), and your draft is one yes away.`);
   }
   if (k > 0) lines.push(`${k} new ${k === 1 ? 'backer' : 'backers'} this week.`);
-  return lines;
+  return { lines, best: best?.program_id ?? null };
 }
 
 /**
@@ -428,7 +429,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
         WHERE installation_id = ${id} AND login = ${s.login.toLowerCase()} AND project_id IS NOT NULL)`
     : db``;
   const [money, curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
-    person === null ? Promise.resolve([] as string[]) : moneyLines(person, now),
+    person === null ? Promise.resolve({ lines: [] as string[], best: null }) : moneyLines(person, now),
     s.shared || s.login
       ? Promise.resolve([] as (NewProgramRow & { opened_at: Date })[])
       : db<(NewProgramRow & { opened_at: Date })[]>`
@@ -479,6 +480,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     const repos = (fit[0]?.fit_repos ?? []).map((r) => ({ ...r, said: (saidNow.get(r.key) as FitRepo['said']) ?? r.said ?? null }));
     const skip = { entered: new Set(entered.map((e) => e.program_id)), hidden: hiddenIds(hiddenPrograms(memory, curated)) };
     for (const row of curated) {
+      // Fix round 1: the Best fit is the money line already, never a second line.
+      if (row.id === money.best) continue;
       const p = newProgramOf(row);
       const repo = alertFit(p, repos, skip, now);
       if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at });
@@ -493,7 +496,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     .slice(0, MAX_LINES);
   return {
     ...moment,
-    money,
+    money: money.lines,
     newPrograms,
     wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),
     deadlines,

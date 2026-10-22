@@ -17,6 +17,7 @@ import { newBackers } from './backers';
 import { digestBody, digestFacts, sendDigests, type DigestFacts, type Mailer } from './digest';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
+import { mainConfirmed } from './main-project';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -228,6 +229,37 @@ test('(d) 2 backers first seen in the last 7 days: "2 new backers this week."; f
   const fresh = addr();
   await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${fresh}, 7001)`;
   await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(await newBackers(b.id, since), 1));
+});
+
+test('(f) fix round 1: the Best fit opened since the last send is the money line only, never also a "New:" line', db, async () => {
+  const b = await builder('f', [ROLLING]);
+  await sql()`UPDATE programs SET opened_at = now() - interval '1 day' WHERE id = ${ROLLING}`;
+  try {
+    const f = await digestFacts(sub(b, 'f@example.com'), new Date());
+    assert.deepEqual(f.money, ['Base Builder Grant Program is open (rolling), and your draft is one yes away.']);
+    assert.ok(!f.newPrograms.some((p) => p.title === ROLLING_TITLE), JSON.stringify(f.newPrograms));
+    assert.doesNotMatch(digestBody(f)!.text, /New: Base Builder Grant Program/);
+    // Told applied: no money line either.
+    await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', ${ROLLING}, 'applied', now())`;
+    assert.deepEqual((await digestFacts(sub(b, 'f@example.com'), new Date())).money, []);
+  } finally {
+    await sql()`UPDATE programs SET opened_at = now() - interval '60 days' WHERE id = ${ROLLING}`;
+  }
+});
+
+test('(g) fix round 1: the reply gates: an unconfirmed project or a signed-out (unranked) builder gets no Best fit', db, async () => {
+  const u = await builder('gu', [ROLLING]);
+  assert.equal((await bestFitFor(u.id, new Date()))?.program_id, ROLLING, 'ranked and confirmed: named');
+  await sql()`UPDATE builder_projects SET confirmed = false WHERE builder_id = ${u.id}`;
+  assert.equal(await bestFitFor(u.id, new Date()), null, 'unconfirmed');
+  assert.deepEqual((await digestFacts(sub(u, 'gu@example.com'), new Date())).money, []);
+  // Signed out with X sign-in on: the reply is in the signed_out state, never ranked.
+  const s = await builder('gs', [ROLLING]);
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL WHERE builder_id = ${s.id}`;
+  await sql()`UPDATE installations SET x_user_id = NULL WHERE id IN (${s.id}, ${s.own})`;
+  assert.ok(await mainConfirmed(s.id), 'still confirmed: only the sign-in gate drops it');
+  assert.equal(await bestFitFor(s.id, new Date()), null, 'signed out');
+  assert.deepEqual((await digestFacts(sub(s, 'gs@example.com'), new Date())).money, []);
 });
 
 test('(e) schema rerun is a no-op and keeps first_seen_at', db, async () => {

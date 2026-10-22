@@ -792,5 +792,21 @@ const [safeRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM safe
 const [staleRows] = await db<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_sources WHERE reject_reason = 'stale' AND state = 'proposed'`;
 ok(safeRows.n === 1 && staleRows.n === 1, "v2.13.2: safe_fees rows and a 'stale' proof_branch source survive the schema running again");
 
+// v3.1 Task 12 (D6): coin_backers.first_seen_at. A row from before the column reads 'epoch' (never a new backer); the
+// column ends NOT NULL with DEFAULT now(), and the schema running again keeps every value.
+await db`ALTER TABLE coin_backers DROP COLUMN IF EXISTS first_seen_at`;
+await db`INSERT INTO coin_backers (coin, wallet, first_block) VALUES ('0xfs-check', '0xold', 1)`;
+await db.unsafe(now);
+const [fsOld] = await db<{ at: Date }[]>`SELECT first_seen_at AS at FROM coin_backers WHERE coin = '0xfs-check' AND wallet = '0xold'`;
+ok(fsOld?.at.getTime() === 0, "v3.1: a coin_backers row from before first_seen_at reads 'epoch'");
+const [fsCol] = await db<{ nullable: string; def: string | null }[]>`
+  SELECT is_nullable AS nullable, column_default AS def FROM information_schema.columns WHERE table_name = 'coin_backers' AND column_name = 'first_seen_at'`;
+ok(fsCol?.nullable === 'NO' && /now\(\)/.test(fsCol.def ?? ''), 'v3.1: coin_backers.first_seen_at is NOT NULL DEFAULT now()');
+await db`INSERT INTO coin_backers (coin, wallet, first_block) VALUES ('0xfs-check', '0xnew', 2)`;
+await db.unsafe(now);
+const fsRows = await db<{ wallet: string; at: Date }[]>`SELECT wallet, first_seen_at AS at FROM coin_backers WHERE coin = '0xfs-check' ORDER BY wallet`;
+ok(fsRows.length === 2 && fsRows[0]!.wallet === '0xnew' && Date.now() - fsRows[0]!.at.getTime() < 60_000 && fsRows[1]!.at.getTime() === 0,
+  'v3.1: a new coin_backers row is seen now, and the schema running again keeps both values');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);
