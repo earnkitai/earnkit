@@ -4,9 +4,12 @@ import HeroArt from './HeroArt';
 import { CTA_INSTALL, HERO_SUB, HERO_TITLE } from '../../../lib/earnkit/site-copy';
 import Money from '../site/Money';
 
-/** The readability shade over the painting: light at the top, clear through the arches, deep under the words. */
+/**
+ * The readability shade over the painting: light at the top, clear through the arches, deep under the words. On a phone
+ * the words start higher in a 560px hero (the chip at about 40%), so the deep stop rises to 44% there (QA item 7).
+ */
 const SHADE =
-  'bg-[linear-gradient(180deg,var(--ek-s-hero-shade)_0%,var(--ek-s-hero-shade-clear)_22%,var(--ek-s-hero-shade-clear)_48%,var(--ek-s-hero-shade-deep)_72%,var(--ek-s-hero-shade-end)_100%)]';
+  'bg-[linear-gradient(180deg,var(--ek-s-hero-shade)_0%,var(--ek-s-hero-shade-clear)_16%,var(--ek-s-hero-shade-clear)_24%,var(--ek-s-hero-shade-deep)_44%,var(--ek-s-hero-shade-end)_100%)] md:bg-[linear-gradient(180deg,var(--ek-s-hero-shade)_0%,var(--ek-s-hero-shade-clear)_22%,var(--ek-s-hero-shade-clear)_48%,var(--ek-s-hero-shade-deep)_72%,var(--ek-s-hero-shade-end)_100%)]';
 
 /** The white CTA: a soft warm glow at rest; on hover a 1px lift (not under reduced motion) and a white ring. */
 const CTA =
@@ -30,7 +33,7 @@ export default function Hero({ chip }: { chip: string | null }) {
         {chip ? (
           <a
             href="#earn"
-            className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-chip px-4 text-[14px] text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:h-9"
+            className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-hero-chip-phone px-4 text-[14px] text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:h-9 md:bg-s-chip"
           >
             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-s-rust-light shadow-[0_0_10px_var(--ek-s-rust-light)]" />
             {/* One flex item: the chip's gap must not split the sign from its digits. */}
