@@ -62,7 +62,7 @@ export default function ActivityCard({
   const last = !quiet && lastShippedAt ? new Date(lastShippedAt) : null;
   const fresh = last !== null && now.getTime() - last.getTime() <= FRESH_MS;
   return (
-    <section data-ek-activity="" aria-labelledby="profile-activity" className={`${phoneRadius(CARD_LIGHT)} flex min-w-0 flex-[3_1_520px] flex-col gap-2.5 p-5 md:p-7`}>
+    <section data-ek-activity="" aria-labelledby="profile-activity" className={`${phoneRadius(CARD_LIGHT)} flex min-w-0 flex-col gap-2.5 p-5 md:p-7`}>
       <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-2">
         <h2 id="profile-activity" className="ek-serif text-[32px] leading-none md:text-[40px]">
           {PROFILE_ACTIVITY}
