@@ -288,6 +288,7 @@ apps/frontend/
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
+  public/earnkit.txt           v3.1 site proof: the owner's `profile:` line for https://earnkit.com (builder 17)
   public/art/                  hero-eckersberg-{800,1600,3200}.jpg, foot-panini-{700,1400,2800}.jpg (pre-sized, plain srcSet)
   app/sitemap.ts               force-dynamic: home, /terms (v2.9) and the Bench pages (v2.14 T3: no bonus rounds)
   app/api/cron/route.ts        v2.4: POST -> cronPost (Bearer CRON_SECRET; scoring, freeze, review,
@@ -1621,7 +1622,9 @@ apps/frontend/
     sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
-                               readSources (READS_PER_RUN 200; no org contributors call)
+                               readSources (READS_PER_RUN 200; no org contributors call); v3.1 site proof: proveSite
+                               (a proposed site, on its daily read: App-proven repo homepage -> repo_link, else
+                               its origin's /earnkit.txt profile: code -> earnkit_txt; site-proof.test.ts)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
                                buildInputs (v1 rules, kept as history with its tests), holdReason, sourceShares,
                                profileEmpty, heldPeople, runScoreSteps (discover, read, score = person-score.ts

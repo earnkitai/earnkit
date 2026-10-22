@@ -1,10 +1,10 @@
 import { ScoreDeadline } from './campaigns';
 import { afterCommit, inTx, sql, type Db } from './db';
-import { profileCodesIn } from './discovery-clues';
+import { profileCode, profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, isoWeek, readError, readNpm, readNpmBulk, readPypi, readSite, type PackageSignals, type ReaderDeps } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readError, readNpm, readNpmBulk, readPypi, readSite, soft, type PackageSignals, type ReaderDeps, type SiteSignals } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -118,6 +118,31 @@ export async function proveLinkedSite(id: number): Promise<void> {
     UPDATE builder_sources SET proof = 'earnkit_txt', verified_at = now()
     WHERE id = ${id} AND kind = 'site' AND state = 'verified' AND proof = 'repo_link' RETURNING builder_id`;
   if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}:earnkit_txt`, installation_id: row.builder_id, detail: { source_id: id, kind: 'site', proof: 'earnkit_txt' } }));
+}
+
+/**
+ * v3.1 site proof, on the site's existing daily read (no paid call, no GitHub call): a proposed site is verified
+ * (1) `repo_link` when it is the homepage, in its latest reading, of one of the person's App-proven repos, else
+ * (2) `earnkit_txt` when it is up and its origin's /earnkit.txt carries the person's `profile:` code (profileCode:
+ * HMAC of the person and the origin; one free fetch, a 404 or any failure proves nothing). Only a proposed row:
+ * a verified one keeps its proof (repo_link is a confirmed proof in the live score, earnkit_txt is not, so
+ * proveLinkedSite's upgrade would drop a scored site), and verifySource never verifies a stale or rejected one.
+ */
+export async function proveSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps): Promise<void> {
+  const [row] = await sql()<{ reject_reason: string | null }[]>`
+    SELECT reject_reason FROM builder_sources WHERE id = ${s.id} AND kind = 'site' AND state = 'proposed'`;
+  if (!row || row.reject_reason === 'stale' || !URL.canParse(s.ref)) return;
+  const origin = new URL(s.ref).origin;
+  const { homepageOrigin } = await import('./discovery'); // discovery.ts imports this file: called after load
+  const homes = await sql()<{ homepage: string | null }[]>`
+    SELECT DISTINCT ON (b.id) r.signals->>'homepage' AS homepage FROM builder_sources b
+    JOIN source_readings r ON r.source_id = b.id AND r.ok
+    WHERE b.builder_id = ${s.builder_id} AND b.kind = 'repo' AND b.state = 'verified' AND b.proof = 'github_app'
+    ORDER BY b.id, r.day DESC`;
+  if (homes.some((h) => homepageOrigin(h.homepage) === origin)) return verifySource(s.id, 'repo_link');
+  const code = up ? profileCode(s.builder_id, origin) : null;
+  if (code === null) return;
+  if (siteOwnedByText(await soft(d.fetchText(`${origin}/earnkit.txt`), ''), code)) await verifySource(s.id, 'earnkit_txt');
 }
 
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
@@ -636,10 +661,16 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (!go) return { read, failed };
   }
 
-  // Everything else, one source at a time.
+  // Everything else, one source at a time. v3.1: a site still unproven is proven on this read (proveSite),
+  // after the repos above, so today's homepage is the one matched.
   for (const s of due.filter((s) => s.kind !== 'repo' && !bulkNpm(s))) {
     if (Date.now() >= o.deadline) break;
-    if (!(await attempt([s], async () => ok(s, await readOne(s, o.reader))))) break;
+    const go = await attempt([s], async () => {
+      const signals = await readOne(s, o.reader);
+      if (s.kind === 'site') await proveSite(s, (signals as SiteSignals).up, o.reader);
+      await ok(s, signals);
+    });
+    if (!go) break;
   }
   return { read, failed };
 }
