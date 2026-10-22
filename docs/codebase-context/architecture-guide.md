@@ -7526,17 +7526,19 @@ the rewritten replies (Task 16). They are not repeated here.
   in release 1). Task 13 (page hides: Originality, points, grid) is superseded by the site plan (profile rewritten; no
   Originality, points or grid on pages; docs has no points); the site design is frozen and owner-approved.
 
-## v3.1 one-tap posts: Tasks 1 to 4 (design: v3.1-one-tap-posts.md, owner rulings 2026-10-22)
+## v3.1 one-tap posts (design: v3.1-one-tap-posts.md, owner rulings 2026-10-22)
 
 Backing volume comes from builders posting on X, and builders rarely post. EarnKit drafts the post; the reply's one link is
-a short earnkit.com link that opens X's composer prefilled; the builder taps Post. No X API, no model call, no new service.
-Replies and the card are not wired yet (Tasks 5 to 7).
+a short earnkit.com link that opens X's composer prefilled; the builder taps Post; the page link in the post unfurls that
+post's own card. No X API, no model call, no new service. (Task 16 step 7's `MOMENT_POST_HEAD`/`momentPost` paste post is
+gone; the Monday moment now carries a drafted post.)
 
 - **Store (`post-drafts.ts`, `post_drafts`).** One row per draft, keyed by a 10-character base32 code. `moment` and
   `moment_key` (`weekly:<project>:<week>`, `went_live:<project>`, `won:<program>`, `coin_intro:<coin>`, `news:<project>:<at>`)
   drive the cooldowns; `asked` splits builder-asked drafts from offered ones; `proof_url` keeps the public page that verified
   an accepted, funded or won moment; `card` freezes the moment's facts for the card. Limits are checked and written under a
-  per-person advisory lock: 1 offered a 7 days, 1 asked a 24 hours, 3 in all a 7 days. A draft lives 14 days. A tap is a
+  per-person advisory lock: 1 offered a 7 days (went live, won and funded skip it, `PAST_OFFER_LIMIT`, controller ruling:
+  a real win is never crowded out by an ordinary weekly), 1 asked a 24 hours, 3 in all a 7 days. A draft lives 14 days. A tap is a
   number only (no IP, no user agent): `taps` stops at 100, `first_tap_at` is kept, `post_tapped` is recorded once; visits
   carrying `?m=<code>` (Task 5) count apart, and from X apart, capped. Events `post_drafted` and `post_tapped` are in
   `EVENT_TYPES` and in every `builder_events_type_check` re-add.
@@ -7561,3 +7563,33 @@ Replies and the card are not wired yet (Tasks 5 to 7).
   must be this person's (else 404); expired goes to the page; otherwise the tap counts and a no-store 302 opens
   `x.com/intent/post` with the row's text and `https://earnkit.com<page>?m=<code>`, encoded with `URLSearchParams`. Nothing in
   the request reaches the target.
+- **Card (`post-card.ts`, `app/[handle]/post-card-image.tsx`, Task 5).** `draftMoment` freezes the card's facts with the
+  draft (`freezeCard`: the shown project, streak, Shipping while a score line shows, the rank phrase only from
+  RANK_MIN_POOL, the 12 weeks of code; the moment's own facts on top). The post's page link carries `?m=<code>`:
+  `handleMetadata(handle, post)` points og:image at `card.png?m=<code>` when the code is this person's (X caches a card
+  per URL), and `cardResponse(handle, path, m)` draws `postCardView` (pure): `number` (weekly, went live, news),
+  `milestone` (4, 8, 12, 26, 52 weeks) or `text` (verified win, acceptance, funding; coin intro). The Backing pill and
+  backer count are live (`pillCoin`: EARNKIT_RAISING on; backers from 5); never a price; an accepted, funded or won draft
+  without `proof_url` draws the page's card. Fonts: Kaftan Serif from `assets/fonts/kaftan-serif.woff` beside Funnel
+  Display (`loadFonts`). A rename's 308 keeps a well-formed `?m`. A page open with `?m` counts a visit (`HandleView`
+  `countVisit`: `visitFrom` on the user agent and referrer, bots never, t.co or x.com as from X; only the counts are kept).
+- **Replies (`post-reply.ts`, `bench-reply.ts`, Task 6).** Copy (owner ruling 5: no points in post replies): the Monday
+  moment is `Week <n> done. You're <now|still #r|on EarnKit>.` then either `Your post for X, with your page card:`,
+  the post in quotes, `Post it in one tap: <short link>`, or `Your page: <page>`, then `Does last week look right?`
+  (`weeklyPost`, numbered as the head names the week). Events (`eventPost`: an announced win, going live, the coin's
+  intro; `offeredMoment(..., { weekly: false })`) reply `<head>` + the post block + `Want a different version?`
+  (`eventHead`: "<Name> went live this week." (else "is live." past 7 days), "<Name> won the <program>.", "Backing is
+  open on your page.", else "Added to your page."). Order in `benchView`: connect, a hot event (went live or won under
+  `HOT_HOURS` 48 since it could be posted: `MomentCandidate.at`), apply, backing, the Monday moment, an event, titles,
+  qualify, ship. The event stores its own ask (`bench_ask { kind: 'post', code, head, moment }`); the yes
+  (`redraftAnswer`) drafts the next shape as asked, else `redraftLine` (today's limit, the only wording, or the builder's
+  own words) with the post they have. `tell update { text }` posts to the page and, through `newsPost`, replies with the
+  news as their post (24 h apart; else the update's own reply). `tell program_status` accepted, funded or won takes
+  `proof_url` (MCP schema, `builder-memory.ts ProgramStatus`; the outcome notes tell the agent to open a public page and
+  pass it); `outcomePost` drafts only with a link `proofUrlOk` accepts, else replies `PROOF_ASK` ("Send me a public link
+  that shows it, like the program's post.") with `PROOF_NOTE`. `SHARE_NOTE` and `POST_NOTE` say "Show the post text
+  exactly as given. Never rewrite it."
+- **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0), `post_x_visits` (sum) and
+  `backers_after_post` (distinct person and wallet first seen within 7 days after a first tap on an open backing; 0 while
+  EARNKIT_RAISING is off; correlation only), people only (`notTest`); labels in `STATS_LABELS`; the route's cache key
+  moved to `public-stats-posts`.

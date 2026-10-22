@@ -224,8 +224,17 @@ apps/frontend/
                                302 to the X intent); both check the live row (no-store 404, 308 to pagePath).
                                v3 Stage 3 Task 6: benchCard on THEME (black, CardWordmark, the Backing pill, the
                                rank line as the 64px headline, CardNumber for Shipping and Earned, project and
-                               streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts
-  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (live is exported for post-response.ts)
+                               streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts.
+                               v3.1 one-tap posts Task 5: loadFonts adds Kaftan Serif (assets/fonts/kaftan-serif.woff);
+                               cardResponse(handle, path, m) draws a post's card (post-card.ts postCardFacts) for ?m=<code>,
+                               else the page's; a rename's 308 keeps a well-formed ?m
+  app/[handle]/post-card-image.tsx  v3.1 one-tap posts Task 5: postCard (pure): the number, milestone and text layouts on
+                               the v3.1 SITE tokens, Kaftan headline and numbers, the 12 weeks as squares, the live Backing
+                               pill; clip, textHeadSize
+  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (live is exported for post-response.ts);
+                               card.png passes ?m
+  app/[handle]/handle-view.tsx  (v3.1 one-tap posts) postOf (?m, a well-formed code), handleMetadata(handle, post): og:image
+                               card.png?m=<code> for this person's draft; HandleView countVisit (visitFrom + noteVisit)
   app/[handle]/post-response.ts  v3.1 one-tap posts Task 4: postResponse (code checked first, live row as the card: 404 or
                                308 to <page>/post/<code>; another builder's or unknown code 404; expired 302 to the page;
                                else tapDraft and a no-store 302 to postIntent: x.com/intent/post with the row's text and
@@ -1341,6 +1350,8 @@ apps/frontend/
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
+                               v3.1 one-tap posts Task 7: posts_drafted, posts_tapped, post_x_visits, backers_after_post
+                               (within 7 days of a first tap, open backing, flag on; correlation only), after shared;
                                launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
                                (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
@@ -1551,7 +1562,8 @@ apps/frontend/
                                2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
                                connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
                                path: grantHook, qualifyMissing, qualifyAsk, else SHIP_ASK; shipPointsLine), qualifySteps
-                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
+                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
+                               PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. At most one https link, exactly one question, the points line last.
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall),
@@ -1663,7 +1675,16 @@ apps/frontend/
                                CODE_PATTERN), createDraft (per-person advisory lock; 1 offered a 7 days, 1 asked a 24 hours,
                                3 in all a 7 days; 14-day expiry; post_drafted event), draftByCode, tapDraft (own, unexpired;
                                taps capped at TAP_CAP 100; first_tap_at; post_tapped on the first; no IP or UA), noteVisit
-                               (visits and x_visits, VISIT_CAP), recentDrafts (newest first)
+                               (visits and x_visits, VISIT_CAP), recentDrafts (newest first); Task 5 visitFrom (UA and
+                               referrer: bot null, t.co/x.com 'x', else 'web'); PAST_OFFER_LIMIT (went_live, won, funded skip
+                               the one offered a week; controller ruling)
+    post-card.ts(+test)        v3.1 one-tap posts Task 5: freezeCard (project, streak, score, rank from RANK_MIN_POOL, 12-week
+                               grid, frozen at drafting), cardWeeks, postCardView (pure: layouts, stats, BACKERS_SHOWN_FROM 5,
+                               never a price, proof needed for accepted/funded/won), postCardFacts (live pillCoin + backers)
+    post-reply.ts              v3.1 one-tap posts Task 6: shortLink, weeklyPost (the Monday moment's post), eventPost (hot:
+                               went live or won under HOT_HOURS; else any event), isHot, newsPost (tell update), outcomePost
+                               (tell program_status with proof_url, else PROOF_ASK + PROOF_NOTE), redraftAnswer (the yes to
+                               "Want a different version?"), POST_NOTE; v31-post-replies.test.ts through mcpCall
     post-writer.ts(+test)      v3.1 one-tap posts Task 2: the pure writer. POST_SHAPES (note, name_week, change, this_week,
                                count, bare, live/live_alt, won/won_alt, accepted/accepted_alt, funded/funded_alt, coin_intro),
                                writePost(input, history) (rotation: never one of the last 2 shapes nor the last opening word,
@@ -1678,7 +1699,9 @@ apps/frontend/
                                builder's site or repo), weeklyCandidate, wentLiveCandidate (week-facts firstLiveAt),
                                announcedWinCandidates (entry_outcomes announcement + source_url), verifiedOutcomeCandidate,
                                coinIntroCandidate (pillCoin), newsCandidate (checkUpdate), offeredMoment (won, went live,
-                               coin intro, weekly), draftMoment (writer + createDraft; an asked redraft skips the hold)
+                               coin intro, weekly; { weekly: false } the events only), draftMoment (writer + freezeCard +
+                               createDraft; an asked redraft skips the hold); Task 6: MomentCandidate.at, HOT_HOURS 48,
+                               weeklyCandidate(..., { week }) numbered as the moment names it
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),

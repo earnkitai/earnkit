@@ -28,6 +28,10 @@ export const STATS_KEYS = [
   'activated',
   'weekly_active',
   'shared',
+  'posts_drafted',
+  'posts_tapped',
+  'post_x_visits',
+  'backers_after_post',
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
@@ -83,6 +87,11 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   activated: 'activated builders (claimed page, repo proven by the EarnKit app, a week approved at the weekly moment)',
   weekly_active: 'activated builders who approved a week in the last 7 days',
   shared: 'weeks confirmed at the weekly share offer',
+  // v3.1 one-tap posts (design 5): drafted, tapped, opened from X, then backers (correlation only, never a cause).
+  posts_drafted: 'posts for X EarnKit drafted (one-tap posts)',
+  posts_tapped: 'of those, opened in X\'s composer from the reply\'s link at least once',
+  post_x_visits: 'page opens from X carrying a post\'s link (bots filtered, capped per post)',
+  backers_after_post: 'new backers within 7 days of a post\'s first tap (correlation only; 0 while EARNKIT_RAISING is off)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
@@ -138,6 +147,11 @@ type Row = {
   weekly_active?: number;
   /** Launch-ready L9: weeks approved from the weekly moment's share offer. */
   shared?: number;
+  /** v3.1 one-tap posts: post_drafts rows, tapped ones, their opens from X, and backers within 7 days of a first tap. */
+  posts_drafted?: number;
+  posts_tapped?: number;
+  post_x_visits?: number | string | null;
+  backers_after_post?: number;
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
@@ -199,6 +213,11 @@ export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()):
     activated: Number(r.activated ?? 0),
     weekly_active: Number(r.weekly_active ?? 0),
     shared: Number(r.shared ?? 0),
+    posts_drafted: Number(r.posts_drafted ?? 0),
+    posts_tapped: Number(r.posts_tapped ?? 0),
+    post_x_visits: Number(r.post_x_visits ?? 0),
+    // Coin-facing, so 0 unless EARNKIT_RAISING is on (as backers).
+    backers_after_post: raising ? Number(r.backers_after_post ?? 0) : 0,
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
@@ -301,6 +320,17 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
             AND (u.facts->>'approved_at')::timestamptz > ${now}::timestamptz - interval '7 days'))::int AS weekly_active,
       (SELECT count(*) FROM project_updates u JOIN builder_profiles p ON p.builder_id = u.builder_id
         WHERE ${approvedWeek(db)} AND u.facts->>'approved_via' = 'share' AND ${notTest(db, ids)})::int AS shared,
+      -- v3.1 one-tap posts (design 5): the funnel on post_drafts, people only (never a test installation's group).
+      (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE ${notTest(db, ids)})::int AS posts_drafted,
+      (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE d.taps > 0 AND ${notTest(db, ids)})::int AS posts_tapped,
+      (SELECT COALESCE(sum(d.x_visits), 0) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE ${notTest(db, ids)})::text AS post_x_visits,
+      -- Backers EarnKit first saw within 7 days after a post's first tap, on the person's open backing (launched,
+      -- raising_at set), each (person, wallet) once; a pre-v3.1 row (first_seen_at 'epoch') never counts. Correlation only.
+      (SELECT count(DISTINCT (d.builder_id, b.wallet)) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id
+        JOIN installations i ON COALESCE(i.builder_id, i.id) = d.builder_id
+        JOIN projects x ON x.installation_id = i.id AND x.token_status = 'launched' AND x.raising_at IS NOT NULL AND x.coin_address IS NOT NULL
+        JOIN coin_backers b ON b.coin = lower(x.coin_address) AND b.first_seen_at > d.first_tap_at AND b.first_seen_at <= d.first_tap_at + interval '7 days'
+        WHERE d.first_tap_at IS NOT NULL AND ${notTest(db, ids)})::int AS backers_after_post,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
       -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:

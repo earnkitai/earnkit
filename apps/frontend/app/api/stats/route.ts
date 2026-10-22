@@ -21,10 +21,13 @@ import { readStats } from '@/lib/earnkit/stats';
  * a published result) and `entries_won` (won or placed), announcement-sourced only, never a
  * self-report or a test installation's entry. No win-rate claim until 30 labelled entries.
  * v2.9 E20: `builders_won_usd`, the prizes of announced won or placed outcomes (same exclusions).
+ * v3.1 one-tap posts (design 5): `posts_drafted`, `posts_tapped` (taps > 0), `post_x_visits` (page opens from X with a
+ * post's ?m) and `backers_after_post` (new backers within 7 days of a first tap; correlation only; 0 while
+ * EARNKIT_RAISING is off), people only.
  */
 export const revalidate = 600;
 
-const cachedStats = unstable_cache(() => readStats(), ['public-stats-l9'], { revalidate: 600 });
+const cachedStats = unstable_cache(() => readStats(), ['public-stats-posts'], { revalidate: 600 });
 
 export async function GET() {
   try {

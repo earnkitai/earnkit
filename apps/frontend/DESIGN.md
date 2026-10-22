@@ -174,6 +174,9 @@ The hero chip counts only programs open to Base builders (chains include Base, o
 "$5K in Base grants open now"; nothing open to Base, no chip. It is 44px at least (36px from md) with vertical padding
 and a 22px radius, so a long chip wraps to two balanced lines on a 320px phone (checked at 320 and 390). The cards below may list other chains; each says its chain.
 
+## Post cards (one-tap posts, 2026-10-22)
+`card.png?m=<code>` (`post-card-image.tsx`): these tokens, Kaftan Serif headline and numbers (`assets/fonts/kaftan-serif.woff`). Three layouts: number (weekly, live, news: "Week 6" 176px, summary, navy numbers panel, 12 week squares), milestone (rust Streak card, the streak at 300px), text (verified win or funding, coin: blue hero, the program in Kaftan). Backing pill only while EARNKIT_RAISING is on, backers from 5, rank only from 10 ranked builders, never a price; no proof link, no win card.
+
 ## Copy rules
 
 Sentence case, short, money first, no emoji, never an em dash. "Backing" (never a raise or a community round);
@@ -189,7 +192,7 @@ from `lib/earnkit/theme.ts THEME` (`--ek-p-*`, `ek-*` Tailwind tokens), Funnel D
 
 - the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, wallet, week, unsubscribe);
   only their header lost its Programs link
-- the share card (`app/[handle]/card-response.tsx`), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`)
+- the page's share card (`app/[handle]/card-response.tsx`; a post's own card is v3.1, above), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`)
 - `app/[handle]/score-colors.ts PART_COLORS`, kept for `app/components/ui/UpdateCard.tsx`; the v3.1 pages use the score bands above
 
 The OG image still says "Ship every week. Get funded." until a later pass. White on `#0052FF` is 5.8:1, and blue
