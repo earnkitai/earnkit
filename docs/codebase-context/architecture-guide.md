@@ -7167,6 +7167,46 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   and the `needs`, `idea` and `points` FundLine kinds. Tests: `bench-reply.test.ts` (each reply, pure),
   `v31-reply-copy.test.ts` (the journey through mcpCall), `v31-draft.test.ts` (step 6).
 
+## v3.1 reply fixes for the vibecoding founder (owner-approved, 2026-10-22)
+
+The ideal user is a non-technical solo founder who vibecodes (Lovable, Bolt, v0, Replit). Changes on top of Task 16
+(exact lines in `v3.1-founder-power-user.md`, "Reply copy changes 2026-10-22"):
+
+- **No points in the first two replies.** `benchReply` drops the points line from signed out (step 1) and step 2;
+  `POINTS_ON_SIGN_IN` and `POINTS_ON_CONNECT` are gone. Every later points line stays.
+- **The honest hook.** `OpenGrant` gains `chain` (`base-qualify.ts grantOf`: the program's one chain's name, null for
+  any chain or several); `bench-reply.ts grantHook` writes "Base pays up to $5,000 for apps on Base." (any chain: "for
+  apps."). `introWhat` uses it; `bench-find.ts openGrant` builds it with `grantOf`.
+- **Step 2 in plain words.** `pickRepoAsk`: "Step 2 of 2: connect your app's code on GitHub. ..." plus `NO_GITHUB_HINT`
+  (Lovable and Bolt only, the confirmed ones in `v3.1-install-research.md`; a statement so the reply keeps one
+  question). App pages (`github-app.ts`): `PICK_HINT` "Choose Only select repositories and pick your app." (GitHub's
+  own labels) in `PICK_PAGE.none` and `APP_PAGE.notListed`; `TEMPLATE_HINT` in `PICK_PAGE.noneCounted`;
+  `VARIANT_COPY.copy` carries the same way out as a statement.
+- **No fit leads to money (`qualify`).** A ranked reply whose step would be ship, with no fit at all (`o.fits` empty),
+  asks `qualifyAsk` instead when `base-qualify.ts qualifyOffer` returns an offer: Base Builder Grants is in the shown
+  cards (`showable`: open, listed, not entered or hidden) with an award, not declined within `DECLINE_MS`
+  (`declined['qualify:<key>']`), and not in `builder_program_status`. Its three steps come only from the program
+  file's rules (`QUALIFY_STEPS`: base, codes, use). Each step's status (`qualifyStatus`) comes from the matcher's own
+  verdict for the remembered repo (`installations.fit_repos`, `alerts.ts programVerdict` = applyBuilderFacts +
+  matchRepo): base is met when the matcher credits a Base deploy and has no `mainnet_deploy` missing, use is met only on
+  a likely verdict and missing on `live_url`/`real_users`; codes from `repo_builder_codes` (only for an App-proven
+  repo). A step is dropped only when known met, named missing (`qualifyMissing`) only when known missing; every step met
+  is no offer (`qualifyPlan` null: never a claim of eligibility). The reply: standing, `grantHook`, the missing line, the
+  question ("Want the 3 steps to qualify for Base's $5,000 grant?"; fewer: "toward"), the ship points line; the
+  upcoming program's line yields to it (`moneyLine({ upcoming: false })`). The stored ask carries `qualify: { grant,
+  steps }`; `benchMoveUp` kind `qualify` (taken once) answers a yes with `qualifySteps` (numbered lines, the Builder
+  Codes guide `BUILDER_CODES_GUIDE` as the one link, `QUALIFY_NEXT`, `QUALIFY_HELP_ASK`) and `QUALIFY_STEPS_NOTE`; a no
+  keeps it away 30 days and the ship step returns. Closed, unlisted or hidden: the ship step as before.
+- **Private repo titles (`titles`).** `updates.ts titlesAskDue`: the one project is App-proven, GitHub said it is
+  private (proof read: `gh_repo_id` set and `public_at` null, or the latest reading's `signals.private`) and it doesn't
+  read public now, `ship_titles_at` is null and `standing_seen.titles_asked` is unset; `takeTitlesAsk` claims it once.
+  Asked in the connect yes reply when no draft is offered (`bench-find.ts connectTitles`, before the email question),
+  else as a ranked step after share and before qualify/ship. `TITLES_ASK` "Show what you shipped on your page? Your
+  code stays private."; a yes is `setShipTitles(id, { titles: true })` (the same path as tell `updates { titles }`).
+- Ranked order is now connect, apply, backing, share, titles, qualify or ship. Tests: `v31-reply-fixes.test.ts` (pure
+  copy, statuses from real `matchRepo` verdicts, closed fallback, and the qualify and titles journeys through mcpCall);
+  `fixtures/ranked-step.ts endsOnRankedStep` accepts the qualify question.
+
 ## v3.1 replies: P0 Tasks 2, 3, 5, 6, 7, 8 and 9 (Tasks 1, 4, 10 and 16 are above)
 
 Release 1 of v3.1 (spec `v3.1-founder-power-user.md`, plan `v3.1-plan-p0.md`). Tasks 1, 4, 10 and 16 have their own sections

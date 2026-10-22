@@ -1109,6 +1109,7 @@ apps/frontend/
     funds.ts(+test)            prizeFunds: the payout wallet's balance for the pages (60 s memo, 15 s
                                after a failure, 3 s timeout, no retries)
     alerts.ts(+test)           v2.10.2 (v2.11 8a): repoCanWin refuses an unknown-odds repo as it does a low one.
+                               2026-10-22: programVerdict (the matcher's verdict for a remembered repo and one program, base-qualify.ts)
                                v2.9 A7: FitRepo, fitRepoOf, alertFit/alertable (new programs only when a
                                v2.10 item 15: AlertFacts.entries, DeadlineEntry, deadlineLine, DEADLINE_DAYS, takeDeadlineLine
                                (installations.deadline_shown, once per entry per UTC day); no "(as WETH)" in the bonus win alert.
@@ -1166,6 +1167,7 @@ apps/frontend/
                                APP_PICK_REPOS, appPickDestination ("This connects your repos to earnkit.com/<handle>."); pageWith
                                (fix round 1: a setup success page with its one link)
     github-app.ts(+test)       v2.10 item 7b: the optional read-only GitHub App. githubAppEnabled (GITHUB_APP_ID,
+                               2026-10-22: PICK_HINT, TEMPLATE_HINT in PICK_PAGE.none/noneCounted and APP_PAGE.notListed;
                                GITHUB_APP_SLUG, a PEM GITHUB_APP_PRIVATE_KEY, and the v2.9 sign-in on, P17), appJwt
                                (RS256, iat now-60 s, 10 min), installationToken (POST access_tokens: one repo, contents
                                and metadata read; never stored or logged), appProof (R8: listed, and own account or
@@ -1519,7 +1521,9 @@ apps/frontend/
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
-    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles
+    updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles;
+                               2026-10-22: titlesAskDue (App-proven, private on GitHub's word, titles off, never asked),
+                               takeTitlesAsk (standing_seen.titles_asked, once)
                                (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
                                option (posted_by still written)
@@ -1531,14 +1535,20 @@ apps/frontend/
     bench-reply.ts(+test)      v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
                                (signed_out, no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off),
                                replyState, rankedState; stateAsk (kinds sign_in, start, pick_repo, install_app,
-                               other_project, repo_behind, connect, apply, backing, share, ship, suggest); benchReply per
-                               step: signed out (INTRO_LINE, introWhat(OpenGrant), POINTS_ON_SIGN_IN), step 2 (youreIn,
-                               pickRepoAsk, POINTS_ON_CONNECT; namesAccount), connect (connectStanding, qualifyLine,
-                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, SHIP_ASK,
-                               shipPointsLine), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
+                               other_project, repo_behind, connect, apply, backing, share, titles, qualify, ship, suggest);
+                               benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
+                               2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
+                               connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
+                               path: grantHook, qualifyMissing, qualifyAsk, else SHIP_ASK; shipPointsLine), qualifySteps
+                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead, momentPost, MOMENT_ASK). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. At most one https link, exactly one question, the points line last.
-                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
+                               tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall),
+                               v31-reply-fixes.test.ts (2026-10-22 fixes)
+    base-qualify.ts            2026-10-22: the no-fit path to Base Builder Grants. grantOf (organizer, award, one chain),
+                               qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
+                               Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
+                               or told; never throws). tests v31-reply-fixes.test.ts
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
                                (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
@@ -1566,7 +1576,10 @@ apps/frontend/
                                link is the ranked link; momentReady gates it; openShare keeps the offer open all week);
                                benchMoveUp kind share goes to answerShare (once, that week only; APPROVED_LINE); SHARE_NOTE.
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
-                               repo-picker.test.ts, weekly-moment.test.ts
+                               repo-picker.test.ts, weekly-moment.test.ts. 2026-10-22: benchView asks titles (updates.ts
+                               titlesAskDue/takeTitlesAsk) then qualify (base-qualify.ts qualifyOffer, no fit only);
+                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE);
+                               connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
     raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
                                unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
