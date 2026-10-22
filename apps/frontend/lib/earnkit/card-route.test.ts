@@ -230,6 +230,23 @@ test('Task 5: card.png?m=<code> draws that post\'s card (a PNG unlike the page\'
   }
 });
 
+test('final review 8: the page\'s redirects (another case, a rename) keep ?m=<code>, so the visit counts and the post\'s card stays', dbTest, async () => {
+  const { sql } = await loadV2121();
+  const { HandleView } = await import('../../app/[handle]/handle-view');
+  const id = 2_147_000_000 + Math.floor(Math.random() * 100_000);
+  const handle = `Pr${id}`.slice(0, 15);
+  const code = 'abcdefghij';
+  const where = async (o: { handle: string; path: string; post: string | null }) =>
+    HandleView({ ...o }).then(() => 'rendered', (e: { digest?: string }) => String(e.digest).split(';').slice(2, 3).join(''));
+  try {
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name) VALUES (${id}, ${`pr${id}`}, ${`8${id}`}, ${handle}, 'Maya')`;
+    assert.equal(await where({ handle: handle.toLowerCase(), path: `/${handle.toLowerCase()}`, post: code }), `/${handle}?m=${code}`);
+    assert.equal(await where({ handle: handle.toLowerCase(), path: `/${handle.toLowerCase()}`, post: null }), `/${handle}`);
+  } finally {
+    await sql()`DELETE FROM builder_profiles WHERE builder_id = ${id}`;
+  }
+});
+
 test('Task 5: a visit carrying ?m counts on that post (from X apart: a t.co referrer); a bot never; only a number is kept', async () => {
   const { visitFrom } = await import('./post-drafts');
   const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';

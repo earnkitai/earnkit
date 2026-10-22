@@ -90,9 +90,12 @@ export async function HandleView({
 }) {
   const r = await resolveHandle(handle);
   if (!r) notFound();
-  if ('redirect' in r) permanentRedirect(r.redirect);
+  // Final review 8: a redirect keeps the post's ?m=<code> (postOf: a well-formed code only), so the visit still counts
+  // and the post's own card stays.
+  const keep = (to: string) => (post ? `${to}?m=${post}` : to);
+  if ('redirect' in r) permanentRedirect(keep(r.redirect));
   // A reserved handle reached at the root (/Terms) lives at /b/Terms.
-  if (pagePath(r.handle) !== path) permanentRedirect(pagePath(r.handle));
+  if (pagePath(r.handle) !== path) permanentRedirect(keep(pagePath(r.handle)));
   if (post) await countVisit(r.builderId, post);
   return (
     <Suspense fallback={<BenchProfileSkeleton head={await pageHead(r.builderId)} />}>

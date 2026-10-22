@@ -26,11 +26,11 @@ export async function generateMetadata({ params, searchParams }: { params: Promi
  */
 export default async function ProfilePage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams?: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params;
-  if (isReserved(slug)) {
-    const q = await searchParams;
-    return HandleView({ handle: slug, path: `/b/${slug}`, page: pageOf(q), post: postOf(q) });
-  }
+  const q = await searchParams;
+  if (isReserved(slug)) return HandleView({ handle: slug, path: `/b/${slug}`, page: pageOf(q), post: postOf(q) });
   const r = await resolveSlug(slug);
   if (!r) notFound();
-  permanentRedirect(pagePath(r.handle));
+  // Final review 8: the post's ?m=<code> (a well-formed one only) goes along, as the page's own redirects keep it.
+  const post = postOf(q);
+  permanentRedirect(post ? `${pagePath(r.handle)}?m=${post}` : pagePath(r.handle));
 }
