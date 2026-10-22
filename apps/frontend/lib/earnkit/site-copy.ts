@@ -88,7 +88,7 @@ export function nextUpdateLine(now: Date): string {
   return `Next update posts Monday, ${monthDay(next)}`;
 }
 
-export const HERO_TITLE = 'Earn from building.';
+export const HERO_TITLE = 'Get funded for shipping.';
 export const HERO_SUB = 'Ship. Get ranked. Get funded. All from your agent.';
 export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';

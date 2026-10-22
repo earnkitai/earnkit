@@ -54,7 +54,7 @@ Kaftan numbers (`Money.tsx`).
 |---|---|---|
 | Page title `H1_SITE` | 72px | 48px |
 | Section title `H2_SITE` | 64px | 44px |
-| Landing hero title | 96px, one line | `clamp(36px, 9.6vw, 96px)` |
+| Landing hero title | 96px, one line | `clamp(28px, 9.6vw, 96px)`, one line down to 320px |
 | Hero sub, program text | 19px | 17px |
 | Steps and Activity titles | 40px | 32px |
 | Opportunities big number | 64px | 52px |

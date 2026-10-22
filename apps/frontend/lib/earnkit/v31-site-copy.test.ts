@@ -87,7 +87,7 @@ test('(h) programKind on the four committed program files', () => {
 });
 
 test('(i) copy constants are exact', () => {
-  assert.equal(copy.HERO_TITLE, 'Earn from building.');
+  assert.equal(copy.HERO_TITLE, 'Get funded for shipping.');
   assert.equal(copy.HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
   assert.equal(copy.CTA_INSTALL, 'Add EarnKit to your agent');
   assert.equal(copy.NAV_INSTALL, 'Add to your agent');

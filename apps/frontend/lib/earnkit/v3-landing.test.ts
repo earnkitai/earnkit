@@ -60,7 +60,7 @@ test('(c) nothing of the old kit in the HTML: no video, no builder image, no upp
     assert.doesNotMatch(h, /<video|builder-blue|\buppercase\b|animate-marquee|rounded-\[24px\]/);
   }
   assert.ok(!page({ ...full, stats_line: '120 agents earning', won_line: 'Builders using EarnKit won $12,500' }).includes('agents earning'));
-  assert.equal(HERO_TITLE, 'Earn from building.');
+  assert.equal(HERO_TITLE, 'Get funded for shipping.');
   assert.equal(HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
 });
 
@@ -82,7 +82,7 @@ test('(f) the hero: the chip (to #earn) only with money open, the one-line title
   const h = html(React.createElement(Hero, { chip: '$105K in grants open now' }));
   assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$105K in grants open now<\/span><\/a>/);
   assert.doesNotMatch(html(React.createElement(Hero, { chip: null })), /href="#earn"/);
-  assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Earn from building.<\/h1>/);
+  assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Get funded for shipping.<\/h1>/);
   assert.equal((h.match(/role="img"/g) ?? []).length, 4);
   assert.doesNotMatch(h, /\buppercase\b/);
 });

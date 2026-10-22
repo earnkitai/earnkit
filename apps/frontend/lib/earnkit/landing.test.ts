@@ -360,7 +360,7 @@ const page = (landing: Parameters<typeof HomeView>[0]['landing']) => renderToSta
 const CARD = { id: 1, handle: 'maya_makes', name: 'Maya Chen', avatar: null, project: 'Recipe planner', week: '2026-10-12', text: 'Added fridge photo import. It plans a week.', chips: ['Went live', '+31 people', '12 commits'], summary: null, pinned: false, score: 62, commits: 12 };
 
 test('12.1 the hero, word for word, and its one button (v3.1 Task 6: "Add EarnKit to your agent"; the header holds the other one)', () => {
-  assert.equal(HERO_TITLE, 'Earn from building.');
+  assert.equal(HERO_TITLE, 'Get funded for shipping.');
   // R18: shipping and funding; the landing never pitches a coin or a community round.
   assert.equal(HERO_SUB, 'Ship. Get ranked. Get funded. All from your agent.');
   const h = page({ ...LANDING_FIXTURE, activity: [CARD] });

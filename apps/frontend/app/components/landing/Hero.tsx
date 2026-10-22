@@ -43,7 +43,7 @@ export default function Hero({ chip }: { chip: string | null }) {
             </span>
           </a>
         ) : null}
-        <h1 className="ek-serif whitespace-nowrap text-[clamp(36px,9.6vw,96px)] leading-none tracking-[-0.015em] text-s-text [text-shadow:0_6px_50px_var(--ek-s-hero-title-shadow)]">
+        <h1 className="ek-serif whitespace-nowrap text-[clamp(28px,9.6vw,96px)] leading-none tracking-[-0.015em] text-s-text [text-shadow:0_6px_50px_var(--ek-s-hero-title-shadow)]">
           {HERO_TITLE}
         </h1>
         <p className="text-balance text-[17px] leading-normal text-s-hero-sub md:text-[19px]">{HERO_SUB}</p>

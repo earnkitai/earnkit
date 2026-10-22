@@ -28,7 +28,7 @@ const kaftan = localFont({
   display: 'swap',
 });
 
-const TITLE = 'EarnKit | Earn from building.';
+const TITLE = 'EarnKit | Get funded for shipping.';
 const DESCRIPTION =
   'Add EarnKit to your AI agent and ask "What can I earn?". It finds grants that fit and ranks what you ship on a public leaderboard.';
 

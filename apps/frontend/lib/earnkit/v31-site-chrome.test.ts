@@ -171,7 +171,7 @@ test('(h) Task 1 carry-overs: theme-color is the site page token; the install sh
   const layout = read('app/layout.tsx');
   assert.match(layout, /<meta name="theme-color" content=\{SITE\.page\} \/>/);
   assert.match(layout, /title: TITLE/);
-  assert.match(layout, /const TITLE = 'EarnKit \| Earn from building\.';/);
+  assert.match(layout, /const TITLE = 'EarnKit \| Get funded for shipping\.';/);
   assert.match(layout, /<Header \/>/);
   for (const f of ['app/docs/DocsView.tsx', 'app/components/sections/AddToAgent.tsx']) assert.doesNotMatch(read(f), /bg-ek-page/, f);
 });
