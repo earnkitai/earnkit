@@ -129,7 +129,8 @@ export function liveSub(r: { checked: number; up: number; first_up: string }): s
 }
 
 /**
- * 1. live: a verified site source of the project whose newest reading is up (a site down at its last read is no item),
+ * 1. live: a verified site source of the project whose newest ok reading is up (a site down at its last read is no item;
+ * a failed read, ok false, is EarnKit's own failure and never hides a live site),
  * the one that first read up (week-facts.ts went_live's site rule), linked to the site; its sub line is liveSub. Owner
  * ruling (fix round 1): a site the builder proved is shown even when the repo is private; only a hidden repo's
  * GitHub-hosted site is left out (it names the repo; page-data.ts shownProjects' link rule).
@@ -138,7 +139,7 @@ async function liveItem(builderId: number, key: string, hiddenRepo: boolean, now
   const today = now.toISOString().slice(0, 10);
   const rows = await sql()<{ ref: string; first_up: string; newest_up: boolean; checked: number; up: number }[]>`
     SELECT s.ref, min(r.day) FILTER (WHERE r.ok AND r.signals->>'up' = 'true')::text AS first_up,
-      (array_agg(r.ok AND r.signals->>'up' = 'true' ORDER BY r.day DESC))[1] AS newest_up,
+      (array_agg(r.signals->>'up' = 'true' ORDER BY r.day DESC) FILTER (WHERE r.ok))[1] AS newest_up,
       count(*) FILTER (WHERE r.ok AND r.day > ${today}::date - ${UPTIME_DAYS}::int)::int AS checked,
       count(*) FILTER (WHERE r.ok AND r.day > ${today}::date - ${UPTIME_DAYS}::int AND r.signals->>'up' = 'true')::int AS up
     FROM builder_sources s JOIN source_readings r ON r.source_id = s.id AND r.day <= ${today}::date

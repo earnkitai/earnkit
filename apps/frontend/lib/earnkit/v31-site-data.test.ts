@@ -162,7 +162,18 @@ test('(c2) Highlights presence: uptime only from 7 days read, no date without on
   await site(seven, 'https://seven.example', [['2026-08-01', true], ['2026-10-11', true], ['2026-10-12', false], ['2026-10-14', true], ['2026-10-16', true], ['2026-10-17', true], ['2026-10-19', true], ['2026-10-20', true]]);
   await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-18', '{}'::jsonb, false FROM builder_sources WHERE builder_id = ${seven.id} AND kind = 'site'`;
   assert.equal((await highlights(seven.id, await page(seven.id), NOW))[0].sub, 'Up 6 of the last 7 days checked');
-  // Fix round 1: a site down at its newest reading is no item (it read up before), nor one whose newest read failed.
+  // Install fixes: a failed read (ok false) on the newest day is EarnKit's failure, not the site's: the newest ok
+  // reading decides, so a site up at its last real read stays live.
+  const flaky = await baseBuilder();
+  await site(flaky, 'https://flaky.example', daysUp('2026-10-20', 8));
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-21', '{}'::jsonb, false FROM builder_sources WHERE builder_id = ${flaky.id} AND kind = 'site'`;
+  assert.deepEqual((await highlights(flaky.id, await page(flaky.id), NOW))[0], { icon: 'live', title: 'Live at flaky.example', sub: 'Up 8 of the last 8 days checked', href: 'https://flaky.example' });
+  // Only failed reads: no item (nothing EarnKit read says it is up).
+  const unread = await baseBuilder();
+  await site(unread, 'https://unread.example', []);
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-21', '{"up":true}'::jsonb, false FROM builder_sources WHERE builder_id = ${unread.id} AND kind = 'site'`;
+  assert.ok(!(await highlights(unread.id, await page(unread.id), NOW)).some((x) => x.icon === 'live'));
+  // Fix round 1: a site down at its newest ok reading is no item (it read up before).
   const down = await baseBuilder();
   await site(down, 'https://down.example', [...daysUp('2026-10-20', 20), ['2026-10-21', false]]);
   assert.ok(!(await highlights(down.id, await page(down.id), NOW)).some((x) => x.icon === 'live'));
