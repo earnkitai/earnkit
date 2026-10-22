@@ -70,16 +70,25 @@ const MARKS: [string, RegExp][] = [
 const JUST_SHIPPED = /\bjust shipped\b/i;
 
 /**
- * What is wrong with `text` as an EarnKit-written post (none: []). `ticker`: the coin intro's one allowed $SYM;
- * `prev`: the person's last post (the same text again, or "just shipped" twice in a row, is refused).
+ * Final review 2: the project's shown name is a trusted token for the link rule (a private repo's project reads as its
+ * proven site host, "earnkit.com"), unless it is itself a link (a scheme, www. or a path). Pure.
  */
-export function postProblems(text: string, o: { ticker?: string; prev?: string } = {}): string[] {
+const trustedName = (name: string | null | undefined): string | null =>
+  name && name.trim() && !/[a-z][a-z0-9+.-]*:\/\/|\bwww\.|\//i.test(name) ? name : null;
+
+/**
+ * What is wrong with `text` as an EarnKit-written post (none: []). `ticker`: the coin intro's one allowed $SYM;
+ * `prev`: the person's last post (the same text again, or "just shipped" twice in a row, is refused); `name`: the
+ * project's shown name, exempt from the link rule as written (final review 2; any other host is still a second link).
+ */
+export function postProblems(text: string, o: { ticker?: string; prev?: string; name?: string | null } = {}): string[] {
   const out: string[] = [];
   let t = text;
   if (o.ticker) t = t.replace(`$${o.ticker}`, 'TICKER');
   for (const [why, re] of [...HYPE, ...SHILL, ...MARKS]) if (re.test(t)) out.push(why);
   // One link per post: the page X adds. Any other link or host name (a word, a dot, two or more letters) is a second one.
-  if (hasLink(t)) out.push('link');
+  const name = trustedName(o.name);
+  if (hasLink(name ? t.split(name).join('NAME') : t)) out.push('link');
   if (text.length > POST_MAX || text.trim().length === 0) out.push('length');
   if (o.prev !== undefined && o.prev.trim().toLowerCase() === text.trim().toLowerCase()) out.push('repeat');
   if (o.prev !== undefined && JUST_SHIPPED.test(text) && JUST_SHIPPED.test(o.prev)) out.push('just shipped twice');
@@ -87,7 +96,7 @@ export function postProblems(text: string, o: { ticker?: string; prev?: string }
 }
 /**
  * A builder's note may keep their own "!" and one emoji; never a hype or shill word, a hashtag, a cashtag, a link,
- * more than one emoji, "!!" or an em dash (fix round: our wording is used instead). Pure.
+ * more than one emoji, "!!", an em dash or a "?" (final review 5) (fix round: our wording is used instead). Pure.
  */
 export const noteProblems = (note: string) => [
   ...[...HYPE, ...SHILL].filter(([, re]) => re.test(note)).map(([why]) => why),
@@ -95,6 +104,8 @@ export const noteProblems = (note: string) => [
   ...((note.match(/\p{Extended_Pictographic}/gu) ?? []).length > 1 ? ['emoji'] : []),
   ...(/!!/.test(note) ? ['!!'] : []),
   ...(/—/.test(note) ? ['em dash'] : []),
+  // Final review 5: the reply around the post asks its one question; a note asking another is not used.
+  ...(/\?/.test(note) ? ['question'] : []),
 ];
 
 /** The first word, lowercase, without punctuation. Pure. */
@@ -128,8 +139,9 @@ const withAward = (award: string | null) => (award ? ` (${award})` : '');
 
 function candidates(i: PostInput): Post[] {
   const out: Post[] = [];
+  // Final review 5: our wording never asks (a summary's or a name's "?" reads "."), so the reply keeps one question.
   const add = (shape: PostShape, text: string | null | false | undefined) => {
-    if (text) out.push({ shape, text });
+    if (text) out.push({ shape, text: shape === 'note' ? text : text.replace(/\?/g, '.') });
   };
   switch (i.moment) {
     case 'weekly': {
@@ -183,7 +195,8 @@ function passes(p: Post, i: PostInput, prev: string | undefined): boolean {
   if (p.text.length > POST_MAX) return false;
   if (p.shape === 'note') return !(prev !== undefined && prev.trim().toLowerCase() === p.text.toLowerCase());
   const ticker = i.moment === 'coin_intro' ? i.symbol.trim().toUpperCase() : undefined;
-  return postProblems(p.text, { ticker, prev }).length === 0;
+  const name = 'name' in i ? i.name : null;
+  return postProblems(p.text, { ticker, prev, name }).length === 0;
 }
 
 /**

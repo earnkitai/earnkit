@@ -24,6 +24,7 @@ import {
   wentLiveCandidate,
   type MomentCandidate,
 } from './post-moments';
+import { writePost } from './post-writer';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 
 /**
@@ -394,6 +395,26 @@ test('a private project (no name to show) gets only nameless weekly shapes; no w
   assert.ok(d.ok);
   assert.equal(d.draft.text, 'Added search.');
   assert.equal(await wentLiveCandidate(id, NOW), 'no_project');
+});
+
+test('final review 2: a private project named by its proven site host ("earnkit.com") gets its went-live and weekly posts', dbTest, async () => {
+  const { id, key } = await maya({ privateRepo: true, weeks: [isoWeekOf(ago(60))] });
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', 'https://earnkit.com', ${key}, 'verified', 'proof_line', 'agent')`;
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`pmh${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live', ${ago(3)})`;
+  const live = await wentLiveCandidate(id, NOW);
+  assert.ok(typeof live !== 'string', String(live));
+  assert.equal((live.input as { name: string }).name, 'earnkit.com');
+  const d = await draftMoment(id, live, { asked: false }, NOW);
+  assert.ok(d.ok, JSON.stringify(d));
+  assert.match(d.draft.text, /^earnkit\.com is live\./);
+  await sql()`UPDATE builder_profiles SET ship_titles_at = now() WHERE builder_id = ${id}`;
+  await weekRow(id, key, { facts: { shipped_code: { n: 4 }, streak: { w: 3 } }, summary: 'Added search.' });
+  const w = (await weeklyCandidate(id, NOW)) as MomentCandidate;
+  assert.equal((w.input as { name: string }).name, 'earnkit.com');
+  // Its first shape names it (the drafted one rotates away from the went-live post's opening word).
+  assert.equal(writePost(w.input, [])?.text, 'earnkit.com, week 3: added search.');
 });
 
 test('fix round: one moment drafted at once from several replies is written once (the hold runs under the store\'s lock)', dbTest, async () => {

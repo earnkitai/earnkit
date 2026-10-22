@@ -204,3 +204,28 @@ test('fix round: brand case is kept; only a common word is lowered', () => {
   assert.equal(t('Added CSV export.'), 'Kit, week 3: added CSV export.');
   assert.equal(t('Rebuilt the editor.'), 'Kit, week 3: rebuilt the editor.');
 });
+
+test('final review 2: a private project named by its site host ("earnkit.com") is a trusted name, in every named shape', () => {
+  const name = 'earnkit.com';
+  assert.deepEqual(postProblems('earnkit.com is live.', { name }), []);
+  assert.deepEqual(postProblems('earnkit.com is live.'), ['link'], 'without the name, a host is a link');
+  // Still never a second link beside the name.
+  assert.deepEqual(postProblems('earnkit.com moved docs to docs.earnkit.dev.', { name }), ['link']);
+  assert.equal(write({ moment: 'went_live', name, weeks: 9 })!.text, 'earnkit.com is live. 9 weeks from first commit.');
+  assert.equal(write({ moment: 'won', name, program: 'Base Builder Grant', award: '$5,000' })!.text, 'earnkit.com won the Base Builder Grant ($5,000).');
+  assert.equal(write({ moment: 'accepted', name, program: 'Base Builder Grant', award: null })!.text, 'earnkit.com was accepted into the Base Builder Grant.');
+  assert.equal(write({ moment: 'funded', name, program: 'Base Builder Grant', award: null })!.text, 'earnkit.com was funded by the Base Builder Grant.');
+  assert.equal(write({ moment: 'coin_intro', name, symbol: 'KIT', weeks: 6 })!.text, 'earnkit.com has a coin now, $KIT. 6 weeks shipping so far.');
+  assert.equal(write(weekly({ name, week: 3, summary: 'Added search.' }))!.text, 'earnkit.com, week 3: added search.');
+  assert.equal(write(weekly({ name, week: 12, summary: 'Added search.' }))!.text, '12 weeks shipping earnkit.com without missing one. This week: added search.');
+  // A name that is a full link is never trusted.
+  assert.equal(write({ moment: 'went_live', name: 'https://earnkit.com', weeks: 9 }), null);
+});
+
+test('final review 5: a "?" in our wording becomes "."; a note with "?" falls back to our wording (one question per reply)', () => {
+  assert.equal(write(weekly({ name: 'Kit', week: 3, summary: 'Is it faster? Yes, 2x.' }))!.text, 'Kit, week 3: Is it faster. Yes, 2x.');
+  assert.equal(write(weekly({ name: 'Kit', week: 3, summary: 'Added search.', note: 'Who wants the beta?' }))!.shape, 'name_week');
+  assert.equal(write({ moment: 'news', note: 'Who wants the beta?' }), null, 'their news with a question: no post');
+  for (const i of [weekly({ name: 'Kit?', week: 12, summary: 'Why not?' }), { moment: 'went_live', name: 'Kit?', weeks: 3 } as PostInput])
+    assert.doesNotMatch(write(i)?.text ?? '', /\?/);
+});
