@@ -164,7 +164,9 @@ test('(d) the selectors card shows the JSON URL; no "points", no em dash, under 
 test('(e) 404: "404", "Nothing shipped here.", one link "Back home" to /, and the full footer', () => {
   const h = renderToStaticMarkup(React.createElement(NotFound));
   const [main, foot] = [h.split('<footer')[0], h.slice(h.indexOf('<footer'))];
-  assert.ok(text(main).startsWith(`${NOT_FOUND_BIG} ${NOT_FOUND_TEXT} ${NOT_FOUND_HOME}`), text(main));
+  // The <title> (QA item 13) goes to <head>, not the card: read the card's words without it.
+  const card = main.replace(/<title>[^<]*<\/title>/, '');
+  assert.ok(text(card).startsWith(`${NOT_FOUND_BIG} ${NOT_FOUND_TEXT} ${NOT_FOUND_HOME}`), text(card));
   assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
   assert.match(main, /class="[^"]*\bbg-s-rust\b/);
   assert.match(main, /class="[^"]*\btext-s-rust-on\b[^"]*"[^>]*>404</);

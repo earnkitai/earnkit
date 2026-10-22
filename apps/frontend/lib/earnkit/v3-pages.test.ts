@@ -168,14 +168,17 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
 
 // ---- 404 -------------------------------------------------------------------------------------------
 
-test('404 (v3.1 NotFound board): "404", the line as the h1, one "Back home" link to /; the metadata title stays "Page not found", noindex', () => {
+test('404 (v3.1 NotFound board): "404", the line as the h1, one "Back home" link to /; its own title "Not found | EarnKit" (QA item 13), noindex', () => {
   const h = html(React.createElement(NotFound));
   const main = h.split('<footer')[0];
   assert.ok(main.includes(`>${NOT_FOUND_BIG}<`));
   assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
   assert.deepEqual([...main.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]), [['/', NOT_FOUND_HOME]]);
-  assert.equal(NOT_FOUND_TITLE, 'Page not found');
-  assert.deepEqual(notFoundMeta, { title: 'Page not found', robots: 'noindex' });
+  assert.equal(NOT_FOUND_TITLE, 'Not found | EarnKit');
+  assert.deepEqual(notFoundMeta, { title: NOT_FOUND_TITLE, robots: 'noindex' });
+  // A page that calls notFound() keeps its own segment's metadata in the browser, so the 404 also renders the title
+  // itself (React hoists it into <head>, ahead of the layout's).
+  assert.ok(h.includes(`<title>${NOT_FOUND_TITLE}</title>`), h.slice(0, 200));
 });
 
 // ---- (e) wording: "of N builders" ---------------------------------------------------------------
