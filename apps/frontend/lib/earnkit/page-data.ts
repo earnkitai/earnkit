@@ -67,6 +67,17 @@ export const PRIVATE_NAME = 'Private project';
 const WALLET = /\b0x[0-9a-f]{40}\b/i;
 /** A project or entry key compared: no scheme, no github.com/, no www., no trailing slash, lowercase. */
 export const norm = (k: string) => k.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^(www\.)?github\.com\//, '').replace(/^www\./, '').replace(/\/+$/, '');
+/**
+ * A proven site's host as a project name ("earnkit.com"; no reliable host-to-brand mapping exists, so the host itself).
+ * Null for a GitHub host or any host that contains the private repo's name (it would reveal it). Pure.
+ */
+export function siteName(ref: string, repoName: string): string | null {
+  const u = URL.canParse(ref) ? new URL(ref) : URL.canParse(`https://${ref}`) ? new URL(`https://${ref}`) : null;
+  const host = u?.hostname.toLowerCase().replace(/^www\./, '') ?? '';
+  if (!host || !host.includes('.') || /(^|\.)github\.(io|com)$/.test(host)) return null;
+  if (repoName.length >= 3 && host.includes(repoName.toLowerCase())) return null;
+  return host;
+}
 const REPO_KEY = /^[^/:\s]+\/[^/\s]+$/;
 
 /** The display name: the X name (trimmed, never a wallet), else @handle. Pure. */
@@ -148,6 +159,10 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
   const shownRepo = new Set(repos.filter((r) => r.public).map((r) => `${r.builder_id}:${norm(r.ref)}`));
   const idents = await db<{ builder_id: number; identity: { projects?: unknown } | null }[]>`
     SELECT builder_id, identity FROM builder_profiles WHERE builder_id IN ${db(ids)}`;
+  // A hidden repo with no name of the builder's own reads as the host of a site they proved for it (never GitHub's).
+  const sites = await db<{ builder_id: number; project_key: string; ref: string }[]>`
+    SELECT builder_id, project_key, ref FROM builder_sources
+    WHERE builder_id IN ${db(ids)} AND kind = 'site' AND state = 'verified' ORDER BY id`;
   const reported = new Map<number, { names: Set<string>; whats: Set<string> }>();
   for (const i of idents) {
     const ps = Array.isArray(i.identity?.projects) ? (i.identity.projects as { name?: unknown; what?: unknown }[]) : [];
@@ -163,7 +178,9 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
     // The agent's own name for it is the builder's; the repo's name only while the repo reads public.
     const repoName = k.split('/')[1] ?? '';
     const nameIsRepo = r.name.trim().toLowerCase() === repoName || !own?.names.has(r.name.trim().toLowerCase());
-    const safeName = hiddenRepo && nameIsRepo ? PRIVATE_NAME : r.name;
+    const safeName = hiddenRepo && nameIsRepo
+      ? (sites.filter((x) => x.builder_id === r.builder_id && norm(x.project_key) === k).map((x) => siteName(x.ref, repoName)).find(Boolean) ?? PRIVATE_NAME)
+      : r.name;
     const safeWhat = hiddenRepo && !(r.what && own?.whats.has(r.what)) ? null : r.what;
     const list = out.get(r.builder_id) ?? [];
     // A hidden repo's own GitHub page (or its Pages site) would name it: no link then.

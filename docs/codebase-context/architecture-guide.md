@@ -7605,8 +7605,8 @@ gone; the Monday moment now carries a drafted post.)
   (`visitFrom`), no header kept. Moments: went live also needs the project up now (`upNow`: an up site reading within
   `UP_WITHIN_DAYS` 3, an EarnKit-hosted site serving, or a deployed contract); the coin intro only within 14 days of
   `coin_launched_at`; the moment's hold runs again inside `createDraft`'s per-person lock (`NewDraft.hold`); a different
-  version only of the latest, unexpired draft. Replies: accepted or funded heads "Here's your post for X." (the profile
-  doesn't show them); news asks "Want to change any words?" and its yes asks for new words (`NEWS_REWORD_NOTE`), which
+  version only of the latest, unexpired draft. Replies: accepted or funded have no head (the reply starts at "Your post
+  for X, with your page card:"); news asks "Want to change any words?" and its yes asks for new words (`NEWS_REWORD_NOTE`), which
   `tell update` then puts in the same draft (`rewordDraft`: same code, key and link). `events-redact` lists
   `post_drafts.card` and `post_drafts.proof_url`.
 - **Stats (Task 7).** `/api/stats` adds `posts_drafted`, `posts_tapped` (taps > 0), `post_x_visits` (sum) and

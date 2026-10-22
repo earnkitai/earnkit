@@ -10,7 +10,7 @@ import { WEEKLY_STREAK, benchCardFacts, benchRows, profileData, type ProfileData
 import { builderJson } from './builder-json';
 import { shipLogFacts } from './ship-log-facts';
 import { streakOfBuilder, streaksFor } from './streak';
-import { PRIVATE_NAME, projectPrograms, projectProgramsDated } from './page-data';
+import { PRIVATE_NAME, projectPrograms, projectProgramsDated, safeNames, siteName } from './page-data';
 import { person, withEnv } from './fixtures/find';
 import { padPool } from './fixtures/rank-pool';
 import { committedProgram } from './fixtures/program-file';
@@ -401,6 +401,24 @@ test('(g) a hidden repo: Private project, no repo, no link unless a non-GitHub s
   // Its own non-GitHub site is its link.
   await sql()`UPDATE builder_projects SET link = 'https://sauce.example/' WHERE builder_id = ${b.id}`;
   assert.deepEqual((await profileSite(b.id, await page(b.id), NOW)).project?.link, { href: 'https://sauce.example/', text: 'sauce.example' });
+});
+
+test('(g2) a hidden repo with a proven site is named by the site host; never GitHub, never one that holds the repo name', db, async () => {
+  assert.equal(siteName('https://www.earnkit.com/', 'earnkit'), null, 'the host holds the repo name');
+  assert.equal(siteName('https://earnkit.com', 'core'), 'earnkit.com');
+  assert.equal(siteName('https://x.github.io/y', 'core'), null);
+  assert.equal(siteName('not a url', 'core'), null);
+  const key = `s${RUN}k/secretsauce`;
+  const b = await builder({ key, name: 'secretsauce', what: 'x', hidden: true, commitWeeks: last52(NOW).slice(-2) });
+  await site(b, 'https://secretsauce.github.io', [['2026-08-03', true]]);
+  await site(b, 'https://secretsauce.vercel.app', [['2026-08-03', true]]);
+  assert.equal((await safeNames([b.id]))(b.id, key), PRIVATE_NAME, 'GitHub host and repo-named host are both skipped');
+  await site(b, 'https://www.sauce.example/', [['2026-08-03', true]]);
+  assert.equal((await safeNames([b.id]))(b.id, key), 'sauce.example');
+  const s = await profileSite(b.id, await page(b.id), NOW);
+  assert.equal(s.project?.name, 'sauce.example');
+  assert.equal(s.project?.letter, 'S');
+  assert.equal(s.project?.repo, null);
 });
 
 test('(h) projectProgramsDated returns the told application\'s at and the entry\'s submitted_at', db, async () => {

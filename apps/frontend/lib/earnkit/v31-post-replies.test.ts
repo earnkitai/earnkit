@@ -177,7 +177,6 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const s = rule(show(r));
   const tap = links(s)[0]!;
   assert.equal(s, [
-    "Here's your post for X.",
     'Your post for X, with your page card:',
     `"Kit was accepted into the ${title}."`,
     `Post it in one tap: ${tap}`,

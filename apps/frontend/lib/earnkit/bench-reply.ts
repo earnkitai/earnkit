@@ -193,12 +193,12 @@ export const pageLine = (page: string) => `Your page: ${page}`;
 /** Owner ruling 3: an accepted, funded or won outcome told without its proof link. */
 export const PROOF_ASK = "Send me a public link that shows it, like the program's post.";
 /** The event reply: its head, the post block and `ask`, one block. Pure. */
-export const postReply = (e: EventPost, ask: string) => [e.head, ...postLines(e), ask].join('\n');
+export const postReply = (e: EventPost, ask: string) => [e.head, ...postLines(e), ask].filter(Boolean).join('\n');
 const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);
 /**
  * The event reply's head (design 6): "Tally went live this week." (else "Tally is live." when it went live over 7
  * days ago, so the line stays true), "Ledgerline won the Base Builder Grant.", the coin's "Backing is open on your
- * page.", accepted or funded "Here's your post for X." (the profile doesn't show them), else "Added to your page."
+ * page.", accepted or funded an empty head (the reply starts at "Your post for X, with your page card:"), else "Added to your page."
  * (the builder's news, on the page as their update). Pure.
  */
 export function eventHead(c: { moment: string; input: object; card?: Record<string, unknown> }, now: Date = new Date()): string {
@@ -211,7 +211,7 @@ export function eventHead(c: { moment: string; input: object; card?: Record<stri
   if (c.moment === 'won' && name && i.program) return `${name} won ${theProgram(i.program)}.`;
   if (c.moment === 'coin_intro') return 'Backing is open on your page.';
   // Fix round: the profile doesn't show an acceptance or funding, so never "Added to your page." for them.
-  if (c.moment === 'accepted' || c.moment === 'funded') return "Here's your post for X.";
+  if (c.moment === 'accepted' || c.moment === 'funded') return '';
   return 'Added to your page.';
 }
 /**
