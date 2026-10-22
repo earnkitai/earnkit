@@ -176,11 +176,13 @@ async function benchRead(id: number, own: number, now: Date): Promise<BenchRead>
             AND lower(s.project_key) = lower(b.project_key)) AS site
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
-  // v3.1 streak fix: the streak and its weeks are streak.ts's (the profile's own), not builder_projects.streak or commit_weeks.
+  // v3.1 streak fix: the streak and its weeks are streak.ts's (the profile's own), never builder_projects.streak or
+  // commit_weeks. Fix round 1: both come from that one read; without it (not confirmed, or the read failed, logged) the
+  // streak is 0 and the weekly moment gets no weeks, never the retired cache.
   const lit = row?.confirmed ? await streaksFor([id], now).then((m) => m.get(id)).catch(logged('streak')) : null;
   if (row) {
     row.streak = lit?.streak ?? 0;
-    if (lit) row.commit_weeks = [...lit.weeks].sort();
+    row.commit_weeks = lit ? [...lit.weeks].sort() : [];
   }
   const ranks = await rankLines(id).catch(() => NO_RANK);
   const [live] = await sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`.catch(() => []);

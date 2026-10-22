@@ -14,7 +14,7 @@ const WEEK_MS = 7 * 86_400_000;
  * v3.1 streak fix: the one place a streak is read (see site-streak.ts). For each builder in `ids` whose one project is
  * Bench-confirmed now: the rescored commit weeks, the shown weeks EarnKit checked commits for, and this week's commits on
  * the live repo reading (the profile's rule, so a leaderboard row never trails the page). A builder with no confirmed
- * project is absent from the map (a streak of 0, nothing lit). Reads are batched: three queries however many ids.
+ * project is absent from the map (a streak of 0, nothing lit). Reads are batched: two queries however many ids.
  */
 export async function streaksFor(ids: number[], now: Date): Promise<Map<number, Streak>> {
   const out = new Map<number, Streak>();
@@ -36,6 +36,12 @@ export async function streaksFor(ids: number[], now: Date): Promise<Map<number, 
     SELECT u.builder_id, u.week::text AS week, u.facts FROM project_updates u
     JOIN builder_profiles f ON f.builder_id = u.builder_id AND lower(u.project_key) = lower(f.main_project_key)
     WHERE u.builder_id = ANY(${ids}::int[]) AND NOT u.hidden AND u.week >= ${since}::date AND u.facts ? 'shipped_code'`;
+  const byBuilder = new Map<number, (typeof updates)[number][]>();
+  for (const u of updates) {
+    const list = byBuilder.get(u.builder_id);
+    if (list) list.push(u);
+    else byBuilder.set(u.builder_id, [u]);
+  }
   for (const r of rows) {
     const count = Math.floor(Number(r.n ?? 0));
     out.set(
@@ -43,7 +49,7 @@ export async function streaksFor(ids: number[], now: Date): Promise<Map<number, 
       streakWeeks(
         {
           commitWeeks: r.commit_weeks,
-          updates: updates.filter((u) => u.builder_id === r.builder_id),
+          updates: byBuilder.get(r.builder_id) ?? [],
           // The anti-backdating floor (person-score.ts weekCounts), as the ship log's own count.
           thisWeekCommits: count > 0 && weekCounts(r, week, now) ? count : 0,
         },
