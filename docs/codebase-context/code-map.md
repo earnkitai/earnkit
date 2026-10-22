@@ -207,7 +207,8 @@ apps/frontend/
                                handleMetadata (title, og card)
   app/[handle]/ScoreRing.tsx   v3.1 Task 7: the profile's Shipping ring (132px, viewBox 148, r 62, stroke 12, navy track,
                                the band's light-to-deep gradient, round caps, .ek-arc draw; null: track and DASH)
-  app/[handle]/Avatar.tsx      the X picture (avatarUrl: pbs.twimg.com over https only) or the first letter
+  app/[handle]/Avatar.tsx      the X picture, else (clarity batch) the GitHub one of builder_profiles.github_login
+                               (avatarUrl(x, login): pbs.twimg.com, then avatars.githubusercontent.com/<login>?s=200 only), or the first letter
   app/[handle]/card-response.tsx  cardResponse (next/og 1200x630, Funnel Display from assets/fonts, the X
                                picture with a 3 s timeout, CARD_CACHE) and shareResponse (card_shared once a day,
                                302 to the X intent); both check the live row (no-store 404, 308 to pagePath).
@@ -2138,3 +2139,19 @@ Deleted: `app/[handle]/MoneyTab.tsx`, `app/[handle]/ProjectTab.tsx`, `app/compon
 `app/components/sections/ProgramCards.tsx` stays as a shim because `copy-review.test.ts` imports it.
 
 Docs: `apps/frontend/DESIGN.md` rewritten for the v3.1 system (pinned by `v3-tokens.test.ts` T1.8).
+
+v3.1 site clarity batch (branch `v3.1-site-clarity`, 2026-10-22; every file under `apps/frontend/`):
+- `Footer.tsx` CompanyLine centred (full and minimal).
+- Hero: `HeroArt.tsx` painting at brightness 0.95; `Hero.tsx` SHADE is an ellipse behind the words plus a low band
+  (`SITE.heroHalo`, `heroHaloMid`, `heroBand`; `heroShade`, `heroShadeDeep`, `heroShadeEnd` removed); `HERO_TITLE`
+  "Get funded for shipping." at `clamp(28px,9.6vw,96px)`, one line down to 320px; `layout.tsx` TITLE follows;
+  `public/art/*` re-exported (byte budgets in `v31-site-tokens.test.ts` raised).
+- `site-copy.ts`: STEPS (Connect, Ship, Get funded; backing line), `SCORE_UNIT`, `streakRun`, `BENCH_VERIFIED`,
+  `SCORE_SOURCE`, `SCORE_HOW`, `SCORE_HOW_HREF` (/docs#score), `ROLLING`. `Steps.tsx` icon box + fixed title gap.
+- `ScoreText.tsx` `unit` prop (a quiet "Shipping" caption) used by `landing/Activity.tsx`, `feed/FeedRow.tsx`,
+  `leaderboard/BenchRowItem.tsx`; `BenchRowItem` and `Podium` use `streakRun`; `BenchView.countLine` appends
+  BENCH_VERIFIED; `[handle]/site/ScoreCard.tsx` adds SCORE_SOURCE and the "How it's scored" INLINE_LINK.
+- `page-data.ts avatarUrl(raw, githubLogin?)` (X, then GitHub, then null); `feed.ts`, `bench-data.ts` (benchRows,
+  profileData) read `github_login`. `benchCardFacts`/`personFacts` (the share card) stay X-only.
+- `landing.ts Tile.organizer` and `when` ROLLING; `landing/Opportunities.tsx` shows the organizer's name on the white
+  tile when there is no logo file (no monogram). `fixtures/banned-words.ts` allows the owner's new phrases.
