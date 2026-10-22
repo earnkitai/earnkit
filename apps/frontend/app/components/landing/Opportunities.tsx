@@ -23,8 +23,8 @@ function Logo({ t }: { t: Tile }) {
   return (
     <span className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-s-light text-s-ink">
       {t.logo && LOCAL_LOGO.test(t.logo) ? (
-        // eslint-disable-next-line @next/next/no-img-element -- a small local file
-        <img src={t.logo} alt="" width={30} height={30} className={`h-[30px] w-[30px] object-contain ${DARK_MARKS.has(t.id) ? 'brightness-0' : ''}`} />
+        // eslint-disable-next-line @next/next/no-img-element -- a small local file; lazy: below the fold, and React would preload an eager one unused
+        <img src={t.logo} alt="" width={30} height={30} loading="lazy" className={`h-[30px] w-[30px] object-contain ${DARK_MARKS.has(t.id) ? 'brightness-0' : ''}`} />
       ) : (
         <span aria-hidden="true" className="text-[17px] font-semibold">
           {monogram(t.title)}

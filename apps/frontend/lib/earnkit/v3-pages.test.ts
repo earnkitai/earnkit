@@ -16,7 +16,7 @@ import { EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramLogo from '../../app/components/sections/ProgramLogo';
 import GuideView, { ANY_CHAIN } from '../../app/programs/[id]/GuideView';
 import AskAgent from '../../app/programs/[id]/AskAgent';
-import NotFound, { NOT_FOUND_TITLE, metadata as notFoundMeta } from '../../app/not-found';
+import NotFound, { NOT_FOUND_METADATA, NOT_FOUND_TITLE, metadata as notFoundMeta } from '../../app/not-found';
 import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from './site-copy';
 import { rankLine, rankSplit, scoreLine } from './rank';
 import { shareText } from './weekly-moment';
@@ -175,10 +175,19 @@ test('404 (v3.1 NotFound board): "404", the line as the h1, one "Back home" link
   assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
   assert.deepEqual([...main.matchAll(/<a [^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/g)].map((m) => [m[1], m[2]]), [['/', NOT_FOUND_HOME]]);
   assert.equal(NOT_FOUND_TITLE, 'Not found | EarnKit');
-  assert.deepEqual(notFoundMeta, { title: NOT_FOUND_TITLE, robots: 'noindex' });
-  // A page that calls notFound() keeps its own segment's metadata in the browser, so the 404 also renders the title
-  // itself (React hoists it into <head>, ahead of the layout's).
-  assert.ok(h.includes(`<title>${NOT_FOUND_TITLE}</title>`), h.slice(0, 200));
+  assert.deepEqual(notFoundMeta, { title: NOT_FOUND_TITLE, robots: { index: false } });
+  assert.deepEqual(NOT_FOUND_METADATA, notFoundMeta);
+  // One <title> per page: the component renders none; routes that call notFound() set it through generateMetadata.
+  assert.ok(!h.includes('<title'), h.slice(0, 200));
+});
+
+test('404 title: each route that calls notFound() for a missing entity returns NOT_FOUND_METADATA from generateMetadata (pinned in the source: these read request-scoped data and the "@/" alias)', () => {
+  const app = join(dirname(fileURLToPath(import.meta.url)), '../../app');
+  for (const f of ['[handle]/handle-view.tsx', 'b/[slug]/page.tsx', 'programs/[id]/page.tsx', 'campaigns/[slug]/page.tsx', 'p/[id]/page.tsx']) {
+    const src = readFileSync(join(app, f), 'utf8');
+    assert.match(src, /NOT_FOUND_METADATA/, f);
+    assert.match(src, /generateMetadata|handleMetadata/, f);
+  }
 });
 
 // ---- (e) wording: "of N builders" ---------------------------------------------------------------

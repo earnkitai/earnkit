@@ -1,7 +1,10 @@
+import { cache } from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { COLUMN, H1, H2, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
-import { getCampaignBoard } from '@/lib/earnkit/leaderboard';
+import { getCampaignBoard as readCampaignBoard } from '@/lib/earnkit/leaderboard';
+import { NOT_FOUND_METADATA } from '../../not-found';
 import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';
@@ -47,6 +50,14 @@ const Ext = ({ href, label }: { href: string; label: string }) =>
       {label}
     </a>
   ) : null;
+
+/** One read per request, shared by generateMetadata and the page. */
+const getCampaignBoard = cache(readCampaignBoard);
+
+/** Only a missing campaign sets a title (the 404's, which the browser would otherwise replace with the layout's); a real one keeps the layout's. */
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  return (await getCampaignBoard((await params).slug)) ? {} : NOT_FOUND_METADATA;
+}
 
 export default async function CampaignPage({
   params,

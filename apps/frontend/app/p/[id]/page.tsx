@@ -1,7 +1,10 @@
+import { cache } from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { COLUMN, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
-import { getProjectPage } from '@/lib/earnkit/leaderboard';
+import { getProjectPage as readProjectPage } from '@/lib/earnkit/leaderboard';
+import { NOT_FOUND_METADATA } from '../../not-found';
 import { entryStatus } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { TOKEN_TERMS } from '@/lib/earnkit/tokens';
@@ -22,12 +25,23 @@ const A = ({ href, children }: { href: string; children: React.ReactNode }) => (
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** One read per request, shared by generateMetadata and the page. */
+const getProjectPage = cache(readProjectPage);
+
+const entryId = async (params: Promise<{ id: string }>) => Number((await params).id);
+
+/** Only a missing entry sets a title (the 404's, which the browser would otherwise replace with the layout's); a real one keeps the layout's. */
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const id = await entryId(params);
+  return Number.isInteger(id) && (await getProjectPage(id)) ? {} : NOT_FOUND_METADATA;
+}
+
 export default async function ProjectPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const id = Number((await params).id);
+  const id = await entryId(params);
   const p = Number.isInteger(id) ? await getProjectPage(id) : null;
   if (!p) notFound();
   const c = p.campaign;
