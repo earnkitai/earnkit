@@ -513,7 +513,7 @@ apps/frontend/
                                read, GITHUB_TOKEN only, public custom images), launchLogo (H6: preview
                                only for a non-private repo with a fresh public read), logoDefaults,
                                markFor (shape + gradient from the id)
-    safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText; v2.10 safeFetchBytes for images, 1 MB,
+    safe-fetch.ts(+test)       SSRF-safe GET (safeFetchText, v3.1 plainText: text/plain only; v2.10 safeFetchBytes for images, 1 MB,
                                same rules; the request path keeps the query): https on 443, domain names only, DNS
                                resolved once via a cancellable c-ares Resolver (not dns.lookup) and every address public (isPublicAddress: IPv4
                                special-purpose ranges; IPv6 only 2000::/3 minus special ranges, so
@@ -1623,8 +1623,9 @@ apps/frontend/
                                (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
                                rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
                                readSources (READS_PER_RUN 200; no org contributors call); v3.1 site proof: proveSite
-                               (a proposed site, on its daily read: App-proven repo homepage -> repo_link, else
-                               its origin's /earnkit.txt profile: code -> earnkit_txt; site-proof.test.ts)
+                               (a proposed site, after its daily reading: the latest homepage of the App-proven
+                               repo of its own project -> repo_link, else its origin's text/plain /earnkit.txt
+                               profile: code -> earnkit_txt; site-proof.test.ts)
     builder-score.ts(+test)    v2.12 T6, T8, T9: SCORE_SLICE 0.4, scoreSliceEnd, LATE_HOUR_UTC 22, HOLD,
                                buildInputs (v1 rules, kept as history with its tests), holdReason, sourceShares,
                                profileEmpty, heldPeople, runScoreSteps (discover, read, score = person-score.ts

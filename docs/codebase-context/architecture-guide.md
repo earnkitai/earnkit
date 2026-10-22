@@ -7643,14 +7643,19 @@ gone; the Monday moment now carries a drafted post.)
   `siteOwnedByText` and `proveLinkedSite` had no callers. Discovery also runs only when queued (first find, wallet,
   sign-in, a new local repo), so a homepage set later was never matched. The profile then showed "Private project"
   (the private-name fallback needs a proven site host) and no "Live at" highlight.
-- **Fix.** `sources.ts proveSite`, called from `readAll` for every due site after its probe (sites are read after
-  repos, so today's repo readings are in), for a proposed site only: (1) its origin equals `homepageOrigin` of the
-  latest reading's `homepage` of one of the person's App-proven (`github_app`) repos: verified `repo_link` (no GitHub
-  call); else (2) it is up and its origin's `/earnkit.txt` (one fetch, `ReaderDeps.fetchText`, free, counted as
-  `site`) has a `profile:` line equal to `profileCode(builder_id, origin)`: verified `earnkit_txt`. A 404 or any
-  failure proves nothing (`soft`). A verified site keeps its proof and is never fetched: `repo_link` is in
-  `CONFIRMED_PROOFS` (scored by `person-score.ts`) and `earnkit_txt` is not, so `proveLinkedSite`'s upgrade would
-  drop a scored site; it stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
+- **Fix.** `sources.ts proveSite`, run from `readAll` for every due site right after its reading is written (sites
+  are read after repos, so today's repo readings are in), for a proposed site only: (1) its origin equals
+  `homepageOrigin` of the LATEST reading's `homepage` of the person's App-proven (`github_app`) repo of the site's own
+  project (the repo's ref, without `github.com/`, equals the site's `project_key`; a `<owner>.github.io` site also
+  needs that owner to be the repo's): verified `repo_link` (no GitHub call). Same origin only: www vs apex, another
+  port or a look-alike host never match; a path on the homepage is fine. Else (2) it is up and its origin's
+  `/earnkit.txt` (one fetch, `ReaderDeps.fetchText(url, { plainText: true })`, free, counted as `site`;
+  `safeFetchText`'s `plainText` refuses any content-type but text/plain) has a `profile:` line equal to
+  `profileCode(builder_id, origin)`: verified `earnkit_txt`. A 404 or any failure proves nothing (`soft`). The proof
+  step has its own try/catch after the reading: a failure is logged and never drops or fails the reading; the
+  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched: `repo_link`
+  is in `CONFIRMED_PROOFS` (scored by `person-score.ts`) and `earnkit_txt` is not, so `proveLinkedSite`'s upgrade
+  would drop a scored site; it stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
   `EARNKIT_AUTH_SECRET`, read from the live origin); `verifySource` verifies only a proposed row, never a `stale`
   one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
   (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,

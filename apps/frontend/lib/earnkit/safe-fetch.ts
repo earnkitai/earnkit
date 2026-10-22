@@ -322,6 +322,8 @@ type FetchOpts = {
   userAgent?: string;
   /** The Accept header (default text/plain; a probe always asks for HTML). */
   accept?: string;
+  /** v3.1 site proof: refuse a response whose content-type is not text/plain (an earnkit.txt read). */
+  plainText?: boolean;
 };
 
 /**
@@ -330,6 +332,7 @@ type FetchOpts = {
  */
 export async function safeFetchText(url: string, opts: FetchOpts = {}): Promise<string> {
   const { body, contentType } = await safeFetch(url, opts);
+  if (opts.plainText && !/^\s*text\/plain\b/i.test(contentType ?? '')) throw new SafeFetchError(`not text/plain (${contentType ?? 'no content-type'})`);
   const text = body.toString('utf8');
   if (opts.probe) return isHtmlResponse(contentType, text) ? text : '';
   return text;
