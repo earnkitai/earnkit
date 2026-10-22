@@ -1747,3 +1747,9 @@ CREATE TABLE IF NOT EXISTS repo_builder_codes (repo_key text PRIMARY KEY, found 
 -- v3.1: an unlisted program (off-thesis) keeps its row for old entries; nothing lists, matches, counts or guides it.
 ALTER TABLE programs DROP CONSTRAINT IF EXISTS programs_status_check;
 ALTER TABLE programs ADD CONSTRAINT programs_status_check CHECK (status IN ('active', 'closed', 'upcoming', 'unlisted'));
+
+-- v3.1: when EarnKit first saw a backer (the Monday email's new backers); rows from before v3.1 are never new.
+ALTER TABLE coin_backers ADD COLUMN IF NOT EXISTS first_seen_at timestamptz;
+UPDATE coin_backers SET first_seen_at = 'epoch' WHERE first_seen_at IS NULL;
+ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET DEFAULT now();
+ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET NOT NULL;

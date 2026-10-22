@@ -7,7 +7,6 @@ import type { ProfileSite } from '../../lib/earnkit/site-data';
 import { withThisWeek } from '../../lib/earnkit/site-streak';
 import { PAGE_COL, phoneRadius, CARD_BLUE } from '../components/site/ui';
 import Avatar from './Avatar';
-import { DASH } from './ScoreRing';
 import ActivityCard from './site/ActivityCard';
 import HeroCard from './site/HeroCard';
 import HighlightsCard from './site/HighlightsCard';
@@ -24,7 +23,13 @@ export const confirmingCardLine = (name: string, project: string) =>
   `${name} is getting ${project === PRIVATE_NAME ? 'a private project' : project} on the leaderboard.`;
 /** Launch ready L10: a page with no project yet: one calm line in place of the project. */
 export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
-export { DASH, streakWords, rankSplit, dollars };
+export { streakWords, rankSplit, dollars };
+
+/**
+ * QA item 3: both card rows are one column template, so the hero | score seam and the Activity | Highlights seam line
+ * up (the left column 1.45 to 1). One column on a phone and up to 843px, where the old flex rows also stacked.
+ */
+const ROWS = 'grid grid-cols-1 gap-4 min-[844px]:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]';
 
 /** The 12 squares of the Streak card: the grid's last 12 weeks (padded with off weeks on a short grid). Pure. */
 const last12 = (grid: ProfileData['grid']): boolean[] => {
@@ -41,8 +46,8 @@ export function BenchProfileSkeleton({
   const flat = phoneRadius(CARD_BLUE).replace('bg-s-blue text-s-on-blue', 'bg-s-panel text-s-text');
   return (
     <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2`} aria-busy="true">
-      <section aria-label="Profile" className="flex flex-wrap items-stretch gap-4">
-        <div className={`${flat} flex min-h-[320px] min-w-0 flex-[3_1_460px] flex-col p-6 md:p-9`}>
+      <section aria-label="Profile" className={ROWS}>
+        <div className={`${flat} flex min-h-[320px] min-w-0 flex-col p-6 md:p-9`}>
           <div className="flex flex-wrap items-center gap-[18px]">
             <Avatar src={head.avatar} handle={head.handle} tone="blue" className="h-16 w-16 text-[34px] md:h-[76px] md:w-[76px] md:text-[40px]" />
             <div className="flex min-w-0 flex-[1_1_200px] flex-col gap-1">
@@ -51,7 +56,7 @@ export function BenchProfileSkeleton({
             </div>
           </div>
         </div>
-        <div aria-hidden="true" className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
+        <div aria-hidden="true" className="flex min-w-0 flex-col gap-4">
           <span className={`${flat} block h-[188px]`} />
           <span className={`${flat} block h-[150px]`} />
         </div>
@@ -62,7 +67,7 @@ export function BenchProfileSkeleton({
 }
 
 /**
- * v3.1 site Task 7 (Profile, BackedBuilder and NewBuilder boards; plan S15): two wrapping rows of cards. The blue hero
+ * v3.1 site Task 7 (Profile, BackedBuilder and NewBuilder boards; plan S15): two rows of cards on one column template. The blue hero
  * (photo, name, the standing pill from RANK_MIN_POOL ranked builders, @handle, X, GitHub, Share, the project panel)
  * beside the navy Shipping score and the rust Streak; the white Activity card (three weeks a page) beside the Token
  * card (only from site.token) and Highlights. Then the minimal footer. No points, Originality, 52-week grid, rank
@@ -80,17 +85,17 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
     <>
       {/* No bottom padding from md: the minimal footer's 72px is the whole gap under the cards (Profile board). */}
       <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 md:pb-0`}>
-        <section aria-label="Profile" className="flex flex-wrap items-stretch gap-4">
+        <section aria-label="Profile" className={ROWS}>
           <HeroCard data={d} site={site} line={line} />
-          <div className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             <ScoreCard score={quiet ? null : d.score} first={site.first} />
             {/* withThisWeek: the same streak profileSite gave Highlights (this week's commits light this week). */}
             <StreakCard streak={streak.streak} weeks={last12(streak.grid)} thisWeek={quiet ? 0 : site.thisWeek} />
           </div>
         </section>
-        <section aria-label="Activity and highlights" className="flex flex-wrap items-start gap-4">
+        <section aria-label="Activity and highlights" className={`${ROWS} items-start`}>
           <ActivityCard log={d.log} lastShippedAt={site.lastShippedAt} page={page} path={pagePath(d.handle)} quiet={quiet} now={now} />
-          <aside className="flex min-w-0 flex-[2_1_320px] flex-col gap-4">
+          <aside className="flex min-w-0 flex-col gap-4">
             {site.token ? <TokenCard token={site.token} first={site.first} project={site.project} /> : null}
             <HighlightsCard items={site.highlights} />
           </aside>

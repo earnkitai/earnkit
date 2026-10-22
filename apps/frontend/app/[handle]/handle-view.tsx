@@ -13,6 +13,7 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
 import { profileSite } from '../../lib/earnkit/site-data';
+import { NOT_FOUND_METADATA } from '../../lib/earnkit/site-copy';
 import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
 
 type Query = Record<string, string | string[] | undefined> | undefined;
@@ -74,10 +75,11 @@ export async function HandleView({
   );
 }
 
-/** The page's title, description and share card; nothing for a page that is not public. */
+/** The page's title, description and share card; the 404's title for a page that is not public (page() calls notFound()). */
 export async function handleMetadata(handle: string): Promise<Metadata> {
   const r = await resolveHandle(handle);
-  if (!r || 'redirect' in r) return {};
+  if (!r) return NOT_FOUND_METADATA;
+  if ('redirect' in r) return {};
   const h = await pageHead(r.builderId);
   const card = `${pagePath(r.handle)}/card.png`;
   const title = `${h.name} on EarnKit`;

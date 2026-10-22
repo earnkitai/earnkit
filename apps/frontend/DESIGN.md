@@ -83,7 +83,8 @@ width, cached by the CDN). Public domain, from the Google Art Project scans.
 | Landing hero | C.W. Eckersberg, A View through Three Arches of the Third Storey of the Colosseum, 1815 | `hero-eckersberg-{800,1600,3200}.jpg`, high priority, 1600x1036 space |
 | Full footer | G.P. Panini, Interior of the Pantheon, Rome, c. 1734, cropped to the dome | `foot-panini-{700,1400,2800}.jpg`, lazy |
 
-The footer's credit line is `site-copy.ts ART_CREDIT`: "Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734". The hero
+The footer's headline sits under the oculus at every width (the crop is 45% down from md and 59% across on a phone, the
+headline block drops below it), never on the bright sky. The footer's credit line is `site-copy.ts ART_CREDIT`: "Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734". The hero
 adds an SVG arch clip path and a sunset circle that follows the mouse; the footer a faint warm light that follows
 the mouse. The footer's only social link is X, https://x.com/EarnKitAI (owner-confirmed 2026-10-22).
 
@@ -98,6 +99,9 @@ Under `prefers-reduced-motion` all of them stop, and the pointer components atta
 
 Designed at 390px: no horizontal scroll, 16px side gutters (`px-4`), every tap target 44px or taller (a text link
 inside a line uses `INLINE_LINK`'s 44px hit area), 2-up feed stats, the profile's cards 28px radius, rails that wrap.
+A rail that scrolls sideways instead (feed weeks, leaderboard filters, the install sheet's agent tabs) fades its cut edge
+over 40px while it overflows (`FadeRail`, `SegTabs RAIL_FADE`). The landing hero's shade rises on a phone (deep from 44%,
+not 72%) and its money chip is dark glass (`hero-chip-phone`), so the chip, title and sub line hold over the painting.
 Checked at 1440x900 and 390x844 for every page (`v31-site-sweep.test.ts` and the SDD screenshots).
 
 ## Contrast

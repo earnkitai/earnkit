@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
+import DocsNav from './DocsNav';
 import InstallCard from './InstallCard';
 
 /** The three cards' 32px radius (the card primitives carry 36px). */
@@ -24,26 +25,14 @@ function InfoCard({ id, card, soft, title, text }: { id: string; card: string; s
  * v3.1 site Task 10 (Docs board): the side nav (a wrapping row above the article on a phone), the light install card
  * (the agent tabs and the chosen command from AGENTS, a copy button, three numbered steps), the three cards (how the
  * week works, the Shipping score, programs and, while Backing is on, Backing), then the selectors strip with the
- * builder JSON URL. Server-rendered per request (raisingEnabled is read at run time); the tabs are the one client part.
+ * builder JSON URL. Server-rendered per request (raisingEnabled is read at run time); the tabs and the side nav's lit item are the client parts.
  */
 export default function DocsView() {
   const raising = raisingEnabled();
   const money = docsMoney(raising);
   return (
     <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 lg:flex-row lg:items-start`}>
-      <nav aria-label="Docs" className={`${r32(CARD_PANEL)} flex flex-wrap gap-1 p-3 text-[15px] lg:w-[260px] lg:shrink-0 lg:flex-col lg:p-[22px]`}>
-        {docsNav(raising).map(([href, label], i) => (
-          <a
-            key={href}
-            href={href}
-            className={`inline-flex min-h-11 items-center rounded-[16px] px-3.5 py-2.5 lg:min-h-0 ${
-              i === 0 ? 'bg-s-panel-inner font-semibold text-s-text' : 'text-s-muted hover:text-s-text motion-safe:transition-colors'
-            }`}
-          >
-            {label}
-          </a>
-        ))}
-      </nav>
+      <DocsNav items={docsNav(raising)} className={`${r32(CARD_PANEL)} flex flex-wrap gap-1 p-3 text-[15px] lg:w-[260px] lg:shrink-0 lg:flex-col lg:p-[22px]`} />
 
       <article className="flex min-w-0 flex-1 flex-col gap-4">
         <section id="install" aria-labelledby="install-title" className={`${CARD_LIGHT.replace('rounded-[36px]', 'rounded-[28px] md:rounded-[36px]')} flex scroll-mt-24 flex-col gap-5 p-6 md:p-9`}>

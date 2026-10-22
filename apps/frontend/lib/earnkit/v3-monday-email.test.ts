@@ -117,7 +117,7 @@ test('(a) weekToken round trip and a tampered token', () => {
 });
 
 test('(b) digestBody with a week leads with the moment and both links', () => {
-  const base: DigestFacts = { newPrograms: [], wins: [], deadlines: [], week: null, handle: null };
+  const base: DigestFacts = { money: [], newPrograms: [], wins: [], deadlines: [], week: null, handle: null };
   assert.equal(digestBody(base), null, 'no week and no sections');
   const week = {
     lines: ['Last week you finished at Shipping 40, #3.', 'Fixed the login loop'],
@@ -136,9 +136,13 @@ test('(b) digestBody with a week leads with the moment and both links', () => {
   assert.ok(both.text.startsWith(`${b.text}\n\nWon: PayLink in Arc, $500.`), both.text);
   assert.equal(both.subject, b.subject, 'the week leads the subject');
   // Already confirmed (by the agent): the lines stay, no links to act on.
+  // v3.1 Task 12: the money lines come first, above the week.
+  const money = digestBody({ ...base, week, money: ['Base Builder Grant Program is open (rolling), and your draft is one yes away.', '2 new backers this week.'] })!;
+  assert.equal(money.text, `Base Builder Grant Program is open (rolling), and your draft is one yes away.\n2 new backers this week.\n\n${b.text}\n\nAsk your agent "What can I earn?" to start.`);
+  assert.equal(money.subject, b.subject, 'the week still leads the subject');
   const done = digestBody({ ...base, week: { ...week, approved: true } })!;
   assert.doesNotMatch(done.text, /Looks right|Hide this week|https:/);
-  for (const x of [b, both, done]) {
+  for (const x of [b, both, money, done]) {
     assert.doesNotMatch(`${x.subject}\n${x.text}`, /\p{Extended_Pictographic}|—/u);
   }
 });

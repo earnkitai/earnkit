@@ -116,6 +116,8 @@ export const SITE = {
   heroShadeClear: 'rgba(8,7,14,0)',
   heroShadeDeep: 'rgba(8,7,14,0.72)',
   heroShadeEnd: 'rgba(5,6,13,0.96)',
+  /** QA item 7: the hero's money chip on a phone, a dark glass so its words hold over the painting's sky. */
+  heroChipPhone: 'rgba(8,7,14,0.42)',
   heroTitleShadow: 'rgba(5,6,13,0.7)',
   ctaGlow: 'rgba(255,150,90,0.30)',
   ctaGlowHover: 'rgba(255,150,90,0.5)',

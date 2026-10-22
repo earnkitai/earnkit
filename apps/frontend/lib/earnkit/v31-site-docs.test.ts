@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DocsView from '../../app/docs/DocsView';
+import { readingNow } from '../../app/docs/DocsNav';
 import { AgentPanel, COPY_SAID, tabKeyTarget } from '../../app/docs/InstallCard';
+import SegTabs, { RAIL_FADE, segRail } from '../../app/components/site/SegTabs';
 import NotFound from '../../app/not-found';
 import GuideView from '../../app/programs/[id]/GuideView';
 import TermsPage from '../../app/terms/page';
@@ -50,13 +52,42 @@ test('(a) side nav links to the five anchors and each anchor id exists', () => {
   assert.deepEqual(links.map((l) => l[0]), ['#install', '#week', '#score', '#money', '#selectors']);
   assert.deepEqual(links.map((l) => l[0]), DOCS_NAV.map((n) => n[0]));
   for (const [href] of links) assert.equal((h.match(new RegExp(`id="${href.slice(1)}"`, 'g')) ?? []).length, 1, href);
-  // The first link is the lit one (panel-inner, white); the others are muted.
-  const first = nav.match(/<a [^>]*>/)![0];
-  assert.match(first, /bg-s-panel-inner/);
-  assert.match(first, /text-s-text/);
+  // Server render (the page opens at the top): the first link is lit (panel-inner, white, aria-current), the others
+  // muted; in the browser DocsNav moves it with the section in view (QA item 4, readingNow below).
+  const as = nav.match(/<a [^>]*>/g)!;
+  assert.match(as[0], /aria-current="location"/);
+  assert.match(as[0], /bg-s-panel-inner/);
+  assert.match(as[0], /text-s-text/);
+  for (const a of as.slice(1)) assert.doesNotMatch(a, /aria-current|bg-s-panel-inner/, a);
   // Phone: a wrapping row, every link 44px tall; no horizontal scroll rail.
   assert.match(h.match(/<nav [^>]*aria-label="Docs"[^>]*>/)![0], /flex-wrap/);
   for (const a of nav.match(/<a [^>]*>/g)!) assert.match(a, /min-h-11/);
+});
+
+test('(QA 4) readingNow: the lit docs section follows the one in view, rows of cards count once, a pick holds at the bottom', () => {
+  // Install, then a row of three cards side by side (one top), then selectors; the read line at 140px.
+  const at = (y: number) => [
+    { id: 'install', top: y, bottom: y + 600 },
+    { id: 'week', top: y + 616, bottom: y + 816 },
+    { id: 'score', top: y + 616, bottom: y + 816 },
+    { id: 'money', top: y + 616, bottom: y + 816 },
+    { id: 'selectors', top: y + 832, bottom: y + 1000 },
+  ];
+  const o = { line: 140, height: 900, current: 'install', held: null, atBottom: false };
+  assert.equal(readingNow(at(100), o), 'install', 'the top of the page');
+  assert.equal(readingNow(at(400), o), 'install', 'nothing else past the line yet');
+  assert.equal(readingNow(at(-500), o), 'week', 'the row passed the line: its first card');
+  assert.equal(readingNow(at(-500), { ...o, current: 'score' }), 'score', 'a clicked card in the row stays lit');
+  assert.equal(readingNow(at(-700), { ...o, current: 'score' }), 'selectors');
+  assert.equal(readingNow(at(-500), { ...o, current: 'week' }), 'week');
+  // At the bottom the last section lights, unless the reader picked one still on screen.
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true }), 'selectors');
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true, held: 'money' }), 'money');
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true, held: 'install' }), 'install', 'install still shows (bottom 300)');
+  assert.equal(readingNow(at(-700), { ...o, atBottom: true, held: 'install' }), 'selectors', 'install off screen');
+  assert.equal(readingNow([], o), null);
+  // No hard-coded lit index left in the view.
+  assert.doesNotMatch(read('app/docs/DocsView.tsx'), /i === 0/);
 });
 
 test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot selected, its steps and the link; each tab shows exactly its AGENTS command', () => {
@@ -133,7 +164,9 @@ test('(d) the selectors card shows the JSON URL; no "points", no em dash, under 
 test('(e) 404: "404", "Nothing shipped here.", one link "Back home" to /, and the full footer', () => {
   const h = renderToStaticMarkup(React.createElement(NotFound));
   const [main, foot] = [h.split('<footer')[0], h.slice(h.indexOf('<footer'))];
-  assert.ok(text(main).startsWith(`${NOT_FOUND_BIG} ${NOT_FOUND_TEXT} ${NOT_FOUND_HOME}`), text(main));
+  // The <title> (QA item 13) goes to <head>, not the card: read the card's words without it.
+  const card = main.replace(/<title>[^<]*<\/title>/, '');
+  assert.ok(text(card).startsWith(`${NOT_FOUND_BIG} ${NOT_FOUND_TEXT} ${NOT_FOUND_HOME}`), text(card));
   assert.match(main, new RegExp(`<h1[^>]*>${NOT_FOUND_TEXT.replace('.', '\\.')}</h1>`));
   assert.match(main, /class="[^"]*\bbg-s-rust\b/);
   assert.match(main, /class="[^"]*\btext-s-rust-on\b[^"]*"[^>]*>404</);
@@ -180,6 +213,17 @@ test('(g) Task 11: the install tabs wrap on a phone, rove with the arrow keys, a
   // The other rails (the sheet, the leaderboard filters, the feed weeks) still scroll in one row.
   const src = read('app/components/site/SegTabs.tsx');
   assert.match(src, /if \(tone === 'light'\) return `flex max-w-full flex-wrap/);
+});
+
+test('(QA 8) a rail that scrolls fades its cut edge: RAIL_FADE on the scrolling tones only, one mask per data-fade, FadeNav on SegTabs', () => {
+  for (const tone of ['panel', 'step', 'sheet'] as const) assert.ok(segRail(tone).endsWith(RAIL_FADE), tone);
+  assert.ok(!segRail('light').includes('mask-image'), 'the docs rail wraps, nothing to fade');
+  for (const at of ['end', 'start', 'both']) assert.match(RAIL_FADE, new RegExp(`data-\\[fade=${at}\\]:\\[mask-image:linear-gradient\\(90deg,`), at);
+  // Server markup carries no data-fade: only the browser knows whether the rail overflows.
+  const rail = renderToStaticMarkup(React.createElement(SegTabs, { label: 'Weeks', tone: 'step', items: [{ label: 'Week of Oct 12', href: '/feed', on: true }] }));
+  assert.match(rail, /^<nav aria-label="Weeks" class="[^"]*data-\[fade=end\]:\[mask-image/);
+  assert.doesNotMatch(rail, /data-fade/);
+  assert.match(read('app/components/sections/AddToAgent.tsx'), /<div ref=\{rail\} role="tablist"/);
 });
 
 test('(h) Task 11: terms section headings are Kaftan; every inline link is 44px tall on a phone', () => {

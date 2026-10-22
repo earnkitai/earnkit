@@ -2,12 +2,12 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchView, { FILTER_BACKED, LEADERBOARD_PAGE, pageHref } from '../../app/leaderboard/BenchView';
+import BenchView, { FILTER_BACKED, LEADERBOARD_PAGE, countLine, pageHref } from '../../app/leaderboard/BenchView';
 import { benchRows, type BenchFilter, type BenchRow } from './bench-data';
 import { sql } from './db';
 import { person, withEnv } from './fixtures/find';
 import { RANK_MIN_POOL } from './rank';
-import { leaderboardLine } from './site-copy';
+import { BENCH_TOP_EMPTY, leaderboardLine } from './site-copy';
 
 /**
  * v3.1 site Task 8: the leaderboard (Leaderboard board): the podium (blue, navy, rust, metal place pills), the rows
@@ -221,4 +221,23 @@ test('(h) Task 11: the place pill follows the whole-board rank (a filtered podiu
   const row = block(all, 'data-row="bldr_4"');
   assert.match(row, /<span aria-hidden="true" class="hidden md:inline">·<\/span><span class="w-full [^"]*md:w-auto">Project 4<\/span>/, row);
   assert.equal(count(all, /aria-label="Builders"/g), 1, 'one Builders landmark');
+});
+
+test('(QA 2) the count line follows the filter (its rows); the 10-ranked rule keeps reading the pool', () => {
+  const base = { chain: 'base' as const, weekly: false };
+  // Plain view: the pool. A filter: its rows. A filter with no rows: no line. Nobody ranked: the empty line.
+  assert.equal(countLine(PLAIN, 12, 40), leaderboardLine(40));
+  assert.equal(countLine(base, 4, 40), leaderboardLine(4));
+  assert.equal(countLine({ chain: null, weekly: true }, 3, 40), leaderboardLine(3));
+  assert.equal(countLine(base, 0, 40), null);
+  assert.equal(countLine(PLAIN, 0, 0), BENCH_TOP_EMPTY);
+  // Rendered: 4 Base rows of a 12-builder pool say 4, never 12; the pool of 12 still ranks them (#N shows).
+  const h = view(rowsOf(4), { count: 12, filter: base });
+  assert.ok(text(h).includes(leaderboardLine(4)), 'the filter\'s rows');
+  assert.ok(!text(h).includes(leaderboardLine(12)), 'not the pool');
+  assert.match(h, /data-rank=""/, 'ranked from the pool of 12 (RANK_MIN_POOL)');
+  // 12 Base rows of a 9-builder pool: the line says 12 yet nothing is ranked (the pool decides).
+  const small = view(rowsOf(12), { count: RANK_MIN_POOL - 1, filter: base });
+  assert.ok(text(small).includes(leaderboardLine(12)));
+  assert.doesNotMatch(text(small), /#\d/);
 });

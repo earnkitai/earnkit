@@ -99,7 +99,7 @@ test('(c) the Monday email subject and body under 10: "Your week on EarnKit: Shi
   assert.equal(lines[0], 'Last week you finished at Shipping 60 (+6).');
   assert.equal(momentLines({ monday: '2026-10-05', now, before: null, titles: [], checked: true })[0], 'Last week you finished at Shipping 60.');
   assert.equal(shareText(now), 'My week on EarnKit: Shipping 60');
-  const b = digestBody({ newPrograms: [], wins: [], deadlines: [], handle: null, week: { lines, standing: now, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false } })!;
+  const b = digestBody({ money: [], newPrograms: [], wins: [], deadlines: [], handle: null, week: { lines, standing: now, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false } })!;
   assert.equal(b.subject, 'Your week on EarnKit: Shipping 60');
   assert.doesNotMatch(`${b.subject}\n${b.text}`, /#/);
   // From 10, unchanged.

@@ -137,6 +137,7 @@ export default {
         's-hero-shade-clear': 'var(--ek-s-hero-shade-clear)',
         's-hero-shade-deep': 'var(--ek-s-hero-shade-deep)',
         's-hero-shade-end': 'var(--ek-s-hero-shade-end)',
+        's-hero-chip-phone': 'var(--ek-s-hero-chip-phone)',
         's-hero-title-shadow': 'var(--ek-s-hero-title-shadow)',
         's-cta-glow': 'var(--ek-s-cta-glow)',
         's-cta-glow-hover': 'var(--ek-s-cta-glow-hover)',

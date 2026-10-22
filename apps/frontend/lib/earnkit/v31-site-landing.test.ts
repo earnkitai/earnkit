@@ -223,6 +223,9 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   // A logo file on a white tile; no file: the monogram.
   assert.match(earn, /<img[^>]*src="\/programs\/base-builder-grants\.svg"/);
   assert.ok(text(earn).includes(' AA '), 'Alliance ALL19 monogram');
+  // Below the fold: lazy, so React does not preload the logos (the browser's "preloaded but unused" warning).
+  const logos = [...earn.matchAll(/<img[^>]*src="\/programs\/[^>]*>/g)].map((m) => m[0]);
+  assert.ok(logos.length >= 2 && logos.every((l) => l.includes('loading="lazy"')), logos.join('\n'));
 
   const two = section(html({ ...LANDING, tiles: TILES.slice(0, 2) }), 'earn');
   assert.equal((two.match(/href="\/programs\//g) ?? []).length, 2);

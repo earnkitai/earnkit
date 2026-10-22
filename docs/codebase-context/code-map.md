@@ -114,9 +114,10 @@ apps/frontend/
                                getGuidePage(id) (React cache): gatedGuidePage — id ^[a-z0-9-]{1,64}$ and in
                                the cached curated id set ['guide-ids-v27'] (landing key 'landing-v3-<featured handle>'), else null with no per-id read;
                                then readGuidePage ['guide-v27'], 600 s; failure → [guide], connection(), 'error'
-  app/docs/{page,DocsView,InstallCard}.tsx  v3.1 site T10 (Docs board): /docs, force-dynamic (W9, no DB read); every string in
+  app/docs/{page,DocsView,DocsNav,InstallCard}.tsx  v3.1 site T10 (Docs board): /docs, force-dynamic (W9, no DB read); every string in
                                lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
-                               (five anchors), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
+                               (five anchors; DocsNav, client: the lit item follows the hash and the section in view, readingNow
+                               pure, aria-current="location"), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
                                AgentPanel shows code ?? MCP_URL, copy button + aria-live "Copied"; three numbered steps), the
                                week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
   app/programs/page.tsx        v3.1 W10: permanentRedirect('/#earn') (the landing's Earning opportunities)
@@ -156,7 +157,7 @@ apps/frontend/
                                (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
   app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
                                (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
-  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME (site-copy.ts), full footer
+  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME/METADATA (site-copy.ts), full footer
   app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
                                BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
   apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
@@ -245,7 +246,8 @@ apps/frontend/
                                PAGE_COL_WIDE 1240, PAGE_COL 1200, H1_SITE 72/48, H2_SITE 64/44), Serif (Kaftan, .ek-serif),
                                ScoreText (band colour via site-copy.ts scoreBand), XHandle (X glyph + @handle link; link={false} text, navy tone T8), Pager
                                (links; disabled ends aria-disabled at 35%; "N of M" or numbers), SegTabs (pill rail of links,
-                               aria-current; segRail/segTab for the install sheet's tabs), useReducedMotion and
+                               aria-current; segRail/segTab for the install sheet's tabs; RAIL_FADE masks a cut edge),
+                               FadeRail (client: useEdgeFade sets data-fade end/start/both while a rail overflows; FadeNav), useReducedMotion and
                                useMediaQuery (client). T5: NavLinks (client, usePathname, aria-current), FooterLight (client,
                                pointer light on the footer; nothing under reduced motion or on touch), AgentMarks (AGENT_MARKS
                                from the Landing board, lobehub MIT + muse.svg; AgentMark)
@@ -1350,10 +1352,14 @@ apps/frontend/
                                unsubHeaders, idempotencyKey, MAX_SEND_FAILURES, Mailer/MailError/
                                resendMailer, entryEmail/cleanEmail, askWeeklyEmail (Ruling 13, P16),
                                saveWeeklyEmail, unsubscribe, digestFacts, sendDigests (row lock,
-                               free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post
+                               free-tier caps; v3: a week not written yet is `pending`), digestUnsubscribeGet/Post;
+                               v3.1 Task 12: DigestFacts.money (moneyLines: the Best fit's draft via best-fit.ts, new
+                               backers via backers.ts newBackers) leads the body, above the week
+    best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
     builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
-    backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin
+    backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin;
+                               v3.1 Task 12: coin_backers.first_seen_at ('epoch' before v3.1), newBackers (pillCoin's coin)
     earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
@@ -1523,7 +1529,8 @@ apps/frontend/
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. At most one https link, exactly one question, the points line last.
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall)
-    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; scoring and clarity R8:
+    bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
+                               (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
                                showRaisingLine, an open offer again via openCoinLine, else backingOffer; EARNKIT_RAISING
                                off is tokenUnavailable (v3.1 final fix 1: confirm only exists with it on);
@@ -2090,6 +2097,15 @@ v3.1 P0 Task 16 (every reply rewritten): `bench-reply.ts` (see its entry above),
 `NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`, `shippingStand`, `SHIP_STEP`, `shareAsk`, `CONNECT_HEAD`,
 `fundNeeds`, `needsPicks`, `NEEDS_MAX`. New: `v31-reply-copy.test.ts`, `bench-reply.test.ts` rewritten.
 
+v3.1 release 2 Task 12 (Monday email money): new `best-fit.ts` (`bestFitFor`), `digest.ts` (`moneyTexts`, `moneyLines`,
+`DigestFacts.money`), `backers.ts` (`newBackers`, `first_seen_at` on insert), `bench-find.ts` (`scoreApplies`, `bestApplies`
+extracted from `benchView`), `db/schema.sql` (the `coin_backers.first_seen_at` append), `scripts/db-check.mts` (its checks).
+New: `v31-monday-email.test.ts`; `digest.test.ts` and `v3-monday-email.test.ts` follow `money: []`.
+v3.1 release 2 Task 14 (copy sweep): `copy-review.test.ts` (`v31Texts`, per-label `allowed` map). Site UX batch: `site-copy.ts`
+(`NOT_FOUND_TITLE`, `NOT_FOUND_METADATA`; `not-found.tsx` exports it as `metadata`) used by `generateMetadata` in `p/[id]`, `b/[slug]`,
+`campaigns/[slug]`, `programs/[id]` and `[handle]` (via `handleMetadata`, which also serves `/b/<reserved>`);
+`landing/Opportunities.tsx` lazy logos; `FadeRail.tsx`, `DocsNav.tsx` (see the site entries below).
+
 v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/frontend/`):
 
 New, tokens and data:
@@ -2102,7 +2118,8 @@ New, tokens and data:
 
 New, primitives (`app/components/site/`):
 - `ui.ts` card, pill, column, title and metal class strings; `Serif.tsx` Kaftan wrapper; `Money.tsx` currency signs in Funnel Sans.
-- `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail.
+- `ScoreText.tsx` score in its band colour; `XHandle.tsx` X glyph and handle; `Pager.tsx`; `SegTabs.tsx` pill rail;
+  `FadeRail.tsx` the overflow edge fade for sideways rails (SegTabs, the install sheet's agent tabs).
 - `NavLinks.tsx` active-link nav; `FooterLight.tsx` pointer light; `AgentMarks.tsx` the four hero marks.
 - `useReducedMotion.ts` (with `useMediaQuery`).
 

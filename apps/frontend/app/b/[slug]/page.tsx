@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
+import { cache } from 'react';
 import { notFound, permanentRedirect } from 'next/navigation';
-import { resolveSlug } from '../../../lib/earnkit/profiles';
+import { resolveSlug as readSlug } from '../../../lib/earnkit/profiles';
 import { isReserved, pagePath } from '../../../lib/earnkit/reserved-routes';
+import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
 import { HandleView, handleMetadata, pageOf } from '../../[handle]/handle-view';
+
+/** One lookup per request: generateMetadata and the page share it. */
+const resolveSlug = cache(readSlug);
 
 /** Read live on every request: a hide, a claim or a rename shows at once. */
 export const dynamic = 'force-dynamic';
@@ -10,7 +15,8 @@ export const dynamic = 'force-dynamic';
 /** A reserved handle's page carries the same title and card as any other (its card is /b/<handle>/card.png). */
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  return isReserved(slug) ? handleMetadata(slug) : {};
+  if (isReserved(slug)) return handleMetadata(slug);
+  return (await resolveSlug(slug)) ? {} : NOT_FOUND_METADATA;
 }
 
 /**

@@ -130,3 +130,6 @@ export const FEED_STATS = { builders: 'Builders shipped', commits: 'Commits', li
 export const NOT_FOUND_BIG = '404';
 export const NOT_FOUND_TEXT = 'Nothing shipped here.';
 export const NOT_FOUND_HOME = 'Back home';
+export const NOT_FOUND_TITLE = 'Not found | EarnKit';
+/** The one 404 title: not-found.tsx exports it as `metadata`, and each route that calls notFound() returns it from generateMetadata. */
+export const NOT_FOUND_METADATA = { title: NOT_FOUND_TITLE, robots: { index: false } };

@@ -2,6 +2,7 @@ import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
   digestBody,
+  moneyTexts,
 } from './digest';
 import { WEEK_TEXT } from './week-links';
 import { HOST_FULL, HOST_LINES, HOST_REVIEW, STORAGE_NOTE, UPLOAD_NOTE, hostSignInLine, liveLine, withBadge } from './hosting';
@@ -24,9 +25,10 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { MOMENT_ASK, SHIP_ASK, applyAsk, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, applyAsk, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
-import { OPEN_PREFILLED, SENT_ASK, draftReadyLine } from './submit-kit';
+import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
+import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
@@ -36,7 +38,7 @@ import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from '.
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, CONFIRM_ENTRY_GONE, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -1007,15 +1009,17 @@ const builderFacing: [string, string][] = [
     const b = digestBody({
       week: null,
       handle: null,
+      money: [],
       newPrograms: [{ title: 'Avalanche Mini Grant', repo: 'TipJar', prize_usd: 10_000, ends_at: new Date('2026-11-02T00:00:00Z') }],
       wins: [{ name: 'PayLink', program: 'Arc Microgrants', prize_usd: 500 }],
       deadlines: [{ program: 'Arc Microgrants', what: 'decision', at: new Date('2026-10-20T00:00:00Z') }],
     })!;
     const w = digestBody({
       week: { lines: ['Last week you finished at Shipping 72 (+6), #3 (up 2).'], standing: { score: 72, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false },
-      handle: null, newPrograms: [], wins: [], deadlines: [],
+      handle: null, money: [], newPrograms: [], wins: [], deadlines: [],
     })!;
-    return [['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
+    const m = digestBody({ week: null, handle: null, money: ['Base Builder Grant Program is open (rolling), and your draft is one yes away.'], newPrograms: [], wins: [], deadlines: [] })!;
+    return [['digest money-only text', m.text], ['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
   })(),
   // v2.9 T12, Part 2: what a hosted site's visitors see when it ended or was taken down (the
   // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.
@@ -1372,6 +1376,121 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
     assert.ok((text.match(/\?/g) ?? []).length <= 1, label);
     // Task 16: a points line starts "+30 points" and the post for X is quoted (the owner's copy).
     for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
+  }
+});
+
+// ---- v3.1 Task 14: the copy sweep. Every new builder-facing string of v3.1 (replies, draft, email) through the v2.12.1 T8
+// rule (plain sentences, no jargon, one question at most), the banned-word review and the em dash scan. "Base" and
+// "Builder Codes" are the grant program's own words; "pick the repo you're building" and "I read your commits every week"
+// are the owner-approved Task 16 lines (BENCH_PITCH_ALLOWED), so only those exact phrases are stripped.
+function v31Texts(): [string, string][] {
+  const g = { active: false, gain: 14, next: 13 };
+  const t = (o: Partial<Parameters<typeof weeklyTarget>[0]>) => weeklyTarget({ gains: g, score: 50, rank: 2, above: null, ...o });
+  const ws = (o: Partial<Parameters<typeof weekStartLine>[0]>) => weekStartLine({ gains: g, score: 50, rank: 2, above: null, ...o })!;
+  const reqs = [
+    { key: 'project_name', label: 'Project name', type: 'text', required: true, from: 'builder' },
+    { key: 'description', label: 'What does it do?', type: 'text', required: true, from: 'builder' },
+    { key: 'demo', label: 'Demo link', type: 'url', required: true, from: 'builder' },
+  ] as SubmissionRequirement[];
+  const answers = { project_name: 'Recipes', description: 'Share recipes with friends' };
+  const gform = { url: 'https://docs.google.com/forms/d/e/1FAIpQ/viewform', fields: { project_name: 'entry.1', description: 'entry.2' }, sign_in: false, read_at: '2026-10-20' };
+  const prog = { title: 'Base Builder Grant Program', submission_url: 'https://forms.gle/abc', submission_requirements: reqs };
+  const prefilled = draftKit({ ...prog, form: gform }, answers, { note: builderCodesFound('maya/app') });
+  const paste = draftKit({ ...prog, submission_url: 'https://dorahacks.io/hackathon/x/buidl' }, answers, { note: BUILDER_CODES_FIRST });
+  assert.equal(prefilled.mode, 'prefilled_link');
+  assert.equal(paste.mode, 'copy_paste');
+  const now = new Date('2026-10-22T12:00:00Z');
+  const open = { title: 'Base Builder Grant Program', amount: '$5,000' };
+  return [
+    ['INTRO_LINE', INTRO_LINE],
+    ['introWhat', introWhat({ org: 'Base', amount: '$5,000' })],
+    ['introWhat no grant', introWhat(null)],
+    ['youreIn', youreIn('maya')],
+    ['pickRepoAsk', pickRepoAsk('https://earnkit.com/github/verify?n=x')],
+    ['POINTS_ON_SIGN_IN', POINTS_ON_SIGN_IN],
+    ['POINTS_ON_CONNECT', POINTS_ON_CONNECT],
+    ['connectAsk', connectAsk(1, 'earnkit.com/maya')],
+    ['connectAsk weeks', connectAsk(4, 'earnkit.com/maya')],
+    ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 4)],
+    ['connectStanding unranked', connectStanding('Recipes', null, 4)],
+    ['applyAsk dated', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
+    ['applyAsk rolling', applyAsk('Recipe Grants', '$5,000', null)],
+    ['applyAsk no amount', applyAsk('Recipe Grants', null, null)],
+    ['connectApplyAsk', connectApplyAsk('Recipe Grants')],
+    ['Best fit dated', qualifyLine({ ...open, when: 'closes Nov 18' })],
+    ['Best fit rolling', qualifyLine({ ...open, when: 'rolling' })],
+    ['builderCodesFound', builderCodesFound('maya/app')],
+    ['BUILDER_CODES_FIRST', BUILDER_CODES_FIRST],
+    ['target pass', t({ above: { rank: 1, score: 60 } })],
+    ['target behind', t({ above: { rank: 1, score: 90 } })],
+    ['target hold', t({ rank: 1 })],
+    ['target no gain, ranked', t({ gains: { active: false, gain: 0, next: 0 } })],
+    ['target unranked', t({ rank: null })],
+    ['target done', t({ gains: { active: true, gain: 14, next: 13 } })],
+    ['week start pass', ws({ above: { rank: 1, score: 60 } })],
+    ['week start behind', ws({ above: { rank: 1, score: 90 } })],
+    ['week start hold', ws({ rank: 1 })],
+    ['week start unranked', ws({ rank: null })],
+    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
+    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3, points: null })],
+    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
+    ['MOMENT_POST_HEAD', MOMENT_POST_HEAD],
+    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/maya')],
+    ['MOMENT_ASK', MOMENT_ASK],
+    ['draft prefilled', prefilled.show_to_builder],
+    ['draft copy and paste', paste.show_to_builder],
+    ['SENT_ASK', SENT_ASK],
+    ['CONFIRM_ENTRY_GONE', CONFIRM_ENTRY_GONE],
+    ...moneyTexts({ title: 'Base Builder Grant Program', ends_at: new Date('2026-11-18T00:00:00Z') }, 1, now).map((x, i): [string, string] => ['email money dated ' + (i === 0 ? 'best fit' : 'backers'), x]),
+    ['email money 1 day', moneyTexts({ title: 'Recipe Grants', ends_at: new Date('2026-10-23T12:00:00Z') }, 0, now)[0]],
+    ['email money rolling', moneyTexts({ title: 'Base Builder Grant Program', ends_at: null }, 0, now)[0]],
+    ['email money backers', moneyTexts(null, 3, now)[0]],
+    ['email money backer', moneyTexts(null, 1, now)[0]],
+  ];
+}
+
+test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T8 rule, the banned words and no em dash', () => {
+  const texts = v31Texts();
+  assert.ok(texts.length >= 40, 'the sweep covers every new string');
+  // Fixture names (a project, a grant title) are the builder's own words anywhere. The program's own words
+  // ("Base", "Builder Codes", its title) and the owner-approved Task 16 phrases are allowed only in the strings
+  // that legitimately carry them, keyed by label.
+  const fixtureNames = ['Recipes', 'Recipe Grants'];
+  const GRANT = 'Base Builder Grant Program';
+  const REPO_PHRASE = "pick the repo you're building";
+  const COMMITS_PHRASE = 'I read your commits every week';
+  const allowed: Record<string, string[]> = {
+    introWhat: ['Base', COMMITS_PHRASE],
+    'introWhat no grant': [COMMITS_PHRASE],
+    pickRepoAsk: [REPO_PHRASE],
+    'Best fit dated': [GRANT],
+    'Best fit rolling': [GRANT],
+    builderCodesFound: ['Builder Codes'],
+    BUILDER_CODES_FIRST: ['Base', 'Builder Codes'],
+    'draft prefilled': [GRANT, 'Builder Codes'],
+    'draft copy and paste': [GRANT, 'Base', 'Builder Codes'],
+    'email money dated best fit': [GRANT],
+    'email money rolling': [GRANT],
+  };
+  // A schemeless doc link (docs.base.org/...) is a URL, not prose.
+  const noUrl = (x: string) => x.replace(/\b[\w-]+(?:\.[\w-]+)+\/\S*/g, ' ');
+  const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
+  assert.ok(Object.keys(allowed).every((l) => texts.some(([x]) => x === l)), 'every allowlist key is a real label');
+  for (const [label, text] of texts) {
+    assert.ok(text.length > 0, label);
+    const exempt = [...allowed[label] ?? [], ...fixtureNames].sort((x, y) => y.length - x.length);
+    const unnamed = exempt.reduce((a, n) => a.split(n).join('Name'), noUrl(text));
+    assert.doesNotMatch(unnamed, banned, label);
+    assert.deepEqual(bannedIn(noUrl(text), ['EarnKit', ...exempt]), [], label);
+    // A coin's ticker ($TIP) is its name; USDC is the one allowed all-caps word.
+    assert.doesNotMatch(unnamed.replace(/\$[A-Z0-9]+\b/g, '$X'), /\b[A-Z]{3,}\b(?<!USDC)/, label);
+    // Task 16: a points line starts "+30 points" and the post for X is quoted (the owner's copy).
+    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
+    assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
+    assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
+    assert.ok((text.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length <= 1, label);
+    assert.ok((text.match(/https:\/\//g) ?? []).length <= 1, `${label}: one https link at most`);
+    assert.doesNotMatch(text, /EARN points|community round/, label);
   }
 });
 

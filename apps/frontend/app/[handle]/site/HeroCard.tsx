@@ -107,7 +107,7 @@ export default function HeroCard({ data, site, line }: { data: ProfileData; site
   // No project or Confirming: one calm line and no repo link (the project is not counted yet).
   const repo = line ? null : (site.project?.repo ?? null);
   return (
-    <div data-ek-hero="" className={`${phoneRadius(CARD_BLUE)} flex min-w-0 flex-[3_1_460px] flex-col gap-7 p-6 md:p-9`}>
+    <div data-ek-hero="" className={`${phoneRadius(CARD_BLUE)} flex min-w-0 flex-col gap-7 p-6 md:p-9`}>
       <div className="flex flex-wrap items-center gap-[18px]">
         <Avatar src={data.avatar} handle={data.handle} tone="blue" className="h-16 w-16 text-[34px] md:h-[76px] md:w-[76px] md:text-[40px]" />
         <div className="flex min-w-0 flex-[1_1_200px] flex-col gap-1">

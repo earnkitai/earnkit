@@ -42,6 +42,18 @@ export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: bo
 }
 
 /**
+ * Pure. The count under the title: the whole pool on the plain view, the filter's rows on a filtered one (QA item 2), so
+ * "Base" never shows the pool's number. Null on a filter with no rows (its panel says BENCH_EMPTY), BENCH_TOP_EMPTY
+ * with nobody ranked. The 10-ranked rule keeps reading the pool (`count`), never this line.
+ */
+export function countLine(filter: BenchFilter, rows: number, count: number): string | null {
+  if (count === 0) return BENCH_TOP_EMPTY;
+  const filtered = Boolean(filter.chain || filter.weekly || filter.backed);
+  if (!filtered) return leaderboardLine(count);
+  return rows > 0 ? leaderboardLine(rows) : null;
+}
+
+/**
  * v3.1 site Task 8 (Leaderboard board): the title and its count line, the filter rail, the podium (page 1's first three
  * rows), then the rest of the page's rows on one panel with quiet pagination, LEADERBOARD_PAGE rows a page. Under
  * RANK_MIN_POOL ranked builders no "#N" and no metal pill anywhere (plan S14); the count line never says "of N".
@@ -54,13 +66,14 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
   const shown = rows.slice((at - 1) * LEADERBOARD_PAGE, at * LEADERBOARD_PAGE);
   const podium = at === 1 ? shown.slice(0, 3) : [];
   const list = shown.slice(podium.length);
+  const line = countLine(filter, rows.length, count);
   return (
     <>
       <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 md:pb-0`}>
         <section aria-label={BENCH_TITLE} className="flex flex-wrap items-end justify-between gap-4 px-2 pb-2 pt-4">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className={H1_SITE}>{BENCH_TITLE}</h1>
-            <p className="text-[15px] text-s-muted">{count > 0 ? leaderboardLine(count) : BENCH_TOP_EMPTY}</p>
+            {line && <p className="text-[15px] text-s-muted">{line}</p>}
           </div>
           {count > 0 && <SegTabs label="Filters" items={filterTabs(filter, chips, raisingEnabled())} />}
         </section>

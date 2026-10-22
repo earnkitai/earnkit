@@ -1,15 +1,16 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
 import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
-import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
 
-export const NOT_FOUND_TITLE = 'Page not found';
-
-export const metadata = { title: NOT_FOUND_TITLE, robots: 'noindex' };
+export const metadata = NOT_FOUND_METADATA;
 
 /**
  * Launch ready L10: every unknown page and handle gets the site's own 404 (never Next's white default).
  * v3.1 site Task 10 (NotFound board): the rust card, "404" big in the rust accent, one line, "Back home"; the full footer.
+ * QA item 13: its own title, once. The metadata export titles the unmatched-path 404. A route that calls notFound() keeps
+ * its own metadata in the browser (the layout's title), so each such route's generateMetadata returns NOT_FOUND_METADATA
+ * when its entity is missing; the component renders no `<title>`, which would be a second one in <head>.
  */
 export default function NotFound() {
   return (
