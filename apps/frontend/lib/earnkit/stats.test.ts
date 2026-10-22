@@ -101,7 +101,8 @@ test('pre-launch 2026-10-19: installs_used counts installations that called find
       const flagged = await readStats(new Date(), tx);
       return { base, mine, flagged };
     });
-    assert.equal(mine.installs - base.installs, 3);
+    // PR #60: installs counts unique people (builder groups), so the linked reinstall is not a second install.
+    assert.equal(mine.installs - base.installs, 2);
     assert.equal(mine.installs_used - base.installs_used, 1);
     assert.equal(mine.builders - base.builders, 2);
     assert.equal(flagged.builders - base.builders, 1);
