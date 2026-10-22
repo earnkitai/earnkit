@@ -1,9 +1,10 @@
 import Link from 'next/link';
+import FadeNav from './FadeRail';
 
 /**
  * A pill rail of links (canvas: leaderboard filters All / Base / Backed on the panel, feed week tabs on
  * the step colour). The current item is a white pill with aria-current="page". On a phone the rail
- * scrolls sideways instead of widening the page; every tab is 44px tall there, 38px from md.
+ * scrolls sideways instead of widening the page, its cut edge faded (FadeRail); every tab is 44px tall there, 38px from md.
  */
 const TONES = {
   panel: { rail: 'bg-s-panel', idle: 'text-s-muted hover:text-s-text', on: 'bg-s-light text-s-ink' },
@@ -23,7 +24,7 @@ export type SegTone = keyof typeof TONES;
  */
 export function segRail(tone: SegTone): string {
   if (tone === 'light') return `flex max-w-full flex-wrap gap-1 rounded-[26px] p-1 ${TONES.light.rail}`;
-  return `no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${TONES[tone].rail}`;
+  return `ek-fade no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${TONES[tone].rail}`;
 }
 
 /** One tab's classes, current or not. */
@@ -46,12 +47,12 @@ export default function SegTabs({
   className?: string;
 }) {
   return (
-    <nav aria-label={label} className={`${segRail(tone)} ${className}`.trim()}>
+    <FadeNav aria-label={label} className={`${segRail(tone)} ${className}`.trim()}>
       {items.map((it) => (
         <Link key={it.href} href={it.href} aria-current={it.on ? 'page' : undefined} className={segTab(tone, it.on)}>
           {it.label}
         </Link>
       ))}
-    </nav>
+    </FadeNav>
   );
 }

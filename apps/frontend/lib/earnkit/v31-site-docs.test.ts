@@ -6,6 +6,7 @@ import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DocsView from '../../app/docs/DocsView';
 import { AgentPanel, COPY_SAID, tabKeyTarget } from '../../app/docs/InstallCard';
+import SegTabs, { segRail } from '../../app/components/site/SegTabs';
 import NotFound from '../../app/not-found';
 import GuideView from '../../app/programs/[id]/GuideView';
 import TermsPage from '../../app/terms/page';
@@ -180,6 +181,18 @@ test('(g) Task 11: the install tabs wrap on a phone, rove with the arrow keys, a
   // The other rails (the sheet, the leaderboard filters, the feed weeks) still scroll in one row.
   const src = read('app/components/site/SegTabs.tsx');
   assert.match(src, /if \(tone === 'light'\) return `flex max-w-full flex-wrap/);
+});
+
+test('(QA 8) a rail that scrolls fades its cut edge: ek-fade on the scrolling tones only, the mask rules in globals.css, FadeNav on SegTabs', () => {
+  for (const tone of ['panel', 'step', 'sheet'] as const) assert.ok(segRail(tone).split(' ').includes('ek-fade'), tone);
+  assert.ok(!segRail('light').split(' ').includes('ek-fade'), 'the docs rail wraps, nothing to fade');
+  const css = read('app/globals.css');
+  for (const at of ['end', 'start', 'both']) assert.match(css, new RegExp(`\\.ek-fade\\[data-fade='${at}'\\] \\{\\s*-webkit-mask-image: linear-gradient\\(90deg`), at);
+  // Server markup carries no data-fade: only the browser knows whether the rail overflows.
+  const rail = renderToStaticMarkup(React.createElement(SegTabs, { label: 'Weeks', tone: 'step', items: [{ label: 'Week of Oct 12', href: '/feed', on: true }] }));
+  assert.match(rail, /^<nav aria-label="Weeks" class="ek-fade /);
+  assert.doesNotMatch(rail, /data-fade/);
+  assert.match(read('app/components/sections/AddToAgent.tsx'), /<div ref=\{rail\} role="tablist"/);
 });
 
 test('(h) Task 11: terms section headings are Kaftan; every inline link is 44px tall on a phone', () => {

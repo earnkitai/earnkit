@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AGENTS, Command, MCP_URL } from './agents';
 import { segRail, segTab } from '../site/SegTabs';
+import { useEdgeFade } from '../site/FadeRail';
 
 export { AGENTS, Command };
 export type { Agent, AgentName } from './agents';
@@ -50,6 +51,7 @@ export const START_PROMPT = 'What can I earn?';
  */
 export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
   const [active, setActive] = useState(0);
+  const rail = useEdgeFade<HTMLDivElement>();
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
 
@@ -103,7 +105,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" primary />
         </div>
 
-        <div role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6 flex-nowrap`}>
+        <div ref={rail} role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6 flex-nowrap`}>
           {AGENTS.map((a, i) => (
             <button
               key={a.name}
