@@ -52,7 +52,7 @@ test('(a) a ranked reply has no why sentence, no Originality and no points total
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   await approveWeek(me.id, me.key, monday, new Date());
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
-  assert.match(s, /^App is on EarnKit\.$/m, s);
+  assert.match(s, /^App · 1 week in a row$/m, s);
   assert.ok(s.endsWith('\nShip code this week: up to +100 points'), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);

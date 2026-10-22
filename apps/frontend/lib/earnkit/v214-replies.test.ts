@@ -89,7 +89,7 @@ test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line
   await rescorePerson(a.id, new Date());
   // The streak and the weeks it counts, so a rescore during the call keeps it.
   const weeks = [14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
-  await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
+  await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[], commit_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
   const reply = (await mcpCall(a.ctx, 'score', {})).reply;
   const s = rule(reply);
   // Task 16: the standing line carries the streak.

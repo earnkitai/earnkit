@@ -1,3 +1,4 @@
+import { weeksEndingLast } from './fixtures/find';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -140,7 +141,7 @@ test('11.13 (v2.13 fix round 1) the card and the share post never name a confirm
   const text = async () => new URL((await share(new Request(`http://x/${handle}/share`), { params: Promise.resolve({ handle }) })).headers.get('location')!).searchParams.get('text');
   try {
     await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, main_project_key) VALUES (${id}, ${`bc${id}`}, ${`7${id}`}, ${handle}, ${key})`;
-    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak) VALUES (${id}, ${key}, 'Not Mine App', 'app', true, true, 3)`;
+    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, commit_weeks) VALUES (${id}, ${key}, 'Not Mine App', 'app', true, true, 3, ${weeksEndingLast(3)})`;
     await sql()`UPDATE builder_profiles SET identity = '{"projects":[{"name":"Not Mine App"}]}'::jsonb WHERE builder_id = ${id}`;
     // Confirming (no proof from the repo): the card and the post never name it.
     const f = (await benchCardFacts(id))!;

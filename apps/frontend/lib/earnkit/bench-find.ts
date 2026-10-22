@@ -41,6 +41,7 @@ import { displayName } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
+import { streaksFor } from './streak';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
   type ConnectBest,
@@ -159,7 +160,7 @@ const logged = (where: string) => (err: unknown) => {
   return null;
 };
 
-async function benchRead(id: number, own: number): Promise<BenchRead> {
+async function benchRead(id: number, own: number, now: Date): Promise<BenchRead> {
   // v2.14: `own` (the caller's own installation) is the one an X sign-in link is for.
   const stand = await standBase(id, { own }).catch(logged('stand'));
   const [p] = await sql()<{ main: string | null; seen: unknown; identity: unknown }[]>`
@@ -169,12 +170,18 @@ async function benchRead(id: number, own: number): Promise<BenchRead> {
   const main = p?.main ?? null;
   const [row] = main
     ? await sql()<MainRow[]>`
-        SELECT b.project_key AS key, b.name, b.kind, b.shipped, b.people, b.has_coin, b.weeks_shipping AS weeks, b.streak, b.commit_weeks,
+        SELECT b.project_key AS key, b.name, b.kind, b.shipped, b.people, b.has_coin, b.weeks_shipping AS weeks, b.commit_weeks,
           ${benchConfirmedSql(sql())} AS confirmed, b.chains,
           EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = b.builder_id AND s.kind = 'site' AND s.state = 'verified'
             AND lower(s.project_key) = lower(b.project_key)) AS site
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
+  // v3.1 streak fix: the streak and its weeks are streak.ts's (the profile's own), not builder_projects.streak or commit_weeks.
+  const lit = row?.confirmed ? await streaksFor([id], now).then((m) => m.get(id)).catch(logged('streak')) : null;
+  if (row) {
+    row.streak = lit?.streak ?? 0;
+    if (lit) row.commit_weeks = [...lit.weeks].sort();
+  }
   const ranks = await rankLines(id).catch(() => NO_RANK);
   const [live] = await sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${id}`.catch(() => []);
   // standBase's seen, else the profile's own (the Bench's keys are read from the same column).
@@ -655,7 +662,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const id = ctx.installationId;
   const now = a.first.now;
   const own = ctx.ownInstallationId ?? id;
-  const read = await benchRead(id, own);
+  const read = await benchRead(id, own, now);
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -739,7 +746,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   await refresh.within(REPLY_WAIT_MS);
   // D14: the caller's own installation, as find's.
   const own = ctx.ownInstallationId ?? id;
-  const read = await benchRead(id, own);
+  const read = await benchRead(id, own, now);
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
   const { applies, cards: shown, upcoming, skip } = await scoreApplies(id, read.main, now);
   const fits: Fit[] = fitLines(applies);

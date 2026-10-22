@@ -5,6 +5,7 @@ import { upsertProgram } from '../programs';
 import { committedProgram } from './program-file';
 import { tools } from '../tools';
 import { dropPrograms } from './programs-cleanup';
+import { last52 } from '../weeks';
 
 /**
  * find's test helpers (moved from v2121-find.test.ts, v2.13 F19): the env switch, a bare
@@ -42,7 +43,11 @@ export type Seed = {
   key: string; name: string; what?: string | null; kind?: string; shipped?: boolean; confirmed?: boolean; people?: number; sends_tx?: boolean; untracked?: string | null;
   /** v2.13 (T4's columns). */
   weeks_shipping?: number; streak?: number;
+  /** v3.1 streak fix: streak.ts reads commit_weeks, not the streak cache; default: `streak` weeks ending last week. */
+  commit_weeks?: string[];
 };
+/** The `n` week keys ending with last week (a run `streak.ts` counts as n, this week or not). */
+export const weeksEndingLast = (n: number): string[] => last52(NOW).slice(51 - n, 51);
 const REPO = /^[a-z0-9-]+\/[a-z0-9._-]+$/;
 
 /**
@@ -61,9 +66,9 @@ export async function person(o: { projects: Seed[]; score?: number; ranked?: boo
       ${o.projects.filter((p) => p.shipped !== false).length}, 0, 'v2', 'v2-shipping', now(), now())`;
   for (const [i, p] of o.projects.entries()) {
     await sql()`
-      INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, people, sends_tx, untracked_contract, last_active_at, weeks_shipping, streak)
+      INSERT INTO builder_projects (builder_id, project_key, name, what, link, kind, confirmed, shipped, people, sends_tx, untracked_contract, last_active_at, weeks_shipping, streak, commit_weeks)
       VALUES (${id}, ${p.key}, ${p.name}, ${p.what ?? null}, null, ${p.kind ?? 'app'}, ${p.confirmed ?? false}, ${p.shipped ?? true}, ${p.people ?? 0},
-        ${p.sends_tx ?? false}, ${p.untracked ?? null}, ${new Date(NOW.getTime() - i * DAY)}, ${p.weeks_shipping ?? 0}, ${p.streak ?? 0})`;
+        ${p.sends_tx ?? false}, ${p.untracked ?? null}, ${new Date(NOW.getTime() - i * DAY)}, ${p.weeks_shipping ?? 0}, ${p.streak ?? 0}, ${p.commit_weeks ?? weeksEndingLast(p.streak ?? 0)})`;
     if (o.main && p.confirmed && REPO.test(p.key) && p.key === o.main)
       await sql()`
         INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)

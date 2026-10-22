@@ -1,13 +1,12 @@
 import { sql } from './db';
-import { gridWeeks, liveSite } from './bench-data';
+import { liveSite } from './bench-data';
 import { rankLines } from './bench-rank';
 import { benchConfirmedSql } from './main-project';
 import { norm, shownProjects } from './page-data';
 import { scoreLine } from './rank';
 import { pageUrl } from './reserved-routes';
 import { scoreWhy, storedShipping } from './score-v2';
-import { streakOf } from './weeks';
-import type { WeekFacts } from './week-facts';
+import { streakOfBuilder } from './streak';
 
 /**
  * v3 Stage 2 (spec 5.3 Route 1): the builder's ship log facts at the top of a drafted application, as the page shows
@@ -42,17 +41,14 @@ export async function shipLogFacts(builderId: number, now: Date): Promise<ShipLo
     page: pageUrl(p.handle),
   };
   if (!p.main) return facts;
-  const [b] = await db<{ commit_weeks: string[]; confirmed: boolean }[]>`
-    SELECT b.commit_weeks, ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
+  const [b] = await db<{ confirmed: boolean }[]>`
+    SELECT ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
     WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(${p.main})`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(p.main!));
   if (!b || !shown) return facts;
   facts.live = liveSite(shown.link);
   if (b.confirmed) {
-    const rows = await db<{ week: string; facts: WeekFacts }[]>`
-      SELECT week::text AS week, facts FROM project_updates
-      WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.main}) AND NOT hidden ORDER BY week DESC LIMIT 60`;
-    facts.streak = streakOf(gridWeeks(b.commit_weeks, rows), now);
+    facts.streak = await streakOfBuilder(builderId, now);
   }
   return facts;
 }

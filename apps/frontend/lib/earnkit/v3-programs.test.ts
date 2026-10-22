@@ -174,7 +174,7 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   await rescorePerson(c.id, new Date());
   const weeks = [21, 14, 7, 0].map((d) => isoWeekOf(new Date(Date.now() - d * 86_400_000)));
   const streak = async (n: number) =>
-    sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
+    sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[], commit_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
   await streak(4);
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   const lines = s.split('\n');

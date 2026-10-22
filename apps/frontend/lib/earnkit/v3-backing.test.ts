@@ -131,7 +131,7 @@ test('(a) after the first approved week the backing offer is the one question, o
   const m = lastLine(s).match(OFFER_RE);
   assert.ok(m, s);
   // Task 16: the standing, then the offer as the one question (no points line: backing earns none).
-  assert.equal(s, `Kit is on EarnKit.\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
+  assert.equal(s, `Kit · 1 week in a row\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—|community round|\braise\b|raising/i);

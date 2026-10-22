@@ -1,3 +1,4 @@
+import { weeksEndingLast } from './fixtures/find';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -31,7 +32,7 @@ async function listed(score: number, o: { streak?: number; weeks?: { monday: str
   const key = `l${RUN}/p${id}`;
   await sql()`INSERT INTO builder_profiles (builder_id, slug, main_project_key, x_user_id, x_handle, x_name) VALUES (${id}, ${`v31l-${id}`}, ${key}, ${`lx${id}`}, ${`l${RUN}${id}`}, 'Maya')`;
   await sql()`INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at) VALUES (${id}, ${score}, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now())`;
-  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true, ${o.streak ?? 0})`;
+  await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, streak, commit_weeks) VALUES (${id}, ${key}, 'Recipe planner', 'app', true, true, ${o.streak ?? 0}, ${weeksEndingLast(o.streak ?? 0)})`;
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
   for (const w of o.weeks ?? [])
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, text, facts, feed_hidden) VALUES (${id}, ${key}, ${w.monday}, 'note', ${sql().json(w.facts as never)}, ${w.feedHidden ?? false})`;

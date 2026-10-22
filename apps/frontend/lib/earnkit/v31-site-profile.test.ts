@@ -242,21 +242,21 @@ test('(j) phone: names, handles and project names wrap; every link and button is
   for (const m of h.split('<footer')[0].matchAll(/<a [^>]*class="([^"]*)"/g)) assert.match(m[1], /min-h-11|h-11|-my-3 py-3/, m[0]);
 });
 
-test('(k) fix round 1: this week\'s commits light the 12th square and add a week; the first-week note gives way while shipping', () => {
-  // Last week on (11th), this week not yet in the grid (12th off), commits read this week.
-  const grid = SAM.grid.map((g, i) => ({ ...g, on: i === 50 }));
-  const h = page({ ...SAM, grid, streak: 1 }, { ...SAM_SITE, thisWeek: 6 });
+test('(k) v3.1 streak fix: the Streak card shows the data\'s own grid and streak (profileData counted this week); the first-week note gives way while shipping', () => {
+  // profileData lit the 12th square (this week) and counted it: the card shows exactly that, never adds a week itself.
+  const grid = SAM.grid.map((g, i) => ({ ...g, on: i >= 50 }));
+  const h = page({ ...SAM, grid, streak: 2 }, { ...SAM_SITE, thisWeek: 6 });
   const streak = block(h, 'data-ek-streak');
   const squares = block(streak, 'aria-label="Code in 2 of the last 12 weeks"');
   assert.match(squares.match(/<span [^>]*>/g)![11], /bg-s-rust-on/);
   assert.ok(text(streak).includes('2 weeks') && text(streak).includes('Code in 2 of 12 weeks') && text(streak).includes('This week: 6 commits'));
   assert.ok(!text(streak).includes('Week 2 starts Monday'));
-  // A gap last week: this week alone is 1 week.
-  const gap = block(page({ ...SAM, grid: SAM.grid.map((g) => ({ ...g, on: false })), streak: 0 }, { ...SAM_SITE, thisWeek: 3 }), 'data-ek-streak');
+  // This week alone is 1 week.
+  const gap = block(page({ ...SAM, grid: SAM.grid.map((g, i) => ({ ...g, on: i === 51 })), streak: 1 }, { ...SAM_SITE, thisWeek: 3 }), 'data-ek-streak');
   assert.ok(text(gap).includes('1 week') && gap.includes('aria-label="Code in 1 of the last 12 weeks"'));
-  // Already lit, or nothing this week: as stored.
+  // Nothing this week: as given.
   assert.ok(text(block(page(JENIL, JENIL_SITE), 'data-ek-streak')).includes('5 weeks'));
-  assert.ok(text(block(page({ ...SAM, grid, streak: 1 }, SAM_SITE), 'data-ek-streak')).includes('Week 2 starts Monday'));
+  assert.ok(text(block(page({ ...SAM, grid: SAM.grid.map((g, i) => ({ ...g, on: i === 50 })), streak: 1 }, SAM_SITE), 'data-ek-streak')).includes('Week 2 starts Monday'));
   // Quiet pages never light it.
   const conf = block(page({ ...MAYA, project: { ...MAYA.project!, confirmed: false } }, { ...MAYA_SITE, thisWeek: 9 }), 'data-ek-streak');
   assert.ok(!conf.includes('bg-s-rust-on') && text(conf).includes('0 weeks'));

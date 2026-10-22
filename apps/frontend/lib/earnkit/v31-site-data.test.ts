@@ -4,9 +4,12 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
-import { withThisWeek } from './site-streak';
+import { streakWeeks } from './site-streak';
 import { sql } from './db';
-import { profileData, type ProfileData } from './bench-data';
+import { benchCardFacts, benchRows, profileData, type ProfileData } from './bench-data';
+import { builderJson } from './builder-json';
+import { shipLogFacts } from './ship-log-facts';
+import { streakOfBuilder } from './streak';
 import { PRIVATE_NAME, projectPrograms, projectProgramsDated } from './page-data';
 import { person, withEnv } from './fixtures/find';
 import { padPool } from './fixtures/rank-pool';
@@ -325,7 +328,7 @@ test('(i) Task 7 fix round 2: Highlights and the Streak card read one streak (wi
   };
   // Bumped: two weeks before this one, commits this week (not yet in the grid): 3 on the card and in Highlights.
   const bumped = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(5) }));
-  assert.equal(bumped.d.streak, 2, 'stored');
+  assert.equal(bumped.d.streak, 3, 'profileData already counts this week');
   assert.deepEqual([bumped.weeks, bumped.sub, bumped.lit], [3, '3 weeks in a row', 3]);
   // Not bumped: no commits this week.
   const flat = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(0) }));
@@ -340,14 +343,13 @@ test('(i) Task 7 fix round 2: Highlights and the Streak card read one streak (wi
   // Quiet (not confirmed): 0 weeks, nothing lit, and Highlights says it is not on the leaderboard.
   const quiet = await both(await builder({ confirmed: false, source: true, commitWeeks: [w[50]], signals: signals(6) }));
   assert.deepEqual([quiet.weeks, quiet.lit, quiet.sub], [0, 0, 'No project on the leaderboard yet']);
-  // The helper itself.
-  const g = (on: boolean[]) => on.map((x, i) => ({ week: `2026-W${i + 1}`, on: x }));
-  const proj = { ...(bumped.d.project!), confirmed: true };
-  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: proj }, 3), { grid: g([true, true]), streak: 2 });
-  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: proj }, 0), { grid: g([true, false]), streak: 1 });
-  assert.deepEqual(withThisWeek({ grid: g([true, true]), streak: 2, project: proj }, 9), { grid: g([true, true]), streak: 2 });
-  assert.deepEqual(withThisWeek({ grid: g([true, false]), streak: 1, project: { ...proj, confirmed: false } }, 3), { grid: g([false, false]), streak: 0 });
-  assert.deepEqual(withThisWeek({ grid: g([true]), streak: 1, project: null }, 3), { grid: g([false]), streak: 0 });
+  // The pure rule: commit weeks, shown update weeks and this week's live commits make one set; the streak counts back from it.
+  const wk = last52(NOW);
+  const rule = (commitWeeks: string[], thisWeekCommits: number) => streakWeeks({ commitWeeks, updates: [], thisWeekCommits }, NOW).streak;
+  assert.equal(rule([wk[50]], 3), 2);
+  assert.equal(rule([wk[50]], 0), 1);
+  assert.equal(rule([wk[50], wk[51]], 9), 2, 'never counted twice');
+  assert.equal(rule([wk[48]], 0), 0, 'a gap breaks it');
 });
 
 test('(j) clarity batch: profileData\'s avatar is the X picture, else the GitHub one of the proven login, else null', db, async () => {
@@ -359,4 +361,41 @@ test('(j) clarity batch: profileData\'s avatar is the X picture, else the GitHub
   assert.equal((await profileData(b.id, NOW))!.avatar, 'https://pbs.twimg.com/profile_images/9/me_400x400.jpg');
   await sql()`UPDATE builder_profiles SET x_avatar_url = NULL, github_login = NULL WHERE builder_id = ${b.id}`;
   assert.equal((await profileData(b.id, NOW))!.avatar, null);
+});
+
+test('(l) v3.1 streak fix: one streak on every surface, whatever builder_projects.streak says (stale 6; real run: 3 commit weeks + this week = 4)', db, async () => {
+  (globalThis as { React?: typeof React }).React = React;
+  const w = last52(NOW);
+  const signals = { commit_counts: { [isoWeekOf(NOW)]: 5 }, pushes_checked: true, created_at: '2025-01-01T00:00:00Z' };
+  // The jenilt case: a stored cache of 6 that no commit weeks back (it was written at an earlier rescore), 3 real weeks ending last week, commits this week on the live reading.
+  const b = await builder({ commitWeeks: [w[48], w[49], w[50]], signals, ranked: true, score: 70 });
+  await sql()`UPDATE builder_projects SET streak = 6, weeks_shipping = 6 WHERE builder_id = ${b.id}`;
+  const WANT = 4;
+  const d = await page(b.id, { only: [b.id] });
+  const site = await profileSite(b.id, d, NOW, { only: [b.id] });
+  const view = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
+  const card = view.slice(view.indexOf('data-ek-streak'));
+  const got = {
+    leaderboard: (await benchRows({ chain: null, weekly: false }, { only: [b.id], now: NOW })).rows[0]?.streak,
+    weeklyFilterKeepsIt: (await benchRows({ chain: null, weekly: true }, { only: [b.id], now: NOW })).rows.length,
+    profile: d.streak,
+    gridSquares: d.grid.filter((g) => g.on).length,
+    streakCard: Number(/<span class="ek-serif[^"]*">(\d+) weeks?<\/span>/.exec(card)![1]),
+    highlights: site.highlights.at(-1)!.sub,
+    json: (await builderJson(`s${RUN}${n}`, NOW))?.streak,
+    badge: (await benchCardFacts(b.id, { money: false, now: NOW }))?.streak,
+    shipLog: (await shipLogFacts(b.id, NOW))?.streak,
+  };
+  assert.deepEqual(got, {
+    leaderboard: WANT, weeklyFilterKeepsIt: 1, profile: WANT, gridSquares: WANT, streakCard: WANT, highlights: `${WANT} weeks in a row`, json: WANT, badge: WANT, shipLog: WANT,
+  });
+  // The reply and weekly-moment weeks come from the same read.
+  assert.equal(await streakOfBuilder(b.id, NOW), WANT);
+  // A stale cache can also be too low: nothing stored, but the weeks are there.
+  await sql()`UPDATE builder_projects SET streak = 0 WHERE builder_id = ${b.id}`;
+  assert.equal((await benchRows({ chain: null, weekly: false }, { only: [b.id], now: NOW })).rows[0]?.streak, WANT);
+  // After a missed week the run is over everywhere, though the cache still says 6 until the next rescore.
+  const later = new Date(NOW.getTime() + 14 * 7 * DAY);
+  assert.equal(await streakOfBuilder(b.id, later), 0);
+  assert.equal((await benchRows({ chain: null, weekly: false }, { only: [b.id], now: later })).rows[0]?.streak, 0);
 });

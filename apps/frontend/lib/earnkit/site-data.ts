@@ -11,7 +11,6 @@ import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
 import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
-import { withThisWeek } from './site-streak';
 import { shipReading } from './week-facts';
 import { isoWeekOf, last52, mondayOfWeek } from './weeks';
 
@@ -301,10 +300,8 @@ export async function profileSite(builderId: number, d: ProfileData, now: Date, 
   // A failed main read leaves the key null: the Token card then fails closed (tokenAllowed).
   const key = main?.key ?? null;
   const thisWeek = commitsFrom(reading, now);
-  // The Streak card's grid and streak (BenchProfileView applies the same withThisWeek), so Highlights agrees with it.
-  const shown = { ...d, ...withThisWeek(d, thisWeek) };
   const [items, standing, token] = await Promise.all([
-    main ? part('highlights', () => highlightsOf(builderId, shown, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
+    main ? part('highlights', () => highlightsOf(builderId, d, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
     part('standing', () => standingPill(builderId, d, o), null),
     part('token', () => tokenCard(builderId, d, key, now), null),
   ]);

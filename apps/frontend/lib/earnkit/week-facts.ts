@@ -93,8 +93,8 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   const week = weekOfMonday(monday);
   if (!week) return {};
   const db = sql();
-  const [p] = await db<{ key: string; ship_weeks: string[] }[]>`
-    SELECT b.project_key AS key, b.ship_weeks FROM builder_profiles f JOIN builder_projects b ON b.builder_id = f.builder_id AND lower(b.project_key) = lower(f.main_project_key)
+  const [p] = await db<{ key: string; commit_weeks: string[] }[]>`
+    SELECT b.project_key AS key, b.commit_weeks FROM builder_profiles f JOIN builder_projects b ON b.builder_id = f.builder_id AND lower(b.project_key) = lower(f.main_project_key)
     WHERE f.builder_id = ${builderId} AND ${benchConfirmedSql(db)}`;
   if (!p) return {};
   const start = new Date(`${monday}T00:00:00Z`);
@@ -127,9 +127,12 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
       AND x.program_id <> ${COIN_PROGRAM} AND lower(COALESCE(x.repo_key, x.token_repo_key)) = lower(${p.key}) ORDER BY o.captured_at`;
   const won = outcomes.filter((x) => x.result === 'won' || x.result === 'placed').map((x) => ({ title: x.title }));
   if (won.length > 0) f.won = won;
-  // streak: this week shipped, and the run ending here is 2 or more.
-  if (p.ship_weeks.includes(week)) {
-    const w = streakOf(p.ship_weeks.filter((x) => x <= week), new Date(start.getTime() + DAY));
+  // streak: this week had code (the rescored commit weeks, or the count just read above, which rescore may not have yet),
+  // and the run of commit weeks ending here is 2 or more (the one definition: site-streak.ts, never deploys or sites).
+  const code = new Set(p.commit_weeks.filter((x) => x <= week));
+  if (f.shipped_code) code.add(week);
+  if (code.has(week)) {
+    const w = streakOf(code, new Date(start.getTime() + DAY));
     if (w >= 2) f.streak = { w };
   }
   return f;

@@ -163,7 +163,7 @@ export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null;
   /** The rank phrase (rank.ts shownRankLine: "#3 of 40 builders", "Top 4% of builders"; null under RANK_MIN_POOL), ranked only. */
   rank: string | null;
-  /** Weeks shipped in a row (builder_projects.streak). */
+  /** Weeks shipped in a row (streak.ts streaksFor, the profile's own value). */
   streak: number;
   /** Launch ready L5: the weekly target (weekly-target.ts weeklyTarget), the ship step's points line lead (null: "Ship code this week"). */
   target: string | null;

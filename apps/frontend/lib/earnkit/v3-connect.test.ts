@@ -60,7 +60,7 @@ test('(a) first ranked find after connect offers the last weeks and the points (
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
-  assert.equal(s, `App is on EarnKit.\n\n${connectAsk(3, `https://earnkit.com/${me.handle}`)}\n+90 points`);
+  assert.equal(s, `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(3, `https://earnkit.com/${me.handle}`)}\n+90 points`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week|Share your week|—/);
   assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}`], 'the page is the one link');
@@ -143,8 +143,8 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
       VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
-    // Task 16 step 7 (no commit weeks stored here: "Last week done."; one ranked builder: "on EarnKit").
-    assert.ok(s.startsWith("Last week done. You're on EarnKit: +100 points.\n"), s);
+    // Task 16 step 7 (v3.1 streak fix: the weeks EarnKit checked commits for count, so the weekly moment names the run: "Week 4 done."; one ranked builder: "on EarnKit").
+    assert.ok(s.startsWith("Week 4 done. You're on EarnKit: +100 points.\n"), s);
     assert.doesNotMatch(s, /Post your \d+ weeks?/);
     assert.match(s, /Does last week look right\?$/);
   } finally {
