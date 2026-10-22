@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import DocsView from '../../app/docs/DocsView';
 import { readingNow } from '../../app/docs/DocsNav';
 import { AgentPanel, COPY_SAID, tabKeyTarget } from '../../app/docs/InstallCard';
-import SegTabs, { segRail } from '../../app/components/site/SegTabs';
+import SegTabs, { RAIL_FADE, segRail } from '../../app/components/site/SegTabs';
 import NotFound from '../../app/not-found';
 import GuideView from '../../app/programs/[id]/GuideView';
 import TermsPage from '../../app/terms/page';
@@ -215,14 +215,13 @@ test('(g) Task 11: the install tabs wrap on a phone, rove with the arrow keys, a
   assert.match(src, /if \(tone === 'light'\) return `flex max-w-full flex-wrap/);
 });
 
-test('(QA 8) a rail that scrolls fades its cut edge: ek-fade on the scrolling tones only, the mask rules in globals.css, FadeNav on SegTabs', () => {
-  for (const tone of ['panel', 'step', 'sheet'] as const) assert.ok(segRail(tone).split(' ').includes('ek-fade'), tone);
-  assert.ok(!segRail('light').split(' ').includes('ek-fade'), 'the docs rail wraps, nothing to fade');
-  const css = read('app/globals.css');
-  for (const at of ['end', 'start', 'both']) assert.match(css, new RegExp(`\\.ek-fade\\[data-fade='${at}'\\] \\{\\s*-webkit-mask-image: linear-gradient\\(90deg`), at);
+test('(QA 8) a rail that scrolls fades its cut edge: RAIL_FADE on the scrolling tones only, one mask per data-fade, FadeNav on SegTabs', () => {
+  for (const tone of ['panel', 'step', 'sheet'] as const) assert.ok(segRail(tone).endsWith(RAIL_FADE), tone);
+  assert.ok(!segRail('light').includes('mask-image'), 'the docs rail wraps, nothing to fade');
+  for (const at of ['end', 'start', 'both']) assert.match(RAIL_FADE, new RegExp(`data-\\[fade=${at}\\]:\\[mask-image:linear-gradient\\(90deg,`), at);
   // Server markup carries no data-fade: only the browser knows whether the rail overflows.
   const rail = renderToStaticMarkup(React.createElement(SegTabs, { label: 'Weeks', tone: 'step', items: [{ label: 'Week of Oct 12', href: '/feed', on: true }] }));
-  assert.match(rail, /^<nav aria-label="Weeks" class="ek-fade /);
+  assert.match(rail, /^<nav aria-label="Weeks" class="[^"]*data-\[fade=end\]:\[mask-image/);
   assert.doesNotMatch(rail, /data-fade/);
   assert.match(read('app/components/sections/AddToAgent.tsx'), /<div ref=\{rail\} role="tablist"/);
 });

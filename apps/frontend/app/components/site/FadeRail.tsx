@@ -4,7 +4,7 @@ import { useEffect, useRef, type ComponentProps } from 'react';
 
 /**
  * QA item 8: a sideways rail says it scrolls. While its content runs past an edge the rail carries `data-fade` ("end",
- * "start" or "both") and globals.css `.ek-fade` softens that edge with a mask; a rail that fits carries nothing. Written
+ * "start" or "both") and SegTabs RAIL_FADE softens that edge with a mask; a rail that fits carries nothing. Written
  * straight to the element on scroll and resize, so scrolling never re-renders React.
  */
 export function useEdgeFade<T extends HTMLElement>() {
