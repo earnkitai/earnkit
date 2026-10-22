@@ -387,6 +387,25 @@ export async function offeredMoments(
 }
 
 /**
+ * Final review 3: a stamp of the writes that can make an event moment appear at once (a coin launched or its backing
+ * opened, an announced outcome recorded, a hosted site deployed, the one project changed). post-reply.ts remembers
+ * "nothing to draft" for the day only under the same stamp; a moment that comes only with time (going live settling)
+ * waits until the next day. One query. Throws on a database error.
+ */
+export async function eventStamp(builderId: number): Promise<string> {
+  const [r] = await sql()<{ stamp: string }[]>`
+    SELECT concat_ws('|',
+      (SELECT max(GREATEST(x.coin_launched_at, x.raising_at)) FROM projects x JOIN installations i ON i.id = x.installation_id
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId}),
+      (SELECT max(o.captured_at) FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN installations i ON i.id = x.installation_id
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.basis = 'announcement'),
+      (SELECT max(h.deployed_at) FROM hosted_sites h JOIN installations i ON i.id = h.installation_id WHERE COALESCE(i.builder_id, i.id) = ${builderId}),
+      (SELECT main_project_key FROM builder_profiles WHERE builder_id = ${builderId}),
+      'v1') AS stamp`;
+  return r?.stamp ?? '';
+}
+
+/**
  * Drafts the post for `c` (post-writer.ts, against the person's recent drafts) and stores it (post-drafts.ts, under
  * its limits). `asked`: the builder asked (their news, a redraft); else EarnKit offered it. 'hold' when the moment
  * waits; 'no_post' when the writer has nothing that fits.

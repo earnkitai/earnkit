@@ -420,20 +420,30 @@ test('final review 2: a private project named by its proven site host ("earnkit.
 test('final review 3: an event that can\'t be drafted gives way to the next one; nothing to draft is remembered for the day', dbTest, async () => {
   const { eventPost } = await import('./post-reply');
   const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
-  // Nothing yet: none, and the next reply today does not read it all again.
-  assert.equal(await eventPost(id, `pm_${id}`, NOW, { hot: false }), null);
-  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
-    VALUES (${`pme${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live', ${ago(3)})`;
-  // An announced win whose program title the writer refuses (a hype word): never drafted, so going live is offered.
+  // An announced win whose program title the writer refuses (a hype word): never drafted.
   const { program, pid } = await entered(id, key);
   await sql()`UPDATE programs SET title = 'Thrilled Builders Grant' WHERE id = ${program}`;
   await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, source_url, captured_at)
     VALUES (${pid}, ${program}, 'R1', 'won', 900, 'announcement', 'https://x.com/base/status/1', ${ago(1)})`;
-  assert.equal(await eventPost(id, `pm_${id}`, new Date(NOW.getTime() + 60_000), { hot: false }), null, 'remembered for the rest of the day');
-  const next = new Date(NOW.getTime() + DAY);
-  const e = await eventPost(id, `pm_${id}`, next, { hot: false });
+  // Live since 22 hours before NOW: still settling at NOW (16:00), settled by 20:00 the same day.
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`pme${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live', ${new Date(NOW.getTime() - (LIVE_SETTLE_DAYS * 24 - 2) * 3_600_000)})`;
+  assert.equal(await eventPost(id, `pm_${id}`, NOW, { hot: false }), null, 'the win can\'t be drafted; going live is settling');
+  assert.equal(await eventPost(id, `pm_${id}`, new Date(NOW.getTime() + 4 * 3_600_000), { hot: false }), null, 'remembered for the rest of the day');
+  const e = await eventPost(id, `pm_${id}`, new Date(NOW.getTime() + DAY), { hot: false });
   assert.ok(e, 'the next day reads again');
   assert.match(e.text, /^Recipes is live\./, 'the win could not be drafted; going live is next');
+});
+
+test('final review 3: what nothing-to-draft remembered is read again the same day once a coin launches or a win is announced', dbTest, async () => {
+  const { eventPost } = await import('./post-reply');
+  const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
+  assert.equal(await eventPost(id, `pm_${id}`, NOW, { hot: false }), null);
+  const { program, pid } = await entered(id, key);
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, source_url, captured_at)
+    VALUES (${pid}, ${program}, 'R1', 'won', 900, 'announcement', 'https://x.com/base/status/1', ${ago(0.1)})`;
+  const e = await eventPost(id, `pm_${id}`, new Date(NOW.getTime() + 60_000), { hot: false });
+  assert.match(e?.text ?? '', /^Recipes won the Base Builder Grant/);
 });
 
 test('fix round: one moment drafted at once from several replies is written once (the hold runs under the store\'s lock)', dbTest, async () => {

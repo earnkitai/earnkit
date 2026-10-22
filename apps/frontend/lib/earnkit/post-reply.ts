@@ -5,7 +5,7 @@ import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-dr
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
 import {
-  HOT_HOURS, draftMoment, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
+  HOT_HOURS, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
 } from './post-moments';
 import { pagePath } from './reserved-routes';
 
@@ -71,25 +71,28 @@ export const isHot = (c: Pick<MomentCandidate, 'moment' | 'at'>, now: Date) =>
   (c.moment === 'went_live' || c.moment === 'won') && c.at !== undefined && now.getTime() - c.at.getTime() < HOT_HOURS * 3_600_000;
 
 /**
- * Final review 3: the people with no event to draft, by the UTC day it was found (this process only), so a quiet
- * reply does not read every moment again (about 10 queries) for the rest of that day.
+ * Final review 3: the people with no event to draft, by the UTC day it was found and eventStamp then (this process
+ * only), so a quiet reply reads one stamp instead of every moment again (about 10 queries) for the rest of that day.
  */
-const quietDay = new Map<number, string>();
+const quietDay = new Map<number, { day: string; stamp: string }>();
 const dayOf = (now: Date) => now.toISOString().slice(0, 10);
-function markQuiet(id: number, now: Date) {
+function markQuiet(id: number, now: Date, stamp: string) {
   const day = dayOf(now);
-  for (const [k, d] of quietDay) if (d !== day) quietDay.delete(k);
-  quietDay.set(id, day);
+  for (const [k, q] of quietDay) if (q.day !== day) quietDay.delete(k);
+  quietDay.set(id, { day, stamp });
 }
 
 /**
  * An event's post (an announced win, going live, the coin's intro: offeredMoments without the weekly), drafted and
  * stored as the reply's ask: the first that drafts (final review 3: one that can't be drafted gives way to the next).
  * `hot`: only went live or won under HOT_HOURS (they go before the apply step); else any. Null: none, or a limit holds
- * it; when nothing at all could be drafted (and no read failed), remembered until the day ends. Never throws.
+ * it; when nothing at all could be drafted (and no read failed), remembered until the day ends or eventStamp changes.
+ * Never throws.
  */
 export async function eventPost(id: number, handle: string, now: Date, o: { hot: boolean }): Promise<(EventPost & { hot: boolean }) | null> {
-  if (quietDay.get(id) === dayOf(now)) return null;
+  const stamp = await eventStamp(id).catch(logged('event stamp'));
+  const quiet = quietDay.get(id);
+  if (stamp !== null && quiet?.day === dayOf(now) && quiet.stamp === stamp) return null;
   const r = await offeredMoments(id, now, { weekly: false }).catch(logged('event'));
   if (!r) return null;
   let open = false;
@@ -107,7 +110,7 @@ export async function eventPost(id: number, handle: string, now: Date, o: { hot:
     await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head, moment: c });
     return { head, ...offerOf(handle, d.draft), hot };
   }
-  if (!open) markQuiet(id, now);
+  if (!open && stamp !== null) markQuiet(id, now, stamp);
   return null;
 }
 
