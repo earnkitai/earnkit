@@ -176,6 +176,11 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   const streak = async (n: number) =>
     sql()`UPDATE builder_projects SET streak = ${n}, ship_weeks = ${weeks.slice(4 - n)}::text[], commit_weeks = ${weeks.slice(4 - n)}::text[] WHERE builder_id = ${c.id} AND lower(project_key) = ${key}`;
   await streak(4);
+  // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
+  const q = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
+  assert.doesNotMatch(q, / not open yet\. /, q);
+  assert.match(q, /\nBase pays up to \$5,000 for apps on Base\.\n/, q);
+  await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   const lines = s.split('\n');
   const upc = lines.filter((l) => / not open yet\. /.test(l));

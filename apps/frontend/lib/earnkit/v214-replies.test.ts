@@ -51,7 +51,7 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
   assert.ok(s.startsWith(INTRO_LINE), s);
-  assert.match(s, /Step 1 of 2: sign in with X \(one click\): https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\nDone\?\n\+30 points when you finish step 2$/);
+  assert.match(s, /Step 1 of 2: sign in with X \(one click\): https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\nDone\?$/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
 });
@@ -60,8 +60,8 @@ test('9.9 state 2, signed in with no project: the page and the repo picker (laun
   const a = await agent({ x: 'abe' });
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
   assert.match(s, new RegExp(`^You're in, @abe${RUN}\\.\n`, 'i'));
-  assert.match(s, /Step 2 of 2: pick the repo you're building\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Done?\n+30 points when it's connected"));
+  assert.match(s, /Step 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.ok(s.endsWith("Done?"));
   assert.doesNotMatch(s, /What's your GitHub/);
 });
 
@@ -73,7 +73,7 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   const s = rule((await mcpCall(a.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } })).reply);
   assert.match(s, new RegExp(`^You're in, @bo${RUN}\\.\n`, 'i'));
   assert.match(s, /https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.match(s, /Done\?\n\+30 points when it's connected$/);
+  assert.match(s, /Done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
   assert.match(four, new RegExp(`Kit (is on the leaderboard: |· )(#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)`));
@@ -165,7 +165,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith('Done?\n+30 points when you finish step 2'), s);
+  assert.ok(s.endsWith('Done?'), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');

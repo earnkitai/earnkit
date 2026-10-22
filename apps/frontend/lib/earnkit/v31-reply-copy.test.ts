@@ -63,11 +63,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
     'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 right now.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
     '',
     `Step 1 of 2: sign in with X (one click): ${signIn}`,
     'Done?',
-    '+30 points when you finish step 2',
   ].join('\n'));
 
   // Step 2: signed in, no repo (the picker), then a named repo the App can't count yet (its install link).
@@ -87,9 +86,9 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   const step2 = (link: string) => [
     `You're in, @${handle}.`,
-    `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}`,
+    `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.',
     'Done?',
-    "+30 points when it's connected",
   ].join('\n');
   const s2 = rule(show(await mcpCall({ ...ctx, matchProjects: none }, 'find', {})));
   assert.equal(s2, step2(links(s2)[0]!));
@@ -185,7 +184,7 @@ test('Task 16 fix round 1: the signed-out reply\'s open grant is never an invest
   const batches = card({ id: 'batches', organizer: 'Base', chains: ['base'], max_award_usd: 100000, investment: true });
   const grant = card({ id: 'circle', organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 });
   // Base first by the program list's order, but an investment: the grant is named, its organizer without the parenthesis.
-  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000' });
+  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000', chain: null });
   assert.equal(openGrant([batches], now, new Set()), null, 'only an investment open: no sentence');
-  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000' });
+  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000', chain: 'Base' });
 });

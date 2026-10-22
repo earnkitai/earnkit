@@ -200,7 +200,7 @@ test('4.1 (v2.14 T7) an unsigned install with a project: no claim link, no claim
     assert.doesNotMatch(r.show_to_builder, /claim/i);
     assert.ok(links(r.show_to_builder).length <= 1);
     assert.equal(questions(r.show_to_builder), 1);
-    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
   }));
 
 // ---- 5. Private and org repos through the read-only GitHub App -----------------------------------
@@ -296,7 +296,7 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       assert.match(links(r1.show_to_builder)[0], /\/signin\//);
       assert.equal(r1.move_up?.kind, 'sign_in');
       assert.equal(questions(r1.show_to_builder), 1);
-      assert.ok(r1.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'));
+      assert.ok(r1.show_to_builder.endsWith('Done?'));
       assert.notEqual(r1.move_up?.kind, 'install_app');
       assert.equal(r1.proof, undefined);
       // Claimed: the install link is the one link (v2.13.4: the page named without https), the question last.
@@ -305,12 +305,12 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       const ls = links(r2.show_to_builder);
       assert.equal(ls.length, 1, r2.show_to_builder);
       assert.match(ls[0], /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-      assert.ok(r2.show_to_builder.endsWith(`${STATE_COPY.not_counted.ask(ls[0])}\n+30 points when it's connected`), r2.show_to_builder);
+      assert.ok(r2.show_to_builder.endsWith(`${STATE_COPY.not_counted.ask(ls[0])}`), r2.show_to_builder);
       assert.match(r2.show_to_builder, /^You're in, @/);
       assert.equal(r2.move_up?.kind, 'install_app');
       assert.equal(r2.move_up?.agent_note, INSTALL_APP_NOTE);
       assert.equal(questions(r2.show_to_builder), 1);
-      assert.ok(r2.show_to_builder.split('\n').at(-2)!.endsWith('?'), 'the question, then the points line');
+      assert.ok(r2.show_to_builder.endsWith('Done?'), '2026-10-22: the question last, no points line');
       assert.equal(r2.proof, undefined, 'no branch before the App can read the repo');
       // Installed: the setup URL (appSetup's last step) reads the repo with the per-call token and proves it.
       await installApp(id, key, login);
@@ -365,7 +365,7 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
     assert.equal(r.proof, undefined, r.show_to_builder);
     assert.equal(gh.minted.length, 0, 'no token for a proof that is not this person\'s');
     assert.equal(r.move_up?.kind, 'install_app');
-    assert.ok(r.show_to_builder.endsWith(`${pickRepoAsk(links(r.show_to_builder)[0])}\n+30 points when it's connected`), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(`${pickRepoAsk(links(r.show_to_builder)[0])}`), r.show_to_builder);
   }));
 
 // ---- Owner rulings A and B (2026-10-17) ----------------------------------------------------------

@@ -123,8 +123,14 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     // Confirmed, nothing pending (R8, Task 16): the ship question, whose yes is one small thing to ship.
     const key = `${uniq('gr')}/recipes`;
     const id = await person({ main: key, claimed: uniq('gr'), projects: [{ key, name: 'Recipe planner', confirmed: true }] });
+    // 2026-10-22: with no fit, Base's grant steps first (its yes: the steps); after a no, the ship question.
+    const q = await find(id, {}, NO_MATCH);
+    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
+    assert.equal(q.move_up?.kind, 'qualify');
+    await tell(id, { kind: 'qualify', project_key: key, answer: 'no' });
     const r = await find(id, {}, NO_MATCH);
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
+    assert.equal(r.move_up?.kind, 'ship');
     assert.equal(lastQ(r.show_to_builder).length, 1);
     const g = await tell(id, { kind: 'ship', project_key: key, answer: 'yes' });
     assert.match(g.agent_note ?? '', /one small thing/);

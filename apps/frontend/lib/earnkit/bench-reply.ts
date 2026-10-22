@@ -1,5 +1,5 @@
 import { pageUrl } from './reserved-routes';
-import { CONNECT_POINTS, MAX_WEEK_POINTS } from './points';
+import { MAX_WEEK_POINTS } from './points';
 
 /**
  * v3.1 Task 16 (owner-approved copy, 2026-10-21): every reply written for a busy builder. Plain text, no headers,
@@ -17,7 +17,8 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** v3 Stage 1: `connect`, the backfilled weeks' one yes after the App connects a repo (ranked, once a person). */
 /** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS, v3.1 else a rolling fit (ranked, once a program). */
 /** v3 Stage 2: `backing`, the backing offer after the first approved week with code (ranked, once a project, EARNKIT_RAISING on). */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply';
+/** 2026-10-22: `titles`, a private repo's titles question (ranked, once a person); `qualify`, Base's grant steps for a ranked builder with no fit. */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -54,8 +55,13 @@ const upTo = (amount: string | null) => (amount ? `, up to ${amount}` : '');
 export const qualifyLine = (f: { title: string; amount: string | null; when: string }) =>
   `You qualify for the ${f.title}${upTo(f.amount)}${f.when.startsWith('closes ') ? `, ${f.when}` : ''}.`;
 
-/** Task 16: the signed-out reply's open grant ("Base pays up to $5,000 right now."): its organizer and award. */
-export type OpenGrant = { org: string; amount: string };
+/**
+ * Task 16: the signed-out reply's open grant ("Base pays up to $5,000 for apps on Base."): its organizer, its award and,
+ * for a one-chain program, that chain's name (null: any chain, "for apps").
+ */
+export type OpenGrant = { org: string; amount: string; chain: string | null };
+/** 2026-10-22: "Base pays up to $5,000 for apps on Base." (the program's own facts; "for apps." on any chain). Pure. */
+export const grantHook = (g: OpenGrant) => `${g.org} pays up to ${g.amount} for apps${g.chain ? ` on ${g.chain}` : ''}.`;
 /** Task 16: the connect offer: the weeks it posts and the points that yes adds (ledger rules: points.ts connectOfferPoints). */
 export type ConnectOffer = { weeks: number; points: number };
 /**
@@ -68,13 +74,17 @@ export type MomentView = { week: number; place: 'still' | 'now' | null; rank: nu
 /** Task 16, step 1: the signed-out reply's two lines. */
 export const INTRO_LINE = 'EarnKit gets you paid for building.';
 export const introWhat = (open: OpenGrant | null) =>
-  `I read your commits every week, rank you against other builders, and find grants you qualify for.${open ? ` ${open.org} pays up to ${open.amount} right now.` : ''}`;
+  `I read your commits every week, rank you against other builders, and find grants you qualify for.${open ? ` ${grantHook(open)}` : ''}`;
 /** Task 16, step 2: "You're in, @maya.". */
 export const youreIn = (handle: string) => `You're in, @${handle}.`;
-/** Task 16: the step 2 action (the repo picker, or a named repo's install link). */
-export const pickRepoAsk = (link: string) => `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}\nDone?`;
-export const POINTS_ON_SIGN_IN = `+${CONNECT_POINTS} points when you finish step 2`;
-export const POINTS_ON_CONNECT = `+${CONNECT_POINTS} points when it's connected`;
+/**
+ * 2026-10-22: step 2's hint for a builder whose app has no GitHub yet. Only Lovable and Bolt are confirmed
+ * (v3.1-install-research.md); a statement, so the reply keeps exactly one question.
+ */
+export const NO_GITHUB_HINT = 'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.';
+/** Task 16, 2026-10-22: the step 2 action (the repo picker, or a named repo's install link), in plain words. */
+export const pickRepoAsk = (link: string) =>
+  `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
 /** Task 16, step 5: the shipping points line (`lead`: the weekly target without its period, else "Ship code this week"). */
 export const shipPointsLine = (lead: string = 'Ship code this week') => `${lead}: up to +${MAX_WEEK_POINTS} points`;
 /** v3 Stage 1 (spec 5.1), Task 16 step 3: the connect weeks' one question (ranked, once a person); the page is its link. */
@@ -88,6 +98,46 @@ export const applyAsk = (title: string, amount: string | null, when: string | nu
   `${title} ${when ? `closes ${when}` : 'is still open'}${upTo(amount)}. I can draft it in a minute.\nWant me to?`;
 /** Task 16: the ranked ship step's one question (a yes: one small thing to ship, SHIP_STEP_NOTE). */
 export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
+/** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
+export const TITLES_ASK = 'Show what you shipped on your page? Your code stays private.';
+
+/**
+ * 2026-10-22: Base Builder Grants' steps, only from its program file's rules ("for builders exclusively building on
+ * Base", "the first step to be eligible is to integrate Builder Codes", "a live product that's getting used").
+ */
+export type QualifyStep = 'base' | 'codes' | 'use';
+export const QUALIFY_STEPS: readonly QualifyStep[] = ['base', 'codes', 'use'];
+/**
+ * 2026-10-22: the no-fit reply's path to Base's grant: its hook (grantHook), the steps the matcher and the Builder
+ * Codes check show missing (`missing`, named) and the steps to take (`steps`: missing or unknown, never one known met).
+ */
+export type QualifyOffer = { program_id: string; grant: OpenGrant; missing: QualifyStep[]; steps: QualifyStep[] };
+/** Builder Codes' guide (Base's docs), the one link of the steps reply. */
+export const BUILDER_CODES_GUIDE = 'docs.base.org/base-chain/builder-codes/builder-codes';
+const NEEDS: Record<QualifyStep, string> = { base: 'go live on Base', codes: 'add Builder Codes', use: 'get people using it' };
+/** "a, b and c". Pure. */
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+/** "To qualify, Kit still needs to add Builder Codes and get people using it." (null: none known missing). Pure. */
+export const qualifyMissing = (name: string, missing: QualifyStep[]) =>
+  missing.length ? `To qualify, ${name} still needs to ${andList(QUALIFY_STEPS.filter((s) => missing.includes(s)).map((s) => NEEDS[s]))}.` : null;
+/** "Base's $5,000 grant". Pure. */
+const grantOf = (g: OpenGrant) => `${g.org}'s ${g.amount} grant`;
+/** The no-fit reply's one question: all three steps "to qualify", fewer "toward" (never a claim the rest is met). Pure. */
+export const qualifyAsk = (g: OpenGrant, n: number) =>
+  n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantOf(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantOf(g)}?`;
+const STEP_LINE: Record<QualifyStep, string> = {
+  base: 'Build your app on Base.',
+  codes: `Add Builder Codes, Base's first step: https://${BUILDER_CODES_GUIDE}`,
+  use: 'Have a live product people use.',
+};
+export const QUALIFY_NEXT = 'We check for Builder Codes daily, and your agent drafts the application when you qualify.';
+export const QUALIFY_HELP_ASK = 'Want help with the first one now?';
+/** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
+export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
+  const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
+  const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantOf(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantOf(g)}:`;
+  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', QUALIFY_NEXT, QUALIFY_HELP_ASK].join('\n');
+}
 /** Task 16, step 7: the weekly moment's question. */
 export const MOMENT_ASK = 'Does last week look right?';
 /**
@@ -143,7 +193,8 @@ export const STATE_COPY = {
 /** A15: not counted, when the install link can't help. */
 export const VARIANT_COPY = {
   taken: { stand: (n: string) => `${n} is already on the leaderboard under another account.`, ask: () => OTHER_PROJECT_ASK },
-  copy: { stand: (n: string) => `${n} is a copy of someone else's project. Use your own.`, ask: () => OTHER_PROJECT_ASK },
+  // 2026-10-22: the template way out as a statement (the reply's one question is the ask).
+  copy: { stand: (n: string) => `${n} is a copy of someone else's project. If you made it from a template, make a copy in your own account, then connect that.`, ask: () => OTHER_PROJECT_ASK },
   no_repo: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => `Where does ${n} live on GitHub?` },
   app_off: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => shipAsk(n) },
 } as const;
@@ -184,6 +235,8 @@ export type BenchView = {
   connect?: ConnectOffer | null;
   /** Task 16 step 7: the weekly moment (ask kind 'share'). */
   moment?: MomentView | null;
+  /** 2026-10-22: Base's grant steps (ask kind 'qualify'). */
+  qualify?: QualifyOffer | null;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -191,10 +244,14 @@ export type ApplyPick = { program_id: string; title: string; amount: string | nu
 /**
  * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
  * (`connect`), the drafted application (`apply`; v3.1 spec 3.2: money to the builder first), the backing offer
- * (`backing`, its line given), the weekly moment's question once a week (L6, `share`), else the ship step. Pure.
+ * (`backing`, its line given), the weekly moment's question once a week (L6, `share`), a private repo's titles
+ * question once (`titles`), Base's grant steps with no fit (`qualify`), else the ship step. Pure.
  */
 export function stateAsk(
-  v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & { handle?: string | null; connect?: ConnectOffer | null; share?: boolean; backing?: string | null; apply?: ApplyPick | null },
+  v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & {
+    handle?: string | null; connect?: ConnectOffer | null; share?: boolean; backing?: string | null; apply?: ApplyPick | null;
+    titles?: boolean; qualify?: QualifyOffer | null;
+  },
 ): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
@@ -205,7 +262,12 @@ export function stateAsk(
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, `https://${pageUrl(v.handle)}`) };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
-  if (v.state === 'ranked') return v.share ? { kind: 'share', project_key: key, line: MOMENT_ASK } : { kind: 'ship', project_key: key, line: SHIP_ASK };
+  if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
+  // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
+  if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
+  if (v.state === 'ranked' && v.qualify)
+    return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps.length) };
+  if (v.state === 'ranked') return { kind: 'ship', project_key: key, line: SHIP_ASK };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
   if (v.variant === 'no_repo') return { kind: 'repo_behind', project_key: key, line: VARIANT_COPY.no_repo.ask(name) };
   if (v.variant === 'app_off' || !v.link) return { kind: 'suggest', project_key: key, line: VARIANT_COPY.app_off.ask(name) };
@@ -218,12 +280,12 @@ const shipLead = (target: string | null) => (target?.startsWith('Ship code this 
  * Ranked: the money line: the Best fit, else the first fit, else the backing statement (its page the reply's one link:
  * a ranked reply carries no other), else the upcoming program.
  */
-function moneyLine(v: BenchView): string | null {
+function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }): string | null {
   const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
   if (fit) return qualifyLine(fit);
   const b = v.fund.find((f): f is Extract<FundLine, { kind: 'backing' }> => f.kind === 'backing');
   if (b) return backingLine(b.backers, b.earned_usd, b.page);
-  const u = v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming');
+  const u = o.upcoming ? v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming') : undefined;
   return u ? upcomingLine(u.title, u.prize, u.note) : null;
 }
 /** Paragraphs, each its lines; empty ones dropped. */
@@ -236,14 +298,14 @@ export const namesAccount = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'a
 /** Task 16: the reply, as the owner approved it, for each state and step. Pure. */
 export function benchReply(v: BenchView): string {
   const name = v.project?.name ?? '';
-  if (v.state === 'signed_out')
-    return paras([INTRO_LINE, introWhat(v.open ?? null)], [v.ask.line, v.link ? POINTS_ON_SIGN_IN : null]);
+  // 2026-10-22 (owner): no points lines in the first two replies.
+  if (v.state === 'signed_out') return paras([INTRO_LINE, introWhat(v.open ?? null)], [v.ask.line]);
   const ask = v.held ?? v.ask.line;
   const step2 = !v.held && (v.ask.kind === 'pick_repo' || v.ask.kind === 'install_app');
   const named = namesAccount(v);
-  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, ...v.due, ask, step2 ? POINTS_ON_CONNECT : null]);
+  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, ...v.due, ask]);
   if (v.state === 'not_counted') {
-    if (step2) return paras([named ? youreIn(v.handle!) : null, ...v.due, ask, POINTS_ON_CONNECT]);
+    if (step2) return paras([named ? youreIn(v.handle!) : null, ...v.due, ask]);
     return paras([v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), ...v.due, ask]);
   }
   if (!v.held && v.ask.kind === 'connect' && v.connect)
@@ -256,8 +318,11 @@ export function benchReply(v: BenchView): string {
     return paras([momentHead(v.moment), MOMENT_POST_HEAD, momentPost(v.moment.week, name, `https://${pageUrl(v.handle)}`), ask]);
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
-  const points = !v.held && v.ask.kind === 'ship' ? shipPointsLine(shipLead(v.target)) : null;
-  return paras([standing, ...v.due, moneyLine(v), ask, points]);
+  const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
+  // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
+  // of the upcoming program's line, so the reply stays short).
+  const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [grantHook(v.qualify.grant), qualifyMissing(name, v.qualify.missing)] : [];
+  return paras([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, points]);
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

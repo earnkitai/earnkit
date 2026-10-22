@@ -293,6 +293,11 @@ export async function pickedRepos(
 /** How a setup page names a one project: a repo as its GitHub link, anything else as it is. Pure. */
 const named = (key: string) => (/^[^/\s:]+\/[^/\s]+$/.test(key) ? `github.com/${key}` : key);
 
+/** 2026-10-22: the App page's hint, in GitHub's own labels ("All repositories" / "Only select repositories"). */
+export const PICK_HINT = 'Choose Only select repositories and pick your app.';
+/** 2026-10-22: the fork or template refusal's way out. */
+export const TEMPLATE_HINT = "Made from someone's template? Make a copy in your own account, then connect that.";
+
 /** Launch ready L2 (fix round 1, I1, I2): what the picker's setup page says. */
 export const PICK_PAGE = {
   /** Always names the one project after the setup and the page it is on. */
@@ -301,9 +306,10 @@ export const PICK_PAGE = {
   next: 'Go back to your agent and say yes. To rank a different repo, tell your agent.',
   /** I2: every success page offers the way out for a forwarded link. */
   remove: (these: boolean) => `Not your page? Remove the EarnKit app from ${these ? 'these repos' : 'this repo'} in your GitHub settings:`,
-  none: 'No repo was picked. Add one to the EarnKit app on GitHub, then ask your agent for a new link.',
+  /** 2026-10-22: GitHub's own labels (v3.1-install-research.md). */
+  none: `Nothing was picked. ${PICK_HINT} Then ask your agent for a new link.`,
   notYours: "This GitHub account doesn't own the repos you picked. Install the app with the account that owns them.",
-  noneCounted: "None of the repos you picked can be ranked: forks, templates and repos on another page don't count. Pick one you made, then ask your agent for a new link.",
+  noneCounted: `None of the repos you picked can be ranked: forks, templates and repos on another page don't count. ${TEMPLATE_HINT} Then ask your agent for a new link.`,
 } as const;
 
 /** Fix round 1 (I2): a success page: its lines, then the removal line with the one GitHub settings link. */
@@ -372,7 +378,7 @@ export const installUrl = (slug: string, nonce: string) =>
 
 /** What the builder reads when the App proof doesn't pass (the setup URL's page). */
 export const APP_PAGE = {
-  notListed: "EarnKit can't read that repo yet. Add it to the EarnKit app on GitHub, then ask your agent for a new link.",
+  notListed: `EarnKit can't read your app's code yet. ${PICK_HINT} Then ask your agent for a new link.`,
   notYours: "This GitHub account doesn't own that repo. Install the app with the account that owns it.",
 } as const;
 

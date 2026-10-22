@@ -27,16 +27,15 @@ test('Task 16 step 1: signed out, the first reply after install', () => {
   const link = 'https://earnkit.com/signin/abc';
   const v: BenchView = {
     state: 'signed_out', variant: null, project: null, rank: null, streak: 0, target: null, handle: null, link, fund: [], due: [], held: null,
-    ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000' },
+    ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000', chain: 'Base' },
   };
   const out = benchReply(v);
   assert.equal(out, [
     'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 right now.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
     '',
     `Step 1 of 2: sign in with X (one click): ${link}`,
     'Done?',
-    '+30 points when you finish step 2',
   ].join('\n'));
   oneAsk(out);
   // With no open grant to name, the sentence is dropped.
@@ -55,10 +54,11 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
   };
   const want = [
     "You're in, @maya.",
-    `Step 2 of 2: pick the repo you're building. I only get read access (one click): ${link}`,
+    `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.',
     'Done?',
-    "+30 points when it's connected",
   ].join('\n');
+  assert.doesNotMatch(want, /points/, '2026-10-22: no points in the first two replies');
   assert.equal(benchReply(pick), want);
   oneAsk(benchReply(pick));
   assert.equal(pick.ask.kind, 'pick_repo');

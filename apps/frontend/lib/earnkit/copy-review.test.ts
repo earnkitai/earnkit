@@ -25,7 +25,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, applyAsk, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, SHIP_ASK, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
@@ -1381,8 +1381,8 @@ test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period
 
 // ---- v3.1 Task 14: the copy sweep. Every new builder-facing string of v3.1 (replies, draft, email) through the v2.12.1 T8
 // rule (plain sentences, no jargon, one question at most), the banned-word review and the em dash scan. "Base" and
-// "Builder Codes" are the grant program's own words; "pick the repo you're building" and "I read your commits every week"
-// are the owner-approved Task 16 lines (BENCH_PITCH_ALLOWED), so only those exact phrases are stripped.
+// "Builder Codes" are the grant program's own words; "I read your commits every week" is the owner-approved Task 16
+// line (BENCH_PITCH_ALLOWED), so only those exact phrases are stripped.
 function v31Texts(): [string, string][] {
   const g = { active: false, gain: 14, next: 13 };
   const t = (o: Partial<Parameters<typeof weeklyTarget>[0]>) => weeklyTarget({ gains: g, score: 50, rank: 2, above: null, ...o });
@@ -1403,12 +1403,18 @@ function v31Texts(): [string, string][] {
   const open = { title: 'Base Builder Grant Program', amount: '$5,000' };
   return [
     ['INTRO_LINE', INTRO_LINE],
-    ['introWhat', introWhat({ org: 'Base', amount: '$5,000' })],
+    ['introWhat', introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['introWhat no grant', introWhat(null)],
     ['youreIn', youreIn('maya')],
     ['pickRepoAsk', pickRepoAsk('https://earnkit.com/github/verify?n=x')],
-    ['POINTS_ON_SIGN_IN', POINTS_ON_SIGN_IN],
-    ['POINTS_ON_CONNECT', POINTS_ON_CONNECT],
+    // 2026-10-22: the no-fit path to Base's grant, and a private repo's titles question.
+    ['grantHook', grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' })],
+    ['grantHook any chain', grantHook({ org: 'Arc House', amount: '$10,000', chain: null })],
+    ['qualifyMissing', qualifyMissing('Recipes', ['base', 'codes', 'use'])!],
+    ['qualifyAsk all', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3)],
+    ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 2)],
+    ['qualifySteps', qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'])],
+    ['TITLES_ASK', TITLES_ASK],
     ['connectAsk', connectAsk(1, 'earnkit.com/maya')],
     ['connectAsk weeks', connectAsk(4, 'earnkit.com/maya')],
     ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 4)],
@@ -1457,12 +1463,16 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
   // that legitimately carry them, keyed by label.
   const fixtureNames = ['Recipes', 'Recipe Grants'];
   const GRANT = 'Base Builder Grant Program';
-  const REPO_PHRASE = "pick the repo you're building";
   const COMMITS_PHRASE = 'I read your commits every week';
   const allowed: Record<string, string[]> = {
     introWhat: ['Base', COMMITS_PHRASE],
     'introWhat no grant': [COMMITS_PHRASE],
-    pickRepoAsk: [REPO_PHRASE],
+    grantHook: ['Base'],
+    'grantHook any chain': ['Arc House'],
+    qualifyMissing: ['Base', 'Builder Codes'],
+    'qualifyAsk all': ['Base'],
+    'qualifyAsk some': ['Base'],
+    qualifySteps: ['Base', 'Builder Codes'],
     'Best fit dated': [GRANT],
     'Best fit rolling': [GRANT],
     builderCodesFound: ['Builder Codes'],

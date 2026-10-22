@@ -12,7 +12,7 @@ import { raiseLine } from './coin-moments';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  INTRO_LINE, MOMENT_ASK, POINTS_ON_CONNECT, POINTS_ON_SIGN_IN, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat, momentHead,
+  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat, momentHead,
   qualifyLine, shipPointsLine, standingLine, youreIn,
 } from './bench-reply';
 import { fitWhy } from './bench-find';
@@ -21,7 +21,7 @@ import { fitWhy } from './bench-find';
 (globalThis as { React?: typeof React }).React = React;
 
 /** Builder and public text added in v2.13, checked by the v2.13 rule (plan B17). Names (projects, programs, $TICKERS) are exempt. */
-const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
+const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'Builder Codes', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
 const s = (rank: number, total: number) => ({ ranked: true, rank, total });
 export const TEXTS: string[] = [
   ...[s(18, 100), s(3, 1000), s(10, 19), s(70, 100)].flatMap((x) => [rankLine(x)!, scoreLine(62, rankLine(x))]),
@@ -29,7 +29,9 @@ export const TEXTS: string[] = [
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
   // v2.14 T9, R16a, v3.1 Task 16: the states' copy (STATE_COPY, VARIANT_COPY) and the owner-approved reply lines. R12: each
   // why the matcher can give (the page's fit lines).
-  INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000' }), introWhat(null), POINTS_ON_SIGN_IN, youreIn('maya'), POINTS_ON_CONNECT,
+  INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), introWhat(null), youreIn('maya'), TITLES_ASK,
+  grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' }), qualifyMissing('Recipe planner', ['base', 'codes', 'use'])!, qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3),
+  qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk(3, 'earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
   SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4, place: 'now', rank: 3, points: 70 }), MOMENT_ASK,

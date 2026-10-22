@@ -11,7 +11,8 @@ import { installLink, pickLink, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, openCoinLine } from './coin-moments';
-import { UPDATE_LINES } from './updates';
+import { UPDATE_LINES, setShipTitles, takeTitlesAsk, titlesAskDue } from './updates';
+import { grantOf, qualifyOffer } from './base-qualify';
 import { pillCoin, raisingCoin, showRaisingLine } from './raising';
 import { backersOfCoin } from './backers';
 import { earnedUsd } from './earned';
@@ -33,8 +34,8 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, awardAmount, benchReply, namesAccount, benchStepKey, rankedState, replyState, stateAsk,
-  type ApplyPick, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
+  APPLY_WINDOW_DAYS, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk,
+  type ApplyPick, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
@@ -93,6 +94,14 @@ export const BACKING_NOTE =
   "If they give a wallet for the fees with the yes, call tell with coin: { project_key, answer: 'yes', wallet } instead. Never launch anything before that yes. Don't show this note.";
 /** v3 Stage 2 (spec 5.3): the apply step's ask; a yes drafts the entry (APPLY_YES_NOTE). */
 export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
+/** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
+export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
+/** 2026-10-22: Base's grant steps question's note; a yes returns the steps. */
+export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'qualify', project_key, answer } (project_key as given here). Don't show this note.";
+/** 2026-10-22: the steps reply's question; a yes is help with the first step, here. */
+export const QUALIFY_STEPS_NOTE =
+  "A yes to the question: help the builder with the first step listed, here in this folder (for Builder Codes, follow the guide linked). " +
+  "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
 /** v3 Stage 2: the yes to the apply step: prepare drafts the entry, the ship log's facts on top. */
 export const APPLY_YES_NOTE = (id: string) => `Call prepare with program_id "${id}" for this project and show the draft. Don't show this note.`;
 /** v3 Stage 2: find's held apply-outcome question (14 days after the deadline) is the reply's last line. */
@@ -106,7 +115,7 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 /** What the person was last told (stand-view's Seen) plus the Bench's own: the ask. */
 export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
-  bench_ask?: { kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string };
+  bench_ask?: { kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'> };
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
   apply_asked?: Record<string, string>;
 };
@@ -432,6 +441,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const backing = ranked && project && handle && !held && !connect && !apply ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, row?.commit_weeks ?? [], now) : null;
+  // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
+  const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment;
+  const titles = quiet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !titles && o.fits.length === 0
+    ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS })
+    : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? null : install;
 
   let fund: FundLine[] = [];
@@ -457,21 +472,25 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   }
 
   // R8, L5, L6: each state's one next step.
-  const finalAsk = stateAsk({ state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply });
+  const finalAsk = stateAsk({ state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
-  const stored = held ? null : { kind: finalAsk.kind, key: finalAsk.project_key, ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }) };
+  const stored = held ? null : {
+    kind: finalAsk.kind, key: finalAsk.project_key,
+    ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
+    ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
+  };
   await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
-    ask: finalAsk, held, best, connect, moment, open: state === 'signed_out' ? openGrant(o.cards, now, o.skip) : null,
+    ask: finalAsk, held, best, connect, moment, open: state === 'signed_out' ? openGrant(o.cards, now, o.skip) : null, qualify,
   };
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
-    : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -481,15 +500,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
 }
 
 /**
- * Task 16 step 1: the open grant the signed-out reply names ("Base pays up to $5,000 right now."): the first open,
+ * Task 16 step 1: the open grant the signed-out reply names ("Base pays up to $5,000 for apps on Base."): the first open,
  * showable program with a known award, by the program list's order (present.ts byRelevance: Base first); its organizer
- * without the parenthesis ("Arc House (Circle)": "Arc House"). Null: none. Pure.
+ * without the parenthesis ("Arc House (Circle)": "Arc House") and its one chain (base-qualify.ts grantOf). Null: none. Pure.
  */
 export function openGrant(cards: Card[], now: Date, skip: Set<string>): OpenGrant | null {
   // Fix round 1: a grant (showable already drops investments; checked here too, so "pays" never names one).
   const c = cards.filter((x) => showable(x, now, skip) && x.investment !== true && (x.max_award_usd ?? 0) > 0 && x.organizer?.trim()).sort(byRelevance)[0];
-  const amount = c ? awardAmount(c) : null;
-  return c && amount ? { org: c.organizer!.replace(/\s*\([^)]*\)/g, '').trim(), amount } : null;
+  return c ? grantOf(c) : null;
 }
 
 /**
@@ -818,10 +836,10 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
-export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<{ kind: string; key: string | null; program_id?: string; repo?: string } | null> {
+export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
   const [p] = await sql()<{ ask: Seen['bench_ask'] | null }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
     logged('asked')(err);
     return [];
@@ -854,6 +872,23 @@ async function connectApply(id: number, best: ConnectBest, key: string | null, n
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb)
     WHERE builder_id = ${id}`.catch(logged('connect apply ask'));
   return { line: connectApplyAsk(best.title), move_up: { kind: 'apply', project_key: projectKey, agent_note: APPLY_NOTE } };
+}
+
+/**
+ * 2026-10-22: after the connect yes, the titles question for the one project (titlesAskDue), claimed once and stored as
+ * the Bench's ask, so its yes turns titles on. Null otherwise. Never throws.
+ */
+async function connectTitles(id: number, key: string | null, now: Date): Promise<Reply | null> {
+  const [p] = await sql()<{ key: string | null }[]>`SELECT main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('connect titles')(err);
+    return [];
+  });
+  const projectKey = key ?? p?.key ?? null;
+  if (!projectKey || !(await titlesAskDue(id, projectKey, now)) || !(await takeTitlesAsk(id, now))) return null;
+  const stored = { kind: 'titles', key: projectKey };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('connect titles ask'));
+  return { kind: 'titles', project_key: projectKey, agent_note: TITLES_NOTE };
 }
 
 /**
@@ -894,6 +929,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     // Task 16 step 4: the Best fit the offer named is offered as a draft (the apply ask, once a program), else the email question.
     const apply = r.best && p?.handle ? await connectApply(id, r.best, m.project_key ?? null, now) : null;
     if (apply) return { show_to_builder: [done, apply.line, points].filter(Boolean).join('\n'), move_up: apply.move_up };
+    // 2026-10-22: a private repo with titles off hears the titles question here, once (before the email question).
+    const titles = p?.handle ? await connectTitles(id, m.project_key ?? null, now) : null;
+    if (titles) return { show_to_builder: [done, TITLES_ASK, points].filter(Boolean).join('\n'), move_up: titles };
     // The You're live line is a statement, so the email question (when it is asked) is the reply's one question.
     const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
     return { show_to_builder: [done, email?.question, points].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
@@ -958,6 +996,14 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'ship':
     case 'suggest':
       return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : okay;
+    case 'titles':
+      // 2026-10-22: the titles question's yes turns titles on (the tell updates { titles: true } path).
+      return setShipTitles(id, { titles: true }, now);
+    case 'qualify':
+      // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met).
+      return asked.qualify?.steps?.length
+        ? { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE }
+        : okay;
     case 'apply':
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
       return asked.program_id

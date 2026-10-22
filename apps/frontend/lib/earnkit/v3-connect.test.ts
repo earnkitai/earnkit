@@ -10,7 +10,10 @@ import { readStats } from './stats';
 import { pointsTotal } from './points';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
-import { SHIP_ASK } from './bench-reply';
+import { qualifyAsk } from './bench-reply';
+
+/** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
+const RANKED_ASK = qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3);
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
@@ -119,7 +122,7 @@ test('(d) a person with only a started row sees no connect lines', db, async () 
     VALUES (${me.id}, ${me.key}, ${backfillMondays(new Date())[0]}, ${sql().json({ checked: true, started: { live: false, weeks: 2 } } as never)})`;
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
   assert.doesNotMatch(s, /Post your \d+ weeks?/, s);
-  assert.ok(s.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), s);
+  assert.ok(s.endsWith(`${RANKED_ASK}\nShip code this week: up to +100 points`), s);
   assert.ok(!(await seen(me.id)).connect_done, 'the backfill is not complete: the offer waits');
   // The backfill's other weeks arrive, checked with nothing to confirm: the next find closes the offer.
   for (const monday of backfillMondays(new Date()).slice(1))
@@ -164,8 +167,8 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   assert.doesNotMatch(s, /Post your \d+ weeks?|Week \d+ done|Last week done|Does last week look right\?/, s);
-  assert.ok(s.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), s);
-  assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
+  assert.ok(s.endsWith(`${RANKED_ASK}\nShip code this week: up to +100 points`), s);
+  assert.equal((f.reply?.move_up as { kind: string }).kind, 'qualify');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
 });
 

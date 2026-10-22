@@ -138,6 +138,13 @@ export async function hideUpdate(builderId: number, day: unknown): Promise<Reply
   return { show_to_builder: UPDATE_LINES.hidden };
 }
 
+/** Whether the read-only App proves repo `key` for this builder (the only source of a log's titles). */
+async function appProves(builderId: number, key: string): Promise<boolean> {
+  const [app] = await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
+    AND regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(${key}) LIMIT 1`;
+  return Boolean(app);
+}
+
 /** v2.14 spec 3, A12: titles on or off for the person's log; an older agent's { on } is answered, nothing changes. */
 export async function setShipTitles(builderId: number, u: { titles?: unknown; on?: unknown }, now: Date): Promise<Reply> {
   if (typeof u.titles !== 'boolean') return { show_to_builder: UPDATE_LINES.auto };
@@ -145,11 +152,7 @@ export async function setShipTitles(builderId: number, u: { titles?: unknown; on
   // that, never "Done" (another App-proven repo isn't the log's).
   if (u.titles) {
     const key = await mainProjectOf(builderId);
-    const [app] = key
-      ? await sql()`SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'repo' AND state = 'verified' AND proof = ${APP_PROOF}
-          AND regexp_replace(lower(trim(ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(${key}) LIMIT 1`
-      : [];
-    if (!app) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
+    if (!key || !(await appProves(builderId, key))) return { show_to_builder: '', agent_note: TITLES_NO_APP_NOTE };
   }
   await sql()`UPDATE builder_profiles SET ship_titles_at = ${u.titles ? now : null} WHERE builder_id = ${builderId}`;
   // R13 fix round 1: titles on: the backfill weeks' rows that read no titles (a private repo with titles off) are
@@ -158,4 +161,40 @@ export async function setShipTitles(builderId: number, u: { titles?: unknown; on
     await sql()`UPDATE project_updates SET facts = facts - 'titles_read'
       WHERE builder_id = ${builderId} AND week IN ${sql()(backfillMondays(now))} AND cardinality(titles) = 0 AND facts ? 'titles_read'`;
   return { show_to_builder: u.titles ? UPDATE_LINES.titlesOn : UPDATE_LINES.titlesOff };
+}
+
+/**
+ * 2026-10-22 (owner-approved reply fix 5): the titles question ("Show what you shipped on your page? Your code stays
+ * private.") is due for the one project `key`: the App proves it and GitHub said it is private (and it doesn't read
+ * public now), titles are off and the question was never asked (standing_seen.titles_asked). A failed read is not
+ * due. Never throws.
+ */
+export async function titlesAskDue(builderId: number, key: string, now: Date): Promise<boolean> {
+  try {
+    const [p] = await sql()<{ off: boolean; asked: boolean }[]>`
+      SELECT ship_titles_at IS NULL AS off, COALESCE(standing_seen ? 'titles_asked', false) AS asked FROM builder_profiles WHERE builder_id = ${builderId}`;
+    if (!p?.off || p.asked) return false;
+    // Private only on GitHub's own word: the App's read at proof (public_at stays null for a private repo), or the
+    // latest reading's; never just "not read public yet".
+    const [priv] = await sql()`
+      SELECT 1 FROM builder_sources b WHERE b.builder_id = ${builderId} AND b.kind = 'repo' AND b.state = 'verified' AND b.proof = ${APP_PROOF}
+        AND regexp_replace(lower(trim(b.ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(${key})
+        AND ((b.gh_repo_id IS NOT NULL AND b.public_at IS NULL)
+          OR (SELECT r.signals->'private' = 'true'::jsonb FROM source_readings r WHERE r.source_id = b.id ORDER BY r.day DESC LIMIT 1))
+      LIMIT 1`;
+    return Boolean(priv) && !(await repoReadPublic(builderId, key, now));
+  } catch (err) {
+    console.error('[updates] titles due', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+/** The titles question, claimed once a person (one guarded UPDATE of standing_seen.titles_asked). Never throws. */
+export async function takeTitlesAsk(builderId: number, now: Date): Promise<boolean> {
+  const [r] = await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('titles_asked', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'titles_asked', false) RETURNING 1`.catch((err: unknown) => {
+    console.error('[updates] titles asked', err instanceof Error ? err.name : 'error');
+    return [];
+  });
+  return Boolean(r);
 }

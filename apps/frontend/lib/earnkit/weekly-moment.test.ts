@@ -8,7 +8,10 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { profileData } from './bench-data';
 import { readStats } from './stats';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { SHIP_ASK } from './bench-reply';
+import { qualifyAsk } from './bench-reply';
+
+/** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
+const RANKED_ASK = qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3);
 import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
 
@@ -85,11 +88,12 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await pad('wtpa', 7);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.equal(s, `App · #2 of 10 builders\n${SHIP_ASK}\nShip code this week to pass #1: up to +100 points`);
+  // 2026-10-22: no fit, so Base's grant steps are the question; the points line is still the weekly target.
+  assert.equal(s, `App · #2 of 10 builders\nBase pays up to $5,000 for apps on Base.\n${RANKED_ASK}\nShip code this week to pass #1: up to +100 points`);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
-  assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
+  assert.equal((f.reply?.move_up as { kind: string }).kind, 'qualify');
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
   assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
@@ -108,7 +112,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(me.id, [0, 1, 2, 3]);
   for (const tool of ['find', 'score'] as const) {
     const t = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.ok(t.endsWith(`${SHIP_ASK}\nShip code this week: up to +100 points`), `${tool}: ${t}`);
+    assert.ok(t.endsWith(`${RANKED_ASK}\nShip code this week: up to +100 points`), `${tool}: ${t}`);
     assert.equal(questions(t), 1, t);
   }
 });

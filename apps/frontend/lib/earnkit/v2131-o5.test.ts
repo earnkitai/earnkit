@@ -117,7 +117,7 @@ test('O5 N1 (F16) the first find and score answer in under 3 s while GitHub has 
       assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
       assert.equal(links(r.show_to_builder).length, 1);
       assert.match(links(r.show_to_builder)[0]!, /\/signin\//);
-      assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'));
+      assert.ok(r.show_to_builder.endsWith('Done?'));
       assert.equal(r.proof, undefined);
       const t2 = Date.now();
       const r2 = await find(id, {});
@@ -173,6 +173,11 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
+    // 2026-10-22: with no fit, Base's grant steps first; a no to them brings the ship step back.
+    const q = await find(id, {}, NO_MATCH);
+    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
+    assert.equal(q.move_up?.kind, 'qualify');
+    await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const r = await find(id, {}, NO_MATCH);
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
@@ -197,7 +202,7 @@ test('O5 N6 (P5) no project: never a grant claimed for a build that can\'t enter
     assert.ok(!r.show_to_builder.includes(`${ava.title} pays`), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /a small app|tip jar/);
     // v2.14 T9: signed out: the sign-in question.
-    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
     assert.equal(r.build_offer, undefined);
     // A chat-only agent: the same rule.
     const c = await install();
@@ -238,7 +243,7 @@ test('O5 N15, v2.14: a chat-only agent with a project: not counted yet (the App 
     const r = await find(id, { ...named(key), agent_can_build: false }, NO_MATCH);
     assert.equal(r.show_to_builder.split('\n')[0], INTRO_LINE, r.show_to_builder);
     assert.notEqual(r.move_up?.kind, 'updates');
-    assert.ok(r.show_to_builder.endsWith('Done?\n+30 points when you finish step 2'), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Done?'), r.show_to_builder);
     assert.equal(questions(r.show_to_builder), 1);
   }),
 );

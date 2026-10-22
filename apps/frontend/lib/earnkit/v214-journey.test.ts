@@ -134,7 +134,7 @@ test('12.1 acceptance 1: the install signs in with X; the first reply names the 
   assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
   assert.doesNotMatch(s, /Signed in as/);
   assert.match(links(s)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
+  assert.ok(s.endsWith("Done?"), s);
   assert.doesNotMatch(s, /What's your GitHub/);
 });
 
@@ -154,7 +154,7 @@ test('12.3 naming the repo: not counted, with the App install link', db, async (
   assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
   installLinkSeen = links(s)[0]!;
   assert.match(installLinkSeen, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
-  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
+  assert.ok(s.endsWith("Done?"), s);
 });
 
 test('12.4 acceptance 3: the App installed on the org repo; the next reply says it is on the Bench with a rank', db, async () => {
@@ -225,7 +225,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const s = rule(bound);
   assert.ok(s.startsWith(`You're in, @${kim.username}.\n`), s);
-  assert.ok(s.endsWith("Done?\n+30 points when it's connected"), s);
+  assert.ok(s.endsWith("Done?"), s);
 });
 
 test('12.7 no network: every GitHub call went through the fake and was routed; fetch was never called', () => {

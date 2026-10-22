@@ -19,6 +19,8 @@ export function bannedIn(text: string, exempt: string[]): string[] {
  * never use ("signal", "written by", the builder bonus).
  */
 export const BENCH_PITCH_ALLOWED: RegExp[] = [
+  // 2026-10-22 (owner-approved reply fixes): the honest hook, its organizer and one chain (before the pitch's own rule).
+  /\b[A-Za-z0-9][\w.&'-]*(?: [A-Z][\w.&'-]*){0,3} pays up to \$[\d,]+(?: investment)? for apps(?: on (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche))?\./g,
   /\b(?:Base|Arc|Robinhood Chain)(?= pays up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
   /\b[Aa] tip jar on (?:Base|Arc|Robinhood Chain)\b/g,
   // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").
@@ -42,7 +44,12 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\bwe read your commits\b/g,
   /\bWe match your repo to open grants\b/g,
   /\bFrom GitHub commits\b/g,
-  /(?<=\. )[A-Za-z0-9][\w .&'-]{0,40}(?= pays up to \$[\d,]+(?: investment)? right now\.)/g,
+  // 2026-10-22 (owner-approved reply fixes): the honest hook names the grant's organizer and its one chain, and the
+  // no-fit path to Base's grant names the program's own steps.
+  /\bBase's \$[\d,]+ grant\b/g,
+  /\bgo live on Base\b/g,
+  /\bBuild your app on Base\./g,
+  /\bBuilder Codes, Base's first step\b/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

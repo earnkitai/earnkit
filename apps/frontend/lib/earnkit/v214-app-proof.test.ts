@@ -114,8 +114,12 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
   // v3.1 F4: the why sentence stays on the page, never in the reply.
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
+  // 2026-10-22: a private repo with titles off: the titles question, once.
+  assert.ok(text.endsWith('\nShow what you shipped on your page? Your code stays private.'), text);
   // L5: this week has code ("Done this week"): the plain points line.
-  assert.ok(text.endsWith('\nShip code this week: up to +100 points'), text);
+  const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
+  assert.ok(next.endsWith('\nShip code this week: up to +100 points'), next);
+  assert.doesNotMatch(next, /Your code stays private/);
 });
 
 test('6.2c R5 fail soft: a reading that fails at connect leaves the proof standing, unranked until a repo reading exists', db, async () => {
