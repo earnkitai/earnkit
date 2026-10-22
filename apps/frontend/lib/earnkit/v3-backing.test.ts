@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { RANK_MIN_POOL } from './rank';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -253,7 +254,8 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.deepEqual(backed.rows.map((r) => r.handle), [b.handle]);
   assert.deepEqual(backed.rows[0].backing, { symbol: sym, url });
   assert.equal(FILTER_BACKED, 'Backed');
-  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
+  // The filter rail shows from RANK_MIN_POOL ranked builders (solo launch), so the board is read as a full pool here.
+  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, count: RANK_MIN_POOL, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
   assert.match(board, /<a[^>]*href="\/leaderboard\?backed=1"[^>]*>Backed<\/a>/, board);
   // v3.1 Task 8: a list row carries the Backed tag (never the coin's symbol or link on the leaderboard).
   const row = renderToStaticMarkup(React.createElement(BenchRowItem, { r: backed.rows[0], ranked: false }));
@@ -330,7 +332,8 @@ test('(f) flag off: no backing text anywhere (reply, page, card, terms, JSON bac
     assert.deepEqual(parseBenchFilter({ backed: '1' }), { chain: null, weekly: false, backed: false });
     const all = await benchRows({ chain: null, weekly: false, backed: false }, { only: [b.id] });
     assert.ok(all.rows.every((r) => r.backing === null));
-    const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
+    // The filter rail shows from RANK_MIN_POOL ranked builders (solo launch), so the board is read as a full pool here.
+  const board = renderToStaticMarkup(React.createElement(BenchView, { ...all, count: RANK_MIN_POOL, filter: { chain: null, weekly: false, backed: false }, page: 1 }));
     assert.doesNotMatch(board, /Backed|Backing|backed=1/);
     // v3.1 Task 8: a list row of the same builder carries no Backed tag either.
     assert.doesNotMatch(renderToStaticMarkup(React.createElement(BenchRowItem, { r: all.rows[0], ranked: false })), /Backed|Backing/);

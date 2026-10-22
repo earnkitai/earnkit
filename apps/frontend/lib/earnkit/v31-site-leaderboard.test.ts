@@ -2,12 +2,12 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchView, { FILTER_BACKED, LEADERBOARD_PAGE, countLine, pageHref } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, FILTER_BACKED, LEADERBOARD_PAGE, countLine, emptyLine, pageHref } from '../../app/leaderboard/BenchView';
 import { benchRows, type BenchFilter, type BenchRow } from './bench-data';
 import { sql } from './db';
 import { person, withEnv } from './fixtures/find';
 import { RANK_MIN_POOL } from './rank';
-import { BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from './site-copy';
+import { BENCH_EARLY, BENCH_EMPTY_BACKED, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, CTA_INSTALL, leaderboardLine } from './site-copy';
 
 /**
  * v3.1 site Task 8: the leaderboard (Leaderboard board): the podium (blue, navy, rust, metal place pills), the rows
@@ -120,15 +120,53 @@ test('(b) the filter rail: All on for the plain filter; Base only with a base ch
 test('(c) count 9 (under RANK_MIN_POOL): no "#" place text, no metal pill, no "of 9 builders"; the line still reads', () => {
   assert.equal(RANK_MIN_POOL, 10);
   const h = view(rowsOf(9));
-  assert.ok(text(h).includes('9 builders, ranked by how often they ship'));
+  assert.ok(text(h).includes(`${BENCH_EARLY}. ${BENCH_VERIFIED}`));
   assert.doesNotMatch(text(h), /#\d/, 'no place text');
   assert.doesNotMatch(h, /data-ek-place|data-rank|text-s-(gold|silver|bronze)-ink/, 'no metal pill, no place column');
-  assert.doesNotMatch(h, /of 9 builders/);
-  assert.equal(count(h, /data-ek-podium=/g), 3);
-  assert.equal(listRows(h).length, 6);
+  assert.doesNotMatch(h, /of 9 builders|9 builders/);
   // 10 ranked: they show.
   const ten = view(rowsOf(10));
   assert.ok(ten.includes('data-ek-place') && places(ten).includes(10));
+});
+
+test('(c2) few builders (1 to 9 ranked): no podium, no filter rail, every builder a plain row, one quiet invite with the install CTA; from 10, none of that', () => {
+  for (const n of [1, 2, 3, 9]) {
+    const h = view(rowsOf(n));
+    assert.equal(count(h, /data-ek-podium=/g), 0, `${n}: no podium`);
+    assert.deepEqual(listRows(h), Array.from({ length: n }, (_, i) => `bldr_${i + 1}`), `${n}: all rows`);
+    assert.doesNotMatch(h, /aria-label="Filters"/, `${n}: no filter rail`);
+    assert.doesNotMatch(text(h), /\bbuilders?, ranked\b/, `${n}: no count`);
+    // The invite: once, inside the panel, after the rows, with the button that opens the install sheet.
+    assert.equal(count(h, /data-ek-invite=/g), 1, `${n}: one invite`);
+    const panel = block(h, 'aria-label="Builders"');
+    const invite = block(panel, 'data-ek-invite=');
+    assert.ok(panel.indexOf('data-ek-invite=') > panel.lastIndexOf('data-row='), 'after the rows');
+    assert.ok(text(invite).includes(BENCH_INVITE));
+    assert.match(invite, new RegExp(`<button type="button"[^>]*>${CTA_INSTALL}</button>`));
+  }
+  // A filter under 10 (an old ?chain=base link) keeps the same rules.
+  const base = view(rowsOf(2), { filter: { chain: 'base', weekly: false } });
+  assert.equal(count(base, /data-ek-podium=/g), 0);
+  assert.equal(count(base, /data-ek-invite=/g), 1);
+  // 10 and more: the podium, the rail, no invite.
+  for (const n of [10, 12]) {
+    const h = view(rowsOf(n));
+    assert.equal(count(h, /data-ek-podium=/g), 3);
+    assert.match(h, /aria-label="Filters"/);
+    assert.doesNotMatch(h, /data-ek-invite=/);
+    assert.ok(text(h).includes(leaderboardLine(n)));
+  }
+  // Nobody ranked: the header's empty line only (no rows, no invite panel).
+  assert.doesNotMatch(view([], { count: 0 }), /data-ek-invite=|aria-label="Builders"/);
+});
+
+test('(c3) a filter with no rows says what is missing: Base, Backed, else BENCH_EMPTY', () => {
+  assert.equal(emptyLine({ chain: 'base', weekly: false }), BENCH_EMPTY_BASE);
+  assert.equal(emptyLine({ chain: null, weekly: false, backed: true }), BENCH_EMPTY_BACKED);
+  assert.equal(emptyLine({ chain: 'arc', weekly: false }), BENCH_EMPTY);
+  assert.equal(emptyLine({ chain: null, weekly: true }), BENCH_EMPTY);
+  const h = view([], { count: 12, filter: { chain: null, weekly: false, backed: true } });
+  assert.ok(text(h).includes(BENCH_EMPTY_BACKED));
 });
 
 test('(d) 45 rows: page 1 shows the podium and rows 4 to 20, "1 of 3"; page 2 rows 21 to 40, no podium, Previous enabled', () => {
@@ -192,7 +230,7 @@ test('(g) EarnKit\'s own repo never shows Backing: with EARNKIT_RAISING on and a
     const backed = await benchRows({ ...PLAIN, backed: true }, { only: [own, other] });
     assert.deepEqual(backed.rows.map((r) => r.handle), [`${tag}b`]);
     const h = view(all.rows, { count: all.count });
-    const mine = block(h, `data-ek-podium="1"`);
+    const mine = block(h, `data-row="${tag}a"`);
     assert.ok(text(mine).includes(`@${tag}a`), mine);
     assert.doesNotMatch(mine, /Backed|Backing|EARNKIT|tokens\.fun/);
     assert.doesNotMatch(h, /\$EARNKIT|Backing ·/);
@@ -239,6 +277,8 @@ test('(QA 2) the count line follows the filter (its rows); the 10-ranked rule ke
   assert.match(h, /data-rank=""/, 'ranked from the pool of 12 (RANK_MIN_POOL)');
   // 12 Base rows of a 9-builder pool: the line says 12 yet nothing is ranked (the pool decides).
   const small = view(rowsOf(12), { count: RANK_MIN_POOL - 1, filter: base });
-  assert.ok(text(small).includes(leaderboardLine(12)));
+  assert.ok(text(small).includes(BENCH_EARLY) && !text(small).includes(leaderboardLine(12)), 'under 10 ranked: no count');
+  assert.equal(countLine(PLAIN, 1, 1), `${BENCH_EARLY}. ${BENCH_VERIFIED}`);
+  assert.equal(countLine(base, 0, 1), null);
   assert.doesNotMatch(text(small), /#\d/);
 });

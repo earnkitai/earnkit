@@ -7,6 +7,7 @@ import { sql } from './db';
 import { WEEKLY_STREAK, benchRows, bestFact, filterHref, parseBenchFilter } from './bench-data';
 import { pillOf } from './raising';
 import BenchView, { BENCH_EMPTY, BENCH_SHOW_ALL, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
+import { BENCH_EMPTY_BASE } from './site-copy';
 
 /** v2.13 T10 (spec "The Bench", R4, R9, R14): the rows, the URL filters, the /leaderboard redirect. */
 
@@ -132,9 +133,11 @@ test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, strea
   const tab = (h: string, href: string) => h.match(/<a [^>]*>/g)!.find((a) => a.includes(`href="${href}"`)) ?? '';
   assert.match(tab(render({ chain: 'base', weekly: false }), '/leaderboard?chain=base'), /aria-current="page"/);
   assert.doesNotMatch(render({ chain: 'base', weekly: true }), /aria-current="page"/);
-  // v2.13.2 fix 1: a filtered view with no rows (others ranked) says BENCH_EMPTY; nobody ranked, only the header's empty line.
+  // v2.13.2 fix 1: a filtered view with no rows (others ranked) says what is missing (Base, else BENCH_EMPTY); nobody
+  // ranked, only the header's empty line.
   const filtered = render({ chain: 'base', weekly: false }, [], 3);
-  assert.ok(filtered.includes(BENCH_EMPTY));
+  assert.ok(filtered.includes(BENCH_EMPTY_BASE) && !filtered.includes(BENCH_EMPTY));
+  assert.ok(render({ chain: 'arc', weekly: false }, [], 3).includes(BENCH_EMPTY));
   // Launch ready L10: the way back from an empty filter is one link to everyone.
   assert.match(filtered, new RegExp(`href="/leaderboard"[^>]*>${BENCH_SHOW_ALL}</a>`), filtered);
   assert.ok(!render({ chain: 'base', weekly: false }, [], 0).includes(BENCH_EMPTY));

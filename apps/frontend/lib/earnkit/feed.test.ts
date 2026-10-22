@@ -114,8 +114,10 @@ test('6.6 the feed page: dark rows, plain words, no "written by", no all-caps la
   for (const s of [FEED_TITLE, 'Week of Oct 12', 'Maya Chen', '@maya_makes', 'Recipe planner · 12 commits', 'Fixed the timer and added the shopping list.'])
     assert.ok(html.includes(s.replace(/'/g, '&#x27;')), s);
   // Text only: the Docs link's anchor is not copy. v3.1 Task 5: the shared site footer (its CTA names the agent) is checked in v31-site-chrome.test.ts.
-  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /written by|agent/i);
-  assert.doesNotMatch(html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<[^>]+>/g, ' '), /\b[A-Z]{3,}\b/, 'no all-caps labels');
+  // Solo launch: one row adds the invite (its install CTA names the agent; v31-site-feed.test.ts (i)), so it is left out too.
+  const words = html.replace(/<footer[\s\S]*<\/footer>/, '').replace(/<div data-ek-invite=""[\s\S]*?<\/button><\/div>/, '').replace(/<[^>]+>/g, ' ');
+  assert.doesNotMatch(words, /written by|agent/i);
+  assert.doesNotMatch(words, /\b[A-Z]{3,}\b/, 'no all-caps labels');
   assert.match(html, /href="\/maya_makes"/);
   const square = renderToStaticMarkup(React.createElement(UpdateCard, { card, shape: 'square' }));
   assert.match(square, /data-shape="square"/);

@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { INSTALLS_SHOWN_FROM, landingFrom, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
+import { INSTALLS_SHOWN_FROM, landingFrom, oneEach, readGuideIds, readGuidePage, readLanding, statsLine } from './landing';
 import { ProgramFile } from './program-file';
 import { getProgramRow, poolFacts, upsertProgram } from './programs';
 import { sql } from './db';
@@ -18,7 +18,7 @@ import Footer from '../../app/components/common/Footer';
 import Header from '../../app/components/common/Header';
 import { homeFixture as LANDING_FIXTURE } from './fixtures/landing';
 import { BENCH_FOOTER_TAGLINE } from './footer-links';
-import { CTA_INSTALL, EARN_TITLE, HERO_SUB, HERO_TITLE, NAV_INSTALL, STEPS_TITLE } from './site-copy';
+import { ACTIVITY_INVITE_TITLE, CTA_INSTALL, EARN_TITLE, HERO_SUB, HERO_TITLE, NAV_INSTALL, STEPS_TITLE } from './site-copy';
 
 // The components are compiled with the classic JSX runtime here (as feed.test.ts).
 (globalThis as { React?: typeof React }).React = React;
@@ -410,6 +410,24 @@ test('12.3 the Activity card: @handle, project, week, the note when there is no 
   // No updates in the last finished week: no Activity section (the programs still show).
   const none = page({ ...LANDING_FIXTURE, activity: [] });
   assert.ok(!none.includes('>Activity</h2>') && none.includes(EARN_TITLE));
+});
+
+test('12.4 few builders (solo launch): one card a builder; under 3 cards the invite shows once, two columns wide beside one card, so the row is never broken', () => {
+  // oneEach keeps each builder's first (newest) card, in order.
+  const cards = [{ ...CARD, id: 1 }, { ...CARD, id: 2 }, { ...CARD, id: 3, handle: 'devon' }, { ...CARD, id: 4 }];
+  assert.deepEqual(oneEach(cards).map((c) => c.id), [1, 3]);
+  const activity = (n: number) => {
+    const h = page({ ...LANDING_FIXTURE, activity: Array.from({ length: n }, (_, i) => ({ ...CARD, id: i + 1, handle: `b${i + 1}` })) });
+    return h.slice(h.indexOf('id="activity"'), h.indexOf(`>${EARN_TITLE}</h2>`));
+  };
+  const one = activity(1);
+  assert.equal((one.match(/data-ek-invite=/g) ?? []).length, 1);
+  assert.match(one, /<article data-ek-invite="" class="[^"]*\bmd:col-span-2\b/, 'wide beside one card');
+  assert.ok(one.includes(ACTIVITY_INVITE_TITLE));
+  const two = activity(2);
+  assert.equal((two.match(/data-ek-invite=/g) ?? []).length, 1);
+  assert.doesNotMatch(two, /md:col-span-2/, 'one column beside two cards');
+  assert.doesNotMatch(activity(3), /data-ek-invite=/, 'three cards: no invite');
 });
 
 test('12.5 the footer tagline constant: "Ship every week. Get funded."; v3.1 Task 5: the footer shows the Foot board CTA instead', () => {

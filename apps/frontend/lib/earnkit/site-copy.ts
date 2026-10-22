@@ -134,6 +134,13 @@ export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US
 export const BENCH_VERIFIED = 'From GitHub commits, read daily. Not self-reported.';
 /** v2.13.1 O5 N16: the leaderboard with nobody ranked yet (moved here from the landing's old BenchTop; Task 8 keeps the wording). */
 export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
+/** Few builders (under RANK_MIN_POOL ranked): the count line drops its number and "ranked" (a list of 1 to 9 is not a ranking yet). */
+export const BENCH_EARLY = 'Scored by how often they ship, out of 100';
+/** Few builders: one quiet line at the foot of the list, beside the install CTA (the install sheet). */
+export const BENCH_INVITE = 'Be the next builder here.';
+/** A filter with no rows: what is missing, in plain words (the "Show everyone" pill sits beside it). */
+export const BENCH_EMPTY_BASE = 'No builder on Base yet.';
+export const BENCH_EMPTY_BACKED = 'No builder has opened Backing yet.';
 export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
 export const BACKED_TAG = 'Backed';
 /** Above the feed's pager when a week has more builders than the feed shows (FEED_WEEK_MAX cards a week). */

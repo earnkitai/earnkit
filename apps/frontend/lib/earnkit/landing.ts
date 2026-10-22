@@ -80,6 +80,11 @@ export type Landing = {
 
 /** The landing's Activity section shows this many cards. */
 export const LANDING_ACTIVITY = 3;
+/**
+ * Pure. One card a builder (their first, the newest), in order: the Activity row never shows the same person twice, so
+ * with one builder it is one card and the invite (Activity.tsx), never three weeks of the same name.
+ */
+export const oneEach = <C extends { handle: string }>(cards: C[]): C[] => cards.filter((c, i) => cards.findIndex((d) => d.handle === c.handle) === i);
 /** The landing's Earning opportunities section shows this many open programs. */
 export const LANDING_PROGRAMS = 4;
 /** The open tiles the landing shows, in the tiles' own (byRelevance) order. Pure. */
@@ -144,7 +149,7 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
 export async function readLanding(now = new Date()): Promise<Landing> {
   const cards: Card[] = await listPrograms();
   const stats = await readStats(now);
-  const activity = (await carouselCards(now)).slice(0, LANDING_ACTIVITY);
+  const activity = oneEach(await carouselCards(now)).slice(0, LANDING_ACTIVITY);
   return { ...landingFrom(cards, stats, now), activity };
 }
 
