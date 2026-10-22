@@ -68,7 +68,7 @@ export function loadFonts() {
   return fonts;
 }
 
-// The X picture as a data URL, kept 10 minutes per URL (at most 200): X's own host only (page-data avatarUrl), 3 s, 1 MB, jpeg or png.
+// The picture as a data URL, kept 10 minutes per URL (at most 200): X's own host or GitHub's avatars host only (page-data avatarUrl), 3 s, 1 MB, jpeg or png.
 const AVATAR_TTL_MS = 10 * 60_000;
 const avatars = new Map<string, { at: number; data: string | null }>();
 export async function avatarData(url: string | null, f: typeof fetch = fetch): Promise<string | null> {

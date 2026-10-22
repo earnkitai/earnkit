@@ -392,8 +392,8 @@ export type BenchCardFacts = {
  */
 export async function benchCardFacts(builderId: number, o: { money?: boolean; now?: Date } = {}): Promise<BenchCardFacts | null> {
   const db = sql();
-  const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; main: string | null }[]>`
-    SELECT x_handle, x_name, x_avatar_url, main_project_key AS main FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await db<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; github_login: string | null; main: string | null }[]>`
+    SELECT x_handle, x_name, x_avatar_url, github_login, main_project_key AS main FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
   const [lines, pill] = await Promise.all([rankLines(builderId), pillOf(builderId)]);
   let project: string | null = null;
@@ -421,7 +421,8 @@ export async function benchCardFacts(builderId: number, o: { money?: boolean; no
       ])
     : [null, NO_EARNED];
   return {
-    handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url), bench: lines.line, project, streak, raising: pill?.symbol ?? null,
+    // Final review 10: the page's picture (X, else the proven GitHub login's).
+    handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url, p.github_login), bench: lines.line, project, streak, raising: pill?.symbol ?? null,
     score, earned: earned.paid_usd > 0 ? Math.round(earned.paid_usd) : null,
   };
 }

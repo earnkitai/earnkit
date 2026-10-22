@@ -159,11 +159,11 @@ export async function postCardFacts(builderId: number, code: string): Promise<Po
   if (!CODE_PATTERN.test(code)) return null;
   const d = await draftByCode(code);
   if (!d || d.builder_id !== builderId) return null;
-  const [p] = await sql()<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null }[]>`
-    SELECT x_handle, x_name, x_avatar_url FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await sql()<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; github_login: string | null }[]>`
+    SELECT x_handle, x_name, x_avatar_url, github_login FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
   const coin = await pillCoin(builderId);
   const live: LiveFacts = { backing: coin ? { symbol: coin.symbol, backers: await backersOfCoin(coin.coin) } : null };
   const view = postCardView(d, live);
-  return view ? { view, handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url) } : null;
+  return view ? { view, handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url, p.github_login) } : null;
 }

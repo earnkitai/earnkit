@@ -146,3 +146,19 @@ test('postCardFacts: only this person\'s code; the pill only with EARNKIT_RAISIN
     else process.env.EARNKIT_RAISING = before;
   }
 });
+
+test('final review 10: the share card, the post card and the page head use the page\'s picture: X, else the proven GitHub login\'s', dbTest, async () => {
+  const { benchCardFacts } = await import('./bench-data');
+  const { personFacts } = await import('./page-data');
+  const m = await maya();
+  await sql()`UPDATE builder_profiles SET x_avatar_url = NULL, github_login = ${`pcgh${m.id}`} WHERE builder_id = ${m.id}`;
+  const d = await createDraft({ builderId: m.id, projectKey: m.key, moment: 'weekly', momentKey: `weekly:${m.key}:${MONDAY}`, shape: 'change', text: 'Added offline mode.', card: { ...frozen, week: 3, summary: 'Added offline mode.' }, asked: false }, NOW);
+  assert.ok(d.ok);
+  const gh = `https://avatars.githubusercontent.com/pcgh${m.id}?s=200`;
+  assert.equal((await benchCardFacts(m.id, { money: false }))?.avatar, gh);
+  assert.equal((await postCardFacts(m.id, d.draft.code))?.avatar, gh);
+  assert.equal((await personFacts(m.id))?.avatar, gh);
+  // An X picture still comes first.
+  await sql()`UPDATE builder_profiles SET x_avatar_url = 'https://pbs.twimg.com/profile_images/1/a_normal.jpg' WHERE builder_id = ${m.id}`;
+  assert.equal((await benchCardFacts(m.id, { money: false }))?.avatar, 'https://pbs.twimg.com/profile_images/1/a_400x400.jpg');
+});

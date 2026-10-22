@@ -98,8 +98,8 @@ export type PersonFacts = { name: string; handle: string; avatar: string | null;
 
 /** What the header and the card need about one claimed person. Null when there is no claimed profile. */
 export async function personFacts(builderId: number, o: { only?: number[] } = {}): Promise<PersonFacts | null> {
-  const [p] = await sql()<{ x_name: string | null; x_handle: string | null; x_avatar_url: string | null; moment: string | null }[]>`
-    SELECT x_name, x_handle, x_avatar_url, card_moments->>'latest' AS moment FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await sql()<{ x_name: string | null; x_handle: string | null; x_avatar_url: string | null; github_login: string | null; moment: string | null }[]>`
+    SELECT x_name, x_handle, x_avatar_url, github_login, card_moments->>'latest' AS moment FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
   const s = await standingOf(builderId, o);
   // Spec S1: every shipped project counts in the top line, confirmed or not; the rank only from confirmed data.
@@ -112,7 +112,7 @@ export async function personFacts(builderId: number, o: { only?: number[] } = {}
   const rank = s.listed ? shownRankLine(s) : null;
   const moment = p.moment === 'rank' ? p.moment : 'shipped';
   const listed = s.listed && rankLine(s) !== null;
-  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url), shipped: n, noun, rank, listed, people: s.people, score: s.score, moment };
+  return { name: displayName(p.x_name, p.x_handle), handle: p.x_handle, avatar: avatarUrl(p.x_avatar_url, p.github_login), shipped: n, noun, rank, listed, people: s.people, score: s.score, moment };
 }
 
 /** The page header; React cache(): the page and its metadata read it once per request. */
