@@ -23,12 +23,33 @@ const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 const CLAUDE_CODE = 'claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp';
 const CODEX = 'codex mcp add earnkit --url https://earnkit.com/mcp';
 
-test('the tabs: the personal agents first (Grok Bot, Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
-  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
+test('the tabs: Grok Bot first (owner: most popular), Claude, the other personal agents (Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
+  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Claude', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
+  // ChatGPT's steps could not be confirmed from OpenAI's own pages (2026-10-22): no tab.
+  assert.ok(!AGENTS.some((a) => /chatgpt/i.test(a.name)));
   const first = html.match(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>(.*?)<\/button>/);
   assert.ok(first, 'a selected tab');
   assert.match(first[1], /Grok Bot$/);
   assert.equal((html.match(/aria-selected="true"/g) ?? []).length, 1);
+});
+
+test('Claude (claude.ai and desktop): the confirmed connector steps (install research), the link pasted, X sign-in; "connector" explained once', () => {
+  const c = byName('Claude');
+  assert.equal(c.code, undefined, 'no command: the builder pastes the EarnKit link');
+  assert.deepEqual(c.steps, [
+    'In claude.ai or the desktop app, open "Customize", then "Connectors".',
+    'Choose "+ Add", then "Add custom connector".',
+    'Name it EarnKit, paste the EarnKit link, choose "Continue".',
+    'Choose "Sign in now", then "Add". Sign in with X.',
+    'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
+  ]);
+  assert.equal(c.note, "A connector lets your AI use EarnKit. Claude's Free plan allows one custom connector.");
+  // The explanation is written once, on Claude's tab only.
+  assert.deepEqual(AGENTS.filter((a) => a.note?.includes('A connector lets')).map((a) => a.name), ['Claude']);
+  for (const t of [c.note!, ...c.steps]) assert.doesNotMatch(t, /\u2014|\u2013/, 'no em or en dash');
+  // The sheet renders the note above the steps for any agent that has one.
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.ok(src.indexOf('{agent.note && ') > 0 && src.indexOf('{agent.note && ') < src.indexOf('agent.steps.length > 1'));
 });
 
 test('OpenClaw: openclaw mcp add over streamable HTTP, then log in (docs.openclaw.ai/tools/mcp)', () => {

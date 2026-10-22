@@ -1,7 +1,7 @@
 import { Fragment } from 'react';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
-import { DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
+import { DOCS_GITHUB, DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
 import DocsNav from './DocsNav';
 import InstallCard from './InstallCard';
 
@@ -22,8 +22,32 @@ function InfoCard({ id, card, soft, title, text }: { id: string; card: string; s
 }
 
 /**
+ * Install fixes: "No GitHub yet?" on the light install card, a light-inner tile: one line, a row per app builder
+ * (Lovable, Bolt) with its confirmed steps, then the v0 note. Every string from docs-copy DOCS_GITHUB.
+ */
+function GitHubHelp() {
+  return (
+    <section id="github" aria-labelledby="github-title" className="flex scroll-mt-24 flex-col gap-3 rounded-[22px] bg-s-light-inner p-[18px] text-[15px] leading-[1.6] text-s-ink-body md:p-6">
+      <h2 id="github-title" className="ek-serif text-[28px] leading-none text-s-ink">
+        {DOCS_GITHUB.title}
+      </h2>
+      <p>{DOCS_GITHUB.text}</p>
+      <dl className="flex flex-col gap-2.5">
+        {DOCS_GITHUB.tools.map(([tool, steps]) => (
+          <div key={tool} className="flex flex-col gap-0.5 md:flex-row md:gap-4">
+            <dt className="shrink-0 font-semibold text-s-ink md:w-20">{tool}</dt>
+            <dd>{steps}</dd>
+          </div>
+        ))}
+      </dl>
+      <p>{DOCS_GITHUB.v0}</p>
+    </section>
+  );
+}
+
+/**
  * v3.1 site Task 10 (Docs board): the side nav (a wrapping row above the article on a phone), the light install card
- * (the agent tabs and the chosen command from AGENTS, a copy button, three numbered steps), the three cards (how the
+ * (the agent tabs and the chosen command from AGENTS, a copy button, three numbered steps, "No GitHub yet?"), the three cards (how the
  * week works, the Shipping score, programs and, while Backing is on, Backing), then the selectors strip with the
  * builder JSON URL. Server-rendered per request (raisingEnabled is read at run time); the tabs and the side nav's lit item are the client parts.
  */
@@ -48,6 +72,7 @@ export default function DocsView() {
               </li>
             ))}
           </ol>
+          <GitHubHelp />
         </section>
 
         <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4">

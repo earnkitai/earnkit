@@ -99,12 +99,12 @@ test('(i) the install modal: v3.1 SITE sheet (panel, 32px radius, scrim), a bott
   const panel = h.match(/<div class="([^"]*)"[^>]*><button[^>]*aria-label="Close"/)?.[1] ?? '';
   for (const c of ['fixed', 'inset-x-0', 'bottom-0', 'bg-s-panel', 'rounded-t-[32px]', 'sm:rounded-[32px]']) assert.ok(panel.split(' ').includes(c), c);
   assert.doesNotMatch(panel, /gradient|shadow/);
-  // Tabs: one SegTabs rail (page colour) that scrolls on a phone, the current tab a white pill, 44px tall.
+  // Tabs: one SegTabs rail (page colour) that wraps (install fixes: never cut off, no scroll), the current tab a white pill, 44px tall.
   const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*aria-selected="(true|false)"[^>]*class="([^"]*)"/g)];
-  assert.equal(tabs.length, 6);
+  assert.equal(tabs.length, 7);
   const rail = h.match(/<div role="tablist"[^>]*class="([^"]*)"/)?.[1] ?? '';
-  assert.doesNotMatch(rail, /(^| )flex-wrap( |$)/, rail);
-  for (const c of ['flex-nowrap', 'overflow-x-auto', 'no-scrollbar', 'rounded-full', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
+  for (const c of ['flex-wrap', 'rounded-[26px]', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
+  for (const c of ['flex-nowrap', 'overflow-x-auto']) assert.ok(!rail.split(' ').includes(c), c);
   for (const [, on, c] of tabs) {
     assert.match(c, /(^| )min-h-11( |$)/);
     assert.match(c, /(^| )rounded-full( |$)/);

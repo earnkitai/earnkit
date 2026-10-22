@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AGENTS, Command, MCP_URL } from './agents';
 import { segRail, segTab } from '../site/SegTabs';
-import { useEdgeFade } from '../site/FadeRail';
 
 export { AGENTS, Command };
 export type { Agent, AgentName } from './agents';
@@ -45,13 +44,12 @@ export const START_PROMPT = 'What can I earn?';
 /**
  * The install path: the EarnKit link plus short steps for each agent, then what to ask: the
  * starting phrase, or a program's own ("What can I earn on Arc Microgrants?") from its card.
- * v3.1 (SITE tokens): a panel sheet rounded 32px over the scrim, the agent tabs as a SegTabs pill rail,
+ * v3.1 (SITE tokens): a panel sheet rounded 32px over the scrim, the agent tabs as a SegTabs pill rail that wraps,
  * code blocks on the page colour; a bottom sheet on a phone (fixed to the bottom edge, scrolling inside),
  * a centred sheet from sm. Every target is 44px; focus rings come from the page's own :focus-visible rule.
  */
 export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose: () => void; prompt?: string }) {
   const [active, setActive] = useState(0);
-  const rail = useEdgeFade<HTMLDivElement>();
   const closeRef = useRef<HTMLButtonElement>(null);
   const agent = AGENTS[active];
 
@@ -105,7 +103,8 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
           <CopyButton text={MCP_URL} label="Copy the EarnKit link" primary />
         </div>
 
-        <div ref={rail} role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6 flex-nowrap`}>
+        {/* Every agent's tab shows in full: the rail wraps onto more rows on a narrow sheet (never scrolls or fades). */}
+        <div role="tablist" aria-label="Your agent" className={`${segRail('sheet')} mt-6`}>
           {AGENTS.map((a, i) => (
             <button
               key={a.name}
@@ -130,6 +129,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
         </div>
 
         <div role="tabpanel" className="mt-5 text-base text-s-card-body">
+          {agent.note && <p className="mb-3 text-s-muted">{agent.note}</p>}
           {agent.install && (
             <a href={agent.install} className={`${COPY_PRIMARY} mb-4`}>
               Add to {agent.name}

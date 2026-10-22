@@ -5,6 +5,7 @@ import FadeNav from './FadeRail';
  * A pill rail of links (canvas: leaderboard filters All / Base / Backed on the panel, feed week tabs on
  * the step colour). The current item is a white pill with aria-current="page". On a phone the rail
  * scrolls sideways instead of widening the page, its cut edge faded (FadeRail); every tab is 44px tall there, 38px from md.
+ * The agent tabs (segRail 'sheet' and 'light') wrap instead.
  */
 const TONES = {
   panel: { rail: 'bg-s-panel', idle: 'text-s-muted hover:text-s-text', on: 'bg-s-light text-s-ink' },
@@ -24,13 +25,17 @@ export type SegTone = keyof typeof TONES;
 export const RAIL_FADE =
   'data-[fade=end]:[mask-image:linear-gradient(90deg,black_calc(100%-40px),transparent)] data-[fade=start]:[mask-image:linear-gradient(90deg,transparent,black_40px)] data-[fade=both]:[mask-image:linear-gradient(90deg,transparent,black_40px,black_calc(100%-40px),transparent)]';
 
+/** The tones whose rail wraps onto more rows instead of scrolling: the agent tabs (install sheet, docs install card). */
+const WRAPS: SegTone[] = ['light', 'sheet'];
+
 /**
- * The rail's classes, for a tab row that is not links (the install sheet's agent tabs). The light rail (the docs install
- * card) wraps instead of scrolling, so every agent shows on a phone (Docs board); its 26px radius stays concentric with
- * the tabs on two rows and reads as a pill on one.
+ * The rail's classes, for a tab row that is not links (the agent tabs). The agent rails (the docs install card, the
+ * install sheet) wrap instead of scrolling, so every agent's full name shows at every width with no fade (owner
+ * 2026-10-22: "in the modal tabs get cut off"); their 26px radius stays concentric with the tabs on two rows and reads as
+ * a pill on one. The link rails (feed weeks, leaderboard filters) scroll in one row with FadeRail's edge fade.
  */
 export function segRail(tone: SegTone): string {
-  if (tone === 'light') return `flex max-w-full flex-wrap gap-1 rounded-[26px] p-1 ${TONES.light.rail}`;
+  if (WRAPS.includes(tone)) return `flex max-w-full flex-wrap gap-1 rounded-[26px] p-1 ${TONES[tone].rail}`;
   return `no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full p-1 ${TONES[tone].rail} ${RAIL_FADE}`;
 }
 

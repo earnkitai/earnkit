@@ -67,13 +67,23 @@ function Code({ text }: { text: string }) {
 }
 
 /**
- * One agent's panel, every string from AGENTS: its steps as one line, the command (or the EarnKit link, for an agent
- * that pastes it), then the after line and the after command. Cursor's "Or add" reads "Add" here (no deep link above it).
+ * One agent's panel, every string from AGENTS: its note, its steps (numbered when there are two or more, as in the
+ * install sheet), the command (or the EarnKit link, for an agent that pastes it), then the after line and the after
+ * command. Cursor's "Or add" reads "Add" here (no deep link above it).
  */
 export function AgentPanel({ agent }: { agent: Agent }) {
   return (
     <div className="flex flex-col gap-3 text-[15px] text-s-ink-body">
-      <p>{agent.steps.map((s) => s.replace(/^Or add/, 'Add')).join(' ')}</p>
+      {agent.note && <p>{agent.note}</p>}
+      {agent.steps.length > 1 ? (
+        <ol className="list-decimal space-y-1.5 pl-5">
+          {agent.steps.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ol>
+      ) : (
+        <p>{agent.steps[0].replace(/^Or add/, 'Add')}</p>
+      )}
       <Code text={agent.code ?? MCP_URL} />
       {agent.after && <p>{agent.after}</p>}
       {agent.afterCode && <Code text={agent.afterCode} />}
