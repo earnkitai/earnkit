@@ -4439,9 +4439,9 @@ clue files of the newest verified repos (`discovery-clues.ts`: `CNAME`, `vercel.
 `wrangler.toml`, `package.json`, `pyproject.toml`, foundry `broadcast/**/run-latest.json`, hardhat
 `deployments/**`; 64 KB cap, 1 MB for JSON); merged PRs to repos they don't own. Contracts: those
 EarnKit deployed for the group, and those a verified repo's deploy file names (R25: only a launched
-token's creator wallet or an EarnKit deploy's confirmed owner proves a wallet). Clue 6: a proposed
-site (or a repo-linked one) whose `earnkit.txt` carries the person's `profile: <code>` line
-(`profileCode`, an HMAC under `EARNKIT_AUTH_SECRET`) is verified `earnkit_txt`.
+token's creator wallet or an EarnKit deploy's confirmed owner proves a wallet). Clue 6 (the
+`earnkit.txt` site check) left discovery in v2.12.1 S9; since v3.1 site proof it runs on the site's
+daily read instead (`sources.ts proveSite`, see "Site proof (v3.1)" below).
 
 ### Sources and readers (spec 2, R9 to R12)
 
@@ -7633,3 +7633,37 @@ gone; the Monday moment now carries a drafted post.)
   framer.website, framer.app, webflow.io, wixsite.com, carrd.co, railway.app, github.io and kin). (8) The page's
   redirects (another case, a rename, a reserved handle at the root, an old /b slug) keep `?m=<code>`. (10)
   `benchCardFacts`, `postCardFacts` and `personFacts` use `avatarUrl(x, github_login)` like the page.
+
+### Site proof (v3.1, 2026-10-23)
+
+- **Bug.** A site the agent reported (`proposed_by = 'agent'`, e.g. the owner's `https://earnkit.com` for
+  `earnkitai/earnkit`) was read daily for display but could never be verified: the only site proofs were discovery's
+  repo-linked sites (clue 3: an App-proven repo's homepage, CNAME, vercel.json or root wrangler.toml, verified
+  `repo_link`), and the `earnkit.txt` check (clue 6) was removed from discovery in v2.12.1 S9 without a new home, so
+  `siteOwnedByText` and `proveLinkedSite` had no callers. Discovery also runs only when queued (first find, wallet,
+  sign-in, a new local repo), so a homepage set later was never matched. The profile then showed "Private project"
+  (the private-name fallback needs a proven site host) and no "Live at" highlight.
+- **Fix.** `sources.ts proveSite`, run from `readAll` for every due site right after its reading is written (sites
+  are read after repos, so today's repo readings are in), for a proposed site only: (1) its origin equals
+  `homepageOrigin` of the LATEST reading's `homepage` of the person's App-proven (`github_app`) repo of the site's own
+  project (the repo's ref, without `github.com/`, equals the site's `project_key`; a `<owner>.github.io` site also
+  needs that owner to be the repo's): verified `repo_link` (no GitHub call). Same origin only: www vs apex, another
+  port or a look-alike host never match; a path on the homepage is fine. Else (2) it is up and its origin's
+  `/earnkit.txt` (one fetch, `ReaderDeps.fetchText(url, { plainText: true })`, free, counted as `site`;
+  `safeFetchText`'s `plainText` refuses any content-type but text/plain) has a `profile:` line equal to
+  `profileCode(builder_id, origin)`: verified `earnkit_txt`. A 404 or any failure proves nothing (`soft`). The proof
+  step has its own try/catch after the reading: a failure is logged and never drops or fails the reading; the
+  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched: `repo_link`
+  is in `CONFIRMED_PROOFS` (scored by `person-score.ts`) and `earnkit_txt` is not, so `proveLinkedSite`'s upgrade
+  would drop a scored site; it stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
+  `EARNKIT_AUTH_SECRET`, read from the live origin); `verifySource` verifies only a proposed row, never a `stale`
+  one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
+  (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,
+  Highlights "Live at") but, per S9, not a confirmed ship in the live score.
+- **Owner proof file.** `apps/frontend/public/earnkit.txt` holds `profile: ae6e24ff180d7ee8` (builder 17, origin
+  `https://earnkit.com`), served by Next at `/earnkit.txt` as `text/plain` (no middleware or proxy, no rewrites, no
+  app route of that name; `site-proof.test.ts` SP9, SP10). `earnkit` joins `RESERVED_ROUTES` (every public name is
+  reserved; a handle `earnkit` lives at `/b/earnkit`).
+- **In production.** After deploy, the first hourly cron run that reads the site (once per UTC day: the same day
+  if it was not yet read that day, else the next UTC day's first run) verifies `https://earnkit.com` `earnkit_txt`;
+  the same run's `score` step rescores, so the profile names the project by its host and Highlights gets "Live at".

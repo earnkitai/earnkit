@@ -591,3 +591,15 @@ test('final fix M2: the page phrase reaches builder text cleaned, quoted and cut
   assert.ok(cut.length <= 60, cut);
   assert.ok(long.startsWith(cut) && /\s/.test(long[cut.length]), `ends on a whole word: ${cut}`);
 });
+
+test('safeFetchText plainText: only a text/plain response is read (v3.1 site proof earnkit.txt)', async () => {
+  const typed = (contentType?: string): Transport => async () => ({ status: 200, contentType, body: chunks('profile: 0123456789abcdef\n') });
+  const read = (contentType?: string) => safeFetchText('https://acme.example/earnkit.txt', { resolve: publicResolver, transport: typed(contentType), plainText: true });
+  assert.equal(await read('text/plain; charset=utf-8'), 'profile: 0123456789abcdef\n');
+  assert.equal(await read('Text/Plain'), 'profile: 0123456789abcdef\n');
+  await refuses(read('text/html; charset=utf-8'), /text\/plain/);
+  await refuses(read('application/octet-stream'), /text\/plain/);
+  await refuses(read(undefined), /text\/plain/);
+  // Without the option nothing changes.
+  assert.equal(await safeFetchText('https://acme.example/x', { resolve: publicResolver, transport: typed('text/html') }), 'profile: 0123456789abcdef\n');
+});

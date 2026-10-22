@@ -1,10 +1,10 @@
 import { ScoreDeadline } from './campaigns';
 import { afterCommit, inTx, sql, type Db } from './db';
-import { profileCodesIn } from './discovery-clues';
+import { profileCode, profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
 import { REPOS_MAX, readAppRepos, readGithubRepos, type PersonRepo } from './person-github';
 import { countingDeps, flushReadUsage } from './read-usage';
-import { NPM_BULK_MAX, isBudgetStop, isoWeek, readError, readNpm, readNpmBulk, readPypi, readSite, type PackageSignals, type ReaderDeps } from './source-readers';
+import { NPM_BULK_MAX, isBudgetStop, isoWeek, readError, readNpm, readNpmBulk, readPypi, readSite, soft, type PackageSignals, type ReaderDeps, type SiteSignals } from './source-readers';
 
 /** spec 6: at most this many sources are read a run (oldest first). */
 export const READS_PER_RUN = 200;
@@ -118,6 +118,39 @@ export async function proveLinkedSite(id: number): Promise<void> {
     UPDATE builder_sources SET proof = 'earnkit_txt', verified_at = now()
     WHERE id = ${id} AND kind = 'site' AND state = 'verified' AND proof = 'repo_link' RETURNING builder_id`;
   if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}:earnkit_txt`, installation_id: row.builder_id, detail: { source_id: id, kind: 'site', proof: 'earnkit_txt' } }));
+}
+
+/**
+ * v3.1 site proof, on the site's existing daily read (no paid call, no GitHub call): a proposed site is verified
+ * (1) `repo_link` when it is the homepage (same origin), in the latest reading, of the person's App-proven repo of
+ * the site's own project (the repo's ref is the site's project_key; a `<owner>.github.io` site also needs that
+ * owner to be the repo's), else (2) `earnkit_txt` when it is up and its origin's /earnkit.txt, served as
+ * text/plain, carries the person's `profile:` code (profileCode: HMAC of the person and the origin; one free
+ * fetch, a 404 or any failure proves nothing). Only a proposed row: a verified one keeps its proof (repo_link is a
+ * confirmed proof in the live score, earnkit_txt is not, so proveLinkedSite's upgrade would drop a scored site),
+ * and verifySource never verifies a stale or rejected one. Throws only the run's deadline (or a database error).
+ */
+export async function proveSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps): Promise<void> {
+  const [row] = await sql()<{ reject_reason: string | null; project_key: string }[]>`
+    SELECT reject_reason, project_key FROM builder_sources WHERE id = ${s.id} AND kind = 'site' AND state = 'proposed'`;
+  if (!row || row.reject_reason === 'stale' || !URL.canParse(s.ref)) return;
+  const origin = new URL(s.ref).origin;
+  const repoKey = (ref: string) => ref.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '');
+  const key = repoKey(row.project_key);
+  const pagesOwner = /^([a-z0-9-]+)\.github\.io$/.exec(new URL(origin).hostname)?.[1] ?? null;
+  const { homepageOrigin } = await import('./discovery'); // discovery.ts imports this file: called after load
+  const homes = await sql()<{ ref: string; homepage: string | null }[]>`
+    SELECT DISTINCT ON (b.id) b.ref, r.signals->>'homepage' AS homepage FROM builder_sources b
+    JOIN source_readings r ON r.source_id = b.id AND r.ok
+    WHERE b.builder_id = ${s.builder_id} AND b.kind = 'repo' AND b.state = 'verified' AND b.proof = 'github_app'
+    ORDER BY b.id, r.day DESC`;
+  const linked = homes.some((h) =>
+    repoKey(h.ref) === key && homepageOrigin(h.homepage) === origin && (pagesOwner === null || key.split('/')[0] === pagesOwner));
+  if (linked) return verifySource(s.id, 'repo_link');
+  const code = up ? profileCode(s.builder_id, origin) : null;
+  if (code === null) return;
+  const text = await soft(d.fetchText(`${origin}/earnkit.txt`, { plainText: true }), '');
+  if (siteOwnedByText(text, code)) await verifySource(s.id, 'earnkit_txt');
 }
 
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
@@ -636,10 +669,24 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (!go) return { read, failed };
   }
 
-  // Everything else, one source at a time.
+  // Everything else, one source at a time. v3.1: a site still unproven is proven on this read (proveSite),
+  // after the repos above, so today's homepage is the one matched.
   for (const s of due.filter((s) => s.kind !== 'repo' && !bulkNpm(s))) {
     if (Date.now() >= o.deadline) break;
-    if (!(await attempt([s], async () => ok(s, await readOne(s, o.reader))))) break;
+    let signals: unknown;
+    const go = await attempt([s], async () => {
+      signals = await readOne(s, o.reader);
+      await ok(s, signals);
+    });
+    if (!go) break;
+    if (s.kind !== 'site' || signals === undefined) continue;
+    // The reading is written first: a failing proof step never drops it; the deadline stops the run here.
+    try {
+      await proveSite(s, (signals as SiteSignals).up, o.reader);
+    } catch (err) {
+      if (err instanceof ScoreDeadline) break;
+      console.error('[read] site proof failed', s.id, readError(err));
+    }
   }
   return { read, failed };
 }

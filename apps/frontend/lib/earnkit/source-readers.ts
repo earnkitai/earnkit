@@ -41,7 +41,8 @@ export type ReaderDeps = {
   /** GitHub GraphQL (one call per person, person-github.ts); counted against the run's GitHub budget. */
   ghGraphql: <T>(query: string, variables: Record<string, unknown>, o?: GraphqlOptions) => Promise<T>;
   probe: (url: string) => Promise<{ status: number }>;
-  fetchText: (url: string) => Promise<string>;
+  /** `plainText`: only a text/plain response (safeFetchText), as an earnkit.txt read asks. */
+  fetchText: (url: string, o?: { plainText?: boolean }) => Promise<string>;
   /** npm and pypistats (public, keyless). */
   json: <T>(url: string) => Promise<T>;
   /** The creation transaction of a contract (Base: Blockscout; Arc: unreadable, nulls). */
@@ -438,7 +439,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     gh: <T>(path: string, accept?: string) => by(github<T>(path, accept, () => tick('github_rest'))),
     ghGraphql: <T>(query: string, variables: Record<string, unknown>, o?: GraphqlOptions) => by(githubGraphql<T>(query, variables, github, () => tick('github_graphql'), o)),
     probe: (url) => by(probeSite(url, { onRequest: () => tick('site') }).then(() => ({ status: 200 }))),
-    fetchText: (url) => (tick('site'), by(safeFetchText(url))),
+    fetchText: (url, o) => (tick('site'), by(safeFetchText(url, { plainText: o?.plainText }))),
     json: <T>(url: string) => (tick(providerOfUrl(url)), by(packageJson<T>(url, deadline))),
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
