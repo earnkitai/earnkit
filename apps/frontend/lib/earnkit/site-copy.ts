@@ -108,6 +108,10 @@ export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 export const FOOT_GET_PAGE = 'Get your page';
 export const SCORE_TITLE = 'Shipping score';
+/** The small caption under a bare Shipping score number (Activity cards, feed rows, leaderboard rows). */
+export const SCORE_UNIT = 'Shipping';
+/** A streak beside a name (leaderboard rows and podium): "5-week streak". The profile's Streak card keeps "5 weeks" under its title. */
+export const streakRun = (n: number): string => `${n}-week streak`;
 export const scoreNote = (first: string): string => `How often ${first} ships, out of 100, over 12 weeks.`;
 export const SCORE_PENDING = 'Shows once the project is on the leaderboard.';
 export const STREAK_TITLE = 'Streak';

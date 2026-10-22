@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import Avatar from '../[handle]/Avatar';
-import { streakCount } from '../[handle]/site/StreakCard';
 import ScoreText from '../components/site/ScoreText';
 import XHandle from '../components/site/XHandle';
 import type { BenchRow } from '../../lib/earnkit/bench-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
+import { streakRun } from '../../lib/earnkit/site-copy';
 
 /** The Backed tag (Leaderboard board): navy fill, on-navy text. */
 const BACKED_TAG = 'inline-flex shrink-0 items-center rounded-full bg-s-navy px-[11px] py-[5px] text-xs font-semibold text-s-on-navy';
@@ -17,7 +17,7 @@ const BACKED_TAG = 'inline-flex shrink-0 items-center rounded-full bg-s-navy px-
  * under the handle. Names and projects wrap, never cut.
  */
 export default function BenchRowItem({ r, ranked }: { r: BenchRow; ranked: boolean }) {
-  const streak = r.streak > 0 ? streakCount(r.streak) : null;
+  const streak = r.streak > 0 ? streakRun(r.streak) : null;
   const backed = r.backing ? (
     <span data-ek-backed="" className={BACKED_TAG}>
       Backed
@@ -54,10 +54,9 @@ export default function BenchRowItem({ r, ranked }: { r: BenchRow; ranked: boole
           )}
         </span>
         {backed && <span className="hidden md:inline-flex">{backed}</span>}
-        <span className="hidden w-[84px] shrink-0 text-right text-sm text-s-rust-light md:inline">{streak}</span>
+        <span className="hidden w-[120px] shrink-0 text-right text-sm text-s-rust-light md:inline">{streak}</span>
         <span data-points="" className="w-14 shrink-0 text-right">
-          <ScoreText score={r.points} size={30} />
-          <span className="sr-only"> Shipping</span>
+          <ScoreText score={r.points} size={30} unit="text-s-muted" />
         </span>
       </Link>
     </li>

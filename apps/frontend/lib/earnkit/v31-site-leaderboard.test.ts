@@ -79,13 +79,13 @@ test('(a) 12 rows, count 12: three podium cards (#1 gold blue, #2 silver navy, #
     assert.ok(text(c).includes(`· Project ${i + 1}`), c);
     assert.ok(text(c).includes('Shipping'));
   }
-  assert.ok(text(cards[0]).includes('14 weeks') && text(cards[0]).includes('95'));
+  assert.ok(text(cards[0]).includes('14-week streak') && text(cards[0]).includes('95'));
   assert.equal(listRows(h).length, 9);
   assert.deepEqual(listRows(h), Array.from({ length: 9 }, (_, i) => `bldr_${i + 4}`));
   assert.deepEqual(places(block(h, 'aria-label="Builders"')), [4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const last = block(h, 'data-row="bldr_12"');
-  assert.ok(text(last).includes('1 week') && !text(last).includes('1 weeks'));
-  assert.ok(text(block(h, 'data-row="bldr_4"')).includes('3 weeks'));
+  assert.ok(text(last).includes('1-week streak') && !text(last).match(/\b1 weeks?\b/));
+  assert.ok(text(block(h, 'data-row="bldr_4"')).includes('3-week streak'));
   // Scores by band (S13): row 4 is 95 - 9 = 86 (good), row 12 is 95 - 33 = 62 (mid), a 22 is low.
   assert.match(block(h, 'data-row="bldr_4"'), /class="[^"]*text-s-good-text[^"]*"[^>]*>86</);
   assert.match(last, /class="[^"]*text-s-mid-text[^"]*"[^>]*>62</);

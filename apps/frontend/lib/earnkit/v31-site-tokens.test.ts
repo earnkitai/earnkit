@@ -171,3 +171,12 @@ test('(h) ScoreText: one colour per band (70+, 40 to 69, under 40)', () => {
   assert.match(cls(70), /(^| )ek-serif( |$)/);
   assert.match(html(React.createElement(ScoreText, { score: 70, size: 30 })), />70</);
 });
+
+test('(h2) clarity batch: ScoreText with a unit adds a quiet "Shipping" caption under the number; without one, the number alone', () => {
+  const withUnit = html(React.createElement(ScoreText, { score: 72, size: 32, unit: 'text-s-card-meta' }));
+  assert.match(withUnit, /^<span data-ek-score-unit="" class="inline-flex flex-col items-end gap-1"><span class="[^"]*text-s-good-text[^"]*"[^>]*>72<\/span><span class="text-\[12px\] leading-none text-s-card-meta">Shipping<\/span><\/span>$/);
+  assert.doesNotMatch(html(React.createElement(ScoreText, { score: 72, size: 32 })), /Shipping/);
+  // Every bare score on the site carries the caption: Activity cards, feed rows, leaderboard rows.
+  for (const f of ['app/components/landing/Activity.tsx', 'app/feed/FeedRow.tsx', 'app/leaderboard/BenchRowItem.tsx'])
+    assert.match(read(f), /<ScoreText [^>]*unit="text-s-(card-meta|muted)"/, f);
+});

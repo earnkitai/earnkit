@@ -35,7 +35,7 @@ function UpdateCard({ c }: { c: FeedCard }) {
           </Link>
           <XHandle handle={c.handle} className="-mb-[13px] min-h-11 md:mb-0 md:min-h-0" />
         </div>
-        {c.score !== null ? <ScoreText score={c.score} size={32} className="shrink-0" /> : null}
+        {c.score !== null ? <ScoreText score={c.score} size={32} unit="text-s-card-meta" className="shrink-0" /> : null}
       </div>
       {body ? <p className="line-clamp-5 text-[15px] leading-[1.6] text-s-card-body [overflow-wrap:anywhere]">{body}</p> : null}
       <span className="mt-auto text-[13px] text-s-card-meta [overflow-wrap:anywhere]">{activityMeta(c)}</span>

@@ -106,7 +106,7 @@ test('10.4, v3.1 Task 8: a row: photo, name, @handle, project, Backed tag, strea
     renderToStaticMarkup(React.createElement(BenchView, { rows, count, chips: ['base'], filter, page: 1 }));
   const html = render({ chain: null, weekly: false });
   const li = html.slice(html.indexOf('data-row="maya_makes"'));
-  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', '>Backed<', 'Recipe planner', '5 weeks', '>#4<', '<span class="sr-only">Top 16% of builders</span>', '>62<'])
+  for (const s of [BENCH_TITLE, 'Maya Chen', '@maya_makes', '>Backed<', 'Recipe planner', '5-week streak', '>#4<', '<span class="sr-only">Top 16% of builders</span>', '>62<'])
     assert.ok(li.includes(s), s);
   assert.ok(html.includes('25 builders, ranked by how often they ship'));
   // The tag only: the coin's symbol and link stay off the leaderboard (they are on the profile's Token card).

@@ -97,6 +97,9 @@ test('(i) copy constants are exact', () => {
     { title: 'Ship', text: 'Every day we read your commits and score how steadily you ship, out of 100.' },
     { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
   ]);
+  assert.equal(copy.SCORE_UNIT, 'Shipping');
+  assert.equal(copy.streakRun(5), '5-week streak');
+  assert.equal(copy.streakRun(1), '1-week streak');
   assert.equal(copy.ACTIVITY_TITLE, 'Activity');
   assert.equal(copy.ACTIVITY_MORE, 'See the leaderboard');
   assert.equal(copy.ACTIVITY_INVITE_TITLE, 'Your week goes here.');
@@ -140,7 +143,7 @@ test('(copy) every exported string and every function output has no banned punct
     compactUsd: [750, 5000, 1_250_000], compactCount: [999, 12_000], agoWords: [now], firstName: ['Maya Chen'], logoColor: ['Relay'],
     heroChipText: [105_000], programKind: [{ investment: true }], streakNote: [1, 3], weekLine: [0, 1, 14], nextUpdateLine: [now],
     monthDay: [now], monthYear: [now], scoreNote: ['Maya'], shippedAgo: ['2h ago'], backOn: ['Maya'], backLabel: ['Maya'],
-    keepsLine: ['Maya'], feesBy: ['Maya'], leaderboardLine: [0, 1, 1234],
+    keepsLine: ['Maya'], feesBy: ['Maya'], leaderboardLine: [0, 1, 1234], streakRun: [1, 5],
   };
   for (const [name, v] of Object.entries(copy)) {
     if (typeof v !== 'function') { walk(v); continue; }

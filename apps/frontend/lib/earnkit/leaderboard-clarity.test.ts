@@ -129,7 +129,8 @@ test('R17, R18 fix 1, R11 (v3.1 Task 8): a leaderboard row shows the Shipping sc
     r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
     ranked: true,
   }));
-  assert.match(html, /data-points=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span[^>]*> Shipping<\/span>/);
+  // Clarity batch: the number carries a visible, quiet "Shipping" caption (was screen-reader only).
+  assert.match(html, /data-points=""[^>]*><span data-ek-score-unit=""[^>]*><span[^>]*tabular-nums[^>]*>72<\/span><span class="text-\[12px\] leading-none text-s-muted">Shipping<\/span><\/span>/);
   // R18 fix 1 (supersedes R6 for rows): "#3" alone on screen; the whole rank line only for screen readers.
   assert.match(html, /aria-hidden="true">#3<\/span><span class="sr-only">#3 of 12 builders<\/span>/);
   assert.equal(html.replace(/<span class="sr-only">[^<]*<\/span>/g, '').includes('of 12 builders'), false, 'no rank words on screen');
