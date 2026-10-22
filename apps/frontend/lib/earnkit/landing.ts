@@ -7,7 +7,7 @@ import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 import { carouselCards, type FeedCard } from './feed';
-import { compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
+import { ROLLING, compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
 export { byRelevance };
@@ -53,8 +53,10 @@ export type Tile = {
   kind: string;
   /** v3.1 site: the per-winner max compacted ("$5K"), null without one. */
   big: string | null;
-  /** v3.1 site: "Not open yet", "Closes Nov 18" or "Rolling". */
+  /** v3.1 site: "Not open yet", "Closes Nov 18" or "Rolling, apply anytime" (site-copy ROLLING). */
   when: string;
+  /** Clarity batch: who runs it ("Alliance"; the title without an organizer), the landing's tile text when there is no logo file. */
+  organizer: string;
 };
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
@@ -117,7 +119,8 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       in_person: c.in_person === true,
       kind: programKind(c),
       big: perWinner > 0 ? compactUsd(perWinner) : null,
-      when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : 'Rolling',
+      when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : ROLLING,
+      organizer: c.organizer?.trim() || c.title,
     };
   });
   // The chip says "and prizes" when a program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).

@@ -98,6 +98,7 @@ test('(i) copy constants are exact', () => {
     { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
   ]);
   assert.equal(copy.SCORE_UNIT, 'Shipping');
+  assert.equal(copy.ROLLING, 'Rolling, apply anytime');
   assert.equal(copy.BENCH_VERIFIED, 'From GitHub commits, read daily. Not self-reported.');
   assert.equal(copy.SCORE_SOURCE, 'From GitHub commits, not self-reported.');
   assert.equal(copy.SCORE_HOW, "How it's scored");

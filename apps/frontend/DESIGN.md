@@ -34,7 +34,19 @@ One hue per band, light to deep, never multi-hue. The number is text, the ring i
 | mid | 40 to 69 | `#FDBA74` | `#FDBA74` to `#F97316` |
 | low | under 40 | `#FCA5A5` | `#FCA5A5` to `#E5484D` |
 
-One set of text colours on every page (`site-copy.ts scoreBand`, `ScoreText`).
+One set of text colours on every page (`site-copy.ts scoreBand`, `ScoreText`). A score number never stands alone: on the
+landing's Activity cards, feed rows and leaderboard rows a quiet 12px "Shipping" caption sits under it (`ScoreText unit`,
+`card-meta` on cards, `muted` on the panel); the podium says "Shipping" beside it. Streaks beside a name read "5-week
+streak" (`streakRun`); the profile's Streak card keeps "5 weeks" under its title. The leaderboard's count line and the
+profile's score card say the number is read from GitHub commits, not self-reported (the card links to `/docs#score`).
+
+## Pictures and program marks
+
+A builder's picture is their X one (pbs.twimg.com), else the GitHub one of their proven login
+(`https://avatars.githubusercontent.com/<login>?s=200`), else their initial (`page-data.ts avatarUrl`, `Avatar`). A
+program card's mark is a local file under `public/programs`; without one the organizer's name sits on the same white
+tile (Alliance), never initials, and nothing is fetched from another site. A card with no deadline says "Rolling,
+apply anytime".
 
 ## Standing metals
 

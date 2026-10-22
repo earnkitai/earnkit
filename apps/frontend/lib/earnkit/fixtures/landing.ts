@@ -23,7 +23,8 @@ const tile = (id: string, title: string, usd: number, o: Partial<Tile> = {}): Ti
   in_person: false,
   kind: 'grant',
   big: usd > 0 ? compactUsd(usd) : null,
-  when: 'Rolling',
+  when: 'Rolling, apply anytime',
+  organizer: title,
   ...o,
 });
 export const homeFixture: Landing = {

@@ -103,6 +103,8 @@ export const ACTIVITY_MORE = 'See the leaderboard';
 export const ACTIVITY_INVITE_TITLE = 'Your week goes here.';
 export const ACTIVITY_INVITE_TEXT = 'Add EarnKit and your first update posts on Monday.';
 export const EARN_TITLE = 'Earning opportunities';
+/** A program card's deadline when it has none (clarity batch: was "Rolling"). */
+export const ROLLING = 'Rolling, apply anytime';
 export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';

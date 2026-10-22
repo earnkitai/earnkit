@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { monogram } from '../sections/ProgramLogo';
 import { H2_SITE } from '../site/ui';
 import type { Tile } from '../../../lib/earnkit/landing';
 import { EARN_FOOT, EARN_TITLE } from '../../../lib/earnkit/site-copy';
@@ -18,18 +17,25 @@ const DARK_MARKS = new Set(['alliance-all19']);
 /** Ruling 23's only logo shape: a local file under public/programs. */
 const LOCAL_LOGO = /^\/programs\/[a-z0-9-]+\.(svg|png)$/;
 
-/** The program's mark on a white 52px tile (30px image), else its monogram in ink. */
+/**
+ * The program's mark on a white 52px tile (30px image). Without a logo file (Alliance has none in the repo, and logos are
+ * never fetched from other sites), the organizer's name in ink on the same white tile, as wide as the name, never initials.
+ */
 function Logo({ t }: { t: Tile }) {
-  return (
-    <span className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-s-light text-s-ink">
-      {t.logo && LOCAL_LOGO.test(t.logo) ? (
-        // eslint-disable-next-line @next/next/no-img-element -- a small local file; lazy: below the fold, and React would preload an eager one unused
+  if (t.logo && LOCAL_LOGO.test(t.logo))
+    return (
+      <span className="inline-flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl bg-s-light text-s-ink">
+        {/* eslint-disable-next-line @next/next/no-img-element -- a small local file; lazy: below the fold, and React would preload an eager one unused */}
         <img src={t.logo} alt="" width={30} height={30} loading="lazy" className={`h-[30px] w-[30px] object-contain ${DARK_MARKS.has(t.id) ? 'brightness-0' : ''}`} />
-      ) : (
-        <span aria-hidden="true" className="text-[17px] font-semibold">
-          {monogram(t.title)}
-        </span>
-      )}
+      </span>
+    );
+  return (
+    <span
+      data-ek-logo-name=""
+      aria-hidden="true"
+      className="inline-flex h-[52px] min-w-[52px] max-w-[60%] shrink items-center justify-center rounded-2xl bg-s-light px-3.5 text-[15px] font-semibold text-s-ink"
+    >
+      <span className="truncate">{t.organizer}</span>
     </span>
   );
 }
@@ -58,7 +64,7 @@ export default function Opportunities({ programs: shown }: { programs: Tile[] })
               >
                 <span className="flex items-center justify-between gap-3">
                   <Logo t={t} />
-                  <span className={`text-[13px] ${look.sub}`}>{t.when}</span>
+                  <span className={`shrink-0 text-right text-[13px] ${look.sub}`}>{t.when}</span>
                 </span>
                 <span className="mt-auto text-[16px] font-semibold [overflow-wrap:anywhere]">{t.title}</span>
                 {t.big ? (

@@ -96,8 +96,11 @@ test('(c) landingFrom: the chip from the committed files, a pooled hackathon, an
   ], stats, NOW);
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.deepEqual([t('base-builder-grants'), t('colosseum'), t('a16z'), t('circle-developer-grants')].map((x) => [x.big, x.when]), [
-    ['$5K', 'Rolling'], ['$400K', 'Closes Nov 18'], ['$1M', 'Closes Nov 2'], ['$100K', 'Rolling'],
+    ['$5K', 'Rolling, apply anytime'], ['$400K', 'Closes Nov 18'], ['$1M', 'Closes Nov 2'], ['$100K', 'Rolling, apply anytime'],
   ]);
+  // Clarity batch: the tile's no-logo text is the organizer, else the title.
+  assert.equal(landingFrom([card('al', { organizer: 'Alliance' })], stats, NOW).tiles[0].organizer, 'Alliance');
+  assert.equal(landingFrom([card('al', { organizer: undefined, title: 'Alliance ALL19' })], stats, NOW).tiles[0].organizer, 'Alliance ALL19');
   assert.equal(t('a16z').kind, 'investment');
   assert.equal(t('base-builder-grants').kind, 'grant');
   assert.equal(t('circle-developer-grants').kind, 'grant, in USDC');
