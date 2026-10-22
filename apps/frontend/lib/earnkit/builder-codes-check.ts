@@ -35,15 +35,36 @@ export function codePaths(paths: string[]): string[] {
 type Tree = { tree?: { path?: unknown; type?: unknown; size?: unknown }[] };
 type Content = { content?: unknown; encoding?: unknown };
 
+/** GitHub's per-read timeout (repo-proof.ts appClient's). */
+const READ_TIMEOUT_MS = 10_000;
+/**
+ * Final review 6: `f` with each read's timeout cut to the time left before `deadline` (min of READ_TIMEOUT_MS and
+ * that); a read past the deadline fails at once. Without a deadline, `f` itself.
+ */
+function untilDeadline(f: typeof fetch, deadline: number | undefined): typeof fetch {
+  if (deadline === undefined) return f;
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const left = deadline - Date.now();
+    if (left <= 0) return Promise.reject(new DOMException('past the deadline', 'TimeoutError'));
+    const cut = AbortSignal.timeout(Math.min(READ_TIMEOUT_MS, left));
+    return f(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, cut]) : cut });
+  }) as typeof fetch;
+}
+
 /**
  * Reads the repo through the App: true at the first file carrying Builder Codes, false when none of codePaths does.
  * A path that answers without text (a symlink, a submodule) is skipped. Stores the answer (repo_builder_codes). Null on
- * any failure (the App off, a 404, a timeout, an HTTP error on any read), and nothing is stored. Never throws.
+ * any failure (the App off, a 404, a timeout, an HTTP error on any read), and nothing is stored. `deadline` (epoch
+ * ms, the cron's slice): every read stops by it, and none starts after it (then null). Never throws.
  */
-export async function checkBuilderCodes(builderId: number, repoKey: string, now: Date, deps: { fetch?: typeof fetch } = {}): Promise<boolean | null> {
+export async function checkBuilderCodes(
+  builderId: number, repoKey: string, now: Date, deps: { fetch?: typeof fetch; deadline?: number } = {},
+): Promise<boolean | null> {
   try {
     const key = repoKey.toLowerCase();
-    const get = await appClient(builderId, key, deps.fetch ?? fetch);
+    const past = () => deps.deadline !== undefined && Date.now() >= deps.deadline;
+    if (past()) return null;
+    const get = await appClient(builderId, key, untilDeadline(deps.fetch ?? fetch, deps.deadline));
     if (!get) return null;
     const tree = await get<Tree>(`/repos/${key}/git/trees/HEAD?recursive=1`);
     if (!tree || !Array.isArray(tree.tree)) return null;
@@ -52,6 +73,7 @@ export async function checkBuilderCodes(builderId: number, repoKey: string, now:
       .map((e) => e.path as string);
     let found: string | null = null;
     for (const path of codePaths(blobs)) {
+      if (past()) return null;
       const file = await get<Content>(`/repos/${key}/contents/${path.split('/').map(encodeURIComponent).join('/')}`);
       if (!file) return null;
       // Fix round 1: a path that answers without text (a symlink, a submodule) is skipped; the scan goes on.
@@ -142,11 +164,11 @@ async function claimAttempt(repoKey: string, now: Date): Promise<boolean> {
 /** One repo's attempt: whether it was claimed (claimAttempt) and, if so, the check's answer. Never throws. */
 type Attempt = { claimed: boolean; found: boolean | null };
 const attemptsRunning = new Map<string, Promise<Attempt>>();
-function attempt(builderId: number, k: string, now: Date, f: typeof fetch | undefined): Promise<Attempt> {
+function attempt(builderId: number, k: string, now: Date, f: typeof fetch | undefined, deadline?: number): Promise<Attempt> {
   const running = attemptsRunning.get(k);
   if (running) return running;
   const p = (async (): Promise<Attempt> =>
-    (await claimAttempt(k, now)) ? { claimed: true, found: await checkBuilderCodes(builderId, k, now, { fetch: f }) } : { claimed: false, found: null })()
+    (await claimAttempt(k, now)) ? { claimed: true, found: await checkBuilderCodes(builderId, k, now, { fetch: f, deadline }) } : { claimed: false, found: null })()
     .finally(() => {
       attemptsRunning.delete(k);
       codesRunning.delete(k);
@@ -208,7 +230,7 @@ export async function builderCodesDue(now: Date, o: { limit?: number; only?: num
 /**
  * v3.1 Highlights: the cron's Builder Codes step (each repo at most one attempt a day, R13). Every due repo goes
  * through the same attempt as find and prepare (the day-old cache and claimAttempt); one at a time, none started past
- * `deadline`. `checked`: attempts claimed and run, `found`: of them, with a code.
+ * `deadline`, and each read of a running one cut to the time left (final review 6). `checked`: attempts claimed and run, `found`: of them, with a code.
  */
 export async function runBuilderCodes(
   now: Date,
@@ -219,7 +241,8 @@ export async function runBuilderCodes(
   let found = 0;
   for (const r of due) {
     if (o.deadline !== undefined && Date.now() >= o.deadline) break;
-    const a = await attempt(r.builder_id, r.repo, now, o.fetch);
+    // Final review 6: the slice's deadline goes into the check's reads too, so one started late stops on time.
+    const a = await attempt(r.builder_id, r.repo, now, o.fetch, o.deadline);
     if (!a.claimed) continue;
     checked++;
     if (a.found === true) found++;

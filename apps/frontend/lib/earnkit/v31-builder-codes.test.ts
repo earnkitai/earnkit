@@ -360,3 +360,24 @@ test('(m) fix round 1: the Builder Codes step runs after the weekly email, in it
   assert.equal(builderCodesSliceEnd(1_000, 500_000), 61_000);
   assert.equal(builderCodesSliceEnd(1_000, 30_000), 30_000, 'never past the run');
 });
+
+test('(n) final review 6: a check carries the slice deadline into each read (min of 10 s and the time left), so a late one stops on time', db, async () => {
+  const key = `dl${RUN}x/app`;
+  const b = await builder(key, CODE);
+  const reads: number[] = [];
+  // Contents reads hang until their signal aborts (a slow GitHub).
+  const slow = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(input).includes('/contents/')) return b.gh(input, init);
+    reads.push(Date.now());
+    return new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+  }) as typeof fetch;
+  const t0 = Date.now();
+  assert.equal(await checkBuilderCodes(b.id, key, new Date(), { fetch: slow, deadline: t0 + 300 }), null);
+  assert.ok(Date.now() - t0 < 2_000, `stopped at the deadline, not after 10 s (${Date.now() - t0} ms)`);
+  assert.equal(reads.length, 1, 'no read starts past the deadline');
+  assert.equal(await stored(key), null, 'nothing stored');
+  // Past the deadline already: nothing is read at all.
+  const before = b.gh.calls.length;
+  assert.equal(await checkBuilderCodes(b.id, key, new Date(), { fetch: b.gh, deadline: Date.now() - 1 }), null);
+  assert.equal(b.gh.calls.length, before);
+});
