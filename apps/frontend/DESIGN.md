@@ -163,13 +163,16 @@ adjusted to pass:
 
 Agent tabs in this order: Grok Bot (owner: most popular), Claude (claude.ai and the desktop app), Muse, OpenClaw,
 Claude Code, Cursor, Codex (`agents.tsx AGENTS`). Claude's steps are only the confirmed ones in
-`docs/design-docs-and-implementation-plans/v3.1-install-research.md`, with one plain line above them ("A connector lets
-your AI use EarnKit.", the only place the word is explained). ChatGPT gets a tab only once OpenAI's own help page
+`docs/design-docs-and-implementation-plans/v3.1-install-research.md`, the EarnKit link above them on /docs, and the
+Free plan's one-connector limit. "A connector lets your AI use EarnKit." (`agents.tsx CONNECTOR_LINE`) is said once,
+above the tabs (the sheet's intro, the docs card), so the default Grok Bot tab has it too. Both tab rails are full tab
+patterns (ids, `aria-controls`, roving `tabIndex`, arrows and Home/End via `tabKeyTarget`). ChatGPT gets a tab only once OpenAI's own help page
 confirms the steps (unreadable on 2026-10-22). /docs carries "No GitHub yet?" on the install card (a light-inner tile:
 Lovable and Bolt steps, the v0 note; no Replit until confirmed).
 
 The hero chip counts only programs open to Base builders (chains include Base, or any chain: `landing.ts openToBase`),
-"$5K in Base grants open now"; nothing open to Base, no chip. The cards below may list other chains; each says its chain.
+"$5K in Base grants open now"; nothing open to Base, no chip. It is 44px at least (36px from md) with vertical padding
+and a 22px radius, so a long chip wraps to two balanced lines on a 320px phone (checked at 320 and 390). The cards below may list other chains; each says its chain.
 
 ## Copy rules
 

@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AGENTS, Command, MCP_URL, type Agent } from '../components/sections/agents';
+import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget, type Agent } from '../components/sections/agents';
+
+export { tabKeyTarget };
 import { segRail, segTab } from '../components/site/SegTabs';
 
 /** The code block (Docs board): the page colour on the light card, 22px round, mono 14px; a long line scrolls inside it. */
@@ -67,13 +69,15 @@ function Code({ text }: { text: string }) {
 }
 
 /**
- * One agent's panel, every string from AGENTS: its note, its steps (numbered when there are two or more, as in the
- * install sheet), the command (or the EarnKit link, for an agent that pastes it), then the after line and the after
- * command. Cursor's "Or add" reads "Add" here (no deep link above it).
+ * One agent's panel, every string from AGENTS: for an agent that pastes the EarnKit link (no command), the link first
+ * (review fix: the steps say "paste the EarnKit link", so it sits above them); its note, its steps (numbered when there
+ * are two or more, as in the install sheet), the command, then the after line and the after command. Cursor's "Or add"
+ * reads "Add" here (no deep link above it).
  */
 export function AgentPanel({ agent }: { agent: Agent }) {
   return (
     <div className="flex flex-col gap-3 text-[15px] text-s-ink-body">
+      {!agent.code && <Code text={MCP_URL} />}
       {agent.note && <p>{agent.note}</p>}
       {agent.steps.length > 1 ? (
         <ol className="list-decimal space-y-1.5 pl-5">
@@ -84,20 +88,11 @@ export function AgentPanel({ agent }: { agent: Agent }) {
       ) : (
         <p>{agent.steps[0].replace(/^Or add/, 'Add')}</p>
       )}
-      <Code text={agent.code ?? MCP_URL} />
+      {agent.code && <Code text={agent.code} />}
       {agent.after && <p>{agent.after}</p>}
       {agent.afterCode && <Code text={agent.afterCode} />}
     </div>
   );
-}
-
-/** Pure. The tab a key moves to from `at` among `n` tabs (arrows wrap, Home and End jump), or null for any other key. */
-export function tabKeyTarget(key: string, at: number, n: number): number | null {
-  if (key === 'ArrowRight' || key === 'ArrowDown') return (at + 1) % n;
-  if (key === 'ArrowLeft' || key === 'ArrowUp') return (at - 1 + n) % n;
-  if (key === 'Home') return 0;
-  if (key === 'End') return n - 1;
-  return null;
 }
 
 /**
@@ -111,6 +106,7 @@ export default function InstallCard() {
   const agent = AGENTS[active];
   return (
     <div className="flex flex-col gap-5">
+      <p className="text-[15px] text-s-ink-body">{CONNECTOR_LINE}</p>
       <div role="tablist" aria-label="Your agent" className={`${segRail('light')} self-start`}>
         {AGENTS.map((a, i) => (
           <button

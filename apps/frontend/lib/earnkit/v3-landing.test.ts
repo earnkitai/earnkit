@@ -81,6 +81,11 @@ test('(e) HomeView with landing = null and with no programs renders the hero and
 test('(f) the hero: the chip (to #earn) only with money open, the one-line title, the sub line, the four agent marks', () => {
   const h = html(React.createElement(Hero, { chip: '$5K in Base grants open now' }));
   assert.match(h, /<a [^>]*href="#earn"[^>]*>.*\$5K in Base grants open now<\/span><\/a>/);
+  // Review fix: the chip grows to two lines on a narrow phone instead of overflowing a fixed height: a 44px minimum,
+  // vertical padding, a 22px radius (a pill on one line, a rounded card on two), full pill from md.
+  const chip = h.match(/<a [^>]*href="#earn"[^>]*class="([^"]*)"/)?.[1] ?? h.match(/<a [^>]*class="([^"]*)"[^>]*href="#earn"/)?.[1] ?? '';
+  for (const c of ['min-h-11', 'py-2', 'rounded-[22px]', 'max-w-full', 'md:min-h-9', 'md:rounded-full']) assert.ok(chip.split(' ').includes(c), c);
+  for (const c of ['h-11', 'md:h-9']) assert.ok(!chip.split(' ').includes(c), c);
   assert.doesNotMatch(html(React.createElement(Hero, { chip: null })), /href="#earn"/);
   assert.match(h, /<h1 class="[^"]*whitespace-nowrap[^"]*">Get funded for shipping.<\/h1>/);
   assert.equal((h.match(/role="img"/g) ?? []).length, 4);

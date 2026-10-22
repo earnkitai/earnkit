@@ -124,7 +124,8 @@ apps/frontend/
                                lib/earnkit/docs-copy.ts, the agents' steps and commands only from sections/agents.tsx: side nav
                                (five anchors; DocsNav, client: the lit item follows the hash and the section in view, readingNow
                                pure, aria-current="location"), the light install card (InstallCard, client: SegTabs 'light' tabs in AGENTS order,
-                               wrapping; AgentPanel shows the note, the steps (numbered from two), code ?? MCP_URL, copy button + aria-live
+                               wrapping, CONNECTOR_LINE above; AgentPanel shows the EarnKit link first for a paste-the-link agent, the note,
+                               the steps (numbered from two), the command, copy button + aria-live
                                "Copied"; three numbered steps; GitHubHelp #github "No GitHub yet?" from docs-copy DOCS_GITHUB: Lovable,
                                Bolt, the v0 note), the
                                week / score / money cards (Backing only while raisingEnabled), the blue selectors strip
@@ -156,7 +157,7 @@ apps/frontend/
                                (UpdateCarousel is gone), kept with carousel.test.ts. StatsStrip.tsx is gone (v2.7.1);
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
-                               /docs (server): MCP_URL, AGENTS (name, local icon, optional note, the install steps per agent;
+                               /docs (server): MCP_URL, CONNECTOR_LINE, tabKeyTarget (both tab rails), AGENTS (name, local icon, optional note, the install steps per agent;
                                install fixes 2026-10-22: Grok Bot, Claude, Muse, OpenClaw, Claude Code, Cursor, Codex), Command
   app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
                                (NAV_INSTALL in the nav, CTA_INSTALL in the footer)

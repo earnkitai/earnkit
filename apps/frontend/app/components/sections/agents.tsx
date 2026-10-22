@@ -1,6 +1,18 @@
 // Plain module (no 'use client'): the install steps and Command are read by the modal (client) and by the /docs page (server).
 export const MCP_URL = 'https://earnkit.com/mcp';
 
+/** Review fix: "connector" explained once, in the intro both install surfaces show above the tabs (Grok Bot's tab, the default, uses the word). */
+export const CONNECTOR_LINE = 'A connector lets your AI use EarnKit.';
+
+/** Pure. The tab a key moves to from `at` among `n` tabs (arrows wrap, Home and End jump), or null for any other key. */
+export function tabKeyTarget(key: string, at: number, n: number): number | null {
+  if (key === 'ArrowRight' || key === 'ArrowDown') return (at + 1) % n;
+  if (key === 'ArrowLeft' || key === 'ArrowUp') return (at - 1 + n) % n;
+  if (key === 'Home') return 0;
+  if (key === 'End') return n - 1;
+  return null;
+}
+
 export type AgentName = 'Grok Bot' | 'Claude' | 'Muse' | 'OpenClaw' | 'Claude Code' | 'Cursor' | 'Codex';
 
 export type Agent = {
@@ -10,7 +22,7 @@ export type Agent = {
    * elsewhere. An SVG mark is drawn in one color (the tab's); a PNG is the app's own icon, in color.
    */
   icon: string;
-  /** One plain line above the steps (Claude: what a connector is, and the Free plan's limit). */
+  /** One plain line above the steps (Claude: the Free plan's limit). */
   note?: string;
   /** One-click install deep link, when the agent supports one. */
   install?: string;
@@ -73,7 +85,7 @@ export const AGENTS: Agent[] = [
   {
     name: 'Claude',
     icon: '/images/agents/claude-code.svg',
-    note: "A connector lets your AI use EarnKit. Claude's Free plan allows one custom connector.",
+    note: "Claude's Free plan allows one custom connector.",
     steps: [
       'In claude.ai or the desktop app, open "Customize", then "Connectors".',
       'Choose "+ Add", then "Add custom connector".',

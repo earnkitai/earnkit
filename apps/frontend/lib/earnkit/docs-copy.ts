@@ -30,7 +30,7 @@ export const DOCS_GITHUB = {
     ['Lovable', 'Project settings, then Git, then GitHub. Choose "Add connection", pick your account on GitHub, "Install & Authorize", then "Connect".'],
     ['Bolt', 'The GitHub icon top right: "Log in to GitHub", "Authorize", then "Install the GitHub App", "Install & Authorize". Click the GitHub icon again, name the repo, "Create repository".'],
   ] as [string, string][],
-  v0: 'v0 saves to a working branch; Publish merges it to main, which is what EarnKit reads.',
+  v0: 'v0 saves changes to a working branch until you Publish. Publish so your work reaches main.',
 };
 
 export const DOCS_WEEK = {

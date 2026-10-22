@@ -7412,7 +7412,7 @@ the article below lg), the light install card (H1, `InstallCard`: agent tabs on 
 order, Grok Bot first, wrapping onto more rows; `AgentPanel` shows the agent's note, its steps (numbered from two), `agent.code ?? MCP_URL`, then `after` /
 `afterCode`, each block with a copy button that announces "Copied" in an `aria-live` region; no command text lives
 outside `agents.tsx`), three numbered steps, "No GitHub yet?" (`#github`, `DOCS_GITHUB`: Lovable and Bolt steps, the
-v0 note, true because EarnKit reads the default branch), the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
+v0 note "Publish so your work reaches main", which matters because EarnKit reads the default branch), the navy / rust / panel cards (`#week`, `#score` with `LIVE_BONUS`,
 `#money`: "Programs" and no Backing sentence while raising is off), and the blue selectors strip with the builder JSON
 URL. The 404 is the NotFound board's rust card with the full footer. The program guide and terms pages only moved to
 `PAGE_COL` with Kaftan titles (structure unchanged; terms keeps the risk disclosure). Test: `v31-site-docs.test.ts`.

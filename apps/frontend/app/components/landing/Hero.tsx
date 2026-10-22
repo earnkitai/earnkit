@@ -34,11 +34,11 @@ export default function Hero({ chip }: { chip: string | null }) {
         {chip ? (
           <a
             href="#earn"
-            className="inline-flex h-11 items-center gap-2 rounded-full border border-s-chip-line bg-s-hero-chip-phone px-4 text-[14px] text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:h-9 md:bg-s-chip"
+            className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-[22px] border border-s-chip-line bg-s-hero-chip-phone px-4 py-2 text-[14px] leading-snug text-s-chip-text backdrop-blur-md hover:bg-s-chip-line motion-safe:transition-colors motion-safe:duration-200 md:min-h-9 md:rounded-full md:py-1.5 md:bg-s-chip"
           >
             <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-s-rust-light shadow-[0_0_10px_var(--ek-s-rust-light)]" />
             {/* One flex item: the chip's gap must not split the sign from its digits. */}
-            <span>
+            <span className="text-balance">
               <Money text={chip} />
             </span>
           </a>

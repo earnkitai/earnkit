@@ -116,12 +116,19 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   }
   const claude = AGENTS.find((a) => a.name === 'Claude Code')!;
   assert.deepEqual(codes(renderToStaticMarkup(React.createElement(AgentPanel, { agent: claude }))), [claude.code]);
-  // Install fixes: Claude (claude.ai) shows its note, its five steps numbered, then the EarnKit link to paste.
+  // Install fixes: Claude (claude.ai) shows the EarnKit link first (review fix: the steps say paste it), then its note and five steps.
   const chat = AGENTS.find((a) => a.name === 'Claude')!;
   const cp = renderToStaticMarkup(React.createElement(AgentPanel, { agent: chat }));
-  assert.ok(text(cp).startsWith(chat.note!), text(cp));
-  assert.equal((cp.match(/<li>/g) ?? []).length, 5);
   assert.deepEqual(codes(cp), [MCP_URL]);
+  assert.ok(cp.indexOf('data-ek-code') < cp.indexOf('Free plan allows'), 'the link above the note');
+  assert.ok(cp.indexOf('data-ek-code') < cp.indexOf('<ol'), 'the link above the steps');
+  assert.equal((cp.match(/<li>/g) ?? []).length, 5);
+  // A command agent keeps its steps above its command.
+  const cc = renderToStaticMarkup(React.createElement(AgentPanel, { agent: claude }));
+  assert.ok(cc.indexOf('<p>') < cc.indexOf('data-ek-code'));
+  // Review fix: the connector line once on the card, above the tabs.
+  assert.equal(h.split('A connector lets your AI use EarnKit.').length - 1, 1);
+  assert.ok(h.indexOf('A connector lets') < h.indexOf('role="tablist"'));
   // Cursor's single step still reads "Add" (no deep link above it on the docs).
   assert.ok(text(renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS.find((a) => a.name === 'Cursor')! }))).startsWith('Add this to'));
   // No command text written outside AGENTS.
@@ -137,14 +144,14 @@ test('(b2) install fixes: "No GitHub yet?" on the install card: Lovable and Bolt
     assert.deepEqual([...help.matchAll(/<dt[^>]*>([^<]+)<\/dt>/g)].map((m) => m[1]), ['Lovable', 'Bolt']);
     const t = text(help);
     for (const [, steps] of DOCS_GITHUB.tools) assert.ok(t.includes(steps), steps);
-    assert.ok(t.endsWith('v0 saves to a working branch; Publish merges it to main, which is what EarnKit reads.'), t);
+    assert.ok(t.endsWith('v0 saves changes to a working branch until you Publish. Publish so your work reaches main.'), t);
     assert.doesNotMatch(t, /Replit/);
     assert.doesNotMatch(t, /\u2014/);
   }
   // The research doc's confirmed button names, as written there.
   for (const label of ['"Add connection"', '"Install & Authorize"', '"Connect"']) assert.ok(DOCS_GITHUB.tools[0][1].includes(label), label);
   for (const label of ['"Log in to GitHub"', '"Authorize"', '"Install the GitHub App"', '"Create repository"']) assert.ok(DOCS_GITHUB.tools[1][1].includes(label), label);
-  // The v0 note is true: the score reads the default branch's history.
+  // The v0 note matters because the score reads the default branch's history.
   assert.match(readFileSync(join(import.meta.dirname, 'person-github.ts'), 'utf8'), /defaultBranchRef \{ name target \{ \.\.\. on Commit \{ history\(/);
 });
 
