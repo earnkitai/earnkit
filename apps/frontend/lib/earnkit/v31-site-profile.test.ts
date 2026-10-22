@@ -208,13 +208,14 @@ test('(h) no Originality, no points, no 52-week grid, no tabs, no Earned, no bad
     assert.ok(h.includes('Get your page'));
     assert.doesNotMatch(h.slice(h.indexOf('<footer')), /<img/);
   }
-  // Layout: two wrapping rows, every flex child min-w-0; card radii 28px on a phone, 36px from md.
+  // Layout: two rows on one column template (QA item 3: one seam), every child min-w-0; card radii 28px on a phone, 36px from md.
   const h = page(JENIL, JENIL_SITE);
   for (const m of ['data-ek-hero', 'data-ek-score', 'data-ek-streak', 'data-ek-activity', 'data-ek-highlights'])
     assert.match(block(h, m).slice(0, 400), /rounded-\[28px\][^"]*md:rounded-\[36px\]/, m);
-  assert.match(h, /flex-\[3_1_460px\]/);
-  assert.match(h, /flex-\[2_1_320px\]/);
-  assert.match(h, /flex-\[3_1_520px\]/);
+  const rows = [...h.matchAll(/<section aria-label="(Profile|Activity and highlights)" class="([^"]*)"/g)];
+  assert.equal(rows.length, 2);
+  for (const [, , cls] of rows) assert.ok(cls.startsWith('grid grid-cols-1 gap-4 min-[844px]:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]'), cls);
+  assert.doesNotMatch(h, /flex-\[3_1_460px\]|flex-\[2_1_320px\]|flex-\[3_1_520px\]/, 'no flex bases left to split the rows apart');
 });
 
 test('(i) the skeleton is the three card shapes as flat panels, with the name; the files hold no raw colour; transitions are motion-safe', () => {
