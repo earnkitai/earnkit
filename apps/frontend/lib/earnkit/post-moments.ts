@@ -354,6 +354,17 @@ export async function newsCandidate(builderId: number, text: unknown, now: Date)
 export async function offeredMoment(
   builderId: number, now: Date, o: { weekly?: boolean } = {},
 ): Promise<{ moment: MomentCandidate | null; skipped: (Skip | Hold)[] }> {
+  const r = await offeredMoments(builderId, now, o);
+  return { moment: r.moments[0] ?? null, skipped: r.skipped };
+}
+
+/**
+ * Final review 3: every moment that may be offered now, in offeredMoment's order (the first that drafts is the offer),
+ * with the reasons of those skipped before the first one.
+ */
+export async function offeredMoments(
+  builderId: number, now: Date, o: { weekly?: boolean } = {},
+): Promise<{ moments: MomentCandidate[]; skipped: (Skip | Hold)[] }> {
   const log = await recentDrafts(builderId, 500);
   const found: (MomentCandidate | Skip)[] = [
     ...(await announcedWinCandidates(builderId, now)),
@@ -362,16 +373,17 @@ export async function offeredMoment(
     ...(o.weekly === false ? [] : [await weeklyCandidate(builderId, now)]),
   ];
   const skipped: (Skip | Hold)[] = [];
+  const moments: MomentCandidate[] = [];
   for (const c of found) {
     if (typeof c === 'string') {
-      skipped.push(c);
+      if (!moments.length) skipped.push(c);
       continue;
     }
     const hold = holdOf(c, log, now);
-    if (!hold) return { moment: c, skipped };
-    skipped.push(hold);
+    if (!hold) moments.push(c);
+    else if (!moments.length) skipped.push(hold);
   }
-  return { moment: null, skipped };
+  return { moments, skipped };
 }
 
 /**

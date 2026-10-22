@@ -417,6 +417,25 @@ test('final review 2: a private project named by its proven site host ("earnkit.
   assert.equal(writePost(w.input, [])?.text, 'earnkit.com, week 3: added search.');
 });
 
+test('final review 3: an event that can\'t be drafted gives way to the next one; nothing to draft is remembered for the day', dbTest, async () => {
+  const { eventPost } = await import('./post-reply');
+  const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
+  // Nothing yet: none, and the next reply today does not read it all again.
+  assert.equal(await eventPost(id, `pm_${id}`, NOW, { hot: false }), null);
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`pme${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live', ${ago(3)})`;
+  // An announced win whose program title the writer refuses (a hype word): never drafted, so going live is offered.
+  const { program, pid } = await entered(id, key);
+  await sql()`UPDATE programs SET title = 'Thrilled Builders Grant' WHERE id = ${program}`;
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis, source_url, captured_at)
+    VALUES (${pid}, ${program}, 'R1', 'won', 900, 'announcement', 'https://x.com/base/status/1', ${ago(1)})`;
+  assert.equal(await eventPost(id, `pm_${id}`, new Date(NOW.getTime() + 60_000), { hot: false }), null, 'remembered for the rest of the day');
+  const next = new Date(NOW.getTime() + DAY);
+  const e = await eventPost(id, `pm_${id}`, next, { hot: false });
+  assert.ok(e, 'the next day reads again');
+  assert.match(e.text, /^Recipes is live\./, 'the win could not be drafted; going live is next');
+});
+
 test('fix round: one moment drafted at once from several replies is written once (the hold runs under the store\'s lock)', dbTest, async () => {
   const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
