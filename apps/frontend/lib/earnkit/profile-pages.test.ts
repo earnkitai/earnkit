@@ -111,9 +111,10 @@ test('11.5 (v2.12.1 T12) /b/<name>/card.png and /b/<name>/share: a reserved hand
     assert.match(src, /status: 308/);
     assert.match(src, /pagePath\(r\.handle\)/);
     assert.doesNotMatch(src, /cachedProfile|cardModel|intentUrl|profile-data/);
-    assert.match(src, /export async function GET\(_: Request/);
+    // v3.1 one-tap posts: the card reads only ?m (a post's code, checked) from its request.
+    assert.match(src, /export async function GET\((?:_|req): Request/);
   }
-  assert.match(card, /return cardResponse\(slug, `\/b\/\$\{slug\}`\)/);
+  assert.match(card, /return cardResponse\(slug, `\/b\/\$\{slug\}`(?:, code)?\)/);
   assert.match(share, /return shareResponse\(slug, `\/b\/\$\{slug\}`\)/);
   const config = readFileSync(join(import.meta.dirname, '../../next.config.ts'), 'utf8');
   assert.match(config, /source: '\/b\/:slug\/card\.png',\s*headers: \[\{ key: 'Content-Security-Policy', value: IMAGE_CSP \}\]/);

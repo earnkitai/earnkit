@@ -136,7 +136,10 @@ test('weekly: last week\'s facts, summary and streak make the post; drafting sto
   assert.ok(d.ok);
   assert.equal(d.draft.text, 'Recipes, week 6: added offline mode and fixed several sync bugs.');
   assert.equal(d.draft.week, MONDAY);
-  assert.deepEqual(d.draft.card, { week: 6, monday: MONDAY, summary: 'Added offline mode and fixed several sync bugs.', streak: 6, commits: 14 });
+  // The moment's facts, with the card's frozen ones (Task 5: the project, Shipping, the rank, the weeks of code).
+  const { grid, ...card } = d.draft.card as Record<string, unknown>;
+  assert.deepEqual(card, { week: 6, monday: MONDAY, summary: 'Added offline mode and fixed several sync bugs.', streak: 6, commits: 14, project: 'Recipes', score: null, rank: null });
+  assert.equal((grid as boolean[]).length, 12);
   assert.deepEqual(await draftMoment(id, c, { asked: false }, NOW), { ok: false, reason: 'drafted' }, 'one offer a week');
   // The builder asks for another version: the next shape.
   const again = await draftMoment(id, c, { asked: true }, new Date(NOW.getTime() + 60_000));

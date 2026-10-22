@@ -239,9 +239,14 @@ export async function newsCandidate(builderId: number, text: unknown, now: Date)
   if (typeof p === 'string') return p;
   const checked = checkUpdate(text, await ownLinksOf(builderId));
   if (!checked.ok) return 'text';
+  // Task 5: the card shows last week's summary (as the profile shows it), never the note again.
+  const [u] = await sql()<{ titles: string[]; summary: string | null }[]>`
+    SELECT titles, summary FROM project_updates
+    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.key}) AND week = ${lastFinishedMonday(now)} AND NOT hidden`;
+  const summary = u ? (await weekLineRule(builderId, p.key))(u) : null;
   return {
     moment: 'news', momentKey: `news:${p.key.toLowerCase()}:${now.toISOString()}`, projectKey: p.key, week: null, proofUrl: null,
-    input: { moment: 'news', note: checked.text }, card: {},
+    input: { moment: 'news', note: checked.text }, card: { summary },
   };
 }
 
@@ -284,8 +289,10 @@ export async function draftMoment(
   if (hold) return { ok: false, reason: hold };
   const post = writePost(c.input, log.slice(0, 5));
   if (!post) return { ok: false, reason: 'no_post' };
+  // Task 5: the card's facts frozen now (the project, streak, Shipping, the rank only from RANK_MIN_POOL, the weeks of code).
+  const frozen = await (await import('./post-card')).freezeCard(builderId, c.week, now);
   return createDraft({
     builderId, projectKey: c.projectKey, moment: c.moment, momentKey: c.momentKey, shape: post.shape, text: post.text,
-    card: c.card, week: c.week, asked: o.asked, proofUrl: c.proofUrl,
+    card: { ...frozen, ...c.card }, week: c.week, asked: o.asked, proofUrl: c.proofUrl,
   }, now);
 }

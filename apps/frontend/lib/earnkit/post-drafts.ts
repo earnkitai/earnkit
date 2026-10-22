@@ -132,3 +132,16 @@ export async function recentDrafts(builderId: number, limit = 20): Promise<Recen
     SELECT code, moment, moment_key, shape, text, asked, created_at, first_tap_at, proof_url FROM post_drafts
     WHERE builder_id = ${builderId} ORDER BY created_at DESC, code LIMIT ${limit}`;
 }
+
+/** Link previews, crawlers and scripts: never a visit (X's own card fetch is Twitterbot). */
+const BOT_UA = /bot|crawl|spider|slurp|preview|facebookexternalhit|embedly|whatsapp|telegram|discord|slack|skype|vkshare|quora|pinterest|bitly|headless|lighthouse|curl|wget|python|node-fetch|axios|go-http|java\/|okhttp|httpclient|libwww|scrapy/i;
+const X_REFERRERS = new Set(['t.co', 'x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com']);
+/**
+ * Task 5: what a page open carrying ?m=<code> was, from its request headers only (nothing is stored but the count):
+ * 'x' when it came from X (a t.co or x.com referrer), 'web' otherwise, null for a bot or no user agent. Pure.
+ */
+export function visitFrom(userAgent: string | null, referrer: string | null): 'x' | 'web' | null {
+  if (!userAgent || BOT_UA.test(userAgent)) return null;
+  const host = referrer && URL.canParse(referrer) ? new URL(referrer).hostname.toLowerCase().replace(/^www\./, '') : null;
+  return host && X_REFERRERS.has(host) ? 'x' : 'web';
+}
