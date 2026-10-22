@@ -88,6 +88,23 @@ export const shipReading = (db: Db) => db`(
       ORDER BY COALESCE((r.signals->>'reader')::numeric, 0) >= ${REPO_READER} DESC, r.day DESC LIMIT 1)
   ) y ORDER BY COALESCE((y.signals->>'reader')::numeric, 0) >= ${REPO_READER} DESC, y.at DESC LIMIT 1)`;
 
+/**
+ * When the project `key` first went live, as one SQL expression: the earliest of its hosted deploy, its deployed
+ * contract and its verified site's first good reading that said up. Null when never.
+ */
+const firstLiveSql = (db: Db, builderId: number, key: string) => db`LEAST(
+      (SELECT min(h.deployed_at) FROM hosted_sites h JOIN installations i ON i.id = h.installation_id WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(h.repo_key) = lower(${key})),
+      (SELECT min(d.created_at) FROM contract_deploys d JOIN installations i ON i.id = d.installation_id WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND d.status = 'deployed' AND lower(d.repo_key) = lower(${key})),
+      (SELECT min(r.day)::timestamptz FROM source_readings r JOIN builder_sources s ON s.id = r.source_id
+        WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified' AND lower(s.project_key) = lower(${key}) AND r.ok AND r.signals->>'up' = 'true')
+    )`;
+/** v3.1 one-tap posts: when the person's project `key` first went live (firstLiveSql), or null. */
+export async function firstLiveAt(builderId: number, key: string): Promise<Date | null> {
+  const db = sql();
+  const [r] = await db<{ first: Date | null }[]>`SELECT ${firstLiveSql(db, builderId, key)} AS first`;
+  return r?.first ?? null;
+}
+
 /** The facts of the person's one project for the ISO week starting `monday`; {} unless that project is confirmed. */
 export async function weekFactsFor(builderId: number, monday: string, now: Date): Promise<WeekFacts> {
   const week = weekOfMonday(monday);
@@ -111,12 +128,7 @@ export async function weekFactsFor(builderId: number, monday: string, now: Date)
   if (n > 0 && weekCounts(repo!, week, now)) f.shipped_code = { n };
   // went_live: the first live moment ever falls in this week, and no week was said to before.
   const [live] = await db<{ first: Date | null; said: boolean }[]>`
-    SELECT LEAST(
-      (SELECT min(h.deployed_at) FROM hosted_sites h JOIN installations i ON i.id = h.installation_id WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(h.repo_key) = lower(${p.key})),
-      (SELECT min(d.created_at) FROM contract_deploys d JOIN installations i ON i.id = d.installation_id WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND d.status = 'deployed' AND lower(d.repo_key) = lower(${p.key})),
-      (SELECT min(r.day)::timestamptz FROM source_readings r JOIN builder_sources s ON s.id = r.source_id
-        WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified' AND lower(s.project_key) = lower(${p.key}) AND r.ok AND r.signals->>'up' = 'true')
-    ) AS first,
+    SELECT ${firstLiveSql(db, builderId, p.key)} AS first,
     EXISTS (SELECT 1 FROM builder_events e WHERE e.type = 'went_live' AND lower(e.repo_key) = lower(${p.key})) AS said`;
   if (live?.first && !live.said && live.first >= start && live.first < end) f.went_live = true;
   // R16b: no users_up or earned facts (people and money are no longer counted); a program win stays a fact.
