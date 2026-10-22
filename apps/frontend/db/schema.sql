@@ -1753,3 +1753,9 @@ ALTER TABLE coin_backers ADD COLUMN IF NOT EXISTS first_seen_at timestamptz;
 UPDATE coin_backers SET first_seen_at = 'epoch' WHERE first_seen_at IS NULL;
 ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET DEFAULT now();
 ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET NOT NULL;
+
+-- v3.1 Highlights: the file a found Builder Code is in (the item links to it on GitHub), and a verified contract's
+-- onchain creation time (Blockscout, read once when discovery verifies it; "First deployed"). Both nullable: rows
+-- from before stay null until the next check or verification fills them.
+ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS path text;
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS deployed_at timestamptz;

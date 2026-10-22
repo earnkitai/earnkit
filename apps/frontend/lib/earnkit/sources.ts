@@ -205,6 +205,8 @@ export async function claimContract(
   db?: Db,
 ): Promise<{ proof: Proof } | { reject: string }> {
   const deployer = facts.deployer?.toLowerCase() ?? null;
+  // v3.1 Highlights: the creation time discovery already read (no extra call) is kept for "First deployed".
+  const createdAt = facts.created_at && !Number.isNaN(Date.parse(facts.created_at)) ? facts.created_at : null;
   const { result, changed } = await inTx(db, async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:contract:${ref.toLowerCase()}`}))`;
     if (deployer) await tx`SELECT pg_advisory_xact_lock(hashtext(${`v212:deployer:${deployer}`}))`;
@@ -214,7 +216,7 @@ export async function claimContract(
       'proof' in result
         ? await tx`
             UPDATE builder_sources SET state = 'verified', proof = ${result.proof}, verified_at = now(), reject_reason = NULL,
-              deployer = COALESCE(${deployer}::text, deployer)
+              deployer = COALESCE(${deployer}::text, deployer), deployed_at = COALESCE(${createdAt}::timestamptz, deployed_at)
             WHERE id = ${id} AND builder_id = ${builderId} AND state = 'proposed' RETURNING id`
         : await tx`
             UPDATE builder_sources SET state = 'rejected', reject_reason = ${result.reject}

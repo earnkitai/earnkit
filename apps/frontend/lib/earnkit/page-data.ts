@@ -192,8 +192,9 @@ export async function safeNames(ids: number[]): Promise<(builderId: number, key:
  * program entries. v3 Stage 2: `applied`, the entry was submitted (the Ruling C10 rule).
  */
 async function programEntries(builderId: number) {
-  return sql()<{ keys: (string | null)[]; title: string; won: boolean; applied: boolean; submitted_at: Date }[]>`
+  return sql()<{ keys: (string | null)[]; title: string; won: boolean; applied: boolean; submitted_at: Date; guide: string | null }[]>`
     SELECT ARRAY[p.repo_key, p.token_repo_key, p.repo_url, p.live_url] AS keys, g.title, p.submitted_at,
+      CASE WHEN (g.source = 'file' AND g.campaign IS NULL) THEN g.id END AS guide,
       EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won,
       (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
         OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id)) AS applied
@@ -206,10 +207,11 @@ async function programEntries(builderId: number) {
  * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project.
  */
 async function toldApplied(builderId: number) {
-  return sql()<{ title: string; at: Date }[]>`
-    SELECT g.title, max(s.at) AS at FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
+  return sql()<{ title: string; at: Date; guide: string | null }[]>`
+    SELECT g.title, max(s.at) AS at, CASE WHEN (g.source = 'file' AND g.campaign IS NULL) THEN g.id END AS guide
+    FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
-    GROUP BY g.title ORDER BY g.title`;
+    GROUP BY g.id ORDER BY g.title`;
 }
 /** A program on the Project tab: won (announced only), else applied (submitted, or the builder said so). */
 export type ProgramLabel = { title: string; won: boolean; applied: boolean };
@@ -217,21 +219,24 @@ export type ProgramLabel = { title: string; won: boolean; applied: boolean };
 export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${g.title}` : g.applied ? `Applied to ${g.title}` : null);
 /**
  * The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). `at`: the
- * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). Pure.
+ * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). `guide`: the id of a program
+ * by that title with a guide page (/programs/<id>: a curated file program, never a campaign), else null. Pure.
  */
-const programsOf = (entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date }[] = []): (ProgramLabel & { at: Date })[] => {
+const programsOf = (
+  entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date; guide?: string | null }[] = [],
+): (ProgramLabel & { at: Date; guide: string | null })[] => {
   const k = norm(key);
-  const programs = new Map<string, { won: boolean; applied: boolean; at: Date }>();
-  const add = (title: string, won: boolean, applied: boolean, at: Date) => {
+  const programs = new Map<string, { won: boolean; applied: boolean; at: Date; guide: string | null }>();
+  const add = (title: string, won: boolean, applied: boolean, at: Date, guide: string | null) => {
     const was = programs.get(title);
     // The date comes from a row that earns the label (an entry never submitted dates nothing once another row does).
     const counts = won || applied;
     const wasCounts = Boolean(was && (was.won || was.applied));
     const date = !was || (counts && !wasCounts) ? at : wasCounts && !counts ? was.at : was.at <= at ? was.at : at;
-    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date });
+    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date, guide: was?.guide ?? guide });
   };
-  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied, new Date(e.submitted_at));
-  for (const t of told) add(t.title, false, true, new Date(t.at));
+  for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied, new Date(e.submitted_at), e.guide ?? null);
+  for (const t of told) add(t.title, false, true, new Date(t.at), t.guide ?? null);
   return [...programs]
     .map(([title, g]) => ({ title, ...g }))
     .filter((g) => programLabel(g) !== null)

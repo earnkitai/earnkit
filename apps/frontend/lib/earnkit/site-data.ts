@@ -1,11 +1,11 @@
 import { sql } from './db';
 import type { ProfileData } from './bench-data';
 import { benchPool } from './bench-rank';
-import { appProvenRepo, builderCodesKnown } from './builder-codes-check';
+import { appProvenRepo, storedBuilderCode } from './builder-codes-check';
 import { raisingEnabled } from './builder-score-flag';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
-import { norm, projectProgramsDated } from './page-data';
+import { PRIVATE_NAME, norm, projectProgramsDated } from './page-data';
 import { listedRanked, standingOf, weekCounts } from './person-score';
 import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
@@ -80,10 +80,14 @@ function commitsFrom(g: Record<string, unknown> | null, now: Date): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
-export type HighlightIcon = 'live' | 'code' | 'contract' | 'applied' | 'won' | 'start';
-export type Highlight = { icon: HighlightIcon; title: string; sub: string };
+export type HighlightIcon = 'live' | 'code' | 'contract' | 'repo' | 'applied' | 'won' | 'start';
+/** One Highlights fact; `href`, its proof (opened in a new tab), only where a visitor can open it (never a private repo's). */
+export type Highlight = { icon: HighlightIcon; title: string; sub: string; href?: string };
 const HIGHLIGHTS_MAX = 5;
 const PROGRAMS_MAX = 2;
+/** Uptime is "Up N of the last UPTIME_DAYS days", shown only from UPTIME_MIN_READS daily readings in that window. */
+export const UPTIME_DAYS = 30;
+export const UPTIME_MIN_READS = 7;
 
 /** A hostname without `www.`, lowercase; null for anything that is not a URL. Pure. */
 const hostOf = (ref: string): string | null => {
@@ -91,71 +95,144 @@ const hostOf = (ref: string): string | null => {
   return u?.hostname ? u.hostname.toLowerCase().replace(/^www\./, '') : null;
 };
 
+/** A site source's own https origin (the WHATWG parser escapes it), null for anything else. Pure. */
+export const siteHref = (ref: string): string | null => {
+  const u = URL.canParse(ref) ? new URL(ref) : null;
+  return u && u.protocol === 'https:' && u.hostname && !u.username && !u.password ? u.origin : null;
+};
+const ADDRESS = /^0x[0-9a-f]{40}$/i;
+/** A Base contract's Basescan page, null unless `address` is a 0x address. Pure. */
+export const basescanHref = (address: string): string | null => (ADDRESS.test(address) ? `https://basescan.org/address/${address.toLowerCase()}` : null);
+const segments = (path: string) => path.split('/').map(encodeURIComponent).join('/');
+/** A public repo's GitHub page ("owner/repo" keys only). Pure. */
+export const githubRepoHref = (key: string): string | null => (REPO_KEY.test(norm(key)) ? `https://github.com/${segments(norm(key))}` : null);
 /**
- * live: the first day a verified site source of the project read up (week-facts.ts went_live's site rule). A hidden
- * repo's site is left out when its host is GitHub's or carries the repo's name (Highlights never names a hidden repo).
+ * A file's GitHub page on a branch (each segment escaped; "HEAD", GitHub's default branch, when the branch is unknown);
+ * null for a key that is not "owner/repo", an empty path, or a path that climbs out ("..", "."). Pure.
  */
-async function liveItem(builderId: number, key: string, hiddenRepo: boolean): Promise<Highlight | null> {
-  const [r] = await sql()<{ ref: string; day: string }[]>`
-    SELECT s.ref, min(r.day)::text AS day FROM source_readings r JOIN builder_sources s ON s.id = r.source_id
+export const githubFileHref = (key: string, branch: string | null, path: string): string | null => {
+  const repo = githubRepoHref(key);
+  const parts = path.split('/');
+  if (!repo || !path || parts.some((x) => x === '' || x === '.' || x === '..')) return null;
+  return `${repo}/blob/${segments(branch || 'HEAD')}/${segments(path)}`;
+};
+
+const dayNum = (day: string) => Math.floor(Date.parse(`${day}T00:00:00Z`) / DAY_MS);
+/**
+ * The site's uptime from its daily readings (`up`: read ok and up that day), over the UPTIME_DAYS days ending at the
+ * newest reading (fewer when the first reading is more recent). A day with no reading counts as not up. Null with
+ * under UPTIME_MIN_READS readings in the window, or when the newest is over a day older than `today`. Pure.
+ */
+export function uptimeOf(rows: { day: string; up: boolean }[], first: string, today: string): { up: number; of: number } | null {
+  const last = rows.reduce<string | null>((m, r) => (m === null || r.day > m ? r.day : m), null);
+  if (!last || dayNum(today) - dayNum(last) > 1) return null;
+  const end = dayNum(last);
+  const of = Math.min(UPTIME_DAYS, end - dayNum(first) + 1);
+  const days = new Map<number, boolean>();
+  for (const r of rows) {
+    const d = dayNum(r.day);
+    if (d > end - of && d <= end) days.set(d, (days.get(d) ?? false) || r.up);
+  }
+  if (days.size < UPTIME_MIN_READS) return null;
+  return { up: [...days.values()].filter(Boolean).length, of };
+}
+
+/**
+ * 1. live: a verified site source of the project that read up (the first to, week-facts.ts went_live's site rule),
+ * linked to the site. "Up N of the last 30 days" (uptimeOf), else since the first up day. A hidden repo's site is left
+ * out when its host is GitHub's or carries the repo's name (Highlights never names a hidden repo).
+ */
+async function liveItem(builderId: number, key: string, hiddenRepo: boolean, now: Date): Promise<Highlight | null> {
+  const db = sql();
+  const [r] = await db<{ id: string; ref: string; day: string }[]>`
+    SELECT s.id::text AS id, s.ref, min(r.day)::text AS day FROM source_readings r JOIN builder_sources s ON s.id = r.source_id
     WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified' AND lower(s.project_key) = lower(${key}) AND r.ok AND r.signals->>'up' = 'true'
     GROUP BY s.id, s.ref ORDER BY min(r.day), s.id LIMIT 1`;
   const host = r ? hostOf(r.ref) : null;
   if (!r || !host) return null;
   const repoName = norm(key).split('/')[1] ?? '';
   if (hiddenRepo && (/(^|\.)github\.(io|com)$/.test(host) || (repoName && host.includes(repoName)))) return null;
-  return { icon: 'live', title: `Live at ${host}`, sub: `Since ${monthYear(new Date(`${r.day}T00:00:00Z`))}` };
+  const today = now.toISOString().slice(0, 10);
+  const days = await db<{ day: string; up: boolean }[]>`
+    SELECT day::text AS day, (ok AND signals->>'up' = 'true') AS up FROM source_readings
+    WHERE source_id = ${r.id} AND day > ${today}::date - ${UPTIME_DAYS + 2}::int AND day <= ${today}::date`;
+  const [{ first }] = await db<{ first: string }[]>`SELECT min(day)::text AS first FROM source_readings WHERE source_id = ${r.id}`;
+  const up = uptimeOf(days, first, today);
+  const href = siteHref(r.ref);
+  return {
+    icon: 'live',
+    title: `Live at ${host}`,
+    sub: up ? `Up ${up.up} of the last ${up.of} days` : `Since ${monthYear(new Date(`${r.day}T00:00:00Z`))}`,
+    ...(href && { href }),
+  };
 }
 
 /**
- * code: Base projects only, the stored Builder Codes answer for a repo the builder proved through the App. Only a found
- * code is an item (v3.1 final fix 4): the public page never says "not in the repo"; unknown or not found is no item.
+ * 2. contract: distinct Base addresses over the project's verified contract sources ("base:0x...") and EarnKit's
+ * deploys on Base, linked to the first one's Basescan page. "First deployed": the earliest known creation time (a
+ * deploy's row, a source's stored Blockscout time); without one, no date.
  */
-async function codeItem(builderId: number, key: string, now: Date): Promise<Highlight | null> {
-  const repo = norm(key);
-  if (!(await appProvenRepo(builderId, repo))) return null;
-  const known = await builderCodesKnown(repo, now);
-  if (!known?.found) return null;
-  return { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' };
-}
-
-/** contract: distinct Base addresses over the project's verified contract sources ("base:0x...") and EarnKit's deploys on Base. */
 async function contractItem(builderId: number, key: string): Promise<Highlight | null> {
-  const [{ n }] = await sql()<{ n: number }[]>`
-    SELECT count(DISTINCT a)::int AS n FROM (
-      SELECT split_part(lower(s.ref), ':', 2) AS a FROM builder_sources s
+  const rows = await sql()<{ a: string; at: Date | null }[]>`
+    SELECT a, min(at) AS at FROM (
+      SELECT split_part(lower(s.ref), ':', 2) AS a, s.deployed_at AS at FROM builder_sources s
       WHERE s.builder_id = ${builderId} AND s.kind = 'contract' AND s.state = 'verified' AND lower(s.project_key) = lower(${key}) AND lower(s.ref) LIKE 'base:0x%'
       UNION ALL
-      SELECT lower(d.address) FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
+      SELECT lower(d.address), d.created_at FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND d.status = 'deployed' AND d.chain = 'base' AND d.address IS NOT NULL AND lower(d.repo_key) = lower(${key})
-    ) x WHERE a <> ''`;
-  return n > 0 ? { icon: 'contract', title: `${n} ${n === 1 ? 'contract' : 'contracts'} on Base`, sub: 'Deployed by the project' } : null;
+    ) x WHERE a <> '' GROUP BY a ORDER BY min(at) NULLS LAST, a`;
+  const n = rows.length;
+  if (n === 0) return null;
+  const first = rows[0];
+  const href = basescanHref(first.a);
+  return {
+    icon: 'contract',
+    title: `${n} ${n === 1 ? 'contract' : 'contracts'} on Base`,
+    sub: first.at ? `First deployed ${monthYear(new Date(first.at))}` : 'Verified onchain',
+    ...(href && { href }),
+  };
 }
 
-/** won and applied (page-data.ts projectProgramsDated), won first, at most PROGRAMS_MAX. */
+/**
+ * 3. code: Base projects only, the stored Builder Codes answer for a repo the builder proved through the App, linked
+ * to the file it is in while the repo is public. Only a found code is an item (v3.1 final fix 4): the public page never
+ * says "not in the repo"; unknown or not found is no item.
+ */
+async function codeItem(builderId: number, key: string, publicRepo: boolean, branch: string | null): Promise<Highlight | null> {
+  const repo = norm(key);
+  if (!(await appProvenRepo(builderId, repo))) return null;
+  const known = await storedBuilderCode(repo);
+  if (!known?.found) return null;
+  const href = publicRepo && known.path ? githubFileHref(repo, branch, known.path) : null;
+  return { icon: 'code', title: 'Builder Code in the repo', sub: `Base, checked ${monthDay(new Date(known.checked_at))}`, ...(href && { href }) };
+}
+
+/**
+ * 4. repo: when the project's repo was created and its commits on the default branch in the read's 52 weeks (the ship
+ * reading's created_at and commits_year), linked to the repo while it is public. A repo created inside those 52 weeks
+ * says "N commits"; an older one "N commits in the last year". No created_at: no item.
+ */
+export function repoItem(name: string, reading: Record<string, unknown> | null, repoHref: string | null, now: Date): Highlight | null {
+  const raw = reading?.created_at;
+  const created = typeof raw === 'string' ? Date.parse(raw) : NaN;
+  if (!Number.isFinite(created) || created > now.getTime()) return null;
+  const n = reading?.commits_year;
+  const yearAgo = now.getTime() - 52 * 7 * DAY_MS;
+  const sub = typeof n === 'number' && Number.isInteger(n) && n > 0
+    ? `${n.toLocaleString('en-US')} ${n === 1 ? 'commit' : 'commits'}${created < yearAgo ? ' in the last year' : ''}`
+    : '';
+  const what = name === PRIVATE_NAME ? '' : ` ${name}`;
+  return { icon: 'repo', title: `Building${what} since ${monthYear(new Date(created))}`, sub, ...(repoHref && { href: repoHref }) };
+}
+
+/** 5. won and applied (page-data.ts projectProgramsDated), won first, at most PROGRAMS_MAX, linked to the program's guide when it has one. */
 async function programItems(builderId: number, key: string): Promise<Highlight[]> {
-  return (await projectProgramsDated(builderId, key))
-    .slice(0, PROGRAMS_MAX)
-    .map((g) => (g.won ? { icon: 'won', title: `Won ${g.title}`, sub: monthDay(g.at) } : { icon: 'applied', title: `Applied to ${g.title}`, sub: monthDay(g.at) }));
-}
-
-/** start: since the oldest commit week on the grid (its Monday), else the claim. Pure. */
-function startItem(d: ProfileData, claimedAt: Date, now: Date): Highlight {
-  const firstOn = d.grid.find((g) => g.on);
-  const monday = firstOn ? mondayOfWeek(firstOn.week) : null;
-  const since = monday ? new Date(`${monday}T00:00:00Z`) : claimedAt;
-  const title = `Shipping since ${now.getTime() - since.getTime() <= 12 * 7 * DAY_MS ? monthDay(since) : monthYear(since)}`;
-  const on = d.grid.filter((g) => g.on).length;
-  // A run of 2+ weeks first, so the line always agrees with the Streak card (both read withThisWeek's streak).
-  const sub =
-    d.streak >= 2
-      ? `${d.streak} weeks in a row`
-      : now.getTime() - claimedAt.getTime() <= 14 * DAY_MS && d.log.length <= 1
-        ? 'First week on EarnKit'
-        : on < 1
-          ? 'First week on EarnKit'
-          : `${on} ${on === 1 ? 'week' : 'weeks'} with code in the last year`;
-  return { icon: 'start', title, sub };
+  return (await projectProgramsDated(builderId, key)).slice(0, PROGRAMS_MAX).map((g) => ({
+    icon: g.won ? 'won' : 'applied',
+    title: g.won ? `Won ${g.title}` : `Applied to ${g.title}`,
+    sub: monthYear(g.at),
+    ...(g.guide && { href: `/programs/${encodeURIComponent(g.guide)}` }),
+  }));
 }
 
 /** Each part on its own: a failed read is logged and leaves its item out. */
@@ -169,28 +246,33 @@ const part = async <T>(name: string, read: () => Promise<T>, fallback: T): Promi
 };
 
 /**
- * Plan W8: the Highlights card, at most HIGHLIGHTS_MAX verifiable facts in order: live, Base Builder Code (Base
- * projects), contracts on Base, won or applied (at most 2), shipping since. Without a Bench-confirmed project, one
- * item: on EarnKit since the claim. Never empty.
+ * The Highlights card: every item a fact a judge can check in one click, linked to its proof, at most HIGHLIGHTS_MAX
+ * in order: live, contracts on Base, Builder Code (Base projects), the repo's track record, won or applied (at most
+ * 2). Without a Bench-confirmed project, or with none of these yet, one item: on EarnKit since the claim. Never empty.
  */
 export async function highlights(builderId: number, d: ProfileData, now: Date): Promise<Highlight[]> {
-  return highlightsOf(builderId, d, now, await mainOf(builderId));
+  const [main, reading] = await Promise.all([mainOf(builderId), mainReading(builderId)]);
+  return highlightsOf(builderId, d, now, main, reading);
 }
-async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: MainRow | null): Promise<Highlight[]> {
+async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: MainRow | null, reading: Record<string, unknown> | null): Promise<Highlight[]> {
   const claimedAt = main ? new Date(main.claimed_at) : now;
-  if (!main?.key || !main.confirmed || !d.project?.confirmed)
-    return [{ icon: 'start', title: `On EarnKit since ${monthDay(claimedAt)}`, sub: 'No project on the leaderboard yet' }];
+  const since = `On EarnKit since ${monthDay(claimedAt)}`;
+  if (!main?.key || !main.confirmed || !d.project?.confirmed) return [{ icon: 'start', title: since, sub: 'No project on the leaderboard yet' }];
   const key = main.key;
   // profileData links a repo-shaped key unless the repo is hidden (page-data.ts shownProjects), so no link is hidden.
   const hiddenRepo = REPO_KEY.test(norm(key)) && d.project.repo === null;
-  const [live, code, contract, programs] = await Promise.all([
-    part('live', () => liveItem(builderId, key, hiddenRepo), null),
-    d.project.chains.includes('base') ? part('code', () => codeItem(builderId, key, now), null) : Promise.resolve(null),
+  // A repo is linked only while it reads public (shown) and the reading does not say private: never a link to a 404.
+  const publicRepo = REPO_KEY.test(norm(key)) && !hiddenRepo && reading?.private !== true;
+  const branch = typeof reading?.default_branch === 'string' ? reading.default_branch : null;
+  const [live, contract, code, programs] = await Promise.all([
+    part('live', () => liveItem(builderId, key, hiddenRepo, now), null),
     part('contract', () => contractItem(builderId, key), null),
+    d.project.chains.includes('base') ? part('code', () => codeItem(builderId, key, publicRepo, branch), null) : Promise.resolve(null),
     part('programs', () => programItems(builderId, key), [] as Highlight[]),
   ]);
-  const items = [live, code, contract, ...programs].filter((h): h is Highlight => h !== null);
-  return [...items.slice(0, HIGHLIGHTS_MAX - 1), startItem(d, claimedAt, now)];
+  const repo = REPO_KEY.test(norm(key)) ? repoItem(d.project.name, reading, publicRepo ? githubRepoHref(key) : null, now) : null;
+  const items = [live, contract, code, repo, ...programs].filter((h): h is Highlight => h !== null).slice(0, HIGHLIGHTS_MAX);
+  return items.length > 0 ? items : [{ icon: 'start', title: since, sub: 'On the leaderboard' }];
 }
 
 export type StandingPill = { label: string; tier: 'gold' | 'silver' | 'bronze'; title: string };
@@ -301,7 +383,7 @@ export async function profileSite(builderId: number, d: ProfileData, now: Date, 
   const key = main?.key ?? null;
   const thisWeek = commitsFrom(reading, now);
   const [items, standing, token] = await Promise.all([
-    main ? part('highlights', () => highlightsOf(builderId, d, now, main), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
+    main ? part('highlights', () => highlightsOf(builderId, d, now, main, reading), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
     part('standing', () => standingPill(builderId, d, o), null),
     part('token', () => tokenCard(builderId, d, key, now), null),
   ]);

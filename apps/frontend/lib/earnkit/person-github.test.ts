@@ -88,3 +88,17 @@ test('3.8 the light user read asks for the login, X field and website only', asy
   assert.doesNotMatch(asked, /repositories|history|stargazers/);
   await assert.rejects(readGithubUser('not a login', d));
 });
+
+test('v3.1 Highlights: the read keeps the default branch\'s name and its commit count (history totalCount), no new field asked elsewhere', () => {
+  assert.match(PERSON_GITHUB_QUERY, /defaultBranchRef \{ name target/);
+  assert.match(reposQuery(1), /defaultBranchRef \{ name target/);
+  const g = personGithubFrom(body([
+    repo({ defaultBranchRef: { name: 'main', target: { history: { totalCount: 312, nodes: [{ committedDate: '2026-10-01T10:00:00Z' }] } } } }),
+    repo({ nameWithOwner: 'lee/old' }),
+    repo({ nameWithOwner: 'lee/bad', defaultBranchRef: { name: '', target: { history: { totalCount: -3, nodes: [] } } } }),
+  ]), NOW)!;
+  const r = g.repos.get('lee/tipjar')!;
+  assert.deepEqual([r.default_branch, r.commits_year, r.created_at], ['main', 312, '2026-01-01T00:00:00Z']);
+  assert.deepEqual([g.repos.get('lee/old')!.default_branch, g.repos.get('lee/old')!.commits_year], [null, null]);
+  assert.deepEqual([g.repos.get('lee/bad')!.default_branch, g.repos.get('lee/bad')!.commits_year], [null, null]);
+});

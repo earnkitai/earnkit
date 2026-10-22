@@ -40,6 +40,16 @@ landing's Activity cards, feed rows and leaderboard rows a quiet 12px "Shipping"
 streak" (`streakRun`); the profile's Streak card keeps "5 weeks" under its title. The leaderboard's count line and the
 profile's score card say the number is read from GitHub commits, not self-reported (the card links to `/docs#score`).
 
+## Highlights
+
+Every item is a fact a judge can verify in one click, and links to its proof: the live site, the first contract on
+Basescan, the Builder Code's file on GitHub, the repo, the program's guide. At most 5, in that order (live, contracts
+on Base, Builder Code, track record, won or applied), each only when true. A linked row is the whole tap target (62px),
+opens in a new tab, and ends in a small muted arrow (lucide arrow-up-right, 16px) that brightens on hover with a soft
+`panel-inner` row fill; an item without proof a visitor can open (a private repo's file or page) has no link and no
+arrow. No run of weeks here (the Streak card owns it). Icons are lucide strokes on the `panel-inner` tile: globe, box,
+code brackets, git commit, send.
+
 ## Pictures and program marks
 
 A builder's picture is their X one (pbs.twimg.com), else the GitHub one of their proven login

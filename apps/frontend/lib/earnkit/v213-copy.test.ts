@@ -104,12 +104,12 @@ test('11.11 the profile\'s words pass the v2.13 rule; chain names only in the Ba
   assert.equal(shippedWords(9), 'Code in 9 of the last 52 weeks');
   assert.equal(shippedWords(1), 'Code in 1 of the last 52 weeks');
   // v3.1 Task 7: the approved Profile boards name commits ("279 commits", "This week: 14 commits"), the repo in the
-  // Builder Code highlight ("Found in the repo") and contracts ("[N] contracts on Base"), so those words are allowed on the
+  // Builder Code highlight ("Builder Code in the repo", owner-approved 2026-10-22) and contracts ("[N] contracts on Base"), so those words are allowed on the
   // profile; every other word is checked.
   const allowed = [String(/\bcommits?\b/i), String(/\brepos?\b/i), String(/\bcontracts?\b/i)];
   const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => !allowed.includes(w));
   assert.ok(bannedInBench('This week: 14 commits', []).every((w) => allowed.includes(w)));
-  const names = ['Maya Chen', 'Maya', 'Jenil', 'Sam', 'Recipe planner', 'EarnKit', 'Tipjar', 'Ledgerly', '$TIPJAR', 'Alliance ALL19', 'Base Builder Grant Program', 'Base Builder Code', ...Object.values(CHAIN_LABEL)];
+  const names = ['Maya Chen', 'Maya', 'Jenil', 'Sam', 'Recipe planner', 'EarnKit', 'Tipjar', 'Ledgerly', '$TIPJAR', 'Alliance ALL19', 'Base Builder Grant Program', 'Base Builder Code', 'Builder Code in the repo', ...Object.values(CHAIN_LABEL)];
   const exempt = [...names, 'https://recipes.app', 'earnkit.com', 'tipjar.xyz', 'github.com/sam/ledgerly'];
   const confirming = { ...DATA, project: { ...DATA.project!, confirmed: false } };
   for (const [d, site] of [[DATA, siteOf(DATA)], [confirming, siteOf(confirming)], [JENIL, JENIL_SITE], [MAYA, MAYA_SITE], [SAM, SAM_SITE]] as const) {

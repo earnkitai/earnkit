@@ -30,6 +30,7 @@ import { stuckLaunches } from './tokens';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { githubAppEnabled } from './github-app';
+import { runBuilderCodes } from './builder-codes-check';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
@@ -101,6 +102,8 @@ export type CronDeps = {
   usage?: UsageDeps;
   /** v2.12 spec 6: the builder score's reads and people (tests); with `only`, the steps run only when given. */
   builderScore?: ScoreCronDeps;
+  /** v3.1 Highlights: the Builder Codes step's GitHub fetch and builders (tests); with `only`, the step runs only when given. */
+  builderCodes?: { fetch?: typeof fetch; only?: number[] };
 };
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
@@ -360,6 +363,18 @@ export async function runCron(
       builderScore = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most once a day, at most
+  // BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare. Off
+  // without the GitHub App.
+  let builderCodes: Awaited<ReturnType<typeof runBuilderCodes>> | { step: 'error'; note: string } | undefined;
+  if (githubAppEnabled() && (!opts.only || deps.builderCodes)) {
+    try {
+      builderCodes = await runBuilderCodes(now, { ...deps.builderCodes, deadline });
+    } catch (err) {
+      console.error('[cron] builder codes', err instanceof Error ? err.name : 'error');
+      builderCodes = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v2.9 E19: the weekly email, Mondays from DIGEST_HOUR_UTC (sendDigests decides who is due), within
   // Resend's free caps, with what is left of the budget. Off without RESEND_API_KEY. v3 Stage 1 (spec 5.4):
   // after the score steps, so the weekly job writes last week (the email's moment) first within one run.
@@ -430,6 +445,7 @@ export async function runCron(
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     ...(usage && { usage_checks: usage }),
     ...(builderScore && { builder_score: builderScore }),
+    ...(builderCodes && { builder_codes: builderCodes }),
     needs_owner,
   };
 }

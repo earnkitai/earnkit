@@ -106,60 +106,80 @@ const addr = () => `0x${randomBytes(20).toString('hex')}`;
 const codes = (key: string, found: boolean) =>
   sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key.toLowerCase()}, ${found}, ${NOW}) ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found`;
 
-test('(c) highlights: live, Builder Code, contracts on Base, applied, shipping since, in that order', db, async () => {
-  const weeks = last52(NOW).slice(-5);
-  const b = await builder({ chains: ['base'], proof: 'github_app', commitWeeks: weeks });
-  await site(b, 'https://www.earnkit.com', [['2026-07-30', false], ['2026-08-03', true], ['2026-08-04', true]]);
-  await codes(b.key, true);
-  // One Base contract source, one Arc contract source (not counted), one EarnKit deploy on Base, one on Arc (not counted).
-  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES
-    (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent'),
-    (${b.id}, 'contract', ${`arc:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent'),
-    (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'proposed', 'agent')`;
-  await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd) VALUES
-    (${b.id}, 'k', ${b.key}, 'base', ${`0x${randomBytes(32).toString('hex')}`}, ${addr()}, 'deployed', 0),
-    (${b.id}, 'k', ${b.key}, 'arc', ${`0x${randomBytes(32).toString('hex')}`}, ${addr()}, 'deployed', 0),
-    (${b.id}, 'k', ${b.key}, 'base', ${`0x${randomBytes(32).toString('hex')}`}, ${addr()}, 'reverted', 0)`;
+/** `n` consecutive daily readings of a site ending at `last` (YYYY-MM-DD), up unless the index is in `down`. */
+const daysUp = (last: string, n: number, down: number[] = []): [string, boolean][] =>
+  Array.from({ length: n }, (_, i) => [new Date(Date.parse(`${last}T00:00:00Z`) - (n - 1 - i) * DAY).toISOString().slice(0, 10), !down.includes(i)]);
+const tx = () => `0x${randomBytes(32).toString('hex')}`;
+/** A Bench-confirmed Base project proven through the App, a public repo reading created `created` with `commits` in the year. */
+const baseBuilder = (o: { key?: string; name?: string; hidden?: boolean; created?: string; commits?: number; branch?: string } = {}) =>
+  builder({
+    key: o.key, name: o.name, hidden: o.hidden, chains: ['base'], proof: 'github_app',
+    signals: { created_at: o.created ?? '2025-03-04T10:00:00Z', commits_year: o.commits ?? 312, default_branch: o.branch ?? 'main' },
+  });
+
+test('(c) Highlights: live with uptime, contracts on Base, Builder Code, track record, applied; each links its proof, in that order', db, async () => {
+  const b = await baseBuilder({ name: 'Kit' });
+  await site(b, 'https://www.kit.example', daysUp('2026-10-21', 30, [3, 17]));
+  const first = addr();
+  // A verified Base source with its Blockscout time, an EarnKit deploy later; an Arc source, a proposed one and a reverted deploy never count.
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, deployed_at) VALUES
+    (${b.id}, 'contract', ${`base:${first}`}, ${b.key}, 'deployer', 'verified', 'agent', '2025-06-10T00:00:00Z'),
+    (${b.id}, 'contract', ${`arc:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent', null),
+    (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'proposed', 'agent', null)`;
+  await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at) VALUES
+    (${b.id}, 'k', ${b.key}, 'base', ${tx()}, ${addr()}, 'deployed', 0, '2026-02-01T00:00:00Z'),
+    (${b.id}, 'k', ${b.key}, 'base', ${tx()}, ${addr()}, 'reverted', 0, '2024-01-01T00:00:00Z')`;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, true, ${NOW}, 'src/onchain/tx.ts')`;
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z')`;
-  const d = await page(b.id);
-  assert.equal(d.streak, 5);
-  assert.deepEqual(await highlights(b.id, d, NOW), [
-    { icon: 'live', title: 'Live at earnkit.com', sub: 'Since Aug 2026' },
-    { icon: 'code', title: 'Base Builder Code', sub: 'Found in the repo' },
-    { icon: 'contract', title: '2 contracts on Base', sub: 'Deployed by the project' },
-    { icon: 'applied', title: 'Applied to Alliance ALL19', sub: 'Oct 14' },
-    { icon: 'start', title: 'Shipping since Sep 21', sub: '5 weeks in a row' },
+  const [owner, repo] = b.key.split('/');
+  assert.deepEqual(await highlights(b.id, await page(b.id), NOW), [
+    { icon: 'live', title: 'Live at kit.example', sub: 'Up 28 of the last 30 days', href: 'https://www.kit.example' },
+    { icon: 'contract', title: '2 contracts on Base', sub: 'First deployed Jun 2025', href: `https://basescan.org/address/${first}` },
+    { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21', href: `https://github.com/${owner}/${repo}/blob/main/src/onchain/tx.ts` },
+    { icon: 'repo', title: 'Building Kit since Mar 2025', sub: '312 commits in the last year', href: `https://github.com/${owner}/${repo}` },
+    { icon: 'applied', title: 'Applied to Alliance ALL19', sub: 'Oct 2026', href: '/programs/alliance-all19' },
   ]);
 });
 
-test('(c2) first week, Builder Codes false, an Arc project, codes unknown, no project', db, async () => {
-  const fresh = await builder({ chains: ['base'], proof: 'github_app', claimedAt: new Date(NOW.getTime() - 3 * DAY), commitWeeks: [isoWeekOf(NOW)] });
-  await codes(fresh.key, false);
-  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${fresh.id}, ${fresh.key}, '2026-10-19', ${sql().json({ shipped_code: { n: 3 } } as never)})`;
-  const d = await page(fresh.id);
-  assert.equal(d.log.length, 1);
-  assert.equal(d.log[0].commits, 3);
-  const h = await highlights(fresh.id, d, NOW);
-  // Final fix 4: not found is no item on the public page (never "Not in the repo yet"); only a found code shows.
-  assert.ok(!h.some((x) => x.icon === 'code'), JSON.stringify(h));
-  assert.ok(!JSON.stringify(h).includes('Not in the repo'), JSON.stringify(h));
-  assert.deepEqual(h.at(-1), { icon: 'start', title: 'Shipping since Oct 19', sub: 'First week on EarnKit' });
-  // Builder Codes are a Base step: an Arc project gets no code item, whatever is stored.
-  const arc = await builder({ chains: ['arc'], proof: 'github_app' });
+test('(c2) Highlights presence: uptime only from 7 readings, no date without one known, Base only, found only, never "in a row"', db, async () => {
+  // Six readings: since the first up day. A young repo: "N commits", no "in the last year".
+  const b = await baseBuilder({ created: '2026-05-02T00:00:00Z', commits: 1 });
+  await site(b, 'https://kit.example', daysUp('2026-10-21', 6));
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent')`;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, false, ${NOW}, null)`;
+  const h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => [x.icon, x.title, x.sub]), [
+    ['live', 'Live at kit.example', 'Since Oct 2026'],
+    ['contract', '1 contract on Base', 'Verified onchain'],
+    ['repo', `Building App ${n} since May 2026`, '1 commit'],
+  ]);
+  // Final fix 4: not found is no item (never "Not in the repo").
+  assert.ok(!JSON.stringify(h).includes('Not in the repo'));
+  // Seven readings over ten days, the newest yesterday: up 7 of the last 10 (a day without a reading is not up).
+  const seven = await baseBuilder();
+  await site(seven, 'https://seven.example', [['2026-10-11', true], ['2026-10-12', true], ['2026-10-14', true], ['2026-10-16', true], ['2026-10-17', true], ['2026-10-19', true], ['2026-10-20', true]]);
+  assert.equal((await highlights(seven.id, await page(seven.id), NOW))[0].sub, 'Up 7 of the last 10 days');
+  // Readings that stopped a week ago say nothing of uptime now.
+  const stale = await baseBuilder();
+  await site(stale, 'https://stale.example', daysUp('2026-10-14', 20));
+  assert.equal((await highlights(stale.id, await page(stale.id), NOW))[0].sub, 'Since Sep 2026');
+  // Builder Codes are a Base step: an Arc project gets no code item, whatever is stored; a stored answer from before paths has no link.
+  const arc = await builder({ chains: ['arc'], proof: 'github_app', signals: { created_at: '2025-01-01T00:00:00Z' } });
   await codes(arc.key, true);
   assert.ok(!(await highlights(arc.id, await page(arc.id), NOW)).some((x) => x.icon === 'code'));
-  // Never checked: no code item.
-  const unknown = await builder({ chains: ['base'], proof: 'github_app' });
-  assert.ok(!(await highlights(unknown.id, await page(unknown.id), NOW)).some((x) => x.icon === 'code'));
+  const old = await baseBuilder();
+  await codes(old.key, true);
+  assert.deepEqual((await highlights(old.id, await page(old.id), NOW)).find((x) => x.icon === 'code'), { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' });
   // Not proven through the App: the stored answer is not read.
   const unproven = await builder({ chains: ['base'] });
   await codes(unproven.key, true);
   assert.ok(!(await highlights(unproven.id, await page(unproven.id), NOW)).some((x) => x.icon === 'code'));
-  // No commit weeks, claimed long ago: shipping since the claim; under one week of code reads as the first week (never "0 weeks").
-  const quiet = await builder({ claimedAt: new Date('2026-03-02T00:00:00Z') });
-  assert.deepEqual(await highlights(quiet.id, await page(quiet.id), NOW), [{ icon: 'start', title: 'Shipping since Mar 2026', sub: 'First week on EarnKit' }]);
-  const one = await builder({ commitWeeks: [last52(NOW)[30]] });
-  assert.equal((await highlights(one.id, await page(one.id), NOW)).at(-1)?.sub, '1 week with code in the last year');
+  // The Streak card owns the run of weeks: Highlights never repeats it, and never says "Deployed by the project".
+  const streaky = await builder({ commitWeeks: last52(NOW).slice(-5), signals: { created_at: '2025-01-01T00:00:00Z' } });
+  for (const x of await highlights(streaky.id, await page(streaky.id), NOW)) assert.doesNotMatch(`${x.title} ${x.sub}`, /in a row|Shipping since|Deployed by the project/);
+  // A confirmed project with none of the five yet (no reading): on EarnKit since the claim.
+  const quiet = await builder({ hidden: true, claimedAt: new Date('2026-03-02T00:00:00Z') });
+  assert.deepEqual(await highlights(quiet.id, await page(quiet.id), NOW), [{ icon: 'start', title: 'On EarnKit since Mar 2', sub: 'On the leaderboard' }]);
   // No project at all.
   const bare = await person({ projects: [], claimed: `s${RUN}bare` });
   await sql()`UPDATE builder_profiles SET claimed_at = '2026-10-02T08:00:00Z' WHERE builder_id = ${bare}`;
@@ -167,6 +187,49 @@ test('(c2) first week, Builder Codes false, an Arc project, codes unknown, no pr
   // A project not confirmed yet is not on the leaderboard either.
   const confirming = await builder({ confirmed: false });
   assert.deepEqual(await highlights(confirming.id, await page(confirming.id), NOW), [{ icon: 'start', title: 'On EarnKit since Apr 4', sub: 'No project on the leaderboard yet' }]);
+});
+
+test('(c3) Highlights: at most 5 (a second program drops), a program without a guide page has no link, won first', db, async () => {
+  const b = await baseBuilder();
+  await site(b, 'https://five.example', daysUp('2026-10-21', 8));
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent')`;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, true, ${NOW}, 'a.ts')`;
+  const camp = `v31-site-${process.pid}-camp`;
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('alliance-all19'), id: camp, title: `Campaign ${RUN}` }));
+  await sql()`UPDATE programs SET campaign = '{"kind":"earnkit"}'::jsonb WHERE id = ${camp}`;
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES
+    (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z'), (${b.id}, '', ${camp}, 'applied', '2026-09-01T09:00:00Z')`;
+  const h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => x.icon), ['live', 'contract', 'code', 'repo', 'applied']);
+  assert.deepEqual([h[4].title, h[4].href], ['Applied to Alliance ALL19', '/programs/alliance-all19']);
+  // Without the live item, both programs fit; a campaign has no guide page, so no link.
+  await sql()`DELETE FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'site'`;
+  const h2 = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h2.slice(3).map((x) => [x.title, x.href]), [['Applied to Alliance ALL19', '/programs/alliance-all19'], [`Applied to Campaign ${RUN}`, undefined]]);
+  // A win comes first.
+  await sql()`UPDATE builder_sources SET state = 'rejected' WHERE builder_id = ${b.id} AND kind = 'contract'`;
+  await sql()`INSERT INTO projects (program_id, name, repo_url, repo_key, installation_id, submitted_at) VALUES (${camp}, 'Kit', ${`https://github.com/${b.key}`}, ${b.key}, ${b.id}, '2026-09-02T10:00:00Z')`;
+  const [{ id: pid }] = await sql()<{ id: number }[]>`SELECT id FROM projects WHERE program_id = ${camp} AND installation_id = ${b.id}`;
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, basis) VALUES (${pid}, ${camp}, 'r1', 'won', 'announcement')`;
+  const h3 = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h3.slice(2).map((x) => [x.icon, x.title, x.sub]), [['won', `Won Campaign ${RUN}`, 'Sep 2026'], ['applied', 'Applied to Alliance ALL19', 'Oct 2026']]);
+});
+
+test('(c4) a private repo: the Builder Code and the track record show without a link (never a 404), the name never shows', db, async () => {
+  const key = `s${RUN}p/stealthy`;
+  const b = await builder({ key, name: 'stealthy', hidden: true, chains: ['base'], proof: 'github_app' });
+  // The App reads the private repo: its reading says private (shownProjects then hides it).
+  await sql()`
+    INSERT INTO source_live (source_id, signals, ok, read_at)
+    SELECT id, ${sql().json({ private: true, created_at: '2025-03-04T10:00:00Z', commits_year: 40, default_branch: 'main' } as never)}, true, now() FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${key}, true, ${NOW}, 'src/tx.ts')`;
+  await site(b, 'https://stealthy.github.io', daysUp('2026-10-21', 10));
+  const h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h, [
+    { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' },
+    { icon: 'repo', title: 'Building since Mar 2025', sub: '40 commits in the last year' },
+  ]);
+  for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy|github\.com/i);
 });
 
 test('(d) backerWeeks buckets first_block by BASE_GENESIS_UNIX + 2 * block into the last 12 ISO weeks; an older backer counts nowhere; length is 12', db, async () => {
@@ -303,8 +366,8 @@ test('(h) projectProgramsDated returns the told application\'s at and the entry\
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z')`;
   const dated = await projectProgramsDated(b.id, b.key);
   assert.deepEqual(dated.map((g) => ({ ...g, at: g.at.toISOString() })), [
-    { title: `Entry program ${RUN}`, won: false, applied: true, at: '2026-10-01T10:00:00.000Z' },
-    { title: 'Alliance ALL19', won: false, applied: true, at: '2026-10-14T09:00:00.000Z' },
+    { title: `Entry program ${RUN}`, won: false, applied: true, at: '2026-10-01T10:00:00.000Z', guide: id },
+    { title: 'Alliance ALL19', won: false, applied: true, at: '2026-10-14T09:00:00.000Z', guide: 'alliance-all19' },
   ]);
   // projectPrograms keeps its shape (no date).
   assert.deepEqual(await projectPrograms(b.id, b.key), [
@@ -313,33 +376,33 @@ test('(h) projectProgramsDated returns the told application\'s at and the entry\
   ]);
 });
 
-test('(i) Task 7 fix round 2: Highlights and the Streak card read one streak (withThisWeek): bumped, not bumped, already lit, quiet', db, async () => {
+test('(i) Task 7 fix round 2: the Streak card reads one streak (withThisWeek): bumped, not bumped, already lit, quiet; Highlights never repeats it', db, async () => {
   (globalThis as { React?: typeof React }).React = React;
   const w = last52(NOW);
   const signals = (n: number) => ({ commit_counts: { [isoWeekOf(NOW)]: n }, pushes_checked: true, created_at: '2025-01-01T00:00:00Z' });
-  /** The Streak card's "N weeks" and the start highlight's sub line, from profileSite as the page reads them. */
+  /** The Streak card's "N weeks" and the Highlights lines, from profileSite as the page reads them. */
   const both = async (b: B) => {
     const d = await page(b.id);
     const s = await profileSite(b.id, d, NOW);
     const h = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: s, page: 1 }));
     const card = h.slice(h.indexOf('data-ek-streak'));
     const weeks = Number(/<span class="ek-serif[^"]*">(\d+) weeks?<\/span>/.exec(card)![1]);
+    for (const x of s.highlights) assert.doesNotMatch(`${x.title} ${x.sub}`, /in a row/);
     return { weeks, sub: s.highlights.at(-1)!.sub, lit: (card.slice(0, card.indexOf('</div></div>')).match(/bg-s-rust-on/g) ?? []).length, d };
   };
-  // Bumped: two weeks before this one, commits this week (not yet in the grid): 3 on the card and in Highlights.
+  // Bumped: two weeks before this one, commits this week (not yet in the grid): 3 on the card.
   const bumped = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(5) }));
   assert.equal(bumped.d.streak, 3, 'profileData already counts this week');
-  assert.deepEqual([bumped.weeks, bumped.sub, bumped.lit], [3, '3 weeks in a row', 3]);
+  assert.deepEqual([bumped.weeks, bumped.lit], [3, 3]);
   // Not bumped: no commits this week.
   const flat = await both(await builder({ commitWeeks: [w[49], w[50]], signals: signals(0) }));
-  assert.deepEqual([flat.weeks, flat.sub], [2, '2 weeks in a row']);
+  assert.equal(flat.weeks, 2);
   // Already lit this week: never counted twice.
   const lit = await both(await builder({ commitWeeks: [w[50], w[51]], signals: signals(4) }));
   assert.equal(lit.weeks, lit.d.streak);
-  assert.equal(lit.sub, `${lit.weeks} weeks in a row`);
-  // The first-week builder shipping this week (seeded sam): 2 weeks on both, never "First week on EarnKit" beside it.
+  // The first-week builder shipping this week (seeded sam): 2 weeks on the card.
   const fresh = await both(await builder({ commitWeeks: [w[50]], signals: signals(6), claimedAt: new Date(NOW.getTime() - 3 * DAY) }));
-  assert.deepEqual([fresh.weeks, fresh.sub], [2, '2 weeks in a row']);
+  assert.equal(fresh.weeks, 2);
   // Quiet (not confirmed): 0 weeks, nothing lit, and Highlights says it is not on the leaderboard.
   const quiet = await both(await builder({ confirmed: false, source: true, commitWeeks: [w[50]], signals: signals(6) }));
   assert.deepEqual([quiet.weeks, quiet.lit, quiet.sub], [0, 0, 'No project on the leaderboard yet']);
@@ -381,13 +444,12 @@ test('(l) v3.1 streak fix: one streak on every surface, whatever builder_project
     profile: d.streak,
     gridSquares: d.grid.filter((g) => g.on).length,
     streakCard: Number(/<span class="ek-serif[^"]*">(\d+) weeks?<\/span>/.exec(card)![1]),
-    highlights: site.highlights.at(-1)!.sub,
     json: (await builderJson(`s${RUN}${n}`, NOW))?.streak,
     badge: (await benchCardFacts(b.id, { money: false, now: NOW }))?.streak,
     shipLog: (await shipLogFacts(b.id, NOW))?.streak,
   };
   assert.deepEqual(got, {
-    leaderboard: WANT, weeklyFilterKeepsIt: 1, profile: WANT, gridSquares: WANT, streakCard: WANT, highlights: `${WANT} weeks in a row`, json: WANT, badge: WANT, shipLog: WANT,
+    leaderboard: WANT, weeklyFilterKeepsIt: 1, profile: WANT, gridSquares: WANT, streakCard: WANT, json: WANT, badge: WANT, shipLog: WANT,
   });
   // The reply and weekly-moment weeks come from the same read.
   assert.equal(await streakOfBuilder(b.id, NOW), WANT);

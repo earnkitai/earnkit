@@ -9,7 +9,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { codesSettled } from './bench-find';
 import { BASE_GRANTS_ID, BUILDER_CODES_FIRST, BUILDER_CODES_SUFFIX, builderCodesFound, builderCodesIn } from './builder-code';
-import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths } from './builder-codes-check';
+import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesDue, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths, runBuilderCodes, storedBuilderCode } from './builder-codes-check';
+import { runCron } from './cron';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 
@@ -126,6 +127,8 @@ test('(c) checkBuilderCodes finds the import in the 3rd file, stores found=true;
   assert.deepEqual(contents(b.gh).map((c) => c.path), ['/repos/maya/app/contents/src/wagmi.ts', '/repos/maya/app/contents/src/config.ts', '/repos/maya/app/contents/src/onchain/tx.ts']);
   assert.ok(b.gh.calls.every((c) => c.routed), 'only faked calls');
   assert.deepEqual(await stored(key), { found: true });
+  // v3.1 Highlights: the file it was found in is kept (the profile links to it).
+  assert.equal((await storedBuilderCode(key))?.path, 'src/onchain/tx.ts');
   assert.deepEqual(await builderCodesKnown(key, now), { found: true, fresh: true });
   assert.deepEqual(await builderCodesKnown(key, new Date(now.getTime() + BUILDER_CODES_TTL_MS)), { found: true, fresh: false });
   const s = show(await mcpCall(b.ctx, 'find', {}));
@@ -234,4 +237,66 @@ test('(h) Task 9 fix round 1 (security): find reads and checks Builder Codes onl
   await codesSettled();
   assert.equal(trees(), 1, 'an App-proven repo is checked');
   assert.equal(await draftCodes(b, key), `Builder Codes found in ${key}.`);
+});
+
+/** The builder's App-proven repo source as a project on `chains` (the rescore's builder_projects row). */
+async function onChains(id: number, chains: string[]) {
+  const [src] = await sql()<{ project_key: string }[]>`SELECT project_key FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND proof = 'github_app'`;
+  await sql()`
+    INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, chains) VALUES (${id}, ${src.project_key}, 'App', 'app', true, true, ${chains})
+    ON CONFLICT (builder_id, project_key) DO UPDATE SET chains = EXCLUDED.chains`;
+}
+const CODE = { 'src/wagmi.ts': `import { Attribution } from 'ox/erc8021';` };
+
+test('(i) v3.1 Highlights: the daily step checks App-proven Base repos that are due, never one checked within the day, at most `limit`', db, async () => {
+  const k = (s: string) => `hl${RUN}${s}/app`;
+  const base = await builder(k('a'), CODE);
+  const none = await builder(k('b'), { 'src/a.ts': 'export const a = 1;' });
+  const arc = await builder(k('c'), CODE);
+  const fresh = await builder(k('d'), CODE);
+  await onChains(base.id, ['base']);
+  await onChains(none.id, ['base']);
+  await onChains(arc.id, ['arc']);
+  await onChains(fresh.id, ['base']);
+  const now = new Date();
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${k('d')}, false, ${new Date(now.getTime() - 60_000)})`;
+  const only = [base.id, none.id, arc.id, fresh.id];
+  // Due: the two Base repos never checked; not Arc, not one checked a minute ago.
+  assert.deepEqual((await builderCodesDue(now, { only })).map((r) => r.repo).sort(), [k('a'), k('b')]);
+  assert.equal((await builderCodesDue(now, { only, limit: 1 })).length, 1);
+  const gh = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(input);
+    return (u.includes(k('b')) ? none.gh : base.gh)(input, init);
+  }) as typeof fetch;
+  assert.deepEqual(await runBuilderCodes(now, { only, fetch: gh }), { due: 2, checked: 2, found: 1 });
+  assert.deepEqual(await storedBuilderCode(k('a')).then((r) => [r?.found, r?.path]), [true, 'src/wagmi.ts']);
+  assert.deepEqual(await storedBuilderCode(k('b')).then((r) => [r?.found, r?.path]), [false, null]);
+  assert.equal(arc.gh.calls.filter((c) => c.path.includes('/git/trees/')).length, 0, 'an Arc repo is never read');
+  // The same day: nothing is due, nothing is read.
+  const trees = () => base.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
+  const before = trees();
+  assert.deepEqual(await runBuilderCodes(new Date(now.getTime() + 3_600_000), { only, fetch: gh }), { due: 0, checked: 0, found: 0 });
+  assert.equal(trees(), before);
+  // A day later every Base repo is due again (the one checked a minute before too), never the Arc one.
+  assert.deepEqual((await builderCodesDue(new Date(now.getTime() + BUILDER_CODES_TTL_MS), { only })).map((r) => r.repo).sort(), [k('a'), k('b'), k('d')]);
+});
+
+test('(j) v3.1 Highlights: a failed check is not retried within the day by the hourly cron (codesTried), and runCron reports the step', db, async () => {
+  const key = `hl${RUN}e/app`;
+  const b = await builder(key, null); // the tree answers 500
+  await onChains(b.id, ['base']);
+  const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
+  const now = new Date();
+  const first = await runCron({ now, only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } });
+  assert.deepEqual(first.builder_codes, { due: 1, checked: 1, found: 0 });
+  assert.equal(trees(), 1);
+  // An hour later it is still due (nothing stored), but this process tried it within the day: not read again.
+  const next = await runCron({ now: new Date(now.getTime() + 3_600_000), only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } });
+  assert.deepEqual(next.builder_codes, { due: 1, checked: 0, found: 0 });
+  assert.equal(trees(), 1);
+  // A scoped run without the step's deps skips it; the App off skips it.
+  assert.equal((await runCron({ now, only: ['none'] })).builder_codes, undefined);
+  await withEnv({ GITHUB_APP_PRIVATE_KEY: undefined }, async () => {
+    assert.equal((await runCron({ now, only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } })).builder_codes, undefined);
+  });
 });

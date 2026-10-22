@@ -9,7 +9,7 @@ import { aliasOf, graphqlErrors, isBudgetStop, isoWeek, type ReaderDeps, type Re
 const REPO_FIELDS = `nameWithOwner description homepageUrl primaryLanguage { name } isFork isTemplate isPrivate createdAt pushedAt
         owner { __typename login }
         parent { nameWithOwner } templateRepository { nameWithOwner }
-        defaultBranchRef { target { ... on Commit { history(first: 100, since: $since) { totalCount nodes { committedDate } } } } }`;
+        defaultBranchRef { name target { ... on Commit { history(first: 100, since: $since) { totalCount nodes { committedDate } } } } }`;
 
 /**
  * v2.12.1 spec "Scale": "GitHub is one GraphQL query per person per day covering all their repos."
@@ -166,7 +166,8 @@ function repoFrom(raw: unknown, now: Date): RepoRead | null {
   const r = obj(raw);
   const key = str(r.nameWithOwner)?.toLowerCase();
   if (!key || !REPO.test(key)) return null;
-  const history = obj(obj(obj(r.defaultBranchRef).target).history);
+  const branch = obj(r.defaultBranchRef);
+  const history = obj(obj(branch.target).history);
   const nodes = arr(history.nodes);
   const total = history.totalCount;
   const commits = nodes
@@ -182,6 +183,8 @@ function repoFrom(raw: unknown, now: Date): RepoRead | null {
   return {
     key, owner: key.split('/')[0], owner_type: obj(r.owner).__typename === 'Organization' ? 'Organization' : 'User', private: r.isPrivate === true,
     created_at: str(r.createdAt), fork, template,
+    default_branch: str(branch.name),
+    commits_year: typeof total === 'number' && Number.isInteger(total) && total >= 0 ? total : null,
     stargazers: [], forkers: [], issue_authors: [], contributors: [],
     commit_weeks: [...new Set(commits.map((t) => isoWeek(new Date(t))))].sort(),
     commit_counts: counts,

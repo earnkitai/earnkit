@@ -50,21 +50,22 @@ export async function checkBuilderCodes(builderId: number, repoKey: string, now:
     const blobs = tree.tree
       .filter((e) => e.type === 'blob' && typeof e.path === 'string' && !(typeof e.size === 'number' && e.size > MAX_FILE_BYTES))
       .map((e) => e.path as string);
-    let found = false;
+    let found: string | null = null;
     for (const path of codePaths(blobs)) {
       const file = await get<Content>(`/repos/${key}/contents/${path.split('/').map(encodeURIComponent).join('/')}`);
       if (!file) return null;
       // Fix round 1: a path that answers without text (a symlink, a submodule) is skipped; the scan goes on.
       if (file.encoding !== 'base64' || typeof file.content !== 'string') continue;
       if (builderCodesIn(Buffer.from(file.content, 'base64').toString('utf8'))) {
-        found = true;
+        found = path;
         break;
       }
     }
+    // v3.1 Highlights: the file it was found in (the profile links to it), null when none.
     await sql()`
-      INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key}, ${found}, ${now})
-      ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at`;
-    return found;
+      INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${key}, ${found !== null}, ${now}, ${found})
+      ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at, path = EXCLUDED.path`;
+    return found !== null;
   } catch (err) {
     console.error('[builder-codes] check', err instanceof Error ? err.name : 'error');
     return null;
@@ -97,6 +98,17 @@ export async function builderCodesKnown(repoKey: string, now: Date): Promise<{ f
     const [row] = await sql()<{ found: boolean; checked_at: Date }[]>`
       SELECT found, checked_at FROM repo_builder_codes WHERE repo_key = ${repoKey.toLowerCase()}`;
     return row ? { found: row.found, fresh: now.getTime() - new Date(row.checked_at).getTime() < BUILDER_CODES_TTL_MS } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** v3.1 Highlights: the stored answer with the file it was found in (a repo path, null for none or a check before paths were kept) and when. Never throws. */
+export async function storedBuilderCode(repoKey: string): Promise<{ found: boolean; path: string | null; checked_at: Date } | null> {
+  try {
+    const [row] = await sql()<{ found: boolean; path: string | null; checked_at: Date }[]>`
+      SELECT found, path, checked_at FROM repo_builder_codes WHERE repo_key = ${repoKey.toLowerCase()}`;
+    return row ?? null;
   } catch {
     return null;
   }
@@ -138,4 +150,48 @@ export function refreshBuilderCodes(
 /** The Best fit line's Builder Codes sentence: found, the first step (with the guide), or nothing when unknown. Pure. */
 export function builderCodesWords(repo: string, found: boolean | null): string | null {
   return found === true ? builderCodesFound(repo) : found === false ? BUILDER_CODES_FIRST : null;
+}
+
+/** v3.1 Highlights: at most this many repos are checked by one cron run. */
+export const BUILDER_CODES_PER_RUN = 50;
+
+/**
+ * v3.1 Highlights: the App-proven repos of Base projects (builder_projects.chains has base) whose stored answer is
+ * missing or a day old, never checked first, then the oldest; at most `limit`. `only` limits the builders (tests).
+ */
+export async function builderCodesDue(now: Date, o: { limit?: number; only?: number[] } = {}): Promise<{ builder_id: number; repo: string }[]> {
+  const db = sql();
+  const stale = new Date(now.getTime() - BUILDER_CODES_TTL_MS);
+  return db<{ builder_id: number; repo: string }[]>`
+    SELECT k.builder_id, k.repo FROM (
+      SELECT DISTINCT ON (r.repo) r.builder_id, r.repo FROM (
+        SELECT s.builder_id, regexp_replace(regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', ''), '([.]git)?/*$', '') AS repo, s.id
+        FROM builder_sources s JOIN builder_projects b ON b.builder_id = s.builder_id AND lower(b.project_key) = lower(s.project_key) AND 'base' = ANY(b.chains)
+        WHERE s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app' ${o.only ? db`AND s.builder_id IN ${db(o.only)}` : db``}
+      ) r ORDER BY r.repo, r.id
+    ) k LEFT JOIN repo_builder_codes c ON c.repo_key = k.repo
+    WHERE (c.repo_key IS NULL OR c.checked_at <= ${stale}) AND k.repo ~ '^[a-z0-9-]+/[a-z0-9._-]+$'
+    ORDER BY c.checked_at NULLS FIRST, k.repo LIMIT ${o.limit ?? BUILDER_CODES_PER_RUN}`;
+}
+
+/**
+ * v3.1 Highlights: the cron's Builder Codes step (hourly cron; each repo at most once a day, R13). Every due repo goes
+ * through refreshBuilderCodes, so the day-old cache and the in-process backoff (codesTried) hold here as in find and
+ * prepare; one at a time, none started past `deadline`. `checked`: checks run, `found`: of them, with a code.
+ */
+export async function runBuilderCodes(
+  now: Date,
+  o: { fetch?: typeof fetch; only?: number[]; limit?: number; deadline?: number } = {},
+): Promise<{ due: number; checked: number; found: number }> {
+  const due = await builderCodesDue(now, o);
+  let checked = 0;
+  let found = 0;
+  for (const r of due) {
+    if (o.deadline !== undefined && Date.now() >= o.deadline) break;
+    const check = refreshBuilderCodes(r.builder_id, r.repo, { fresh: false }, now, o.fetch);
+    if (!check) continue;
+    checked++;
+    if ((await check) === true) found++;
+  }
+  return { due: due.length, checked, found };
 }

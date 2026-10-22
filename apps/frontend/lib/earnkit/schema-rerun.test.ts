@@ -53,3 +53,22 @@ test('v3 Stage 2 Task 4: a database with the first creator_fees (two-column key)
   assert.equal(await key(), 'PRIMARY KEY (tx_hash, log_index, coin)');
   assert.equal((await sql()`SELECT 1 FROM creator_fees`).length, 2);
 });
+
+test('v3.1 Highlights: repo_builder_codes.path and builder_sources.deployed_at are added once, nullable, and a rerun keeps their values', dbTest, async () => {
+  const col = async (table: string, column: string) =>
+    (await sql()<{ nullable: string; type: string }[]>`
+      SELECT is_nullable AS nullable, data_type AS type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ${table} AND column_name = ${column}`)[0];
+  const key = `rerun-hl-${process.pid}/app`;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${key}, true, now(), 'src/tx.ts')`;
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by, deployed_at)
+    VALUES (${-process.pid}, 'contract', ${`base:0x${'1'.repeat(40)}`}, 'k', 'verified', 'server', '2025-06-10T00:00:00Z') RETURNING id::int AS id`;
+  await sql().unsafe(SCHEMA);
+  await sql().unsafe(SCHEMA);
+  assert.deepEqual(await col('repo_builder_codes', 'path'), { nullable: 'YES', type: 'text' });
+  assert.deepEqual(await col('builder_sources', 'deployed_at'), { nullable: 'YES', type: 'timestamp with time zone' });
+  assert.equal((await sql()<{ path: string }[]>`SELECT path FROM repo_builder_codes WHERE repo_key = ${key}`)[0]?.path, 'src/tx.ts');
+  assert.equal((await sql()<{ at: Date }[]>`SELECT deployed_at AS at FROM builder_sources WHERE id = ${id}`)[0]?.at.toISOString(), '2025-06-10T00:00:00.000Z');
+  await sql()`DELETE FROM repo_builder_codes WHERE repo_key = ${key}`;
+  await sql()`DELETE FROM builder_sources WHERE id = ${id}`;
+});
