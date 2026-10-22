@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import DocsView from '../../app/docs/DocsView';
+import { readingNow } from '../../app/docs/DocsNav';
 import { AgentPanel, COPY_SAID, tabKeyTarget } from '../../app/docs/InstallCard';
 import SegTabs, { segRail } from '../../app/components/site/SegTabs';
 import NotFound from '../../app/not-found';
@@ -51,13 +52,42 @@ test('(a) side nav links to the five anchors and each anchor id exists', () => {
   assert.deepEqual(links.map((l) => l[0]), ['#install', '#week', '#score', '#money', '#selectors']);
   assert.deepEqual(links.map((l) => l[0]), DOCS_NAV.map((n) => n[0]));
   for (const [href] of links) assert.equal((h.match(new RegExp(`id="${href.slice(1)}"`, 'g')) ?? []).length, 1, href);
-  // The first link is the lit one (panel-inner, white); the others are muted.
-  const first = nav.match(/<a [^>]*>/)![0];
-  assert.match(first, /bg-s-panel-inner/);
-  assert.match(first, /text-s-text/);
+  // Server render (the page opens at the top): the first link is lit (panel-inner, white, aria-current), the others
+  // muted; in the browser DocsNav moves it with the section in view (QA item 4, readingNow below).
+  const as = nav.match(/<a [^>]*>/g)!;
+  assert.match(as[0], /aria-current="location"/);
+  assert.match(as[0], /bg-s-panel-inner/);
+  assert.match(as[0], /text-s-text/);
+  for (const a of as.slice(1)) assert.doesNotMatch(a, /aria-current|bg-s-panel-inner/, a);
   // Phone: a wrapping row, every link 44px tall; no horizontal scroll rail.
   assert.match(h.match(/<nav [^>]*aria-label="Docs"[^>]*>/)![0], /flex-wrap/);
   for (const a of nav.match(/<a [^>]*>/g)!) assert.match(a, /min-h-11/);
+});
+
+test('(QA 4) readingNow: the lit docs section follows the one in view, rows of cards count once, a pick holds at the bottom', () => {
+  // Install, then a row of three cards side by side (one top), then selectors; the read line at 140px.
+  const at = (y: number) => [
+    { id: 'install', top: y, bottom: y + 600 },
+    { id: 'week', top: y + 616, bottom: y + 816 },
+    { id: 'score', top: y + 616, bottom: y + 816 },
+    { id: 'money', top: y + 616, bottom: y + 816 },
+    { id: 'selectors', top: y + 832, bottom: y + 1000 },
+  ];
+  const o = { line: 140, height: 900, current: 'install', held: null, atBottom: false };
+  assert.equal(readingNow(at(100), o), 'install', 'the top of the page');
+  assert.equal(readingNow(at(400), o), 'install', 'nothing else past the line yet');
+  assert.equal(readingNow(at(-500), o), 'week', 'the row passed the line: its first card');
+  assert.equal(readingNow(at(-500), { ...o, current: 'score' }), 'score', 'a clicked card in the row stays lit');
+  assert.equal(readingNow(at(-700), { ...o, current: 'score' }), 'selectors');
+  assert.equal(readingNow(at(-500), { ...o, current: 'week' }), 'week');
+  // At the bottom the last section lights, unless the reader picked one still on screen.
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true }), 'selectors');
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true, held: 'money' }), 'money');
+  assert.equal(readingNow(at(-300), { ...o, atBottom: true, held: 'install' }), 'install', 'install still shows (bottom 300)');
+  assert.equal(readingNow(at(-700), { ...o, atBottom: true, held: 'install' }), 'selectors', 'install off screen');
+  assert.equal(readingNow([], o), null);
+  // No hard-coded lit index left in the view.
+  assert.doesNotMatch(read('app/docs/DocsView.tsx'), /i === 0/);
 });
 
 test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot selected, its steps and the link; each tab shows exactly its AGENTS command', () => {
