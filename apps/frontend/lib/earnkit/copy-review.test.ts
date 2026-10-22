@@ -30,6 +30,7 @@ import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
+import { postProblems, writePost, type PostInput } from './post-writer';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
@@ -1641,4 +1642,31 @@ test('Ruling 31: every launch_token note is plain builder text; technical detail
   assert.match(byLabel.get('launch note: no wallet')!.agent_note ?? '', /call confirm with project_id, yes: true and that wallet\./);
   assert.match(byLabel.get('launch note: gate: App not installed')!.note ?? '', /read-only EarnKit app/);
   assert.match(byLabel.get('launch note: recorded repo change')!.agent_note ?? '', /^repo_url:/);
+});
+
+test('v3.1 one-tap posts: every EarnKit-written post shape is plain copy (sentence case, no em dash, no emoji, no banned word)', () => {
+  const inputs: PostInput[] = [
+    { moment: 'weekly', name: 'Recipes', week: 6, summary: 'Added offline mode and fixed several sync bugs.', note: null },
+    { moment: 'weekly', name: null, week: 6, summary: 'Rebuilt search so it works on ingredients.', note: null },
+    { moment: 'weekly', name: 'Ledgerline', week: 12, summary: 'Added CSV export.', note: null },
+    { moment: 'weekly', name: 'Pollen', week: 26, summary: null, note: null },
+    { moment: 'went_live', name: 'Tally', weeks: 9 },
+    { moment: 'won', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
+    { moment: 'accepted', name: 'Ledgerline', program: 'Arc Microgrants', award: null },
+    { moment: 'funded', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
+    { moment: 'coin_intro', name: 'Tally', symbol: 'TALLY', weeks: 9 },
+  ];
+  const seen = new Set<string>();
+  for (const i of inputs) {
+    // Each input with no history, and again after a post that opened the same way, so the second wordings are swept too.
+    for (const history of [[], [{ shape: 'name_week', text: `${'name' in i && i.name ? i.name : 'Recipes'}, week 2: added search.` }]]) {
+      const p = writePost(i, history);
+      assert.ok(p, JSON.stringify(i));
+      seen.add(p.shape);
+      assert.match(p.text, /^[A-Z0-9]/, p.text);
+      assert.doesNotMatch(p.text, /\u2014|\p{Extended_Pictographic}|!/u, p.text);
+      assert.deepEqual(postProblems(p.text, { ticker: i.moment === 'coin_intro' ? 'TALLY' : undefined }), [], p.text);
+    }
+  }
+  assert.ok(seen.size >= 10, `shapes swept: ${[...seen]}`);
 });
