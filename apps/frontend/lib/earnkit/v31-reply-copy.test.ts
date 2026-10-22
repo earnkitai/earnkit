@@ -159,8 +159,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     VALUES (${p.id}, '2026-10-18', 0, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true) ON CONFLICT DO NOTHING`;
   await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
     VALUES (${c.id}, '2026-10-18', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true) ON CONFLICT DO NOTHING`;
-  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${c.id}, ${key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary) VALUES (${c.id}, ${key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 3 } } as never)}, 'Added tipping in one tap.')
+    ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts, summary = EXCLUDED.summary`;
   const weeks = ['2026-09-21', '2026-09-28', '2026-10-05', '2026-10-12'].map((d) => isoWeekOf(new Date(`${d}T12:00:00Z`)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[] WHERE builder_id = ${c.id}`;
   // Read just now (the daily read's), so this reply never re-reads GitHub (the fake is offline by now).
@@ -168,14 +168,19 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   await sql()`UPDATE source_live SET read_at = ${new Date()} WHERE source_id IN (SELECT id FROM builder_sources WHERE builder_id = ${c.id})`;
   const r7 = await mcpCall(ctx, 'find', {});
   const s7 = rule(show(r7));
-  // The yes awards the points of the builder's standing now (#1: 100).
+  // v3.1 one-tap posts (design 6): last week's post (4 in a row: the milestone shape) and its one-tap link (the reply's one
+  // link); no points (owner ruling 5).
+  const tap = links(s7)[0]!;
+  assert.match(tap, new RegExp(`^https://earnkit\\.com/${handle}/post/[a-z2-7]{10}$`));
   assert.equal(s7, [
-    "Week 4 done. You're now #1: +100 points.",
-    'A post for X, ready to paste:',
-    `"Week 4 shipping Kit. https://earnkit.com/${handle}"`,
+    "Week 4 done. You're now #1.",
+    'Your post for X, with your page card:',
+    '"4 weeks shipping Kit without missing one. This week: added tipping in one tap."',
+    `Post it in one tap: ${tap}`,
     'Does last week look right?',
   ].join('\n'));
-  assert.equal((r7.reply?.move_up as { kind: string }).kind, 'share');
+  assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
+  assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show the post text exactly as given\. Never rewrite it\./);
 });
 
 test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {

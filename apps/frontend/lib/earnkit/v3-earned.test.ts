@@ -337,6 +337,9 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.doesNotMatch(html, /data-ek-earned|>Earned<|waiting/, html);
   assert.match(unsign(html), /data-ek-token[\s\S]*?>2<[\s\S]*?>\$200</, 'the Token card: 2 backers, $200 earned by the builder');
 
+  // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
+  const intro = show(await find(b));
+  assert.match(intro, /(?:^|\n)Backing is open on your page\.\nYour post for X, with your page card:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
   const r = show(await find(b));
   assert.match(standLine(r), / · \$200 earned$/, r);
   assert.ok(r.includes(`Backing: 2 backers, $200 in fees. Your page: https://earnkit.com/${b.handle}`), r);

@@ -147,7 +147,7 @@ test('(e) the weekly moment still shows the week after', db, async () => {
       VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
     // Task 16 step 7 (v3.1 streak fix: the weeks EarnKit checked commits for count, so the weekly moment names the run: "Week 4 done."; one ranked builder: "on EarnKit").
-    assert.ok(s.startsWith("Week 4 done. You're on EarnKit: +100 points.\n"), s);
+    assert.ok(s.startsWith("Week 4 done. You're on EarnKit.\n"), s);
     assert.doesNotMatch(s, /Post your \d+ weeks?/);
     assert.match(s, /Does last week look right\?$/);
   } finally {

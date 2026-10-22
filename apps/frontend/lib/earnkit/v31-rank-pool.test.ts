@@ -68,9 +68,9 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const me = await pool('rpa', 9);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", the post to paste with no rank. Last week has no ship-log row with
-  // facts, so its yes pays nothing and no points are promised (fix round 1).
-  assert.equal(s, `Last week done. You're on EarnKit.\nA post for X, ready to paste:\n"Shipping App. https://earnkit.com/${me.handle}"\nDoes last week look right?`);
+  // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
+  // post to offer (v3.1 one-tap posts): the page is the one link.
+  assert.equal(s, `Last week done. You're on EarnKit.\nYour page: https://earnkit.com/${me.handle}\nDoes last week look right?`);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');

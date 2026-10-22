@@ -5,8 +5,8 @@ import { noteEvent } from './events';
 /**
  * v3.1 one-tap posts (design 3, Task 1): the drafted posts for X. A draft is one row behind a short code; the reply's
  * one link is earnkit.com/<handle>/post/<code>, which counts the tap and opens X's composer with the row's text (the
- * route never reads a target from the request). Limits (design 1): 1 offered draft a person per 7 days, 1 the builder
- * asked for per 24 hours, 3 in all per 7 days. A tap is a number only: no IP, no user agent. A draft lives 14 days.
+ * route never reads a target from the request). Limits (design 1): 1 offered draft a person per 7 days (went live, won
+ * and funded skip it: PAST_OFFER_LIMIT), 1 the builder asked for per 24 hours, 3 in all per 7 days. A tap is a number only: no IP, no user agent. A draft lives 14 days.
  */
 export const POST_MOMENTS = ['weekly', 'went_live', 'won', 'accepted', 'funded', 'news', 'coin_intro'] as const;
 export type PostMoment = (typeof POST_MOMENTS)[number];
@@ -17,6 +17,11 @@ export const VISIT_CAP = 10_000;
 export const OFFERED_PER_WEEK = 1;
 export const ASKED_PER_DAY = 1;
 export const DRAFTS_PER_WEEK = 3;
+/**
+ * Controller ruling (2026-10-22): a real win is never crowded out by an ordinary weekly post. These moments skip the
+ * one-offered-a-week limit (the 3 a week still holds).
+ */
+export const PAST_OFFER_LIMIT: readonly PostMoment[] = ['went_live', 'won', 'funded'];
 /** The stored text's ceiling (the column's CHECK); the writer keeps posts to POST_MAX (post-writer.ts). */
 export const DRAFT_TEXT_MAX = 240;
 /** 10 characters of RFC 4648 base32, lowercase: 50 random bits. */
@@ -74,7 +79,7 @@ export async function createDraft(d: NewDraft, now: Date = new Date()): Promise<
         count(*) FILTER (WHERE asked AND created_at > ${day})::int AS asked,
         count(*) FILTER (WHERE created_at > ${week})::int AS all
       FROM post_drafts WHERE builder_id = ${d.builderId}`;
-    if (!d.asked && n!.offered >= OFFERED_PER_WEEK) return 'offered_limit' as const;
+    if (!d.asked && n!.offered >= OFFERED_PER_WEEK && !PAST_OFFER_LIMIT.includes(d.moment)) return 'offered_limit' as const;
     if (d.asked && n!.asked >= ASKED_PER_DAY) return 'asked_limit' as const;
     if (n!.all >= DRAFTS_PER_WEEK) return 'week_limit' as const;
     const [row] = await tx<DraftRow[]>`

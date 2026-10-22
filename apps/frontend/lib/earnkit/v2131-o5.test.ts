@@ -277,7 +277,9 @@ test('O5 N14 (F15), P3, P4 the update replies carry the full page link; an older
     const yes = (await tools.tell({ updates: { on: true, scheduled: true } }, ctx)) as R;
     assert.equal(yes.show_to_builder, UPDATE_LINES.auto);
     const p = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow this week.' } }, ctx)) as R;
-    assert.equal(p.show_to_builder, `Posted this week's update: https://earnkit.com/${handle}`);
+    // v3.1 one-tap posts: the first is the builder's news, their post for X (its one-tap link); a change within 24 hours
+    // (the news cooldown) says so with the page link.
+    assert.match(String(p.show_to_builder), new RegExp(`^Added to your page\\.\\n[\\s\\S]*Post it in one tap: https://earnkit\\.com/${handle}/post/[a-z2-7]{10}\\n`));
     const c = (await tools.tell({ update: { text: 'Shipped a faster onboarding flow and a new page.' } }, ctx)) as R;
     assert.equal(c.show_to_builder, `Updated this week's post: https://earnkit.com/${handle}`);
   }),

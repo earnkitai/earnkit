@@ -1,3 +1,4 @@
+import { POST_NOTE, PROOF_NOTE } from './post-reply';
 import './fixtures/no-network-checks';
 import {
   EMAIL_NOTE, EMAIL_OFF, EMAIL_ON, EMAIL_QUESTION, EMAIL_SIGN_IN, EMAIL_UNAVAILABLE, UNSUB_BAD, UNSUB_CONFIRM, UNSUB_DONE, WHICH_EMAIL,
@@ -25,7 +26,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, MOMENT_POST_HEAD, SHIP_ASK, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, momentPost, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
@@ -890,9 +891,15 @@ function weeklyCopy(): [string, string][] {
     ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
     // v3.1 Task 16 step 7: the moment, the post to paste and its question.
-    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
-    ['momentHead first', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
-    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/lee')],
+    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3 })],
+    ['momentHead first', momentHead({ week: 0, place: null, rank: 1 })],
+    ['postReply went live', postReply({ head: eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: new Date().toISOString() } }), text: 'Tally is live.', link: 'https://earnkit.com/sam/post/abcdefghij' }, POST_ASK)],
+    ['postReply won', postReply({ head: eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Spring Builder Grant' } }), text: 'Ledgerline won the Spring Builder Grant ($5,000).', link: 'https://earnkit.com/lee/post/abcdefghij' }, POST_ASK)],
+    ['pageLine', pageLine('https://earnkit.com/lee')],
+    ['PROOF_ASK', PROOF_ASK],
+    ['redraft limit', redraftLine('limit', 'https://earnkit.com/lee/post/abcdefghij')],
+    ['redraft only', redraftLine('only', 'https://earnkit.com/lee/post/abcdefghij')],
+    ['redraft own words', redraftLine('own_words', 'https://earnkit.com/lee/post/abcdefghij')],
     ['MOMENT_ASK', MOMENT_ASK],
     ['APPROVED_LINE', APPROVED_LINE],
   ];
@@ -1047,6 +1054,8 @@ const agentFacing: [string, string][] = [
   ['ATTRIBUTION_RULE', ATTRIBUTION_RULE],
   ['SHIP_STEP_NOTE', SHIP_STEP_NOTE],
   ['SHARE_NOTE', SHARE_NOTE],
+  ['POST_NOTE', POST_NOTE],
+  ['PROOF_NOTE', PROOF_NOTE],
   ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
@@ -1438,11 +1447,10 @@ function v31Texts(): [string, string][] {
     ['week start behind', ws({ above: { rank: 1, score: 90 } })],
     ['week start hold', ws({ rank: 1 })],
     ['week start unranked', ws({ rank: null })],
-    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3, points: 70 })],
-    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3, points: null })],
-    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1, points: 30 })],
-    ['MOMENT_POST_HEAD', MOMENT_POST_HEAD],
-    ['momentPost', momentPost(4, 'Recipes', 'earnkit.com/maya')],
+    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3 })],
+    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3 })],
+    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1 })],
+    ['POST_HEAD', POST_HEAD],
     ['MOMENT_ASK', MOMENT_ASK],
     ['draft prefilled', prefilled.show_to_builder],
     ['draft copy and paste', paste.show_to_builder],

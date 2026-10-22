@@ -47,7 +47,8 @@ import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
   type ConnectBest,
 } from './connect-moment';
-import { connectOfferPoints, pointsTotal, weekAwarded, weekPointsNow } from './points';
+import { connectOfferPoints, pointsTotal } from './points';
+import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { askWeeklyEmail, digestEnabled } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
@@ -87,7 +88,7 @@ export const INSTALL_APP_NOTE =
   "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again, which counts the repo. Don't show this note.";
 /** v2.14 A17: find's held outcome question is the reply's last line; the answer goes to tell. */
 export const BENCH_OUTCOME_NOTE =
-  "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. Don't show this note.";
+  "show_to_builder ends with the results question for this entry. Their answer: call tell with program_status: this program_id and project_id, their result (won, placed or lost), and prize_usd if they won money. If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url. Don't show this note.";
 /** v3 Stage 2 (spec 5.3 Route 2): the backing offer's note; a yes goes to the coin flow (coinYes, then confirm { project_id }). */
 export const BACKING_NOTE =
   "A yes or no to the question: call tell with move_up: { kind: 'backing', project_key, answer } (project_key as given here). " +
@@ -106,7 +107,7 @@ export const QUALIFY_STEPS_NOTE =
 export const APPLY_YES_NOTE = (id: string) => `Call prepare with program_id "${id}" for this project and show the draft. Don't show this note.`;
 /** v3 Stage 2: find's held apply-outcome question (14 days after the deadline) is the reply's last line. */
 export const APPLY_OUTCOME_NOTE =
-  "show_to_builder ends with the outcome question for this application. Their answer: call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing. Don't show this note.";
+  "show_to_builder ends with the outcome question for this application. Their answer: call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url. Don't show this note.";
 /** A no keeps an ask away this long (standing_seen.declined). */
 export const DECLINE_MS = 30 * 86_400_000;
 /** v2.14 T4 (leaked authorize URL): the first reply after an X bind names the account, so a wrong one is noticed. */
@@ -115,7 +116,11 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 /** What the person was last told (stand-view's Seen) plus the Bench's own: the ask. */
 export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
-  bench_ask?: { kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'> };
+  bench_ask?: {
+    kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
+    /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
+    code?: string; head?: string; moment?: unknown;
+  };
   /** Fix round 1: when the qualify steps were given ({ [lowercase project key]: iso }); held back DECLINE_MS. */
   qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
@@ -436,15 +441,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
+  // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
+  const hot = ranked && project && handle && !held && !connect ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) backing and the weekly moment.
-  const apply = !connect && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
+  const apply = !connect && !hot && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on);
   // an apply ask shown holds it (unclaimed) for a later reply.
-  const backing = ranked && project && handle && !held && !connect && !apply ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
+  const backing = ranked && project && handle && !held && !connect && !hot && !apply ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held && !connect && !backing && !apply ? await weeklyMoment(o.own, id, project.key, row?.commit_weeks ?? [], now) : null;
+  const moment = ranked && project && handle && !held && !connect && !hot && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
+  // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
+  const event = hot ?? (ranked && project && handle && !held && !connect && !backing && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment;
+  const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment && !event;
   const titles = quiet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
   const qualify = quiet && !titles && o.fits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch })
@@ -474,25 +483,27 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   }
 
   // R8, L5, L6: each state's one next step.
-  const finalAsk = stateAsk({ state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify });
+  const finalAsk = stateAsk({ state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
-  const stored = held ? null : {
+  // v3.1 one-tap posts: an event's post stored its own ask (post-reply.ts: the moment, so a yes redrafts it).
+  const stored = held || finalAsk.kind === 'post' ? null : {
     kind: finalAsk.kind, key: finalAsk.project_key,
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
     ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
   };
-  await sql()`
+  if (finalAsk.kind !== 'post') await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
-    ask: finalAsk, held, best, connect, moment, open: state === 'signed_out' ? openGrant(o.cards, now, o.skip) : null, qualify,
+    ask: finalAsk, held, best, connect, moment, open: state === 'signed_out' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
   };
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
-    : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
+    : finalAsk.kind === 'post' ? POST_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -591,12 +602,14 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
 
 /**
  * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
- * left the builder; the points the yes adds, points.ts weekPointsNow, null when it adds none), when this installation hasn't seen this week's
+ * left the builder), when this installation hasn't seen this week's
  * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
  * it, or its Monday hour passed). Else null, and the week stays unclaimed. Claimed only when shown (takeMoment); the
- * offer then stays open for the week (openShare). Never throws.
+ * offer then stays open for the week (openShare). v3.1 one-tap posts (design 6): last week's post is drafted when it is
+ * worth one (post-reply.ts weeklyPost), else the reply gives the page; no points are shown (owner ruling 5), the yes
+ * still earns them (approveWeek). Never throws.
  */
-async function weeklyMoment(own: number, id: number, key: string, commitWeeks: string[], now: Date): Promise<MomentView | null> {
+async function weeklyMoment(own: number, id: number, key: string, handle: string, commitWeeks: string[], now: Date): Promise<MomentView | null> {
   if (!(await momentDue(own, now))) return null;
   const last = await lastWeekOf(id, key, now).catch(logged('last week'));
   if (!last || !momentReady(last.checked, now)) return null;
@@ -605,13 +618,11 @@ async function weeklyMoment(own: number, id: number, key: string, commitWeeks: s
     await takeMoment(own, now);
     return null;
   }
-  // Task 16 fix round 1: the yes pays only for a week with facts and no ledger row yet (approveWeek, awardWeekPoints).
-  const paid = last.facts && !(await weekAwarded(id, last.monday).catch(() => true));
-  const points = paid ? await weekPointsNow(id).catch(logged('moment points')) : null;
-  if (paid && points === null) return null;
   if (!(await takeMoment(own, now))) return null;
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
-  return { week: weekNumber(commitWeeks, last.monday), place: momentPlace(last), rank: last.now.rank, points };
+  const week = weekNumber(commitWeeks, last.monday);
+  const post = await weeklyPost(id, handle, week, now);
+  return { week, place: momentPlace(last), rank: last.now.rank, post };
 }
 
 /**
@@ -838,7 +849,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', ...RETIRED_ASKS, ...OLD_ASKS];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
@@ -1009,6 +1020,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
       return { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE };
+    case 'post':
+      // v3.1 one-tap posts: a different version of the post (the next shape; the builder asked, so the asked limit holds).
+      return (await redraftAnswer(id, asked as Parameters<typeof redraftAnswer>[1], now)) ?? okay;
     case 'apply':
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
       return asked.program_id

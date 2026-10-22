@@ -262,6 +262,9 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   assert.match(row, /data-ek-backed=""[^>]*>Backed</, row);
   assert.ok(!row.includes(`$${sym}`) && !row.includes('tokens.fun'));
 
+  // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
+  const intro = show(await find(b));
+  assert.match(intro, /^Backing is open on your page\.\nYour post for X, with your page card:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
   // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
   const r = show(await find(b));
   assert.ok(r.includes(`\nBacking open. Your page: https://earnkit.com/${b.handle}\n`), r);

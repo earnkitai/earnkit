@@ -40,6 +40,11 @@ const ProgramStatus = z
     /** For won, placed and lost: the entry; else the installation's newest entry in the program. */
     project_id: z.number().int().positive().optional(),
     prize_usd: z.number().nonnegative().optional(),
+    /**
+     * v3.1 one-tap posts (owner ruling 3): for accepted, funded or won, the public page the agent checked that shows it
+     * (post-moments.ts proofUrlOk decides; never stored in the builder's memory).
+     */
+    proof_url: z.string().max(2048).optional(),
   })
   .strict();
 

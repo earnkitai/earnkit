@@ -156,16 +156,20 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   await sql()`UPDATE builder_projects SET commit_weeks = ${[1, 2, 3].map((i) => isoWeekOf(new Date(Date.now() - i * 7 * DAY))).sort()}::text[] WHERE builder_id = ${me.id}`;
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  // #2 of 10 now: the yes earns 70 points (points.ts pointsForRank: the top 25%).
+  // v3.1 one-tap posts (design 6): last week's post (its summary, from the titles; never the host-naming one) and its
+  // one-tap link; no points shown (owner ruling 5), though the yes still earns them.
+  const link = links(s)[0]!;
+  assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}/post/[a-z2-7]{10}$`));
   assert.equal(s, [
-    "Week 3 done. You're now #2: +70 points.",
-    'A post for X, ready to paste:',
-    `"Week 3 shipping App. https://earnkit.com/${me.handle}"`,
+    "Week 3 done. You're now #2.",
+    'Your post for X, with your page card:',
+    '"App, week 3: added dark mode and fixed the login loop."',
+    `Post it in one tap: ${link}`,
     'Does last week look right?',
   ].join('\n'));
-  assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}"`], 'the page in the post (before its closing quote) is the one link');
+  assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
-  assert.doesNotMatch(s, /intent|Ship code this week/, 'a post to paste, never an intent link; the moment replaces the step');
+  assert.doesNotMatch(s, /intent|points|acme|Ship code this week/, 'the one-tap link, never an intent link; the moment replaces the step');
   const move = f.reply?.move_up as { kind: string; project_key: string; agent_note: string };
   assert.deepEqual([move.kind, move.project_key], ['share', me.key]);
   assert.match(move.agent_note, /tell with move_up/);
@@ -211,7 +215,8 @@ test('L6.4 the moment through score, once per installation (another agent of the
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${['Secret launch']}::text[])`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
-  assert.equal(s, `Last week done. You're now #1.\nA post for X, ready to paste:\n"Shipping App. https://earnkit.com/${me.handle}"\nDoes last week look right?`);
+  // Nothing worth a post (no facts): the page is the one link.
+  assert.equal(s, `Last week done. You're now #1.\nYour page: https://earnkit.com/${me.handle}\nDoes last week look right?`);
   assert.doesNotMatch(s, /Secret launch/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
@@ -300,7 +305,7 @@ test('Task 16 step 7: the week\'s number and where last week left the builder', 
   assert.equal(momentPlace({ now: w(1, 9), before: w(1, 9) }), null, 'under RANK_MIN_POOL: "on EarnKit"');
 });
 
-test('Task 16 fix round 1: the Monday yes adds exactly the points the moment promised; a week with no facts promises and adds none', db, async () => {
+test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points (owner ruling 5); the yes still adds the week\'s points; a week with no facts adds none', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());
   const paid = await builder('wmpd', 'Pia', [1, 2]);
@@ -308,11 +313,11 @@ test('Task 16 fix round 1: the Monday yes adds exactly the points the moment pro
   await pad('wmpp', 9, [plusDays(monday, 6)]);
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${paid.id}, ${paid.key}, ${monday}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;
   const s = show(await mcpCall(ctx(paid.id), 'find', {}));
-  const promised = Number(/: \+(\d+) points\.\n/.exec(s)?.[1]);
-  assert.ok(promised > 0, s);
+  assert.match(s, /^Week \d+ done\. You're (now|still) #\d+\.\n/, s);
+  assert.doesNotMatch(s, /points/, s);
   const before = await pointsTotal(paid.id);
   assert.equal(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
-  assert.equal((await pointsTotal(paid.id)) - before, promised, 'exactly the promised points');
+  assert.ok((await pointsTotal(paid.id)) - before > 0, 'the yes still earns the week\'s points');
 
   const none = await builder('wmpn', 'Nia', [1, 2]);
   await history(none.id, plusDays(monday, 6), 25);

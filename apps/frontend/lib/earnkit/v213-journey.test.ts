@@ -25,7 +25,7 @@ import { INTRO_LINE, VARIANT_COPY } from './bench-reply';
 import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
-import { NOT_CONFIRMED_NOTE, UPDATE_LINES } from './updates';
+import { NOT_CONFIRMED_NOTE } from './updates';
 import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
 import { weeklyFactsStep } from './week-facts';
@@ -600,7 +600,8 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.notEqual(ask.move_up?.kind, 'updates');
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
-  assert.equal(posted.show_to_builder, UPDATE_LINES.postedAt('https://earnkit.com/maya_makes'));
+  // v3.1 one-tap posts (design 6): posted to the page, and the builder's news becomes their post for X (its one-tap link).
+  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X, with your page card:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant a different version\?$/);
   const log = await renderProfile('maya_makes');
   assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);

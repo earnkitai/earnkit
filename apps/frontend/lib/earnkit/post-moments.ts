@@ -33,6 +33,8 @@ export const SAME_KIND_DAYS = 28;
 export const NEWS_COOLDOWN_HOURS = 24;
 export const LIVE_SETTLE_DAYS = 2;
 export const EVENT_FRESH_DAYS = 14;
+/** Task 6 (design 6 ruling): went live and won go before the apply step for this long after they can be posted. */
+export const HOT_HOURS = 48;
 const DAY = 86_400_000;
 
 export type MomentCandidate = {
@@ -46,6 +48,8 @@ export type MomentCandidate = {
   proofUrl: string | null;
   /** Weekly only: the week holds a milestone, went live or a win, so the 13-day cooldown is skipped. */
   bigWeek?: boolean;
+  /** When the moment could first be posted (went live: once it settled; an announced win: when it was recorded). */
+  at?: Date;
 };
 export type Hold = 'drafted' | 'cooldown' | 'once' | 'same_kind';
 export type Skip =
@@ -130,8 +134,12 @@ async function posterOf(builderId: number): Promise<Poster | Skip> {
 }
 const ownLinksOf = async (builderId: number) => (await import('./updates')).ownLinks(builderId);
 
-/** Last finished week's post: its facts, the summary as the profile shows it, the builder's note. */
-export async function weeklyCandidate(builderId: number, now: Date): Promise<MomentCandidate | Skip> {
+/**
+ * Last finished week's post: its facts, the summary as the profile shows it, the builder's note. `week`: the week's
+ * number as the reply around the post names it (Task 6: the Monday moment's "Week 4 done.", weekly-moment.ts
+ * weekNumber), so the two never differ; else the week's own streak fact.
+ */
+export async function weeklyCandidate(builderId: number, now: Date, o: { week?: number } = {}): Promise<MomentCandidate | Skip> {
   const p = await posterOf(builderId);
   if (typeof p === 'string') return p;
   const monday = lastFinishedMonday(now);
@@ -144,7 +152,7 @@ export async function weeklyCandidate(builderId: number, now: Date): Promise<Mom
   const summary = (await weekLineRule(builderId, p.key))(u);
   const checked = u.text ? checkUpdate(u.text, await ownLinksOf(builderId)) : null;
   const note = checked?.ok ? checked.text : null;
-  const week = u.facts.streak?.w ?? (u.facts.shipped_code ? 1 : 0);
+  const week = o.week ?? u.facts.streak?.w ?? (u.facts.shipped_code ? 1 : 0);
   const input: PostInput = { moment: 'weekly', name: p.name, week, summary, note };
   if (!writePost(input, [])) return 'nothing_to_say';
   return {
@@ -174,6 +182,7 @@ export async function wentLiveCandidate(builderId: number, now: Date): Promise<M
   const weeks = weeksFromFirstCommit(p.commitWeeks, first);
   return {
     moment: 'went_live', momentKey: `went_live:${p.key.toLowerCase()}`, projectKey: p.key, week: null, proofUrl: null,
+    at: new Date(first.getTime() + LIVE_SETTLE_DAYS * DAY),
     input: { moment: 'went_live', name: p.name, weeks }, card: { live_at: first.toISOString(), weeks },
   };
 }
@@ -182,8 +191,8 @@ export async function wentLiveCandidate(builderId: number, now: Date): Promise<M
 export async function announcedWinCandidates(builderId: number, now: Date): Promise<MomentCandidate[]> {
   const p = await posterOf(builderId);
   if (typeof p === 'string' || !p.name) return [];
-  const rows = await sql()<{ program_id: string; title: string; prize: number | null; source_url: string }[]>`
-    SELECT o.program_id, g.title, o.prize_usd::float8 AS prize, o.source_url FROM entry_outcomes o
+  const rows = await sql()<{ program_id: string; title: string; prize: number | null; source_url: string; captured_at: Date }[]>`
+    SELECT o.program_id, g.title, o.prize_usd::float8 AS prize, o.source_url, o.captured_at FROM entry_outcomes o
     JOIN projects x ON x.id = o.project_id JOIN programs g ON g.id = o.program_id JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.basis = 'announcement' AND o.result IN ('won', 'placed')
       AND o.source_url LIKE 'https://%' AND o.captured_at > ${new Date(now.getTime() - EVENT_FRESH_DAYS * DAY)}
@@ -192,7 +201,7 @@ export async function announcedWinCandidates(builderId: number, now: Date): Prom
   return rows.map((r) => {
     const award = r.prize && r.prize > 0 ? usd(r.prize) : null;
     return {
-      moment: 'won', momentKey: `won:${r.program_id}`, projectKey: p.key, week: null, proofUrl: r.source_url,
+      moment: 'won', momentKey: `won:${r.program_id}`, projectKey: p.key, week: null, proofUrl: r.source_url, at: r.captured_at,
       input: { moment: 'won', name: p.name!, program: r.title, award }, card: { program: r.title, award },
     };
   });
@@ -251,16 +260,19 @@ export async function newsCandidate(builderId: number, text: unknown, now: Date)
 }
 
 /**
- * The one moment EarnKit offers a post for now, in order: an announced win, going live, the coin intro, last week.
- * Null `moment` with each skipped moment's reason (none to post).
+ * The one moment EarnKit offers a post for now, in order: an announced win, going live, the coin intro, last week
+ * (`weekly: false`: the events only, Task 6's share slot between Mondays). Null `moment` with each skipped moment's
+ * reason (none to post).
  */
-export async function offeredMoment(builderId: number, now: Date): Promise<{ moment: MomentCandidate | null; skipped: (Skip | Hold)[] }> {
+export async function offeredMoment(
+  builderId: number, now: Date, o: { weekly?: boolean } = {},
+): Promise<{ moment: MomentCandidate | null; skipped: (Skip | Hold)[] }> {
   const log = await recentDrafts(builderId, 500);
   const found: (MomentCandidate | Skip)[] = [
     ...(await announcedWinCandidates(builderId, now)),
     await wentLiveCandidate(builderId, now),
     await coinIntroCandidate(builderId),
-    await weeklyCandidate(builderId, now),
+    ...(o.weekly === false ? [] : [await weeklyCandidate(builderId, now)]),
   ];
   const skipped: (Skip | Hold)[] = [];
   for (const c of found) {

@@ -14,11 +14,13 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** R8: `ship` is the ranked state's one step; `suggest` stays for a project the App can't count (app_off). */
 /** Launch ready L2: `pick_repo`, the no_project state's repo picker (`start` only while the App link can't be made). */
 /** Launch ready L6: `share`, the weekly moment's post for X and question (ranked, once a week). */
+/** v3.1 one-tap posts: `post`, an event's drafted post (went live, won before apply for 48 hours; else in the share slot). */
 /** v3 Stage 1: `connect`, the backfilled weeks' one yes after the App connects a repo (ranked, once a person). */
 /** v3 Stage 2: `apply`, the drafted application for a fit closing within APPLY_WINDOW_DAYS, v3.1 else a rolling fit (ranked, once a program). */
 /** v3 Stage 2: `backing`, the backing offer after the first approved week with code (ranked, once a project, EARNKIT_RAISING on). */
 /** 2026-10-22: `titles`, a private repo's titles question (ranked, once a person); `qualify`, Base's grant steps for a ranked builder with no fit. */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify';
+/** v3.1 one-tap posts: `post`, an event's drafted post for X (a yes redrafts it). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -69,7 +71,15 @@ export type ConnectOffer = { weeks: number; points: number };
  * (`place`: 'still' or 'now' beside the rank, null under RANK_MIN_POOL: "on EarnKit"), last week's rank, and the points
  * the yes adds (points.ts weekPointsNow; fix round 1: null when it adds none, a week with no facts or already paid).
  */
-export type MomentView = { week: number; place: 'still' | 'now' | null; rank: number; points: number | null };
+export type MomentView = {
+  week: number; place: 'still' | 'now' | null; rank: number;
+  /** v3.1 one-tap posts (design 6): last week's drafted post, else null (the reply gives the page). */
+  post: PostOffer | null;
+};
+/** v3.1 one-tap posts: a drafted post: its exact text and the short link that opens X's composer with it. */
+export type PostOffer = { text: string; link: string };
+/** v3.1 one-tap posts: an event's post (went live, won, accepted, funded, the builder's news, the coin): its head line too. */
+export type EventPost = PostOffer & { head: string };
 
 /** Task 16, step 1: the signed-out reply's two lines. */
 export const INTRO_LINE = 'EarnKit gets you paid for building.';
@@ -148,14 +158,11 @@ export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
 /** Task 16, step 7: the weekly moment's question. */
 export const MOMENT_ASK = 'Does last week look right?';
 /**
- * Task 16, step 7: "Week 4 done. You're now #3: +70 points." ("Last week done." with no week counted yet; fix round 1:
- * no points clause when the yes adds none, "Week 4 done. You're now #3."). Pure.
+ * Task 16, step 7: "Week 4 done. You're now #3." ("Last week done." with no week counted yet). v3.1 one-tap posts
+ * (owner ruling 5): no points in post replies. Pure.
  */
-export const momentHead = (m: MomentView) =>
-  `${m.week > 0 ? `Week ${m.week} done.` : 'Last week done.'} You're ${m.place ? `${m.place} #${m.rank.toLocaleString('en-US')}` : 'on EarnKit'}${m.points ? `: +${m.points} points` : ''}.`;
-/** Task 16, step 7: the post for X, plain text to paste (never an intent link): "Week 4 shipping Kit. https://earnkit.com/maya". Pure. */
-export const momentPost = (week: number, name: string, page: string) => `"${week > 0 ? `Week ${week} shipping ${name}.` : `Shipping ${name}.`} ${page}"`;
-export const MOMENT_POST_HEAD = 'A post for X, ready to paste:';
+export const momentHead = (m: Pick<MomentView, 'week' | 'place' | 'rank'>) =>
+  `${m.week > 0 ? `Week ${m.week} done.` : 'Last week done.'} You're ${m.place ? `${m.place} #${m.rank.toLocaleString('en-US')}` : 'on EarnKit'}.`;
 /** "4 weeks in a row" (none: null). Pure. */
 const streakWords = (n: number) => (n > 0 ? `${n} ${n === 1 ? 'week' : 'weeks'} in a row` : null);
 /**
@@ -174,6 +181,44 @@ export function connectStanding(name: string, rank: string | null, streak: numbe
 }
 /** v2.13.1 O5 N5: one small thing to ship (app_off: the App can't count the project). */
 export const shipAsk = (name: string) => `Want me to suggest one small thing to ship in ${name} this week?`;
+/** v3.1 one-tap posts (design 6): the post block: what it is, the post in quotes, the one-tap link (the reply's one link). Pure. */
+export const POST_HEAD = 'Your post for X, with your page card:';
+export const postLines = (p: PostOffer) => [POST_HEAD, `"${p.text}"`, `Post it in one tap: ${p.link}`];
+/** The event reply's question (a yes redrafts with the next shape). */
+export const POST_ASK = 'Want a different version?';
+/** The Monday moment with no post to offer: the page is the reply's one link. Pure. */
+export const pageLine = (page: string) => `Your page: ${page}`;
+/** Owner ruling 3: an accepted, funded or won outcome told without its proof link. */
+export const PROOF_ASK = "Send me a public link that shows it, like the program's post.";
+/** The event reply: its head, the post block and `ask`, one block. Pure. */
+export const postReply = (e: EventPost, ask: string) => [e.head, ...postLines(e), ask].join('\n');
+const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);
+/**
+ * The event reply's head (design 6): "Tally went live this week." (else "Tally is live." when it went live over 7
+ * days ago, so the line stays true), "Ledgerline won the Base Builder Grant.", the coin's "Backing is open on your
+ * page.", else "Added to your page." (accepted, funded, the builder's news). Pure.
+ */
+export function eventHead(c: { moment: string; input: object; card?: Record<string, unknown> }, now: Date = new Date()): string {
+  const i = c.input as { name?: string | null; program?: string };
+  const name = i.name ?? null;
+  if (c.moment === 'went_live' && name) {
+    const at = typeof c.card?.live_at === 'string' ? Date.parse(c.card.live_at) : NaN;
+    return now.getTime() - at <= 7 * 86_400_000 ? `${name} went live this week.` : `${name} is live.`;
+  }
+  if (c.moment === 'won' && name && i.program) return `${name} won ${theProgram(i.program)}.`;
+  if (c.moment === 'coin_intro') return 'Backing is open on your page.';
+  return 'Added to your page.';
+}
+/**
+ * The yes to "Want a different version?" when no new one can be written: the limit for today, no other wording, or
+ * the builder's own words (kept as they wrote them). The post they have stays; its link is the reply's one link. Pure.
+ */
+export function redraftLine(why: 'limit' | 'only' | 'own_words', link: string): string {
+  if (why === 'own_words') return `Your post is in your own words, so it stays as you wrote it. Post it in one tap: ${link}`;
+  if (why === 'only') return `That's the only version I can write for this one. Post it in one tap: ${link}`;
+  return `That's the last new version for today. The one you have still works: ${link}`;
+}
+
 /** v2.13.1 O2 fix round 1 (ruling 3): another person holds the repo, or it is a copy. */
 export const OTHER_PROJECT_ASK = 'Want to use a different project?';
 /** The key a no keeps an ask away under (standing_seen.declined, 30 days). Pure. */
@@ -244,6 +289,8 @@ export type BenchView = {
   moment?: MomentView | null;
   /** 2026-10-22: Base's grant steps (ask kind 'qualify'). */
   qualify?: QualifyOffer | null;
+  /** v3.1 one-tap posts: an event's drafted post (ask kind 'post'). */
+  post?: EventPost | null;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -258,6 +305,8 @@ export function stateAsk(
   v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & {
     handle?: string | null; connect?: ConnectOffer | null; share?: boolean; backing?: string | null; apply?: ApplyPick | null;
     titles?: boolean; qualify?: QualifyOffer | null;
+    /** v3.1 one-tap posts: an event's drafted post (benchView offers it only where it goes: hot before apply, else in the share slot). */
+    post?: EventPost | null;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -267,6 +316,9 @@ export function stateAsk(
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   // Fix round 1 ruling: the page is the connect reply's one https link.
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, `https://${pageUrl(v.handle)}`) };
+  // v3.1 one-tap posts: an event's post (went live and won jump ahead of apply for 48 hours; benchView holds the rest
+  // until the share slot).
+  if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
@@ -321,8 +373,9 @@ export function benchReply(v: BenchView): string {
       [ask, v.connect.points > 0 ? `+${v.connect.points} points` : null],
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
-    // Fix round 1 ruling: the post keeps the full page URL (the reply's one https link), so it is clickable when pasted.
-    return paras([momentHead(v.moment), MOMENT_POST_HEAD, momentPost(v.moment.week, name, `https://${pageUrl(v.handle)}`), ask]);
+    // v3.1 one-tap posts (design 6): last week's post and its one-tap link, else the page (the reply's one https link).
+    return paras([momentHead(v.moment), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
+  if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
   const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
