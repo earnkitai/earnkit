@@ -135,9 +135,12 @@ export async function proveSite(s: { id: number; builder_id: number; ref: string
     SELECT reject_reason, project_key FROM builder_sources WHERE id = ${s.id} AND kind = 'site' AND state = 'proposed'`;
   if (!row || row.reject_reason === 'stale' || !URL.canParse(s.ref)) return;
   const origin = new URL(s.ref).origin;
+  // A trailing-dot or mixed-case host is the same site to DNS but not to string checks: never prove one.
+  const host = new URL(origin).hostname;
+  if (host !== host.toLowerCase() || host.endsWith('.')) return;
   const repoKey = (ref: string) => ref.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '');
   const key = repoKey(row.project_key);
-  const pagesOwner = /^([a-z0-9-]+)\.github\.io$/.exec(new URL(origin).hostname)?.[1] ?? null;
+  const pagesOwner = host.endsWith('.github.io') ? (/([a-z0-9-]+)\.github\.io$/.exec(host)?.[1] ?? '') : null;
   const { homepageOrigin } = await import('./discovery'); // discovery.ts imports this file: called after load
   const homes = await sql()<{ ref: string; homepage: string | null }[]>`
     SELECT DISTINCT ON (b.id) b.ref, r.signals->>'homepage' AS homepage FROM builder_sources b

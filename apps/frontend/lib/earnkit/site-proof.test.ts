@@ -193,6 +193,16 @@ test('SP12 a github.io site needs the matched repo\'s owner: another owner\'s Pa
   assert.deepEqual(await stateOf(b), { state: 'verified', proof: 'repo_link' });
 });
 
+test('SP18 a trailing-dot host never proves: another owner\'s Pages host with a dot cannot dodge the owner check', dbTest, async () => {
+  const dotted = `https://alice${ID}.github.io.`;
+  await readRepo('github_app', dotted);
+  const id = await source({ ref: dotted, state: 'proposed', proof: null });
+  const fetched: string[] = [];
+  await run(reader(200, {}, fetched));
+  assert.deepEqual(await stateOf(id), { state: 'proposed', proof: null });
+  assert.deepEqual(fetched, []);
+});
+
 test('SP13 the homepage must be the same origin: www vs apex and look-alike hosts are refused; a path is fine', dbTest, async () => {
   const host = `site${ID}.example.com`;
   for (const home of [`www.${host}`, `https://${host}.evil.com`, `https://evil-${host}`, `https://${host}@evil.com`, `http://${host}:8443`]) {
