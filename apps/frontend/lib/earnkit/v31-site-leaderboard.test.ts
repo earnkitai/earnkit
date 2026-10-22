@@ -7,7 +7,7 @@ import { benchRows, type BenchFilter, type BenchRow } from './bench-data';
 import { sql } from './db';
 import { person, withEnv } from './fixtures/find';
 import { RANK_MIN_POOL } from './rank';
-import { BENCH_TOP_EMPTY, leaderboardLine } from './site-copy';
+import { BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from './site-copy';
 
 /**
  * v3.1 site Task 8: the leaderboard (Leaderboard board): the podium (blue, navy, rust, metal place pills), the rows
@@ -226,9 +226,10 @@ test('(h) Task 11: the place pill follows the whole-board rank (a filtered podiu
 test('(QA 2) the count line follows the filter (its rows); the 10-ranked rule keeps reading the pool', () => {
   const base = { chain: 'base' as const, weekly: false };
   // Plain view: the pool. A filter: its rows. A filter with no rows: no line. Nobody ranked: the empty line.
-  assert.equal(countLine(PLAIN, 12, 40), leaderboardLine(40));
-  assert.equal(countLine(base, 4, 40), leaderboardLine(4));
-  assert.equal(countLine({ chain: null, weekly: true }, 3, 40), leaderboardLine(3));
+  // Clarity batch: every count is followed, on the same line, by where the score comes from.
+  assert.equal(countLine(PLAIN, 12, 40), '40 builders, ranked by how often they ship. From GitHub commits, read daily. Not self-reported.');
+  assert.equal(countLine(base, 4, 40), `${leaderboardLine(4)}. ${BENCH_VERIFIED}`);
+  assert.equal(countLine({ chain: null, weekly: true }, 3, 40), `${leaderboardLine(3)}. ${BENCH_VERIFIED}`);
   assert.equal(countLine(base, 0, 40), null);
   assert.equal(countLine(PLAIN, 0, 0), BENCH_TOP_EMPTY);
   // Rendered: 4 Base rows of a 12-builder pool say 4, never 12; the pool of 12 still ranks them (#N shows).

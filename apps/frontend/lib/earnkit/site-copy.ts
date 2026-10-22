@@ -113,6 +113,10 @@ export const SCORE_UNIT = 'Shipping';
 /** A streak beside a name (leaderboard rows and podium): "5-week streak". The profile's Streak card keeps "5 weeks" under its title. */
 export const streakRun = (n: number): string => `${n}-week streak`;
 export const scoreNote = (first: string): string => `How often ${first} ships, out of 100, over 12 weeks.`;
+/** Clarity batch: where the profile's score comes from, and the link to how it's scored (/docs#score). */
+export const SCORE_SOURCE = 'From GitHub commits, not self-reported.';
+export const SCORE_HOW = "How it's scored";
+export const SCORE_HOW_HREF = '/docs#score';
 export const SCORE_PENDING = 'Shows once the project is on the leaderboard.';
 export const STREAK_TITLE = 'Streak';
 export const PROFILE_ACTIVITY = 'Activity';
@@ -124,6 +128,8 @@ export const keepsLine = (first: string): string => `${first} keeps 40% of fees`
 export const feesBy = (first: string): string => `earned by ${first}`;
 export const BACKERS = 'backers';
 export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by how often they ship`;
+/** Clarity batch: after the leaderboard's count line, so a grant lead sees the score is read, not claimed. */
+export const BENCH_VERIFIED = 'From GitHub commits, read daily. Not self-reported.';
 /** v2.13.1 O5 N16: the leaderboard with nobody ranked yet (moved here from the landing's old BenchTop; Task 8 keeps the wording). */
 export const BENCH_TOP_EMPTY = 'Nobody on the leaderboard yet. Add EarnKit to your agent and be first.';
 export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;

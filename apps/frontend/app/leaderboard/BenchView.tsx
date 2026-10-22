@@ -6,7 +6,7 @@ import { CARD_PANEL, H1_SITE, PAGE_COL, PILL_WHITE, phoneRadius } from '../compo
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
 import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { CHAIN_LABEL, RANK_MIN_POOL, type BenchChain } from '../../lib/earnkit/rank';
-import { BENCH_TOP_EMPTY, leaderboardLine } from '../../lib/earnkit/site-copy';
+import { BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from '../../lib/earnkit/site-copy';
 import BenchRowItem from './BenchRowItem';
 import Podium from './Podium';
 
@@ -44,13 +44,14 @@ export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: bo
 /**
  * Pure. The count under the title: the whole pool on the plain view, the filter's rows on a filtered one (QA item 2), so
  * "Base" never shows the pool's number. Null on a filter with no rows (its panel says BENCH_EMPTY), BENCH_TOP_EMPTY
- * with nobody ranked. The 10-ranked rule keeps reading the pool (`count`), never this line.
+ * with nobody ranked. The 10-ranked rule keeps reading the pool (`count`), never this line. A count is followed by
+ * BENCH_VERIFIED on the same line (clarity batch): the score is read from GitHub daily, never self-reported.
  */
 export function countLine(filter: BenchFilter, rows: number, count: number): string | null {
   if (count === 0) return BENCH_TOP_EMPTY;
   const filtered = Boolean(filter.chain || filter.weekly || filter.backed);
-  if (!filtered) return leaderboardLine(count);
-  return rows > 0 ? leaderboardLine(rows) : null;
+  const n = filtered ? rows : count;
+  return n > 0 ? `${leaderboardLine(n)}. ${BENCH_VERIFIED}` : null;
 }
 
 /**

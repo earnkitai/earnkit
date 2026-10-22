@@ -38,6 +38,10 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   // v3.1 Task 16: the owner-approved copy (2026-10-21): its own words for the repo and the commits, and the open grant's organizer.
   /\bpick the repo you're building\b/g,
   /\bI read your commits every week\b/g,
+  // Clarity batch (owner-approved 2026-10-22): the How it works steps and where the score comes from (leaderboard, profile).
+  /\bwe read your commits\b/g,
+  /\bWe match your repo to open grants\b/g,
+  /\bFrom GitHub commits\b/g,
   /(?<=\. )[A-Za-z0-9][\w .&'-]{0,40}(?= pays up to \$[\d,]+(?: investment)? right now\.)/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [

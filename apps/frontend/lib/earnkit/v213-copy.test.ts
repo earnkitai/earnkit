@@ -125,11 +125,11 @@ test('12.7 the landing page\'s words pass the v2.13 rule (copy rules)', async ()
   const c = await import('./site-copy');
   const { BENCH_FOOTER_TAGLINE } = await import('./footer-links');
   // The owner-approved v3.1 Landing board names commits ("From commit to capital", "279 commits"), so that word of the
-  // v2.13 Bench rule is allowed on the landing. "repo" is allowed only inside the Connect step's own text ("Pick one
-  // repo."): the step is removed before the scan, so a repo word anywhere else still fails. Every other word is checked.
+  // v2.13 Bench rule is allowed on the landing. "repo" is allowed only in the steps' owner-approved phrases (clarity batch:
+  // "pick the repo you're building", "We match your repo to open grants"), so a repo word anywhere else still fails.
   const commits = String(/\bcommits?\b/i);
-  const banned = (t: string, exempt: string[]) => bannedInBench(t.split(c.STEPS[0].text).join(' '), exempt).filter((w) => w !== commits);
-  assert.ok(bannedInBench(c.STEPS[0].text, EXEMPT).includes(String(/\brepos?\b/i)), 'the Connect step is the one repo word');
+  const banned = (t: string, exempt: string[]) => bannedInBench(t, exempt).filter((w) => w !== commits);
+  for (const s of c.STEPS) assert.deepEqual(bannedInBench(s.text, EXEMPT), [], s.text);
   assert.ok(banned('Pick your repo.', EXEMPT).length > 0, 'repo outside the Connect step still fails');
   for (const t of [c.HERO_TITLE, c.HERO_SUB, c.CTA_INSTALL, c.STEPS_TITLE, ...c.STEPS.flatMap((s) => [s.title, s.text]), c.ACTIVITY_TITLE, c.ACTIVITY_MORE, c.ACTIVITY_INVITE_TITLE, c.ACTIVITY_INVITE_TEXT, c.EARN_TITLE, c.EARN_FOOT, BENCH_FOOTER_TAGLINE])
     assert.deepEqual(banned(t, EXEMPT), [], t);

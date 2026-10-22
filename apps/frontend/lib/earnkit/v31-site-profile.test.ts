@@ -70,6 +70,9 @@ test('(b) the score ring and the streak card', () => {
   assert.equal(count(score, /<stop /g), 2, 'one hue: two stops');
   assert.match(score, /class="ek-arc"/);
   assert.ok(text(score).includes('How often Jenil ships, out of 100, over 12 weeks.'));
+  // Clarity batch: where the number comes from, and how it's scored (the docs' #score card).
+  assert.ok(text(score).includes('How often Jenil ships, out of 100, over 12 weeks. From GitHub commits, not self-reported.'));
+  assert.match(score, /<a class="[^"]*underline[^"]*" href="\/docs#score">How it(&#x27;|')s scored<\/a>/);
   const streak = block(h, 'data-ek-streak');
   assert.ok(text(streak).includes('5 weeks'));
   const squares = block(streak, 'aria-label="Code in 7 of the last 12 weeks"');
@@ -235,7 +238,8 @@ test('(j) phone: names, handles and project names wrap; every link and button is
   const long: ProfileData = { ...MAYA, name: 'Bartholomew Maximilian Featherstonehaugh-Wolfe III', handle: 'a_very_long_han' };
   const h = page(long, { ...MAYA_SITE, project: { ...MAYA_SITE.project!, name: 'An extraordinarily long project name here' } });
   assert.match(h, /<h1[^>]*class="[^"]*break-words/);
-  for (const m of h.split('<footer')[0].matchAll(/<a [^>]*class="([^"]*)"/g)) assert.match(m[1], /min-h-11|h-11/, m[0]);
+  // An inline link inside a sentence ("How it's scored") is 44px to the touch through INLINE_LINK's -my-3 py-3.
+  for (const m of h.split('<footer')[0].matchAll(/<a [^>]*class="([^"]*)"/g)) assert.match(m[1], /min-h-11|h-11|-my-3 py-3/, m[0]);
 });
 
 test('(k) fix round 1: this week\'s commits light the 12th square and add a week; the first-week note gives way while shipping', () => {
