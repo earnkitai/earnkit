@@ -9,11 +9,13 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
 import {
-  TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyMissing, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer,
+  TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyMissing, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { grantOf, qualifyOffer, qualifyPlan, qualifyStatus } from './base-qualify';
 import { BASE_GRANTS_ID } from './builder-code';
-import { UPDATE_LINES } from './updates';
+import { UPDATE_LINES, titlesAskDue } from './updates';
+import { listPrograms } from './programs';
+import { codesSettled } from './builder-codes-check';
 import { PICK_PAGE, APP_PAGE } from './github-app';
 import { matchRepo, productOdds, productScore, traction, type Detection, type ProgramFacts, type RepoFacts } from './match';
 import type { Card, RepoFit } from './present';
@@ -89,32 +91,35 @@ test('the no-fit path: missing reasons from the matcher, steps only those not kn
 });
 
 test('the no-fit copy, word for word', () => {
-  assert.equal(qualifyMissing('Kit', ['base', 'codes', 'use']), 'To qualify, Kit still needs to go live on Base, add Builder Codes and get people using it.');
-  assert.equal(qualifyMissing('Kit', ['use']), 'To qualify, Kit still needs to get people using it.');
-  assert.equal(qualifyMissing('Kit', []), null);
+  const off = (missing: QualifyStep[], steps: QualifyStep[] = missing) => ({ missing, steps });
+  assert.equal(qualifyMissing('Kit', off(['base', 'codes', 'use'])), 'To qualify, Kit still needs to put the app on Base, add Builder Codes and get people using it.');
+  assert.equal(qualifyMissing('Kit', off(['use'])), 'To qualify, Kit still needs to get people using it.');
+  // Fix round 1: one named thing beside "the 3 steps" is never said; the line names exactly the steps counted.
+  assert.equal(qualifyMissing('Kit', off(['base'], ['base', 'codes', 'use'])), null);
+  assert.equal(qualifyMissing('Kit', off([], ['base', 'codes', 'use'])), null);
   assert.equal(qualifyAsk(BASE, 3), "Want the 3 steps to qualify for Base's $5,000 grant?");
   assert.equal(qualifyAsk(BASE, 2), "Want the 2 steps toward Base's $5,000 grant?");
   assert.equal(qualifyAsk(BASE, 1), "Want the next step toward Base's $5,000 grant?");
   const all = rule(qualifySteps(BASE, ['base', 'codes', 'use']));
   assert.equal(all, [
     "3 steps to qualify for Base's $5,000 grant:",
-    '1. Build your app on Base.',
-    `2. Add Builder Codes, Base's first step: ${GUIDE}`,
+    '1. Put your app on Base.',
+    `2. Add Builder Codes (Base asks for this first): ${GUIDE}`,
     '3. Have a live product people use.',
     '',
-    'We check for Builder Codes daily, and your agent drafts the application when you qualify.',
-    'Want help with the first one now?',
+    'I check your code for Builder Codes and offer to draft your application once Base fits.',
+    'Want help with step 1 now?',
   ].join('\n'));
   assert.equal(rule(qualifySteps(BASE, ['use'])), [
     "Your next step toward Base's $5,000 grant:",
     '1. Have a live product people use.',
     '',
-    'We check for Builder Codes daily, and your agent drafts the application when you qualify.',
-    'Want help with the first one now?',
+    'I check your code for Builder Codes and offer to draft your application once Base fits.',
+    'Want help with step 1 now?',
   ].join('\n'));
 
-  // The ranked reply: the standing, the hook, what is missing, the one question, the ship points line.
-  const q: QualifyOffer = { program_id: BASE_GRANTS_ID, grant: BASE, missing: ['codes', 'use'], steps: ['base', 'codes', 'use'] };
+  // The ranked reply: the standing, the hook, what is missing (the same steps the question counts), the question, the points line.
+  const q: QualifyOffer = { program_id: BASE_GRANTS_ID, grant: BASE, missing: ['codes', 'use'], steps: ['codes', 'use'] };
   const project = { key: 'maya/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const v = { state: 'ranked', variant: null, project, link: null, handle: 'maya' } as const;
   const view: BenchView = { ...v, rank: '#3 of 12 builders', streak: 4, target: null, handle: 'maya', fund: [], due: [], held: null, qualify: q, ask: stateAsk({ ...v, qualify: q }) };
@@ -123,6 +128,14 @@ test('the no-fit copy, word for word', () => {
     'Kit · #3 of 12 builders · 4 weeks in a row',
     'Base pays up to $5,000 for apps on Base.',
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
+    "Want the 2 steps toward Base's $5,000 grant?",
+    'Ship code this week: up to +100 points',
+  ].join('\n'));
+  // Some steps unknown: no missing line, the question counts every step left.
+  const unsure: QualifyOffer = { ...q, missing: ['base'], steps: ['base', 'codes', 'use'] };
+  assert.equal(rule(benchReply({ ...view, qualify: unsure, ask: stateAsk({ ...v, qualify: unsure }) })), [
+    'Kit · #3 of 12 builders · 4 weeks in a row',
+    'Base pays up to $5,000 for apps on Base.',
     "Want the 3 steps to qualify for Base's $5,000 grant?",
     'Ship code this week: up to +100 points',
   ].join('\n'));
@@ -130,6 +143,7 @@ test('the no-fit copy, word for word', () => {
   assert.equal(stateAsk(v).line, 'Want me to suggest one small thing to ship?');
   // The titles question comes before it, once.
   assert.equal(stateAsk({ ...v, titles: true, qualify: q }).line, TITLES_ASK);
+  assert.equal(TITLES_ASK, 'Show your commit titles on your page? Your code stays private.');
 });
 
 test('a closed or unlisted Base grant keeps the ship step', async () => {
@@ -148,8 +162,8 @@ test('the App pages in plain words, with GitHub\'s own labels', () => {
   assert.match(PICK_PAGE.noneCounted, /Made from someone's template\? Make a copy in your own account, then connect that\./);
 });
 
-/** A signed-in builder whose one project is ranked (pool of 13) with the connect offer answered. */
-async function rankedBuilder(tag: string, o: { private: boolean; chains: Detection; codes: boolean | null }) {
+/** A signed-in builder whose one project is ranked (pool of 13), the connect offer shown. `fit`: Base's grant fits it. */
+async function rankedBuilder(tag: string, o: { private: boolean; chains: Detection; codes: boolean | null; fit?: boolean }) {
   const t = `ek_v31rf${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
@@ -158,14 +172,19 @@ async function rankedBuilder(tag: string, o: { private: boolean; chains: Detecti
   const c = (await connectInstallation(t))!;
   const key = `${handle}/kit`.toLowerCase();
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
-  const tr = { tx_count: 0, live_ok: false, commits_90d: 25 };
+  const tr = o.fit ? { tx_count: 120, live_ok: true, commits_90d: 25 } : { tx_count: 0, live_ok: false, commits_90d: 25 };
   const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
-  const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: null, created_at: '2025-01-01T00:00:00Z', chains: o.chains, commits_in_window: {}, product, tx_count: 0, commits_90d: 25 };
-  // No verdicts: no program fits this project.
-  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, verdicts: [] }];
-  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
+  const facts = {
+    name: 'kit', url: `https://github.com/${key}`, homepage: o.fit ? 'https://kit.app' : null, created_at: '2025-01-01T00:00:00Z', chains: o.chains,
+    commits_in_window: {}, product, tx_count: tr.tx_count, commits_90d: 25, ...(o.fit && { live_verified: true }),
+  };
+  // No verdicts: no program fits this project (with `fit`: Base's grant, likely).
+  const verdicts: RepoFit['verdicts'] = o.fit ? [{ program_id: BASE_GRANTS_ID, program: BASE_GRANTS_ID, status: 'likely', missing: [], effort: 'none', note: null }] : [];
+  const fits: RepoFit[] = [{ repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, verdicts, ...(o.fit && { live_verified: true }) }];
   const commits = [0, 1, 2, 3].map((w) => ({ sha: `c${w}`, message: `Ship feature ${w}`, date: new Date(Date.now() - w * 7 * DAY - DAY).toISOString() }));
   const gh = fakeGitHub({ [key]: { id: 9500 + Number(RUN.slice(-2)) + tag.charCodeAt(0), owner: handle, installation: 95, private: o.private, commits } });
+  // The Builder Codes check reads the fake GitHub (never the network).
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, codesFetch: gh as typeof fetch, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   // As a first run does: step 2, then the repo named (the refresh already ran, so it never reads GitHub).
   await mcpCall({ ...ctx, matchProjects: (async () => ({ checked: 0, scored: 0, fits: [] })) as never }, 'find', {});
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
@@ -175,13 +194,17 @@ async function rankedBuilder(tag: string, o: { private: boolean; chains: Detecti
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect', show(r3));
   return { c, ctx, key, handle };
 }
-
-test('no fit: the path to Base\'s grant, and its yes returns the remaining steps', db, async () => {
+const start = async () => {
   mock.timers.reset();
   mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
   await padPool(12);
+};
+const baseCards = async () => (await listPrograms()).filter((p) => p.id === BASE_GRANTS_ID) as unknown as Card[];
+
+test('no fit: the path to Base\'s grant; its yes returns the remaining steps and is remembered', db, async () => {
+  await start();
   const deployed: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
-  const { ctx, key } = await rankedBuilder('q', { private: false, chains: deployed, codes: false });
+  const { c, ctx, key } = await rankedBuilder('q', { private: false, chains: deployed, codes: false });
   // The connect yes (no Best fit, a public repo: no titles question).
   assert.doesNotMatch(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } })), /Your code stays private/);
 
@@ -201,32 +224,45 @@ test('no fit: the path to Base\'s grant, and its yes returns the remaining steps
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(rule(show(yes)), [
     "Your next 2 steps toward Base's $5,000 grant:",
-    `1. Add Builder Codes, Base's first step: ${GUIDE}`,
+    `1. Add Builder Codes (Base asks for this first): ${GUIDE}`,
     '2. Have a live product people use.',
     '',
-    'We check for Builder Codes daily, and your agent drafts the application when you qualify.',
-    'Want help with the first one now?',
+    'I check your code for Builder Codes and offer to draft your application once Base fits.',
+    'Want help with step 1 now?',
   ].join('\n'));
   assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
   // Answered once.
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), 'Okay.');
+  // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
+  const next = await mcpCall(ctx, 'find', {});
+  const n = rule(show(next));
+  assert.ok(n.includes('Want me to suggest one small thing to ship?'), n);
+  assert.doesNotMatch(n, /Base pays|steps/);
+  assert.equal((next.reply?.move_up as { kind: string }).kind, 'ship');
 
-  // A no keeps it away 30 days: the ship step comes back.
-  rule(show(await mcpCall(ctx, 'find', {})));
-  await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
-  const after = rule(show(await mcpCall(ctx, 'find', {})));
-  assert.ok(after.includes('Want me to suggest one small thing to ship?'), after);
-  assert.doesNotMatch(after, /Base pays/);
+  // The offer returns after 30 days (a yes or a no), and never for a builder who told EarnKit about Base's grant.
+  const cards = await baseCards();
+  assert.equal(cards.length, 1);
+  const now = new Date();
+  const ago = (d: number) => new Date(now.getTime() - d * DAY).toISOString();
+  const offer = (seen: Record<string, unknown>) => qualifyOffer(c.id, key, { cards, skip: new Set(), seen: seen as never, now, declineMs: 30 * DAY, codesFetch: ctx.codesFetch });
+  assert.equal(await offer({ qualify_given: { [key]: ago(29) } }), null);
+  assert.deepEqual((await offer({ qualify_given: { [key]: ago(31) } }))?.steps, ['codes', 'use']);
+  assert.equal(await offer({ declined: { [`qualify:${key}`]: ago(29) } }), null);
+  assert.deepEqual((await offer({ declined: { [`qualify:${key}`]: ago(31) } }))?.steps, ['codes', 'use']);
+  await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${c.id}, ${BASE_GRANTS_ID}, 'applied')`;
+  assert.equal(await offer({}), null, 'already reported to Base');
 });
 
 test('a private repo: the titles question after the connect yes, once; its yes turns titles on', db, async () => {
-  mock.timers.reset();
-  mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
-  await padPool(12);
+  await start();
   const { c, ctx, key, handle } = await rankedBuilder('t', { private: true, chains: {}, codes: null });
+  // Fix round 1: only the log's own project (the main one) is asked about.
+  assert.equal(await titlesAskDue(c.id, key, new Date()), true);
+  assert.equal(await titlesAskDue(c.id, 'someone/else', new Date()), false);
   const r4 = await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
   const s4 = rule(show(r4));
-  assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show what you shipped on your page? Your code stays private.'].join('\n'));
+  assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show your commit titles on your page? Your code stays private.'].join('\n'));
   assert.match(s4.split('\n')[2], /^\+\d+ points added · \d+ total$/);
   assert.deepEqual(r4.reply?.move_up, { kind: 'titles', project_key: key, agent_note: TITLES_NOTE });
 
@@ -234,8 +270,28 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   assert.equal(show(yes), UPDATE_LINES.titlesOn);
   const [p] = await sql()<{ on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS on FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.ok(p.on, 'titles on');
-  // Never asked again; the next reply is the no-fit path (not on Base; Builder Codes and users unknown: named only as steps).
+  // Never asked again; the next reply is the no-fit path. Not on Base is known, Builder Codes and users are not, so
+  // no missing line: the question counts all three steps.
   const next = rule(show(await mcpCall(ctx, 'find', {})));
-  assert.doesNotMatch(next, /Your code stays private/);
-  assert.ok(next.includes("Base pays up to $5,000 for apps on Base.\nTo qualify, Kit still needs to go live on Base.\nWant the 3 steps to qualify for Base's $5,000 grant?"), next);
+  assert.doesNotMatch(next, /Your code stays private|still needs/);
+  assert.ok(next.includes("Base pays up to $5,000 for apps on Base.\nWant the 3 steps to qualify for Base's $5,000 grant?"), next);
+  // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
+  await codesSettled();
+  assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');
+});
+
+test('a private repo with a Best fit: the connect yes offers the draft, never the titles question', db, async () => {
+  await start();
+  const deployed: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
+  const { ctx, key, handle } = await rankedBuilder('a', { private: true, chains: deployed, codes: true, fit: true });
+  const r4 = await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
+  const s4 = rule(show(r4));
+  assert.equal(s4.split('\n').slice(0, 3).join('\n'), [
+    `You're live: https://earnkit.com/${handle}`,
+    'Next, I can write your Base Builder Grant Program application. You just check it and send.',
+    'Want me to?',
+  ].join('\n'));
+  assert.doesNotMatch(s4, /Your code stays private/);
+  assert.equal((r4.reply?.move_up as { kind: string }).kind, 'apply');
+  await codesSettled();
 });

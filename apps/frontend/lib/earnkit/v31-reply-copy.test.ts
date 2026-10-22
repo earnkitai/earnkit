@@ -87,7 +87,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const step2 = (link: string) => [
     `You're in, @${handle}.`,
     `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
-    'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.',
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
     'Done?',
   ].join('\n');
   const s2 = rule(show(await mcpCall({ ...ctx, matchProjects: none }, 'find', {})));

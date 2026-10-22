@@ -55,7 +55,7 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
   const want = [
     "You're in, @maya.",
     `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
-    'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.',
+    'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
     'Done?',
   ].join('\n');
   assert.doesNotMatch(want, /points/, '2026-10-22: no points in the first two replies');

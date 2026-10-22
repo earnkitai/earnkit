@@ -74,7 +74,7 @@ test('L2.1 signed in with no project: the reply carries the repo picker link and
   const p = await signedIn('ana');
   const r = await mcpCall(p.ctx, 'find', {});
   const s = String(r.reply?.show_to_builder);
-  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first\.\nDone\?$/, s);
+  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first\.\nDone\?$/, s);
   assert.doesNotMatch(s, /What's your GitHub|link to something you've made/);
   assert.equal(links(s).length, 1, 'one https link');
   assert.ok(s.includes(`@${p.username}.`), s);

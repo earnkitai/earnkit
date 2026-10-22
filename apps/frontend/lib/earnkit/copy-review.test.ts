@@ -1410,7 +1410,7 @@ function v31Texts(): [string, string][] {
     // 2026-10-22: the no-fit path to Base's grant, and a private repo's titles question.
     ['grantHook', grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['grantHook any chain', grantHook({ org: 'Arc House', amount: '$10,000', chain: null })],
-    ['qualifyMissing', qualifyMissing('Recipes', ['base', 'codes', 'use'])!],
+    ['qualifyMissing', qualifyMissing('Recipes', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!],
     ['qualifyAsk all', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3)],
     ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 2)],
     ['qualifySteps', qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'])],
@@ -1469,6 +1469,7 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
     'introWhat no grant': [COMMITS_PHRASE],
     grantHook: ['Base'],
     'grantHook any chain': ['Arc House'],
+    TITLES_ASK: ['commit titles'],
     qualifyMissing: ['Base', 'Builder Codes'],
     'qualifyAsk all': ['Base'],
     'qualifyAsk some': ['Base'],

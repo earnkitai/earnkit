@@ -81,7 +81,7 @@ export const youreIn = (handle: string) => `You're in, @${handle}.`;
  * 2026-10-22: step 2's hint for a builder whose app has no GitHub yet. Only Lovable and Bolt are confirmed
  * (v3.1-install-research.md); a statement, so the reply keeps exactly one question.
  */
-export const NO_GITHUB_HINT = 'Built with Lovable or Bolt and no GitHub yet: connect GitHub in its settings first.';
+export const NO_GITHUB_HINT = 'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.';
 /** Task 16, 2026-10-22: the step 2 action (the repo picker, or a named repo's install link), in plain words. */
 export const pickRepoAsk = (link: string) =>
   `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
@@ -99,7 +99,7 @@ export const applyAsk = (title: string, amount: string | null, when: string | nu
 /** Task 16: the ranked ship step's one question (a yes: one small thing to ship, SHIP_STEP_NOTE). */
 export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
-export const TITLES_ASK = 'Show what you shipped on your page? Your code stays private.';
+export const TITLES_ASK = 'Show your commit titles on your page? Your code stays private.';
 
 /**
  * 2026-10-22: Base Builder Grants' steps, only from its program file's rules ("for builders exclusively building on
@@ -114,28 +114,35 @@ export const QUALIFY_STEPS: readonly QualifyStep[] = ['base', 'codes', 'use'];
 export type QualifyOffer = { program_id: string; grant: OpenGrant; missing: QualifyStep[]; steps: QualifyStep[] };
 /** Builder Codes' guide (Base's docs), the one link of the steps reply. */
 export const BUILDER_CODES_GUIDE = 'docs.base.org/base-chain/builder-codes/builder-codes';
-const NEEDS: Record<QualifyStep, string> = { base: 'go live on Base', codes: 'add Builder Codes', use: 'get people using it' };
+const NEEDS: Record<QualifyStep, string> = { base: 'put the app on Base', codes: 'add Builder Codes', use: 'get people using it' };
 /** "a, b and c". Pure. */
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
-/** "To qualify, Kit still needs to add Builder Codes and get people using it." (null: none known missing). Pure. */
-export const qualifyMissing = (name: string, missing: QualifyStep[]) =>
-  missing.length ? `To qualify, ${name} still needs to ${andList(QUALIFY_STEPS.filter((s) => missing.includes(s)).map((s) => NEEDS[s]))}.` : null;
+/**
+ * "To qualify, Kit still needs to add Builder Codes and get people using it.": only when every remaining step is known
+ * missing, so the line names exactly the steps the question counts; null otherwise (fix round 1: never one named thing
+ * beside "the 3 steps"). Pure.
+ */
+export const qualifyMissing = (name: string, q: Pick<QualifyOffer, 'missing' | 'steps'>) =>
+  q.steps.length > 0 && q.steps.every((s) => q.missing.includes(s))
+    ? `To qualify, ${name} still needs to ${andList(QUALIFY_STEPS.filter((s) => q.steps.includes(s)).map((s) => NEEDS[s]))}.`
+    : null;
 /** "Base's $5,000 grant". Pure. */
-const grantOf = (g: OpenGrant) => `${g.org}'s ${g.amount} grant`;
+const grantName = (g: OpenGrant) => `${g.org}'s ${g.amount} grant`;
 /** The no-fit reply's one question: all three steps "to qualify", fewer "toward" (never a claim the rest is met). Pure. */
 export const qualifyAsk = (g: OpenGrant, n: number) =>
-  n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantOf(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantOf(g)}?`;
+  n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
 const STEP_LINE: Record<QualifyStep, string> = {
-  base: 'Build your app on Base.',
-  codes: `Add Builder Codes, Base's first step: https://${BUILDER_CODES_GUIDE}`,
+  base: 'Put your app on Base.',
+  codes: `Add Builder Codes (Base asks for this first): https://${BUILDER_CODES_GUIDE}`,
   use: 'Have a live product people use.',
 };
-export const QUALIFY_NEXT = 'We check for Builder Codes daily, and your agent drafts the application when you qualify.';
-export const QUALIFY_HELP_ASK = 'Want help with the first one now?';
+export const QUALIFY_NEXT = 'I check your code for Builder Codes and offer to draft your application once Base fits.';
+/** The steps reply's one question: help with the first step listed (always "step 1"). */
+export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
 /** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
 export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
   const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
-  const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantOf(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantOf(g)}:`;
+  const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
   return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', QUALIFY_NEXT, QUALIFY_HELP_ASK].join('\n');
 }
 /** Task 16, step 7: the weekly moment's question. */
@@ -321,7 +328,7 @@ export function benchReply(v: BenchView): string {
   const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
-  const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [grantHook(v.qualify.grant), qualifyMissing(name, v.qualify.missing)] : [];
+  const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [grantHook(v.qualify.grant), qualifyMissing(name, v.qualify)] : [];
   return paras([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, points]);
 }
 

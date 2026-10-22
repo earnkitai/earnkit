@@ -116,6 +116,8 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
   bench_ask?: { kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'> };
+  /** Fix round 1: when the qualify steps were given ({ [lowercase project key]: iso }); held back DECLINE_MS. */
+  qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
   apply_asked?: Record<string, string>;
 };
@@ -445,7 +447,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment;
   const titles = quiet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
   const qualify = quiet && !titles && o.fits.length === 0
-    ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS })
+    ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch })
     : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? null : install;
 
@@ -1000,10 +1002,13 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // 2026-10-22: the titles question's yes turns titles on (the tell updates { titles: true } path).
       return setShipTitles(id, { titles: true }, now);
     case 'qualify':
-      // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met).
-      return asked.qualify?.steps?.length
-        ? { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE }
-        : okay;
+      // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
+      // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.
+      if (!asked.qualify?.steps?.length || !asked.key) return okay;
+      await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
+          COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
+        WHERE builder_id = ${id}`.catch(logged('qualify given'));
+      return { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE };
     case 'apply':
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
       return asked.program_id

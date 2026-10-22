@@ -7196,12 +7196,18 @@ The ideal user is a non-technical solo founder who vibecodes (Lovable, Bolt, v0,
   upcoming program's line yields to it (`moneyLine({ upcoming: false })`). The stored ask carries `qualify: { grant,
   steps }`; `benchMoveUp` kind `qualify` (taken once) answers a yes with `qualifySteps` (numbered lines, the Builder
   Codes guide `BUILDER_CODES_GUIDE` as the one link, `QUALIFY_NEXT`, `QUALIFY_HELP_ASK`) and `QUALIFY_STEPS_NOTE`; a no
-  keeps it away 30 days and the ship step returns. Closed, unlisted or hidden: the ship step as before.
+  keeps it away 30 days and the ship step returns. Closed, unlisted or hidden: the ship step as before. Fix round 1: a
+  yes is remembered too (`standing_seen.qualify_given[<lowercase key>]`, held back `DECLINE_MS`); the missing line shows
+  only when every remaining step is known missing (`qualifyMissing(name, { missing, steps })`), so it names exactly the
+  steps the question counts; `qualifyOffer` starts `refreshBuilderCodes` for an App-proven repo (background, once a day
+  through `repo_builder_codes_attempts`, `codesFetch` injectable), backing `QUALIFY_NEXT` ("I check your code for
+  Builder Codes and offer to draft your application once Base fits.").
 - **Private repo titles (`titles`).** `updates.ts titlesAskDue`: the one project is App-proven, GitHub said it is
   private (proof read: `gh_repo_id` set and `public_at` null, or the latest reading's `signals.private`) and it doesn't
-  read public now, `ship_titles_at` is null and `standing_seen.titles_asked` is unset; `takeTitlesAsk` claims it once.
+  read public now, it is the main project (`mainProjectOf`, the project `setShipTitles` turns on), `ship_titles_at` is
+  null and `standing_seen.titles_asked` is unset; `takeTitlesAsk` claims it once.
   Asked in the connect yes reply when no draft is offered (`bench-find.ts connectTitles`, before the email question),
-  else as a ranked step after share and before qualify/ship. `TITLES_ASK` "Show what you shipped on your page? Your
+  else as a ranked step after share and before qualify/ship. `TITLES_ASK` "Show your commit titles on your page? Your
   code stays private."; a yes is `setShipTitles(id, { titles: true })` (the same path as tell `updates { titles }`).
 - Ranked order is now connect, apply, backing, share, titles, qualify or ship. Tests: `v31-reply-fixes.test.ts` (pure
   copy, statuses from real `matchRepo` verdicts, closed fallback, and the qualify and titles journeys through mcpCall);

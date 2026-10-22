@@ -115,7 +115,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // v3.1 F4: the why sentence stays on the page, never in the reply.
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
   // 2026-10-22: a private repo with titles off: the titles question, once.
-  assert.ok(text.endsWith('\nShow what you shipped on your page? Your code stays private.'), text);
+  assert.ok(text.endsWith('\nShow your commit titles on your page? Your code stays private.'), text);
   // L5: this week has code ("Done this week"): the plain points line.
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
   assert.ok(next.endsWith('\nShip code this week: up to +100 points'), next);

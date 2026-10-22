@@ -1525,7 +1525,7 @@ apps/frontend/
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
     updates.ts(+test)          v2.13 T5: postUpdate, hideUpdate, ownLinks (tell update); v2.14 T8: setShipTitles;
-                               2026-10-22: titlesAskDue (App-proven, private on GitHub's word, titles off, never asked),
+                               2026-10-22: titlesAskDue (main project, App-proven, private on GitHub's word, titles off, never asked),
                                takeTitlesAsk (standing_seen.titles_asked, once)
                                (tell updates { titles }; T9: on only when the main project's own repo is App-proven), UPDATE_LINES.auto/titlesOn/titlesOff; no setUpdates or weekly-task note;
                                UPDATE_POSTS_PER_DAY 20 a person (rate window updatePost:<root>); v2.14 T7: no probation
@@ -1551,7 +1551,7 @@ apps/frontend/
     base-qualify.ts            2026-10-22: the no-fit path to Base Builder Grants. grantOf (organizer, award, one chain),
                                qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
-                               or told; never throws). tests v31-reply-fixes.test.ts
+                               or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
                                (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:

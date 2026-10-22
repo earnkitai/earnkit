@@ -164,7 +164,7 @@ export async function setShipTitles(builderId: number, u: { titles?: unknown; on
 }
 
 /**
- * 2026-10-22 (owner-approved reply fix 5): the titles question ("Show what you shipped on your page? Your code stays
+ * 2026-10-22 (owner-approved reply fix 5): the titles question ("Show your commit titles on your page? Your code stays
  * private.") is due for the one project `key`: the App proves it and GitHub said it is private (and it doesn't read
  * public now), titles are off and the question was never asked (standing_seen.titles_asked). A failed read is not
  * due. Never throws.
@@ -174,6 +174,8 @@ export async function titlesAskDue(builderId: number, key: string, now: Date): P
     const [p] = await sql()<{ off: boolean; asked: boolean }[]>`
       SELECT ship_titles_at IS NULL AS off, COALESCE(standing_seen ? 'titles_asked', false) AS asked FROM builder_profiles WHERE builder_id = ${builderId}`;
     if (!p?.off || p.asked) return false;
+    // Fix round 1: only the log's own project (setShipTitles turns titles on for the main project).
+    if ((await mainProjectOf(builderId))?.toLowerCase() !== key.toLowerCase()) return false;
     // Private only on GitHub's own word: the App's read at proof (public_at stays null for a private repo), or the
     // latest reading's; never just "not read public yet".
     const [priv] = await sql()`

@@ -6,7 +6,7 @@ import { creditsMainnet, type Detection, type Verdict } from './match';
 import { CHAIN_NAMES, type Chain } from './chains';
 import type { Card } from './present';
 import { BASE_GRANTS_ID } from './builder-code';
-import { appProvenRepo, builderCodesKnown } from './builder-codes-check';
+import { appProvenRepo, builderCodesKnown, refreshBuilderCodes } from './builder-codes-check';
 import { QUALIFY_STEPS, awardAmount, benchStepKey, type OpenGrant, type QualifyOffer, type QualifyStep } from './bench-reply';
 
 /**
@@ -56,15 +56,18 @@ export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>): 
 export async function qualifyOffer(
   id: number,
   key: string,
-  o: { cards: Card[]; skip: Set<string>; seen: Seen; now: Date; declineMs: number },
+  o: { cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string> }; now: Date; declineMs: number; codesFetch?: typeof fetch },
 ): Promise<QualifyOffer | null> {
   try {
     const card = o.cards.find((c) => c.id === BASE_GRANTS_ID);
     if (!card || !showable(card, o.now, o.skip)) return null;
     const grant = grantOf(card);
     if (!grant) return null;
+    // A no, or a yes (the steps were given: fix round 1), keeps the question away for declineMs.
     const no = o.seen.declined?.[benchStepKey('qualify', key)];
     if (no && o.now.getTime() - Date.parse(no) < o.declineMs) return null;
+    const given = o.seen.qualify_given?.[key.toLowerCase()];
+    if (given && o.now.getTime() - Date.parse(given) < o.declineMs) return null;
     const [told] = await sql()`SELECT 1 FROM builder_program_status WHERE installation_id = ${id} AND program_id = ${BASE_GRANTS_ID} LIMIT 1`;
     if (told) return null;
     const [repos, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);
@@ -72,7 +75,14 @@ export async function qualifyOffer(
     if (!row) return null;
     const repo = repos.find((r) => r.key.toLowerCase() === key.toLowerCase());
     const m = repo ? programVerdict(newProgramOf(row), repo) : null;
-    const codes = (await appProvenRepo(id, key)) ? ((await builderCodesKnown(key, o.now))?.found ?? null) : null;
+    // Fix round 1: the Builder Codes answer, and for an App-proven repo a check started in the background (never awaited;
+    // once a day per repo through the attempts table), so "I check your code for Builder Codes" is true for this builder.
+    let codes: boolean | null = null;
+    if (await appProvenRepo(id, key)) {
+      const known = await builderCodesKnown(key, o.now);
+      refreshBuilderCodes(id, key, known, o.now, o.codesFetch);
+      codes = known?.found ?? null;
+    }
     return qualifyPlan(grant, qualifyStatus(m, codes));
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');
