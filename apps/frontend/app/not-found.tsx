@@ -1,11 +1,7 @@
 import Link from 'next/link';
 import Footer from './components/common/Footer';
 import { CARD_RUST, PAGE_COL, PILL_WHITE } from './components/site/ui';
-import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
-
-export const NOT_FOUND_TITLE = 'Not found | EarnKit';
-
-export const NOT_FOUND_METADATA = { title: NOT_FOUND_TITLE, robots: { index: false } };
+import { NOT_FOUND_BIG, NOT_FOUND_HOME, NOT_FOUND_METADATA, NOT_FOUND_TEXT } from '../lib/earnkit/site-copy';
 
 export const metadata = NOT_FOUND_METADATA;
 

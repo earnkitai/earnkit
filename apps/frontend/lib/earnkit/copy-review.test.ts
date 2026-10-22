@@ -1018,7 +1018,8 @@ const builderFacing: [string, string][] = [
       week: { lines: ['Last week you finished at Shipping 72 (+6), #3 (up 2).'], standing: { score: 72, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: false },
       handle: null, money: [], newPrograms: [], wins: [], deadlines: [],
     })!;
-    return [['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
+    const m = digestBody({ week: null, handle: null, money: ['Base Builder Grant Program is open (rolling), and your draft is one yes away.'], newPrograms: [], wins: [], deadlines: [] })!;
+    return [['digest money-only text', m.text], ['digest subject', b.subject], ['digest text', b.text], ['digest week subject', w.subject], ['digest week text', w.text], ...Object.entries(WEEK_TEXT)] as [string, string][];
   })(),
   // v2.9 T12, Part 2: what a hosted site's visitors see when it ended or was taken down (the
   // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.

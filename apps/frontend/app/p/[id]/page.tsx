@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { COLUMN, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
 import { getProjectPage as readProjectPage } from '@/lib/earnkit/leaderboard';
-import { NOT_FOUND_METADATA } from '../../not-found';
+import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
 import { entryStatus } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { TOKEN_TERMS } from '@/lib/earnkit/tokens';

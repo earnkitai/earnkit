@@ -96,7 +96,7 @@ test('10.3 digestBody: nothing is null; new programs, wins, then your deadlines;
   assert.equal(wins.subject, 'Your EarnKit week');
   // v3.1 Task 12: money lines alone still send; with sections they come first.
   const money = digestBody({ ...noFacts, money: ['2 new backers this week.'] })!;
-  assert.deepEqual(money, { subject: 'Your EarnKit week', text: '2 new backers this week.' });
+  assert.deepEqual(money, { subject: 'Your EarnKit week', text: '2 new backers this week.\n\nAsk your agent "What can I earn?" to start.' });
   assert.ok(digestBody({ ...noFacts, money: ['2 new backers this week.'], newPrograms: [avalanche] })!.text.startsWith('2 new backers this week.\n\nNew: Avalanche'));
   for (const b of [one, all, wins, money]) {
     const t = `${b.subject}\n${b.text}`;

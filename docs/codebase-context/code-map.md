@@ -157,7 +157,7 @@ apps/frontend/
                                (profile: the bar only, "Get your page" and Leaderboard); the Tokenfi line under both
   app/components/common/Header.tsx  v3.1 site T5 (Nav board): transparent, not sticky, 1200px column: wordmark, NavLinks
                                (Leaderboard, Feed, Docs; no Programs), the blue install pill; two rows under 640px
-  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME (site-copy.ts), full footer
+  app/not-found.tsx            launch ready L10, v3.1 T10 (NotFound board): the rust card, NOT_FOUND_BIG/TEXT/HOME/METADATA (site-copy.ts), full footer
   app/components/common/Button.tsx  v3 Stage 3 T1: BTN_PRIMARY (pill, ek-brand fill, white text, ek-accent hover),
                                BTN_SECONDARY (pill, ek-line-strong outline, ek-chip hover); both 48px
   apps/frontend/DESIGN.md      v3 Stage 3 T1: the one-page rulebook of the flat system (black page, white type, one
@@ -2101,8 +2101,9 @@ v3.1 release 2 Task 12 (Monday email money): new `best-fit.ts` (`bestFitFor`), `
 `DigestFacts.money`), `backers.ts` (`newBackers`, `first_seen_at` on insert), `bench-find.ts` (`scoreApplies`, `bestApplies`
 extracted from `benchView`), `db/schema.sql` (the `coin_backers.first_seen_at` append), `scripts/db-check.mts` (its checks).
 New: `v31-monday-email.test.ts`; `digest.test.ts` and `v3-monday-email.test.ts` follow `money: []`.
-v3.1 release 2 Task 14 (copy sweep): `copy-review.test.ts` (`v31Texts`, per-label `allowed` map). Site UX batch: `not-found.tsx`
-(`NOT_FOUND_METADATA`) used by `generateMetadata` in `p/[id]`, `b/[slug]`, `campaigns/[slug]`, `programs/[id]`;
+v3.1 release 2 Task 14 (copy sweep): `copy-review.test.ts` (`v31Texts`, per-label `allowed` map). Site UX batch: `site-copy.ts`
+(`NOT_FOUND_TITLE`, `NOT_FOUND_METADATA`; `not-found.tsx` exports it as `metadata`) used by `generateMetadata` in `p/[id]`, `b/[slug]`,
+`campaigns/[slug]`, `programs/[id]` and `[handle]` (via `handleMetadata`, which also serves `/b/<reserved>`);
 `landing/Opportunities.tsx` lazy logos; `FadeRail.tsx`, `DocsNav.tsx` (see the site entries below).
 
 v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/frontend/`):

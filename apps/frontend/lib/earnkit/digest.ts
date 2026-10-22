@@ -141,6 +141,8 @@ export function cleanName(name: string, fallback: string): string {
   return (space >= NAME_MAX / 2 ? cut.slice(0, space) : cut).replace(/[\s\-:,.|/]+$/, '');
 }
 
+const ASK_LINE = 'Ask your agent "What can I earn?" to start.';
+
 /**
  * The email: the money lines first (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
  * week while it is unconfirmed), then new programs, wins and the builder's deadlines; null when there are no money
@@ -162,8 +164,10 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
     : f.newPrograms[0]
       ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
       : 'Your EarnKit week';
-  const sections = lines.length > 0 ? `${lines.join('\n')}\n\nAsk your agent "What can I earn?" to start.` : null;
-  return { subject, text: [f.money.join('\n'), week, sections].filter(Boolean).join('\n\n') };
+  // The ask line closes the email once: after the sections, or after the money lines when they are all there is.
+  const sections = lines.length > 0 ? lines.join('\n') : null;
+  const closer = sections || week ? null : ASK_LINE;
+  return { subject, text: [f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
 }
 
 const mac = (k: SubKey, secret: string) =>

@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getGuidePage } from '../../lib/landing-cache';
 import { guideDescription } from '../../../lib/earnkit/landing';
-import { NOT_FOUND_METADATA } from '../../not-found';
+import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
 import GuideView, { Unavailable } from './GuideView';
 
 /** v2.7 §2: read server-side, revalidated every 10 minutes (no new service). */

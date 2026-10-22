@@ -7406,8 +7406,8 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   (`BenchView countLine`; the 10-ranked rule still reads the pool); the profile's two card rows share one grid template
   (one seam from 844px); the docs side nav lights the section in view (`DocsNav readingNow`); an unranked score ring is an
   empty track (no glyph); the phone hero's shade rises and its chip is dark glass (`heroChipPhone`); sideways rails fade a
-  cut edge (`FadeRail`, `SegTabs RAIL_FADE`); the 404 renders its own `<title>` "Not found | EarnKit" (a page that calls
-  `notFound()` keeps its segment's metadata in the browser). The feed's row order (pinned, then the week's progress points,
+  cut edge (`FadeRail`, `SegTabs RAIL_FADE`); one 404 title "Not found | EarnKit" (`NOT_FOUND_METADATA` in `site-copy.ts`; a page that
+  calls `notFound()` keeps its segment's metadata in the browser, so each such route returns it from `generateMetadata`). The feed's row order (pinned, then the week's progress points,
   then the live score; v2.13 R7 "ranked by verified progress") is intended and unchanged.
 
 ## v3.1 release 2 (since origin/main e2aaf5cc: Tasks 12, 14, 15 and the site UX batch)
@@ -7440,8 +7440,9 @@ the rewritten replies (Task 16). They are not repeated here.
 - **Site UX batch (2026-10-22; details in the "v3.1 site" section).** Footer crop and headline offset; the leaderboard count
   line follows the filter while the 10-ranked rule keeps the pool; the profile's two card rows share one grid seam; the docs side
   nav lights the section in view (`DocsNav`); an unranked score ring is an empty track; the phone hero scrim and dark chip;
-  `FadeRail` fades a sideways rail's cut edge while it overflows; one 404 title: `not-found.tsx NOT_FOUND_METADATA` is the
-  `metadata` export and the `generateMetadata` of `p/[id]`, `b/[slug]`, `campaigns/[slug]` and `programs/[id]` when their
+  `FadeRail` fades a sideways rail's cut edge while it overflows; one 404 title: `site-copy.ts NOT_FOUND_METADATA` is the
+  `metadata` export of `not-found.tsx` and the `generateMetadata` of `p/[id]`, `campaigns/[slug]`, `programs/[id]`, `[handle]`
+  (via `handleMetadata`) and `b/[slug]` (a missing slug; a reserved `/b/<handle>` goes through `handleMetadata`) when their
   entity is missing (a route that calls `notFound()` otherwise keeps the layout's title); the landing's program logos load
   lazily so none is preloaded unused.
 - **Rulings.** Task 11 (Monday X post) is superseded by Task 16 step 7 (`MOMENT_POST_HEAD`, `momentPost`, no intent link, shipped

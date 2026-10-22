@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { COLUMN, H1, H2, SURFACE } from '../../components/common/Panel';
 import { notFound } from 'next/navigation';
 import { getCampaignBoard as readCampaignBoard } from '@/lib/earnkit/leaderboard';
-import { NOT_FOUND_METADATA } from '../../not-found';
+import { NOT_FOUND_METADATA } from '../../../lib/earnkit/site-copy';
 import { entryStatus, payoutBy, prizeText, prizeUsdEach, usd } from '@/lib/earnkit/campaigns';
 import { formatDeadline } from '@/lib/earnkit/dates';
 import { escrowLink } from '@/lib/earnkit/escrow';

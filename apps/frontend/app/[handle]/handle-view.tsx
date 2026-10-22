@@ -13,7 +13,7 @@ import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { profileData } from '../../lib/earnkit/bench-data';
 import { rankLines } from '../../lib/earnkit/bench-rank';
 import { profileSite } from '../../lib/earnkit/site-data';
-import { NOT_FOUND_METADATA } from '../not-found';
+import { NOT_FOUND_METADATA } from '../../lib/earnkit/site-copy';
 import BenchProfileView, { BenchProfileSkeleton } from './BenchProfileView';
 
 type Query = Record<string, string | string[] | undefined> | undefined;

@@ -148,13 +148,14 @@ test('(b) a rolling Base fit: "Base Builder Grant Program is open (rolling), and
   const f = await digestFacts(sub(b, 'b@example.com'), new Date());
   assert.deepEqual(f.money, ['Base Builder Grant Program is open (rolling), and your draft is one yes away.']);
   // Only money lines: the email still sends, subject "Your EarnKit week".
-  assert.deepEqual(digestBody({ ...NO_FACTS, money: f.money }), { subject: 'Your EarnKit week', text: f.money[0] });
+  assert.deepEqual(digestBody({ ...NO_FACTS, money: f.money }), { subject: 'Your EarnKit week', text: `${f.money[0]}\n\nAsk your agent "What can I earn?" to start.` });
+  assert.equal((digestBody({ ...NO_FACTS, money: f.money })!.text.match(/What can I earn/g) ?? []).length, 1);
   await subscribe(b, 'b@example.com');
   const sent: Parameters<Mailer>[0][] = [];
   const r = await sendDigests(new Date(), { mail: async (m) => void sent.push(m), only: [b.own] });
   assert.equal(r.sent, 1, JSON.stringify(r));
   assert.equal(sent[0]!.subject, 'Your EarnKit week');
-  assert.ok(sent[0]!.text.startsWith('Base Builder Grant Program is open (rolling), and your draft is one yes away.\n\nOne email a week.'), sent[0]!.text);
+  assert.ok(sent[0]!.text.startsWith('Base Builder Grant Program is open (rolling), and your draft is one yes away.\n\nAsk your agent "What can I earn?" to start.\n\nOne email a week.'), sent[0]!.text);
   // A shared client's or a per-login subscription has no verified person: no money line.
   assert.deepEqual((await digestFacts({ ...sub(b, 'b@example.com'), shared: true }, new Date())).money, []);
   assert.deepEqual((await digestFacts({ ...sub(b, 'b@example.com'), login: 'someone' }, new Date())).money, []);
@@ -204,7 +205,7 @@ test('(d) 2 backers first seen in the last 7 days: "2 new backers this week."; f
     assert.equal(await newBackers(b.id, since), 2);
     const f = await digestFacts(sub(b, 'd@example.com'), now);
     assert.deepEqual(f.money, ['2 new backers this week.']);
-    assert.equal(digestBody({ ...NO_FACTS, money: f.money })!.text, '2 new backers this week.');
+    assert.equal(digestBody({ ...NO_FACTS, money: f.money })!.text, '2 new backers this week.\n\nAsk your agent "What can I earn?" to start.');
     // One reads "backer".
     await sql()`UPDATE coin_backers SET first_seen_at = 'epoch' WHERE coin = ${coin} AND first_block = 6001`;
     assert.deepEqual((await digestFacts(sub(b, 'd@example.com'), now)).money, ['1 new backer this week.']);
