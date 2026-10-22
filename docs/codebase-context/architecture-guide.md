@@ -7261,7 +7261,7 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
   only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
   `useReducedMotion()` no listener is attached.
-- **Steps / Activity / Opportunities.** Steps append "Backers can buy in." only with `raisingEnabled()`. Activity is
+- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "People can back you by buying your coin." only with `raisingEnabled()`. Activity is
   `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
   else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
   none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour

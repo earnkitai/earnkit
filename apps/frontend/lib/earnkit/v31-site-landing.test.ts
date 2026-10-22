@@ -237,21 +237,31 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   assert.deepEqual([...up.matchAll(/href="(\/programs\/[^"]+)"/g)].map((m) => m[1]), ['/programs/base-builder-grants']);
 });
 
-test('(f) the Earn step ends "Backers can buy in." only with EARNKIT_RAISING=on', () => {
+test('(f) the Get funded step ends "People can back you by buying your coin." only with EARNKIT_RAISING=on', () => {
   const was = process.env.EARNKIT_RAISING;
   try {
     delete process.env.EARNKIT_RAISING;
     const off = text(html(LANDING));
     assert.ok(off.includes(STEPS[2].text));
-    assert.ok(!off.includes('Backers can buy in.'));
+    assert.ok(!off.includes('People can back you by buying your coin.'));
     process.env.EARNKIT_RAISING = 'on';
     const on = text(html(LANDING));
-    assert.ok(on.includes(`${STEPS[2].text} Backers can buy in.`));
+    assert.ok(on.includes(`${STEPS[2].text} People can back you by buying your coin.`));
     for (const s of STEPS) assert.ok(on.includes(s.title) && on.includes(s.text), s.title);
   } finally {
     if (was === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = was;
   }
+});
+
+test('(f2) the three step cards: the icon in one 56px box, the title at a fixed gap after it (never mt-auto), so the titles align', () => {
+  const how = section(html(LANDING), 'how');
+  const icons = how.match(/<svg data-ek-step-icon=""[^>]*>/g) ?? [];
+  assert.equal(icons.length, 3);
+  for (const i of icons) assert.match(i, /class="block h-14 w-14 shrink-0 /);
+  const titles = how.match(/<h3 class="[^"]*"/g) ?? [];
+  assert.equal(titles.length, 3);
+  for (const t of titles) assert.ok(t.includes('mt-8') && !t.includes('mt-auto'), t);
 });
 
 test('(g) the hero painting: srcset of the three files, fetchpriority high; the arch clip path is the board\'s', () => {

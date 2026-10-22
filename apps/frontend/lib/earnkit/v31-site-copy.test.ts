@@ -93,9 +93,9 @@ test('(i) copy constants are exact', () => {
   assert.equal(copy.NAV_INSTALL, 'Add to your agent');
   assert.equal(copy.STEPS_TITLE, 'From commit to capital');
   assert.deepEqual(copy.STEPS, [
-    { title: 'Connect', text: 'Add EarnKit to your agent. Sign in with X. Pick one repo.' },
-    { title: 'Ship', text: 'Every Monday your week writes itself from your commits.' },
-    { title: 'Earn', text: 'Your agent drafts the application.', backing: 'Backers can buy in.' },
+    { title: 'Connect', text: "Add EarnKit to your agent, sign in with X and pick the repo you're building." },
+    { title: 'Ship', text: 'Every day we read your commits and score how steadily you ship, out of 100.' },
+    { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
   ]);
   assert.equal(copy.ACTIVITY_TITLE, 'Activity');
   assert.equal(copy.ACTIVITY_MORE, 'See the leaderboard');
