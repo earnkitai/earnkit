@@ -7401,3 +7401,11 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   Arc, Robinhood and "Shipping every week" (O10); the OG image keeps its v3 words (O9).
 - **Verification.** `v31-site-sweep.test.ts` walks every page; the visual matrix (1440x900 and 390x844, no horizontal
   scroll, targets 44px or more) is in the SDD workspace `.superpowers/sdd/v3.1-plan-site/`.
+- **QA UX batch (2026-10-22).** The footer's crop and headline offset keep the headline under the Pantheon's oculus at
+  every width (no scrim); the leaderboard count line is the pool on the plain view and the filter's rows on a filtered one
+  (`BenchView countLine`; the 10-ranked rule still reads the pool); the profile's two card rows share one grid template
+  (one seam from 844px); the docs side nav lights the section in view (`DocsNav readingNow`); an unranked score ring is an
+  empty track (no glyph); the phone hero's shade rises and its chip is dark glass (`heroChipPhone`); sideways rails fade a
+  cut edge (`FadeRail`, `SegTabs RAIL_FADE`); the 404 renders its own `<title>` "Not found | EarnKit" (a page that calls
+  `notFound()` keeps its segment's metadata in the browser). The feed's row order (pinned, then the week's progress points,
+  then the live score; v2.13 R7 "ranked by verified progress") is intended and unchanged.
