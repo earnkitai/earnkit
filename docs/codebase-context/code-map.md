@@ -262,7 +262,7 @@ apps/frontend/
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
   lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
                                thisWeekCommits (commit_counts via weekCounts), highlights (W8, each linking its proof:
-                               live + uptimeOf, contracts on Base + first deployed, Builder Code file, repo track record
+                               live + liveSub, contracts on Base + first deployed, Builder Code file, repo track record
                                via repoItem, won/applied + guide link; siteHref, basescanHref, githubRepoHref,
                                githubFileHref build the escaped links), standingPill (Top N% from RANK_MIN_POOL),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
@@ -2175,3 +2175,10 @@ builders, `Highlight.href`), `app/[handle]/site/HighlightsCard.tsx` (links, `rep
 (`deployed_at`), `person-github.ts` (`default_branch`, `commits_year`), `source-readers.ts RepoSignals`; schema
 appends `repo_builder_codes.path` and `builder_sources.deployed_at` (`db-check.mts`, `schema-rerun.test.ts`). New:
 `v31-highlights.test.ts`; `v31-site-data.test.ts (c)-(c4)`, `v31-builder-codes.test.ts (i)-(j)`.
+Highlights fix round 1: `guide-pages.ts` (`GUIDE_ID`, `guideProgramSql`: one guide predicate for `landing.ts
+readGuideIds` and `page-data.ts` links), `contract-origins.ts` (`backfillContractOrigins`), `builder-codes-check.ts`
+(`claimAttempt`, attempts stored in `repo_builder_codes_attempts`; the in-memory backoff is gone), `cron.ts` (both steps
+after the email, `builderCodesSliceEnd`), `site-data.ts` (`liveSub`, newest reading up, date only when all dated),
+`HighlightsCard.tsx` (guide links in the same tab with a chevron), `streak.ts` (updates grouped once),
+`bench-find.ts` (no streak read: no weeks, never the cache). Schema: `repo_builder_codes_attempts`,
+`builder_sources.origin_read_at`.

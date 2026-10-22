@@ -85,7 +85,7 @@ export type HighlightIcon = 'live' | 'code' | 'contract' | 'repo' | 'applied' | 
 export type Highlight = { icon: HighlightIcon; title: string; sub: string; href?: string };
 const HIGHLIGHTS_MAX = 5;
 const PROGRAMS_MAX = 2;
-/** Uptime is "Up N of the last UPTIME_DAYS days", shown only from UPTIME_MIN_READS daily readings in that window. */
+/** Uptime is "Up N of the last D days checked": D the days of the last UPTIME_DAYS with a reading, shown from UPTIME_MIN_READS. */
 export const UPTIME_DAYS = 30;
 export const UPTIME_MIN_READS = 7;
 
@@ -117,60 +117,48 @@ export const githubFileHref = (key: string, branch: string | null, path: string)
   return `${repo}/blob/${segments(branch || 'HEAD')}/${segments(path)}`;
 };
 
-const dayNum = (day: string) => Math.floor(Date.parse(`${day}T00:00:00Z`) / DAY_MS);
 /**
- * The site's uptime from its daily readings (`up`: read ok and up that day), over the UPTIME_DAYS days ending at the
- * newest reading (fewer when the first reading is more recent). A day with no reading counts as not up. Null with
- * under UPTIME_MIN_READS readings in the window, or when the newest is over a day older than `today`. Pure.
+ * The live item's sub line from a site source's readings: "Up N of the last D days checked", D the days of the last
+ * UPTIME_DAYS EarnKit read the site (a day it did not read counts nowhere), N of them up; from UPTIME_MIN_READS days
+ * read, else since the first up day. Pure.
  */
-export function uptimeOf(rows: { day: string; up: boolean }[], first: string, today: string): { up: number; of: number } | null {
-  const last = rows.reduce<string | null>((m, r) => (m === null || r.day > m ? r.day : m), null);
-  if (!last || dayNum(today) - dayNum(last) > 1) return null;
-  const end = dayNum(last);
-  const of = Math.min(UPTIME_DAYS, end - dayNum(first) + 1);
-  const days = new Map<number, boolean>();
-  for (const r of rows) {
-    const d = dayNum(r.day);
-    if (d > end - of && d <= end) days.set(d, (days.get(d) ?? false) || r.up);
-  }
-  if (days.size < UPTIME_MIN_READS) return null;
-  return { up: [...days.values()].filter(Boolean).length, of };
+export function liveSub(r: { checked: number; up: number; first_up: string }): string {
+  return r.checked >= UPTIME_MIN_READS
+    ? `Up ${r.up} of the last ${r.checked} days checked`
+    : `Since ${monthYear(new Date(`${r.first_up}T00:00:00Z`))}`;
 }
 
 /**
- * 1. live: a verified site source of the project that read up (the first to, week-facts.ts went_live's site rule),
- * linked to the site. "Up N of the last 30 days" (uptimeOf), else since the first up day. A hidden repo's site is left
- * out when its host is GitHub's or carries the repo's name (Highlights never names a hidden repo).
+ * 1. live: a verified site source of the project whose newest reading is up (a site down at its last read is no item),
+ * the one that first read up (week-facts.ts went_live's site rule), linked to the site; its sub line is liveSub. Owner
+ * ruling (fix round 1): a site the builder proved is shown even when the repo is private; only a hidden repo's
+ * GitHub-hosted site is left out (it names the repo; page-data.ts shownProjects' link rule).
  */
 async function liveItem(builderId: number, key: string, hiddenRepo: boolean, now: Date): Promise<Highlight | null> {
-  const db = sql();
-  const [r] = await db<{ id: string; ref: string; day: string }[]>`
-    SELECT s.id::text AS id, s.ref, min(r.day)::text AS day FROM source_readings r JOIN builder_sources s ON s.id = r.source_id
-    WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified' AND lower(s.project_key) = lower(${key}) AND r.ok AND r.signals->>'up' = 'true'
-    GROUP BY s.id, s.ref ORDER BY min(r.day), s.id LIMIT 1`;
-  const host = r ? hostOf(r.ref) : null;
-  if (!r || !host) return null;
-  const repoName = norm(key).split('/')[1] ?? '';
-  if (hiddenRepo && (/(^|\.)github\.(io|com)$/.test(host) || (repoName && host.includes(repoName)))) return null;
   const today = now.toISOString().slice(0, 10);
-  const days = await db<{ day: string; up: boolean }[]>`
-    SELECT day::text AS day, (ok AND signals->>'up' = 'true') AS up FROM source_readings
-    WHERE source_id = ${r.id} AND day > ${today}::date - ${UPTIME_DAYS + 2}::int AND day <= ${today}::date`;
-  const [{ first }] = await db<{ first: string }[]>`SELECT min(day)::text AS first FROM source_readings WHERE source_id = ${r.id}`;
-  const up = uptimeOf(days, first, today);
-  const href = siteHref(r.ref);
-  return {
-    icon: 'live',
-    title: `Live at ${host}`,
-    sub: up ? `Up ${up.up} of the last ${up.of} days` : `Since ${monthYear(new Date(`${r.day}T00:00:00Z`))}`,
-    ...(href && { href }),
-  };
+  const rows = await sql()<{ ref: string; first_up: string; newest_up: boolean; checked: number; up: number }[]>`
+    SELECT s.ref, min(r.day) FILTER (WHERE r.ok AND r.signals->>'up' = 'true')::text AS first_up,
+      (array_agg(r.ok AND r.signals->>'up' = 'true' ORDER BY r.day DESC))[1] AS newest_up,
+      count(*) FILTER (WHERE r.ok AND r.day > ${today}::date - ${UPTIME_DAYS}::int)::int AS checked,
+      count(*) FILTER (WHERE r.ok AND r.day > ${today}::date - ${UPTIME_DAYS}::int AND r.signals->>'up' = 'true')::int AS up
+    FROM builder_sources s JOIN source_readings r ON r.source_id = s.id AND r.day <= ${today}::date
+    WHERE s.builder_id = ${builderId} AND s.kind = 'site' AND s.state = 'verified' AND lower(s.project_key) = lower(${key})
+    GROUP BY s.id, s.ref ORDER BY 2 NULLS LAST, s.id`;
+  for (const r of rows) {
+    const host = hostOf(r.ref);
+    if (!r.newest_up || !r.first_up || !host) continue;
+    if (hiddenRepo && /(^|\.)github\.(io|com)$/.test(host)) continue;
+    const href = siteHref(r.ref);
+    return { icon: 'live', title: `Live at ${host}`, sub: liveSub(r), ...(href && { href }) };
+  }
+  return null;
 }
 
 /**
  * 2. contract: distinct Base addresses over the project's verified contract sources ("base:0x...") and EarnKit's
- * deploys on Base, linked to the first one's Basescan page. "First deployed": the earliest known creation time (a
- * deploy's row, a source's stored Blockscout time); without one, no date.
+ * deploys on Base, linked to one on Basescan (the earliest when dated). "First deployed" only when every counted
+ * contract has a known creation time (a deploy's row, a source's stored Blockscout time, contract-origins.ts
+ * backfills the rest), so the date is never later than an undated one; else "Verified onchain".
  */
 async function contractItem(builderId: number, key: string): Promise<Highlight | null> {
   const rows = await sql()<{ a: string; at: Date | null }[]>`
@@ -185,10 +173,11 @@ async function contractItem(builderId: number, key: string): Promise<Highlight |
   if (n === 0) return null;
   const first = rows[0];
   const href = basescanHref(first.a);
+  const allDated = rows.every((r) => r.at !== null);
   return {
     icon: 'contract',
     title: `${n} ${n === 1 ? 'contract' : 'contracts'} on Base`,
-    sub: first.at ? `First deployed ${monthYear(new Date(first.at))}` : 'Verified onchain',
+    sub: allDated ? `First deployed ${monthYear(new Date(first.at!))}` : 'Verified onchain',
     ...(href && { href }),
   };
 }

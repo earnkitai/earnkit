@@ -20,8 +20,11 @@ const ICON: Record<HighlightIcon, string[]> = {
   won: APPLIED,
   start: ['M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z', 'M16 2v4M8 2v4', 'M3 10h18'],
 };
-/** lucide arrow-up-right: the opens-elsewhere mark on a linked item. */
+/** lucide arrow-up-right: the opens-elsewhere mark on an external link; chevron-right on a page of EarnKit's own. */
 const OUT = ['M7 7h10v10', 'M7 17 17 7'];
+const NEXT = ['m9 18 6-6-6-6'];
+/** An absolute link opens in a new tab (noopener noreferrer); an EarnKit path (a program guide) in the same tab. */
+const external = (href: string) => !href.startsWith('/');
 
 function Icon({ paths, size }: { paths: string[]; size: number }) {
   return (
@@ -49,7 +52,8 @@ function Body({ h }: { h: Highlight }) {
 
 /**
  * The Highlights card (Profile board): verifiable facts only (site-data.ts highlights), each with its icon tile. An item
- * with proof links to it in a new tab (rel noopener noreferrer) with a small arrow; the row is the tap target (44px+).
+ * with proof links to it: another site in a new tab (rel noopener noreferrer) with a small arrow, a program guide in
+ * the same tab with a chevron; the row is the tap target (44px+) and fills softly with a hairline on hover.
  * None: no card.
  */
 export default function HighlightsCard({ items }: { items: Highlight[] }) {
@@ -63,15 +67,14 @@ export default function HighlightsCard({ items }: { items: Highlight[] }) {
             {h.href ? (
               <a
                 href={h.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group -mx-2 flex min-h-11 items-center gap-3.5 rounded-2xl px-2 py-[9px] outline-none motion-safe:transition-colors motion-safe:duration-200 hover:bg-s-panel-inner focus-visible:ring-2 focus-visible:ring-s-blue"
+                {...(external(h.href) && { target: '_blank', rel: 'noopener noreferrer' })}
+                className="group -mx-2 flex min-h-11 items-center gap-3.5 rounded-2xl px-2 py-[9px] outline-none ring-1 ring-transparent motion-safe:transition-colors motion-safe:duration-200 hover:bg-s-panel-hover hover:ring-s-line focus-visible:ring-2 focus-visible:ring-s-blue"
               >
                 <Body h={h} />
                 <span aria-hidden="true" className="shrink-0 text-s-muted motion-safe:transition-colors motion-safe:duration-200 group-hover:text-s-text">
-                  <Icon paths={OUT} size={16} />
+                  <Icon paths={external(h.href) ? OUT : NEXT} size={16} />
                 </span>
-                <span className="sr-only"> (opens in a new tab)</span>
+                {external(h.href) ? <span className="sr-only"> (opens in a new tab)</span> : null}
               </a>
             ) : (
               <div className="flex items-center gap-3.5 py-[9px]">

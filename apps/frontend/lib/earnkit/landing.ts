@@ -6,6 +6,7 @@ import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
 import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
+import { GUIDE_ID, guideProgramSql } from './guide-pages';
 import { carouselCards, type FeedCard } from './feed';
 import { ROLLING, compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
 
@@ -213,13 +214,12 @@ export async function readGuidePage(id: string, now = new Date()): Promise<Guide
   };
 }
 
-/** A guide page id: a program file's id shape. Anything else is a 404 with no read. */
-export const GUIDE_ID = /^[a-z0-9-]{1,64}$/;
+export { GUIDE_ID };
 
 /** Every curated program id, closed ones included (Ruling 22: old links keep working); never an unlisted one (v3.1 D2: its guide is a 404, not "closed"). */
 export async function readGuideIds(): Promise<string[]> {
-  const rows = await sql()<{ id: string }[]>`
-    SELECT id FROM programs WHERE source = 'file' AND campaign IS NULL AND status <> 'unlisted' ORDER BY id`;
+  const db = sql();
+  const rows = await db<{ id: string }[]>`SELECT g.id FROM programs g WHERE ${guideProgramSql(db)} ORDER BY g.id`;
   return rows.map((r) => r.id);
 }
 

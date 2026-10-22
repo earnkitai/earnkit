@@ -147,6 +147,8 @@ const NAMED_COLUMNS: [string, string][] = [
   ['project_embeddings', 'project_key'],
   // v3.1 Task 7: whether a repo carries Base Builder Codes.
   ['repo_builder_codes', 'repo_key'],
+  // v3.1 Highlights: when each repo's Builder Codes were last attempted.
+  ['repo_builder_codes_attempts', 'repo_key'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
 const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings'] as const;

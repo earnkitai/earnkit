@@ -1,6 +1,7 @@
 import { PUBLIC_REPO_DAYS } from './repo-public'; // a repo is named only while read public this recently
 import { cache } from 'react';
 import { sql } from './db';
+import { guideProgramSql } from './guide-pages';
 import { standingOf } from './person-score';
 import { COIN_PROGRAM } from './policy-constants';
 import { rankLine, shownRankLine } from './rank';
@@ -194,7 +195,7 @@ export async function safeNames(ids: number[]): Promise<(builderId: number, key:
 async function programEntries(builderId: number) {
   return sql()<{ keys: (string | null)[]; title: string; won: boolean; applied: boolean; submitted_at: Date; guide: string | null }[]>`
     SELECT ARRAY[p.repo_key, p.token_repo_key, p.repo_url, p.live_url] AS keys, g.title, p.submitted_at,
-      CASE WHEN (g.source = 'file' AND g.campaign IS NULL) THEN g.id END AS guide,
+      CASE WHEN ${guideProgramSql(sql())} THEN g.id END AS guide,
       EXISTS (SELECT 1 FROM entry_outcomes o WHERE o.project_id = p.id AND o.basis = 'announcement' AND o.result IN ('won', 'placed', 'finalist')) AS won,
       (p.confirmed_at IS NULL OR p.submission_proof_ok_at IS NOT NULL OR p.submission_confirmed_at IS NOT NULL
         OR EXISTS (SELECT 1 FROM submissions su WHERE su.project_id = p.id)) AS applied
@@ -208,7 +209,7 @@ async function programEntries(builderId: number) {
  */
 async function toldApplied(builderId: number) {
   return sql()<{ title: string; at: Date; guide: string | null }[]>`
-    SELECT g.title, max(s.at) AS at, CASE WHEN (g.source = 'file' AND g.campaign IS NULL) THEN g.id END AS guide
+    SELECT g.title, max(s.at) AS at, CASE WHEN ${guideProgramSql(sql())} THEN g.id END AS guide
     FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
     GROUP BY g.id ORDER BY g.title`;
@@ -220,7 +221,7 @@ export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${
 /**
  * The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). `at`: the
  * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). `guide`: the id of a program
- * by that title with a guide page (/programs/<id>: a curated file program, never a campaign), else null. Pure.
+ * by that title with a guide page (/programs/<id>: guide-pages.ts guideProgramSql, the guide set's own rule), else null. Pure.
  */
 const programsOf = (
   entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date; guide?: string | null }[] = [],

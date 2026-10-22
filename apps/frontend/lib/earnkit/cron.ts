@@ -31,6 +31,8 @@ import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { githubAppEnabled } from './github-app';
 import { runBuilderCodes } from './builder-codes-check';
+import { backfillContractOrigins } from './contract-origins';
+import type { ContractOrigin } from './source-readers';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
 import { withScoringLock } from './scoring-lock';
@@ -104,7 +106,14 @@ export type CronDeps = {
   builderScore?: ScoreCronDeps;
   /** v3.1 Highlights: the Builder Codes step's GitHub fetch and builders (tests); with `only`, the step runs only when given. */
   builderCodes?: { fetch?: typeof fetch; only?: number[] };
+  /** v3.1 Highlights fix round 1: the contract origins backfill's read and builders (tests); with `only`, the step runs only when given. */
+  contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
 };
+
+/** v3.1 Highlights fix round 1: the Builder Codes step's time, at most a minute and never past the run's deadline. */
+export const BUILDER_CODES_SLICE_MS = 60_000;
+/** When the Builder Codes step stops starting checks: BUILDER_CODES_SLICE_MS from `start`, or the run's deadline if sooner. Pure. */
+export const builderCodesSliceEnd = (start: number, deadline: number) => Math.min(deadline, start + BUILDER_CODES_SLICE_MS);
 
 /** Opens the 48 h review (once: only from 'running') and freezes the payout terms with it. */
 const openReview = (p: Program, now: Date) => sql()`
@@ -363,18 +372,6 @@ export async function runCron(
       builderScore = { step: 'error', note: STEP_FAILED };
     }
   }
-  // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most once a day, at most
-  // BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare. Off
-  // without the GitHub App.
-  let builderCodes: Awaited<ReturnType<typeof runBuilderCodes>> | { step: 'error'; note: string } | undefined;
-  if (githubAppEnabled() && (!opts.only || deps.builderCodes)) {
-    try {
-      builderCodes = await runBuilderCodes(now, { ...deps.builderCodes, deadline });
-    } catch (err) {
-      console.error('[cron] builder codes', err instanceof Error ? err.name : 'error');
-      builderCodes = { step: 'error', note: STEP_FAILED };
-    }
-  }
   // v2.9 E19: the weekly email, Mondays from DIGEST_HOUR_UTC (sendDigests decides who is due), within
   // Resend's free caps, with what is left of the budget. Off without RESEND_API_KEY. v3 Stage 1 (spec 5.4):
   // after the score steps, so the weekly job writes last week (the email's moment) first within one run.
@@ -385,6 +382,31 @@ export async function runCron(
     } catch (err) {
       console.error('[cron] digest', err instanceof Error ? err.name : 'error');
       digest = { step: 'error', note: STEP_FAILED };
+    }
+  }
+  // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most one attempt a day,
+  // at most BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare.
+  // After the weekly email (fix round 1: Monday's send is never squeezed) and within its own slice
+  // (builderCodesSliceEnd). Off without the GitHub App.
+  let builderCodes: Awaited<ReturnType<typeof runBuilderCodes>> | { step: 'error'; note: string } | undefined;
+  if (githubAppEnabled() && (!opts.only || deps.builderCodes)) {
+    try {
+      builderCodes = await runBuilderCodes(now, { ...deps.builderCodes, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] builder codes', err instanceof Error ? err.name : 'error');
+      builderCodes = { step: 'error', note: STEP_FAILED };
+    }
+  }
+  // v3.1 Highlights fix round 1: "First deployed" for contracts verified before their creation time was kept
+  // (contract-origins.ts: Blockscout, free, at most ORIGIN_READS_PER_RUN a run, each contract once), after the email,
+  // in its own slice.
+  let origins: Awaited<ReturnType<typeof backfillContractOrigins>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.contractOrigins) {
+    try {
+      origins = await backfillContractOrigins(now, { ...deps.contractOrigins, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] contract origins', err instanceof Error ? err.name : 'error');
+      origins = { step: 'error', note: STEP_FAILED };
     }
   }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
@@ -446,6 +468,7 @@ export async function runCron(
     ...(usage && { usage_checks: usage }),
     ...(builderScore && { builder_score: builderScore }),
     ...(builderCodes && { builder_codes: builderCodes }),
+    ...(origins && { contract_origins: origins }),
     needs_owner,
   };
 }

@@ -821,5 +821,16 @@ const [hlAt] = await db<{ at: Date | null }[]>`SELECT deployed_at AS at FROM bui
 ok(hlPaths.length === 2 && hlPaths[0]!.path === 'src/tx.ts' && hlPaths[1]!.path === null && hlAt?.at?.toISOString() === '2025-06-10T00:00:00.000Z',
   'v3.1 Highlights: an old repo_builder_codes row reads path null, and the schema running again keeps path and deployed_at');
 
+// v3.1 Highlights fix round 1: Builder Codes attempts (a failing repo backs off a day) and the origin backfill's read time.
+ok((await cols('repo_builder_codes_attempts')).includes('attempted_at'), 'v3.1 Highlights: repo_builder_codes_attempts');
+ok((await cols('builder_sources')).includes('origin_read_at'), 'v3.1 Highlights: builder_sources.origin_read_at');
+await db`INSERT INTO repo_builder_codes_attempts (repo_key, attempted_at) VALUES ('hl-check/att', '2026-10-01T00:00:00Z')`;
+await db`UPDATE builder_sources SET origin_read_at = '2026-10-02T00:00:00Z' WHERE builder_id = -133`;
+await db.unsafe(now);
+const [att] = await db<{ at: Date }[]>`SELECT attempted_at AS at FROM repo_builder_codes_attempts WHERE repo_key = 'hl-check/att'`;
+const [orr] = await db<{ at: Date | null }[]>`SELECT origin_read_at AS at FROM builder_sources WHERE builder_id = -133`;
+ok(att?.at.toISOString() === '2026-10-01T00:00:00.000Z' && orr?.at?.toISOString() === '2026-10-02T00:00:00.000Z',
+  'v3.1 Highlights: an attempt and an origin read time survive the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

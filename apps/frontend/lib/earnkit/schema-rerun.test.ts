@@ -72,3 +72,17 @@ test('v3.1 Highlights: repo_builder_codes.path and builder_sources.deployed_at a
   await sql()`DELETE FROM repo_builder_codes WHERE repo_key = ${key}`;
   await sql()`DELETE FROM builder_sources WHERE id = ${id}`;
 });
+
+test('v3.1 Highlights fix round 1: repo_builder_codes_attempts and builder_sources.origin_read_at survive a rerun with their values', dbTest, async () => {
+  const key = `rerun-att-${process.pid}/app`;
+  await sql()`INSERT INTO repo_builder_codes_attempts (repo_key, attempted_at) VALUES (${key}, '2026-10-01T00:00:00Z')`;
+  const [{ id }] = await sql()<{ id: number }[]>`
+    INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proposed_by, origin_read_at)
+    VALUES (${-process.pid - 1}, 'contract', ${`base:0x${'2'.repeat(40)}`}, 'k', 'verified', 'server', '2026-10-02T00:00:00Z') RETURNING id::int AS id`;
+  await sql().unsafe(SCHEMA);
+  await sql().unsafe(SCHEMA);
+  assert.equal((await sql()<{ at: Date }[]>`SELECT attempted_at AS at FROM repo_builder_codes_attempts WHERE repo_key = ${key}`)[0]?.at.toISOString(), '2026-10-01T00:00:00.000Z');
+  assert.equal((await sql()<{ at: Date }[]>`SELECT origin_read_at AS at FROM builder_sources WHERE id = ${id}`)[0]?.at.toISOString(), '2026-10-02T00:00:00.000Z');
+  await sql()`DELETE FROM repo_builder_codes_attempts WHERE repo_key = ${key}`;
+  await sql()`DELETE FROM builder_sources WHERE id = ${id}`;
+});

@@ -7282,28 +7282,37 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
 - **Highlights (W8, redesigned 2026-10-22).** Every item is a fact a judge can check in one click and links its proof
   (`Highlight.href`, new tab, `rel="noopener noreferrer"`); at most 5, in order, each only when true:
-  1. live: "Live at <host>", sub "Up N of the last D days" (`uptimeOf`: daily `source_readings` of the first verified
-     site source to read up, D = 30, fewer for a young site, a day unread counts as not up; only from 7 readings in the
-     window and a newest reading at most a day old), else "Since <Mon YYYY>"; links the site's https origin (`siteHref`).
+  1. live: "Live at <host>" for a verified site source whose newest reading is up (down at its last read: no item),
+     sub "Up N of the last D days checked" (`liveSub`: D the days of the last 30 EarnKit read the site, a day not read
+     counts nowhere; from 7), else "Since <Mon YYYY>"; one query; links the site's https origin (`siteHref`). Owner
+     ruling (fix round 1): a proven site shows though the repo is private; only a hidden repo's GitHub-hosted site is
+     left out (`shownProjects`' link rule).
   2. contract: "N contracts on Base" (verified `base:` sources plus EarnKit `contract_deploys`, distinct), sub "First
-     deployed <Mon YYYY>" from the earliest known time (`contract_deploys.created_at`; `builder_sources.deployed_at`,
-     the Blockscout creation time `discovery.ts` already reads, kept by `sources.ts claimContract` at verification; no
-     extra call, so a contract verified before this has no date: "Verified onchain"); links Basescan (`basescanHref`).
+     deployed <Mon YYYY>" only when every counted contract has a known time (`contract_deploys.created_at`;
+     `builder_sources.deployed_at`, kept by `sources.ts claimContract` at verification and backfilled by
+     `contract-origins.ts`), else "Verified onchain"; links Basescan (`basescanHref`), the earliest when dated.
   3. code: "Builder Code in the repo" (Base projects, App-proven repo, stored answer only), sub "Base, checked <Mon D>";
      links the file (`repo_builder_codes.path`, `githubFileHref`, the ship reading's `default_branch`, else `HEAD`).
   4. repo: "Building <name> since <Mon YYYY>" from the ship reading's `created_at`, sub "<N> commits" (or "... in the
      last year" for a repo older than the read's 52 weeks) from `commits_year` (GraphQL `history.totalCount`, already
      asked; `person-github.ts repoFrom` now keeps it and `default_branch`); a hidden repo's name never shows ("Building since").
   5. won/applied (`page-data.ts projectProgramsDated`, at most 2, sub "<Mon YYYY>"), linked to `/programs/<id>` only
-     when that guide page exists (`guide`: a file program that is not a campaign).
+     when that guide page exists (`guide-pages.ts guideProgramSql`, the predicate `landing.ts readGuideIds` uses: a
+     file program, not a campaign, not unlisted). A guide link opens in the same tab; other proof in a new tab.
   A repo link (items 3 and 4) needs the repo shown public and a reading that is not private: never a link to a 404. No
   confirmed project: one "On EarnKit since" item; a confirmed one with none of the five: "On EarnKit since", "On the
   leaderboard". The weeks-in-a-row line moved out (the Streak card owns it). A hidden repo's site is left out when its
   host is GitHub's or carries the repo name.
-- **Builder Codes daily.** `cron.ts runCron` runs `builder-codes-check.ts runBuilderCodes` (GitHub App on): the App-proven
-  repos of Base projects whose stored answer is missing or a day old (`builderCodesDue`, at most `BUILDER_CODES_PER_RUN`
-  = 50, never checked first), each through `refreshBuilderCodes` (the 1-day cache and the in-process `codesTried`
-  backoff), none started past the run's deadline; the cron answer carries `builder_codes: { due, checked, found }`.
+- **Builder Codes daily.** `cron.ts runCron` runs `builder-codes-check.ts runBuilderCodes` (GitHub App on) after the
+  weekly email, in its own slice (`builderCodesSliceEnd`, at most `BUILDER_CODES_SLICE_MS` = 1 minute): the App-proven
+  repos of Base projects not attempted within the day and whose stored answer is missing or a day old
+  (`builderCodesDue`, at most `BUILDER_CODES_PER_RUN` = 50). Every attempt, success or failure, is stored
+  (`repo_builder_codes_attempts`, claimed atomically by `claimAttempt`), so a failing repo waits a day and never holds
+  a slot, and find, prepare and the cron share one attempt a day across processes. Answer: `builder_codes: { due,
+  checked, found }`.
+- **Contract origins backfill.** `contract-origins.ts backfillContractOrigins`, after the email in the same slice rule:
+  verified Base contract sources without `deployed_at`, at most 20 a run, Blockscout's creation time (free), each asked
+  once or again after a week without a time (`builder_sources.origin_read_at`). Answer: `contract_origins: { due, dated }`.
 - **Standing pill.** Only on a ranked page; Base pool percentile when on Base with 10+ there, else the whole pool from
   10; metal from `site-copy.ts standingTier` (none outside the top 25%); `title` is the place, "#N of M builders" (" on Base" for the Base pool; `rank.ts rankLine` only guards validity).
 - **Backer bars.** `coin_backers.first_block` timed as `BASE_GENESIS_UNIX + 2 * block` (Base's fixed 2s blocks; no RPC

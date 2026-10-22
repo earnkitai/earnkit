@@ -1759,3 +1759,9 @@ ALTER TABLE coin_backers ALTER COLUMN first_seen_at SET NOT NULL;
 -- from before stay null until the next check or verification fills them.
 ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS path text;
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS deployed_at timestamptz;
+
+-- v3.1 Highlights fix round 1: every Builder Codes attempt (success or failure) per repo, so a repo that keeps failing
+-- waits a day like a checked one (replaces the in-process backoff) and never holds a slot of the cron's daily batch;
+-- and when a verified contract's creation time was last asked of Blockscout (the bounded backfill of deployed_at).
+CREATE TABLE IF NOT EXISTS repo_builder_codes_attempts (repo_key text PRIMARY KEY, attempted_at timestamptz NOT NULL);
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS origin_read_at timestamptz;

@@ -9,8 +9,11 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { codesSettled } from './bench-find';
 import { BASE_GRANTS_ID, BUILDER_CODES_FIRST, BUILDER_CODES_SUFFIX, builderCodesFound, builderCodesIn } from './builder-code';
-import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesDue, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths, runBuilderCodes, storedBuilderCode } from './builder-codes-check';
-import { runCron } from './cron';
+import { BUILDER_CODES_FILES, BUILDER_CODES_TTL_MS, builderCodesDue, builderCodesKnown, builderCodesWords, checkBuilderCodes, codePaths, refreshBuilderCodes, runBuilderCodes, storedBuilderCode } from './builder-codes-check';
+import { BUILDER_CODES_SLICE_MS, builderCodesSliceEnd, runCron } from './cron';
+import { GitHubBudgetStop, type ReaderDeps } from './source-readers';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 
@@ -39,6 +42,14 @@ type Ctx = Parameters<typeof mcpCall>[0];
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 let n = 0;
 
+/**
+ * Fix round 1: find's on-demand refresh reads through this fake, which answers every read with a spent budget (the
+ * refresh writes nothing and logs nothing); these tests are about Builder Codes, never the score's reads.
+ */
+const QUIET = new Proxy({}, {
+  get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => true : k === 'requests' ? { tick: null } : async () => { throw new GitHubBudgetStop(); }),
+}) as ReaderDeps;
+
 /** A ranked builder whose one project is `key` (proven by the App), fitting only Base Builder Grants (rolling). */
 async function builder(key: string, files: Record<string, string> | null | undefined): Promise<{ ctx: Ctx; id: number; gh: FakeGitHub }> {
   n++;
@@ -49,7 +60,7 @@ async function builder(key: string, files: Record<string, string> | null | undef
   assert.ok((await attachToX(own, { id: `97${RUN}${n}`, username: handle, name: 'bc', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
   const ctx = {
-    installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits: repoFits(key) })) as never,
+    installationId: c.id, ownInstallationId: c.own, sharedClient: false, readerDeps: QUIET, matchProjects: (async () => ({ checked: 1, scored: 1, fits: repoFits(key) })) as never,
     tokenDeps: { check: async () => true },
   } as Ctx;
   await mcpCall(ctx, 'find', { identity: { project: { name: 'App', repo: `https://github.com/${key}` } } });
@@ -281,7 +292,7 @@ test('(i) v3.1 Highlights: the daily step checks App-proven Base repos that are 
   assert.deepEqual((await builderCodesDue(new Date(now.getTime() + BUILDER_CODES_TTL_MS), { only })).map((r) => r.repo).sort(), [k('a'), k('b'), k('d')]);
 });
 
-test('(j) v3.1 Highlights: a failed check is not retried within the day by the hourly cron (codesTried), and runCron reports the step', db, async () => {
+test('(j) v3.1 Highlights: a failed check is not retried within the day by the hourly cron (its attempt is stored), and runCron reports the step', db, async () => {
   const key = `hl${RUN}e/app`;
   const b = await builder(key, null); // the tree answers 500
   await onChains(b.id, ['base']);
@@ -290,13 +301,62 @@ test('(j) v3.1 Highlights: a failed check is not retried within the day by the h
   const first = await runCron({ now, only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } });
   assert.deepEqual(first.builder_codes, { due: 1, checked: 1, found: 0 });
   assert.equal(trees(), 1);
-  // An hour later it is still due (nothing stored), but this process tried it within the day: not read again.
+  // An hour later: no answer is stored, but the attempt is (any process, after a restart too): not due, not read.
+  assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1);
   const next = await runCron({ now: new Date(now.getTime() + 3_600_000), only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } });
-  assert.deepEqual(next.builder_codes, { due: 1, checked: 0, found: 0 });
+  assert.deepEqual(next.builder_codes, { due: 0, checked: 0, found: 0 });
   assert.equal(trees(), 1);
   // A scoped run without the step's deps skips it; the App off skips it.
   assert.equal((await runCron({ now, only: ['none'] })).builder_codes, undefined);
   await withEnv({ GITHUB_APP_PRIVATE_KEY: undefined }, async () => {
     assert.equal((await runCron({ now, only: ['none'], deps: { builderCodes: { only: [b.id], fetch: b.gh } } })).builder_codes, undefined);
   });
+});
+
+test('(k) fix round 1: repos that keep failing never starve healthy ones of the daily batch (attempts back off before the LIMIT)', db, async () => {
+  const k = (x: string) => `hl${RUN}st${x}/app`;
+  const bad1 = await builder(k('a'), null);
+  const bad2 = await builder(k('b'), null);
+  const good = await builder(k('c'), CODE);
+  for (const b of [bad1, bad2, good]) await onChains(b.id, ['base']);
+  const only = [bad1.id, bad2.id, good.id];
+  const gh = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(input);
+    return (u.includes(k('a')) ? bad1.gh : u.includes(k('b')) ? bad2.gh : good.gh)(input, init);
+  }) as typeof fetch;
+  const day = 86_400_000;
+  const t0 = new Date(Date.now() + 2 * day);
+  // Day 1, two slots: the two failing repos come first by name and fail; nothing is stored for them but their attempts.
+  assert.deepEqual(await runBuilderCodes(t0, { only, fetch: gh, limit: 2 }), { due: 2, checked: 2, found: 0 });
+  // The same day, two slots: only the healthy repo is due (the failing ones wait out their day), and it is checked.
+  assert.deepEqual((await builderCodesDue(new Date(t0.getTime() + 3_600_000), { only, limit: 2 })).map((r) => r.repo), [k('c')]);
+  assert.deepEqual(await runBuilderCodes(new Date(t0.getTime() + 3_600_000), { only, fetch: gh, limit: 2 }), { due: 1, checked: 1, found: 1 });
+  // A day later the failing ones are due again, the oldest attempt first; the healthy one is fresh.
+  assert.deepEqual((await builderCodesDue(new Date(t0.getTime() + day), { only, limit: 2 })).map((r) => r.repo), [k('a'), k('b')]);
+});
+
+test('(l) fix round 1: find or prepare and the cron share one attempt a day, across processes (stored, not in memory)', db, async () => {
+  const key = `hl${RUN}sh/app`;
+  const b = await builder(key, null);
+  await onChains(b.id, ['base']);
+  const trees = () => b.gh.calls.filter((c) => c.path.includes('/git/trees/')).length;
+  const t = new Date(Date.now() + 4 * 86_400_000);
+  assert.equal(await refreshBuilderCodes(b.id, key, null, t, b.gh), null, 'the read fails');
+  assert.equal(trees(), 1);
+  // Another process (no shared memory) asking the same day finds the stored attempt.
+  assert.equal(await refreshBuilderCodes(b.id, key, null, new Date(t.getTime() + 60_000), b.gh), null);
+  assert.deepEqual(await runBuilderCodes(new Date(t.getTime() + 60_000), { only: [b.id], fetch: b.gh }), { due: 0, checked: 0, found: 0 });
+  assert.equal(trees(), 1);
+});
+
+test('(m) fix round 1: the Builder Codes step runs after the weekly email, in its own slice of at most a minute', () => {
+  const src = readFileSync(join(import.meta.dirname, 'cron.ts'), 'utf8');
+  const body = src.slice(src.indexOf('export async function runCron('));
+  assert.ok(body.indexOf('await sendDigests(') > 0);
+  assert.ok(body.indexOf('await runBuilderCodes(') > body.indexOf('await sendDigests('), 'after the email');
+  assert.ok(body.indexOf('await backfillContractOrigins(') > body.indexOf('await sendDigests('), 'the origins backfill too');
+  assert.match(body, /runBuilderCodes\(now, \{ \.\.\.deps\.builderCodes, deadline: builderCodesSliceEnd\(Date\.now\(\), deadline\) \}\)/);
+  assert.equal(BUILDER_CODES_SLICE_MS, 60_000);
+  assert.equal(builderCodesSliceEnd(1_000, 500_000), 61_000);
+  assert.equal(builderCodesSliceEnd(1_000, 30_000), 30_000, 'never past the run');
 });
