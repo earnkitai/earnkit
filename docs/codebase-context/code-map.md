@@ -225,7 +225,12 @@ apps/frontend/
                                v3 Stage 3 Task 6: benchCard on THEME (black, CardWordmark, the Backing pill, the
                                rank line as the 64px headline, CardNumber for Shipping and Earned, project and
                                streak, the URL); loadFonts and CardWordmark are shared with scripts/og.mts
-  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx
+  app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (live is exported for post-response.ts)
+  app/[handle]/post-response.ts  v3.1 one-tap posts Task 4: postResponse (code checked first, live row as the card: 404 or
+                               308 to <page>/post/<code>; another builder's or unknown code 404; expired 302 to the page;
+                               else tapDraft and a no-store 302 to postIntent: x.com/intent/post with the row's text and
+                               url https://earnkit.com<page>?m=<code>, built from the row only)
+  app/[handle]/post/[code]/route.ts  thin route over postResponse
   app/[handle]/BadgeCopy.tsx   launch-ready L8, v3 Stage 3: the badge image, then "Badge for your README" as a details/summary
                                that opens to the markdown and a Copy button (client)
   app/badge/[file]/{route.ts,badge-load.ts}  launch-ready L8: GET /badge/<handle>.svg (badgeResponse, always 200) over
@@ -235,6 +240,8 @@ apps/frontend/
   app/b/[slug]/{card.png/route.tsx,share/route.ts}  v2.12.1 T12: thin wrappers: a reserved handle through
                                cardResponse/shareResponse at /b/<handle>; a claimed v2.12 slug 308s to
                                pagePath(handle)/card.png or /share; else 404
+  app/b/[slug]/post/[code]/route.ts  v3.1 one-tap posts: a reserved handle through postResponse at /b/<handle>; a claimed
+                               v2.12 slug 308s to pagePath(handle)/post/<code>; a bad code or anything else 404
   app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
                                PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
@@ -1652,6 +1659,26 @@ apps/frontend/
                                else inserted), openShare / answerShare (standing_seen.share_open), SHARE_NOTE, APPROVED_LINE;
                                weekly-moment.test.ts through mcpCall, weekly-target.test.ts pure;
                                fixtures/ranked-step.ts (RANKED_STEP, endsOnRankedStep) for tests of the ranked step
+    post-drafts.ts(+test)      v3.1 one-tap posts Task 1: the post_drafts store. POST_MOMENTS, newCode (10 base32 chars,
+                               CODE_PATTERN), createDraft (per-person advisory lock; 1 offered a 7 days, 1 asked a 24 hours,
+                               3 in all a 7 days; 14-day expiry; post_drafted event), draftByCode, tapDraft (own, unexpired;
+                               taps capped at TAP_CAP 100; first_tap_at; post_tapped on the first; no IP or UA), noteVisit
+                               (visits and x_visits, VISIT_CAP), recentDrafts (newest first)
+    post-writer.ts(+test)      v3.1 one-tap posts Task 2: the pure writer. POST_SHAPES (note, name_week, change, this_week,
+                               count, bare, live/live_alt, won/won_alt, accepted/accepted_alt, funded/funded_alt, coin_intro),
+                               writePost(input, history) (rotation: never one of the last 2 shapes nor the last opening word,
+                               relaxed to not the last shape; weekly null when nothing fits, an event its first passing
+                               wording), postProblems (banned hype and shill words, hashtags, cashtags but the coin intro's one
+                               ticker, links, emoji, em dash, "!", repeat, "just shipped" twice), openingWord, isMilestone,
+                               POST_MAX 200; copy-review.test.ts sweeps every shape
+    post-moments.ts(+test)     v3.1 one-tap posts Task 3: which moments get a post. holdOf (pure cooldowns: weekly 13 days
+                               after a tapped one unless a big week, one offer a week; once a project or program; one kind in
+                               28 days; news 24 h; coin intro once ever), liveTiming (settles 2 days, stale after 14),
+                               proofUrlOk (owner ruling 3: https X post or the program's own site; never earnkit, the
+                               builder's site or repo), weeklyCandidate, wentLiveCandidate (week-facts firstLiveAt),
+                               announcedWinCandidates (entry_outcomes announcement + source_url), verifiedOutcomeCandidate,
+                               coinIntroCandidate (pillCoin), newsCandidate (checkUpdate), offeredMoment (won, went live,
+                               coin intro, weekly), draftMoment (writer + createDraft; an asked redraft skips the hold)
     embed-worker.mjs           scoring and clarity R3 fix round 2: the child process that loads transformers.js MiniLM q8
                                (EARNKIT_MODEL_DIR), JSON texts on stdin, vectors on stdout, batches of 4, then exits
     originality.ts(+test)      scoring and clarity R3: Originality (0 to 100, never ranked): originalityOf (the formula),
@@ -1866,7 +1893,8 @@ apps/frontend/
                                lists the main other tables, keys and repo columns holding them, never changes them (lib/earnkit/
                                events-redact.test.ts runs it as a child process); v2.14 T7: the profile clear also unbinds the
                                person's installations (x_user_id) and deletes their x_signin_links rows; v2.12: also the profile's login,
-                               X handle, fallback, slug and slug history, sources' ref/project_key/deployer
+                               X handle, fallback, slug and slug history, sources' ref/project_key/deployer; v3.1 one-tap
+                               posts: post_drafts (project_key, text, moment_key listed; its rows deleted with the page data)
                                v212-metric.mts: v2.12 T15, the empty-profile rate for new installs per UTC day
                                (`<day>: N new, E empty (P%)`; --as-of, --days 14), shown, never a target
                                (owner-run, one READ ONLY transaction; v212-journey.test.ts 15.5 runs it)

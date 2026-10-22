@@ -7525,3 +7525,39 @@ the rewritten replies (Task 16). They are not repeated here.
 - **Rulings.** Task 11 (Monday X post) is superseded by Task 16 step 7 (`MOMENT_POST_HEAD`, `momentPost`, no intent link, shipped
   in release 1). Task 13 (page hides: Originality, points, grid) is superseded by the site plan (profile rewritten; no
   Originality, points or grid on pages; docs has no points); the site design is frozen and owner-approved.
+
+## v3.1 one-tap posts: Tasks 1 to 4 (design: v3.1-one-tap-posts.md, owner rulings 2026-10-22)
+
+Backing volume comes from builders posting on X, and builders rarely post. EarnKit drafts the post; the reply's one link is
+a short earnkit.com link that opens X's composer prefilled; the builder taps Post. No X API, no model call, no new service.
+Replies and the card are not wired yet (Tasks 5 to 7).
+
+- **Store (`post-drafts.ts`, `post_drafts`).** One row per draft, keyed by a 10-character base32 code. `moment` and
+  `moment_key` (`weekly:<project>:<week>`, `went_live:<project>`, `won:<program>`, `coin_intro:<coin>`, `news:<project>:<at>`)
+  drive the cooldowns; `asked` splits builder-asked drafts from offered ones; `proof_url` keeps the public page that verified
+  an accepted, funded or won moment; `card` freezes the moment's facts for the card. Limits are checked and written under a
+  per-person advisory lock: 1 offered a 7 days, 1 asked a 24 hours, 3 in all a 7 days. A draft lives 14 days. A tap is a
+  number only (no IP, no user agent): `taps` stops at 100, `first_tap_at` is kept, `post_tapped` is recorded once; visits
+  carrying `?m=<code>` (Task 5) count apart, and from X apart, capped. Events `post_drafted` and `post_tapped` are in
+  `EVENT_TYPES` and in every `builder_events_type_check` re-add.
+- **Writer (`post-writer.ts`, pure).** Shapes from the design plus `this_week` ("This week: <summary>"), the second wordings
+  `live_alt`, `won_alt`, `accepted`/`accepted_alt`, `funded`/`funded_alt`, and `coin_intro` (owner ruling 1: "<Name> has a coin
+  now, $SYM. <n> weeks shipping so far.", the only shape that may name the ticker, once ever). Rotation: never one of the
+  person's last 2 shapes and never the last post's opening word, relaxed to "not the last shape"; a weekly with nothing that
+  fits is no post, an event takes its first wording that passes. The builder's note wins and goes in verbatim unless it holds
+  a shill word, hashtag, cashtag or link (their own "!" stays). Every EarnKit-written text passes `postProblems` (the design's
+  banned list, test-enforced) and stays under 200 characters.
+- **Moments (`post-moments.ts`).** `offeredMoment` reads existing data in order: an announced win (`entry_outcomes` basis
+  `announcement` with its `source_url`, the proof), going live (`week-facts.ts firstLiveAt`, extracted from `weekFactsFor`; it
+  settles 2 days so a flapping site probe never posts, and is stale after 14), the coin intro (`raising.ts pillCoin`: launched,
+  backing open, `EARNKIT_RAISING` on), last week (facts, the summary as the profile shows it via `weekLineRule`, the note via
+  `checkUpdate`, the streak; milestones 4, 8, 12, 26, 52 fold in). `verifiedOutcomeCandidate` (owner ruling 3) drafts accepted,
+  funded or won only with a proof link that `proofUrlOk` accepts: https, an X post (`x.com/<user>/status/<id>`) or the program's
+  own site (its source or submission link's domain), never earnkit.com, the builder's own site or repo; EarnKit does not fetch
+  it. `newsCandidate` is the builder's `tell update` text. Never a post: backing opened, applied, first users, a streak alone, a
+  self-reported win without proof, a private project's name (name-led shapes need a shown name). `draftMoment` writes and stores.
+- **Tap route (`app/[handle]/post-response.ts`).** `/<handle>/post/<code>` and `/b/<handle>/post/<code>`: the code is checked
+  first, then the live row as the card checks it (hidden or unknown 404, rename 308 to the page's own post link), then the code
+  must be this person's (else 404); expired goes to the page; otherwise the tap counts and a no-store 302 opens
+  `x.com/intent/post` with the row's text and `https://earnkit.com<page>?m=<code>`, encoded with `URLSearchParams`. Nothing in
+  the request reaches the target.

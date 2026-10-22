@@ -25,8 +25,8 @@ import { THEME as T } from '../../lib/earnkit/theme';
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
-/** The live row behind `handle` at `path`: the person, or the 404 or 308 to send. */
-async function live(handle: string, path: string, suffix: string): Promise<{ builderId: number; handle: string } | Response> {
+/** The live row behind `handle` at `path`: the person, or the 404 or 308 (to `<page>/<suffix>`) to send. */
+export async function live(handle: string, path: string, suffix: string): Promise<{ builderId: number; handle: string } | Response> {
   const r = await resolveHandle(handle);
   if (!r) return notFound();
   const move = (to: string) => new Response(null, { status: 308, headers: { Location: `${to}/${suffix}`, 'Cache-Control': 'no-store' } });
