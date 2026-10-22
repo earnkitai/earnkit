@@ -2097,6 +2097,14 @@ v3.1 P0 Task 16 (every reply rewritten): `bench-reply.ts` (see its entry above),
 `NO_MONEY_LINE`, `noFitLine`, `fitsLine`, `ideasLine`, `needsLine`, `shippingStand`, `SHIP_STEP`, `shareAsk`, `CONNECT_HEAD`,
 `fundNeeds`, `needsPicks`, `NEEDS_MAX`. New: `v31-reply-copy.test.ts`, `bench-reply.test.ts` rewritten.
 
+v3.1 release 2 Task 12 (Monday email money): new `best-fit.ts` (`bestFitFor`), `digest.ts` (`moneyTexts`, `moneyLines`,
+`DigestFacts.money`), `backers.ts` (`newBackers`, `first_seen_at` on insert), `bench-find.ts` (`scoreApplies`, `bestApplies`
+extracted from `benchView`), `db/schema.sql` (the `coin_backers.first_seen_at` append), `scripts/db-check.mts` (its checks).
+New: `v31-monday-email.test.ts`; `digest.test.ts` and `v3-monday-email.test.ts` follow `money: []`.
+v3.1 release 2 Task 14 (copy sweep): `copy-review.test.ts` (`v31Texts`, per-label `allowed` map). Site UX batch: `not-found.tsx`
+(`NOT_FOUND_METADATA`) used by `generateMetadata` in `p/[id]`, `b/[slug]`, `campaigns/[slug]`, `programs/[id]`;
+`landing/Opportunities.tsx` lazy logos; `FadeRail.tsx`, `DocsNav.tsx` (see the site entries below).
+
 v3.1 site (Tasks 1 to 11, commits a9b72676 to d4a8757d; every file under `apps/frontend/`):
 
 New, tokens and data:

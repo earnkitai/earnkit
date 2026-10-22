@@ -7170,7 +7170,7 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
 ## v3.1 replies: P0 Tasks 2, 3, 5, 6, 7, 8 and 9 (Tasks 1, 4, 10 and 16 are above)
 
 Release 1 of v3.1 (spec `v3.1-founder-power-user.md`, plan `v3.1-plan-p0.md`). Tasks 1, 4, 10 and 16 have their own sections
-above; these are the rest, in task order. Task 11 to 15 (Monday X post, Monday email, copy sweep) follow in release 2.
+above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday email, copy sweep) are in "v3.1 release 2" at the end of the v3.1 sections.
 
 - **Task 2 (F2): the connect question says where the weeks go.** `connectAsk(weeks, page)` (`bench-reply.ts`, re-exported by
   `connect-moment.ts`) replaced "Does this look right? Yes posts them." (`CONNECT_ASK`, gone). Task 16 later rewrote the
@@ -7409,3 +7409,41 @@ section is the whole picture. The design rules are in `apps/frontend/DESIGN.md`.
   cut edge (`FadeRail`, `SegTabs RAIL_FADE`); the 404 renders its own `<title>` "Not found | EarnKit" (a page that calls
   `notFound()` keeps its segment's metadata in the browser). The feed's row order (pinned, then the week's progress points,
   then the live score; v2.13 R7 "ranked by verified progress") is intended and unchanged.
+
+## v3.1 release 2 (since origin/main e2aaf5cc: Tasks 12, 14, 15 and the site UX batch)
+
+Index of the release 1 checklist: F1 and `fitGate` (Task 1 section), F2 connect copy (Tasks 2, 3, 5, 6, 7, 8 and 9 section), F3
+and `RANK_MIN_POOL` (same section, Task 3; the JSON keeps the rank), the trimmed reply (Task 4), the MCP surface (Task 10),
+the rewritten replies (Task 16). They are not repeated here.
+
+- **Task 12: the Monday email leads with money (spec 3.3, D5, D6).** `digest.ts DigestFacts.money` is a list of lines above the
+  week, each only when true, never points; `digestBody` sends money lines alone as "Your EarnKit week" and still returns null
+  with no money, no week and no lines. `moneyTexts(best, newBackerCount, now)` is the pure part: "{title} closes in N days. Your
+  draft is one yes away." (a rolling program: "{title} is open (rolling), and your draft is one yes away."), then "N new
+  backers this week." `moneyLines(person, now)` reads both and is none on a shared client or a per-login subscription (no
+  verified person; `digestWeek` now also returns `person`). The Best fit is never also a new-program line.
+- **`best-fit.ts bestFitFor(builderId, now)`.** The Best fit outside a reply: the one project (`main_project_key`), its apply
+  candidates as score reads them (`bench-find.ts scoreApplies`), then `bestApplies` (programs the builder told EarnKit about
+  or declined in 30 days dropped, then `applyCandidates`); the first is the Best fit. Gates match the reply's ranked state:
+  signed in (`signedOutNow`) and the one project confirmed (`mainConfirmed`). Null on no project, not ranked, no fit or a read
+  error; never throws. `bench-find.ts` exports `scoreApplies` (the open, listed, unhidden cards, the upcoming ones, the skip set
+  and the apply candidates; investments included) and `bestApplies`; `benchView` now calls both, so reply and email cannot drift.
+- **`newBackers(builderId, since)` and `coin_backers.first_seen_at`.** The backers first seen after `since` on the builder's
+  coin whose backing is open (`raising.ts pillCoin`); 0 with `EARNKIT_RAISING` off, no coin or a read error. `indexBackers`
+  stamps `first_seen_at`; the schema append adds the column, sets every pre-v3.1 row to `'epoch'` (never new), then
+  `DEFAULT now()` and `NOT NULL`, idempotent (`db-check.mts` pins all of it, twice).
+- **Task 14: the copy sweep.** `copy-review.test.ts v31Texts()` runs every new v3.1 string (replies, draft, email) through the
+  v2.12.1 T8 rule, the banned words, the em dash scan and the line-start and one-link rules. Program words are exempt per
+  label, not globally: the `allowed` map (label to exact words, e.g. "Base", "Builder Codes", the grant title, the owner-approved
+  Task 16 phrases "pick the repo you're building" and "I read your commits every week") strips only those from only that string,
+  and a test asserts every allowlist key is a real label.
+- **Site UX batch (2026-10-22; details in the "v3.1 site" section).** Footer crop and headline offset; the leaderboard count
+  line follows the filter while the 10-ranked rule keeps the pool; the profile's two card rows share one grid seam; the docs side
+  nav lights the section in view (`DocsNav`); an unranked score ring is an empty track; the phone hero scrim and dark chip;
+  `FadeRail` fades a sideways rail's cut edge while it overflows; one 404 title: `not-found.tsx NOT_FOUND_METADATA` is the
+  `metadata` export and the `generateMetadata` of `p/[id]`, `b/[slug]`, `campaigns/[slug]` and `programs/[id]` when their
+  entity is missing (a route that calls `notFound()` otherwise keeps the layout's title); the landing's program logos load
+  lazily so none is preloaded unused.
+- **Rulings.** Task 11 (Monday X post) is superseded by Task 16 step 7 (`MOMENT_POST_HEAD`, `momentPost`, no intent link, shipped
+  in release 1). Task 13 (page hides: Originality, points, grid) is superseded by the site plan (profile rewritten; no
+  Originality, points or grid on pages; docs has no points); the site design is frozen and owner-approved.
