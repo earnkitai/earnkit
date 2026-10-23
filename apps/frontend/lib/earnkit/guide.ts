@@ -319,7 +319,7 @@ export function guideText(g: Guide): string {
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     // v2.10 item 3: only sourced parts; the rules fallback, one per line.
     !g.wants && g.rules_wants && ['What it wants', ...g.rules_wants.map((r) => `- ${r}`)].join('\n'),
-    g.best_bet && `Your best bet\n- ${g.best_bet}`,
+    g.best_bet && `Most likely to win\n- ${g.best_bet}`,
   ];
   return sections.filter(Boolean).join('\n\n');
 }

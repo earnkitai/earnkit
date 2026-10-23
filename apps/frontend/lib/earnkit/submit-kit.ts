@@ -91,6 +91,18 @@ export function continuesLine(p: Pick<KitProgram, 'investment' | 'organizer' | '
   return `After ${step}, the application continues on ${org ? `${org}'s` : 'their'} site.`;
 }
 
+/**
+ * v3.1 cold read (owner-approved): an investment whose application is on its own site, where EarnKit's part is one email
+ * step (continuesLine): "a16z speedrun's application is on their site and starts with your email: <link>" (the round's
+ * code, "SR008", left out of the name). Null for every other program. Pure.
+ */
+export function siteFormLine(p: Pick<KitProgram, 'investment' | 'organizer' | 'submission_requirements' | 'title' | 'submission_url'>, todo: string | null): string | null {
+  if (!continuesLine(p) || p.submission_requirements.filter((r) => r.required).length !== 1) return null;
+  const name = p.title.trim().replace(/\s+[A-Z]{2,5}\d{1,4}$/, '');
+  const what = (todo ?? 'your email').replace(/\s*\(check it\)$/, '');
+  return `${name}'s application is on their site and starts with ${what}: ${p.submission_url}`;
+}
+
 /** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */
 export const MAX_PREFILL_URL = 8000;
 
@@ -367,6 +379,15 @@ export function kitReplyNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
   );
 }
 
+/**
+ * v3.1 cold read round 2: what the builder still adds, in one short line: "You add 10 more in the form: your email,
+ * your Telegram username and 8 short answers." (the form's own items, never invented). Pure.
+ */
+export function youAddLine(missing: string[]): string {
+  const n = missing.length;
+  if (n <= 2) return `You add ${n} more in the form: ${missing.join(' and ')}.`;
+  return `You add ${n} more in the form: ${missing[0]}, ${missing[1]} and ${n - 2} short ${n - 2 === 1 ? 'answer' : 'answers'}.`;
+}
 /** v3.1 (spec 3.2), Task 16 step 6: the one question after a drafted application; a yes records `applied`. */
 export const SENT_ASK = 'Sent it?';
 /** Task 16 step 6: "Your Base Builder Grant Program application is ready. I filled 6 of 16 answers from your work.". Pure. */
@@ -422,6 +443,11 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
     return [{ key: r.key, label: r.label, answer: '', missing: true }];
   });
   const filled = fields.filter((f) => !f.missing);
+  // v3.1 cold read (owner-approved): a program whose form lives on its own site and starts with only an email is never
+  // "Your ... application is ready. I filled 0 of 1 answer": one line with the form link, and "Sent it?".
+  const site = siteFormLine(program, missing[0] ?? null);
+  if (site)
+    return { mode: 'copy_paste', url: program.submission_url, fields, missing, show_to_builder: `${site}\n${SENT_ASK}` };
   const given = Object.fromEntries(filled.map((f) => [f.key, f.answer]));
   const kind = prefillKindOf(hostOf(program));
   const pre =
@@ -438,7 +464,7 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
       ];
   const explain = [
     draftReadyLine(program.title, filled.length, fields.length),
-    ...(missing.length ? [`You add: ${missing.join(', ')}.`] : []),
+    ...(missing.length ? [youAddLine(missing)] : []),
     ...(o.note ? [o.note] : []),
     ...(continuesLine(program) ? [continuesLine(program)!] : []),
   ];

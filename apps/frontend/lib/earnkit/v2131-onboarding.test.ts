@@ -7,7 +7,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, claimX, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE, OTHER_PROJECT_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
+import { INTRO_LINE, OTHER_PROJECT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import { mainProjectOf } from './main-project';
 import { endsOnRankedStep } from './fixtures/ranked-step';
 
@@ -129,7 +129,8 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     assert.equal(q.move_up?.kind, 'qualify');
     await tell(id, { kind: 'qualify', project_key: key, answer: 'no' });
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
+    // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
+    assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'ship');
     assert.equal(lastQ(r.show_to_builder).length, 1);
     const g = await tell(id, { kind: 'ship', project_key: key, answer: 'yes' });
@@ -159,7 +160,8 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     const c = await install();
     await claimX(c);
     const cr = await find(c, { ...named(`${uniq('na')}/recipes`), agent_can_build: false }, NO_MATCH);
-    assert.match(cr.show_to_builder, /Recipes isn't counted yet\./, cr.show_to_builder);
+    // v3.1 cold read: never "isn't counted yet"; the reply is the one step.
+    assert.doesNotMatch(cr.show_to_builder, /isn't counted yet/, cr.show_to_builder);
     assert.equal(lastQ(cr.show_to_builder).length, 1);
   }),
 );

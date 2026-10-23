@@ -1,7 +1,7 @@
 import type { ProofFetch } from './outcome-proof';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
-import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
+import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
 import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-drafts';
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
@@ -194,18 +194,37 @@ export async function outcomePost(
   const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }, { proofFetch: o.proofFetch }).catch(logged('outcome'));
   // GTM W2 (2026-10-23): every told outcome gets a short congrats, never nothing; the post only with a checked proof.
   const congrats = await congratsLine(s.program_id, s.status);
-  if (c === 'no_proof') return { show_to_builder: [congrats, PROOF_ASK].join('\n'), agent_note: PROOF_NOTE };
+  // v3.1 cold read (owner-approved): no proof link yet: one line asks for the announcement, the post it becomes.
+  if (c === 'no_proof') return { show_to_builder: proofAsk(await programTitle(s.program_id)), agent_note: PROOF_NOTE };
   // Final review 1: the program lists no proof hosts or X accounts, so no link could prove it: a plain acknowledgement.
   if (c === 'no_proof_source') return { show_to_builder: OUTCOME_NOTED };
   if (!c || typeof c === 'string') return { show_to_builder: congrats };
   return (await draftedReply(id, c, false, now, { head: [congrats, eventHead(c, now)].filter(Boolean).join(' ') })) ?? { show_to_builder: congrats };
 }
 
+/**
+ * v3.1 cold read: the builder said yes to "Want a post about this week?" (the backers answer): last week's post, asked by
+ * the builder (so the asked limit holds), with its one-tap link and question; null when there is no week worth a post or
+ * a limit holds it. Never throws.
+ */
+export async function weekPostReply(id: number, now: Date): Promise<Record<string, unknown> | null> {
+  const c = await weeklyCandidate(id, now).catch(logged('week post'));
+  if (!c || typeof c === 'string') return null;
+  return draftedReply(id, c, true, now, { head: '' });
+}
+
 /** GTM W2: "Congrats on getting into the Base Builder Grant Program." (funded, won: their own words). Never throws. */
 async function congratsLine(programId: string, status: 'accepted' | 'funded' | 'won'): Promise<string> {
-  const [g] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${programId}`.catch(() => []);
-  return outcomeCongrats(status, g?.title ?? null);
+  return outcomeCongrats(status, await programTitle(programId));
 }
+/** A program's title, or null. Never throws. */
+async function programTitle(programId: string): Promise<string | null> {
+  const [g] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${programId}`.catch(() => []);
+  return g?.title ?? null;
+}
+/** v3.1 cold read (owner-approved): an accepted, funded or won outcome told without its proof link. Pure. */
+export const proofAsk = (title: string | null) =>
+  `Congrats on ${title ? (/^the\s/i.test(title) ? title : `the ${title}`) : 'the news'}. Got the announcement link? I'll turn it into a post.`;
 /** GTM W2: the congrats for a told outcome, the program named when known. Pure. */
 export function outcomeCongrats(status: 'accepted' | 'funded' | 'won', title: string | null): string {
   if (!title) return 'Congrats.';

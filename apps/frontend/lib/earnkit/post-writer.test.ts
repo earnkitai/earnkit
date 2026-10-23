@@ -34,7 +34,7 @@ test('good 4: Sam, Tally, went live after 9 weeks of commits', () => {
 
 test('good 5: Lee, Ledgerline, a 12-week streak', () => {
   assert.deepEqual(write(weekly({ name: 'Ledgerline', week: 12, summary: 'Added CSV export.' })), {
-    shape: 'count', text: '12 weeks shipping Ledgerline without missing one. This week: added CSV export.',
+    shape: 'count', text: '12 weeks shipping Ledgerline without missing one. Last week: added CSV export.',
   });
 });
 
@@ -104,7 +104,7 @@ test('a private project (no name to show): only the nameless shapes', () => {
   const a = write(weekly({ name: null, week: 6, summary: 'Added offline mode.' }))!;
   assert.deepEqual(a, { shape: 'change', text: 'Added offline mode.' });
   const b = write(weekly({ name: null, week: 7, summary: 'Rebuilt search.' }), [a])!;
-  assert.deepEqual(b, { shape: 'this_week', text: 'This week: rebuilt search.' });
+  assert.deepEqual(b, { shape: 'this_week', text: 'Last week: rebuilt search.' });
   assert.equal(write({ moment: 'went_live', name: null as unknown as string, weeks: 3 }), null);
 });
 
@@ -217,7 +217,7 @@ test('final review 2: a private project named by its site host ("earnkit.com") i
   assert.equal(write({ moment: 'funded', name, program: 'Base Builder Grant', award: null })!.text, 'earnkit.com was funded by the Base Builder Grant.');
   assert.equal(write({ moment: 'coin_intro', name, symbol: 'KIT', weeks: 6 })!.text, 'earnkit.com has a coin now, $KIT. 6 weeks shipping so far.');
   assert.equal(write(weekly({ name, week: 3, summary: 'Added search.' }))!.text, 'earnkit.com, week 3: added search.');
-  assert.equal(write(weekly({ name, week: 12, summary: 'Added search.' }))!.text, '12 weeks shipping earnkit.com without missing one. This week: added search.');
+  assert.equal(write(weekly({ name, week: 12, summary: 'Added search.' }))!.text, '12 weeks shipping earnkit.com without missing one. Last week: added search.');
   // A name that is a full link is never trusted.
   assert.equal(write({ moment: 'went_live', name: 'https://earnkit.com', weeks: 9 }), null);
 });

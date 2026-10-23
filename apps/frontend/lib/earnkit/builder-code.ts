@@ -37,4 +37,5 @@ export function builderCodesIn(text: string): boolean {
 /** The program whose Best fit line carries the Builder Codes sentence. */
 export const BASE_GRANTS_ID = 'base-builder-grants';
 export const builderCodesFound = (repo: string) => `Builder Codes found in ${repo}.`;
-export const BUILDER_CODES_FIRST = 'First step for Base: add Builder Codes. Guide: docs.base.org/base-chain/builder-codes/builder-codes';
+/** v3.1 cold read round 2: the approved Builder Code wording; the guide as a plain path (the draft's form link is its one link). */
+export const BUILDER_CODES_FIRST = "Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic (guide: docs.base.org/base-chain/builder-codes/builder-codes).";

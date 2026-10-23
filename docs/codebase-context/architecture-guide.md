@@ -7981,3 +7981,58 @@ builder. Now it is the profile in small, drawn from the page's own reads so it n
 - Local dev note: with this worktree's symlinked node_modules, `next dev` needs `--webpack` (Turbopack rejects the link).
 - Tests: `v3-shells.test.ts` (T6.3, shareCardFacts), `card-route.test.ts` 11.8, `v31-rank-pool.test.ts` (f),
   `v3-backing.test.ts`.
+
+## v3.1 cold-read fixes (2026-10-23, owner-approved spec: v3.1-cold-read-fixes.md)
+
+Five journeys read cold; every reply now answers the builder, says one name and stops repeating.
+- **Answer first.** find's and score's note is `stand-text.ts ANSWER_FIRST_NOTE` (the agent may answer the builder's own
+  question in one line from facts in the reply, then shows show_to_builder as written); the server instructions say the same.
+- **First reply and connect step** (`bench-reply.ts`): `youreIn` ("You're in, @x. I find grants ...") only once
+  (`standing_seen.welcomed`, `welcomeFits` + `takeOnce`, `BenchView.welcome`); `grantHook` names the program
+  (`grantProgramName`: "Base Builder Grants pay up to ..."; `base-qualify.ts grantOf` adds `name`); `pickRepoAsk` starts
+  with `CONNECT_LEAD`; no "Step 2 of 2" and no "isn't counted yet" (the `stand` copies return null).
+- **Live app, no GitHub.** A link-only project's no (`bench-find.ts liveNoAnswer`) gives `liveNoGithub(builtWith(host))`
+  (Lovable, Bolt or both) with the connect link, sets `standing_seen.github_no_app` (every later reply shows it; never
+  `github_no` or the Base walk-through); a second no is `NEXT_STEP_LATER`. A connect yes with nothing connected
+  (`connectNotYet`, no App-proven repo) is `NOT_ON_GITHUB_YET` + the step again, never an empty reply.
+- **Idea only.** `baseStartSteps(grant)` ("Here's the path to Base's $5,000 grant: ..."), question `LOVABLE_PROMPT_ASK`;
+  its yes (`base_help`) is '' with `LOVABLE_PROMPT_NOTE` (the agent writes the prompt).
+- **Throttles** (benchView, remembered in standing_seen, kept by `stand-view.ts takeNews`): the ranked standing line only
+  when it changed (`status_seen`; the connect reply counts; score always shows it: `alwaysStanding`); the points line at
+  most once an ISO week (`nag_week`); "Backing open. Your page" the first time, then `newBackersLine` only when backers
+  grew (`backers_seen`, `FundLine.news`). A ranked reply is never empty or the points line alone (`orStanding`).
+- **Money.** `realFit` (fitBar not `company` or `long_shot`): only real fits are the money line, fund lines, apply step and
+  connect's Best fit; long shots stay in the "What can I earn?" table. `present.ts moneyHeader` ("4 programs are open.
+  Your best fit: X, up to $Y."), `noFitLine`, Difficulty cells without "(estimate)", no `CHAT_ONLY` (a chat-only builder
+  is asked to start on the first program by `byRelevance`), no "build something new" (`Want the guide for X?`),
+  `APPLIED_OUTSIDE` is "applied". `submit-kit.ts siteFormLine`: an investment whose form is one email step on its site is
+  one line with the link and "Sent it?". `tools.ts chainFitLine` ("Circle wants apps that settle on Arc, Circle's
+  chain. X has no Arc code yet.", `chains.ts CHAIN_EXPLAINED`); its name comes from `mainProjectNameFor` (own project
+  only, never on a shared client).
+- **One name.** `rememberProjectName` (prepare's project, when it names the one project) stores the builder's name on the
+  identity; `mainProjectName` names replies; `coin-moments.ts coinName` uses it for the coin (a private repo: only when it
+  isn't the repo's name or is its site's name).
+- **Coin.** `BACKING_OFFER` is rewrite 4 ("I can launch $X, a coin for Y on Base. ... Launch it?"). `tokenAsk` always
+  gives a path: not connected `tokenConnectFirst` (picker or install link, stored as that step); launched coin
+  `backersLine` + `backers_post` (yes: `post-reply.ts weekPostReply`, else `BACKERS_NEWS_NOTE`); blocked `coinBlocked`
+  (`COIN_BLOCKED` off, own, shared, held); proven with no published week `tokenPublishFirst` (`coin_publish`: openConnect
+  then a yes runs `answerConnect` and shows the offer via `askedCoinOffer`; nothing launches before the offer's own yes);
+  weeks not written yet `TOKEN_LOG_PENDING`, no code week `TOKEN_NO_WEEK`; else `askedCoinOffer` (an earlier no is
+  reopened: `coinAllowed`/`coinOfferable` `{ asked: true }` skip only the declines cap). All other gates unchanged.
+- **Other rewrites.** `connectAsk(page)` (no week count), `walletOffer` without "Optional:" and `WALLET_ASK` "Done?",
+  wallet step only with Base contracts known or reported and no coin fee wallet in `FEE_WALLET_QUIET_DAYS`
+  (`wallet-offer.ts walletOfferDue`), `TITLES_ASK`, the Builder Code step line (no `QUALIFY_NEXT`), qualify skips the
+  live/users step (`liveOrUsersKnown`, find's `known`, `localReportOf`) and the Base step when reported, `momentHead`
+  "Week N done:" / `MOMENT_ASK` "Look right?" / `POST_HEAD` "Your post for X:", `proofAsk` for an outcome told without
+  its link (an outcome with no prior entry keeps the plain congrats: owner ruling 3), `factsAck` for tell repo_facts,
+  guide "Most likely to win".
+- Tests: `v31-cold-read.test.ts`, plus the updated copy across the reply tests.
+- **Round 2 (coordinator read).** No project after the walk-through: `LOVABLE_PROMPT_ASK` until the prompt is written
+  (`standing_seen.lovable_prompt`), then `nextBuild(link)` (never `NEXT_STEP_ASK`); no-project money tables ask "Want the
+  guide for X?"; the token ask with no project is `TOKEN_BUILD_FIRST` + the Lovable prompt question. Tables put fits,
+  then grants by difficulty, first; investments and low-odds rows last (`longShot`; all long shots: the open table first);
+  no "confirm:" cell. A coin yes waiting for its fee wallet (`coin_wallet_wait`, `coinWalletWaiting`) asks
+  `COIN_WALLET_REASK` (ask kind `coin_wallet`) instead of any other step, never the wallet proof. `backfillNow` writes a
+  one project's log on demand (rankAnswer, coveredRead, connectMoment, tokenAsk) when the connect never did. Outcome posts
+  need only the proof checks (no earlier entry). Weekly posts say "Last week:". Drafts: `youAddLine`, and
+  `BUILDER_CODES_FIRST` in the approved wording with a plain guide path.

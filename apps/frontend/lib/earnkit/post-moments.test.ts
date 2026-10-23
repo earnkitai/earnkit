@@ -245,7 +245,7 @@ test('weekly: the builder\'s note wins; a 12-week streak is the count; 26 with n
   assert.equal(cb.bigWeek, true, 'a milestone');
   const db = await draftMoment(b.id, cb, { asked: false }, NOW);
   assert.ok(db.ok);
-  assert.equal(db.draft.text, '12 weeks shipping Recipes without missing one. This week: added CSV export.');
+  assert.equal(db.draft.text, '12 weeks shipping Recipes without missing one. Last week: added CSV export.');
   const c = await maya();
   await weekRow(c.id, c.key, { facts: { shipped_code: { n: 2 }, streak: { w: 26 } } });
   const dc = await draftMoment(c.id, (await weeklyCandidate(c.id, NOW)) as MomentCandidate, { asked: false }, NOW);
@@ -344,7 +344,7 @@ test('won: an announced win with its source link is offered first, with the awar
 const namesHandle = (id: number) => (async () => `<html><title>Round 3</title><p>Funded: Recipes by @pm_${id}.</p></html>`) as ProofFetch;
 const NAMES_PROJECT = (async () => '<html><p>Funded: Recipes and others.</p></html>') as ProofFetch;
 
-test('accepted, funded or won as told: only with a proof link the agent checked, for a program they entered, that names the builder; the award only as announced', dbTest, async () => {
+test('accepted, funded or won as told: only with a proof link the agent checked, that names the builder (v3.1 cold read round 2: no earlier entry needed); the award only as announced', dbTest, async () => {
   const { id, key } = await maya();
   const { program, pid } = await entered(id, key);
   const NAMES = namesHandle(id);
@@ -353,8 +353,10 @@ test('accepted, funded or won as told: only with a proof link the agent checked,
   assert.equal(await told(undefined), 'no_proof', 'never on the builder\'s word alone');
   assert.equal(await told('https://medium.com/@maya/in'), 'no_proof');
   assert.equal(await told('https://x.com/base/status/2', { result: 'won', programId: 'no-such-program' }), 'no_program');
-  // No entry or application before the tell: no moment, whatever the proof.
-  assert.equal(await told('https://www.base.org/builders/grants-round-3', { result: 'funded', entered: false }), 'no_entry');
+  // v3.1 cold read round 2 (owner): no entry or application before the tell is fine; the proof checks alone decide.
+  const noEntry = await told('https://www.base.org/builders/grants-round-3', { result: 'funded', entered: false });
+  assert.ok(typeof noEntry === 'object' && noEntry.moment === 'funded', JSON.stringify(noEntry));
+  assert.equal(await told('https://www.base.org/builders/grants-round-3', { result: 'funded', entered: false }, NAMES_PROJECT), 'no_proof');
   assert.equal(await hasEntry(id, program), true);
   assert.equal(await hasEntry(id, 'no-such-program'), false);
   // Proof ruling: a page that doesn't name the builder, or one that can't be read, is no proof.

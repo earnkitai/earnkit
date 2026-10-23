@@ -119,7 +119,8 @@ test('(b) Task 16 step 6, Base: how many answers are filled, what the builder ad
   // The owner-approved copy, word for word (no points line: no points for applying).
   assert.equal(s, [
     'Your Base Builder Grant Program application is ready. I filled 6 of 16 answers from your work.',
-    'You add: your full name, your email, your X handle, your Telegram username, a note on the founding team, your contract address on Base, how it makes money today, your GTM plan for the next 3 months, your Base Builder Code, the credits you want.',
+    // v3.1 cold read round 2: one short line, the form's own first two items and a count, never the whole list.
+    'You add 10 more in the form: your full name, your email and 8 short answers.',
     BUILDER_CODES_FIRST,
     '',
     `Open the form, your answers are already in it: ${link}`,
@@ -198,12 +199,9 @@ test('(e) Alliance: the email field, the continues line, the form link', db, asy
   assert.equal(r.isError, false, r.text);
   const s = show(r);
   assert.deepEqual(links(s), [alliance.submission_url]);
+  // v3.1 cold read: EarnKit fills nothing here (the form lives on Alliance's site), so never "I filled 0 of 1 answer".
   assert.equal(s, [
-    `${draftReadyLine(alliance.title, 0, 1)}`,
-    "You add: the first founder's email.",
-    "After the email (1st founder) step, the application continues on Alliance's site.",
-    '',
-    `Paste each answer into the form: ${alliance.submission_url}`,
+    `Alliance's application is on their site and starts with the first founder's email: ${alliance.submission_url}`,
     SENT_ASK,
   ].join('\n'));
 });

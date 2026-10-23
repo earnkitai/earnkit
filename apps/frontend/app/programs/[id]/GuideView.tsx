@@ -145,7 +145,7 @@ export default function GuideView({ page }: { page: GuidePage }) {
             )}
 
             {g.best_bet && (
-              <Part title="Your best bet">
+              <Part title="Most likely to win">
                 <ul className="self-center">
                   <li className="font-funnel-display text-xl font-medium text-ek-text md:text-2xl">{g.best_bet}</li>
                 </ul>

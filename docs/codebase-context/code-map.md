@@ -1596,6 +1596,18 @@ apps/frontend/
                                STALE_WEEKS, NEW_REPO_ASK; stateAsk inputs githubNo, baseAsk, newRepo. At most one https link, exactly one question, the points line last.
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall),
                                v31-reply-fixes.test.ts (2026-10-22 fixes)
+    v31-cold-read.test.ts      v3.1 cold-read fixes (2026-10-23, v3.1-cold-read-fixes.md): the approved copy, the bugs, the coin
+                               ask paths, the throttles, the wallet gate. Cold read in brief: bench-reply.ts youreIn once (welcome,
+                               welcomeFits), CONNECT_LEAD/pickRepoAsk, grantProgramName/grantHook, builtWith/liveNoGithub,
+                               baseStartSteps/LOVABLE_PROMPT_ASK, connectAsk(page), newBackersLine, BenchView standingShown/
+                               nagShown/liveTool, ask kinds coin_publish and backers_post; bench-find.ts realFit, status_seen/
+                               nag_week/backers_seen/github_no_app/welcomed, liveNoAnswer, connectNotYet (NOT_ON_GITHUB_YET),
+                               tokenAsk paths (tokenConnectFirst, tokenPublishFirst, coinPublishAnswer, backersLine,
+                               backersPostAnswer, TOKEN_NO_WEEK, TOKEN_LOG_PENDING), mainProjectName(For), rememberProjectName,
+                               localReportOf; coin-moments.ts coinName, coinBlocked/COIN_BLOCKED, coinPreview, askedCoinOffer;
+                               present.ts moneyHeader, noFitLine; submit-kit.ts siteFormLine; tools.ts chainFitLine;
+                               builder-memory.ts factsAck; post-reply.ts proofAsk, weekPostReply; wallet-offer.ts
+                               FEE_WALLET_QUIET_DAYS; stand-text.ts ANSWER_FIRST_NOTE; chains.ts CHAIN_EXPLAINED
     base-qualify.ts            2026-10-22: the no-fit path to Base Builder Grants. grantOf (organizer, award, one chain),
                                qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined

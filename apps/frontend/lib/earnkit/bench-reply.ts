@@ -28,7 +28,11 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post' | 'wallet'
   | 'base_start' | 'next_step' | 'new_repo'
   /** GTM W2 (2026-10-23): `base_help`, the walk-through's step 1 help; `checkin`, the Monday check-in (once, clients that schedule); `none`, no question. */
-  | 'base_help' | 'checkin' | 'none';
+  | 'base_help' | 'checkin' | 'none'
+  /** v3.1 cold read: `coin_publish`, the coin ask's publish-first question; `backers_post`, the backers answer's post question. */
+  | 'coin_publish' | 'backers_post'
+  /** v3.1 cold read round 2: `coin_wallet`, a coin yes waiting for its fee wallet (asked again, never the wallet step). */
+  | 'coin_wallet';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -37,7 +41,7 @@ export type FundLine =
   /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
   | { kind: 'upcoming'; title: string; prize: string; note: string }
   /** v3 Stage 2: backing is open on the one project (EARNKIT_RAISING on): its backers and fees earned, and the page. A statement, never a step. */
-  | { kind: 'backing'; backers: number; earned_usd: number; page: string };
+  | { kind: 'backing'; backers: number; earned_usd: number; page: string; news?: number };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 /** v3 Stage 2: "Base Batches 005: up to $100K, not open yet. <note>" (a statement, never a link or a question). Pure. */
@@ -48,6 +52,8 @@ export const upcomingLine = (title: string, prize: string, note: string) => `${t
  */
 export const backingLine = (backers: number, earned: number, page: string) =>
   backers === 0 && earned === 0 ? `Backing open. Your page: ${page}` : `Backing: ${backers} ${backers === 1 ? 'backer' : 'backers'}, $${earned.toLocaleString('en-US')} in fees. Your page: ${page}`;
+/** v3.1 cold read: the backing line after launch, only when backers changed since last shown ("2 new backers since you last looked."). Pure. */
+export const newBackersLine = (n: number) => `${n.toLocaleString('en-US')} new ${n === 1 ? 'backer' : 'backers'} since you last looked.`;
 /** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
 export const APPLY_WINDOW_DAYS = 30;
 /**
@@ -91,9 +97,20 @@ export const qualifyLine = (f: { title: string; amount: string | null; when: str
  * Task 16: the signed-out reply's open grant ("Base pays up to $5,000 for apps on Base."): its organizer, its award and,
  * for a one-chain program, that chain's name (null: any chain, "for apps").
  */
-export type OpenGrant = { org: string; amount: string; chain: string | null };
-/** 2026-10-22: "Base pays up to $5,000 for apps on Base." (the program's own facts; "for apps." on any chain). Pure. */
-export const grantHook = (g: OpenGrant) => `${g.org} pays up to ${g.amount} for apps${g.chain ? ` on ${g.chain}` : ''}.`;
+export type OpenGrant = { org: string; amount: string; chain: string | null; name?: string };
+/**
+ * v3.1 cold read (owner-approved): the program as a builder names it, from its title: "Base Builder Grant Program" is
+ * "Base Builder Grants"; "Circle Developer Grants" stays. Pure.
+ */
+export const grantProgramName = (title: string) => title.trim().replace(/\s+Grant Program$/i, ' Grants').replace(/\s+Program$/i, '');
+/**
+ * v3.1 cold read: "Base Builder Grants pay up to $5,000 for apps on Base." (the program's own facts; "for apps." on any
+ * chain; the organizer when the program's name is unknown). Pure.
+ */
+export const grantHook = (g: OpenGrant) => {
+  const who = g.name ?? g.org;
+  return `${who} ${/s$/i.test(who) ? 'pay' : 'pays'} up to ${g.amount} for apps${g.chain ? ` on ${g.chain}` : ''}.`;
+};
 /** Task 16: the connect offer: the weeks it posts and the points that yes adds (ledger rules: points.ts connectOfferPoints). */
 export type ConnectOffer = { weeks: number; points: number };
 /**
@@ -117,27 +134,47 @@ export type EventPost = PostOffer & { head: string };
 export const INTRO_LINE = 'EarnKit gets you paid for building.';
 export const introWhat = (open: OpenGrant | null) =>
   `I read your commits every week, rank you against other builders, and find grants you qualify for.${open ? ` ${grantHook(open)}` : ''}`;
-/** Task 16, step 2: "You're in, @maya.". */
-export const youreIn = (handle: string) => `You're in, @${handle}.`;
+/** Task 16, step 2; v3.1 cold read: said once, on the first reply after sign-in (standing_seen.welcomed). */
+export const youreIn = (handle: string) => `You're in, @${handle}. I find grants your app qualifies for and write the applications.`;
 /**
  * 2026-10-22: step 2's hint for a builder whose app has no GitHub yet. Only Lovable and Bolt are confirmed
  * (v3.1-install-research.md); a statement, so the reply keeps exactly one question.
  */
-export const NO_GITHUB_HINT = 'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.';
-/** Task 16, 2026-10-22: the step 2 action (the repo picker, or a named repo's install link), in plain words. */
-export const pickRepoAsk = (link: string) =>
-  `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
+export const NO_GITHUB_HINT = 'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).';
+/** v3.1 cold read: the connect step's first words (never "Step 2 of 2"). */
+export const CONNECT_LEAD = "Connect your app's code on GitHub so I can match it";
+/** Task 16, v3.1 cold read (owner-approved): the connect action (the repo picker, or a named repo's install link). */
+export const pickRepoAsk = (link: string) => `${CONNECT_LEAD} (read-only, one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
+/** v3.1 cold read: the tool a live link was built with, from its host (only Lovable and Bolt are confirmed). Pure. */
+export const builtWith = (url: string | null | undefined): 'lovable' | 'bolt' | null => {
+  const host = url && URL.canParse(url) ? new URL(url).hostname.toLowerCase() : '';
+  if (/(^|\.)lovable\.(app|dev)$/.test(host)) return 'lovable';
+  if (/(^|\.)bolt\.(new|host)$/.test(host)) return 'bolt';
+  return null;
+};
+/**
+ * v3.1 cold read (owner-approved): a live app with no GitHub (the builder said no to the connect step): how its tool
+ * puts the code on GitHub, then the connect link (never "Want to start building on Base?"). Pure.
+ */
+export function liveNoGithub(tool: 'lovable' | 'bolt' | null, name: string, link: string): string {
+  const how =
+    tool === 'lovable'
+      ? `Lovable puts ${name}'s code on GitHub in two clicks: Project settings, then Git, then GitHub.`
+      : tool === 'bolt'
+        ? `Bolt puts ${name}'s code on GitHub from the GitHub icon, top right.`
+        : 'Lovable or Bolt put your code on GitHub in two clicks (Lovable: Project settings, Git. Bolt: GitHub icon, top right).';
+  return `${how} Then connect it here: ${link}\nDone?`;
+}
 /** GTM W2: the ship question is asked at most once in this many days per builder. */
 export const SHIP_ASK_DAYS = 7;
 /** GTM W2: the install ask for one more repo once setup is done (its own install link). Pure. */
 export const installMoreAsk = (link: string) => `Install the read-only EarnKit app on it too (one click): ${link}\nDone?`;
 /** The step 2 reply (the repo picker, or the first repo's install link), never the one-more-repo install. Pure. */
-const isStep2 = (a: BenchAsk) => a.kind === 'pick_repo' || (a.kind === 'install_app' && a.line.startsWith('Step 2 of 2'));
+const isStep2 = (a: BenchAsk) => (a.kind === 'pick_repo' && a.line.startsWith(CONNECT_LEAD)) || (a.kind === 'install_app' && a.line.startsWith(CONNECT_LEAD));
 /** Task 16, step 5: the shipping points line (`lead`: the weekly target without its period, else "Ship code this week"). */
 export const shipPointsLine = (lead: string = 'Ship code this week') => `${lead}: up to +${MAX_WEEK_POINTS} points`;
-/** v3 Stage 1 (spec 5.1), Task 16 step 3: the connect weeks' one question (ranked, once a person); the page is its link. */
-export const connectAsk = (weeks: number, page: string) =>
-  `Post your ${weeks === 1 ? 'week' : `${weeks} weeks`} to ${page} so grant teams can see ${weeks === 1 ? 'it' : 'them'}?`;
+/** v3 Stage 1 (spec 5.1), v3.1 cold read: the connect weeks' one question (ranked, once a person); the page is its link (no count). */
+export const connectAsk = (page: string) => `Make your shipping log public on ${page} so grant teams can see it?`;
 /**
  * v3 Stage 2, Task 16 step 5: the apply step's money and its one question; `when` is the deadline's day ("Nov 18"),
  * null for a rolling program. Pure.
@@ -150,9 +187,10 @@ export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional step right after setup, offered once a person. Its one
  * question takes "done" (a yes: the proof is checked) or "skip" (a no: remembered, never asked again). Pure.
  */
-export const WALLET_ASK = 'Done, or want to skip it?';
+export const WALLET_ASK = 'Done?';
+/** v3.1 cold read: only for a builder with contracts on Base known or reported (wallet-offer.ts walletOfferDue). */
 export const walletOffer = (link: string) =>
-  `Optional: prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
+  `Prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
 /** Only when true: the Base Builder Code stays on the first wallet; a launched coin's fees stay with its launch wallet. */
 export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
 export const WALLET_COIN_FEES = "Your coin's fees keep going to the wallet it launched with.";
@@ -173,7 +211,7 @@ export const walletContractsOnly = (current: string) =>
 export const walletNotice = (wallet: string) => `Your reward wallet changed to ${wallet}.`;
 export const WALLET_SKIPPED = 'Skipped. Ask me anytime to add your reward wallet.';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
-export const TITLES_ASK = 'Show your commit titles on your page? Your code stays private.';
+export const TITLES_ASK = 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.';
 
 /**
  * 2026-10-22: Base Builder Grants' steps, only from its program file's rules ("for builders exclusively building on
@@ -207,17 +245,18 @@ export const qualifyAsk = (g: OpenGrant, n: number) =>
   n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
 const STEP_LINE: Record<QualifyStep, string> = {
   base: 'Put your app on Base.',
-  codes: `Add Builder Codes (Base asks for this first): https://${BUILDER_CODES_GUIDE}`,
+  codes: `Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://${BUILDER_CODES_GUIDE}`,
   use: 'Have a live product people use.',
 };
-export const QUALIFY_NEXT = 'I check your code for Builder Codes and offer to draft your application once Base fits.';
 /** The steps reply's one question: help with the first step listed (always "step 1"). */
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
+/** Cold read: one step left has no "step 1" to point at. */
+export const QUALIFY_HELP_ASK_ONE = 'Want help with it now?';
 /** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
 export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
   const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
   const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
-  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', QUALIFY_NEXT, QUALIFY_HELP_ASK].join('\n');
+  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK].join('\n');
 }
 /**
  * 2026-10-23 Base onboarding (owner-approved): a builder who said no to step 2 (no GitHub, or not connecting now) is
@@ -226,28 +265,23 @@ export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
  * guides; it never builds for them (v3.1 spec 3.4).
  */
 export const BASE_START_ASK = "Want to start building on Base? I'll walk you through it.";
-export const BASE_START_STEPS = [
-  '4 steps to start building on Base:',
-  '1. Build your app with Lovable or Bolt and connect GitHub in it (Lovable: Project settings, Git, GitHub. Bolt: the GitHub icon, top right).',
-  `2. ${STEP_LINE.base}`,
-  `3. ${STEP_LINE.codes}`,
-  '4. Connect it here so EarnKit tracks it and drafts your Base grant application once it fits.',
-  '',
-  QUALIFY_HELP_ASK,
-].join('\n');
+/** v3.1 cold read (owner-approved): the walk-through's one question; a yes is the agent's Lovable prompt (never the block again). */
+export const LOVABLE_PROMPT_ASK = 'Want me to write your Lovable prompt?';
+/** v3.1 cold read (owner-approved): the path to Base's grant for a builder with only an idea. Pure. */
+export const baseStartSteps = (g: OpenGrant) =>
+  [
+    `Here's the path to ${grantName(g)}:`,
+    '1. Build your app in Lovable or Bolt. Describe the idea and they write the code.',
+    '2. Connect it to GitHub inside Lovable or Bolt.',
+    "3. Connect GitHub here and I'll tell you what's left.",
+    LOVABLE_PROMPT_ASK,
+  ].join('\n');
+/** v3.1 cold read round 2: after the Lovable prompt was written, the no-project reply's one step (the connect link). Pure. */
+export const nextBuild = (link: string) => `Next: build your app in Lovable or Bolt, then connect GitHub here: ${link}\nDone?`;
+/** v3.1 cold read round 2: a coin yes waiting for its fee wallet (coin-moments.ts COIN_WALLET_ASK's words). */
+export const COIN_WALLET_REASK = 'Send me the wallet the fees should go to.';
 /** The no-project reply once the onboarding questions were asked: one question (a yes gives step 2's link again). */
 export const NEXT_STEP_ASK = "Is your app's code on GitHub yet?";
-/**
- * GTM W2 (2026-10-23): the yes to "Want help with step 1 now?" after the Base steps: how to connect GitHub inside
- * Lovable or Bolt (v3.1-install-research.md, the labels BASE_START_STEPS names), then the resting question, so the
- * next yes gives the one-click link. Never the same block again.
- */
-export const BASE_HELP_STEP = [
-  "Step 1: put your app's code on GitHub from the tool you built it in.",
-  'Lovable: Project settings, then Git, then GitHub.',
-  'Bolt: the GitHub icon, top right.',
-  NEXT_STEP_ASK,
-].join('\n');
 /** GTM W2: a no to the resting question or the walk-through (never "Okay." on the no-GitHub path). */
 export const NEXT_STEP_LATER = "No rush. Once your app's code is on GitHub, tell me and I'll send the one-click link.";
 /** GTM W2: the Monday check-in, asked once on a client that can schedule (its yes: the agent sets its own weekly routine). */
@@ -263,13 +297,12 @@ export const STALE_WEEKS = 8;
 export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead.';
 
 /** Task 16, step 7: the weekly moment's question. */
-export const MOMENT_ASK = 'Does last week look right?';
+export const MOMENT_ASK = 'Look right?';
 /**
- * Task 16, step 7: "Week 4 done. You're now #3." ("Last week done." with no week counted yet). v3.1 one-tap posts
- * (owner ruling 5): no points in post replies. Pure.
+ * Task 16, step 7; v3.1 cold read (owner-approved): "Week 4 done:" ("Last week done:" with no week counted yet), then
+ * the summary. v3.1 one-tap posts (owner ruling 5): no points in post replies. Pure.
  */
-export const momentHead = (m: Pick<MomentView, 'week' | 'place' | 'rank'>) =>
-  `${m.week > 0 ? `Week ${m.week} done.` : 'Last week done.'} You're ${m.place ? `${m.place} #${m.rank.toLocaleString('en-US')}` : 'on EarnKit'}.`;
+export const momentHead = (m: Pick<MomentView, 'week'>) => (m.week > 0 ? `Week ${m.week} done:` : 'Last week done:');
 /** "4 weeks in a row" (none: null). Pure. */
 const streakWords = (n: number) => (n > 0 ? `${n} ${n === 1 ? 'week' : 'weeks'} in a row` : null);
 /**
@@ -289,7 +322,7 @@ export function connectStanding(name: string, rank: string | null, streak: numbe
 /** v2.13.1 O5 N5: one small thing to ship (app_off: the App can't count the project). */
 export const shipAsk = (name: string) => `Want me to suggest one small thing to ship in ${name} this week?`;
 /** v3.1 one-tap posts (design 6): the post block: what it is, the post in quotes, the one-tap link (the reply's one link). Pure. */
-export const POST_HEAD = 'Your post for X, with your page card:';
+export const POST_HEAD = 'Your post for X:';
 export const postLines = (p: PostOffer) => [POST_HEAD, `"${p.text}"`, `Post it in one tap: ${p.link}`];
 /** The event reply's question (a yes redrafts with the next shape). */
 export const POST_ASK = 'Want a different version?';
@@ -351,7 +384,8 @@ export const STATE_COPY = {
     noApp: () => "What's your GitHub, or a link to something you've made?",
   },
   not_counted: {
-    stand: (name: string) => `${name} isn't counted yet.`,
+    /** v3.1 cold read: never "<Project> isn't counted yet." (it meant nothing to a builder). */
+    stand: (_name: string): string | null => null,
     ask: (link: string) => pickRepoAsk(link),
   },
 } as const;
@@ -360,8 +394,8 @@ export const VARIANT_COPY = {
   taken: { stand: (n: string) => `${n} is already on the leaderboard under another account.`, ask: () => OTHER_PROJECT_ASK },
   // 2026-10-22: the template way out as a statement (the reply's one question is the ask).
   copy: { stand: (n: string) => `${n} is a copy of someone else's project. If you made it from a template, make a copy in your own account, then connect that.`, ask: () => OTHER_PROJECT_ASK },
-  no_repo: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => `Where does ${n} live on GitHub?` },
-  app_off: { stand: (n: string) => `${n} isn't counted yet.`, ask: (n: string) => shipAsk(n) },
+  no_repo: { stand: (_n: string): string | null => null, ask: (n: string) => `Where does ${n} live on GitHub?` },
+  app_off: { stand: (_n: string): string | null => null, ask: (n: string) => shipAsk(n) },
 } as const;
 
 /** Which of the four states a reply is in. Pure. */
@@ -406,6 +440,14 @@ export type BenchView = {
   post?: EventPost | null;
   /** 2026-10-23: a one-line statement said once (TEMPLATE_NOTICE), under the account line, else above the reply. */
   notice?: string | null;
+  /** v3.1 cold read: "You're in, @maya." is this reply's (the first after sign-in only, standing_seen.welcomed). */
+  welcome?: boolean;
+  /** v3.1 cold read: the ranked standing line is shown (it changed since last seen); absent: shown. */
+  standingShown?: boolean;
+  /** v3.1 cold read: the shipping points line is shown (at most once an ISO week); absent: shown. */
+  nagShown?: boolean;
+  /** v3.1 cold read: a live link with no GitHub (the builder said no once): its tool's GitHub steps (liveNoGithub). */
+  liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -437,6 +479,12 @@ export function stateAsk(
     shipAsked?: boolean;
     /** GTM W2: the builder already connected a repo with the App (setup is done): never "Step 2 of 2" again. */
     appDone?: boolean;
+    /** v3.1 cold read: a live link with no GitHub after one no: its tool's GitHub steps with the connect link. */
+    liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
+    /** v3.1 cold read round 2: the Base walk-through was taken: 'help' (the Lovable prompt not written yet), 'built' (written). */
+    walk?: 'help' | 'built' | null;
+    /** v3.1 cold read round 2: a coin yes is waiting for its fee wallet. */
+    coinWallet?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -448,18 +496,26 @@ export function stateAsk(
   // the resting question; step 2 never again (until the builder asks: bench-find.ts benchMoveUp).
   if (noCode && v.githubNo) {
     if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
+    // v3.1 cold read round 2: after the walk-through, its question stands until the Lovable prompt is written; then the
+    // next step is building it and connecting GitHub (never "Is your app's code on GitHub yet?" again).
+    if (v.walk === 'help') return { kind: 'base_help', project_key: null, line: LOVABLE_PROMPT_ASK };
+    if (v.walk === 'built' && v.link) return { kind: 'pick_repo', project_key: null, line: nextBuild(v.link) };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
     return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
   }
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
+  // v3.1 cold read: a live app (Lovable, Bolt) whose builder said no to GitHub once: how its tool puts the code on GitHub.
+  if (noCode && v.link && v.liveTool) return { kind: 'pick_repo', project_key: null, line: liveNoGithub(v.liveTool.tool, name, v.link) };
   // GTM W2: a live link with no repo: step 2's repo picker (its no starts the Base walk-through), never "Where does it live?".
   if (noCode && v.link) return { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) };
   // Fix round 1 ruling: the page is the connect reply's one https link.
-  if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, `https://${pageUrl(v.handle)}`) };
+  if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(`https://${pageUrl(v.handle)}`) };
   // GTM W2 (owner: no coin launched is the biggest revenue failure): the backing offer comes in the first reply after the
   // builder is proven with an approved code week, right after connect, above the event post and the apply step.
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
+  // v3.1 cold read round 2: a coin yes waiting for its fee wallet is asked again (never the wallet-proof step meanwhile).
+  if (v.state === 'ranked' && v.coinWallet) return { kind: 'coin_wallet', project_key: key, line: COIN_WALLET_REASK };
   // v3.1 one-tap posts: an event's post (went live and won jump ahead of apply for 48 hours; benchView holds the rest
   // until the share slot).
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
@@ -495,7 +551,7 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
   const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
   if (fit) return qualifyLine(fit);
   const b = v.fund.find((f): f is Extract<FundLine, { kind: 'backing' }> => f.kind === 'backing');
-  if (b) return backingLine(b.backers, b.earned_usd, b.page);
+  if (b) return b.news ? newBackersLine(b.news) : backingLine(b.backers, b.earned_usd, b.page);
   const u = o.upcoming ? v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming') : undefined;
   return u ? upcomingLine(u.title, u.prize, u.note) : null;
 }
@@ -503,9 +559,14 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
 const paras = (...ps: (string | null | undefined)[][]) =>
   ps.map((p) => p.filter((x): x is string => typeof x === 'string' && x.length > 0)).filter((p) => p.length > 0).map((p) => p.join('\n')).join('\n\n');
 
-/** Task 16: the step 2 reply names the account ("You're in, @maya."), so no account line goes above it. Pure. */
-export const namesAccount = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'ask'> & { variant?: Variant }) =>
+/**
+ * Task 16: the step 2 reply may name the account ("You're in, @maya."); v3.1 cold read: only the first after sign-in
+ * (`welcome`, claimed by the caller once this holds). Pure.
+ */
+export const welcomeFits = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'ask'> & { variant?: Variant }) =>
   Boolean(v.handle) && (v.state === 'no_project' || (v.state === 'not_counted' && !v.held && isStep2(v.ask) && (v.variant ?? null) === (v.ask.kind === 'pick_repo' ? 'no_repo' : null)));
+/** The reply names the account ("You're in, @maya."), so no account line goes above it. Pure. */
+export const namesAccount = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'ask' | 'welcome'> & { variant?: Variant }) => v.welcome === true && welcomeFits(v);
 /** Task 16: the reply, as the owner approved it, for each state and step. Pure. */
 export function benchReply(v: BenchView): string {
   const name = v.project?.name ?? '';
@@ -521,7 +582,7 @@ export function benchReply(v: BenchView): string {
   if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);
   if (v.state === 'not_counted') {
     if (step2 && !v.variant) return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);
-    // GTM W2: a link-only project's step 2 (Lovable, Bolt) names the account too, then the project as the builder named it.
+    // GTM W2: a link-only project's step 2 (Lovable, Bolt) names the account too.
     return paras([named ? youreIn(v.handle!) : null, v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due, ask]);
   }
   return notice ? paras([notice]) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
@@ -536,7 +597,7 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
-  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo') return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
 
@@ -551,16 +612,23 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
     // v3.1 one-tap posts (design 6): last week's post and its one-tap link, else the page (the reply's one https link).
     return paras([momentHead(v.moment), ...(v.moment.summary ? [`"${v.moment.summary}"`] : []), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
-  const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
-  if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
+  const full = standingLine(name, v.rank, v.streak, v.earned ?? 0);
+  // v3.1 cold read: the standing only when it changed since the builder last saw it, the points line at most once a week.
+  const standing = v.standingShown === false ? null : full;
+  const nag = v.nagShown !== false;
+  // A reply with nothing else to say still says where the builder stands (never an empty reply).
+  // The points line alone is no reply either: the standing goes above it.
+  const pointsOnly = (l: string) => / up to \+\d+ points$/.test(l);
+  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && !pointsOnly(l)) ? lines : [full, ...lines.filter((l) => l !== full)]);
+  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipPointsLine() : null]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
-  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras([standing, ...v.due, ask]);
-  const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? shipPointsLine(shipLead(v.target)) : null;
+  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet')) return paras(orStanding([standing, ...v.due, ask]));
+  const points = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
   const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [grantHook(v.qualify.grant), qualifyMissing(name, v.qualify)] : [];
-  return paras([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, points]);
+  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, points]));
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

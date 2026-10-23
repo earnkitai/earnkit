@@ -280,15 +280,17 @@ test('10.7 R8: find never offers a coin (the step is to ship); asked about a tok
   await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${W})`;
   const r = await find(id);
   // 2026-10-22: no fit, so the ranked step is Base's grant steps (never a coin).
-  assert.ok(r.show_to_builder.endsWith("\nWant the 3 steps to qualify for Base's $5,000 grant?\nShip code this week: up to +100 points"), r.show_to_builder);
+  // v3.1 cold read: a step a project's facts show met (people using it) is left out of the count.
+  assert.match(r.show_to_builder, /\nWant the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?\nShip code this week: up to \+100 points$/, r.show_to_builder);
   assert.doesNotMatch(r.show_to_builder, /coin|token|community round/i);
   assert.equal(r.move_up?.kind, 'qualify');
   const { tools } = await import('./tools');
   // Confirm is only registered with EARNKIT_RAISING on, so off no coin is offered (the on path, the backing line shown
   // again while open, is v3-backing.test.ts (h); through MCP, v31-mcp-surface.test.ts (j)).
-  const { tokenUnavailable } = await import('./bench-find');
+  // v3.1 cold read: one honest line why (launches off), never a dead end with no reason.
+  const { COIN_BLOCKED } = await import('./coin-moments');
   const asked = (await tools.tell({ token: 'ask' }, { installationId: id, tokenDeps: { check: async () => true } } as never)) as { show_to_builder: string; coin?: { project_key: string }; agent_note?: string };
-  assert.equal(asked.show_to_builder, tokenUnavailable('Notes'));
+  assert.equal(asked.show_to_builder, COIN_BLOCKED.off);
   assert.equal(asked.coin, undefined);
   const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_events WHERE type = 'coin_offered' AND installation_id = ${id}`;
   assert.equal(n, 0);
@@ -309,8 +311,9 @@ test('10.8 R8: a project\'s first 5 people are no coin moment in find (no people
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
   delete process.env.TOKENSFUN_DEPLOY_API_KEY;
   try {
-    const { tokenAsk, tokenUnavailable } = await import('./bench-find');
-    assert.deepEqual(await tokenAsk(id), { show_to_builder: tokenUnavailable('Five') });
+    const { tokenAsk } = await import('./bench-find');
+    const { COIN_BLOCKED } = await import('./coin-moments');
+    assert.deepEqual(await tokenAsk(id), { show_to_builder: COIN_BLOCKED.off });
   } finally {
     process.env.TOKENSFUN_DEPLOY_API_KEY = key;
   }

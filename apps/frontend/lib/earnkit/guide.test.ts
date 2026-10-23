@@ -111,7 +111,7 @@ test('v2.7 §2: the full guide, exactly', () => {
     'What Arc wants now',
     '- Stablecoin payments · FX · Agentic commerce',
     '',
-    'Your best bet',
+    'Most likely to win',
     '- A USDC payout tool with a live mainnet demo',
   ].join('\n'));
   assert.deepEqual(guideSources(arc), ['https://e/r', 'https://e/x', 'https://e/f']);
@@ -420,7 +420,7 @@ test('Ruling H10 (I2): the copy check exempts only the guide\'s quoted program f
   assert.match(text, /vaults/);
   assert.doesNotMatch(withoutQuotedFacts(text), /vault/i);
   // The header, difficulty and best bet are still scanned; EarnKit's own words are never exempt.
-  assert.ok(withoutQuotedFacts(text).includes('Your best bet\n- '));
+  assert.ok(withoutQuotedFacts(text).includes('Most likely to win\n- '));
   assert.match(withoutQuotedFacts(`${text}\n\nYour token vault`), /vault/);
   assert.match(withoutQuotedFacts('What Base wants now\n- vaults\n\nPut it in a vault?'), /a vault\?/);
 });

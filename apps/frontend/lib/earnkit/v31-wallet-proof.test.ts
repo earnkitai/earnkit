@@ -87,7 +87,8 @@ async function sign(handle: string, s: string, acct = privateKeyToAccount(genera
 
 test('the copy, word for word: the offer, the change links, done, contracts only, not yet, skipped, the notice', () => {
   const L = 'https://earnkit.com/claim/wallet?t=1.2.x';
-  assert.equal(walletOffer(L), `Optional: prove your Base wallet so your contracts show on your page. One signature, no fee: ${L}\nDone, or want to skip it?`);
+  // v3.1 cold read (owner-approved): no "Optional:", and the one question is "Done?".
+  assert.equal(walletOffer(L), `Prove your Base wallet so your contracts show on your page. One signature, no fee: ${L}\nDone?`);
   assert.equal(walletChange(L), `Sign with the wallet you want your rewards sent to. One signature, no fee: ${L}\nDone?`);
   assert.equal(
     walletChangeX('0x12ab…abcd', L, [WALLET_BUILDER_CODE, WALLET_COIN_FEES]),
@@ -118,7 +119,7 @@ test('the wallet step never shares a reply with another question: after connect,
 });
 
 /** A signed-in builder whose one project is ranked through the App (pool of 13), the connect offer shown. */
-async function rankedBuilder(tag: string) {
+async function rankedBuilder(tag: string, o: { baseContract?: boolean } = {}) {
   const t = `ek_v31wp${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
@@ -137,6 +138,9 @@ async function rankedBuilder(tag: string) {
   await mcpCall({ ...ctx, matchProjects: (async () => ({ checked: 0, scored: 0, fits: [] })) as never }, 'find', {});
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
+  // v3.1 cold read: the wallet step is only for a builder with contracts on Base known or reported.
+  if (o.baseContract !== false)
+    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${c.id}, 'contract', ${`base:0x${randomBytes(20).toString('hex')}`}, ${key}, 'agent')`;
   const r3 = await mcpCall(ctx, 'find', {});
   // The reply after the App connects asks its own question (the connect weeks): never the wallet beside it.
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect', show(r3));
@@ -162,10 +166,10 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   const r = await mcpCall(ctx, 'find', {});
   const s = rule(show(r));
   const lines = s.split('\n');
-  assert.match(lines[0], /^Kit · #\d+ of 13 builders · \d+ weeks? in a row$/);
-  assert.match(lines[1], /^Optional: prove your Base wallet so your contracts show on your page\. One signature, no fee: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
-  assert.equal(lines[2], 'Done, or want to skip it?');
-  assert.equal(lines.length, 3, 'no money line, no points line');
+  // v3.1 cold read: the standing was just said (the connect reply), so the step stands alone.
+  assert.match(lines[0], /^Prove your Base wallet so your contracts show on your page\. One signature, no fee: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
+  assert.equal(lines[1], 'Done?');
+  assert.equal(lines.length, 2, 'no money line, no points line');
   assert.deepEqual(r.reply?.move_up, { kind: 'wallet', project_key: key, agent_note: WALLET_NOTE });
   assert.equal(upgradeOf(tokenOf(s), new Date()), c.id, 'a fresh link for this builder');
   assert.equal(typeof (await seen(c.id)).wallet_asked, 'string', 'claimed with the reply that carries it');
@@ -226,6 +230,23 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   assert.equal(next.split('\n')[0], walletNotice(short(moved.wallet)));
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /Your reward wallet changed/, 'once');
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } })), walletDone(short(moved.wallet)));
+});
+
+test('v3.1 cold read: no wallet step without contracts on Base known or reported, nor within 7 days of a coin\'s fee wallet', db, async () => {
+  await start();
+  const none = await rankedBuilder('n', { baseContract: false });
+  assert.equal(await walletOfferDue(none.c.id, new Date()), null, 'no Base contract known or reported');
+  assert.notEqual((await mcpCall(none.ctx, 'find', {})).reply?.move_up && ((await mcpCall(none.ctx, 'find', {})).reply?.move_up as { kind: string }).kind, 'wallet');
+  // Reported by the builder (tell repo_facts: mainnet on Base): offered.
+  await mcpCall(none.ctx, 'tell', { repo_facts: [{ repo: none.key, mainnet_chains: ['base'] }] });
+  assert.ok(await walletOfferDue(none.c.id, new Date()), 'reported on Base: offered');
+  // A fee wallet given for a coin within 7 days: never offered.
+  const fee = await rankedBuilder('f');
+  assert.ok(await walletOfferDue(fee.c.id, new Date()));
+  await sql()`INSERT INTO projects (program_id, name, installation_id, creator_wallet, confirmed_at) VALUES ('earnkit-coin', 'Kit', ${fee.c.id}, ${`0x${randomBytes(20).toString('hex')}`}, ${new Date()})`;
+  assert.equal(await walletOfferDue(fee.c.id, new Date()), null, 'a coin fee wallet in the last 7 days');
+  await sql()`UPDATE projects SET confirmed_at = ${new Date(Date.now() - 8 * DAY)} WHERE installation_id = ${fee.c.id}`;
+  assert.ok(await walletOfferDue(fee.c.id, new Date()), 'after 7 days: offered again');
 });
 
 test('"skip" is remembered and never asked again; a builder who already proved a wallet is never offered it', db, async () => {

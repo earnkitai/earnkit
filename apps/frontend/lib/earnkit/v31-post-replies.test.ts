@@ -72,7 +72,7 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
   assert.match(tap1, shortLink(k.handle));
   assert.equal(s1, [
     'Kit went live this week.',
-    'Your post for X, with your page card:',
+    'Your post for X:',
     '"Kit is live. 8 weeks from first commit."',
     `Post it in one tap: ${tap1}`,
     'Want a different version?',
@@ -92,7 +92,7 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
   assert.notEqual(tap2, tap1);
   assert.equal(s2, [
     'Kit went live this week.',
-    'Your post for X, with your page card:',
+    'Your post for X:',
     '"8 weeks from first commit, Kit is live."',
     `Post it in one tap: ${tap2}`,
     'Want a different version?',
@@ -122,7 +122,7 @@ test('the builder\'s news (tell update): posted to the page and drafted in their
   assert.match(tap, shortLink(k.handle));
   assert.equal(s, [
     'Added to your page.',
-    'Your post for X, with your page card:',
+    'Your post for X:',
     '"first paying customer today, $9/mo, from a stranger"',
     `Post it in one tap: ${tap}`,
     'Want to change any words?',
@@ -138,7 +138,7 @@ test('the builder\'s news (tell update): posted to the page and drafted in their
   const again = await mcpCall(k.ctx, 'tell', { update: { text: 'first paying customer today, from a stranger' } });
   assert.equal(rule(show(again)), [
     'Added to your page.',
-    'Your post for X, with your page card:',
+    'Your post for X:',
     '"first paying customer today, from a stranger"',
     `Post it in one tap: ${tap}`,
     'Want to change any words?',
@@ -164,7 +164,6 @@ async function withProofHosts(hosts: string[], run: () => Promise<void>, handles
     await sql()`UPDATE programs SET proof_hosts = ${before}::text[], x_handles = ${xs}::text[] WHERE id = ${BASE_GRANTS_ID}`;
   }
 }
-const PROOF_ASK_TEXT = "Send me a public link that shows it, like the program's post.";
 /** Proof ruling (last fix wave A): a proof page naming the builder by their verified handle. */
 const namesHandle = (handle: string) => (async () => `<html><title>Recipients</title><p>October recipients: Kit by @${handle}, and others.</p></html>`) as ProofFetch;
 
@@ -182,38 +181,33 @@ test('final review 1: a program that lists no proof hosts or X accounts: an acce
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
 }));
 
-test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
+test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted (no earlier entry needed)', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
   const kk = await kit('po');
   const k = { ...kk, ctx: { ...kk.ctx, proofFetch: namesHandle(kk.handle) } };
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
-  // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
+  // v3.1 cold read round 2 (owner): an outcome post needs verification (the proof checks), not an earlier application.
   // GTM W2: a short congrats, never nothing.
   const congrats = `Congrats on getting into the ${title}.`;
-  const stranger = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
-  assert.equal(show(stranger), congrats, 'only the congrats');
-  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
-  // The unverified tell itself wrote an accepted row: it never counts as the entry.
-  assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] })), congrats);
-  // They applied (as told earlier): now the acceptance can be a post.
-  await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
+  // v3.1 cold read (owner-approved rewrite 8): no proof link yet: one line asks for the announcement.
+  const askProof = `Congrats on the ${title}. Got the announcement link? I'll turn it into a post.`;
   const none = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
-  assert.equal(show(none), `${congrats}\nSend me a public link that shows it, like the program's post.`);
+  assert.equal(show(none), askProof);
   assert.match(String(none.reply?.agent_note), /proof_url/);
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0, 'never on the builder\'s word alone');
   // A link on the builder's own site is not proof.
   const own = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: `https://github.com/${k.key}` }] });
-  assert.equal(show(own), `${congrats}\nSend me a public link that shows it, like the program's post.`);
+  assert.equal(show(own), askProof);
   // An X post from an account the program file doesn't list, the listing page itself, or a shared host: not proof.
   for (const bad of ['https://x.com/base/status/1849000000000000000', 'https://docs.base.org/get-started/builders', 'https://docs.base.org/other/recipients', 'https://forms.gle/urqjBJYJjR6Vqqre6/viewanalytics'])
-    assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), `${congrats}\nSend me a public link that shows it, like the program's post.`, bad);
+    assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), askProof, bad);
   // An award the agent passes is never printed.
   const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof, prize_usd: 50000 }] });
   const s = rule(show(r));
   const tap = links(s)[0]!;
   assert.equal(s, [
     congrats,
-    'Your post for X, with your page card:',
+    'Your post for X:',
     `"Kit was accepted into the ${title}."`,
     `Post it in one tap: ${tap}`,
     'Want a different version?',
@@ -224,9 +218,8 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   assert.doesNotMatch(s, /50,000|\$/);
   // Proof ruling: a page on the listed path that names only the project, not the builder, is no proof (asked again).
   const other = await kit('pq');
-  await mcpCall(other.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
-  assert.equal(show(unnamed), `${congrats}\n${PROOF_ASK_TEXT}`);
+  assert.equal(show(unnamed), askProof);
 }));
 
 test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {

@@ -330,10 +330,9 @@ test('12.9 one money figure: the landing, /api/stats and the first reply say the
   // v3 Stage 2: with investments out of the total, the rounding no longer hides that the first reply sums only the
   // programs an agent can complete (v2.12 spec 9: Colosseum is left out of find), so its figure is over those.
   // v3.1 GTM W3 (the one money rule): the first reply's figure sums the rows its table shows, never more.
-  const inTable = (await listPrograms()).filter((p) => p.agent_completable !== false && first.show_to_builder!.includes(`| ${p.title} `));
-  const agentFigure = moneyText(openMoneyUsd(inTable));
-  assert.ok(first.show_to_builder!.startsWith(`${agentFigure} in prizes open right now.`), first.show_to_builder);
-  assert.equal(first.show_to_builder!.split(agentFigure!).length, 2, 'said once');
+  // v3.1 cold read (owner-approved): the reply's header counts the open programs, never a pooled "in prizes" total.
+  assert.match(first.show_to_builder!, /^\d+ programs are open\.\n\n/, first.show_to_builder);
+  assert.doesNotMatch(first.show_to_builder!, /in prizes|Plus \d/, first.show_to_builder);
 });
 
 test('12.11 /terms: the old legal paths 301 to their section; every link EarnKit shows goes to /terms', dbTest, () => {

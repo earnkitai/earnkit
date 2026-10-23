@@ -13,6 +13,18 @@ import { proposeToken, tokensFunTickerCheck, type TickerCheck } from './token-pr
 import { tokenLaunchesAvailable } from './tokens';
 import { repoReadPublic } from './repo-public';
 import { earnkitOwnRepo } from './own-brand';
+import { reportedName, reportedProject } from './project-name';
+
+/** The stored identity's projects (empty on none or a read error). Never throws. */
+async function reportedProjects(builderId: number): Promise<{ live_url?: unknown; repo?: unknown }[]> {
+  const [p] = await sql()<{ projects: unknown }[]>`SELECT identity->'projects' AS projects FROM builder_profiles WHERE builder_id = ${builderId}`.catch(() => []);
+  return Array.isArray(p?.projects) ? (p.projects as { live_url?: unknown }[]) : [];
+}
+/** The live link the builder reported for `key`'s project, or null. Pure. */
+const reportedLiveOf = (projects: { live_url?: unknown }[], key: string) => {
+  const p = reportedProject(projects, key);
+  return typeof p?.live_url === 'string' && /^https:\/\//i.test(p.live_url) ? p.live_url : null;
+};
 
 /**
  * v2.12.1 spec 3b, scoring and clarity R8: the token is offered only when the builder asks about one
@@ -36,7 +48,7 @@ const coinFees = (wallet: string | null) => `A coin pays you 40% of its trading 
  * week with code. The coin is named and the wallet shown when known, before the yes. Pure.
  */
 export const BACKING_OFFER = (name: string, symbol: string, wallet: string | null) =>
-  `People can back ${name} onchain. EarnKit launches a $${symbol} coin on tokens.fun for it; you keep 40% of its trading fees${wallet ? `, paid to ${shortWallet(wallet.toLowerCase())}` : ''}. It is a tradable token on Base and can go to zero. Want to open backing for ${name}?`;
+  `I can launch $${symbol}, a coin for ${name} on Base. Every trade pays a fee and you keep 40%${wallet ? `, sent to ${shortWallet(wallet.toLowerCase())}` : ''}. Coins can go to zero. Launch it?`;
 /** v2.13's offer line under EARNKIT_RAISING (tell token: 'ask'); v3 Stage 2: the backing offer's words. Pure. */
 export const raiseLine = (name: string, symbol: string, wallet: string | null) => BACKING_OFFER(name, symbol, wallet);
 
@@ -107,18 +119,21 @@ export const backingExcluded = (projectKey: string) =>
  * offers declined, and (fix round 1, item 4) fewer than DECLINES_MAX skips of the confirm line's
  * token offer for its repo (token_declines, the existing rule).
  */
-export async function coinAllowed(builderId: number, projectKey: string): Promise<boolean> {
+export async function coinAllowed(builderId: number, projectKey: string, o: { asked?: boolean } = {}): Promise<boolean> {
   // v3 Stage 2 review: EarnKit's own repo is never offered a coin or backing, by any entry point (offerCoin, openCoinLine, coinYes).
   if (backingExcluded(projectKey)) return false;
   if (!tokenLaunchesAvailable() || (await sharedGroup(builderId))) return false;
+  // v3.1 cold read: the builder asking (tell token: 'ask') is a new yes path: an offer made or declined before, and the
+  // declines cap, no longer stop it; every other gate holds.
+  const asked = o.asked === true;
   const [r] = await sql()<{ ok: boolean }[]>`
     SELECT NOT p.held
-      AND NOT EXISTS (SELECT 1 FROM coin_moments m WHERE m.builder_id = ${builderId} AND lower(m.project_key) = lower(${projectKey}))
+      AND (${asked}::boolean OR NOT EXISTS (SELECT 1 FROM coin_moments m WHERE m.builder_id = ${builderId} AND lower(m.project_key) = lower(${projectKey})))
       AND NOT COALESCE((SELECT bool_or(has_coin) FROM builder_projects b WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(${projectKey})), false)
       AND NOT EXISTS (SELECT 1 FROM projects x JOIN installations i ON i.id = x.installation_id
         WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND x.token_url IS NOT NULL
           AND lower(x.repo_url) IN (lower(${`https://github.com/${projectKey}`}), lower(${`https://github.com/${projectKey}/`})))
-      AND (SELECT count(*) FROM coin_moments m WHERE m.builder_id = ${builderId} AND m.answer = 'no') < ${DECLINES_MAX}
+      AND (${asked}::boolean OR (SELECT count(*) FROM coin_moments m WHERE m.builder_id = ${builderId} AND m.answer = 'no') < ${DECLINES_MAX})
       AS ok
     FROM builder_profiles p WHERE p.builder_id = ${builderId}`;
   if (r?.ok !== true) return false;
@@ -126,6 +141,7 @@ export async function coinAllowed(builderId: number, projectKey: string): Promis
   const url = repo_url ?? (REPO_KEY.test(projectKey) ? `https://github.com/${projectKey}` : null);
   if (!url) return true;
   if (backingExcluded(url)) return false;
+  if (asked) return true;
   const key = repoKey({ url, name: '' });
   return ((await declines(builderId, [key])).get(key) ?? 0) < DECLINES_MAX;
 }
@@ -134,14 +150,37 @@ export async function coinAllowed(builderId: number, projectKey: string): Promis
  * Fix round 1 (ruling 3): a coin is offered at a project's own moments (not the build path's) only
  * when its yes can launch: coinAllowed, and the project has a confirmed repo (the launch needs one).
  */
-export async function coinOfferable(builderId: number, projectKey: string): Promise<boolean> {
-  if (!(await coinAllowed(builderId, projectKey))) return false;
+export async function coinOfferable(builderId: number, projectKey: string, o: { asked?: boolean } = {}): Promise<boolean> {
+  if (!(await coinAllowed(builderId, projectKey, o))) return false;
   const { repo_url } = await confirmedLinks(builderId, projectKey);
   if (repo_url === null) return false;
   // v2.13.3 review (I1): a repo not read public is never named by the coin. GTM W2 (2026-10-23): it can still have one
   // when the project has a public name (a proven site, or the name the builder gave: publicName), launched under it.
   if (await repoReadPublic(builderId, repoOfUrl(repo_url))) return true;
-  return (await publicName(builderId, projectKey)) !== null;
+  return (await coinName(builderId, projectKey, projectKey, repo_url, true)) !== null;
+}
+
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+/**
+ * v3.1 cold read (one name everywhere): the name a coin and its offer use: the name the builder gave (reportedName) wins.
+ * A private repo's coin never carries the repo's own name, so there the given name counts only when it isn't the repo's
+ * name or it is the proven site's name too (it is public there); else the page's public name (publicName), or null.
+ */
+async function coinName(builderId: number, projectKey: string, rowName: string, repoUrl: string | null, hidden: boolean): Promise<string | null> {
+  const given = await reportedName(builderId, projectKey);
+  if (!hidden) return given ?? rowName;
+  if (given) {
+    const repo = repoUrl ? repoOfUrl(repoUrl).split('/').pop() ?? '' : '';
+    const { live_url } = await confirmedLinks(builderId, projectKey);
+    // The proven site's name, else the live link the builder reported for this project (the name is public there).
+    const reported = live_url ?? reportedLiveOf(await reportedProjects(builderId), projectKey);
+    const site = reported && URL.canParse(reported) ? new URL(reported).hostname.replace(/^www\./, '').split('.')[0] : '';
+    if (squash(given) !== squash(repo) || (site && squash(site) === squash(given))) return given;
+  }
+  const safe = await publicName(builderId, projectKey);
+  // The page's public name is the site's host ("tipflow.xyz") and the builder calls it "TipFlow": their name.
+  if (safe && given && /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(safe) && squash(safe.split('.')[0]) === squash(given)) return given;
+  return safe;
 }
 /** A confirmed repo not read public: the coin's name and launch carry no repo link. True when this one is. */
 async function hiddenRepo(builderId: number, repoUrl: string | null): Promise<boolean> {
@@ -205,11 +244,11 @@ export async function offerCoin(
   const wallet = await coinWallet(builderId);
   // GTM W2: a private repo's coin is proposed from its public name only (never the repo's), and the line names it so.
   const hidden = await hiddenRepo(builderId, repo_url);
-  const name = hidden ? await publicName(builderId, p.project_key) : p.name;
+  const name = await coinName(builderId, p.project_key, p.name, repo_url, hidden);
   if (name === null) return null;
   const pair = hidden
     ? await proposeToken(name, deps.check ?? tokensFunTickerCheck, undefined)
-    : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
+    : await proposeToken(name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   const coin = { name: pair.name, symbol: pair.symbol };
   if (deps.late?.()) return null;
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
@@ -271,13 +310,13 @@ export async function openCoinLine(builderId: number, projectKey: string, deps: 
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
   // GTM W2: a private repo's offer is shown again under its public name, never the repo's.
   const hidden = await hiddenRepo(builderId, repo_url);
-  const name = hidden ? await publicName(builderId, m.project_key) : p.name;
+  const name = await coinName(builderId, m.project_key, p.name, repo_url, hidden);
   if (name === null) return null;
   const coin = shown
     ? { name: shown.name, symbol: shown.symbol }
     : hidden
       ? await proposeToken(name, deps.check ?? tokensFunTickerCheck, undefined)
-      : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
+      : await proposeToken(name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   if (!shown) await saveOffer(builderId, COIN_PROGRAM, key, { name: coin.name, symbol: coin.symbol }, false, m.wallet);
   return { line: coinLine(m.moment, name, m.wallet, { name: coin.name, symbol: coin.symbol }), wallet: m.wallet };
 }
@@ -317,7 +356,7 @@ export async function coinYes(
   const key = offerKey(repoUrl, p.name);
   // GTM W2: a repo not read public is named only by the project's public name in every line (never the repo's).
   const privateNow = !existing && (await hiddenRepo(builderId, links.repo_url));
-  const lineName = privateNow ? await publicName(builderId, m.project_key) : p.name;
+  const lineName = await coinName(builderId, m.project_key, p.name, links.repo_url, privateNow);
   if (lineName === null) return { show_to_builder: COIN_NO_PUBLIC_NAME };
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
   const given = wallet && isWalletAddress(wallet.trim()) ? wallet.trim().toLowerCase() : null;
@@ -339,7 +378,7 @@ export async function coinYes(
   if (!shown) {
     const pair = privateNow
       ? await proposeToken(lineName, deps.check ?? tokensFunTickerCheck, undefined)
-      : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repoUrl) });
+      : await proposeToken(lineName, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repoUrl) });
     return again(given ?? m.wallet, { name: pair.name, symbol: pair.symbol });
   }
   const coin: Coin = { name: shown.name, symbol: shown.symbol };
@@ -347,7 +386,11 @@ export async function coinYes(
   // A wallet given when the line asked for one is the builder's answer to it. v3.1 wallet proof: with none, the wallet
   // the builder proved by signature (their reward recipient) is used, so COIN_WALLET_ASK is only for a builder without one.
   const to = given ?? m.wallet ?? (await provenWallet(builderId));
-  if (!to) return { show_to_builder: COIN_WALLET_ASK };
+  if (!to) {
+    await walletWait(builderId, m.project_key);
+    return { show_to_builder: COIN_WALLET_ASK };
+  }
+  await walletWait(builderId, null);
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   // v2.13.3 review (I1), GTM W2 (2026-10-23): a repo not read public (private from the start, or it went private after
   // the offer): the coin carries only the project's public name (publicName), and the entry keeps the repo only for the
@@ -395,6 +438,25 @@ export async function coinYes(
   return { project_id: projectId, token: coin, wallet: to, agent_note: COIN_YES_NOTE };
 }
 
+/**
+ * v3.1 cold read round 2: a coin yes is waiting for its fee wallet (standing_seen.coin_wallet_wait = the project key), or
+ * not (null clears it). Never throws.
+ */
+async function walletWait(builderId: number, key: string | null): Promise<void> {
+  await (key
+    ? sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('coin_wallet_wait', ${key}::text) WHERE builder_id = ${builderId}`
+    : sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'coin_wallet_wait' WHERE builder_id = ${builderId} AND standing_seen ? 'coin_wallet_wait'`
+  ).catch((err: unknown) => console.error('[coin] wallet wait', err instanceof Error ? err.name : 'error'));
+}
+/** v3.1 cold read round 2: the project whose coin yes still waits for a fee wallet (its offer open, no wallet), else null. Never throws. */
+export async function coinWalletWaiting(builderId: number): Promise<string | null> {
+  const [r] = await sql()<{ key: string }[]>`
+    SELECT m.project_key AS key FROM builder_profiles p JOIN coin_moments m ON m.builder_id = p.builder_id
+      AND lower(m.project_key) = lower(p.standing_seen->>'coin_wallet_wait')
+    WHERE p.builder_id = ${builderId} AND m.answer IS NULL AND m.wallet IS NULL`.catch(() => []);
+  return r?.key ?? null;
+}
+
 /** The no to a coin offer: never offered for this project again, and one of the DECLINES_MAX (recordDecline, as the confirm line's skip). */
 export async function coinNo(builderId: number, projectKey: string): Promise<void> {
   const m = await momentOf(builderId, projectKey);
@@ -436,4 +498,74 @@ export async function coinPitchAllowed(builderId: number, entry: { program_id: s
     return Boolean(m);
   }
   return false;
+}
+
+/** v3.1 cold read: tell token: 'ask' when no coin can launch, one honest line each (never jargon). */
+export const COIN_BLOCKED = {
+  off: 'Coin launches are paused on EarnKit right now.',
+  own: "EarnKit doesn't launch coins for its own code.",
+  shared: 'This agent is shared by many people, so coins launch only from your own agent.',
+  held: "Your page is under review, so a coin can't launch for it yet.",
+} as const;
+
+/**
+ * v3.1 cold read: why no coin can launch for this project at all (the builder asked): launches off, EarnKit's own repo,
+ * a shared agent, a held page; null when none of these holds. A failed read is the held line (fail strict). Never throws.
+ */
+export async function coinBlocked(builderId: number, projectKey: string): Promise<string | null> {
+  if (!raisingEnabled() || !tokenLaunchesAvailable()) return COIN_BLOCKED.off;
+  if (backingExcluded(projectKey)) return COIN_BLOCKED.own;
+  try {
+    if (await sharedGroup(builderId)) return COIN_BLOCKED.shared;
+    const [p] = await sql()<{ held: boolean }[]>`SELECT held FROM builder_profiles WHERE builder_id = ${builderId}`;
+    return p && !p.held ? null : COIN_BLOCKED.held;
+  } catch {
+    return COIN_BLOCKED.held;
+  }
+}
+
+/**
+ * v3.1 cold read: the coin a project would launch (its name as offered and the proposed pair), without claiming or saving
+ * anything, for the "goes public first" line. Null when the project has no row or no public name. Never throws.
+ */
+export async function coinPreview(builderId: number, projectKey: string, deps: { check?: TickerCheck } = {}): Promise<Coin | null> {
+  try {
+    const [p] = await sql()<{ name: string; project_key: string }[]>`
+      SELECT name, project_key FROM builder_projects WHERE builder_id = ${builderId} AND lower(project_key) = lower(${projectKey}) ORDER BY project_key LIMIT 1`;
+    if (!p) return null;
+    const { repo_url } = await confirmedLinks(builderId, p.project_key);
+    const hidden = await hiddenRepo(builderId, repo_url);
+    const name = await coinName(builderId, p.project_key, p.name, repo_url, hidden);
+    if (name === null) return null;
+    const pair = hidden
+      ? await proposeToken(name, deps.check ?? tokensFunTickerCheck, undefined)
+      : await proposeToken(name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
+    return { name: pair.name, symbol: pair.symbol };
+  } catch (err) {
+    console.error('[coin] preview', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
+/**
+ * v3.1 cold read: the builder asked for a coin (tell token: 'ask'), so an offer declined before is offered again: the
+ * moment reopened (answer cleared) and its line shown as openCoinLine shows it; with no moment yet, the backing offer.
+ * Every gate holds except the declines cap (coinOfferable asked: launches on, not shared or held, not EarnKit's own repo,
+ * no coin yet, a confirmed repo, a public name, an approved week with code). Null otherwise. Never throws.
+ */
+export async function askedCoinOffer(
+  builderId: number, projectKey: string, deps: { check?: TickerCheck } = {},
+): Promise<{ line: string; wallet: string | null } | null> {
+  try {
+    const m = await momentOf(builderId, projectKey);
+    if (!m) return await backingOffer(builderId, projectKey, deps);
+    if (m.answer === 'yes' || m.moment === 'built_live') return null;
+    if (!raisingEnabled() || !(await coinOfferable(builderId, projectKey, { asked: true })) || !(await approvedCodeWeek(builderId, projectKey))) return null;
+    if (m.answer === 'no')
+      await sql()`UPDATE coin_moments SET answer = NULL, answered_at = NULL WHERE builder_id = ${builderId} AND project_key = ${m.project_key} AND answer = 'no'`;
+    return await openCoinLine(builderId, projectKey, deps);
+  } catch (err) {
+    console.error('[coin] asked offer', err instanceof Error ? err.name : 'error');
+    return null;
+  }
 }

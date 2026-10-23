@@ -319,7 +319,7 @@ export async function verifiedOutcomeCandidate(
   const [g] = await sql()<{ title: string; source_url: string | null; submission_url: string | null; x_handles: string[]; proof_hosts: string[] }[]>`
     SELECT title, source_url, submission_url, x_handles, proof_hosts FROM programs WHERE id = ${o.programId} AND id <> ${COIN_PROGRAM}`;
   if (!g) return 'no_program';
-  if (!o.entered) return 'no_entry';
+  // v3.1 cold read round 2 (owner): an outcome post needs verification (the proof checks below), not a prior application.
   // Final review 1: no proof hosts and no X accounts listed: no link could prove it (its posts come from announced outcomes only).
   if (!g.proof_hosts?.length && !g.x_handles?.length) return 'no_proof_source';
   const [b] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId}`;

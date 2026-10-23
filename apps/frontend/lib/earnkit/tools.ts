@@ -46,7 +46,7 @@ import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts } from './ship-log-facts';
 import { draftApplication } from './draft-application';
 import { wonSource } from './stats';
 import { WHICH_EMAIL, saveWeeklyEmail } from './digest';
-import { TellInput, emptyMemory, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
+import { TellInput, emptyMemory, factsAck, hiddenIds, hiddenPrograms, memoryKey, readMemory, saidKey, tell, type BuilderMemory, type MemoryKey, type SaidRepo } from './builder-memory';
 import { fitRepoOf, newProgramOf, openCuratedRows, repoCanWin, sinceLine, sinceYouLastChecked, takeDeadlineLine, type DeadlineEntry, type FitRepo } from './alerts';
 import {
   GitHubError,
@@ -144,13 +144,14 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow, tokenAsk } from './bench-find';
+import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
-import { NOTED_LINE } from './stand-text';
+import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -1233,6 +1234,8 @@ export const handlers = {
       // v2.11 T7: the no-repo lead's switches; off (no pick) unless deploys and hosting are on.
       // v3.1 (spec 3.4): find offers no build (no build_offer); the no-repo reply names open programs instead.
       fresh: undefined,
+      // v3.1 cold read: "<Project> doesn't fit an open program yet." names the builder's own project.
+      projectName: own ? await mainProjectName(ctx.installationId).catch(() => null) : null,
     };
     // v2.8 Ruling 30 (plan): at most one entry per call whose results were due; asked once. Read
     // after every other read (review minor 11), so nothing after marking it asked can lose the
@@ -1263,6 +1266,7 @@ export const handlers = {
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
         start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut,
+        localRepos: local_repos?.length ? local_repos : own ? (memory.local_repos ?? undefined) : undefined,
         upcoming: upcoming.filter((c) => !hide.has(c.id)),
       });
       return {
@@ -1314,7 +1318,7 @@ export const handlers = {
     return {
       show_to_builder: shown,
       note:
-        'Show show_to_builder to the builder exactly as written. ' +
+        `${ANSWER_FIRST_NOTE} ` +
         (!own && (user || repoList?.length || local?.length)
           ? 'This agent serves many builders, so pass their repos again on each call. '
           : (user && !quiet) || repoList?.length
@@ -2085,8 +2089,10 @@ export const handlers = {
       mail?.show_to_builder === WHICH_EMAIL
         ? "Ask the builder which email to use, then call tell again with weekly_email: { answer: 'yes', email }."
         : null;
-    const show = [!onlyEmail && key === null ? NOTED_FOR_NOW : null, mail?.show_to_builder ?? null].filter(Boolean).join(' ');
-    const note = onlyEmail ? 'Show show_to_builder.' : key === null ? TELL_SHARED_NOTE : TELL_SAVED_NOTE;
+    // v3.1 cold read (bug 2): what they said about their repos is acknowledged in one short line, never nothing.
+    const ack = !onlyEmail && key !== null && told.success && told.data.repo_facts?.length ? factsAck(told.data.repo_facts) : null;
+    const show = [!onlyEmail && key === null ? NOTED_FOR_NOW : null, ack, mail?.show_to_builder ?? null].filter(Boolean).join(' ');
+    const note = onlyEmail ? 'Show show_to_builder.' : key === null ? TELL_SHARED_NOTE : ack ? 'Saved. Show show_to_builder; the next find uses it.' : TELL_SAVED_NOTE;
     return {
       ...(show && { show_to_builder: show }),
       saved,
@@ -2910,12 +2916,31 @@ async function moveUpAnswer(ctx: ToolContext, m: { kind?: string; project_key?: 
   return benchMoveUp(ctx, m);
 }
 
+/**
+ * v3.1 cold read (owner-approved): a program that wants a chain the project has no code for, in plain words: "Circle
+ * wants apps that settle on Arc, Circle's chain. VaultPilot has no Arc code yet." Null when `note` is not the matcher's
+ * "no <chain> code found in this repo". Pure.
+ */
+export function chainFitLine(note: string | null | undefined, org: string | null | undefined, name: string): string | null {
+  const m = /^no (.+) code found in this repo\.?$/i.exec(note ?? '');
+  if (!m) return null;
+  const ids = m[1].split(/\s+or\s+/).map((c) => c.trim().toLowerCase()).filter((c): c is Chain => Object.hasOwn(CHAIN_NAMES, c));
+  if (ids.length === 0) return null;
+  const who = org?.replace(/\s*\([^)]*\)/g, '').trim() || 'This program';
+  const names = ids.map((c) => CHAIN_NAMES[c]).join(' or ');
+  const wants = ids.length === 1 ? (ids[0] === 'arc' ? `apps that settle on ${CHAIN_EXPLAINED.arc}` : `apps on ${CHAIN_EXPLAINED[ids[0]]}`) : `apps on ${names}`;
+  return `${who} wants ${wants}. ${name} has no ${names} code yet.`;
+}
+
 /** find with program_id and repo: the eligibility check as one plain line, or null. Pure; exported for tests. */
-export function eligibilityLine(repo: string, e: unknown): string | null {
+export function eligibilityLine(repo: string, e: unknown, o: { org?: string | null; name?: string | null } = {}): string | null {
   if (!e || typeof e !== 'object') return null;
   const name = repo.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/(\.git)?\/?$/, '');
   if ('error' in e) return typeof e.error === 'string' ? e.error : null;
   const { status, note } = e as { status?: string; note?: string | null };
+  // v3.1 cold read: never "no arc code found in this repo".
+  const chainLine = status === 'no' ? chainFitLine(note, o.org, o.name ?? name) : null;
+  if (chainLine) return chainLine;
   const said = note ? note.replace(/\.$/, '') : null;
   if (status === 'likely') return said ? `${name} fits: ${said}.` : `${name} fits.`;
   if (status === 'after_step') return `${name} fits after one step${said ? `: ${said}` : ''}.`;
@@ -3090,7 +3115,9 @@ async function findReply(input: unknown, ctx: ToolContext): Promise<Reply> {
     guide = withoutBonusLine(guide);
     r.guide = { ...r.guide, text: guide };
   }
-  const line = repo ? eligibilityLine(repo, r.eligibility) : null;
+  // Security review: never on a shared client (one agent, many builders), and only for the builder's own one project.
+  const named = repo && !ctx.sharedClient ? await mainProjectNameFor(ctx.installationId, repo) : null;
+  const line = repo ? eligibilityLine(repo, r.eligibility, { org: typeof r.organizer === 'string' ? r.organizer : null, name: named }) : null;
   return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
 }
 
@@ -3161,6 +3188,8 @@ export const tools = {
       join = b.join;
     }
     const { deploy, tips, ...prep } = PrepareInput.parse(input);
+    // v3.1 cold read (one name everywhere): the name the builder's project goes by here is remembered for every reply.
+    if (!ctx.sharedClient) await rememberProjectName(ctx.installationId, prep.project, new Date());
     // v3.1 (spec 3.2, 3.4), "Apply with this page": a curated program is drafted, never entered here (R15: unlisted
     // refused). A host, deploy or build step runs first and its lines join the draft; never the confirm line.
     if (!tips) {

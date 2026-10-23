@@ -21,9 +21,9 @@ export function bannedIn(text: string, exempt: string[]): string[] {
 export const BENCH_PITCH_ALLOWED: RegExp[] = [
   // 2026-10-22 (owner-approved reply fixes, fix round 1): the honest hook strips only its organizer and the chain it names
   // ("for apps on Base"); the rest of the sentence is still scanned.
-  /\b[A-Z][\w&'-]*(?: [A-Z][\w&'-]*){0,3}(?= pays up to \$[\d,]+(?: investment)? for apps\b)/g,
+  /\b[A-Z][\w&'-]*(?: [A-Z][\w&'-]*){0,3}(?= pays? up to \$[\d,]+(?: investment)? for apps\b)/g,
   /(?<=\bfor apps on )(?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)\b/g,
-  /\b(?:Base|Arc|Robinhood Chain)(?= pays up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
+  /\b(?:Base|Arc|Robinhood Chain)(?= pays? up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
   /\b[Aa] tip jar on (?:Base|Arc|Robinhood Chain)\b/g,
   // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").
   /\bfor an? (?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche) app\b/g,
@@ -55,6 +55,11 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\bShow your commit titles on your page\?/g,
   /\bPut your app on Base\./g,
   /\bBuilder Codes \(Base asks for this first\)/g,
+  // v3.1 cold read (owner-approved 2026-10-23): the titles question, the Builder Code step and the coin offer's own words.
+  /\bShow what you shipped \(commit titles\)/g,
+  /\bAdd Base's Builder Code to your app, a one-line tag Base uses to see your traffic\b/g,
+  /\bI can launch \$[A-Z0-9]+, a coin for .{1,80}? on Base\./g,
+  /\bProve your Base wallet so your contracts show on your page\./g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

@@ -192,7 +192,7 @@ export const TOOL_DESCRIPTIONS = { ...toolDescriptions(true, true), confirm: CON
  * 800 characters with the safety lines.
  */
 export const BENCH_INSTRUCTION_LINES = [
-  'Call find first. Show show_to_builder exactly as written and follow every agent_note.',
+  'Call find first. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
   'A yes or no to the question goes to tell move_up.',
   'Call score when they ask where they stand.',
   'Never name tools, fields or files to the builder, or invent personal details.',

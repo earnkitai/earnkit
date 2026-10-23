@@ -13,3 +13,16 @@ export const CHAIN_NAMES: Record<Chain, string> = {
   robinhood: 'Robinhood Chain',
   avalanche: 'Avalanche',
 };
+
+/**
+ * v3.1 cold read: a chain named and explained once in a reply ("Arc, Circle's chain"); a chain everyone knows by its
+ * own name is just named. Only well-known facts (who runs each chain).
+ */
+export const CHAIN_EXPLAINED: Record<Chain, string> = {
+  base: "Base, Coinbase's chain",
+  arc: "Arc, Circle's chain",
+  tempo: "Tempo, Stripe's chain",
+  monad: 'Monad',
+  robinhood: 'Robinhood Chain',
+  avalanche: 'Avalanche',
+};

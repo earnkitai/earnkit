@@ -1234,7 +1234,7 @@ test('10.11 list_programs: "Builders using EarnKit won $X" once, right after the
     const paras = r.show_to_builder.split('\n\n');
     // Joined to the money headline, or the first paragraph when the reply opens with a heading
     // (other test files' programs share this database); present.test pins each form exactly.
-    assert.match(paras[0], /(^|in prizes (open right now|you qualify for)\. )Builders using EarnKit won \$12,500\.$/);
+    assert.match(paras[0], /(^|programs? (?:is|are) open\.(?: Your best fit: [^\n]+\.)? )Builders using EarnKit won \$12,500\.$/);
     assert.equal(r.show_to_builder.split('Builders using EarnKit won').length, 2, 'once');
     wonSource.read = async () => 0;
     const none = (await handlers.list_programs({ more: true }, { installationId: id })) as { show_to_builder: string };
@@ -1303,7 +1303,7 @@ test('8.6 v2.10 item 3 (Review Focus 5): the first prepare for a program starts 
     assert.match(guide, /^Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: /);
     assert.match(guide, /\n\nWhat won (last time|before)\n/);
     assert.match(guide, /\n\nWhat Arc wants now\n- /);
-    assert.match(guide, /\n\nYour best bet\n- /);
+    assert.match(guide, /\n\nMost likely to win\n- /);
     assert.doesNotMatch(guide, /Builder bonus/);
     assert.ok(first.show_to_builder.startsWith(`${guide}\n\nArc Microgrants: 1 quick question`), first.show_to_builder);
     assert.equal(first.show_to_builder.split(guide).length, 2, 'once');
@@ -1406,7 +1406,9 @@ test('9.3 tell: statements are tell_earnkit; v2.14 T7: no pickup (refused as an 
   const viaOld = (await handlers.tell_earnkit(told, ctx)) as { agent_note: string };
   const viaNew = (await tools.tell(told, ctx)) as { agent_note: string };
   assert.deepEqual(viaNew, viaOld);
-  assert.match(viaNew.agent_note, /The next find uses it/);
+  assert.match(viaNew.agent_note, /the next find uses it/i);
+  // v3.1 cold read (bug 2): what they said about the repo is acknowledged in one short line.
+  assert.equal((viaNew as { show_to_builder?: string }).show_to_builder, 'Noted: with users.');
   await assert.rejects(tools.tell({ pickup: 'no' }, ctx), /Unrecognized key/);
   await assert.rejects(tools.tell({}, ctx), /Pass at least one/);
 });
@@ -1426,7 +1428,12 @@ test('9.3 prepare is prepare_submission (the same strict input); an old call ali
 test('9.3 find with repo: the eligibility check as one plain line after the guide', () => {
   assert.equal(eligibilityLine('https://github.com/alice/tipjar', { status: 'likely', missing: [], effort: null, note: null }), 'alice/tipjar fits.');
   assert.equal(eligibilityLine('alice/tipjar', { status: 'after_step', missing: [], effort: null, note: 'needs a mainnet deploy.' }), 'alice/tipjar fits after one step: needs a mainnet deploy.');
-  assert.equal(eligibilityLine('alice/tipjar.git', { status: 'no', missing: [], effort: null, note: 'no arc code found in this repo' }), "alice/tipjar doesn't fit yet: no arc code found in this repo.");
+  // v3.1 cold read: the chain named and explained, never "no arc code found in this repo".
+  assert.equal(eligibilityLine('alice/tipjar.git', { status: 'no', missing: [], effort: null, note: 'no arc code found in this repo' }, { org: 'Circle', name: 'TipJar' }),
+    "Circle wants apps that settle on Arc, Circle's chain. TipJar has no Arc code yet.");
+  assert.equal(eligibilityLine('alice/tipjar', { status: 'no', missing: [], effort: null, note: 'no base code found in this repo' }, { org: 'Base' }),
+    "Base wants apps on Base, Coinbase's chain. alice/tipjar has no Base code yet.");
+  assert.equal(eligibilityLine('alice/tipjar', { status: 'no', missing: [], effort: null, note: 'looks like a copy or tutorial' }), "alice/tipjar doesn't fit yet: looks like a copy or tutorial.");
   assert.equal(eligibilityLine('alice/tipjar', { error: "Couldn't read your repos on GitHub." }), "Couldn't read your repos on GitHub.");
   assert.equal(eligibilityLine('alice/tipjar', null), null);
 });
@@ -2232,7 +2239,7 @@ test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2)
       // GTM W2: no entry yet in that program (prepare only drafts): recorded as applied outside EarnKit, never an error.
       const outside = (await tools.tell({ submitted: { program_id: other.p.id } }, other.ctx)) as { show_to_builder: string; saved: string[] };
       assert.match(outside.show_to_builder, /^Saved: you applied to the /);
-      assert.deepEqual(outside.saved, [`${other.p.id}: applied outside EarnKit`]);
+      assert.deepEqual(outside.saved, [`${other.p.id}: applied`]);
     }),
   ));
 
@@ -2522,7 +2529,8 @@ test('final fix I2: the site never goes up: 15 minutes on, prepare with build an
  * proves the build's repo first) and the built_live coin line's coin_offered and coin_answered (coin-moments.test.ts).
  */
 const buildEventsOf = async (inst: number) =>
-  (await eventsOfInstallation(inst)).filter((e) => !['source_verified', 'coin_offered', 'coin_answered'].includes(e.type));
+  // v3.1 cold read: prepare remembers the project's name (identity_given), which is not a build event.
+  (await eventsOfInstallation(inst)).filter((e) => !['source_verified', 'coin_offered', 'coin_answered', 'identity_given'].includes(e.type));
 
 type JoinedReply = ShipReply & {
   ready?: boolean;

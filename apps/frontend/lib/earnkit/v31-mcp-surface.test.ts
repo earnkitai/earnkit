@@ -18,7 +18,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { CONFIRM_BACKING_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, toolDescriptions } from './mcp';
 import { CONFIRM_ENTRY_GONE, tools } from './tools';
-import { tokenUnavailable } from './bench-find';
+import { COIN_BLOCKED } from './coin-moments';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import type { TokenFlowDeps } from './token-launch';
@@ -200,7 +200,7 @@ test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" s
   const c = (await connectInstallation(t))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false, freshDeps } as Ctx, 'find', {});
   const s = show(r);
-  assert.match(s, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub/, s);
+  assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it/, s);
   assert.doesNotMatch(s, / pays .* for tip jars\.|V31 Pitch pays/, s);
   assert.equal(r.reply?.build_offer, undefined);
 }));
@@ -281,7 +281,7 @@ test('(j) final fix 1: tell token ask with EARNKIT_RAISING off offers no coin (n
     const b = await ranked('jo');
     const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
     assert.equal(r.isError, false, r.text);
-    assert.equal(show(r), tokenUnavailable('Kit'), r.text);
+    assert.equal(show(r), COIN_BLOCKED.off, r.text);
     assert.equal(r.reply?.coin, undefined, r.text);
     assert.doesNotMatch(r.text, /confirm|tell with coin/, r.text);
     const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM coin_moments WHERE builder_id = ${b.id}`;

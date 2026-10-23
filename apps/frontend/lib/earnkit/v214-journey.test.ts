@@ -131,7 +131,7 @@ test('12.1 acceptance 1: the install signs in with X; the first reply names the 
   first = await addEarnKit('http://127.0.0.1:41234/callback', 'Claude Code', ME);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16 step 2: the reply names the account itself; the picker's install link, no GitHub URL asked for.
-  assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
+  assert.equal(s.split('\n')[0], `You're in, @${ME.username}. I find grants your app qualifies for and write the applications.`, s);
   assert.doesNotMatch(s, /Signed in as/);
   assert.match(links(s)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.ok(s.endsWith("Done?"), s);
@@ -151,7 +151,8 @@ test('12.2 acceptance 2: a second agent with the same X is the same page, nothin
 
 test('12.3 naming the repo: not counted, with the App install link', db, async () => {
   const s = rule(await mcpCall(first.ctx, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${KEY}` } } }));
-  assert.equal(s.split('\n')[0], `You're in, @${ME.username}.`, s);
+  // v3.1 cold read: "You're in" was the first reply's; this one goes straight to the money and the step.
+  assert.doesNotMatch(s, /You're in/, s);
   installLinkSeen = links(s)[0]!;
   assert.match(installLinkSeen, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.ok(s.endsWith("Done?"), s);
@@ -224,7 +225,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   const bound = await mcpCall(ctx, 'find', { sign_in_code: code });
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const s = rule(bound);
-  assert.ok(s.startsWith(`You're in, @${kim.username}.\n`), s);
+  assert.ok(s.startsWith(`You're in, @${kim.username}. I find grants your app qualifies for and write the applications.\n`), s);
   assert.ok(s.endsWith("Done?"), s);
 });
 

@@ -64,7 +64,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
     'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
+    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base Builder Grants pay up to $5,000 for apps on Base.',
     '',
     `Step 1 of 2: sign in with X (one click): ${signIn}`,
     'Done?',
@@ -86,16 +86,17 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     verdicts: [{ program_id: BASE_GRANTS_ID, program: BASE_GRANTS_ID, status: 'likely', missing: [], effort: 'none', note: null }],
   }];
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
-  const step2 = (link: string) => [
-    `You're in, @${handle}.`,
+  // v3.1 cold read: "You're in" only on the first reply after sign-in.
+  const step2 = (link: string, first = false) => [
+    ...(first ? [`You're in, @${handle}. I find grants your app qualifies for and write the applications.`] : []),
     // GTM W2 (value before the ask): the open grant's line before the GitHub step.
-    'Base pays up to $5,000 for apps on Base.',
-    `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
-    'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
+    'Base Builder Grants pay up to $5,000 for apps on Base.',
+    `Connect your app's code on GitHub so I can match it (read-only, one click): ${link}`,
+    'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).',
     'Done?',
   ].join('\n');
   const s2 = rule(show(await mcpCall({ ...ctx, matchProjects: none }, 'find', {})));
-  assert.equal(s2, step2(links(s2)[0]!));
+  assert.equal(s2, step2(links(s2)[0]!, true));
   assert.match(links(s2)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
   const r2b = await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   const s2b = rule(show(r2b));
@@ -117,7 +118,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     `Kit is on the leaderboard: #1 of 13 builders, ${streak} weeks in a row.`,
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     '',
-    `Post your 3 weeks to https://earnkit.com/${handle} so grant teams can see them?`,
+    `Make your shipping log public on https://earnkit.com/${handle} so grant teams can see it?`,
     '+90 points',
   ].join('\n'));
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect');
@@ -142,19 +143,19 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const s6 = rule(show(await mcpCall(ctx, 'prepare', { program_id: BASE_GRANTS_ID, project: { name: 'Kit', repo_url: `https://github.com/${key}`, live_url: 'https://kit.app' }, answers })));
   const lines6 = s6.split('\n');
   assert.equal(lines6[0], 'Your Base Builder Grant Program application is ready. I filled 3 of 16 answers from your work.');
-  assert.match(lines6[1], /^You add: your full name, your email, /);
+  assert.match(lines6[1], /^You add \d+ more in the form: your full name, your email and \d+ short answers\.$/);
   assert.ok(s6.endsWith(`\n\nOpen the form, your answers are already in it: ${links(s6)[0]}\nSent it?`), s6);
   assert.doesNotMatch(s6, /points/);
 
-  // The ship step: the standing, the Best fit, the one question, its points line.
+  // The ship step: the Best fit, the one question, its points line (v3.1 cold read: the standing was just said in the
+  // connect reply and hasn't changed, so it isn't repeated; the points line is this week's first).
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
   assert.equal(s8, [
-    `Kit · #1 of 13 builders · ${streak} weeks in a row`,
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     'Want me to suggest one small thing to ship?',
-    s8.split('\n')[3],
+    s8.split('\n')[2],
   ].join('\n'));
-  assert.match(s8.split('\n')[3], /^Ship code this week( to hold #1)?: up to \+100 points$/);
+  assert.match(s8.split('\n')[2], /^Ship code this week( to hold #1)?: up to \+100 points$/);
 
   // Step 7: Monday. Last week (Oct 12) ranked #1 of 13 and is week 4 in a row (code Sep 21 to Oct 17).
   mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));
@@ -177,13 +178,13 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const tap = links(s7)[0]!;
   assert.match(tap, new RegExp(`^https://earnkit\\.com/${handle}/post/[a-z2-7]{10}$`));
   assert.equal(s7, [
-    "Week 4 done. You're now #1.",
+    "Week 4 done:",
     // Owner batch fix wave: the summary the yes binds to, quoted under the head.
     '"Added tipping in one tap."',
-    'Your post for X, with your page card:',
-    '"4 weeks shipping Kit without missing one. This week: added tipping in one tap."',
+    'Your post for X:',
+    '"4 weeks shipping Kit without missing one. Last week: added tipping in one tap."',
     `Post it in one tap: ${tap}`,
-    'Does last week look right?',
+    'Look right?',
   ].join('\n'));
   assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
   assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show the post text exactly as given\. Never rewrite it\./);
@@ -195,7 +196,7 @@ test('Task 16 fix round 1: the signed-out reply\'s open grant is never an invest
   const batches = card({ id: 'batches', organizer: 'Base', chains: ['base'], max_award_usd: 100000, investment: true });
   const grant = card({ id: 'circle', organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 });
   // Base first by the program list's order, but an investment: the grant is named, its organizer without the parenthesis.
-  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000', chain: null });
+  assert.deepEqual(openGrant([batches, grant], now, new Set()), { org: 'Arc House', amount: '$10,000', chain: null, name: 'P' });
   assert.equal(openGrant([batches], now, new Set()), null, 'only an investment open: no sentence');
-  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000', chain: 'Base' });
+  assert.deepEqual(openGrant([card({ id: 'base', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }), grant], now, new Set()), { org: 'Base', amount: '$5,000', chain: 'Base', name: 'P' });
 });
