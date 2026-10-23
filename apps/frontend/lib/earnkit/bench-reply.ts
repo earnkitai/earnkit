@@ -250,11 +250,13 @@ const STEP_LINE: Record<QualifyStep, string> = {
 };
 /** The steps reply's one question: help with the first step listed (always "step 1"). */
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
+/** Cold read: one step left has no "step 1" to point at. */
+export const QUALIFY_HELP_ASK_ONE = 'Want help with it now?';
 /** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
 export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
   const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
   const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
-  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', QUALIFY_HELP_ASK].join('\n');
+  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK].join('\n');
 }
 /**
  * 2026-10-23 Base onboarding (owner-approved): a builder who said no to step 2 (no GitHub, or not connecting now) is

@@ -395,7 +395,7 @@ const needsText = (c: Card) =>
 const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 
 /** v2.10 item 6 (Pre-flight P14): the matched table's heading when every row has low odds (never "fit"). */
-export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
+export const LOW_ODDS_HEADING = 'Long shots for your repos:';
 
 /**
  * v3.1 cold read (owner-approved): the money table's one header, "4 programs are open. Your best fit: Base Builder Grant

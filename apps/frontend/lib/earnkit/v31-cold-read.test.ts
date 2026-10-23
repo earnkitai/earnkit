@@ -106,7 +106,7 @@ test('the approved copy, word for word', () => {
     "Your next step toward Base's $5,000 grant:",
     "1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://docs.base.org/base-chain/builder-codes/builder-codes",
     '',
-    'Want help with step 1 now?',
+    'Want help with it now?',
   ].join('\n'));
   assert.equal(moneyHeader(4, { title: 'Base Builder Grant Program', max_award_usd: 5000 }), '4 programs are open. Your best fit: Base Builder Grant Program, up to $5,000.');
   assert.equal(moneyHeader(1, null), '1 program is open.');

@@ -122,7 +122,7 @@ test('the no-fit copy, word for word', () => {
     "Your next step toward Base's $5,000 grant:",
     '1. Have a live product people use.',
     '',
-    'Want help with step 1 now?',
+    'Want help with it now?',
   ].join('\n'));
 
   // The ranked reply: the standing, the hook, what is missing (the same steps the question counts), the question, the points line.
