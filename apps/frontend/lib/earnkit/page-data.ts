@@ -194,9 +194,9 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
     const safeName = hiddenRepo && nameIsRepo && !publicBySite ? (hosts[0] ?? PRIVATE_NAME) : r.name;
     const safeWhat = hiddenRepo && !(r.what && own?.whats.has(r.what)) ? null : r.what;
     const list = out.get(r.builder_id) ?? [];
-    // A hidden repo's own GitHub page (or its Pages site) would name it: no link then.
+    // A hidden repo's own GitHub page (or its Pages site) would name it: no link then. v3.1 GTM W3: nor a registry page.
     const linkHost = r.link && URL.canParse(r.link) ? new URL(r.link).hostname.toLowerCase() : '';
-    const safeLink = hiddenRepo && /(^|\.)github\.(io|com)$/.test(linkHost) ? null : r.link;
+    const safeLink = hiddenRepo && /(^|\.)(github\.(io|com)|npmjs\.com|pypi\.org)$/.test(linkHost) ? null : r.link;
     list.push({ ...r, link: safeLink, safeName, safeWhat, hiddenRepo, people: r.confirmed && !r.held ? r.people : 0 });
     out.set(r.builder_id, list);
   }

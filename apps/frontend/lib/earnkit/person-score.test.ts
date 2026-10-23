@@ -878,3 +878,16 @@ test('4.30 a mid-cron refresh that already had a known ring stays ranked through
   const [l] = await sql()<{ ranked: boolean; computed_at: Date }[]>`SELECT ranked, computed_at FROM builder_live WHERE builder_id = ${id}`;
   assert.deepEqual([l.ranked, l.computed_at.getTime()], [true, later.getTime()]);
 });
+
+test('v3.1 GTM W3: a package page links only once proven the builder\'s, on a public App-proven repo', async () => {
+  const { packageLinkable } = await import('./person-score');
+  const app = { id: 1, kind: 'repo', ref: 'https://github.com/dev/tipflow', state: 'verified', proof: 'github_app' };
+  const pub = (id: number) => (id === 1 ? false : undefined);
+  const verified = { state: 'verified', proof: 'repo_link' };
+  assert.equal(packageLinkable(verified, 'https://github.com/dev/tipflow', [app], pub), true);
+  assert.equal(packageLinkable({ state: 'proposed', proof: null }, 'https://github.com/dev/tipflow', [app], pub), false, 'guessed from package.json, not proven');
+  assert.equal(packageLinkable(verified, 'https://github.com/stranger/tipflow', [app], pub), false, "a stranger's package of the same name");
+  assert.equal(packageLinkable(verified, null, [app], pub), false, 'no repository field');
+  assert.equal(packageLinkable(verified, 'https://github.com/dev/tipflow', [{ ...app, proof: 'repo_owner' }], pub), false, 'repo not App-proven');
+  assert.equal(packageLinkable(verified, 'https://github.com/dev/tipflow', [app], () => true), false, 'a private repo');
+});
