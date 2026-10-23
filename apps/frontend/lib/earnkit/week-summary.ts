@@ -142,13 +142,15 @@ export async function aiSummary(titles: string[], create: SummaryCreate | null =
 const PATH_WORDS = ['React/Next.js', 'Next.js', 'Node.js', 'Vue.js', 'Three.js', 'Nuxt.js', 'Express.js', 'CI/CD', 'and/or', 'I/O', 'UI/UX', 'A/B'];
 const PATH_WORDS_RE = new RegExp(`(?<![\\w./-])(?:${PATH_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?![\\w/-]|\\.\\w)`, 'gi');
 /** A file name with a source or text extension, any case ("config.js", "main.c", "README.txt", "page.TSX"). */
-const FILE_NAME = /\b[\w-]+\.(?:[cm]?[jt]sx?|[cm]ts|py|go|rs|sol|rb|java|kt|swift|c|h|cc|cpp|hpp|cs|php|json|ya?ml|toml|lock|md|mdx|txt|css|scss|less|html?|sql|sh|env|ini|cfg|xml|csv)\b/i;
+const FILE_NAME = /\b[\w-]+\.(?:[cm]?[jt]sx?|[cm]ts|py|go|rs|sol|rb|java|kt|swift|c|h|cc|cpp|hpp|cs|php|json|ya?ml|toml|lock|md|mdx|txt|css|scss|less|html?|sql|sh|env|ini|cfg|conf|xml|csv|prisma|vue|svelte|graphql|gql|proto|tf)\b/i;
+/** Last fix wave (F): file names with no extension, and any dotfile token (".env", ".gitignore", ".eslintrc"). */
+const BARE_FILE = /\b(?:Dockerfile|Makefile|Procfile|Gemfile|Rakefile|Brewfile|Jenkinsfile|Vagrantfile|Containerfile)\b|(?:^|[\s("'`,;:[{])\.[A-Za-z0-9][\w.-]*/i;
 /** Any path: word characters joined by "/" ("lib/earnkit", "foo_bar/baz"), or a name with a trailing slash ("app/"). */
 const PATH = /[\w.-]+\/(?:[\w.-]+)?/;
 /** A file path or file name in a summary: never on a private repo's card (deny by default; PATH_WORDS aside). Pure. */
 export const namesPath = (text: string): boolean => {
   const rest = text.replace(PATH_WORDS_RE, ' ');
-  return FILE_NAME.test(rest) || PATH.test(rest);
+  return FILE_NAME.test(rest) || BARE_FILE.test(rest) || PATH.test(rest);
 };
 
 /**

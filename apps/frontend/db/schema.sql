@@ -1822,3 +1822,6 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_checked_day date;
 -- Fix wave (4, security ruling): consecutive days the earnkit.txt re-check was exempt (a transport failure while the
 -- site was up); at SITE_PROOF_EXEMPT_MAX in a row the day counts as a miss. Additive.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_exempt_days smallint NOT NULL DEFAULT 0;
+-- Owner batch last fix wave (E): when a site's earnkit.txt proof was lost (sources.ts recheckSite). Such a site is read
+-- for 60 days (so the code coming back re-proves it), then no longer; the agent can propose it again. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_lost_at timestamptz;

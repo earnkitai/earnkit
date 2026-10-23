@@ -311,6 +311,23 @@ test('4.11c fix wave (5): a site-only project proven by earnkit.txt is not confi
   assert.equal(f.key, null);
 });
 
+test('4.11d last fix wave (E): a site whose earnkit.txt proof was lost is never the project\'s link, live site or ship', dbTest, async () => {
+  const id = T + 18;
+  const key = `lost${T}/app`;
+  await person(id, key, { [wk(0)]: 1 });
+  const site = `https://lost${T}.example.com`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${site}, ${key}, 'verified', 'earnkit_txt', 'agent') RETURNING id::int AS sid`;
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  const project = async () => (await sql()<{ link: string | null; shipped: boolean }[]>`SELECT link, shipped FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`)[0];
+  await rescorePerson(id, NOW);
+  assert.equal((await project()).link, site, 'proven: the project\'s link');
+  await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL, reject_reason = 'site_proof_lost', proof_lost_at = now() WHERE id = ${sid}`;
+  await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+  const p = await project();
+  assert.notEqual(p.link, site, 'lost: never the link');
+});
+
 test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {
   const id = T + 10;
   const key = `fay${T}/dapp`;

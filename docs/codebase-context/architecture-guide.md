@@ -4840,9 +4840,12 @@ may be linked in an update (`updates.ts ownLinks`). It is checked again on every
 recheckSite`, before `proveSite`) while the site is up: anything but 200 text/plain with the code is a miss (any other
 status, a redirect, an oversized body, another type), once a day (`proof_checked_day`); only transport failures
 (timeout, DNS, a reset) and the run's deadline are exempt, and `SITE_PROOF_EXEMPT_MAX` (7) exempt days in a row count as
-a miss (`proof_exempt_days`); one success resets both; the third miss in a row puts the row back to proposed (proof
+a miss (`proof_exempt_days`, kept on that miss so every exempt day past the cap is a miss; a TLS or certificate failure is
+transport); one success resets both; the third miss in a row puts the row back to proposed (proof
 null, reject_reason `SITE_PROOF_LOST`), so it stops counting, being linked and showing, but it keeps being read
-(`dueSources`, `writeReading`) and `proveSite` verifies it again as earnkit_txt once the code is back. A site proven
+(`dueSources`, `writeReading`) for `SITE_PROOF_LOST_READ_DAYS` (60) after `proof_lost_at`, then no longer, and
+`proveSite` verifies it again as earnkit_txt once the code is back; `proposeSource` lets the agent propose it again (only
+a lost site row is reset). A lost site is never the project's link, live site or ship (`person-score.ts`). A site proven
 only by earnkit.txt counts only under a project with a confirmed repo (`person-score.ts`), so a site-only project is
 never confirmed and never picked by `pickMainProject`.
 `dns_txt` confirms nothing: nothing verifies or re-checks a DNS record. Neither confirms a repo, package or contract;
@@ -6598,7 +6601,9 @@ quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows th
   offer quotes none, so its yes binds none (`approveWeek(..., null)`). An offer that could not show the stored summary
   records it (`weekly-moment.ts markOffered`, `facts.offered_summary`; the moment and the Monday email), so it is asked
   once, not forever. `week-summary.ts namesPath` is deny by default: any slash path or file name with a source or text
-  extension hides a private repo's summary, except the allowlist (Next.js, Node.js, Vue.js, Three.js, Nuxt.js,
+  extension (prisma, vue, svelte, graphql, gql, proto, tf, ini, cfg, conf, xml, csv included), an extensionless known
+  file name (Dockerfile, Makefile, Procfile and kin) or a dotfile token (".env", ".gitignore") hides a private repo's
+  summary, except the allowlist (Next.js, Node.js, Vue.js, Three.js, Nuxt.js,
   Express.js, React/Next.js, CI/CD, and/or, I/O, UI/UX, A/B).
 - **Private repos (owner batch 2026-10-23).** Approval is consent, bound to the exact text: a private repo's week
   with titles off shows its stored summary on the feed, profile Activity and posts only when it equals
@@ -7653,13 +7658,16 @@ gone; the Monday moment now carries a drafted post.)
 - **Proof ruling (security, 2026-10-23, owner batch fix wave).** A proof must name the builder. (a) `proof_hosts`
   entries are "host/path-prefix/" (`program-file.ts`: a lowercase host and a prefix ending in "/"; programs:check
   validates it): `post-moments.ts proofEntryMatches` matches that exact host (no www widening, no subdomain) and a path
-  under the prefix, so user-content paths stay out. Today: base-builder-grants `["www.base.org/blog/",
-  "docs.base.org/"]`, base-batches-005 `["www.base.org/blog/"]`, a16z-speedrun `["speedrun.a16z.com/"]`. (b) A web
+  under the prefix, so user-content paths stay out. Today: base-builder-grants `["www.base.org/blog/"]`, base-batches-005 `["www.base.org/blog/"]`, a16z-speedrun `["speedrun.a16z.com/"]`. (b) A web
   proof is fetched (`outcome-proof.ts defaultProofFetch`: the guarded fetch, HTML, `LARGE_PAGE_MAX_BYTES`) and its
-  visible text must mention the builder's X handle (with or without @) or the project's shown name, case-insensitive
-  and word-bounded (`mentionsBuilder`; a name under 3 characters never matches). (c) An X post is read through
-  `https://publish.twitter.com/oembed?url=<status url>` (JSON, `OEMBED_MAX_BYTES`): `author_url` must be one of the
-  program's `x_handles` and the post's own words (its first paragraph, never the attribution) must name the builder.
+  page must name the builder (`namesBuilder`, last fix wave A): their verified X handle as "@handle" or an
+  x.com/twitter.com link to it (3+ characters, never a word of the program's title or one of its `x_handles`), their
+  verified site's host or their public repo's URL (github.com/owner/repo); never the project's name. (c) An X post is
+  read through `https://publish.twitter.com/oembed?url=<status url>` (JSON, `OEMBED_MAX_BYTES`): `author_url` must be
+  one of the program's `x_handles` and the post's own words (its first paragraph, never the attribution) must name the
+  builder by the same rule. (d) Last fix wave B: `proofUrlOk` refuses a path with %2f, %5c or %2e (any case), a
+  backslash, an empty or a dot segment, checked on the link as given; the stored and fetched link drops its query and
+  fragment.
   Any fetch or parse failure fails closed (`proofNamesBuilder` false, 'no_proof'). `ToolContext.proofFetch` is test
   injection only. Agent-stated awards are never printed.
 - **Final review fix wave (2026-10-23).** (1) Proof hosts are an owner-reviewed allowlist: program files may list

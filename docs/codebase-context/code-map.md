@@ -2291,3 +2291,9 @@ Owner batch fix wave (2026-10-23): `outcome-proof.ts` (new: `ProofFetch`, `defau
 read; `proveLinkedSite` removed); schema `builder_sources.proof_exempt_days`. Tests: `post-moments.test.ts` (proof),
 `v31-post-replies.test.ts` (fixture proof sources), `program-file.test.ts`, `site-proof.test.ts` SP11/SP14/SP15,
 `week-facts.test.ts` 4.11c, `weekly-moment.test.ts` (fix wave), `v3-connect.test.ts` (b2), `week-summary.test.ts` W6d.
+Owner batch last fix wave (2026-10-23): `outcome-proof.ts` (`ProofWho`, `namesBuilder`: verified @handle or x.com link,
+site host, public repo URL; no project name); `post-moments.ts proofUrlOk` (path hygiene, query and fragment dropped);
+`sources.ts` (`SITE_PROOF_LOST_READ_DAYS`, `proof_lost_at`, `proposeSource` re-propose of a lost site, exempt count kept
+past the cap); `person-score.ts` (lost sites skipped); `week-summary.ts` (`BARE_FILE`, more extensions); schema
+`builder_sources.proof_lost_at`; base-builder-grants proof_hosts `["www.base.org/blog/"]`. Tests: `post-moments.test.ts`,
+`v31-post-replies.test.ts`, `site-proof.test.ts` SP15/SP15b/SP16, `week-facts.test.ts` 4.11d, `week-summary.test.ts` W6d.

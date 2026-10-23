@@ -6,7 +6,7 @@ import { sql } from './db';
 import { profileCode, profileCodesIn } from './discovery-clues';
 import { withEnv } from './fixtures/find';
 import { ScoreDeadline } from './campaigns';
-import { SITE_PROOF_EXEMPT_MAX, SITE_PROOF_LOST, SITE_PROOF_MISSES_MAX, readSources } from './sources';
+import { SITE_PROOF_EXEMPT_MAX, SITE_PROOF_LOST, SITE_PROOF_MISSES_MAX, proposeSource, readSources } from './sources';
 import { RedirectError, SafeFetchError } from './safe-fetch';
 import type { ReaderDeps } from './source-readers';
 
@@ -200,8 +200,44 @@ test('SP15 fix wave (4, security ruling): 7 exempt days in a row count as a miss
   await runOn('2026-11-07', reader(200, { [`${SITE}/earnkit.txt`]: txt(ID) }));
   assert.deepEqual([await misses(id), await exemptDays()], [0, 0], 'a success resets');
   for (let d = 8; d <= 14; d++) await runOn(`2026-11-${String(d).padStart(2, '0')}`, timeout);
-  assert.deepEqual([await misses(id), await exemptDays()], [1, 0], 'the 7th exempt day in a row is a miss');
+  assert.deepEqual([await misses(id), await exemptDays()], [1, 7], 'the 7th exempt day in a row is a miss; the count is kept');
   assert.equal(SITE_PROOF_EXEMPT_MAX, 7);
+  // Last fix wave (D, G): every exempt day past the cap is a miss, a TLS failure included (transport, under the cap).
+  const tls = reader(200, { [`${SITE}/earnkit.txt`]: new SafeFetchError("couldn't fetch it (certificate has expired)") });
+  await runOn('2026-11-15', tls);
+  assert.deepEqual([await misses(id), await exemptDays()], [2, 8]);
+  await runOn('2026-11-16', tls);
+  assert.deepEqual(await stateOf(id), { state: 'proposed', proof: null }, 'the third miss revokes');
+});
+
+test('SP15b last fix wave (G): a TLS or certificate failure is a transport failure, exempt under the cap', dbTest, async () => {
+  const id = await source({ state: 'verified', proof: 'earnkit_txt', by: 'server' });
+  await runOn('2026-10-23', reader(200, { [`${SITE}/earnkit.txt`]: new SafeFetchError("couldn't fetch it (unable to verify the first certificate)") }));
+  const [r] = await sql()<{ m: number; e: number }[]>`SELECT proof_misses AS m, proof_exempt_days AS e FROM builder_sources WHERE id = ${id}`;
+  assert.deepEqual([r.m, r.e], [0, 1]);
+});
+
+test('SP16 last fix wave (E): a lost site is read for 60 days, then no longer; the agent can propose it again', dbTest, async () => {
+  const id = await source({ state: 'proposed', proof: null, by: 'server', reject: SITE_PROOF_LOST });
+  await sql()`UPDATE builder_sources SET proof_lost_at = '2026-09-01' WHERE id = ${id}`;
+  await runOn('2026-10-23', reader(200, { [`${SITE}/earnkit.txt`]: txt(ID) }));
+  assert.equal((await readings(id)).length, 1, 'within 60 days: read');
+  assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' }, 'the code back: verified again');
+  const old = await source({ ref: `https://old${ID}.example.com`, state: 'proposed', proof: null, by: 'agent', reject: SITE_PROOF_LOST });
+  await sql()`UPDATE builder_sources SET proof_lost_at = '2026-08-01' WHERE id = ${old}`;
+  await runOn('2026-10-24', reader(200, { [`https://old${ID}.example.com/earnkit.txt`]: txt(ID, `https://old${ID}.example.com`) }));
+  assert.equal((await readings(old)).length, 0, 'over 60 days: no longer read, even proposed by the agent');
+  assert.deepEqual(await stateOf(old), { state: 'proposed', proof: null });
+  // The agent proposes it again: an ordinary proposed site, read and provable.
+  assert.equal(await proposeSource({ builder_id: ID, kind: 'site', ref: `https://old${ID}.example.com`, project_key: `own${ID}/app`, proposed_by: 'agent' }), old);
+  const [{ reason }] = await sql()<{ reason: string | null }[]>`SELECT reject_reason AS reason FROM builder_sources WHERE id = ${old}`;
+  assert.equal(reason, null);
+  await runOn('2026-10-25', reader(200, { [`https://old${ID}.example.com/earnkit.txt`]: txt(ID, `https://old${ID}.example.com`) }));
+  assert.deepEqual(await stateOf(old), { state: 'verified', proof: 'earnkit_txt' });
+  // Proposing again never touches another row (a verified or rejected one stays as it is).
+  const kept = await source({ ref: `https://kept${ID}.example.com`, state: 'rejected', proof: null, reject: 'repo_mismatch' });
+  assert.equal(await proposeSource({ builder_id: ID, kind: 'site', ref: `https://kept${ID}.example.com`, project_key: `own${ID}/app`, proposed_by: 'agent' }), null);
+  assert.deepEqual(await stateOf(kept), { state: 'rejected', proof: null });
 });
 
 test('SP12 fix round: one success resets the misses', dbTest, async () => {

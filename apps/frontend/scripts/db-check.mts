@@ -842,7 +842,7 @@ ok(pd?.taps === 2 && pd.first === null, 'v3.1 one-tap posts: a post_drafts row s
 
 const sourceCols = await cols('builder_sources');
 // Owner batch fix round: an earnkit_txt site's daily re-check (proof_misses, proof_checked_day) survives the schema running again.
-ok(['proof_misses', 'proof_checked_day', 'proof_exempt_days'].every((c) => sourceCols.includes(c)), 'owner batch: builder_sources.proof_misses, proof_checked_day, proof_exempt_days');
+ok(['proof_misses', 'proof_checked_day', 'proof_exempt_days', 'proof_lost_at'].every((c) => sourceCols.includes(c)), 'owner batch: builder_sources.proof_misses, proof_checked_day, proof_exempt_days, proof_lost_at');
 await db`UPDATE builder_sources SET proof_misses = 2, proof_checked_day = '2026-10-23' WHERE builder_id = -133`;
 await db.unsafe(now);
 const [pm] = await db<{ m: number; d: string | null }[]>`SELECT proof_misses AS m, proof_checked_day::text AS d FROM builder_sources WHERE builder_id = -133`;

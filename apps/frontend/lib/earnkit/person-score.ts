@@ -16,7 +16,7 @@ import { FORMULA_V2, SHIPPING_WEEKS, computeScoreV2, type ScoreInput, type Ship 
 import {
   defaultReaderDeps, isBudgetStop, readError, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
 } from './source-readers';
-import { firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
+import { SITE_PROOF_LOST, firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
 import { wholeWords } from './untrusted-text';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
@@ -78,7 +78,7 @@ export function trackedKeys(projects: Pick<ProjectRow, 'key' | 'last_active_at'>
 
 // ---- Readings to inputs ---------------------------------------------------------------------------
 
-type Src = { id: number; kind: string; ref: string; project_key: string; proof: string | null; state: string; created_at: Date };
+type Src = { id: number; kind: string; ref: string; project_key: string; proof: string | null; state: string; created_at: Date; reject_reason?: string | null };
 /** One good observation of a source: a daily reading (`at` = its day) or the refresh's live one (`at` = read time). */
 type Obs = { at: Date; rank: number; signals: Record<string, unknown> };
 
@@ -143,7 +143,7 @@ export async function personInputsV2(
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((m) => m.id);
   const group = members.length ? members : [-1];
   const sources = [...(await db<Src[]>`
-    SELECT id::int AS id, kind, ref, project_key, proof, state, created_at FROM builder_sources
+    SELECT id::int AS id, kind, ref, project_key, proof, state, created_at, reject_reason FROM builder_sources
     WHERE builder_id = ${id} AND state <> 'rejected' AND kind <> 'merged_pr' ORDER BY id`)];
   const ids = sources.map((s) => s.id);
   const readings = ids.length === 0 ? [] : await db<{ source_id: number; day: string; at: Date; signals: unknown }[]>`
@@ -269,6 +269,8 @@ export async function personInputsV2(
           if (inScope) input.commitWeeks.push(wk);
         }
       } else if (s.kind === 'site') {
+        // Last fix wave (E): a site whose earnkit.txt proof was lost is never the project's link, live site or ship.
+        if (s.reject_reason === SITE_PROOF_LOST) continue;
         hasSite = true;
         const up = last && (last.signals as Partial<SiteSignals>).up === true;
         if (up) {

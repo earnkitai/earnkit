@@ -85,10 +85,14 @@ test('W6c fix round: consent binds to the exact text the week was approved with'
 
 test('W6d fix wave (security ruling): namesPath is deny by default; only the listed tech names and word pairs pass', () => {
   for (const t of ['Moved to Next.js and Node.js.', 'Set up CI/CD.', 'Fixed sign-in and/or sign-up.', 'Ported React/Next.js pages.', 'Used Vue.js, Three.js, Nuxt.js and Express.js.',
-    'Faster I/O.', 'A UI/UX pass.', 'Ran an A/B test.', 'Shipped v2.1 of the app.', 'Fixed sign-in. Added search.'])
+    'Faster I/O.', 'A UI/UX pass.', 'Ran an A/B test.', 'Shipped v2.1 of the app.', 'Fixed sign-in. Added search.', 'Wait... it works.', 'Made it 2.5x faster.'])
     assert.equal(namesPath(t), false, t);
   for (const t of ['Edited src/app/page.tsx.', 'Moved lib/earnkit around.', 'Cleaned app/ up.', 'Renamed foo_bar/baz.', 'Fixed config.js.', 'Fixed main.c.', 'Edited README.txt.',
-    'Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Fixed PAGE.TSX.', 'Moved Next.js/app.'])
+    'Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Fixed PAGE.TSX.', 'Moved Next.js/app.',
+    // Last fix wave (F): extensionless file names, dotfiles and the added extensions.
+    'Fixed the Dockerfile.', 'Cleaned up the makefile.', 'Added a Procfile.', 'Updated .env defaults.', 'Edited .gitignore.', 'Added .xyzrc.', '(.eslintrc) tidy.',
+    'Changed schema.prisma.', 'Fixed Nav.vue.', 'Fixed Card.svelte.', 'Edited schema.graphql.', 'Edited query.gql.', 'Edited api.proto.', 'Edited main.tf.',
+    'Edited app.ini.', 'Edited app.cfg.', 'Edited nginx.conf.', 'Edited feed.xml.', 'Edited data.csv.'])
     assert.equal(namesPath(t), true, t);
   const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp', consented: true };
   assert.equal(summaryShown('Moved to Next.js and set up CI/CD.', [], priv), 'Moved to Next.js and set up CI/CD.');
