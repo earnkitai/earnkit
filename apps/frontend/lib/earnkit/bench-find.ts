@@ -23,7 +23,7 @@ import { xSignInEnabled } from './builder-score-flag';
 import { outcomeLine } from './outcomes';
 import { EARN_NOTE, NOTED_LINE, newsOpener } from './stand-text';
 import {
-  earnPrize, FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
+  FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
 import { byDeadline, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
@@ -36,7 +36,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_HELP_STEP, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
-  type ApplyPick, type FitBar, fitBar, keyName, upcomingShown, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
+  type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
@@ -404,9 +404,6 @@ export async function signedOutNow(id: number, own: number): Promise<boolean> {
   }
 }
 
-/** v3 Stage 2: the streak (weeks shipped in a row) from which a ranked reply names one upcoming program. */
-export const UPCOMING_STREAK = 4;
-
 /** R12: a program the one project fits: its award, its deadline ("closes Oct 30" or "rolling") and why (fitWhy). */
 export type Fit = {
   program_id: string; repo?: string; title: string;
@@ -642,14 +639,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
 
-  // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
-  // the program list's order (byRelevance), shown only when no fit is (benchReply). v3.1 GTM W3: only when nothing
-  // else is the money line (no Best fit, fit or backing) in a reply that says it
-  // (upcomingShown), and once a week a program (takeUpcoming), never every reply.
-  if (ranked && streak >= UPCOMING_STREAK && !best && fund.length === 0 && upcomingShown({ held, ask: finalAsk, connect, moment, handle, post: event, qualify })) {
-    const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
-    if (soon && (await takeUpcoming(id, soon.id, now))) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
-  }
+  // 2026-10-23 (owner): a program that isn't open is never a reply line (nothing to do with it); it shows once it opens.
 
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
@@ -714,21 +704,6 @@ async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'chec
   return Boolean(taken);
 }
 const takeBaseAsk = (id: number, now: Date) => takeOnce(id, 'base_asked', now);
-/** v3.1 GTM W3: an upcoming program's "not open yet" line is said at most once a week (standing_seen.upcoming_said). */
-export const UPCOMING_EVERY_MS = 7 * 86_400_000;
-/** v3.1 GTM W3: claims the upcoming line for `programId` when it was not said within UPCOMING_EVERY_MS. Never throws. */
-export async function takeUpcoming(id: number, programId: string, now: Date): Promise<boolean> {
-  const since = new Date(now.getTime() - UPCOMING_EVERY_MS).toISOString();
-  const [taken] = await sql()`
-    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('upcoming_said',
-      COALESCE(standing_seen->'upcoming_said', '{}'::jsonb) || jsonb_build_object(${programId}::text, ${now.toISOString()}::text))
-    WHERE builder_id = ${id} AND (standing_seen->'upcoming_said'->>${programId} IS NULL
-      OR standing_seen->'upcoming_said'->>${programId} <= ${since}) RETURNING 1`.catch((err: unknown) => {
-    logged('take upcoming')(err);
-    return [];
-  });
-  return Boolean(taken);
-}
 /**
  * 2026-10-23: the one-line notice after the repo picker refused only forks or templates (standing_seen.template_refused,
  * github-app.ts pickSetup), taken once. Never throws.

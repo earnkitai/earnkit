@@ -164,7 +164,7 @@ test('(d) programs:check passes on the committed JSON files', () => {
     assert.match(out, new RegExp(`Valid: ${f.replace('.', '\\.')}`));
 });
 
-test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming line, the money line (v3.1 F4: none beside a fit, v31-reply-trim.test.ts)', db, async () => {
+test('(e) a ranked builder with a 4-week streak and no fit never hears of a program that is not open (owner 2026-10-23)', db, async () => {
   await upsertProgram(upcomingFile(`v3-upc-e-${RUN}`, { max_award_usd: 50000, chains: ['arc'] }));
   const t = `ek_v3p_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -186,20 +186,9 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   assert.doesNotMatch(q, / not open yet\. /, q);
   assert.match(q, /\nBase pays up to \$5,000 for apps on Base\.\n/, q);
   await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
+  // 2026-10-23 (owner): a program that isn't open is never a reply line, even with a 4-week streak and no fit.
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
-  const lines = s.split('\n');
-  const upc = lines.filter((l) => / not open yet\. /.test(l));
-  assert.equal(upc.length, 1, s);
-  // The first upcoming program by the tile order, with its prize and note.
-  const first = (await listPrograms()).filter((p) => p.status === 'upcoming').sort(byRelevance)[0];
-  assert.ok(upc[0].startsWith(`${first.title}: `) && upc[0].endsWith(`, not open yet. ${first.opens_note}`), upc[0]);
-  // Task 16: the money line, after the standing line, before the question; a statement, no link.
-  assert.equal(lines.indexOf(upc[0]), 1, s);
-  assert.doesNotMatch(upc[0], /https?:|\?/);
-  // A streak under 4: no upcoming line.
-  await streak(3);
-  const s3 = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
-  assert.doesNotMatch(s3, / not open yet\. /, s3);
+  assert.doesNotMatch(s, /not open yet|not announced/, s);
 });
 
 test('(f) the guide page for an upcoming program shows not open yet, the note and no Ask button', db, async () => {
