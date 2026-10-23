@@ -7749,7 +7749,11 @@ the change link.
   needs a fresh X sign-in on the page as the same person**: `/claim/wallet/x?t=` (`walletXStart`) starts the v2.14 X
   sign-in (`x_signins` purpose `wallet`, bound to the link's use hash; a `__Host-ekwt-` cookie carries the link back),
   the callback (`x-install.ts xSignInCallback` -> `walletXSignedIn`) passes only `builder_profiles.x_user_id` and writes
-  `wallet_x_checks`; a proof with that link (30 minutes) becomes the recipient. Without it the wallet is added for
+  `wallet_x_checks`; a proof with that link (30 minutes) becomes the recipient. Security follow-up: the check is the
+  signed-in browser's, not the link's: the callback sets a `__Host-ekwx-` cookie (HttpOnly, Secure, Lax, 30 minutes)
+  holding a random secret and keeps only its hash (`wallet_x_checks.browser_hash`); the page skips the X step and the
+  POST counts the check only with that cookie, and the proof uses it up (row deleted, cookie cleared). The same link
+  from another browser, or with a wrong cookie, adds the wallet for contracts only. Without it the wallet is added for
   contracts only (`walletContractsLine`), so a leaked link never moves money. A changed recipient sets
   `standing_seen.wallet_notice`; the next find or score reply starts with `Your reward wallet changed to 0x12ab…abcd.`
   (`takeWalletNotice`), once. Replies and the done page show the short wallet only (`entry-text.ts shortWallet`).

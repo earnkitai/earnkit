@@ -864,6 +864,12 @@ const [wr] = await db<{ r: Date | null }[]>`SELECT recipient_at AS r FROM person
 ok(wr?.r?.toISOString() === '2024-02-01T00:00:00.000Z', 'v3.1 wallet proof: a recipient survives the schema running again');
 const [xs] = await db<{ def: string }[]>`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'x_signins_purpose_check'`;
 ok(Boolean(xs?.def.includes("'wallet'")), "v3.1 wallet proof: x_signins takes purpose 'wallet'");
+// Security follow-up: an X check carries its browser's secret hash, kept when the schema runs again.
+ok((await cols('wallet_x_checks')).includes('browser_hash'), 'v3.1 wallet proof: wallet_x_checks.browser_hash');
+await db`INSERT INTO wallet_x_checks (use_hash, builder_id, browser_hash) VALUES ('dbcheck-x', -136, 'h') ON CONFLICT (use_hash) DO UPDATE SET browser_hash = 'h'`;
+await db.unsafe(now);
+const [xb] = await db<{ h: string | null }[]>`SELECT browser_hash AS h FROM wallet_x_checks WHERE use_hash = 'dbcheck-x'`;
+ok(xb?.h === 'h', 'v3.1 wallet proof: a browser_hash survives the schema running again');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

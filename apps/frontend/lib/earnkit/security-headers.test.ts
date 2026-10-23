@@ -109,9 +109,10 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
   assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/wallet-proof.ts', 'lib/earnkit/x-install.ts', 'lib/earnkit/x-link.ts']);
   const wallet = readFileSync(setting.find((p) => p.endsWith('wallet-proof.ts'))!, 'utf8');
   assert.match(wallet, /export const walletTokenCookie = \(useHash: string\) => `__Host-ekwt-/);
+  assert.match(wallet, /export const walletXCookie = \(useHash: string\) => `__Host-ekwx-/);
   const walletCookies = [...wallet.matchAll(/'Set-Cookie', `([^`]*)`/g)];
-  assert.equal(walletCookies.length, 2, 'set and clear');
-  for (const m of walletCookies) assert.match(m[1], /^\$\{walletTokenCookie\([A-Za-z]+\)\}=[^;]*; Path=\/; Max-Age=\d+; HttpOnly; Secure; SameSite=Lax$/);
+  assert.equal(walletCookies.length, 4, 'the link cookie set and cleared, the X-check cookie set and cleared');
+  for (const m of walletCookies) assert.match(m[1], /^\$\{(walletTokenCookie|walletXCookie)\([A-Za-z().]+\)\}=[^;]*; Path=\/; Max-Age=\d+; HttpOnly; Secure; SameSite=Lax$/);
   setting.splice(setting.findIndex((p) => p.endsWith('wallet-proof.ts')), 1);
   const link = readFileSync(setting.find((p) => p.endsWith('x-link.ts'))!, 'utf8');
   assert.deepEqual([...link.matchAll(/'Set-Cookie':\s*([^ ,}]+)/g)].map((m) => m[1]), ['cookie']);

@@ -21,8 +21,9 @@ import {
   walletContractsOnly, walletDone, walletNotYet, walletNotice, walletOffer, type BenchProject,
 } from './bench-reply';
 import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletOfferDue } from './wallet-offer';
-import { WALLET_TEXT, provenWallet, tokenUseKey, upgradeOf, walletContractsLine, walletDoneLine, walletMessage, walletPost } from './wallet-proof';
+import { WALLET_TEXT, provenWallet, upgradeOf, walletContractsLine, walletDoneLine, walletMessage, walletPost } from './wallet-proof';
 import { titlesAskDue } from './updates';
+import { walletXSignIn } from './fixtures/wallet-step';
 import { COIN_WALLET_ASK, coinWallet, coinYes, offerCoin } from './coin-moments';
 import { discoverPerson } from './discovery';
 import { walletFirstTxFrom, type ReaderDeps } from './source-readers';
@@ -71,11 +72,13 @@ const viemVerify = (a: { address: string; message: string; signature: string }) 
   verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` });
 const tokenOf = (s: string) => decodeURIComponent(/https:\/\/earnkit\.com\/claim\/wallet\?t=(\S+)/.exec(s)![1]);
 /** Signs the link's message with `acct` and posts it as the page does. */
-async function sign(handle: string, s: string, acct = privateKeyToAccount(generatePrivateKey())) {
+async function sign(handle: string, s: string, acct = privateKeyToAccount(generatePrivateKey()), cookie: string | null = null) {
   const t = tokenOf(s);
   const signature = await acct.signMessage({ message: walletMessage(handle, t) });
   const r = await walletPost(
-    new Request('https://earnkit.com/claim/wallet', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://earnkit.com' }, body: JSON.stringify({ t, wallet: acct.address, signature }) }),
+    new Request('https://earnkit.com/claim/wallet', {
+      method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://earnkit.com', ...(cookie && { cookie }) }, body: JSON.stringify({ t, wallet: acct.address, signature }),
+    }),
     { limit: async () => {}, verify: viemVerify },
   );
   const j = (await r.json()) as { line: string; recipient?: boolean };
@@ -211,8 +214,10 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   const change2 = await mcpCall(ctx, 'tell', { wallet: 'change' });
   const c2 = rule(show(change2));
   assert.ok(c2.endsWith(`\n${WALLET_BUILDER_CODE}\n${WALLET_COIN_FEES}\nDone?`), c2);
-  await sql()`INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at) VALUES (${tokenUseKey(tokenOf(c2))}, ${c.id}, now())`;
-  const moved = await sign(handle, c2);
+  const [{ x }] = await sql()<{ x: string }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${c.id}`;
+  const xCookie = await walletXSignIn(tokenOf(c2), x);
+  assert.ok(xCookie);
+  const moved = await sign(handle, c2, undefined, xCookie);
   await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${c.id}`;
   assert.equal(moved.recipient, true);
   assert.equal(await provenWallet(c.id), moved.wallet);

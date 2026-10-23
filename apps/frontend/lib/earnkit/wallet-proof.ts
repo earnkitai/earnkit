@@ -104,10 +104,18 @@ export async function provenSince(builderId: number, since: Date): Promise<{ wal
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 /** A token's use key: one per token, so a link proves one wallet once (also the key of its X check). */
 export const tokenUseKey = (token: string) => sha256(`token:${token}`);
-/** Whether this link's page passed an X sign-in as its person within the link's life (wallet_x_checks). */
-async function xChecked(token: string, builderId: number, now: Date): Promise<boolean> {
+/**
+ * Security follow-up: the X check belongs to the browser that signed in, not to whoever holds the link. Its secret
+ * lives only in that browser's __Host-ekwx- cookie (HttpOnly, Secure, Lax); wallet_x_checks keeps its sha256.
+ */
+export const walletXCookie = (useHash: string) => `__Host-ekwx-${useHash.slice(0, 16)}`;
+const browserHash = (secret: string) => sha256(`walletx:${secret}`);
+/** Whether this link's page passed an X sign-in as its person, in this browser (`secret`, its cookie), within the link's life. */
+async function xChecked(token: string, builderId: number, now: Date, secret: string | null | undefined): Promise<boolean> {
+  if (!secret) return false;
   const [r] = await sql()`
-    SELECT 1 FROM wallet_x_checks WHERE use_hash = ${tokenUseKey(token)} AND builder_id = ${builderId} AND checked_at > ${new Date(now.getTime() - UPGRADE_TTL_MS)}`;
+    SELECT 1 FROM wallet_x_checks WHERE use_hash = ${tokenUseKey(token)} AND builder_id = ${builderId} AND browser_hash = ${browserHash(secret)}
+      AND checked_at > ${new Date(now.getTime() - UPGRADE_TTL_MS)}`;
   return Boolean(r);
 }
 
@@ -131,7 +139,8 @@ async function signedByKey(wallet: string, message: string, signature: string): 
 }
 
 export type ProveResult = { ok: true; recipient: boolean; line: string } | { ok: false; line: string };
-export async function proveWallet(a: { token: string; wallet: string; signature: string }, now: Date, verify: Verify = baseVerify): Promise<ProveResult> {
+/** `xSecret`: the request's __Host-ekwx- cookie (walletPost), the browser's proof that it passed the page's X sign-in. */
+export async function proveWallet(a: { token: string; wallet: string; signature: string; xSecret?: string | null }, now: Date, verify: Verify = baseVerify): Promise<ProveResult> {
   const id = upgradeOf(a.token, now);
   if (id === null) return { ok: false, line: WALLET_TEXT.expired };
   const wallet = a.wallet.toLowerCase();
@@ -152,8 +161,9 @@ export async function proveWallet(a: { token: string; wallet: string; signature:
   }
   if (!good) return { ok: false, line: WALLET_TEXT.failed };
   const before = await provenWallet(id);
-  // The first reward wallet needs only the link; replacing one needs this link's X sign-in.
-  const recipient = before === null || before === wallet || (await xChecked(a.token, id, now));
+  // The first reward wallet needs only the link; replacing one needs this link's X sign-in in this same browser.
+  const free = before === null || before === wallet;
+  let recipient = free;
   const out = await sql().begin(async (tx) => {
     await tx`DELETE FROM wallet_proof_uses WHERE used_at < ${new Date(now.getTime() - 86_400_000)}`;
     await tx`DELETE FROM wallet_x_checks WHERE checked_at < ${new Date(now.getTime() - 86_400_000)}`;
@@ -164,6 +174,13 @@ export async function proveWallet(a: { token: string; wallet: string; signature:
       // A retried POST of the same proof (a double tap) is still done; any other use of the link is refused.
       const [same] = await tx`SELECT 1 FROM person_wallets WHERE wallet = ${wallet} AND builder_id = ${id}`;
       return same ? ('again' as const) : ('used' as const);
+    }
+    // The X check is used up with the proof (one use): it counts only for this link, person and browser cookie.
+    if (!free && a.xSecret) {
+      const [x] = await tx`
+        DELETE FROM wallet_x_checks WHERE use_hash = ${tokenUseKey(a.token)} AND builder_id = ${id} AND browser_hash = ${browserHash(a.xSecret)}
+          AND checked_at > ${new Date(now.getTime() - UPGRADE_TTL_MS)} RETURNING 1`;
+      recipient = Boolean(x);
     }
     // proven_at stays the first proof's (Base Builder Code attribution keeps the first wallet, attribution.ts).
     const [row] = await tx<{ builder_id: number }[]>`
@@ -210,7 +227,9 @@ export type WalletPage =
     };
 
 /** What the signing page shows for this link (expired, used, signing, X first). A busy client IP: the busy line. */
-export async function walletPageState(token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown> } = {}): Promise<WalletPage> {
+export async function walletPageState(
+  token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown>; xCookie?: (name: string) => string | null | undefined } = {},
+): Promise<WalletPage> {
   try {
     await (o.limit ?? ((ip: string) => enforce('walletPage', ip, WALLET_TEXT.busy)))(o.ip ?? 'unknown');
   } catch (err) {
@@ -224,7 +243,7 @@ export async function walletPageState(token: string, now: Date, o: { ip?: string
   const [used] = await sql()`SELECT 1 FROM wallet_proof_uses WHERE use_hash = ${tokenUseKey(token)}`;
   if (used) return { kind: 'gone', line: WALLET_TEXT.used };
   const current = await provenWallet(id);
-  const needX = current !== null && !(await xChecked(token, id, now));
+  const needX = current !== null && !(await xChecked(token, id, now, o.xCookie?.(walletXCookie(tokenUseKey(token)))));
   return {
     kind: 'sign', token, handle: p.x_handle, message: walletMessage(p.x_handle, token), current, needX,
     xHref: needX && xSignInEnabled() ? `/claim/wallet/x?t=${encodeURIComponent(token)}` : null,
@@ -243,7 +262,7 @@ export const walletTokenCookie = (useHash: string) => `__Host-ekwt-${useHash.sli
 export async function walletXStart(request: Request, now = new Date()): Promise<Response> {
   const t = new URL(request.url).searchParams.get('t') ?? '';
   const back = new Response(null, { status: 303, headers: { Location: `/claim/wallet?t=${encodeURIComponent(t)}`, ...NO_STORE } });
-  const s = await walletPageState(t, now, { ip: clientIp(request.headers) });
+  const s = await walletPageState(t, now, { ip: clientIp(request.headers), xCookie: (n) => cookieValue(request, n) });
   if (s.kind !== 'sign' || !s.needX || !s.xHref) return back;
   const id = upgradeOf(t, now)!;
   const h = tokenUseKey(t);
@@ -263,13 +282,16 @@ export async function walletXSignedIn(builderId: number, useHash: string, user: 
   const { signinPage } = await import('./x-install');
   const [p] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x || p.x !== user.id) return signinPage(WALLET_TEXT.xOther, 403, clear);
-  await sql()`
-    INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at) VALUES (${useHash}, ${builderId}, now())
-    ON CONFLICT (use_hash) DO UPDATE SET checked_at = now() WHERE wallet_x_checks.builder_id = EXCLUDED.builder_id`;
   const t = cookieValue(request, walletTokenCookie(useHash)) ?? '';
+  if (tokenUseKey(t) !== useHash) return signinPage(WALLET_TEXT.xLost, 200, clear);
+  // The check is this browser's: a random secret in its cookie, only the hash kept (a newer sign-in replaces it).
+  const secret = randomBytes(32).toString('base64url');
+  await sql()`
+    INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at, browser_hash) VALUES (${useHash}, ${builderId}, now(), ${browserHash(secret)})
+    ON CONFLICT (use_hash) DO UPDATE SET checked_at = now(), browser_hash = EXCLUDED.browser_hash WHERE wallet_x_checks.builder_id = EXCLUDED.builder_id`;
   const headers = new Headers({ ...NO_STORE, ...clear });
   headers.append('Set-Cookie', `${walletTokenCookie(useHash)}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
-  if (tokenUseKey(t) !== useHash) return signinPage(WALLET_TEXT.xLost, 200, clear);
+  headers.append('Set-Cookie', `${walletXCookie(useHash)}=${secret}; Path=/; Max-Age=1800; HttpOnly; Secure; SameSite=Lax`);
   headers.set('Location', `/claim/wallet?t=${encodeURIComponent(t)}`);
   return new Response(null, { status: 303, headers });
 }
@@ -296,6 +318,12 @@ export async function walletPost(request: Request, deps: RouteDeps = {}): Promis
     // not JSON: answered as an expired link below
   }
   if (typeof b.t !== 'string' || typeof b.wallet !== 'string' || typeof b.signature !== 'string') return json({ line: WALLET_TEXT.expired }, 400);
-  const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature }, deps.now ?? new Date(), deps.verify);
-  return r.ok ? json({ line: r.line, recipient: r.recipient }) : json({ line: r.line }, r.line === WALLET_TEXT.unchecked ? 503 : 400);
+  const xName = walletXCookie(tokenUseKey(b.t));
+  const xSecret = cookieValue(request, xName);
+  const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature, xSecret }, deps.now ?? new Date(), deps.verify);
+  if (!r.ok) return json({ line: r.line }, r.line === WALLET_TEXT.unchecked ? 503 : 400);
+  const done = json({ line: r.line, recipient: r.recipient });
+  // The X check is used up: its cookie goes too.
+  if (xSecret) done.headers.append('Set-Cookie', `${walletXCookie(tokenUseKey(b.t))}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+  return done;
 }

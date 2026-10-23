@@ -10,8 +10,9 @@ import { bindX, xSignInCallback } from './x-install';
 import { RateLimitError } from './rate-limit';
 import {
   WALLET_TEXT, proveWallet, provenWallet, provenSince, tokenUseKey, upgradeOf, upgradeToken, verifierOn, walletContractsLine, walletDoneLine,
-  walletMessage, walletPageState, walletPost, walletTokenCookie, walletXLead, walletXStart,
+  walletMessage, walletPageState, walletPost, walletTokenCookie, walletXCookie, walletXLead, walletXStart,
 } from './wallet-proof';
+import { walletXSignIn } from './fixtures/wallet-step';
 import WalletView from '../../app/claim/wallet/WalletView';
 
 process.env.EARNKIT_AUTH_SECRET = 'test-secret';
@@ -100,11 +101,12 @@ test('fix round 1: a second wallet without the X sign-in counts for contracts on
   assert.deepEqual(leaked, { ok: true, recipient: false, line: walletContractsLine(W1) });
   assert.equal(await provenWallet(me.id), W1);
   assert.deepEqual(await provenSince(me.id, later), { wallet: second.address.toLowerCase(), recipient: false });
-  // With the page's X sign-in for that link (the same person's X account), re-proving makes it the recipient.
-  const later2 = new Date(NOW.getTime() + 120_000);
+  // With the page's X sign-in for that link in this browser (its cookie secret), re-proving makes it the recipient.
+  const later2 = new Date();
   const t3 = upgradeToken(me.id, later2)!;
-  await sql()`INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at) VALUES (${tokenUseKey(t3)}, ${me.id}, now())`;
-  const moved = await proveWallet({ token: t3, wallet: second.address, signature: await signWith(second, me.handle, t3) }, later2, viemVerify);
+  const ck = await walletXSignIn(t3, me.x);
+  assert.ok(ck);
+  const moved = await proveWallet({ token: t3, wallet: second.address, signature: await signWith(second, me.handle, t3), xSecret: ck.split('=')[1] }, later2, viemVerify);
   assert.deepEqual(moved, { ok: true, recipient: true, line: walletDoneLine(second.address.toLowerCase()) });
   assert.equal(await provenWallet(me.id), second.address.toLowerCase());
   const [s] = await sql()<{ n: string | null }[]>`SELECT standing_seen->>'wallet_notice' AS n FROM builder_profiles WHERE builder_id = ${me.id}`;
@@ -112,12 +114,66 @@ test('fix round 1: a second wallet without the X sign-in counts for contracts on
   // Fix round 2: the first wallet keeps its proof time (the Base Builder Code's wallet is the first one, attribution.ts).
   const [f] = await sql()<{ w: string }[]>`SELECT wallet AS w FROM person_wallets WHERE builder_id = ${me.id} ORDER BY proven_at, wallet LIMIT 1`;
   assert.equal(f.w, W1);
-  // Another person's X check never counts for this person.
+  // Another person's X check never counts for this person (even with that row's own secret).
   const other = await claimed(`wq${randomBytes(4).toString('hex')}`);
   const third = privateKeyToAccount(generatePrivateKey());
   const t4 = upgradeToken(me.id, later2)!;
-  await sql()`INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at) VALUES (${tokenUseKey(t4)}, ${other.id}, now())`;
-  assert.equal((await proveWallet({ token: t4, wallet: third.address, signature: await signWith(third, me.handle, t4) }, later2, viemVerify) as { recipient: boolean }).recipient, false);
+  await sql()`INSERT INTO wallet_x_checks (use_hash, builder_id, checked_at, browser_hash) VALUES (${tokenUseKey(t4)}, ${other.id}, now(), 'x')`;
+  assert.equal((await proveWallet({ token: t4, wallet: third.address, signature: await signWith(third, me.handle, t4), xSecret: 'x' }, later2, viemVerify) as { recipient: boolean }).recipient, false);
+});
+
+test('security follow-up: the X check is the signed-in browser\'s: the same link from another browser adds contracts only; the right cookie works once', dbTest, async () => {
+  const me = await claimed(`wb${randomBytes(4).toString('hex')}`);
+  const W = `0x${randomBytes(20).toString('hex')}`;
+  await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${W}, ${me.id}, now())`;
+  const now = new Date();
+  const post = async (t: string, acct: ReturnType<typeof privateKeyToAccount>, cookie: string | null) => {
+    const r = await walletPost(
+      new Request('https://earnkit.com/claim/wallet/proof', {
+        method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://earnkit.com', ...(cookie && { cookie }) },
+        body: JSON.stringify({ t, wallet: acct.address, signature: await signWith(acct, me.handle, t) }),
+      }),
+      { limit: noLimit, verify: viemVerify },
+    );
+    return { status: r.status, body: (await r.json()) as { line: string; recipient?: boolean }, setCookie: r.headers.getSetCookie() };
+  };
+  // The owner signs in with X on link A; the cookie is HttpOnly, Secure, Lax, __Host-, and only its hash is kept.
+  const tA = upgradeToken(me.id, now)!;
+  const ckA = await walletXSignIn(tA, me.x);
+  assert.ok(ckA && ckA.startsWith(walletXCookie(tokenUseKey(tA)) + '='));
+  const [row] = await sql()<{ h: string }[]>`SELECT browser_hash AS h FROM wallet_x_checks WHERE use_hash = ${tokenUseKey(tA)}`;
+  assert.ok(row.h && !row.h.includes(ckA.split('=')[1]), 'the hash, never the secret');
+  // The page knows the browser: with the cookie, no X step; another browser (no cookie) still sees it.
+  assert.ok((await walletPageState(tA, now, { limit: noLimit, xCookie: (n) => (n === ckA.split('=')[0] ? ckA.split('=')[1] : null) })).kind === 'sign');
+  const withCk = await walletPageState(tA, now, { limit: noLimit, xCookie: (n) => (n === ckA.split('=')[0] ? ckA.split('=')[1] : null) });
+  const without = await walletPageState(tA, now, { limit: noLimit });
+  assert.ok(withCk.kind === 'sign' && !withCk.needX && without.kind === 'sign' && without.needX);
+  // Someone else holding link A, no cookie: contracts only, never the recipient (the owner's check spent nothing).
+  const thief = privateKeyToAccount(generatePrivateKey());
+  const stolen = await post(tA, thief, null);
+  assert.equal(stolen.status, 200);
+  assert.equal(stolen.body.recipient, false);
+  assert.equal(await provenWallet(me.id), W);
+  // A wrong cookie on link B: contracts only.
+  const tB = upgradeToken(me.id, now)!;
+  const ckB = await walletXSignIn(tB, me.x);
+  assert.ok(ckB);
+  const wrong = await post(tB, privateKeyToAccount(generatePrivateKey()), `${ckB.split('=')[0]}=not-the-secret`);
+  assert.equal(wrong.body.recipient, false);
+  assert.equal(await provenWallet(me.id), W);
+  // The right cookie on link C: the recipient, the check used up and its cookie cleared.
+  const tC = upgradeToken(me.id, now)!;
+  const ckC = await walletXSignIn(tC, me.x);
+  assert.ok(ckC);
+  const mine = privateKeyToAccount(generatePrivateKey());
+  const good = await post(tC, mine, ckC);
+  assert.deepEqual(good.body, { line: walletDoneLine(mine.address.toLowerCase()), recipient: true });
+  assert.ok(good.setCookie.some((c) => c.startsWith(`${ckC.split('=')[0]}=;`) && /Max-Age=0/.test(c)));
+  assert.equal(await provenWallet(me.id), mine.address.toLowerCase());
+  assert.equal((await sql()`SELECT 1 FROM wallet_x_checks WHERE use_hash = ${tokenUseKey(tC)}`).length, 0, 'used once');
+  // Once: the same cookie on the same link proves nothing new (the link is used too).
+  const again = await post(tC, privateKeyToAccount(generatePrivateKey()), ckC);
+  assert.deepEqual(again.body, { line: WALLET_TEXT.used });
 });
 
 test('fix round 1: the page\'s X sign-in passes only for the X account on the page, and sends the browser back to its link', dbTest, async () => {
@@ -152,8 +208,14 @@ test('fix round 1: the page\'s X sign-in passes only for the X account on the pa
   const ok = await callback(await start(), me.x);
   assert.equal(ok!.status, 303);
   assert.equal(ok!.headers.get('location'), `/claim/wallet?t=${encodeURIComponent(t)}`);
-  const after = await walletPageState(t, new Date(), { limit: noLimit });
+  // Security follow-up: only this browser (its __Host-ekwx- cookie) skips the X step now.
+  const set = ok!.headers.getSetCookie().find((c) => c.startsWith(`${walletXCookie(tokenUseKey(t))}=`) && !/Max-Age=0/.test(c))!;
+  assert.match(set, /^__Host-ekwx-[0-9a-f]{16}=[A-Za-z0-9_-]{43}; Path=\/; Max-Age=1800; HttpOnly; Secure; SameSite=Lax$/);
+  const secret = set.split(';')[0].split('=')[1];
+  const after = await walletPageState(t, new Date(), { limit: noLimit, xCookie: (n) => (n === walletXCookie(tokenUseKey(t)) ? secret : null) });
   assert.ok(after.kind === 'sign' && !after.needX && after.xHref === null);
+  const elsewhere = await walletPageState(t, new Date(), { limit: noLimit });
+  assert.ok(elsewhere.kind === 'sign' && elsewhere.needX, 'another browser still sees the X step');
   // No reward wallet yet: no X step at all (the first proof needs only the link).
   const fresh = await claimed(`wz${randomBytes(4).toString('hex')}`);
   const tf = upgradeToken(fresh.id, new Date())!;

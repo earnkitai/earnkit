@@ -1847,3 +1847,6 @@ CREATE TABLE IF NOT EXISTS wallet_x_checks (
 -- The wallet page's X sign-in rides the v2.14 X sign-in rows (purpose 'wallet').
 ALTER TABLE x_signins DROP CONSTRAINT IF EXISTS x_signins_purpose_check;
 ALTER TABLE x_signins ADD CONSTRAINT x_signins_purpose_check CHECK (purpose IN ('install', 'link', 'wallet'));
+-- v3.1 wallet proof security follow-up: an X check belongs to the browser that signed in (its __Host-ekwx- cookie holds
+-- a random secret; only its sha256 is kept here). A check without it (rows from before) never counts.
+ALTER TABLE wallet_x_checks ADD COLUMN IF NOT EXISTS browser_hash text;
