@@ -29,13 +29,13 @@ import {
 import { byDeadline, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
-import { creditsMainnet, type Detection } from './match';
+import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
 import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
-  type ApplyPick, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
+  type ApplyPick, type FitBar, fitBar, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
@@ -338,6 +338,8 @@ export type Fit = {
   investment?: boolean;
   /** v3.1 F1: the program's facts the fit lines sort (present.ts byRelevance) and later steps filter on. */
   card: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>;
+  /** v3.1 GTM W3: what stands in the way (bench-reply.ts fitBar); only 'qualify' says "You qualify". */
+  bar?: FitBar;
 };
 /** v3.1 F1: a card's facts a Fit keeps. Pure. */
 const fitCard = (c: Card): Fit['card'] => ({
@@ -469,7 +471,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v3.1 Task 7: Base Builder Grants' Builder Codes answer (the stored one; a check for the draft starts in the background).
   const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null;
   const best: BestFit | null = open[0]
-    ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes }
+    ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes, ...(open[0].bar && { bar: open[0].bar }) }
     : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
@@ -506,7 +508,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   let fund: FundLine[] = [];
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it. R12: only programs the
   // matcher fits, each with its deadline (Task 16: the reply names the first, after the Best fit).
-  if (project && !taken) fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, amount: f.amount, when: f.when }));
+  if (project && !taken) fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, amount: f.amount, when: f.when, ...(f.bar && { bar: f.bar }) }));
 
   // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
   // the program list's order (byRelevance), shown only when no fit is (benchReply).
@@ -814,10 +816,11 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
   const fitOf = (r: (typeof can)[number]): Fit => {
     const f = facts.get(r.repo);
-    const why = fitWhy(r.card, whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified }));
+    const wf = whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified });
+    const why = fitWhy(r.card, wf);
     return {
       program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at),
-      investment: r.card.investment === true, card: fitCard(r.card),
+      investment: r.card.investment === true, card: fitCard(r.card), bar: fitBar(r.card, { live: wf.live, noUsers: r.low_reason === NO_USERS_YET }),
     };
   };
   const shownRows = fitLines(can);
@@ -932,7 +935,7 @@ export async function scoreApplies(id: number, main: string | null, now: Date): 
   const applies: Fit[] = key
     ? (await scoreFits(id, key, { cards: shown, skip, now })).map((f) => ({
         program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
-        investment: f.card.investment === true, card: fitCard(f.card),
+        investment: f.card.investment === true, card: fitCard(f.card), bar: fitBar(f.card, { live: whyFacts(f.repo).live }),
       }))
     : [];
   return { applies, cards: shown, upcoming, skip };

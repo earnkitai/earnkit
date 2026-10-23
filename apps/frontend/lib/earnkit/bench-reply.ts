@@ -31,7 +31,7 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
   /** R12: a program that fits: its award ("$5,000", null unknown), its deadline ("closes Oct 30" or "rolling"). */
-  | { kind: 'fits'; title: string; amount: string | null; when: string }
+  | { kind: 'fits'; title: string; amount: string | null; when: string; bar?: FitBar }
   /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
   | { kind: 'upcoming'; title: string; prize: string; note: string }
   /** v3 Stage 2: backing is open on the one project (EARNKIT_RAISING on): its backers and fees earned, and the page. A statement, never a step. */
@@ -53,15 +53,37 @@ export const APPLY_WINDOW_DAYS = 30;
  * "rolling"); `amount`: its award ("$5,000"; null when unknown); `codes`: the Builder Codes sentence (Base Builder
  * Grants), else null; Task 16: the draft shows it, the reply doesn't (its check warms here for the draft).
  */
-export type BestFit = { program_id: string; title: string; amount: string | null; when: string; why: string; codes: string | null };
+export type BestFit = { program_id: string; title: string; amount: string | null; when: string; why: string; codes: string | null; bar?: FitBar };
+/**
+ * v3.1 GTM W3: what stands between the builder and a program, from the program's own facts (never invented):
+ * 'qualify', nothing the builder doesn't show; 'company', an investment (match.ts INVESTMENT_NOTE: a company with a
+ * full-time team); 'long_shot', the program's "long shot" tag; 'needs_live', tagged "needs a live product" while the
+ * app shows no live link; 'needs_users', the matcher's "no users yet". Only 'qualify' may say "You qualify".
+ */
+export type FitBar = 'qualify' | 'company' | 'long_shot' | 'needs_live' | 'needs_users';
+/** v3.1 GTM W3: the bar for a program and the project's facts (`live`: a live link; `noUsers`: the matcher said no users yet). Pure. */
+export const fitBar = (c: { investment?: boolean | null; tag?: string | null }, f: { live: boolean; noUsers?: boolean }): FitBar =>
+  c.investment ? 'company' : c.tag === 'long shot' ? 'long_shot' : c.tag === 'needs a live product' && !f.live ? 'needs_live' : f.noUsers ? 'needs_users' : 'qualify';
 /** Task 16: an award as the copy names it: "$5,000", "$500,000 investment"; null when unknown. Pure. */
 export const awardAmount = (c: { max_award_usd?: number | null; investment?: boolean }) =>
   c.max_award_usd && c.max_award_usd > 0 ? `$${Math.round(c.max_award_usd).toLocaleString('en-US')}${c.investment ? ' investment' : ''}` : null;
 /** ", up to $5,000" (nothing when the award is unknown). Pure. */
 const upTo = (amount: string | null) => (amount ? `, up to ${amount}` : '');
-/** Task 16: "You qualify for the Base Builder Grant Program, up to $5,000." (", closes Nov 18" when dated). Pure. */
-export const qualifyLine = (f: { title: string; amount: string | null; when: string }) =>
-  `You qualify for the ${f.title}${upTo(f.amount)}${f.when.startsWith('closes ') ? `, ${f.when}` : ''}.`;
+/**
+ * Task 16: "You qualify for the Base Builder Grant Program, up to $5,000." (", closes Nov 18" when dated). v3.1 GTM W3:
+ * only with nothing in the way (`bar` 'qualify', the default); otherwise the program's own condition, never a claim:
+ * "Long shot: a16z speedrun SR008, up to $1,000,000 investment, closes Nov 1. It takes a company with a full-time team." Pure.
+ */
+export const qualifyLine = (f: { title: string; amount: string | null; when: string; bar?: FitBar }) => {
+  const facts = `${f.title}${upTo(f.amount)}${f.when.startsWith('closes ') ? `, ${f.when}` : ''}`;
+  switch (f.bar ?? 'qualify') {
+    case 'company': return `Long shot: ${facts}. It takes a company with a full-time team.`;
+    case 'long_shot': return `Long shot: ${facts}.`;
+    case 'needs_live': return `${facts}, once your app is live.`;
+    case 'needs_users': return `${facts}, once you have real users.`;
+    default: return `You qualify for the ${facts}.`;
+  }
+};
 
 /**
  * Task 16: the signed-out reply's open grant ("Base pays up to $5,000 for apps on Base."): its organizer, its award and,

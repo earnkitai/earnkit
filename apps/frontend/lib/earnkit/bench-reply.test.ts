@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
+  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, fitBar, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
   type ApplyPick, type BenchView, type BestFit, type EventPost,
 } from './bench-reply';
 
@@ -204,4 +204,22 @@ test('Task 16: an award as the copy names it; the qualify line', () => {
 test('O2.8 honest copy: a different project, in plain words', () => {
   assert.equal(OTHER_PROJECT_ASK, 'Want to use a different project?');
   assert.equal(shipAsk('Recipe planner'), 'Want me to suggest one small thing to ship in Recipe planner this week?');
+});
+
+test('GTM W3 never "You qualify" past a condition the builder does not show', () => {
+  const a16z = { title: 'a16z speedrun SR008', amount: '$1,000,000 investment', when: 'closes Nov 1' };
+  assert.equal(fitBar({ investment: true, tag: 'long shot' }, { live: true }), 'company');
+  assert.equal(qualifyLine({ ...a16z, bar: 'company' }), 'Long shot: a16z speedrun SR008, up to $1,000,000 investment, closes Nov 1. It takes a company with a full-time team.');
+  assert.equal(fitBar({ tag: 'long shot' }, { live: true }), 'long_shot');
+  assert.equal(qualifyLine({ title: 'Monad Metropolis', amount: '$50,000', when: 'rolling', bar: 'long_shot' }), 'Long shot: Monad Metropolis, up to $50,000.');
+  assert.equal(fitBar({ tag: 'needs a live product' }, { live: false }), 'needs_live');
+  assert.equal(fitBar({ tag: 'needs a live product' }, { live: true }), 'qualify');
+  assert.equal(qualifyLine({ ...BASE, bar: 'needs_live' }), 'Base Builder Grant Program, up to $5,000, once your app is live.');
+  assert.equal(fitBar({}, { live: true, noUsers: true }), 'needs_users');
+  assert.equal(qualifyLine({ ...BASE, bar: 'needs_users' }), 'Base Builder Grant Program, up to $5,000, once you have real users.');
+  assert.equal(qualifyLine({ ...BASE, bar: 'qualify' }), 'You qualify for the Base Builder Grant Program, up to $5,000.');
+  const reply = benchReply(ranked({ rank: '#1 of 13 builders', best: { ...BASE, ...a16z, program_id: 'a16z-speedrun', bar: 'company' }, connect: { weeks: 2, points: 60 },
+    ask: { kind: 'connect', project_key: RECIPE.key, line: 'Post your 2 weeks?' } }));
+  assert.doesNotMatch(reply, /You qualify/);
+  assert.match(reply, /full-time team/);
 });
