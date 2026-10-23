@@ -1,6 +1,6 @@
 import { holdReason, publicRow } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { ScoreDeadline } from './campaigns';
-import { isConfirmedSource } from './confirmed';
+import { SITE_PROOFS, isConfirmedSource } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf, pickMainProject } from './main-project';
@@ -228,7 +228,10 @@ export async function personInputsV2(
     const deploysHere = deploys.filter((x) => lowKey(x.repo_key) === low);
     const coinsHere = coins.filter((x) => (x.repo_key ? lowKey(x.repo_key) === low : `coin:${x.coin}` === key));
     const confirmedRepo = srcs.some((s) => s.kind === 'repo' && confirmedSrc(s));
-    const confirmed = srcs.some(confirmedSrc) || hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
+    // Fix wave (5): a site proven only by its own earnkit.txt counts only under a project with a confirmed repo; a
+    // site-only project is never confirmed by it (so it never reaches the Bench or pickMainProject).
+    const counts = (s: Src) => confirmedSrc(s) && (!(s.kind === 'site' && s.proof !== null && SITE_PROOFS.has(s.proof)) || confirmedRepo);
+    const confirmed = srcs.some(counts) || hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
 
     let shipped = hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
     let liveSite: string | null = null;
@@ -249,7 +252,7 @@ export async function personInputsV2(
     let repoRead = false;
 
     for (const s of srcs) {
-      const scored = confirmedSrc(s);
+      const scored = counts(s);
       const last = latest(s.id);
       if (s.kind === 'repo') {
         const g = (last?.signals ?? {}) as Partial<RepoSignals & PersonRepo>;

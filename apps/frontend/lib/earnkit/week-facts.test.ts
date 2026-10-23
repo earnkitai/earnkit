@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
 import { factChips, hasFacts, startedChips, startedLine, upsertWeekFacts, weekFactsFor, weeklyFactsStep } from './week-facts';
-import { mainConfirmed } from './main-project';
+import { mainConfirmed, pickMainProject } from './main-project';
 import { personInputsV2, rescorePerson } from './person-score';
 import { isoWeekOf, mondayOf } from './weeks';
 import { randomBytes } from 'node:crypto';
@@ -291,6 +291,24 @@ test('4.11b owner batch: a site proven by earnkit.txt counts toward Shipping (it
   await rescorePerson(id, NOW);
   const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
   assert.equal(p.ship_weeks.includes(wk(21)), false, 'dns_txt: no shipping week');
+});
+
+test('4.11c fix wave (5): a site-only project proven by earnkit.txt is not confirmed and never becomes the main project', dbTest, async () => {
+  const id = T + 17;
+  await clear(id);
+  const key = `solo${T}.example.com`;
+  await sql()`INSERT INTO installations (id, token_hash) VALUES (${id}, ${`v213-wf-${id}`})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, ring) VALUES (${id}, ${`v213wf-${id}`}, ${sql().json({ ring: [], ringOwner: [] })})`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${`https://${key}`}, ${key}, 'verified', 'earnkit_txt', 'agent') RETURNING id::int AS sid`;
+  for (const d of [21, 1])
+    await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ confirmed: boolean; ship_weeks: string[] }[]>`SELECT confirmed, ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.deepEqual([p.confirmed, p.ship_weeks.includes(wk(21))], [false, false], 'not confirmed, no shipping week');
+  assert.equal(await pickMainProject(id, sql()), null, 'never the main project');
+  const [f] = await sql()<{ key: string | null }[]>`SELECT main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(f.key, null);
 });
 
 test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {
