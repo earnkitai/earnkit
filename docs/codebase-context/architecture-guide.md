@@ -7840,3 +7840,34 @@ Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnk
   newest proven; `funded_by_slug` is another profile that proved the funder; points from `builder_points`; `last_seen_at`
   over the group's installations. Guarded `GRANT SELECT ... TO earnkit_ro`.
 - Tests: `people-signals.test.ts`, `x-oauth.test.ts`.
+
+## v3.1 GTM W3 credibility (2026-10-23, journey audit findings 1, 4, 7, 8, 18, 22, 24, 26)
+
+Every number and name a builder or visitor reads agrees with what sits beside it.
+- **Week summaries never boast a fix.** `ship-titles.ts cleanTitle` drops `chore|build|ci|style|test:` titles and keeps a
+  `fix:` title reading as a fix (`asFix`: "Fix timezone bug in streak reset"; a real verb stays, a noun-ish one gets "Fix").
+  `week-summary.ts ruleSummary` writes a verbless clause with a bug word (`BUG`) as "Fixed ..."; `boastsFix` keeps a
+  stored or model "Shipped <bug>" from being stored (`weekSummary`) or shown (`summaryShown`, so old rows fall back to the
+  rule summary). The Haiku prompt says so too. The past-tense helpers moved to `past-verb.ts`.
+- **"You qualify" only with nothing in the way.** `bench-reply.ts fitBar` from the program's own facts (investment =
+  company with a full-time team, match.ts INVESTMENT_NOTE; the "long shot" tag; "needs a live product" without a live
+  link; the matcher's "no users yet"); `qualifyLine` says the condition ("Long shot: ..., It takes a company with a
+  full-time team."). bench-find threads `bar` onto Fit, BestFit and the fund lines.
+- **One money rule.** A headline's figure sums the top awards of the non-investment programs in the table under it
+  (`present.ts shownHeadline`; investments and hackathons in the table are named by `openMoneyWords`, "Plus 2
+  accelerators."). The landing chip sums only the Base programs among the Opportunities cards (`landing.ts`).
+- **No guessed package link.** `person-score.ts packageLinkable`: a registry page is the project link only when the
+  package source is verified by `repo_link`, its readings name a repo the GitHub App proved for the project, and that repo
+  reads public; `page-data.ts shownProjects` also drops npm/PyPI links on a hidden repo.
+- **One rank line.** `site-data.ts standingPill`/`pillOf` label and title the pill with `shownRankLine` over the whole
+  pool (`standingOf`, as `bench-rank.ts rankLines`), so the pill, replies, card, page meta and email say the same; the
+  metal still comes from the percentile; nothing under RANK_MIN_POOL.
+- **One name.** `project-name.ts` (`refKey`, `reportedProject`, `reportedNameIn`, `reportedName`): the builder-given
+  name from the stored identity, matched loosely, wins in replies (bench-find benchView and tokenAsk) and in
+  person-score's row name; `bench-reply.ts displayName` never title-cases a host, `keyName` gives a link key's host.
+- **Money line hygiene.** The upcoming program's "not open yet" line is added only when nothing else is the money line,
+  only in a reply that shows it (`upcomingShown`), and once a week a program (`bench-find.ts takeUpcoming`,
+  `standing_seen.upcoming_said`, kept by stand-view). `base-qualify.ts qualifyStatus(m, codes, onBaseSaid)`: Base step met
+  when the project's chains include Base, a Base contract was reported (`onBaseKnown`) or the matcher credits a claim.
+- Tests: `week-summary.test.ts`, `bench-reply.test.ts`, `present.test.ts`, `landing.test.ts`, `person-score.test.ts`,
+  `v31-site-data.test.ts`, `project-name.test.ts`, `v31-reply-fixes.test.ts`, `v31-gtm-w3.test.ts`.

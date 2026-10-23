@@ -285,7 +285,7 @@ apps/frontend/
                                thisWeekCommits (commit_counts via weekCounts), highlights (W8, each linking its proof:
                                live + liveSub, contracts on Base + first deployed, Builder Code file, repo track record
                                via repoItem, won/applied + guide link; siteHref, basescanHref, githubRepoHref,
-                               githubFileHref build the escaped links), standingPill (Top N% from RANK_MIN_POOL),
+                               githubFileHref build the escaped links), standingPill/pillOf (GTM W3: the one rank line, whole pool, metal by percentile),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
@@ -1544,6 +1544,10 @@ apps/frontend/
     week-summary.ts(+test)     weekly updates: weekSummary (Haiku aiSummary when ANTHROPIC_API_KEY, else ruleSummary; checkUpdate;
                                privateRepo: AI only, never naming the repo or a file), summaryShown (read-time privacy rule;
                                `approved` shows a private repo's stored summary), namesPath, SummaryCreate, tidySummary, clauseOf
+                               GTM W3: boastsFix (never stored or shown), BUG clauses read "Fixed"; the prompt forbids it
+    past-verb.ts               GTM W3: pastVerb (moved from week-summary; also ship-titles cleanTitle's asFix for "fix:" titles)
+    project-name.ts(+test)     GTM W3: refKey, reportedProject, reportedNameIn, reportedName: the builder-given project name
+                               (identity.projects, loose ref match) for replies and person-score's row name
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
@@ -1578,6 +1582,7 @@ apps/frontend/
                                qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
+                               GTM W3: onBaseKnown + qualifyStatus(onBaseSaid): never "Put your app on Base" to a project on Base
     bench-find.ts(+test)       2026-10-23 Base onboarding: githubAnswer (pick_repo no/yes), connectAfterAll, restAnswer
                                (next_step), baseStartAnswer, afterGithubNo, walletStep, restStep, baseOpenFor, baseGrantOpen,
                                staleRepo, connectedSince (NEW_REPO_GRACE_DAYS), takeOnce, takeTemplateNotice, KINDLESS_ROUTED, BASE_START_NOTE,
