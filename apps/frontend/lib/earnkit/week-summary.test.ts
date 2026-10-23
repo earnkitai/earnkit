@@ -83,10 +83,12 @@ test('W6c fix round: consent binds to the exact text the week was approved with'
   assert.equal(summaryConsented({ approved: true, approved_summary: '' }, ''), false);
 });
 
-test('W6d fix wave: namesPath catches paths and file names, never tech names or slashed words', () => {
-  for (const t of ['Moved to Next.js and Node.js.', 'Set up CI/CD.', 'Fixed sign-in and/or sign-up.', 'Ported React/Next.js pages.', 'Used Vue.js and Three.js.', 'Shipped v2.1 of the app.'])
+test('W6d fix wave (security ruling): namesPath is deny by default; only the listed tech names and word pairs pass', () => {
+  for (const t of ['Moved to Next.js and Node.js.', 'Set up CI/CD.', 'Fixed sign-in and/or sign-up.', 'Ported React/Next.js pages.', 'Used Vue.js, Three.js, Nuxt.js and Express.js.',
+    'Faster I/O.', 'A UI/UX pass.', 'Ran an A/B test.', 'Shipped v2.1 of the app.', 'Fixed sign-in. Added search.'])
     assert.equal(namesPath(t), false, t);
-  for (const t of ['Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Moved app/api/route.tsx.'])
+  for (const t of ['Edited src/app/page.tsx.', 'Moved lib/earnkit around.', 'Cleaned app/ up.', 'Renamed foo_bar/baz.', 'Fixed config.js.', 'Fixed main.c.', 'Edited README.txt.',
+    'Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Fixed PAGE.TSX.', 'Moved Next.js/app.'])
     assert.equal(namesPath(t), true, t);
   const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp', consented: true };
   assert.equal(summaryShown('Moved to Next.js and set up CI/CD.', [], priv), 'Moved to Next.js and set up CI/CD.');

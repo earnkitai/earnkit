@@ -135,19 +135,21 @@ export async function aiSummary(titles: string[], create: SummaryCreate | null =
   }
 }
 
-/** Source-file extensions a file name in a summary may carry (never plain "js": "Next.js", "Node.js" are names). */
-const SOURCE_EXT = '(?:tsx?|jsx|mjs|cjs|py|go|rs|sol|rb|java|kt|swift|cpp|cs|php|json|ya?ml|toml|lock|mdx?|css|scss|html|sql|sh|env)';
-/** A path: segments joined by "/" whose last one has a file extension ("src/app.ts", "lib/timer.js"; never "CI/CD", "and/or"). */
-const SLASH_PATH = new RegExp(`(?:^|[^\\w./-])[\\w.-]+(?:\\/[\\w.-]+)*\\/[\\w-]+\\.${SOURCE_EXT}(?![\\w/])`, 'i');
-/** A lowercase ".js" file after a slash ("lib/timer.js"; never "React/Next.js"). */
-const SLASH_JS = /(?:^|[^\w./-])[\w.-]+(?:\/[\w.-]+)*\/[a-z0-9_-]+\.js(?![\w/])/;
-/** A bare file name with a source extension ("package.json", "README.md", "index.ts"). */
-const FILE_NAME = new RegExp(`\\b[\\w-]+\\.${SOURCE_EXT}\\b`, 'i');
 /**
- * A file path or file name in a summary: never on a private repo's card. Fix wave (8): "Next.js", "Node.js", "CI/CD"
- * and "and/or" are words, not paths. Pure.
+ * Fix wave (8, security ruling): the file and path filter is deny by default. Only these tech names and word pairs
+ * are words, not paths; everything else that looks like a file name or a path hides a private repo's summary.
  */
-export const namesPath = (text: string): boolean => SLASH_PATH.test(text) || SLASH_JS.test(text) || FILE_NAME.test(text);
+const PATH_WORDS = ['React/Next.js', 'Next.js', 'Node.js', 'Vue.js', 'Three.js', 'Nuxt.js', 'Express.js', 'CI/CD', 'and/or', 'I/O', 'UI/UX', 'A/B'];
+const PATH_WORDS_RE = new RegExp(`(?<![\\w./-])(?:${PATH_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?![\\w/-]|\\.\\w)`, 'gi');
+/** A file name with a source or text extension, any case ("config.js", "main.c", "README.txt", "page.TSX"). */
+const FILE_NAME = /\b[\w-]+\.(?:[cm]?[jt]sx?|[cm]ts|py|go|rs|sol|rb|java|kt|swift|c|h|cc|cpp|hpp|cs|php|json|ya?ml|toml|lock|md|mdx|txt|css|scss|less|html?|sql|sh|env|ini|cfg|xml|csv)\b/i;
+/** Any path: word characters joined by "/" ("lib/earnkit", "foo_bar/baz"), or a name with a trailing slash ("app/"). */
+const PATH = /[\w.-]+\/(?:[\w.-]+)?/;
+/** A file path or file name in a summary: never on a private repo's card (deny by default; PATH_WORDS aside). Pure. */
+export const namesPath = (text: string): boolean => {
+  const rest = text.replace(PATH_WORDS_RE, ' ');
+  return FILE_NAME.test(rest) || PATH.test(rest);
+};
 
 /**
  * The stored summary for one week: Haiku's, else the rule one, through the update filter. Null when neither
