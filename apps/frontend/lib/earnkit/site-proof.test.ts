@@ -7,6 +7,7 @@ import { profileCode, profileCodesIn } from './discovery-clues';
 import { withEnv } from './fixtures/find';
 import { ScoreDeadline } from './campaigns';
 import { SITE_PROOF_LOST, SITE_PROOF_MISSES_MAX, readSources } from './sources';
+import { SafeFetchError } from './safe-fetch';
 import type { ReaderDeps } from './source-readers';
 
 /**
@@ -50,10 +51,10 @@ function reader(status: number, files: Record<string, Served>, fetched: string[]
     fetchText: async (url, o) => {
       fetched.push(`${url}${o?.plainText ? ' (plain)' : ''}`);
       const f = files[url];
-      if (f === undefined) throw new Error('HTTP 404');
+      if (f === undefined) throw new SafeFetchError('answered 404, not 200');
       if (f instanceof Error) throw f;
       const { body, type = 'text/plain' } = typeof f === 'string' ? { body: f } : f;
-      if (o?.plainText && !/^\s*text\/plain\b/i.test(type)) throw new Error('not text/plain');
+      if (o?.plainText && !/^\s*text\/plain\b/i.test(type)) throw new SafeFetchError(`not text/plain (${type})`);
       return body;
     },
   };
@@ -153,21 +154,32 @@ const misses = async (id: number) => (await sql()<{ m: number }[]>`SELECT proof_
 const runOn = (day: string, r: ReaderDeps) =>
   withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => readSources(new Date(`${day}T10:00:00Z`), { deadline: Date.now() + 10_000, reader: r, only: [ID] }));
 
-test('SP11 fix round: a verified earnkit_txt site whose code is gone 3 days in a row is revoked; a day counts once', dbTest, async () => {
+test('SP11 fix round, wave (4): a verified earnkit_txt site that answers without its code 3 days in a row loses its proof; a day counts once; down or a failed fetch counts nothing', dbTest, async () => {
   const id = await source({ state: 'verified', proof: 'earnkit_txt', by: 'server' });
   await runOn('2026-10-23', reader(200, {}));
-  assert.equal(await misses(id), 1);
+  assert.equal(await misses(id), 1, 'a 404: answered without it');
   // The same day again (a second run): not counted twice.
   await sql()`UPDATE builder_sources SET last_read_day = NULL WHERE id = ${id}`;
   await runOn('2026-10-23', reader(200, {}));
   assert.equal(await misses(id), 1);
-  await runOn('2026-10-24', reader(200, { [`${SITE}/earnkit.txt`]: txt(OTHER) }));
+  // Down, a failed fetch or a 5xx: nothing counted.
+  await runOn('2026-10-24', reader(503, {}));
+  await runOn('2026-10-25', reader(200, { [`${SITE}/earnkit.txt`]: new Error('ECONNRESET') }));
+  await runOn('2026-10-26', reader(200, { [`${SITE}/earnkit.txt`]: new SafeFetchError('answered 502, not 200') }));
+  assert.equal(await misses(id), 1);
+  await runOn('2026-10-27', reader(200, { [`${SITE}/earnkit.txt`]: txt(OTHER) }));
   assert.equal(await misses(id), 2, 'another person\'s code is a miss');
   assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' });
-  await runOn('2026-10-25', reader(200, { [`${SITE}/earnkit.txt`]: new Error('ECONNRESET') }));
-  const [r] = await sql()<{ state: string; reason: string | null }[]>`SELECT state, reject_reason AS reason FROM builder_sources WHERE id = ${id}`;
-  assert.deepEqual(r, { state: 'rejected', reason: SITE_PROOF_LOST }, 'a failed fetch is a miss too; the third revokes');
+  await runOn('2026-10-28', reader(200, { [`${SITE}/earnkit.txt`]: { body: '<html>app</html>', type: 'text/html' } }));
+  const [r] = await sql()<{ state: string; proof: string | null; reason: string | null }[]>`SELECT state, proof, reject_reason AS reason FROM builder_sources WHERE id = ${id}`;
+  assert.deepEqual(r, { state: 'proposed', proof: null, reason: SITE_PROOF_LOST }, 'an app page in its place is a miss; the third revokes');
   assert.equal(SITE_PROOF_MISSES_MAX, 3);
+  // Still read; the code back re-verifies it as earnkit_txt with the count reset.
+  const before = (await readings(id)).length;
+  await runOn('2026-10-29', reader(200, { [`${SITE}/earnkit.txt`]: txt(ID) }));
+  assert.equal((await readings(id)).length, before + 1, 'kept being read');
+  assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' });
+  assert.equal(await misses(id), 0);
 });
 
 test('SP12 fix round: one success resets the misses', dbTest, async () => {

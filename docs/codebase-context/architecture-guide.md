@@ -7680,7 +7680,7 @@ gone; the Monday moment now carries a drafted post.)
   step has its own try/catch after the reading: a failure is logged and never drops or fails the reading; the
   deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched (both
   `repo_link` and, since the owner batch of 2026-10-23, `earnkit_txt` are scored by `person-score.ts`);
-  `proveLinkedSite` stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
+  `proveLinkedSite` was removed (fix wave 10). Safety kept: never from typed input alone (the code is an HMAC under
   `EARNKIT_AUTH_SECRET`, read from the live origin); `verifySource` verifies only a proposed row, never a `stale`
   one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
   (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,

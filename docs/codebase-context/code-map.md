@@ -1621,7 +1621,7 @@ apps/frontend/
                                plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
                                fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
     sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
-                               (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
+                               (fail strict), contractConflicts, proposeSource, verifySource, recheckSite,
                                rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
                                readSources (READS_PER_RUN 200; no org contributors call); v3.1 site proof: proveSite
                                (a proposed site, after its daily reading: the latest homepage of the App-proven
