@@ -1784,12 +1784,13 @@ apps/frontend/
                                walletMessage, walletLink, provenWallet (the recipient: newest recipient_at), provenSince,
                                tokenUseKey, verifierOn (viem on Base; a no is checked against the RPC), proveWallet (each
                                link once; EOA locally; replacing a recipient needs wallet_x_checks), walletPageState,
-                               walletXStart, walletXSignedIn, walletTokenCookie, walletPost
+                               walletXStart, walletXSignedIn (sets the __Host-ekwx- browser cookie), walletTokenCookie, walletXCookie, walletPost
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
                                state: wallet_link_at), walletChangeReply, takeWalletNotice, WALLET_NOTE
     v31-wallet-proof.test.ts   v3.1 wallet proof: offer timing, one link one question, skip, change, recipient,
                                discovery and On Base since, the hero's GitHub button
-    fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step)
+    fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step), walletXSignIn (the page's X
+                               sign-in as a browser does it; returns the X-check cookie)
     v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
     docs-copy.ts               v3.1 site T10: every string on /docs (DOCS_NAV, DOCS_STEPS, DOCS_WEEK, DOCS_SCORE with score-v2
                                LIVE_BONUS, DOCS_MONEY, DOCS_SELECTORS, docsNav/docsMoney drop Backing with raising off,

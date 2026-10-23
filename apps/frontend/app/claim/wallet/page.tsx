@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { clientIp } from '../../../lib/earnkit/rate-limit';
 import { walletPageState } from '../../../lib/earnkit/wallet-proof';
 import WalletView from './WalletView';
@@ -14,6 +14,7 @@ export const metadata: Metadata = { title: 'Prove your Base wallet | EarnKit', r
 
 export default async function WalletPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { t } = await searchParams;
-  const state = await walletPageState(typeof t === 'string' ? t : '', new Date(), { ip: clientIp(await headers()) });
+  const jar = await cookies();
+  const state = await walletPageState(typeof t === 'string' ? t : '', new Date(), { ip: clientIp(await headers()), xCookie: (n) => jar.get(n)?.value });
   return <WalletView state={state} />;
 }

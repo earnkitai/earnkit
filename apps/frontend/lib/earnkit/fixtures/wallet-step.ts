@@ -7,3 +7,26 @@ import { sql } from '../db';
 export async function walletOffered(builderId: number): Promise<void> {
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_asked', now()::text) WHERE builder_id = ${builderId}`;
 }
+
+/**
+ * v3.1 wallet proof security follow-up: the page's X sign-in for `token` as X user `xId`, as a browser does it
+ * (walletXStart, then the X callback with a fake X), returning the browser's X-check cookie ("name=value") or null.
+ */
+export async function walletXSignIn(token: string, xId: string): Promise<string | null> {
+  const { walletXStart } = await import('../wallet-proof');
+  const { xSignInCallback } = await import('../x-install');
+  const r = await walletXStart(new Request(`https://earnkit.com/claim/wallet/x?t=${encodeURIComponent(token)}`, { headers: { 'x-real-ip': `10.8.${Math.floor(Math.random() * 250)}.1` } }));
+  if (r.status !== 302) return null;
+  const state = new URL(r.headers.get('location')!).searchParams.get('state')!;
+  // A test with a mocked clock: the sign-in row lives 15 minutes from the database's own now (the callback's check).
+  const { sql } = await import('../db');
+  const { tokenUseKey } = await import('../wallet-proof');
+  await sql()`UPDATE x_signins SET expires_at = now() + interval '15 minutes' WHERE purpose = 'wallet' AND link_hash = ${tokenUseKey(token)}`;
+  const cookie = r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+  const back = await xSignInCallback(new Request(`https://earnkit.com/x/callback?state=${state}&code=c`, { headers: { cookie } }), {
+    limit: async () => {},
+    x: { exchange: async () => 'tok', me: async () => ({ id: xId, username: 'someone', name: 'S', avatar: null }) },
+  });
+  const set = back?.headers.getSetCookie().find((c) => c.startsWith('__Host-ekwx-') && !/Max-Age=0/.test(c));
+  return set ? set.split(';')[0] : null;
+}
