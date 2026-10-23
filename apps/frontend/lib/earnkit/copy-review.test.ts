@@ -1526,7 +1526,6 @@ test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const texts = [
     standingNews(PREV, NOW_STANDING, AT, true)!.line,
     ...Object.values(SIGNIN_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
-    ...Object.values(WALLET_TEXT),
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
     // With a real coin: its $TICKER and name are names (exempt below), the wallet shown short.
     ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })),
@@ -1537,6 +1536,9 @@ test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
     HIDDEN_LINE, SHOWN_LINE('lee'), SHOWN_LINE(null), NO_PROFILE_LINE,
   ];
   for (const t of texts) assert.deepEqual(bannedIn(t, exempt), [], t);
+  // v3.1 wallet proof (owner-approved copy, 2026-10-23): the signing page names Base, the chain the wallet proves
+  // contracts on ("Prove your Base wallet", "Your contracts on Base"); every other banned word still applies.
+  for (const t of Object.values(WALLET_TEXT)) assert.deepEqual(bannedIn(t, [...exempt, 'Base', 'contracts']), [], t);
   // v2.14 final fix: the terms are legal text and must say exactly what is read: repos and commit titles (as the
   // "What EarnKit records" section already says "repo"). Every other banned word still applies.
   for (const t of PROFILES_POINTS) assert.deepEqual(bannedIn(t, [...exempt, 'repos', 'repo', 'commit']), [], t);

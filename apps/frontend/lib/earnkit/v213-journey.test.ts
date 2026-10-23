@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { walletOffered } from './fixtures/wallet-step';
 import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
 import { BACKING_NOT_YET } from './bench-find';
 import { after, before, test } from 'node:test';
@@ -536,6 +537,7 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.equal(r1.claim, undefined);
   assert.equal(r1.proof, undefined, 'v2.14: no proof branch');
   await signInX(id);
+  await walletOffered(id);
   // v2.14 spec 2: the builder installs the read-only App on the repo; the setup URL proves it at once.
   await installRepo(id, RECIPES);
   await advanceRefreshGuard(id, 61_000);

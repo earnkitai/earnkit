@@ -174,9 +174,18 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   // Post-push audit: a token's creator_wallet and a deploy's owner_wallet are typed by the agent, so
   // they never prove anything. v2.12.1 T7: a wallet is proven only by a signature bound to this person
   // (wallet-proof.ts, person_wallets). Contracts EarnKit deployed still verify through `earnkitDeployed`.
-  const signed = await db<{ wallet: string }[]>`
-    SELECT wallet FROM person_wallets WHERE builder_id = ${root} ORDER BY proven_at DESC, wallet`;
+  const signed = await db<{ wallet: string; since_due: boolean }[]>`
+    SELECT wallet, (base_since IS NULL AND (base_since_read_at IS NULL OR base_since_read_at < now() - interval '1 day')) AS since_due
+    FROM person_wallets WHERE builder_id = ${root} ORDER BY proven_at DESC, wallet`;
   const proven = new Set(signed.map((w) => w.wallet.toLowerCase()));
+  // v3.1 wallet proof: "On Base since" (the newest WALLET_READS wallets' first Base transaction), read once and kept
+  // (a wallet with none yet is read again a day later). A cache, written at once (no verdict depends on it).
+  if (d.walletFirstTx)
+    for (const w of signed.slice(0, WALLET_READS).filter((x) => x.since_due)) {
+      const at = await soft(d.walletFirstTx(w.wallet), undefined);
+      if (at !== undefined)
+        await db`UPDATE person_wallets SET base_since = ${at}::timestamptz, base_since_read_at = now() WHERE wallet = ${w.wallet} AND builder_id = ${root}`;
+    }
   // Clue 5: contracts EarnKit deployed for this person (their own group's deploys only).
   const deploys = await db<{ chain: string; address: string; repo_key: string }[]>`
     SELECT chain, lower(address) AS address, lower(repo_key) AS repo_key FROM contract_deploys

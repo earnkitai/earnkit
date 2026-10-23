@@ -104,8 +104,9 @@ function ProjectPanel({ project, line }: { project: ProfileSite['project']; line
  * `line` replaces the panel's project (no project, or confirming).
  */
 export default function HeroCard({ data, site, line }: { data: ProfileData; site: ProfileSite; line: string | null }) {
-  // No project or Confirming: one calm line and no repo link (the project is not counted yet).
-  const repo = line ? null : (site.project?.repo ?? null);
+  // No project or Confirming: one calm line and no repo link (the project is not counted yet). v3.1: with no repo link
+  // (a private repo, or none yet) the GitHub button opens the builder's GitHub profile when their login is known, else hides.
+  const repo = (line ? null : (site.project?.repo ?? null)) ?? data.github ?? null;
   return (
     <div data-ek-hero="" className={`${phoneRadius(CARD_BLUE)} flex min-w-0 flex-col gap-7 p-6 md:p-9`}>
       <div className="flex flex-wrap items-center gap-[18px]">

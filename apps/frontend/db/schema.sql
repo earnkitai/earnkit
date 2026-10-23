@@ -1825,3 +1825,9 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_exempt_days smallint 
 -- Owner batch last fix wave (E): when a site's earnkit.txt proof was lost (sources.ts recheckSite). Such a site is read
 -- for 60 days (so the code coming back re-proves it), then no longer; the agent can propose it again. Additive.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_lost_at timestamptz;
+
+-- v3.1 wallet proof (owner-approved 2026-10-23): a proven wallet's first Base transaction, read once by discovery
+-- (Blockscout's txlist, oldest first) for the profile's "On Base since" line; base_since_read_at retries a wallet
+-- with no transaction yet a day later. The newest proven wallet is the person's reward recipient (wallet-proof.ts).
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS base_since timestamptz;
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS base_since_read_at timestamptz;

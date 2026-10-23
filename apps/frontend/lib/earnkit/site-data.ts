@@ -166,16 +166,20 @@ async function liveItem(builderId: number, key: string, hiddenRepo: boolean, now
 }
 
 /**
- * 2. contract: distinct Base addresses over the project's verified contract sources ("base:0x...") and EarnKit's
- * deploys on Base, linked to one on Basescan (the earliest when dated). "First deployed" only when every counted
- * contract has a known creation time (a deploy's row, a source's stored Blockscout time, contract-origins.ts
- * backfills the rest), so the date is never later than an undated one; else "Verified onchain".
+ * 2. contract: distinct Base addresses over the project's verified contract sources ("base:0x..."), the contracts a
+ * wallet the builder proved by signature created (v3.1 wallet proof: deploy_wallet sources discovery files under their
+ * own "base:0x..." key) and EarnKit's deploys on Base, linked to one on Basescan (the earliest when dated). "First
+ * deployed" only when every counted contract has a known creation time (a deploy's row, a source's stored Blockscout
+ * time, contract-origins.ts backfills the rest), so the date is never later than an undated one; else "Verified
+ * onchain". v3.1 wallet proof: "On Base since <Mon YYYY>" joins the sub line when a proven wallet's first Base
+ * transaction is known (person_wallets.base_since, read by discovery). Never a wallet address.
  */
 async function contractItem(builderId: number, key: string): Promise<Highlight | null> {
   const rows = await sql()<{ a: string; at: Date | null }[]>`
     SELECT a, min(at) AS at FROM (
       SELECT split_part(lower(s.ref), ':', 2) AS a, s.deployed_at AS at FROM builder_sources s
-      WHERE s.builder_id = ${builderId} AND s.kind = 'contract' AND s.state = 'verified' AND lower(s.project_key) = lower(${key}) AND lower(s.ref) LIKE 'base:0x%'
+      WHERE s.builder_id = ${builderId} AND s.kind = 'contract' AND s.state = 'verified' AND lower(s.ref) LIKE 'base:0x%'
+        AND (lower(s.project_key) = lower(${key}) OR (s.proof = 'deploy_wallet' AND lower(s.project_key) = lower(s.ref)))
       UNION ALL
       SELECT lower(d.address), d.created_at FROM contract_deploys d JOIN installations i ON i.id = d.installation_id
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND d.status = 'deployed' AND d.chain = 'base' AND d.address IS NOT NULL AND lower(d.repo_key) = lower(${key})
@@ -185,10 +189,12 @@ async function contractItem(builderId: number, key: string): Promise<Highlight |
   const first = rows[0];
   const href = basescanHref(first.a);
   const allDated = rows.every((r) => r.at !== null);
+  const [w] = await sql()<{ since: Date | null }[]>`SELECT min(base_since) AS since FROM person_wallets WHERE builder_id = ${builderId}`;
+  const since = w?.since ? `On Base since ${monthYear(new Date(w.since))}` : null;
   return {
     icon: 'contract',
     title: `${n} ${n === 1 ? 'contract' : 'contracts'} on Base`,
-    sub: allDated ? `First deployed ${monthYear(new Date(first.at!))}` : 'Verified onchain',
+    sub: [allDated ? `First deployed ${monthYear(new Date(first.at!))}` : 'Verified onchain', since].filter(Boolean).join(' · '),
     ...(href && { href }),
   };
 }

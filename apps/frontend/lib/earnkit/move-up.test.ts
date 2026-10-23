@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -56,6 +57,7 @@ async function agent(x?: string) {
   const own = (await connectInstallation(t))!.own;
   if (x) assert.ok((await attachToX(own, { id: `97${RUN}${x.length}${x.charCodeAt(0)}${x.charCodeAt(1)}`, username: `${x}${RUN}`.slice(0, 15), name: x, avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   return { id: c.id, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH } };
 }
 

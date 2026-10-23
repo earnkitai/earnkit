@@ -2,6 +2,7 @@ import { repoKey } from './answer-bank';
 import { raisingEnabled } from './builder-score-flag';
 import { isWalletAddress } from './campaigns';
 import { sql } from './db';
+import { provenWallet } from './wallet-proof';
 import { shortWallet } from './entry-text';
 import { noteEvent } from './events';
 import { sharedGroup } from './installations';
@@ -141,10 +142,13 @@ export async function coinOfferable(builderId: number, projectKey: string): Prom
 /** A confirmed repo link as its key (owner/repo, lowercase). Pure. */
 const repoOfUrl = (u: string) => u.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '').replace(/(\.git)?\/*$/, '');
 
-/** The wallet a coin's fees go to unless the builder names another: a proven one, else the group's first remembered one. */
+/**
+ * The wallet a coin's fees go to unless the builder names another: the newest proven one (v3.1 wallet proof: the reward
+ * recipient, wallet-proof.ts provenWallet), else the group's first remembered one.
+ */
 export async function coinWallet(builderId: number): Promise<string | null> {
-  const [proven] = await sql()<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${builderId} ORDER BY proven_at, wallet LIMIT 1`;
-  if (proven) return proven.wallet;
+  const proven = await provenWallet(builderId);
+  if (proven) return proven;
   const [seen] = await sql()<{ wallet: string }[]>`
     SELECT w.wallet FROM installation_wallets w JOIN installations i ON i.id = w.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} ORDER BY w.first_seen_at, w.wallet LIMIT 1`;
@@ -305,8 +309,9 @@ export async function coinYes(
   }
   const coin: Coin = { name: shown.name, symbol: shown.symbol };
   if (given && m.wallet && given !== m.wallet) return again(given, coin);
-  // A wallet given when the line asked for one is the builder's answer to it.
-  const to = given ?? m.wallet;
+  // A wallet given when the line asked for one is the builder's answer to it. v3.1 wallet proof: with none, the wallet
+  // the builder proved by signature (their reward recipient) is used, so COIN_WALLET_ASK is only for a builder without one.
+  const to = given ?? m.wallet ?? (await provenWallet(builderId));
   if (!to) return { show_to_builder: COIN_WALLET_ASK };
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   // v2.13.3 review (I1): a repo no longer read public (it went private after the offer): the coin, if made,

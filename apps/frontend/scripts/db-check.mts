@@ -841,12 +841,21 @@ const [pd] = await db<{ taps: number; first: Date | null }[]>`SELECT taps, first
 ok(pd?.taps === 2 && pd.first === null, 'v3.1 one-tap posts: a post_drafts row survives the schema running again');
 
 const sourceCols = await cols('builder_sources');
+const walletCols = await cols('person_wallets');
 // Owner batch fix round: an earnkit_txt site's daily re-check (proof_misses, proof_checked_day) survives the schema running again.
 ok(['proof_misses', 'proof_checked_day', 'proof_exempt_days', 'proof_lost_at'].every((c) => sourceCols.includes(c)), 'owner batch: builder_sources.proof_misses, proof_checked_day, proof_exempt_days, proof_lost_at');
 await db`UPDATE builder_sources SET proof_misses = 2, proof_checked_day = '2026-10-23' WHERE builder_id = -133`;
 await db.unsafe(now);
 const [pm] = await db<{ m: number; d: string | null }[]>`SELECT proof_misses AS m, proof_checked_day::text AS d FROM builder_sources WHERE builder_id = -133`;
 ok(pm?.m === 2 && pm.d === '2026-10-23', 'owner batch: a site proof re-check count survives the schema running again');
+
+// v3.1 wallet proof: a proven wallet's first Base transaction (On Base since), cached; it survives the schema running again.
+ok(['base_since', 'base_since_read_at'].every((c) => walletCols.includes(c)), 'v3.1 wallet proof: person_wallets.base_since, base_since_read_at');
+await db`INSERT INTO person_wallets (wallet, builder_id, base_since, base_since_read_at) VALUES ('0x00000000000000000000000000000000000db135', -135, '2024-01-15T00:00:00Z', now())
+  ON CONFLICT (wallet) DO UPDATE SET base_since = EXCLUDED.base_since`;
+await db.unsafe(now);
+const [ws] = await db<{ s: Date | null }[]>`SELECT base_since AS s FROM person_wallets WHERE wallet = '0x00000000000000000000000000000000000db135'`;
+ok(ws?.s?.toISOString() === '2024-01-15T00:00:00.000Z', 'v3.1 wallet proof: a cached base_since survives the schema running again');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);
