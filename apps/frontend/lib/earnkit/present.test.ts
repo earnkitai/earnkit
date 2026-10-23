@@ -165,7 +165,8 @@ test('v2.5 §1 golden (b), v3.1 (spec 3.4): no repos: open money ranked by prize
     ],
   }));
   assert.equal(text, [
-    '$5.5K+ in prizes open right now.',
+    // v3.1 GTM W3: the table's hackathon is named, never summed.
+    '$5.5K+ in prizes open right now. Plus 1 hackathon.',
     '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |',
     `Pick one and I'll start.`,
   ].join('\n\n'));
@@ -209,9 +210,9 @@ test('v2.6 §1, v3.1: no repo and no GitHub user: "$X is open right now", "You c
       monad, circle, colosseum, tiny,
     ],
   }));
-  // $X = every open curated program's per-winner prize, not only the 5 shown: 5000+500+50 (+0 for
-  // programs without a stated amount).
-  assert.equal(text.split('\n\n')[0], '$5.5K+ in prizes open right now.');
+  // v3.1 GTM W3: $X = the per-winner prizes of the rows shown (5000+500+50; +0 for programs without a stated
+  // amount), and the shown hackathons named.
+  assert.equal(text.split('\n\n')[0], '$5.5K+ in prizes open right now. Plus 1 hackathon.');
   assert.match(text, /\| Program \| You could win \| Difficulty \| Ends \|/);
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14, 11:59 PM ET \|/);
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
@@ -318,8 +319,8 @@ test('other programs are capped at 5 rows, with one line for the rest', () => {
   const text = presentFirstMessage(msg({ cards: more }));
   assert.equal((text.match(/^\| Bounty /gm) ?? []).length, 5);
   assert.match(text, /\n\n2 more open: ask me for the full list\.\n\n/);
-  // v2.9 F21: every program counts toward the figure, shown or not (7 x 50 USDC).
-  assert.match(text, /^\$350 in prizes open right now\.\n\n/);
+  // v3.1 GTM W3: only the rows shown count toward the figure (5 x 50 USDC), never the 2 behind "more".
+  assert.match(text, /^\$250 in prizes open right now\.\n\n/);
 });
 
 test('Ruling F5: among the fits, Easy first, then the top prize; one needing forms says so', () => {
@@ -739,13 +740,12 @@ test('3.7 not interested: in no table, never the offer, not in Also open; applie
   assert.doesNotMatch(applied, /—|coin|Clanker|vault/);
 });
 
-test('final review M1: the no-repo headline is the site figure over every open program, whatever the builder hid', () => {
+test('final review M1, v3.1 GTM W3: the no-repo headline sums only the rows shown, so a hidden program leaves the figure too', () => {
   const cards = [base, arc, tiny];
-  const all = presentFirstMessage(msg({ cards }));
   const hid = presentFirstMessage(msg({ cards, hidden: { notInterested: new Set(['base-builder-grants', 'arc-microgrants']), applied: new Set() } }));
-  const headline = (t: string) => t.split('\n\n').find((l) => l.endsWith('in prizes open right now.'));
-  assert.equal(headline(hid), headline(all));
-  assert.equal(headline(hid), `${moneyText(openMoneyUsd(cards, NOW))} in prizes open right now.`);
+  const headline = (t: string) => t.split('\n\n').find((l) => l.includes('in prizes open right now.'));
+  assert.equal(headline(hid), `${moneyText(openMoneyUsd([tiny], NOW))} in prizes open right now.`);
+  assert.equal(headline(presentFirstMessage(msg({ cards }))), `${moneyText(openMoneyUsd(cards, NOW))} in prizes open right now.`);
   assert.doesNotMatch(hid, /Base Builder Grant Program|Arc Microgrants/);
 });
 

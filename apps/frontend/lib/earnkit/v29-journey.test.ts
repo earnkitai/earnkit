@@ -329,7 +329,9 @@ test('12.9 one money figure: the landing, /api/stats and the first reply say the
   const first = await call(J, 'list (no repo)', 'list_programs', { agent_can_build: true }, ctxFor(await newInstallation()));
   // v3 Stage 2: with investments out of the total, the rounding no longer hides that the first reply sums only the
   // programs an agent can complete (v2.12 spec 9: Colosseum is left out of find), so its figure is over those.
-  const agentFigure = moneyText(openMoneyUsd((await listPrograms()).filter((p) => p.agent_completable !== false)));
+  // v3.1 GTM W3 (the one money rule): the first reply's figure sums the rows its table shows, never more.
+  const inTable = (await listPrograms()).filter((p) => p.agent_completable !== false && first.show_to_builder!.includes(`| ${p.title} `));
+  const agentFigure = moneyText(openMoneyUsd(inTable));
   assert.ok(first.show_to_builder!.startsWith(`${agentFigure} in prizes open right now.`), first.show_to_builder);
   assert.equal(first.show_to_builder!.split(agentFigure!).length, 2, 'said once');
 });
