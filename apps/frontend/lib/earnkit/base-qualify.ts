@@ -35,10 +35,24 @@ type Status = 'met' | 'missing' | 'unknown';
  * - use: a likely verdict is met; `live_url` or `real_users` missing is missing; else unknown.
  * - codes: the stored answer.
  */
-export function qualifyStatus(m: { v: Verdict | null; chains: Detection } | null, codes: boolean | null): Record<QualifyStep, Status> {
-  const onBase = m === null ? 'unknown' : !m.v?.missing.includes('mainnet_deploy') && creditsMainnet(m.chains.base) ? 'met' : 'missing';
+export function qualifyStatus(m: { v: Verdict | null; chains: Detection } | null, codes: boolean | null, onBaseSaid = false): Record<QualifyStep, Status> {
+  // v3.1 GTM W3: a builder whose contracts are on Base (confirmed, or reported by the agent or the builder:
+  // `onBaseSaid`) is never told "Put your app on Base."; the matcher's word only adds to that.
+  const onBase = onBaseSaid ? 'met' : m === null ? 'unknown' : !m.v?.missing.includes('mainnet_deploy') && creditsMainnet(m.chains.base) ? 'met' : 'missing';
   const use = m?.v?.status === 'likely' ? 'met' : m?.v?.missing.some((x) => x === 'live_url' || x === 'real_users') ? 'missing' : 'unknown';
   return { base: onBase, codes: codes === null ? 'unknown' : codes ? 'met' : 'missing', use };
+}
+
+/**
+ * v3.1 GTM W3: whether `key`'s project is known on Base: its row's chains (a confirmed contract, an EarnKit deploy, a
+ * coin) or a contract the agent reported on Base (a non-rejected builder_sources contract "base:0x..."). Never throws.
+ */
+export async function onBaseKnown(id: number, key: string): Promise<boolean> {
+  const [r] = await sql()<{ on: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND 'base' = ANY(chains))
+      OR EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND kind = 'contract'
+        AND state <> 'rejected' AND ref ILIKE 'base:%') AS on`.catch(() => [{ on: false }]);
+  return r?.on === true;
 }
 
 /** The offer's steps from their statuses: null when every step is known met (never a "you qualify"). Pure. */
@@ -83,7 +97,7 @@ export async function qualifyOffer(
       refreshBuilderCodes(id, key, known, o.now, o.codesFetch);
       codes = known?.found ?? null;
     }
-    return qualifyPlan(grant, qualifyStatus(m, codes));
+    return qualifyPlan(grant, qualifyStatus(m, codes, creditsMainnet(repo?.chains?.base) || Boolean(repo?.said?.mainnet.includes('base')) || (await onBaseKnown(id, key))));
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');
     return null;

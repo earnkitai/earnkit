@@ -482,6 +482,19 @@ export function benchReply(v: BenchView): string {
   return notice ? paras([notice]) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
+/**
+ * v3.1 GTM W3: whether a ranked reply carries the money line with the upcoming program in it (rankedReply's last
+ * branch, no qualify steps), so the upcoming line is claimed only when it is really said. Pure.
+ */
+export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'moment' | 'handle' | 'post' | 'qualify'>): boolean {
+  if (v.held) return true;
+  if (v.ask.kind === 'connect' && v.connect) return false;
+  if (v.ask.kind === 'share' && v.moment && v.handle) return false;
+  if (v.ask.kind === 'post' && v.post) return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo') return false;
+  return !(v.ask.kind === 'qualify' && v.qualify);
+}
+
 /** The ranked state's reply (benchReply). Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)

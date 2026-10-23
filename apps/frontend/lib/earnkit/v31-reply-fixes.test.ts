@@ -82,6 +82,10 @@ test('the no-fit path: missing reasons from the matcher, steps only those not kn
   const testnet = qualifyPlan(BASE, qualifyStatus(at(repo({ base: { mainnet: false, testnet: true, evidence: 'config', basis: 'config' } as never })), true))!;
   assert.deepEqual(testnet.steps.includes('codes'), false, 'Builder Codes found: dropped');
   assert.ok(testnet.missing.includes('base'));
+  // v3.1 GTM W3: contracts the builder or the agent reported on Base (or confirmed): never "Put your app on Base."
+  assert.equal(qualifyStatus(null, null, true).base, 'met');
+  assert.equal(qualifyStatus(at(repo({})), false, true).base, 'met');
+  assert.ok(!qualifyPlan(BASE, qualifyStatus(null, null, true))!.steps.includes('base'));
   // Never matched and the check never ran: every step, none named missing.
   const unknown = qualifyPlan(BASE, qualifyStatus(null, null))!;
   assert.deepEqual([unknown.missing, unknown.steps], [[], ['base', 'codes', 'use']]);

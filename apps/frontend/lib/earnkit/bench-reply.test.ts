@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, fitBar, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
+  MOMENT_ASK, OTHER_PROJECT_ASK, POST_ASK, SHIP_ASK, applyAsk, eventHead, awardAmount, benchReply, fitBar, upcomingShown, connectStanding, namesAccount, qualifyLine, replyState, shipAsk, standingLine, stateAsk,
   type ApplyPick, type BenchView, type BestFit, type EventPost,
 } from './bench-reply';
 
@@ -222,4 +222,14 @@ test('GTM W3 never "You qualify" past a condition the builder does not show', ()
     ask: { kind: 'connect', project_key: RECIPE.key, line: 'Post your 2 weeks?' } }));
   assert.doesNotMatch(reply, /You qualify/);
   assert.match(reply, /full-time team/);
+});
+
+test('GTM W3 the upcoming line is claimed only where the reply says it', () => {
+  const v = ranked({ fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K investment', note: 'Opens in November.' }] });
+  assert.equal(upcomingShown(v), true);
+  assert.match(benchReply(v), /Base Batches 005: up to \$100K investment, not open yet\./);
+  assert.equal(upcomingShown({ ...v, ask: { kind: 'apply', project_key: RECIPE.key, line: 'x?' } }), false);
+  assert.equal(upcomingShown({ ...v, ask: { kind: 'wallet', project_key: RECIPE.key, line: 'x?' } }), false);
+  assert.equal(upcomingShown({ ...v, ask: { kind: 'qualify', project_key: RECIPE.key, line: 'x?' }, qualify: { program_id: 'b', grant: { org: 'Base', amount: '$5,000', chain: 'Base' }, missing: [], steps: ['codes'] } }), false);
+  assert.equal(upcomingShown({ ...v, held: 'Did you hear back?' }), true);
 });
