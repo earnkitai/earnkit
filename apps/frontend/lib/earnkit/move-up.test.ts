@@ -43,8 +43,8 @@ const CLOSED = ['arc-microgrants', 'colosseum-worlds-fair', 'monad-metropolis'] 
 const OPEN = ['base-builder-grants', 'circle-developer-grants'] as const;
 const COIN_WORDS = /\bcoin\b|\btokens?\b|community round|tokens\.fun|\$[A-Z]{3,}/i;
 /** R12: "<program>: <award>, <closes Mon D | rolling>. <Why>." */
-/** Task 16: the ranked reply's money line. */
-const FIT_LINE = /^You qualify for the [^\n]+, up to \$[\d,]+( investment)?(, closes [A-Z][a-z]{2} \d{1,2})?\.$/;
+/** Task 16: the ranked reply's money line. v3.1 GTM W3: "You qualify" only with nothing in the way, else its condition. */
+const FIT_LINE = /^(You qualify for the [^\n]+, up to \$[\d,]+(, closes [A-Z][a-z]{2} \d{1,2})?\.|Long shot: [^\n]+, up to \$[\d,]+( investment)?(, closes [A-Z][a-z]{2} \d{1,2})?\.( It takes a company with a full-time team\.)?|[^\n]+, up to \$[\d,]+(, closes [A-Z][a-z]{2} \d{1,2})?, once (your app is live|you have real users)\.)$/;
 
 /** The program files as committed: R12 closes three, synced into this file's database. */
 async function syncPrograms() {

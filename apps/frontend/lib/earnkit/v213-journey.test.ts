@@ -633,8 +633,8 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.ok(base.chips.includes('base'));
   // v3.1 Task 8: the Base tab is the one marked (the board's rows carry no chain logos).
   assert.match(html(React.createElement(BenchView, { ...base, filter, page: 1 })), /<a aria-current="page"[^>]*href="\/leaderboard\?chain=base">Base<\/a>/);
-  // v3.1: the Base standing is the metal pill beside the name, its place in the title (RANK_MIN_POOL Base builders).
-  assert.match(await renderProfile(BASE_HANDLE), /data-ek-standing="" title="#\d+ of \d+ builders on Base"[^>]*>[\s\S]*?Top \d+(\.\d)?% on Base</);
+  // v3.1 GTM W3: the standing pill reads the one rank line (the whole pool), as replies and the card do.
+  assert.match(await renderProfile(BASE_HANDLE), /data-ek-standing="" title="(#\d+ of \d+ builders|Top \d+(\.\d)?% of builders)"[^>]*>[\s\S]*?(#\d+ of \d+ builders|Top \d+(\.\d)?% of builders)</);
 });
 
 test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
