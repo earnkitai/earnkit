@@ -85,7 +85,7 @@ export async function qualifyOffer(
   id: number,
   key: string,
   o: {
-    cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string> }; now: Date; declineMs: number; codesFetch?: typeof fetch;
+    cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string>; qualify_known?: Record<string, { onBase?: boolean; live?: boolean }> }; now: Date; declineMs: number; codesFetch?: typeof fetch;
     /** v3.1 cold read: what this reply's own match read of the project (a Base deploy, a live link). */
     known?: { onBase: boolean; live: boolean };
   },
@@ -115,8 +115,17 @@ export async function qualifyOffer(
       refreshBuilderCodes(id, key, known, o.now, o.codesFetch);
       codes = known?.found ?? null;
     }
-    const usersSaid = o.known?.live === true || repo?.said?.has_users === true || Boolean(repo?.said?.live_url) || (await liveOrUsersKnown(id, key));
-    const onBase = o.known?.onBase === true || creditsMainnet(repo?.chains?.base) || Boolean(repo?.said?.mainnet.includes('base')) || (await onBaseKnown(id, key));
+    // Owner test 2026-10-23: a reply's own live read can time out, so the step count flipped between replies ("the next
+    // step", then "the 2 steps"). A Base deploy or a live app once seen is remembered (standing_seen.qualify_known).
+    const kept = o.seen.qualify_known?.[key.toLowerCase()] ?? {};
+    const usersSaid = kept.live === true || o.known?.live === true || repo?.said?.has_users === true || Boolean(repo?.said?.live_url) || (await liveOrUsersKnown(id, key));
+    const onBase = kept.onBase === true || o.known?.onBase === true || creditsMainnet(repo?.chains?.base) || Boolean(repo?.said?.mainnet.includes('base')) || (await onBaseKnown(id, key));
+    if ((onBase && !kept.onBase) || (usersSaid && !kept.live)) {
+      const next = { onBase: onBase || kept.onBase === true, live: usersSaid || kept.live === true };
+      await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('qualify_known',
+        COALESCE(standing_seen->'qualify_known', '{}'::jsonb) || jsonb_build_object(${key.toLowerCase()}::text, ${sql().json(next as never)}::jsonb))
+        WHERE builder_id = ${id}`.catch(() => undefined);
+    }
     return qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid));
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');

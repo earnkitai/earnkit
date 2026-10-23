@@ -299,7 +299,7 @@ test('fix round 4, 5: the page in the site design: Kaftan title, what happens, t
   assert.match(h, /data-ek-wallet=""[^>]*class="[^"]*rounded-\[32px\][^"]*linear-gradient/);
   assert.match(h, /<h1 id="wallet-title" class="ek-serif[^"]*">Prove your Base wallet<\/h1>/);
   assert.ok(h.includes(WALLET_TEXT.lead));
-  assert.ok(h.includes('Your contracts link to Basescan, where the deploying wallet is public.'));
+  assert.ok(h.includes('Your page links your contracts on Basescan, so this wallet will be public.'));
   assert.ok(h.includes(`EarnKit: this wallet belongs to @${me.handle} on earnkit.com/${me.handle}.`));
   assert.ok(h.includes('>Sign with my wallet</button>'));
   assert.doesNotMatch(h, /Sign in with X|data-ek-wallet-x/);

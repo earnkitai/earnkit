@@ -91,7 +91,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // 2026-10-22: no fit, so Base's grant steps are the question; the points line is still the weekly target.
-  assert.match(s, new RegExp(`^App · #2 of 10 builders\nBase Builder Grants pay up to \\$5,000 for apps on Base\.\n${RANKED_ASK_RE.source}\nShip code this week to pass #1: up to \\+100 points$`), s);
+  assert.match(s, new RegExp(`^App · #2 of 10 builders\n${RANKED_ASK_RE.source}\nShip code this week to pass #1: up to \\+100 points$`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);

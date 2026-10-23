@@ -133,7 +133,6 @@ test('the no-fit copy, word for word', () => {
   assert.equal(view.ask.kind, 'qualify');
   assert.equal(rule(benchReply(view)), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
-    'Base pays up to $5,000 for apps on Base.',
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
     "Want the 2 steps toward Base's $5,000 grant?",
     'Ship code this week: up to +100 points',
@@ -142,7 +141,6 @@ test('the no-fit copy, word for word', () => {
   const unsure: QualifyOffer = { ...q, missing: ['base'], steps: ['base', 'codes', 'use'] };
   assert.equal(rule(benchReply({ ...view, qualify: unsure, ask: stateAsk({ ...v, qualify: unsure }) })), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
-    'Base pays up to $5,000 for apps on Base.',
     "Want the 3 steps to qualify for Base's $5,000 grant?",
     'Ship code this week: up to +100 points',
   ].join('\n'));
@@ -220,13 +218,12 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   const s = rule(show(r));
   const lines = s.split('\n');
   // v3.1 cold read: the standing was said in the connect reply and hasn't changed, so it isn't repeated.
-  assert.deepEqual(lines.slice(0, 3), [
-    'Base Builder Grants pay up to $5,000 for apps on Base.',
+  assert.deepEqual(lines.slice(0, 2), [
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
     "Want the 2 steps toward Base's $5,000 grant?",
   ]);
-  assert.match(lines[3], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
-  assert.equal(lines.length, 4);
+  assert.match(lines[2], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
+  assert.equal(lines.length, 3);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
@@ -281,7 +278,7 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   // no missing line: the question counts all three steps.
   const next = rule(show(await mcpCall(ctx, 'find', {})));
   assert.doesNotMatch(next, /Your code stays private|still needs/);
-  assert.ok(next.includes("Base Builder Grants pay up to $5,000 for apps on Base.\nWant the 3 steps to qualify for Base's $5,000 grant?"), next);
+  assert.ok(next.includes("Want the 3 steps to qualify for Base's $5,000 grant?"), next);
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');

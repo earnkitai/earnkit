@@ -28,7 +28,7 @@ export const UPGRADE_TTL_MS = 30 * 60_000;
 export const WALLET_TEXT = {
   title: 'Prove your Base wallet',
   lead: 'One signature, no fee. Your contracts on Base will show on your page, and your EarnKit rewards go to this wallet. We never move funds.',
-  basescan: 'Your contracts link to Basescan, where the deploying wallet is public.',
+  basescan: 'Your page links your contracts on Basescan, so this wallet will be public.',
   sign: 'You sign this message',
   button: 'Sign with my wallet',
   xButton: 'Sign in with X',

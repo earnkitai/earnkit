@@ -119,7 +119,7 @@ test('the approved copy, word for word', () => {
   assert.equal(WALLET_ASK, 'Done?');
   assert.equal(newBackersLine(2), '2 new backers since you last looked.');
   assert.equal(APPLIED_OUTSIDE, 'applied');
-  assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line using only facts in show_to_builder/);
+  assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line using only facts in this reply \(show_to_builder, points_total/);
   assert.match(SERVER_INSTRUCTIONS, /answer it in one short line from facts in the reply, never invented/);
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));
   for (const s of [pickRepoAsk(LINK), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE), BACKING_OFFER('Kit', 'KIT', null), tokenConnectFirst('Kit', LINK),

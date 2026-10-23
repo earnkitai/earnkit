@@ -147,7 +147,7 @@ export const TELL_DESCRIPTION_BENCH =
   'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
   'main_project: owner/repo to rank instead. ' +
-  "wallet: 'change' for a new reward wallet. " +
+  "wallet: 'change' to add or change a wallet. " +
   'coin: their coin answer, or { raising } to open or close backing. ' +
   "token: 'ask' only when they ask about a token. " +
   'move_up: their answer to the question, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +

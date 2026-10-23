@@ -184,7 +184,7 @@ test('(e) a ranked builder with a 4-week streak and no fit never hears of a prog
   // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
   const q = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   assert.doesNotMatch(q, / not open yet\. /, q);
-  assert.match(q, /\nBase Builder Grants pay up to \$5,000 for apps on Base\.\n/, q);
+  assert.match(q, /Base's \$5,000 grant\?/, q);
   await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
   // 2026-10-23 (owner): a program that isn't open is never a reply line, even with a 4-week streak and no fit.
   const s = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
