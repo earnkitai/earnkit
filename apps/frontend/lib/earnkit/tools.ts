@@ -144,7 +144,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, mainProjectName, rankAnswer, rememberProjectName, signedOutNow, tokenAsk } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow, tokenAsk } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -3115,7 +3115,8 @@ async function findReply(input: unknown, ctx: ToolContext): Promise<Reply> {
     guide = withoutBonusLine(guide);
     r.guide = { ...r.guide, text: guide };
   }
-  const named = repo ? await mainProjectName(ctx.installationId).catch(() => null) : null;
+  // Security review: never on a shared client (one agent, many builders), and only for the builder's own one project.
+  const named = repo && !ctx.sharedClient ? await mainProjectNameFor(ctx.installationId, repo) : null;
   const line = repo ? eligibilityLine(repo, r.eligibility, { org: typeof r.organizer === 'string' ? r.organizer : null, name: named }) : null;
   return { ...r, show_to_builder: line ? `${guide}\n\n${line}` : guide };
 }

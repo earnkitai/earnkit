@@ -1756,6 +1756,16 @@ export const SHIP_NOTE =
  * v3.1 cold read (one name everywhere): the builder's one project as replies name it: the name they gave (reportedName),
  * else the row's or the repo's own (displayName); a live link's host never. Null without a project. Never throws.
  */
+/**
+ * v3.1 cold read (security review): the one project's name for a reply about `repo` only: null unless the builder's one
+ * project is that repo (refKey match), so another project's name is never used. Callers skip it on a shared client.
+ * Never throws.
+ */
+export async function mainProjectNameFor(id: number, repo: string): Promise<string | null> {
+  const [p] = await sql()<{ main: string | null }[]>`SELECT main_project_key AS main FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  if (!p?.main || refKey(p.main) !== refKey(repo)) return null;
+  return mainProjectName(id).catch(() => null);
+}
 export async function mainProjectName(id: number): Promise<string | null> {
   const [p] = await sql()<{ main: string | null; name: string | null }[]>`
     SELECT b.main_project_key AS main, r.name FROM builder_profiles b
