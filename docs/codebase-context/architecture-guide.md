@@ -6584,6 +6584,15 @@ quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows th
   stored `titles` (3) stay for older readers and the read-time fallback.
 - **Read time.** `summaryShown(summary, titlesShown(...), rule)` in `feed.ts feedRows`, `bench-data.ts profileData`
   and `weekly-moment.ts lastWeekOf`: the titles privacy rule, and never text naming a private repo.
+- **Private repos (owner batch 2026-10-23).** Approval is consent: a private repo's week the builder approved
+  (`facts.approved`, from the weekly moment, the connect offer or the email link) shows its stored summary on the
+  feed, profile Activity and posts whatever the titles switch says; an unapproved one shows none. Raw titles stay
+  hidden unless titles are on. `weekTitles` reads a private repo with titles off only when a model is set
+  (`ANTHROPIC_API_KEY`): its titles (those naming the repo dropped) go to Haiku, the summary must pass `checkUpdate`
+  and never name the repo or a file (`namesPath`), there is no rule-summary fallback (it repeats titles nearly word
+  for word), and the titles are not stored. `weekLineRule(..., { asking: true })` shows the summary to the builder in
+  their own approval prompts (`lastWeekOf`: moment, digest, week link page; `connectWeeks`) so they see what they
+  approve. Past weeks: `pnpm feed:summaries` (it calls `weekTitles`) fills them once the key is set.
 - **The note.** `updates.ts noteMonday`: Monday and Tuesday UTC a `tell update { text }` goes under the finished
   week; from Wednesday, this week's. The moment adds `NOTE_LINE` under the summary; `SHARE_NOTE` tells the agent to
   post the builder's line with `tell update`.
@@ -7311,7 +7320,7 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
   only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
   `useReducedMotion()` no listener is attached.
-- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "People can back you by buying your coin." only with `raisingEnabled()`. Activity is
+- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "Fans can back you with your coin." only with `raisingEnabled()` (owner batch 2026-10-23: "Add EarnKit to your agent. Connect your GitHub.", "We score how steadily you ship, every day.", "We find grants you fit. Your agent writes the application."). Activity is
   `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
   else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
   none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour
@@ -7347,6 +7356,9 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   4. repo: "Building <name> since <Mon YYYY>" from the ship reading's `created_at`, sub "<N> commits" (or "... in the
      last year" for a repo older than the read's 52 weeks) from `commits_year` (GraphQL `history.totalCount`, already
      asked; `person-github.ts repoFrom` now keeps it and `default_branch`); a hidden repo's name never shows ("Building since").
+     Owner batch 2026-10-23: a hidden repo with a proven site reads as its host ("Building earnkit.com since Dec 2024",
+     `page-data.ts safeName`), and `site-data.ts mainReading` fills `commits_year` from the newest reading that has it
+     when the ship reading predates the field (production showed no sub until its first daily read with the count).
   5. won/applied (`page-data.ts projectProgramsDated`, at most 2, sub "<Mon YYYY>"), linked to `/programs/<id>` only
      when that guide page exists (`guide-pages.ts guideProgramSql`, the predicate `landing.ts readGuideIds` uses: a
      file program, not a campaign, not unlisted). A guide link opens in the same tab; other proof in a new tab.
@@ -7656,13 +7668,14 @@ gone; the Monday moment now carries a drafted post.)
   `safeFetchText`'s `plainText` refuses any content-type but text/plain) has a `profile:` line equal to
   `profileCode(builder_id, origin)`: verified `earnkit_txt`. A 404 or any failure proves nothing (`soft`). The proof
   step has its own try/catch after the reading: a failure is logged and never drops or fails the reading; the
-  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched: `repo_link`
-  is in `CONFIRMED_PROOFS` (scored by `person-score.ts`) and `earnkit_txt` is not, so `proveLinkedSite`'s upgrade
-  would drop a scored site; it stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
+  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched (both
+  `repo_link` and, since the owner batch of 2026-10-23, `earnkit_txt` are scored by `person-score.ts`);
+  `proveLinkedSite` stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
   `EARNKIT_AUTH_SECRET`, read from the live origin); `verifySource` verifies only a proposed row, never a `stale`
   one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
   (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,
-  Highlights "Live at") but, per S9, not a confirmed ship in the live score.
+  Highlights "Live at") and, since the owner batch of 2026-10-23, counts toward Shipping (`confirmed.ts
+  isConfirmedSource`).
 - **Owner proof file.** `apps/frontend/public/earnkit.txt` holds `profile: ae6e24ff180d7ee8` (builder 17, origin
   `https://earnkit.com`), served by Next at `/earnkit.txt` as `text/plain` (no middleware or proxy, no rewrites, no
   app route of that name; `site-proof.test.ts` SP9, SP10). `earnkit` joins `RESERVED_ROUTES` (every public name is
