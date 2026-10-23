@@ -1591,6 +1591,8 @@ apps/frontend/
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
                                GTM W3: onBaseKnown + qualifyStatus(onBaseSaid): never "Put your app on Base" to a project on Base
+    reply-format.ts            v3.1 (2026-10-23): formatReply (a blank line between lines, list items and table rows together, no
+                               emphasis) and withFormattedReply; mcp.ts run applies it to every show_to_builder. tests reply-format.test.ts
     agent-reach.ts             GTM W2 (2026-10-23): agentReach(own, builder) -> { hosted, schedules } from installations.client_name
                                (hosted: grok, muse, meta, instinct, openclaw; schedules: grok, cursor, openclaw, hermes) and
                                standing_seen.no_folder (find told agent_can_build: false: rememberNoFolder; both true); reachOf (pure)

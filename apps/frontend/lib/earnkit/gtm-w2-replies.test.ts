@@ -407,3 +407,11 @@ test('final review: a news line keeps the check-in, ship cooldown and no-folder 
   const [r] = await sql()<{ seen: Record<string, unknown> }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${b.id}`;
   assert.deepEqual([r.seen.checkin_asked, r.seen.checkin, r.seen.ship_asked, r.seen.no_folder], [at, 'no', at, true]);
 });
+
+test('v3.1 reply format: the MCP route sends show_to_builder with a blank line between lines (Grok Bot markdown)', db, async () => {
+  const p = await signedIn('f', 'Cursor');
+  const r = await mcpCall(p.ctx, 'find', {}, { format: true });
+  const s = String(r.reply?.show_to_builder);
+  assert.match(s, /^You're in, @\S+\.\n\n/);
+  assert.doesNotMatch(s.replace(/\n\n/g, ''), /\n(?!\d+\. )/, 'no single newline outside a list');
+});

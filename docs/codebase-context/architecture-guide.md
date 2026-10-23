@@ -7940,3 +7940,16 @@ Every number and name a builder or visitor reads agrees with what sits beside it
 - **llms.txt** (`llms/v213.txt`): the site's positioning, every agent's install steps, `score`, find's `identity` input
   (no `local_repos`), the one-tap post (no weekly "share it on X" promise), no "agents earning once there are 100".
 - Tests: `install.test.ts`, `v31-site-docs.test.ts`, `oauth.test.ts`, `referral.test.ts`, `people-signals.test.ts`.
+
+## Reply format on the agent surfaces (v3.1, 2026-10-23)
+
+- **Why.** Grok Bot renders replies with react-markdown + remark-gfm and no line-break plugin (read from the app bundle,
+  v0.75.0), so show_to_builder lines joined by one newline collapsed into one run-on paragraph. OpenClaw, Hermes,
+  Instinct and Muse on WhatsApp/Telegram/SMS show markdown syntax raw.
+- **What.** `reply-format.ts formatReply` puts a blank line between lines, keeps list items (`1.`, `-`, `•`) and table
+  rows together as one block, collapses extra blank lines and adds no emphasis. `withFormattedReply` applies it to a
+  tool result's show_to_builder only. `mcp.ts run` applies it to every tool result at the MCP boundary, so the copy
+  constants keep their one-line-per-line form.
+- **Tests.** `fixtures/mcp-call.ts` asks the server for unformatted replies by default (`createMcpServer(ctx, { format:
+  false })`, tests only) so existing tests keep asserting the words; `reply-format.test.ts` covers the format, and
+  `gtm-w2-replies.test.ts` checks the formatted wire text through the real route.
