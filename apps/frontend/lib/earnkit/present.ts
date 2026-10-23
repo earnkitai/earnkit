@@ -860,7 +860,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     // v2.10 item 6: a low-odds row is never called a fit (Pre-flight P14).
     const anyGood = rows.some((r) => r.odds === 'good');
     matchedSection = (
-      `${bestRow ? header : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
+      `${longOnly ? LOW_ODDS_HEADING : bestRow ? header : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v, row, odds, low_reason }) => {

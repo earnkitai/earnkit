@@ -169,13 +169,14 @@ test('v2.5 §1 golden (b), v3.1 (spec 3.4): no repos: open money ranked by prize
     // v3.1 cold read: the open count, never a pooled total or "Plus 1 hackathon".
     '4 programs are open.',
     '| Program | You could win | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |',
-    `Pick one and I'll start.`,
+    // v3.1 cold read round 2: a builder with no project is asked about a program's guide, never "start on" it.
+    'Want the guide for Tiny Bounty?',
   ].join('\n\n'));
   noEmoji(text);
   // A GitHub user with no repos counts as no repo.
   const none = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] } }));
   assert.match(none, /^1 program is open\.\n\n/);
-  assert.ok(none.endsWith("|\n\nPick one and I'll start."), none);
+  assert.ok(none.endsWith('|\n\nWant the guide for Arc Microgrants?'), none);
   assert.doesNotMatch(none, /Ideas|Arc idea/);
   assert.doesNotMatch(none, /None of your/);
   // Honest offer rules still win: keep going, and chat-only agents.
@@ -184,7 +185,7 @@ test('v2.5 §1 golden (b), v3.1 (spec 3.4): no repos: open money ranked by prize
     /Want me to keep going on Arc Microgrants\?$/,
   );
   // v3.1 cold read: a chat-only agent is never told "I can't build or deploy from here"; one program is named.
-  assert.match(presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['x'] }], agentCanBuild: false })), /\n\nWant me to start on Arc Microgrants\?$/);
+  assert.match(presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['x'] }], agentCanBuild: false })), /\n\nWant the guide for Arc Microgrants\?$/);
 });
 
 test('v2.5 §1 golden (c): a program without a per-winner amount is not counted in $X; its prize cell is its own words', () => {
@@ -219,8 +220,8 @@ test('v2.6 §1, v3.1 cold read: no repo and no GitHub user: "<N> programs are op
   assert.match(text, /\| Arc Microgrants \| 500 USDC × 20 grants \|  \| Oct 14, 11:59 PM ET \|/);
   assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \|/);
   assert.doesNotMatch(text, /Ideas|idea one/);
-  // Ruling H8: "Pick one" names no program, so no bonus line.
-  assert.ok(text.endsWith("\n\nPick one and I'll start."), text);
+  // v3.1 cold read round 2: no project: the first program's guide (the program list's order), never "start on".
+  assert.ok(text.endsWith('\n\nWant the guide for Tiny Bounty?'), text);
   assert.doesNotMatch(text, /Builder bonus/);
   assert.doesNotMatch(text, /qualify/);
   noEmoji(text);
@@ -252,7 +253,7 @@ test('fix round 1, finding 1: "You could" with no ideas still closes with "Pick 
   assert.match(text, /^1 program is open\.\n\n/);
   // No ideas on this card (arc carries none here), so the old code fell through to "Want me to
   // check which of your repos already qualify?" — there's nothing to check with repos === null.
-  assert.ok(text.endsWith("\n\nPick one and I'll start."), text);
+  assert.ok(text.endsWith('\n\nWant the guide for Arc Microgrants?'), text);
   assert.doesNotMatch(text, /qualify/);
 });
 
@@ -274,7 +275,7 @@ test('v2.6 §1, v3.1 cold read: chat-only agents get the open count, no "I can b
   // v3.1 cold read: never "I can't build or deploy from here, ..."; the one question names the first program (Base first).
   assert.doesNotMatch(text, /can't build or deploy from here/);
   assert.doesNotMatch(text, /Builder bonus/);
-  assert.match(text, /\n\nWant me to start on Tiny Bounty\?$/);
+  assert.match(text, /\n\nWant the guide for Tiny Bounty\?$/);
   assert.doesNotMatch(text, /coding agent|Claude Code|Cursor|Codex/);
 });
 
@@ -284,7 +285,7 @@ test('v3.1 (spec 3.4): no ideas section, whatever ideas the programs carry, for 
     const text = presentFirstMessage(msg({ cards: many, agentCanBuild }));
     assert.doesNotMatch(text, /Ideas|- P0: a/, text);
   }
-  assert.ok(presentFirstMessage(msg({ cards: many })).endsWith("|\n\nPick one and I'll start."));
+  assert.ok(presentFirstMessage(msg({ cards: many })).endsWith('|\n\nWant the guide for P0?'));
 });
 
 test('v2.5: no open EarnKit campaign, no campaign table (Campaign #1 is closed)', () => {
@@ -357,7 +358,7 @@ test('one offer: keep going beats the campaign; a sponsor campaign is never offe
 });
 
 test('chat-only agents are offered one program (v3.1 cold read: never "I can\'t build or deploy from here"); repo errors in one line; nothing open', () => {
-  assert.match(presentFirstMessage(msg({ cards: [arc], agentCanBuild: false })), /\n\nWant me to start on Arc Microgrants\?$/);
+  assert.match(presentFirstMessage(msg({ cards: [arc], agentCanBuild: false })), /\n\nWant the guide for Arc Microgrants\?$/);
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [arc], agentCanBuild: false })), /can't build or deploy from here/);
   assert.match(presentFirstMessage(msg({ cards: [arc], repos: { error: 'GitHub said no' } })), /^Couldn't read your repos: GitHub said no/);
   assert.equal(presentFirstMessage(msg({})), 'Nothing is open right now. Want me to tell you when something opens?');
@@ -425,11 +426,12 @@ test('I3 offers: no repos known closes on the build offer; v3.1 cold read: repos
   // Final review M9: no repo and no GitHub, with an open campaign already entered: the no-repo
   // close ("Pick one"), never "qualify".
   const noRepos = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny] }));
-  assert.ok(noRepos.endsWith(`Pick one and I'll start.`), noRepos);
+  assert.ok(noRepos.endsWith('Want the guide for Tiny Bounty?'), noRepos);
   assert.doesNotMatch(noRepos, /qualify/);
   // A GitHub user with no repos found yet (not the no-repo state) is still asked to check them.
+  // v3.1 cold read round 2: still no project known: the first program's guide.
   const githubOnly = presentFirstMessage(msg({ campaigns: [{ ...campaign, you: '#3, in the top 5' }], cards: [base, arc, tiny], githubGiven: true }));
-  assert.match(githubOnly, /\n\nWant me to check which of your repos already qualify\?$/);
+  assert.match(githubOnly, /\n\nWant the guide for Tiny Bounty\?$/);
   assert.doesNotMatch(githubOnly, /Builder bonus/);
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // v3.1 cold read (owner-approved): never "build something new" (a huge pivot as a casual yes) and never "start on" a
@@ -476,7 +478,7 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
   // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
   // above whatever the offer is.
-  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nPick one and I'll start\\.$`));
+  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nWant the guide for Tiny Bounty\\?$`));
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);
@@ -535,9 +537,9 @@ test('7.2 v2.10 items 1, 5: the first reply never pitches the token; at most one
     assert.ok((t.match(/Builder bonus:/g)?.length ?? 0) <= 1, t);
     if (t.includes('Builder bonus:')) assert.match(t, BONUS);
   }
-  assert.ok(replies[0].endsWith("\n\nPick one and I'll start."), replies[0]);
+  assert.ok(replies[0].endsWith('\n\nWant the guide for Big Hackathon?'), replies[0]);
   assert.ok(replies[2].endsWith('Want me to start on Arc Microgrants with tipjar?'), replies[2]);
-  assert.ok(replies[4].endsWith("Pick one and I'll start."), replies[4]);
+  assert.match(replies[4], /\n\nWant the guide for [^?]+\?$/, replies[4]);
   assert.doesNotMatch(replies[4], /token/);
 });
 
@@ -624,14 +626,14 @@ test('v2.8.1 §B8: no repo: rows that need one say so; the offer is a program th
   assert.match(text, /\| Arc Microgrants \(needs a repo\) \|/);
   assert.match(text, /\| Avalanche Team1 Mini Grants \| up to \$10,000 \|/);
   assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
-  assert.match(text, /Want me to start on Avalanche Team1 Mini Grants\? It needs a summary, milestones and why you deserve a grant from you\./);
+  assert.match(text, /\n\nWant the guide for Avalanche Team1 Mini Grants\?$/);
   const chat = presentFirstMessage(msg({ cards, agentCanBuild: false }));
   assert.match(chat, /\| Arc Microgrants \(needs a repo\) \|/);
-  assert.match(chat, /\n\nWant me to start on Avalanche Team1 Mini Grants\?$/);
+  assert.match(chat, /\n\nWant the guide for Avalanche Team1 Mini Grants\?$/);
   // With a repo, no row says "needs a repo".
   assert.doesNotMatch(presentFirstMessage(msg({ cards, repos: repos(v('arc-microgrants', 'likely', '')) })), /needs a repo/);
-  // Nothing they can enter as they are (only investment or repo programs): the v2.6 close.
-  assert.match(presentFirstMessage(msg({ cards: [speedrunCard, easyArc] })), /Pick one and I'll start\./);
+  // Nothing they can enter as they are (only investment or repo programs): the first grant's guide, never an investment.
+  assert.match(presentFirstMessage(msg({ cards: [speedrunCard, easyArc] })), /\n\nWant the guide for Arc Microgrants\?$/);
 });
 
 test('v2.8.1 §B9: a returning builder sees "Your entries" first; entered programs are marked and never offered', () => {
@@ -693,8 +695,8 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   const noRepo = presentFirstMessage(msg({ cards }));
   assert.match(noRepo, /Arc Microgrants \(needs a repo\)/);
   // v2.10 Ruling H1 (c1): the no-repo pick is the lowest difficulty without "needs a live product".
-  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
-  assert.doesNotMatch(noRepo, /start on Circle/);
+  assert.match(noRepo, /Want the guide for Avalanche Team1 Mini Grants\?/);
+  assert.doesNotMatch(noRepo, /start on/);
   const oneRepo = presentFirstMessage(msg({
     cards,
     repos: repos(v('base-builder-grants', 'likely', ''), v('a16z-speedrun', 'likely', ''), withNew('colosseum-worlds-fair')),
@@ -706,8 +708,11 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   // v3.1 cold read: never "build something new"; the first program's guide.
   assert.match(ethOnly, /\n\nWant the guide for [^?\n]+\?$/);
   assert.doesNotMatch(ethOnly, /build something new/);
-  // v3 Stage 2: Alliance joins "Also open" (Avalanche moves into "more open"); upcoming programs never show.
-  assert.match(ethOnly, /\| Alliance ALL19 \| \$400K at admission investment \|/);
+  // v3.1 cold read round 2: the matched row is only a long shot (an investment), so the open grants come first (by
+  // difficulty, investments last: Alliance goes to "more open") and the long shot after; upcoming programs never show.
+  assert.ok(ethOnly.indexOf('| Arc Microgrants |') < ethOnly.indexOf('| a16z speedrun SR008 |'), ethOnly);
+  assert.match(ethOnly, /^9 programs are open\.\n\n\| Program \| Prize \| Difficulty \| Ends \|\n/);
+  assert.doesNotMatch(ethOnly, /\| Alliance ALL19 \|/);
   assert.match(ethOnly, /3 more open: ask me for the full list\./);
   assert.doesNotMatch(ethOnly, /Monad Nitro|Base Batches 005/);
   for (const t of [noRepo, oneRepo, ethOnly]) {
@@ -827,8 +832,8 @@ test('H1 c1: the no-repo pick is the lowest difficulty, never "needs a live prod
   assert.equal(enterableWithoutRepo([circle, speedrunCard, easyArc]), undefined);
   // The no-repo first reply never offers Circle, and with nothing to pick it never names a program.
   const noRepo = presentFirstMessage(msg({ cards: [circle, bigHard, avaMedium] }));
-  assert.match(noRepo, /Want me to start on Avalanche Team1 Mini Grants\?/);
-  assert.doesNotMatch(noRepo, /start on Circle/);
+  assert.match(noRepo, /Want the guide for Avalanche Team1 Mini Grants\?/);
+  assert.doesNotMatch(noRepo, /start on/);
   assert.doesNotMatch(presentFirstMessage(msg({ cards: [circle, easyArc] })), /Want me to start on/);
 });
 

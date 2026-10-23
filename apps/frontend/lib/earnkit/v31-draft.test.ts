@@ -119,7 +119,8 @@ test('(b) Task 16 step 6, Base: how many answers are filled, what the builder ad
   // The owner-approved copy, word for word (no points line: no points for applying).
   assert.equal(s, [
     'Your Base Builder Grant Program application is ready. I filled 6 of 16 answers from your work.',
-    'You add: your full name, your email, your X handle, your Telegram username, a note on the founding team, your contract address on Base, how it makes money today, your GTM plan for the next 3 months, your Base Builder Code, the credits you want.',
+    // v3.1 cold read round 2: one short line, the form's own first two items and a count, never the whole list.
+    'You add 10 more in the form: your full name, your email and 8 short answers.',
     BUILDER_CODES_FIRST,
     '',
     `Open the form, your answers are already in it: ${link}`,

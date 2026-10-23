@@ -829,7 +829,9 @@ const v29Part1Texts: [string, string][] = [
 test('v2.9 Task 12: the Part 1 copy sweep sees the claim, floor, investment and check notes', () => {
   for (const n of ['confirm: mainnet and live link', 'confirm: mainnet and users', INVESTMENT_NOTE, BELOW_FLOOR_NOTE, UNCHECKED_NOTE, SIGNAL_WORDS.deployed])
     assert.ok(v29Notes.includes(n), `${n} in ${JSON.stringify(v29Notes)}`);
-  assert.match(v29FirstReply, /\| tipjar, confirm: mainnet and live link \|/);
+  // v3.1 cold read round 2: the table never asks the builder to confirm what they told EarnKit themselves.
+  assert.doesNotMatch(v29FirstReply, /confirm:/);
+  assert.match(v29FirstReply, /\| tipjar \|/);
   // v2.10 item 5: no token offer in the first reply.
   assert.doesNotMatch(v29FirstReply, /launches \$|40%|\bskip\b/);
 });
@@ -1491,9 +1493,9 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
     'Best fit dated': [GRANT],
     'Best fit rolling': [GRANT],
     builderCodesFound: ['Builder Codes'],
-    BUILDER_CODES_FIRST: ['Base', 'Builder Codes'],
-    'draft prefilled': [GRANT, 'Builder Codes'],
-    'draft copy and paste': [GRANT, 'Base', 'Builder Codes'],
+    BUILDER_CODES_FIRST: ['Base', 'Builder Code'],
+    'draft prefilled': [GRANT, 'Base', 'Builder Code'],
+    'draft copy and paste': [GRANT, 'Base', 'Builder Code'],
     'email money dated best fit': [GRANT],
     'email money rolling': [GRANT],
   };

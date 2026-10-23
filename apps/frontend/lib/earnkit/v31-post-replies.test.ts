@@ -181,23 +181,16 @@ test('final review 1: a program that lists no proof hosts or X accounts: an acce
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
 }));
 
-test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
+test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted (no earlier entry needed)', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
   const kk = await kit('po');
   const k = { ...kk, ctx: { ...kk.ctx, proofFetch: namesHandle(kk.handle) } };
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
-  // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
+  // v3.1 cold read round 2 (owner): an outcome post needs verification (the proof checks), not an earlier application.
   // GTM W2: a short congrats, never nothing.
   const congrats = `Congrats on getting into the ${title}.`;
   // v3.1 cold read (owner-approved rewrite 8): no proof link yet: one line asks for the announcement.
   const askProof = `Congrats on the ${title}. Got the announcement link? I'll turn it into a post.`;
-  const stranger = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
-  assert.equal(show(stranger), congrats, 'only the congrats');
-  assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
-  // The unverified tell itself wrote an accepted row: it never counts as the entry.
-  assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] })), congrats);
-  // They applied (as told earlier): now the acceptance can be a post.
-  await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const none = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
   assert.equal(show(none), askProof);
   assert.match(String(none.reply?.agent_note), /proof_url/);
@@ -225,7 +218,6 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   assert.doesNotMatch(s, /50,000|\$/);
   // Proof ruling: a page on the listed path that names only the project, not the builder, is no proof (asked again).
   const other = await kit('pq');
-  await mcpCall(other.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
   assert.equal(show(unnamed), askProof);
 }));

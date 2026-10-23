@@ -8027,3 +8027,12 @@ Five journeys read cold; every reply now answers the builder, says one name and 
   its link (an outcome with no prior entry keeps the plain congrats: owner ruling 3), `factsAck` for tell repo_facts,
   guide "Most likely to win".
 - Tests: `v31-cold-read.test.ts`, plus the updated copy across the reply tests.
+- **Round 2 (coordinator read).** No project after the walk-through: `LOVABLE_PROMPT_ASK` until the prompt is written
+  (`standing_seen.lovable_prompt`), then `nextBuild(link)` (never `NEXT_STEP_ASK`); no-project money tables ask "Want the
+  guide for X?"; the token ask with no project is `TOKEN_BUILD_FIRST` + the Lovable prompt question. Tables put fits,
+  then grants by difficulty, first; investments and low-odds rows last (`longShot`; all long shots: the open table first);
+  no "confirm:" cell. A coin yes waiting for its fee wallet (`coin_wallet_wait`, `coinWalletWaiting`) asks
+  `COIN_WALLET_REASK` (ask kind `coin_wallet`) instead of any other step, never the wallet proof. `backfillNow` writes a
+  one project's log on demand (rankAnswer, coveredRead, connectMoment, tokenAsk) when the connect never did. Outcome posts
+  need only the proof checks (no earlier entry). Weekly posts say "Last week:". Drafts: `youAddLine`, and
+  `BUILDER_CODES_FIRST` in the approved wording with a plain guide path.

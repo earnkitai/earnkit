@@ -202,17 +202,16 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   assert.equal(show(help), '');
   assert.equal(help.reply?.agent_note, LOVABLE_PROMPT_NOTE);
 
-  // v3.1 cold read: no wallet step (no contracts on Base known); the resting reply, every time, no loop back.
-  for (let i = 0; i < 2; i++) {
-    const r = await find(p.ctx);
-    assert.equal(rule(show(r)), NEXT_STEP_ASK);
-    assert.deepEqual(r.reply?.move_up, { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE });
+  // v3.1 cold read round 2: no wallet step (no contracts on Base known); once the prompt was written, every find and score
+  // gives the next step (build it, then connect GitHub here, with the link), never "Is your app's code on GitHub yet?".
+  for (const r of [await find(p.ctx), await find(p.ctx), await mcpCall(p.ctx, 'score', {})]) {
+    const s = rule(show(r));
+    assert.match(s, /^Next: build your app in Lovable or Bolt, then connect GitHub here: https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?$/, s);
+    assert.notEqual(s, NEXT_STEP_ASK);
+    assert.deepEqual(r.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   }
-  // Its no keeps resting (GTM W2: "later", with the way back, never "Okay.").
-  assert.equal(show(await tell(p.ctx, 'next_step', 'no')), NEXT_STEP_LATER);
-  assert.equal(show(await find(p.ctx)), NEXT_STEP_ASK);
-  // Its yes: the no is cleared and step 2's link given again.
-  const again = await tell(p.ctx, 'next_step', 'yes');
+  // Its yes ("done") with nothing connected: the no is cleared and the connect step given again.
+  const again = await tell(p.ctx, 'pick_repo', 'yes');
   assert.match(rule(show(again)), STEP2);
   assert.deepEqual(again.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.equal((await seen(p.id)).github_no, undefined);

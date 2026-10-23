@@ -96,7 +96,7 @@ const bestOnly = (s: string) => {
 const draftCodes = async (b: { ctx: Ctx }, key: string) => {
   const answers = { project_name_description: 'App: a Base app', live_product_url: 'https://app.xyz' };
   const r = await mcpCall(b.ctx, 'prepare', { program_id: BASE_GRANTS_ID, project: { name: 'App', repo_url: `https://github.com/${key}`, live_url: 'https://app.xyz' }, answers });
-  return show(r).split('\n\n')[0].split('\n').find((l) => /Builder Codes/.test(l));
+  return show(r).split('\n\n')[0].split('\n').find((l) => /Builder Codes? /.test(l));
 };
 
 test('(a) builderCodesIn: each of the four signals, and a plain viem call without dataSuffix is false', () => {
@@ -185,7 +185,7 @@ test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Co
   for (const k of ['lena/app', 'omar/app', 'ivy/app']) assert.equal(await stored(k), null, k);
 });
 
-test('(e) none found: the draft\'s line ends with the guide, no https, no trailing period', db, async () => {
+test('(e) none found: the draft\'s line is the approved Builder Code step, the guide as a plain path (no https)', db, async () => {
   const key = 'noor/app';
   const b = await builder(key, {
     'src/wagmi.ts': 'export const config = createConfig({ chains: [base] });',
@@ -197,8 +197,8 @@ test('(e) none found: the draft\'s line ends with the guide, no https, no traili
   bestOnly(show(await mcpCall(b.ctx, 'find', {})));
   const line = (await draftCodes(b, key))!;
   assert.equal(line, BUILDER_CODES_FIRST);
-  assert.ok(line.endsWith('Guide: docs.base.org/base-chain/builder-codes/builder-codes'), line);
-  assert.doesNotMatch(line, /https?:\/\/|\?|\.$|—/, line);
+  assert.ok(line.endsWith('(guide: docs.base.org/base-chain/builder-codes/builder-codes).'), line);
+  assert.doesNotMatch(line, /https?:\/\/|\?|—/, line);
 });
 
 test('(f) fix round 1: a failed background check is not tried again on the next reply within the day', db, async () => {
