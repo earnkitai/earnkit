@@ -102,7 +102,7 @@ export async function proposeSource(s: { builder_id: number; kind: string; ref: 
  */
 export async function verifySource(id: number, proof: Proof, deployer: string | null = null, db: Db = sql()): Promise<void> {
   const [row] = await db<{ builder_id: number; kind: string }[]>`
-    UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL, proof_misses = 0, proof_checked_day = NULL,
+    UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL, proof_misses = 0, proof_exempt_days = 0, proof_checked_day = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
     -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through the
     -- App (v2.14: the re-proof is the read-only GitHub App), never through any discovery clue.
@@ -151,21 +151,27 @@ export const SITE_PROOF_MISSES_MAX = 3;
 /** The reject reason of a site whose earnkit.txt stopped naming the person. */
 export const SITE_PROOF_LOST = 'site_proof_lost';
 
+/** Fix wave (4, security ruling): consecutive exempt days (transport failures) before the day counts as a miss. */
+export const SITE_PROOF_EXEMPT_MAX = 7;
 /**
- * Fix wave (4): the site answered for its earnkit.txt and it is not there: a 404 or 410, or a page that is not
- * text/plain (a site serving its app for any path). Any other failure (timeout, DNS, a 5xx, a redirect) says nothing.
+ * Fix wave (4, security ruling): a transport failure says nothing about the file (timeout, DNS, a connection reset or
+ * refused). Every other answer that is not 200 text/plain with the code is a miss: any other status, a redirect, a body
+ * over the size cap, another content type.
  */
-const answeredWithout = (err: unknown) => err instanceof SafeFetchError && /^(answered (404|410)\b|not text\/plain)/.test(err.message);
+const transportFailure = (err: unknown) =>
+  err instanceof SafeFetchError
+    ? /^(no answer within|couldn't fetch it)|doesn't resolve$|doesn't point to a public address$/.test(err.message)
+    : /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up/i.test(err instanceof Error ? err.message : String(err));
 
 /**
- * Owner batch fix round: a verified `earnkit_txt` site is checked again on its daily read (`day`) while it is up:
- * its origin's /earnkit.txt (the same safe text/plain fetch as proveSite) must still carry the person's `profile:`
- * code. A miss is only the site answering without it (the file there without the code, or answeredWithout); a site
- * down or a failed fetch counts nothing. Once a day; one success resets the count; the SITE_PROOF_MISSES_MAX-th miss
- * in a row revokes the proof: the row goes back to proposed (proof null, reject_reason SITE_PROOF_LOST), so it stops
- * counting, being linked and being shown, but keeps being read (dueSources) and proveSite verifies it again as
- * earnkit_txt once the code is back. The run's deadline (ScoreDeadline) propagates and counts nothing. No
- * EARNKIT_AUTH_SECRET (no code to look for): nothing is checked.
+ * Owner batch fix round, fix wave (4): a verified `earnkit_txt` site is checked again on its daily read (`day`) while
+ * it is up: its origin's /earnkit.txt (the same safe text/plain fetch as proveSite) must answer 200 text/plain with the
+ * person's `profile:` code. Anything else is a miss (fail closed), except a transport failure (transportFailure) or the
+ * run's deadline (ScoreDeadline, which propagates); SITE_PROOF_EXEMPT_MAX exempt days in a row count as a miss. A site
+ * down that day is not checked. Once a day; one success resets both counts; the SITE_PROOF_MISSES_MAX-th miss in a row
+ * revokes the proof: the row goes back to proposed (proof null, reject_reason SITE_PROOF_LOST), so it stops counting,
+ * being linked and being shown, but keeps being read (dueSources) and proveSite verifies it again as earnkit_txt once
+ * the code is back. No EARNKIT_AUTH_SECRET (no code to look for): nothing is checked.
  */
 export async function recheckSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps, day: string): Promise<void> {
   if (!up) return;
@@ -175,24 +181,31 @@ export async function recheckSite(s: { id: number; builder_id: number; ref: stri
   const origin = new URL(s.ref).origin;
   const code = profileCode(s.builder_id, origin);
   if (code === null) return;
-  let text: string | null;
+  let text: string | null = null;
+  let exempt = false;
   try {
     text = await d.fetchText(`${origin}/earnkit.txt`, { plainText: true });
   } catch (err) {
     if (isBudgetStop(err) || err instanceof ScoreDeadline) throw err;
-    if (!answeredWithout(err)) return;
-    text = null;
+    exempt = transportFailure(err);
   }
   if (text !== null && siteOwnedByText(text, code)) {
-    await sql()`UPDATE builder_sources SET proof_misses = 0, proof_checked_day = ${day} WHERE id = ${s.id}`;
+    await sql()`UPDATE builder_sources SET proof_misses = 0, proof_exempt_days = 0, proof_checked_day = ${day} WHERE id = ${s.id}`;
     return;
   }
+  if (exempt) {
+    const [e] = await sql()<{ n: number }[]>`
+      UPDATE builder_sources SET proof_exempt_days = proof_exempt_days + 1, proof_checked_day = ${day}
+      WHERE id = ${s.id} AND state = 'verified' AND proof_checked_day IS DISTINCT FROM ${day} RETURNING proof_exempt_days AS n`;
+    if (!e || e.n < SITE_PROOF_EXEMPT_MAX) return;
+  }
   const [m] = await sql()<{ misses: number; builder_id: number }[]>`
-    UPDATE builder_sources SET proof_misses = proof_misses + 1, proof_checked_day = ${day}
-    WHERE id = ${s.id} AND state = 'verified' AND proof_checked_day IS DISTINCT FROM ${day} RETURNING proof_misses AS misses, builder_id`;
+    UPDATE builder_sources SET proof_misses = proof_misses + 1, proof_exempt_days = 0, proof_checked_day = ${day}
+    WHERE id = ${s.id} AND state = 'verified' AND (proof_checked_day IS DISTINCT FROM ${day} OR ${exempt}::boolean)
+    RETURNING proof_misses AS misses, builder_id`;
   if (!m || m.misses < SITE_PROOF_MISSES_MAX) return;
   const [r] = await sql()`
-    UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL, reject_reason = ${SITE_PROOF_LOST}, proof_misses = 0
+    UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL, reject_reason = ${SITE_PROOF_LOST}, proof_misses = 0, proof_exempt_days = 0
     WHERE id = ${s.id} AND state = 'verified' RETURNING 1`;
   if (r) await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${s.id}:${SITE_PROOF_LOST}:${day}`, installation_id: m.builder_id, detail: { source_id: s.id, reason: SITE_PROOF_LOST } }));
 }
