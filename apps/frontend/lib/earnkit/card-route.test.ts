@@ -147,14 +147,14 @@ test('11.13 (v2.13 fix round 1) the card and the share post never name a confirm
     const f = (await benchCardFacts(id))!;
     assert.equal(f.project, null);
     assert.equal(f.streak, 0);
-    assert.equal(await text(), `@${handle} on EarnKit.`);
+    assert.equal(await text(), null);
     const png = await card(new Request(`http://x/${handle}/card.png`), { params: Promise.resolve({ handle }) });
     assert.equal(png.status, 200);
     assert.equal(png.headers.get('content-type'), 'image/png');
     // Confirmed by the repo's own proof: the project and its streak, as the card's footer says.
     await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by) VALUES (${id}, 'repo', ${key}, ${key}, 'verified', 'proof_line', 'agent')`;
     assert.equal((await benchCardFacts(id))!.project, 'Not Mine App');
-    assert.equal(await text(), 'Shipping Not Mine App, 3 weeks in a row, on EarnKit.');
+    assert.equal(await text(), 'Building Not Mine App. Shipped every week for the last 3 weeks.');
   } finally {
     await sql()`DELETE FROM builder_sources WHERE builder_id = ${id}`;
     await sql()`DELETE FROM builder_projects WHERE builder_id = ${id}`;
@@ -177,7 +177,7 @@ test('11.7 /<handle>/share: a 302 to the X intent with the headline and the page
     assert.equal(res.status, 302);
     const u = new URL(res.headers.get('location')!);
     assert.equal(u.origin, 'https://x.com');
-    assert.equal(u.searchParams.get('text'), `@${handle} on EarnKit.`, 'the Bench headline (no confirmed project here), never the request');
+    assert.equal(u.searchParams.get('text'), null, 'no confirmed project here: no text, never the request');
     assert.equal(u.searchParams.get('url'), `https://earnkit.com/${handle}`);
     assert.doesNotMatch(res.headers.get('location')!, /evil/);
   } finally {

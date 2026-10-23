@@ -218,12 +218,14 @@ test('11.12 scoring and clarity: no Community round chip on any card (the header
   assert.deepEqual(cards.map((c) => c.chips), [['1 commit'], ['2 commits']]);
 });
 
-test('11.14 (fix round 1) the share post\'s words: the Bench line, else the confirmed project and streak, else the page', async () => {
+test('11.14 the share post\'s words: the project and a 2+ week streak, never the score; no project, no text', async () => {
   const { benchShareText } = await import('./bench-data');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: 'Recipe planner', streak: 6 }), 'Shipping 62 · Top 4% of builders at EarnKit.');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), 'Shipping Recipe planner, 6 weeks in a row, on EarnKit.');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 0 }), 'Shipping Recipe planner on EarnKit.');
-  assert.equal(benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }), '@maya_makes on EarnKit.');
+  const { shareIntentText } = await import('./page-data');
+  assert.equal(benchShareText({ project: 'Recipe planner', streak: 6 }), 'Building Recipe planner. Shipped every week for the last 6 weeks.');
+  assert.equal(benchShareText({ project: 'Recipe planner', streak: 1 }), 'Building Recipe planner.');
+  assert.equal(benchShareText({ project: 'Recipe planner', streak: 0 }), 'Building Recipe planner.');
+  assert.equal(benchShareText({ project: null, streak: 4 }), '');
+  assert.equal(new URL(shareIntentText('maya_makes', '')).searchParams.has('text'), false);
 });
 
 test('11.15 (fix round 1, v2.13.1 O3) a project not yet confirmed: one calm line naming it; no links, no numbers', () => {

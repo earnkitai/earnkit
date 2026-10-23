@@ -26,10 +26,10 @@ export const topLine = (name: string, n: number, noun: string) => `${name} has s
 export const buildingLine = (name: string) => `${name} is building with AI.`;
 export const peopleUse = (n: number) => `${n.toLocaleString('en-US')} ${n === 1 ? 'person uses' : 'people use'}`;
 
-/** v2.13: the X intent with the post's whole text (benchShareText) and the page. Pure. */
+/** v2.13: the X intent with the post's whole text (benchShareText) and the page; empty text: the page alone. Pure. */
 export function shareIntentText(handle: string, text: string): string {
   const u = new URL('https://x.com/intent/post');
-  u.searchParams.set('text', text);
+  if (text) u.searchParams.set('text', text);
   u.searchParams.set('url', `https://earnkit.com${pagePath(handle)}`);
   return u.toString();
 }
