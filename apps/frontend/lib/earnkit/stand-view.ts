@@ -87,11 +87,13 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
           -- v2.13.4: the live link check. Launch ready L6: the open share offer. v3: the connect offer and its answer, the apply step's once-guard.
           -- 2026-10-22 and v3.1 wallet proof: every once-ask guard (titles, Base's steps, the wallet step), the wallet's
           -- link state and its one-line notice; 2026-10-23 Base onboarding: the GitHub no, the walk-through's guard and
-          -- answer, the template notice, the new-repo nudge's guard; v3.1 GTM W3: the upcoming line's weekly guard. A key left
+          -- answer, the template notice, the new-repo nudge's guard; v3.1 GTM W3: the upcoming line's weekly guard; GTM W2: the
+          -- check-in ask and answer, the ship ask's cooldown and the no-folder flag. A key left
           -- out here would be asked again after a news line.
           || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'share_open', 'connect_open', 'connect_done', 'apply_asked',
             'titles_asked', 'qualify_given', 'wallet_asked', 'wallet_link_at', 'wallet_notice',
-            'github_no', 'base_asked', 'base_walk', 'template_refused', 'new_repo_asked', 'upcoming_said']) k WHERE standing_seen ? k),
+            'github_no', 'base_asked', 'base_walk', 'template_refused', 'new_repo_asked', 'upcoming_said',
+            'checkin_asked', 'checkin', 'ship_asked', 'no_folder']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

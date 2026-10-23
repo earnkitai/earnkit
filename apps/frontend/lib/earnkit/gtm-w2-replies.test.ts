@@ -397,3 +397,13 @@ test('the email question is a move_up: a no is saved, never asked again', db, ()
   assert.deepEqual([moveUp(y)?.kind, moveUp(y)?.agent_note], ['weekly_email', EMAIL_ASK_NOTE]);
   assert.equal(show(await tellMove(b.ctx, 'weekly_email', 'no', b.key)), 'No weekly email.');
 }));
+
+test('final review: a news line keeps the check-in, ship cooldown and no-folder memory (takeNews)', db, async () => {
+  const at = new Date().toISOString();
+  const b = await ranked('n', 'OpenClaw', { seen: { checkin_asked: at, checkin: 'no', ship_asked: at, no_folder: true } });
+  const { standBase, takeNews } = await import('./stand-view');
+  const s = (await standBase(b.id))!;
+  await takeNews(b.id, {}, s.base, new Date(), false);
+  const [r] = await sql()<{ seen: Record<string, unknown> }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${b.id}`;
+  assert.deepEqual([r.seen.checkin_asked, r.seen.checkin, r.seen.ship_asked, r.seen.no_folder], [at, 'no', at, true]);
+});
