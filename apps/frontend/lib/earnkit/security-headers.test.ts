@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import nextConfig, { IMAGE_CSP, WALLET_EXCEPT, securityHeaders } from '../../next.config';
+import nextConfig, { IMAGE_CSP, securityHeaders } from '../../next.config';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { csrfCookieName, verifyCallback, verifyStart } from './github-verify';
@@ -12,19 +12,9 @@ test('every response gets the anti-framing and referrer headers', async () => {
   const h = Object.fromEntries(all.headers.map((x) => [x.key, x.value]));
   assert.equal(h['X-Frame-Options'], 'DENY');
   assert.equal(h['Referrer-Policy'], 'strict-origin-when-cross-origin');
-  // v2.12.1 T11 fix round 3: the frame-ancestors policy is its own rule, on every path but the
-  // wallet page (config headers replace a route's own; that route sends its nonce policy).
-  const csp = rules.find((r) => r.source === WALLET_EXCEPT);
-  assert.ok(csp);
-  assert.deepEqual(
-    [...all.headers, ...csp.headers].sort((a, b) => a.key.localeCompare(b.key)),
-    securityHeaders(process.env.NODE_ENV === 'production').sort((a, b) => a.key.localeCompare(b.key)),
-  );
-  assert.match(Object.fromEntries(csp.headers.map((x) => [x.key, x.value]))['Content-Security-Policy'], /frame-ancestors 'none'/);
-  const re = /^\/((?!claim\/wallet$).*)$/;
-  for (const path of ['/', '/lee', '/claim/abc', '/claim/wallet/x', '/leaderboard']) assert.ok(re.test(path), path);
-  assert.ok(!re.test('/claim/wallet'));
-  assert.equal(WALLET_EXCEPT, '/:path((?!claim/wallet$).*)');
+  // v3.1 wallet proof fix round: the wallet page is a site page, so the frame-ancestors policy covers every path.
+  assert.deepEqual(all.headers, securityHeaders(process.env.NODE_ENV === 'production'));
+  assert.match(h['Content-Security-Policy'], /frame-ancestors 'none'/);
 });
 
 test("the token image and the generated mark keep their sandbox CSP (config headers replace a route's own)", async () => {
@@ -43,16 +33,16 @@ test("the token image and the generated mark keep their sandbox CSP (config head
   assert.match(IMAGE_CSP, /frame-ancestors 'none'/);
 });
 
-test('final fix wave: every IMAGE_CSP rule comes after the WALLET_EXCEPT rule (a later rule wins for the same header)', async () => {
+test('final fix wave: every IMAGE_CSP rule comes after the global rule (a later rule wins for the same header)', async () => {
   const rules = await nextConfig.headers!();
-  const wallet = rules.findIndex((r) => r.source === WALLET_EXCEPT);
-  assert.ok(wallet > 0, 'the frame-ancestors rule, after the global one');
+  const wallet = rules.findIndex((r) => r.source === '/:path*');
+  assert.equal(wallet, 0, 'the global rule (frame-ancestors included) first');
   const image = rules.map((r, i) => ({ r, i })).filter(({ r }) => r.headers.some((h) => h.key === 'Content-Security-Policy' && h.value === IMAGE_CSP));
   assert.deepEqual(
     image.map(({ r }) => r.source),
     ['/api/projects/:id/image', '/api/projects/:id/token-image', '/api/projects/:id/mark', '/b/:slug/card.png', '/:handle/card.png', '/badge/:file', '/programs/:file([a-z0-9-]+\\.(?:svg|png))'],
   );
-  for (const { r, i } of image) assert.ok(i > wallet, `${r.source} after ${WALLET_EXCEPT}`);
+  for (const { r, i } of image) assert.ok(i > wallet, `${r.source} after the global rule`);
 });
 
 /**
@@ -115,7 +105,14 @@ test('5.12 Ruling 7: every cookie EarnKit sets is __Host- (source scan of app/ a
   // v2.14 T7: the X claim page (claim.ts) and its cookie are gone.
   // v2.14 T4: the install's X sign-in (x-install.ts) sets its own per-state __Host-eki- cookie.
   // v2.14 T5: the fallback link's page (x-link.ts) passes on only the cookie x-install.ts newSignin built.
-  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/x-install.ts', 'lib/earnkit/x-link.ts']);
+  // v3.1 wallet proof fix round: the wallet page's X sign-in also carries its link in a __Host-ekwt- cookie (wallet-proof.ts).
+  assert.deepEqual(setting.map((p) => p.slice(root.length + 1)).sort(), ['lib/earnkit/github-app.ts', 'lib/earnkit/github-verify.ts', 'lib/earnkit/wallet-proof.ts', 'lib/earnkit/x-install.ts', 'lib/earnkit/x-link.ts']);
+  const wallet = readFileSync(setting.find((p) => p.endsWith('wallet-proof.ts'))!, 'utf8');
+  assert.match(wallet, /export const walletTokenCookie = \(useHash: string\) => `__Host-ekwt-/);
+  const walletCookies = [...wallet.matchAll(/'Set-Cookie', `([^`]*)`/g)];
+  assert.equal(walletCookies.length, 2, 'set and clear');
+  for (const m of walletCookies) assert.match(m[1], /^\$\{walletTokenCookie\([A-Za-z]+\)\}=[^;]*; Path=\/; Max-Age=\d+; HttpOnly; Secure; SameSite=Lax$/);
+  setting.splice(setting.findIndex((p) => p.endsWith('wallet-proof.ts')), 1);
   const link = readFileSync(setting.find((p) => p.endsWith('x-link.ts'))!, 'utf8');
   assert.deepEqual([...link.matchAll(/'Set-Cookie':\s*([^ ,}]+)/g)].map((m) => m[1]), ['cookie']);
   assert.match(link, /const \{ to, cookie \} = await newSignin\(/);

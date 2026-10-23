@@ -175,11 +175,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   // they never prove anything. v2.12.1 T7: a wallet is proven only by a signature bound to this person
   // (wallet-proof.ts, person_wallets). Contracts EarnKit deployed still verify through `earnkitDeployed`.
   const signed = await db<{ wallet: string; since_due: boolean }[]>`
-    SELECT wallet, (base_since IS NULL AND (base_since_read_at IS NULL OR base_since_read_at < now() - interval '1 day')) AS since_due
+    SELECT wallet, (base_since IS NULL AND (base_since_read_at IS NULL OR base_since_read_at < now() - interval '7 days')) AS since_due
     FROM person_wallets WHERE builder_id = ${root} ORDER BY proven_at DESC, wallet`;
   const proven = new Set(signed.map((w) => w.wallet.toLowerCase()));
   // v3.1 wallet proof: "On Base since" (the newest WALLET_READS wallets' first Base transaction), read once and kept
-  // (a wallet with none yet is read again a day later). A cache, written at once (no verdict depends on it).
+  // (a wallet with none yet is read again a week later). A cache, written at once (no verdict depends on it).
   if (d.walletFirstTx)
     for (const w of signed.slice(0, WALLET_READS).filter((x) => x.since_due)) {
       const at = await soft(d.walletFirstTx(w.wallet), undefined);

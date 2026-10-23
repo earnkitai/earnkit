@@ -251,9 +251,9 @@ apps/frontend/
                                pagePath(handle)/card.png or /share; else 404
   app/b/[slug]/post/[code]/route.ts  v3.1 one-tap posts: a reserved handle through postResponse at /b/<handle>; a claimed
                                v2.12 slug 308s to pagePath(handle)/post/<code>; a bad code or anything else 404
-  app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
-                               PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
-                               v3.1: linked from the wallet step and tell wallet 'change' (wallet-offer.ts)
+  app/claim/wallet/page.tsx    v3.1 wallet proof: the signing page (site design; walletPageState), WalletView.tsx (the card),
+                               WalletSign.tsx (client: EIP-1193 personal_sign, Copy link, Done); proof/route.ts POST
+                               (walletPost), x/route.ts GET (walletXStart: the X sign-in to change the reward wallet)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
                                404; veto rate limit): each held day's parts and top outcome beside the public
@@ -1781,12 +1781,12 @@ apps/frontend/
                                code given back on a thrown error, a bound retry is ok
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
     wallet-proof.ts(+test)     v2.12.1 T7, v3.1 wallet proof: upgradeToken/upgradeOf (30 min, random part), WALLET_TEXT,
-                               walletMessage (@handle, earnkit.com page, moves no funds), walletLink, provenWallet (the
-                               newest: the reward recipient), provenSince, verifierOn (viem on Base: EOA, ERC-1271,
-                               ERC-6492), proveWallet (each link once), walletGet (message, button, Copy link, Done),
-                               walletPost, walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
-    wallet-offer.ts            v3.1 wallet proof: walletOfferLink (the optional step, once: standing_seen.wallet_asked),
-                               answerWallet (done / not yet / skip), walletChangeReply (tell wallet 'change'), WALLET_NOTE
+                               walletMessage, walletLink, provenWallet (the recipient: newest recipient_at), provenSince,
+                               tokenUseKey, verifierOn (viem on Base; a no is checked against the RPC), proveWallet (each
+                               link once; EOA locally; replacing a recipient needs wallet_x_checks), walletPageState,
+                               walletXStart, walletXSignedIn, walletTokenCookie, walletPost
+    wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
+                               state: wallet_link_at), walletChangeReply, takeWalletNotice, WALLET_NOTE
     v31-wallet-proof.test.ts   v3.1 wallet proof: offer timing, one link one question, skip, change, recipient,
                                discovery and On Base since, the hero's GitHub button
     fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step)

@@ -118,11 +118,24 @@ export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
 export const WALLET_ASK = 'Done, or want to skip it?';
 export const walletOffer = (link: string) =>
   `Optional: prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
-/** The builder asked to change (or add) their reward wallet: a fresh signing link. Pure. */
-export const walletChange = (link: string) => `Sign with the wallet you want your rewards sent to. One signature, no fee: ${link}\nDone?`;
+/** Only when true: the Base Builder Code stays on the first wallet; a launched coin's fees stay with its launch wallet. */
+export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
+export const WALLET_COIN_FEES = "Your coin's fees keep going to the wallet it launched with.";
+/** The builder asked to add their reward wallet (none yet): a fresh signing link, the statements, one question. Pure. */
+export const walletChange = (link: string, extras: string[] = []) =>
+  [`Sign with the wallet you want your rewards sent to. One signature, no fee: ${link}`, ...extras, 'Done?'].join('\n');
+/** The builder asked to change their reward wallet: the current one (short), the X step, the statements, one question. Pure. */
+export const walletChangeX = (current: string, link: string, extras: string[] = []) =>
+  [`Your rewards go to ${current}. To change that, sign in with X and sign with the new wallet (one signature, no fee): ${link}`, ...extras, 'Done?'].join('\n');
 /** "Done" before the signature arrived: a fresh link (the last one may have expired) and the same question. Pure. */
 export const walletNotYet = (link: string) => `I don't see a signature yet. Here's a fresh link (one signature, no fee): ${link}\nDone?`;
-export const WALLET_DONE = 'Done. Your rewards now go to the wallet you signed with, and your contracts on Base will show on your page soon.';
+/** Done: the wallet is the reward recipient (short). Pure. */
+export const walletDone = (wallet: string) => `Done. Your rewards now go to ${wallet}. Your contracts on Base will show on your page soon.`;
+/** Done for contracts only: no X sign-in, so the rewards stay with the current wallet (short). Pure. */
+export const walletContractsOnly = (current: string) =>
+  `Done. That wallet counts for your contracts. Your rewards still go to ${current} until you sign in with X on the wallet page.`;
+/** The one-line notice on the next reply after the reward wallet changed. Pure. */
+export const walletNotice = (wallet: string) => `Your reward wallet changed to ${wallet}.`;
 export const WALLET_SKIPPED = 'Skipped. Ask me anytime to add your reward wallet.';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
 export const TITLES_ASK = 'Show your commit titles on your page? Your code stays private.';

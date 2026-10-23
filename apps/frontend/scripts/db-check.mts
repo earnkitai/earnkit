@@ -856,6 +856,14 @@ await db`INSERT INTO person_wallets (wallet, builder_id, base_since, base_since_
 await db.unsafe(now);
 const [ws] = await db<{ s: Date | null }[]>`SELECT base_since AS s FROM person_wallets WHERE wallet = '0x00000000000000000000000000000000000db135'`;
 ok(ws?.s?.toISOString() === '2024-01-15T00:00:00.000Z', 'v3.1 wallet proof: a cached base_since survives the schema running again');
+// Fix round: the reward recipient (recipient_at), the page's X checks, and the 'wallet' X sign-in purpose.
+ok((await cols('person_wallets')).includes('recipient_at') && (await cols('wallet_x_checks')).includes('use_hash'), 'v3.1 wallet proof: person_wallets.recipient_at, wallet_x_checks');
+await db`UPDATE person_wallets SET recipient_at = '2024-02-01T00:00:00Z' WHERE wallet = '0x00000000000000000000000000000000000db135'`;
+await db.unsafe(now);
+const [wr] = await db<{ r: Date | null }[]>`SELECT recipient_at AS r FROM person_wallets WHERE wallet = '0x00000000000000000000000000000000000db135'`;
+ok(wr?.r?.toISOString() === '2024-02-01T00:00:00.000Z', 'v3.1 wallet proof: a recipient survives the schema running again');
+const [xs] = await db<{ def: string }[]>`SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'x_signins_purpose_check'`;
+ok(Boolean(xs?.def.includes("'wallet'")), "v3.1 wallet proof: x_signins takes purpose 'wallet'");
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

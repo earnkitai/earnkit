@@ -73,6 +73,10 @@ export const LIMITS = {
   pageRefreshIp: { limit: 20, windowSeconds: 3_600 },
   /** v2.12.1: per client IP; since v2.14 T7 only POST /claim/wallet uses it (the claim page and its callback are gone). */
   xClaim: { limit: 30, windowSeconds: 3_600 },
+  /** v3.1 wallet proof: POST /claim/wallet/proof (a signature check, maybe an RPC call), per client IP. */
+  walletProof: { limit: 20, windowSeconds: 3_600 },
+  /** v3.1 wallet proof: views of the signing page and its X sign-in start, per client IP (light). */
+  walletPage: { limit: 120, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */

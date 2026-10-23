@@ -1,5 +1,8 @@
 import { sql } from './db';
-import { WALLET_DONE, WALLET_SKIPPED, walletChange, walletNotYet } from './bench-reply';
+import { shortWallet } from './entry-text';
+import {
+  WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, walletChange, walletChangeX, walletContractsOnly, walletDone, walletNotYet, walletNotice,
+} from './bench-reply';
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
 
 /**
@@ -7,16 +10,17 @@ import { provenSince, provenWallet, walletLink } from './wallet-proof';
  * step; this way we get their wallet right after we created their profile and then we never have to ask it again
  * unless they want to change it to a different reward recipient."
  *
- * The offer is the ranked reply's `wallet` step (bench-reply.ts stateAsk): once a person (standing_seen.wallet_asked),
- * in the first reply after setup that has no other question, never once a wallet is proven. Its yes checks the proof
- * (wallet-proof.ts, signed on /claim/wallet); its no is remembered (standing_seen.wallet_skipped) and never asked
- * again. `tell wallet: 'change'` sends a fresh link whenever the builder asks; the newest proven wallet is the reward
- * recipient (wallet-proof.ts provenWallet). No wallet address is ever shown.
+ * The offer is the ranked reply's `wallet` step (bench-reply.ts stateAsk): once a person, claimed only when the reply
+ * carries it (standing_seen.wallet_asked, takeWalletAsk), never once a wallet is proven. Every link given starts the
+ * wallet's state (standing_seen.wallet_link_at); "done" is answered from that state (a wallet proven since), so an
+ * agent's "done" after another reply still checks it. "skip" ends it and the step is never offered again. tell wallet
+ * 'change' sends a fresh link; replacing a reward wallet needs the page's X sign-in (wallet-proof.ts). A changed
+ * recipient is said once on the next reply (takeWalletNotice).
  */
 
 /** The agent's note with the wallet step: the builder signs on the page; "done" is a yes, "skip" a no. */
 export const WALLET_NOTE =
-  "The builder signs on the page from the link; never ask for or show a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
+  "The builder signs on the page from the link; never ask for a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
   "skip or no: answer 'no' (project_key as given here). If they ask later to change their reward wallet, call tell with wallet: 'change'. Don't show this note.";
 /** tell wallet before the X sign-in: there is no page to sign for yet. */
 export const WALLET_SIGN_IN_FIRST = 'Sign in with X first, then ask me again to add your reward wallet.';
@@ -24,83 +28,112 @@ export const WALLET_SIGN_IN_NOTE = "Call find for the sign-in link. Don't show t
 /** No signing link can be made (EARNKIT_AUTH_SECRET unset). */
 export const WALLET_NO_LINK = "I can't make a wallet link right now. Try again later.";
 
-type Logged = (what: string) => (err: unknown) => null;
-const logged: Logged = (what) => (err) => {
+const logged = (what: string) => (err: unknown) => {
   console.error(`[wallet offer] ${what}`, err instanceof Error ? err.name : 'error');
   return null;
 };
+const okay = { show_to_builder: 'Okay.' };
+type Reply = Record<string, unknown>;
 
 /**
- * The optional wallet step's signing link, when it may be offered now: a claimed page (an X sign-in), no proven
- * wallet, never offered before. Claimed here in one guarded UPDATE (standing_seen.wallet_asked), so it is offered once;
- * the caller shows it. Null otherwise. Never throws.
+ * The optional wallet step's signing link, when it may be offered now: a claimed page (an X sign-in), no wallet proven
+ * yet, never offered before. Nothing is claimed here (takeWalletAsk claims it once the reply carries it). Never throws.
  */
-export async function walletOfferLink(builderId: number, now: Date): Promise<string | null> {
+export async function walletOfferDue(builderId: number, now: Date): Promise<string | null> {
   try {
-    const [p] = await sql()<{ claimed: boolean; asked: boolean }[]>`
-      SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, COALESCE(standing_seen ? 'wallet_asked', false) AS asked
+    const [p] = await sql()<{ claimed: boolean; asked: boolean; any: boolean }[]>`
+      SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, COALESCE(standing_seen ? 'wallet_asked', false) AS asked,
+        EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId}) AS any
       FROM builder_profiles WHERE builder_id = ${builderId}`;
-    if (!p?.claimed || p.asked || (await provenWallet(builderId))) return null;
-    const link = walletLink(builderId, now);
-    if (!link) return null;
-    const [taken] = await sql()`
-      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_asked', ${now.toISOString()}::text)
-      WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'wallet_asked', false) RETURNING 1`;
-    return taken ? link : null;
+    if (!p?.claimed || p.asked || p.any) return null;
+    return walletLink(builderId, now);
   } catch (err) {
     return logged('offer')(err);
   }
 }
-
-type Reply = Record<string, unknown>;
-type WalletAsk = { kind: string; key: string | null; at?: string };
-
-/** Stores the wallet step as the Bench's ask (its yes is answered as asked), with when it was asked. */
-async function storeAsk(builderId: number, ask: WalletAsk): Promise<void> {
-  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb)
-    WHERE builder_id = ${builderId}`.catch(logged('store ask'));
-}
-
-/**
- * The builder's answer to the wallet step (bench-find.ts benchMoveUp routes the stored `wallet` ask here). Answered
- * once (the stored ask is taken first). A yes with a wallet proven since the ask: WALLET_DONE. A yes before the
- * signature: a fresh link and the same question (the ask kept). A no: WALLET_SKIPPED, remembered, never asked again.
- */
-export async function answerWallet(builderId: number, asked: WalletAsk, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+/** The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. Never throws. */
+export async function takeWalletAsk(builderId: number, now: Date): Promise<boolean> {
   const [taken] = await sql()`
-    UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
-    WHERE builder_id = ${builderId} AND standing_seen->'bench_ask' = ${sql().json(asked as never)}::jsonb RETURNING 1`.catch((err: unknown) => {
-    logged('take ask')(err);
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('wallet_asked', ${now.toISOString()}::text, 'wallet_link_at', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'wallet_asked', false) RETURNING 1`.catch((err: unknown) => {
+    logged('take')(err);
     return [];
   });
-  if (!taken) return { show_to_builder: 'Okay.' };
-  if (answer === 'no') {
-    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_skipped', ${now.toISOString()}::text)
-      WHERE builder_id = ${builderId}`.catch(logged('skip'));
-    return { show_to_builder: WALLET_SKIPPED };
-  }
-  const since = asked.at && !Number.isNaN(Date.parse(asked.at)) ? new Date(asked.at) : new Date(0);
-  if (await provenSince(builderId, since).catch(logged('proven'))) return { show_to_builder: WALLET_DONE };
-  const link = walletLink(builderId, now);
-  if (!link) return { show_to_builder: WALLET_NO_LINK };
-  await storeAsk(builderId, asked);
-  return { show_to_builder: walletNotYet(link), move_up: { kind: 'wallet', project_key: asked.key, agent_note: WALLET_NOTE } };
+  return Boolean(taken);
+}
+/** A link was given (the change link): the state starts now. */
+async function linkGiven(builderId: number, now: Date): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_link_at', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId}`.catch(logged('link given'));
 }
 
 /**
- * tell wallet: 'change': the builder wants their rewards sent to another wallet (or to add one). A fresh signing link,
- * stored as the Bench's ask so "done" is checked against a wallet proven from now on. Before the X sign-in there is no
- * page to sign for. Never shows a wallet address.
+ * The builder's answer to the wallet step or the change link (bench-find.ts benchMoveUp: move_up kind 'wallet', or
+ * the stored ask). Answered by the state, not the stored ask: no link given (or answered already): "Okay.". A yes with a
+ * wallet proven since the link: done (the recipient's short wallet, or contracts only); a yes before the signature: a
+ * fresh link and the same question; a no: WALLET_SKIPPED. The stored wallet ask is cleared.
+ */
+export async function answerWallet(builderId: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  const [p] = await sql()<{ at: string | null; key: string | null }[]>`
+    SELECT standing_seen->>'wallet_link_at' AS at, main_project_key AS key FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
+    logged('state')(err);
+    return [];
+  });
+  if (!p?.at || Number.isNaN(Date.parse(p.at))) return okay;
+  const end = () =>
+    sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'wallet_link_at') - 'wallet_notice'
+        - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'wallet' THEN 'bench_ask' ELSE '' END)
+      WHERE builder_id = ${builderId} AND standing_seen->>'wallet_link_at' = ${p.at}::text RETURNING 1`.catch((err: unknown) => {
+      logged('end')(err);
+      return [];
+    });
+  if (answer === 'no') return (await end()).length ? { show_to_builder: WALLET_SKIPPED } : okay;
+  const got = await provenSince(builderId, new Date(p.at)).catch(logged('proven'));
+  if (got) {
+    if (!(await end()).length) return okay;
+    if (got.recipient) return { show_to_builder: walletDone(shortWallet(got.wallet)) };
+    const current = await provenWallet(builderId);
+    return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet)) };
+  }
+  const link = walletLink(builderId, now);
+  if (!link) return { show_to_builder: 'I can\'t make a wallet link right now. Try again later.' };
+  return { show_to_builder: walletNotYet(link), move_up: { kind: 'wallet', project_key: p.key, agent_note: WALLET_NOTE } };
+}
+
+/**
+ * tell wallet: 'change': the builder wants their rewards sent to another wallet (or to add one). A fresh signing link
+ * (the state starts now). With a reward wallet already: its short form, that the page asks for X first, and, only when
+ * true, that the Base Builder Code stays on the first wallet and a launched coin's fees stay with its launch wallet.
+ * Before the X sign-in there is no page to sign for.
  */
 export async function walletChangeReply(builderId: number, now: Date): Promise<Reply> {
-  const [p] = await sql()<{ claimed: boolean; key: string | null }[]>`
-    SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, main_project_key AS key FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
+  const [p] = await sql()<{ claimed: boolean; key: string | null; code: boolean; coin: boolean }[]>`
+    SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, main_project_key AS key, base_builder_code IS NOT NULL AS code,
+      EXISTS (SELECT 1 FROM projects j JOIN installations i ON i.id = j.installation_id
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND j.token_url IS NOT NULL AND j.token_url <> 'pending') AS coin
+    FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
     logged('change')(err);
     return [];
   });
   if (!p?.claimed) return { show_to_builder: WALLET_SIGN_IN_FIRST, agent_note: WALLET_SIGN_IN_NOTE };
   const link = walletLink(builderId, now);
   if (!link) return { show_to_builder: WALLET_NO_LINK };
-  await storeAsk(builderId, { kind: 'wallet', key: p.key, at: now.toISOString() });
-  return { show_to_builder: walletChange(link), move_up: { kind: 'wallet', project_key: p.key, agent_note: WALLET_NOTE } };
+  await linkGiven(builderId, now);
+  const current = await provenWallet(builderId);
+  const extras = [p.code && current ? WALLET_BUILDER_CODE : null, p.coin ? WALLET_COIN_FEES : null].filter((x): x is string => x !== null);
+  const line = current ? walletChangeX(shortWallet(current), link, extras) : walletChange(link, extras);
+  return { show_to_builder: line, move_up: { kind: 'wallet', project_key: p.key, agent_note: WALLET_NOTE } };
+}
+
+/** "Your reward wallet changed to 0x12ab…abcd." once, on the next reply after the recipient changed. Never throws. */
+export async function takeWalletNotice(builderId: number): Promise<string | null> {
+  const [r] = await sql()<{ short: string | null }[]>`
+    UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'wallet_notice'
+    FROM (SELECT standing_seen->>'wallet_notice' AS short FROM builder_profiles WHERE builder_id = ${builderId} FOR UPDATE) o
+    WHERE p.builder_id = ${builderId} AND o.short IS NOT NULL RETURNING o.short AS short`.catch((err: unknown) => {
+    logged('notice')(err);
+    return [];
+  });
+  return r?.short ? walletNotice(r.short) : null;
 }

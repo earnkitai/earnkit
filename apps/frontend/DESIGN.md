@@ -190,7 +190,7 @@ Black page `#000000`, white type, one accent (Base blue `#0052FF` fill, `#3D7BFF
 from `lib/earnkit/theme.ts THEME` (`--ek-p-*`, `ek-*` Tailwind tokens), Funnel Display headings, a 1120px column, and
 `app/components/common/Panel.tsx` (`H1`, `H2`, `ROWS`), `Button.tsx` (`BTN_PRIMARY`, `BTN_SECONDARY`):
 
-- the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, wallet, week, unsubscribe);
+- the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, week, unsubscribe; the wallet page is a v3.1 site page since 2026-10-23);
   only their header lost its Programs link
 - the page's share card (`app/[handle]/card-response.tsx`; a post's own card is v3.1, above), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`)
 - `app/[handle]/score-colors.ts PART_COLORS`, kept for `app/components/ui/UpdateCard.tsx`; the v3.1 pages use the score bands above

@@ -7726,49 +7726,55 @@ gone; the Monday moment now carries a drafted post.)
   if it was not yet read that day, else the next UTC day's first run) verifies `https://earnkit.com` `earnkit_txt`;
   the same run's `score` step rescores, so the profile names the project by its host and Highlights gets "Live at".
 
-## v3.1 wallet proof (owner-approved 2026-10-23)
+## v3.1 wallet proof (owner-approved 2026-10-23, with the review fix round)
 
 Owner: "add wallet sign verification and ask in the onboarding after the profile is created as an optional step; this
 way we get their wallet right after we created their profile and then we never have to ask it again unless they want
-to change it to a different reward recipient." This answers A21 (`/claim/wallet` was linked from nowhere): it is now
-linked from the wallet step and the change link.
+to change it to a different reward recipient." This answers A21: `/claim/wallet` is linked from the wallet step and
+the change link.
 
-- **The step** (`wallet-offer.ts walletOfferLink`, `bench-reply.ts stateAsk` kind `wallet`): a ranked reply's step,
-  once a person (`standing_seen.wallet_asked`, one guarded UPDATE), only for a claimed page (X sign-in) with no proven
-  wallet and a signing link (`EARNKIT_AUTH_SECRET`). Order in the ranked state: connect, an event post, apply,
-  backing, the weekly moment, then **wallet**, then titles, Base's steps, ship. So the reply right after the App
-  connect (the connect weeks) and the connect yes (the draft, titles or email question) never carry it; it comes in the
-  next reply with no other question, and never blocks the two required steps (sign in, connect). Reply: the standing
-  line, then `Optional: prove your Base wallet so your contracts show on your page. One signature, no fee: <link>` and
-  `Done, or want to skip it?` (no money line, no points line: one https link, one question). The stored ask carries
-  `at`; `WALLET_NOTE` tells the agent "done" is a yes and "skip" a no, and never to ask for or show an address.
-- **Answers** (`bench-find.ts benchMoveUp` -> `wallet-offer.ts answerWallet`, answered once): yes with a wallet
-  proven since `at`: `WALLET_DONE`; yes before the signature: `walletNotYet` with a fresh link, the ask kept; no:
-  `WALLET_SKIPPED`, `standing_seen.wallet_skipped`, never asked again. `stand-view.ts takeNews` keeps
-  `wallet_asked` and `wallet_skipped` when it rewrites `standing_seen`.
-- **Change** (`tell wallet: 'change'`, `mcp.ts`, `wallet-offer.ts walletChangeReply`): a fresh link
-  (`walletChange`), stored as the ask with `at`; signed out: `WALLET_SIGN_IN_FIRST`; a shared client: the shared note.
-- **The page** (`wallet-proof.ts walletGet`, `/claim/wallet`): "Prove your Base wallet", what happens ("One
-  signature, no fee. Your contracts on Base will show on your page, and your EarnKit rewards go to this wallet. We never
-  move funds."), the exact message, one button; the script is EIP-1193 `window.ethereum` (`eth_requestAccounts`,
-  `personal_sign`), no SDK. Cancel (4001): "Nothing was signed."; no wallet: `WALLET_TEXT.noWallet` plus Copy link (open
-  it in a wallet app's browser); success swaps in the Done block. A used link: 410 `WALLET_TEXT.used`.
-- **Security.** The token (`upgradeToken`: id, 30-minute expiry, a random part, HMAC) is used once
-  (`wallet_proof_uses` holds `sha256('token:'+token)`; a retried POST of the same proof is still done). The message
-  names `@handle`, `earnkit.com/<handle>`, says it moves no funds, and carries the code. One person per wallet
-  (`person_wallets` PK). POST: same Origin, JSON, the `xClaim` limit. Verification: viem `verifyMessage` on Base
-  (`verifierOn`): EOAs by recovery, smart wallets by ERC-1271 / ERC-6492 through `eth_call`.
-- **Recipient.** `wallet-proof.ts provenWallet` (newest `proven_at`) is the reward wallet: `coin-moments.ts
-  coinWallet` and `coinYes` (no wallet shown or given: the proven one, so `COIN_WALLET_ASK` only without one),
-  `tools.ts walletMemory` (prepare's wallet line, build and confirm paths; proven first, then the installation's
-  remembered wallet) and campaign entries (the proven wallet prefills `payout_wallet`; the remembered-wallet question
-  stays for builders without one). No address is ever shown on a page.
-- **Discovery.** A proof queues discovery (`enqueueDiscovery(id, 'wallet')`); `walletCreations` claims the wallet's
-  contracts (`deploy_wallet`, project key = ref). `site-data.ts contractItem` counts them beside the main project's,
-  and adds "On Base since <Mon YYYY>" from `person_wallets.base_since` (`source-readers.ts walletFirstTxFrom`:
-  Blockscout `/api?module=account&action=txlist&sort=asc&offset=1`, read once per wallet by discovery, retried a day
-  later when empty). No Basename.
-- **Profile hero.** With no repo link (private repo), the GitHub button opens `https://github.com/<github_login>`
-  (`bench-data.ts githubProfileHref`, `ProfileData.github`); with neither, it is hidden.
+- **The step** (`wallet-offer.ts walletOfferDue` + `takeWalletAsk`, `bench-reply.ts stateAsk` kind `wallet`): a ranked
+  reply's step, once a person, for a claimed page with no wallet proven and a signing link. Order: connect, an event
+  post, apply, backing, the weekly moment, then **wallet**, then titles, Base's steps, ship. `benchView` claims it
+  (`standing_seen.wallet_asked`) only when the reply it builds carries it. Reply: the standing line, `Optional: prove
+  your Base wallet so your contracts show on your page. One signature, no fee: <link>`, `Done, or want to skip it?`.
+- **State, not the stored ask.** Every link given (the offer, `tell wallet: 'change'`) sets
+  `standing_seen.wallet_link_at`. `move_up` kind `wallet` (or a stored wallet ask) goes to `answerWallet`: yes with a
+  wallet proven since: `walletDone(short)` or, contracts only, `walletContractsOnly(short current)`; yes before:
+  `walletNotYet` with a fresh link; no: `WALLET_SKIPPED`. Either ends the state (a later "done" is "Okay."). A reply in
+  between changes nothing. `stand-view.ts takeNews` keeps every once-ask key (`apply_asked`, `titles_asked`,
+  `qualify_given`, `wallet_asked`, `wallet_link_at`, `wallet_notice`).
+- **The recipient** (`person_wallets.recipient_at`; `wallet-proof.ts provenWallet`: the newest `recipient_at`, else the
+  first proven wallet for rows from before the column). The first proof needs only the link. **Replacing a recipient
+  needs a fresh X sign-in on the page as the same person**: `/claim/wallet/x?t=` (`walletXStart`) starts the v2.14 X
+  sign-in (`x_signins` purpose `wallet`, bound to the link's use hash; a `__Host-ekwt-` cookie carries the link back),
+  the callback (`x-install.ts xSignInCallback` -> `walletXSignedIn`) passes only `builder_profiles.x_user_id` and writes
+  `wallet_x_checks`; a proof with that link (30 minutes) becomes the recipient. Without it the wallet is added for
+  contracts only (`walletContractsLine`), so a leaked link never moves money. A changed recipient sets
+  `standing_seen.wallet_notice`; the next find or score reply starts with `Your reward wallet changed to 0x12ab…abcd.`
+  (`takeWalletNotice`), once. Replies and the done page show the short wallet only (`entry-text.ts shortWallet`).
+- **Change reply** (`walletChangeReply`): with a recipient, `walletChangeX` ("Your rewards go to 0x12ab…abcd. To change
+  that, sign in with X and sign with the new wallet ..."), then only when true `Your Base Builder Code stays on your
+  first wallet.` (`builder_profiles.base_builder_code`; a re-proof never moves the first wallet's `proven_at`, which
+  `attribution.ts` reads) and `Your coin's fees keep going to the wallet it launched with.` (a project with a
+  `token_url`), then `Done?`.
+- **The page** (`app/claim/wallet/page.tsx`, `WalletView.tsx`, `WalletSign.tsx`): a site page in the v3.1 design (the
+  layout's nav, a `CARD_NEUTRAL` card, Kaftan title, the minimal footer). `walletPageState`: expired, used or busy is
+  one line; else what happens, `Your contracts link to Basescan, where the deploying wallet is public.`, the X step when
+  a recipient exists (`walletXLead`, Sign in with X, Sign for contracts only), the exact message, the buttons. The
+  client signs with EIP-1193 `window.ethereum` (no SDK), POSTs to `/claim/wallet/proof` (`walletPost`: same Origin,
+  JSON, the `walletProof` limit, 20 an hour per IP) and shows Done with the server's line. Page views and the X start:
+  `walletPage` (120 an hour per IP). `/claim/wallet` now gets the site-wide frame-ancestors policy (`WALLET_EXCEPT`
+  and the nonce route are gone).
+- **Verification.** An EOA's signature is recovered locally (no RPC); otherwise viem `verifyMessage` on Base (ERC-1271,
+  ERC-6492). viem reads a failed `eth_call` as "not valid", so a no is checked with `eth_blockNumber`: an RPC that is
+  down is `Couldn't check that signature. Try again in a minute.` (503), never a mismatch, and spends nothing. Each
+  link is used once; one person per wallet; the message names `@handle`, `earnkit.com/<handle>` and "moves no funds".
+- **Recipient readers.** `coin-moments.ts coinWallet`/`coinYes` (`COIN_WALLET_ASK` only without one), `tools.ts
+  walletMemory` (proven first) and campaign payout prefill.
+- **Discovery.** A proof queues discovery; `walletCreations` claims the wallet's contracts (`deploy_wallet`, project key
+  = ref); `site-data.ts contractItem` counts them and adds "On Base since <Mon YYYY>" (`person_wallets.base_since`,
+  Blockscout txlist oldest first, read once per wallet; a wallet with none is read again after a week).
+- **Profile hero.** With no repo link, the GitHub button opens `https://github.com/<github_login>`; with neither, hidden.
 - Tests: `wallet-proof.test.ts`, `v31-wallet-proof.test.ts`; other ranked-step tests mark the step offered
-  (`fixtures/wallet-step.ts walletOffered`; `fixtures/find.ts person` does so unless `walletStep: true`).
+  (`fixtures/wallet-step.ts walletOffered`; `fixtures/find.ts person` unless `walletStep: true`).
