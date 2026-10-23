@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
 import { raisingEnabled } from './builder-score-flag';
+import { withFormattedReply } from './reply-format';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -57,9 +58,11 @@ const withoutOldCode = (input: unknown): unknown => {
   return rest;
 };
 
-async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}) {
+async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}, format = true) {
   try {
-    const result = await tools[tool](withoutOldCode(input), ctx);
+    // v3.1 reply format: show_to_builder reads well in Grok Bot's markdown and in plain chat apps (reply-format.ts).
+    const raw = await tools[tool](withoutOldCode(input), ctx);
+    const result = format ? withFormattedReply(raw) : raw;
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
@@ -251,7 +254,8 @@ const BUILD_SCHEMA = z
  * The EarnKit MCP server for one connected agent (installation). `campaignOpen` (v2.8 Ruling 23
  * (plan), default false): whether an EarnKit campaign is open, read by the route (v3.1: no tool text uses it).
  */
-export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean } = {}): McpServer {
+/** `format: false` (tests only): show_to_builder exactly as the tools wrote it, before formatReply. */
+export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean; format?: boolean } = {}): McpServer {
   // v3.1: no tool text depends on an open campaign any more (confirm never enters one); the route still passes it.
   const descriptions = toolDescriptions(opts.campaignOpen ?? false);
   const server = new McpServer(
@@ -342,7 +346,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
       },
       annotations: { readOnlyHint: true },
     },
-    (input) => run(ctx, 'find', input),
+    (input) => run(ctx, 'find', input, opts.format ?? true),
   );
 
   // v2.10 item 4: prepare_submission; item 13: plus deploy.
@@ -377,7 +381,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
       // v2.10 item 13: with deploy, prepare sends a transaction.
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    (input) => run(ctx, 'prepare', input),
+    (input) => run(ctx, 'prepare', input, opts.format ?? true),
   );
 
   // v3.1 (spec 3.4, D1): confirm only opens Backing (the coin launch by project_id), and only while EARNKIT_RAISING is
@@ -407,7 +411,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           })
           .strict(),
       },
-      (input) => run(ctx, 'confirm', input),
+      (input) => run(ctx, 'confirm', input, opts.format ?? true),
     );
 
   // v2.10 item 4 (R16): tell_earnkit and record_submission's "I submitted" (v2.14: no pickup). It
@@ -528,7 +532,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         .strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    (input) => run(ctx, 'tell', input),
+    (input) => run(ctx, 'tell', input, opts.format ?? true),
   );
 
   // v2.12 spec 7: the 5th tool.
@@ -539,7 +543,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
       inputSchema: {},
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
-    (input) => run(ctx, 'score', input),
+    (input) => run(ctx, 'score', input, opts.format ?? true),
   );
 
   return server;

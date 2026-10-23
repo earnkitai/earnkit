@@ -10,8 +10,8 @@ import type { ToolContext, ToolName } from '../tools';
  */
 export type McpResult = { isError: boolean; text: string; reply: Record<string, unknown> | null };
 
-async function connected(ctx: ToolContext, campaignOpen: boolean) {
-  const server = createMcpServer(ctx, { campaignOpen });
+async function connected(ctx: ToolContext, campaignOpen: boolean, format = false) {
+  const server = createMcpServer(ctx, { campaignOpen, format });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'earnkit-test', version: '0' });
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -28,9 +28,10 @@ export async function mcpCall(
   ctx: ToolContext,
   name: ToolName,
   args: Record<string, unknown> = {},
-  o: { campaignOpen?: boolean } = {},
+  o: { campaignOpen?: boolean; format?: boolean } = {},
 ): Promise<McpResult> {
-  const client = await connected(ctx.codesFetch ? ctx : { ...ctx, codesFetch: NO_GITHUB }, o.campaignOpen ?? false);
+  // v3.1 reply format: show_to_builder as the tools wrote it unless `format` (the route always formats; reply-format.test.ts).
+  const client = await connected(ctx.codesFetch ? ctx : { ...ctx, codesFetch: NO_GITHUB }, o.campaignOpen ?? false, o.format ?? false);
   try {
     // An SDK that answers invalid arguments with a JSON-RPC error (instead of an isError result) throws here.
     const r = await client.callTool({ name, arguments: args }).catch((err: unknown) => ({

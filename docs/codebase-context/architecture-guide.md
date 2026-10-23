@@ -7940,3 +7940,44 @@ Every number and name a builder or visitor reads agrees with what sits beside it
 - **llms.txt** (`llms/v213.txt`): the site's positioning, every agent's install steps, `score`, find's `identity` input
   (no `local_repos`), the one-tap post (no weekly "share it on X" promise), no "agents earning once there are 100".
 - Tests: `install.test.ts`, `v31-site-docs.test.ts`, `oauth.test.ts`, `referral.test.ts`, `people-signals.test.ts`.
+
+## Reply format on the agent surfaces (v3.1, 2026-10-23)
+
+- **Why.** Grok Bot renders replies with react-markdown + remark-gfm and no line-break plugin (read from the app bundle,
+  v0.75.0), so show_to_builder lines joined by one newline collapsed into one run-on paragraph. OpenClaw, Hermes,
+  Instinct and Muse on WhatsApp/Telegram/SMS show markdown syntax raw.
+- **What.** `reply-format.ts formatReply` puts a blank line between lines, keeps list items (`1.`, `-`, `•`) and table
+  rows together as one block, collapses extra blank lines and adds no emphasis. `withFormattedReply` applies it to a
+  tool result's show_to_builder only. `mcp.ts run` applies it to every tool result at the MCP boundary, so the copy
+  constants keep their one-line-per-line form.
+- **Tests.** `fixtures/mcp-call.ts` asks the server for unformatted replies by default (`createMcpServer(ctx, { format:
+  false })`, tests only) so existing tests keep asserting the words; `reply-format.test.ts` covers the format, and
+  `gtm-w2-replies.test.ts` checks the formatted wire text through the real route.
+
+
+## GTM W4: the share card in the v3.1 site language (2026-10-23)
+
+`/<handle>/card.png` (what X shows for a profile link) was the v3 flat black card and nearly empty for an unranked
+builder. Now it is the profile in small, drawn from the page's own reads so it never says what the page doesn't.
+- **Facts** (`app/[handle]/card-facts.ts shareCardFacts`, pure, from `profileData` + `profileSite`; `card-response.tsx
+  shareCardRead`): the Bench-confirmed project (its panel name, letter, colour, Base tile, EarnKit mark), its verified live
+  host (Highlights "Live at <host>"), and up to two quiet facts ("5 weeks in a row", "Building since Jan 2025"). Tiles, at
+  most two, in order: the Shipping ring (only while ranked, `rankListed` and a score; the rank words are `d.bench`, the rank
+  helpers' line, split by `rankSplit`), Backing (`site.token`, so EARNKIT_RAISING on and never EarnKit's repo; backers only
+  from `BACKERS_SHOWN_FROM`), a win, the streak (with 12 week squares), the commits in the last year (titled "Building
+  since"). A confirming or missing project: "Getting started on Base" (`site.starting`) or "Building with AI", with
+  Highlights' "On EarnKit since".
+- **Layout** (`benchCard(facts, avatar, grid, art)`, pure): the page ground, the flat blue hero (photo, Kaftan name,
+  @handle, the project panel, the mark and earnkit.com/<handle>), and a 404px column of the profile's cards (navy ring,
+  white Backing, neutral win, rust streak, navy commits). A slot no fact fills hangs one of the site's paintings
+  (`public/art`, `loadArt`): the Eckersberg middle arch tall, the Panini oculus as a half. No painting read: the hero takes
+  the width. SITE colours only, no gradient on the page card, no text under 24px (X's phone preview is about 0.42 scale).
+- **Pictures**: `avatarData` drops GitHub's default picture (octocat or identicon): GitHub serves it as a 420x420 PNG
+  whatever size is asked, an upload comes back at the 200px asked (`githubDefault`); the card then draws the initial.
+- **Fonts**: `assets/fonts/funnel-sans-latin-{400,600}.woff`, static instances of `app/fonts`' variable Funnel Sans (OFL,
+  made with fontTools' instancer), plus Kaftan. The post card (`post-card-image.tsx`) uses the same fonts and
+  `card-parts.tsx CardPhoto`, and each layout is now one rounded card on the page ground. `/share`'s text is unchanged
+  (`benchCardFacts`, `benchShareText`). Route contract, `CARD_CACHE` and the 404/308 rules unchanged.
+- Local dev note: with this worktree's symlinked node_modules, `next dev` needs `--webpack` (Turbopack rejects the link).
+- Tests: `v3-shells.test.ts` (T6.3, shareCardFacts), `card-route.test.ts` 11.8, `v31-rank-pool.test.ts` (f),
+  `v3-backing.test.ts`.

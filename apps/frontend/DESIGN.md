@@ -175,7 +175,7 @@ The hero chip counts only programs open to Base builders (chains include Base, o
 and a 22px radius, so a long chip wraps to two balanced lines on a 320px phone (checked at 320 and 390). The cards below may list other chains; each says its chain.
 
 ## Post cards (one-tap posts, 2026-10-22)
-`card.png?m=<code>` (`post-card-image.tsx`): these tokens, Kaftan Serif headline and numbers (`assets/fonts/kaftan-serif.woff`). Three layouts: number (weekly, live, news: "Week 6" 176px, summary, navy numbers panel, 12 week squares), milestone (rust Streak card, the streak at 300px), text (verified win or funding, coin: blue hero, the program in Kaftan). Backing pill only while EARNKIT_RAISING is on, backers from 5, rank only from 10 ranked builders, never a price; no proof link, no win card.
+`card.png?m=<code>` (`post-card-image.tsx`): these tokens, Kaftan Serif headline and numbers (`assets/fonts/kaftan-serif.woff`). Three layouts: number (weekly, live, news: "Week 6" 176px, summary, navy numbers panel, 12 week squares), milestone (rust Streak card, the streak at 300px), text (verified win or funding, coin: blue hero, the program in Kaftan). Backing pill only while EARNKIT_RAISING is on, backers from 5, rank only from 10 ranked builders, never a price; no proof link, no win card. GTM W4: each layout is one rounded card on the page ground, Funnel Sans, labels 24px and up. The page's own card `card.png` (`card-response.tsx`, facts in `card-facts.ts`): the page ground, the flat blue hero (photo or the Kaftan initial, never GitHub's default picture; name in Kaftan; @handle; the project panel with its verified live host and quiet facts; the mark and earnkit.com/<handle>) and up to two of the profile's cards (navy Shipping ring only while ranked with the rank helpers' line, white Backing with backers from 5, a win, rust streak, commits in the last year); a free slot hangs a painting (Eckersberg arch tall, Panini oculus half); nothing under 24px.
 
 ## Copy rules
 
@@ -192,7 +192,7 @@ from `lib/earnkit/theme.ts THEME` (`--ek-p-*`, `ek-*` Tailwind tokens), Funnel D
 
 - the brandShell pages (`lib/earnkit/brand-page.ts`: X sign-in, GitHub verify, claim, week, unsubscribe; the wallet page is a v3.1 site page since 2026-10-23);
   only their header lost its Programs link
-- the page's share card (`app/[handle]/card-response.tsx`; a post's own card is v3.1, above), the README badge (`badge.ts`) and the OG image (`scripts/og.mts`)
+- the README badge (`badge.ts`) and the OG image (`scripts/og.mts`); the page's share card is v3.1 since GTM W4 (below)
 - `app/[handle]/score-colors.ts PART_COLORS`, kept for `app/components/ui/UpdateCard.tsx`; the v3.1 pages use the score bands above
 
 The OG image still says "Ship every week. Get funded." until a later pass. White on `#0052FF` is 5.8:1, and blue
