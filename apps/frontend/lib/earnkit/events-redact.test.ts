@@ -138,6 +138,8 @@ test('12.3 every column whose name could hold a login, wallet, repo, link or key
   const cols = await sql()<{ c: string }[]>`
     SELECT table_name || '.' || column_name AS c FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name <> 'builder_events' AND data_type IN ('text', 'ARRAY', 'jsonb')
+      -- v3.1 owner people view: a view (owner_people) holds nothing of its own; its base columns are listed.
+      AND table_name IN (SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE')
       AND column_name ~ '(login|wallet|github|owner|deployer|winner|recipient|creator|award|repo|slug|email|live_key|full_name|^key$|_key$)'
       AND column_name !~ '^round_key$'`;
   assert.ok(cols.length > 50, 'the schema is there');

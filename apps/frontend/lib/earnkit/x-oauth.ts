@@ -30,17 +30,25 @@ export function xAuthorizeUrl(a: { state: string; challenge: string }): string {
   return u.toString();
 }
 
-export type XUser = { id: string; username: string; name: string; avatar: string | null };
+/**
+ * v3.1 owner people view: `createdAt` (the X account's creation, ISO) and `followers` ride along for the owner's
+ * private view only (builder_profiles.x_created_at, x_followers); never shown, scored or ranked. Optional: the test
+ * fixtures and older rows build an XUser without them.
+ */
+export type XUser = { id: string; username: string; name: string; avatar: string | null; createdAt?: string | null; followers?: number | null };
 const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 
-/** /2/users/me's answer, strictly; the avatar only from pbs.twimg.com, at its 400x400 size. Pure. */
+/** /2/users/me's answer, strictly; the avatar only from pbs.twimg.com, at its 400x400 size; a bad date or count is null. Pure. */
 export function xUserFrom(json: unknown): XUser | null {
   const d = (json as { data?: Record<string, unknown> } | null)?.data;
   if (!d || typeof d.id !== 'string' || !/^\d{1,20}$/.test(d.id) || typeof d.username !== 'string' || !HANDLE.test(d.username)) return null;
   const name = typeof d.name === 'string' ? plainText(d.name, true).replace(/[<>]/g, '').trim().slice(0, 50) : '';
   const img = typeof d.profile_image_url === 'string' && URL.canParse(d.profile_image_url) ? new URL(d.profile_image_url) : null;
   const avatar = img && img.protocol === 'https:' && img.hostname === 'pbs.twimg.com' ? img.toString().replace(/_normal(\.\w+)$/, '_400x400$1') : null;
-  return { id: d.id, username: d.username, name: name || d.username, avatar };
+  const created = typeof d.created_at === 'string' && Number.isFinite(Date.parse(d.created_at)) ? new Date(d.created_at).toISOString() : null;
+  const n = (d.public_metrics as { followers_count?: unknown } | null | undefined)?.followers_count;
+  const followers = typeof n === 'number' && Number.isSafeInteger(n) && n >= 0 && n <= 2_147_483_647 ? n : null;
+  return { id: d.id, username: d.username, name: name || d.username, avatar, createdAt: created, followers };
 }
 
 export type XOAuthDeps = { exchange: (code: string, verifier: string) => Promise<string>; me: (token: string) => Promise<XUser> };
@@ -60,7 +68,7 @@ export const xOAuth: XOAuthDeps = {
     return body.access_token;
   },
   me: async (token) => {
-    const res = await fetch('https://api.x.com/2/users/me?user.fields=profile_image_url', {
+    const res = await fetch('https://api.x.com/2/users/me?user.fields=profile_image_url,created_at,public_metrics', {
       headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'EarnKit' },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
