@@ -110,26 +110,48 @@ test('11.6 /<handle>/card.png: a PNG for a claimed page, the headline of the lat
   }
 });
 
-test('11.8 the card reads at X\'s mobile preview: Funnel Display, a big headline, a 30px footer; the picture only from X, 3 s, jpeg or png', async () => {
+test('11.8 (GTM W4) the card reads at X\'s mobile preview: Funnel Sans and Kaftan Serif, no text under 24px; the picture only from X or GitHub, 3 s, jpeg or png, never GitHub\'s default', async () => {
   const { readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
-  const { avatarData, headlineSize } = await loadV2121();
+  const { avatarData, githubDefault, nameSize } = await loadV2121();
   const src = readFileSync(join(import.meta.dirname, '../../app/[handle]/card-response.tsx'), 'utf8');
-  assert.match(src, /name: 'Funnel Display'/);
-  assert.match(src, /fontSize: 30/);
+  assert.match(src, /name: 'Funnel Sans'/);
+  assert.match(src, /name: 'Kaftan Serif'/);
   assert.match(src, /AbortSignal\.timeout\(3_000\)/);
-  for (const w of [500, 700]) assert.ok(readFileSync(join(import.meta.dirname, `../../assets/fonts/funnel-display-latin-${w}.woff`)).byteLength > 1000);
-  // At about 500px wide (X's mobile preview, 0.42 of 1200), the headline stays 22px or more.
-  for (const h of ['Shipped 3 apps with AI', '140 people use tokens.fun', '#3 of 40 builders on EarnKit', '12,345 people use my-very-long-project-name'])
-    assert.ok(headlineSize(h) * 0.42 >= 21.8, h);
-  // Never the "Builder" fallback or a score on the card.
-  assert.doesNotMatch(src, /'Builder'|of 100|FALLBACK_NAME/);
+  for (const f of ['funnel-sans-latin-400.woff', 'funnel-sans-latin-600.woff', 'kaftan-serif.woff'])
+    assert.ok(readFileSync(join(import.meta.dirname, `../../assets/fonts/${f}`)).byteLength > 1000, f);
+  // At about 500px wide (X's mobile preview, 0.42 of 1200), every word stays 10px or more and a name 18px or more.
+  for (const m of src.matchAll(/fontSize: (\d+)\b/g)) assert.ok(Number(m[1]) >= 24, `fontSize ${m[1]}`);
+  for (const n of ['Al', 'Maya Chen', 'Alexandria Montgomery-Okafor', 'x'.repeat(40)]) {
+    assert.ok(nameSize(n, false) * 0.42 >= 18, n);
+    assert.ok(nameSize(n, true) >= nameSize(n, false), n);
+  }
+  // Never the "Builder" fallback.
+  assert.doesNotMatch(src, /'Builder'|FALLBACK_NAME/);
   const png = new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
   assert.equal(await avatarData('https://pbs.twimg.com/x1.png', async () => png), 'data:image/png;base64,iVBORw==');
   const html = new Response('<svg/>', { headers: { 'content-type': 'image/svg+xml' } });
   assert.equal(await avatarData('https://pbs.twimg.com/x2.svg', async () => html), null);
   assert.equal(await avatarData('https://pbs.twimg.com/x3.jpg', async () => { throw new Error('down'); }), null);
   assert.equal(await avatarData(null), null);
+  // GitHub's default picture (octocat or identicon) is a 420x420 PNG whatever size is asked: the initial instead.
+  const ihdr = (w: number, h: number) => {
+    const b = new Uint8Array(33);
+    b.set([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82]);
+    const dv = new DataView(b.buffer);
+    dv.setUint32(16, w);
+    dv.setUint32(20, h);
+    return b;
+  };
+  const gh = 'https://avatars.githubusercontent.com/somebody?s=200';
+  assert.equal(githubDefault(gh, 'image/png', ihdr(420, 420)), true);
+  assert.equal(githubDefault(gh, 'image/png', ihdr(200, 200)), false, 'an uploaded PNG comes back at the size asked');
+  assert.equal(githubDefault(gh, 'image/jpeg', ihdr(420, 420)), false);
+  assert.equal(githubDefault('https://pbs.twimg.com/a_400x400.png', 'image/png', ihdr(420, 420)), false, 'X pictures are never defaults');
+  const def = new Response(ihdr(420, 420), { headers: { 'content-type': 'image/png' } });
+  assert.equal(await avatarData(`${gh}&t=1`, async () => def), null);
+  const real = new Response(ihdr(200, 200), { headers: { 'content-type': 'image/png' } });
+  assert.match((await avatarData(`${gh}&t=2`, async () => real))!, /^data:image\/png;base64,/);
 });
 
 test('11.13 (v2.13 fix round 1) the card and the share post never name a confirming project; the post says what the card says', dbTest, async () => {

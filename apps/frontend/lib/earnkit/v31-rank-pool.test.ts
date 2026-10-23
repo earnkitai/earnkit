@@ -131,13 +131,16 @@ test('(e) the profile under 10: the Shipping ring stays, no standing pill, no ra
   assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /#\d|Top \d+%|of \d+ builders/, 'no rank in the page text');
 });
 
-test('(f) the share card under 10: the project is the headline, Shipping and Earned still show, no "#"', async () => {
+test('(f) the share card under 10 (GTM W4): the Shipping ring without a rank, the project and the streak; no "#"', async () => {
   const { benchCard } = await import('../../app/[handle]/card-response');
-  const f = { handle: 'maya_makes', name: 'Maya Chen', avatar: null, bench: 'Shipping 60', project: 'Recipes', streak: 3, raising: null, score: 60, earned: 340 };
-  const h = renderToStaticMarkup(benchCard(f, null, false));
-  assert.match(h, /font-size:\d+px[^>]*>Recipes</, 'the project is the headline');
-  assert.match(h, />60<[\s\S]*?>Shipping</);
-  assert.match(h, />\$340<[\s\S]*?>Earned</);
-  assert.ok(h.includes('>3 weeks in a row<'), 'the foot: the streak, the project not repeated');
-  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /#\d|Shipping 60/);
+  const f = {
+    handle: 'maya_makes', name: 'Maya Chen', avatar: null, url: 'earnkit.com/maya_makes', idle: null,
+    project: { name: 'Recipes', letter: 'R', color: '#7C3AED', onBase: false, live: null, facts: [] },
+    tiles: [{ kind: 'score' as const, score: 60, rank: null }, { kind: 'streak' as const, weeks: 3 }],
+  };
+  const h = renderToStaticMarkup(benchCard(f, null));
+  assert.match(h, /font-size:\d+px[^>]*>Recipes</, 'the project is named');
+  assert.match(h, />60<[\s\S]*?>out of 100</, 'the ring and what it is out of');
+  assert.match(h, />3<[\s\S]*?>weeks<[\s\S]*?>in a row</, 'the streak');
+  assert.doesNotMatch(h.replace(/<[^>]+>/g, ' '), /#\d|of \d+ builders|Shipping 60/);
 });

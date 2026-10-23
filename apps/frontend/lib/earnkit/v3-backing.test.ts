@@ -29,6 +29,7 @@ import BenchView, { FILTER_BACKED } from '../../app/leaderboard/BenchView';
 import BenchRowItem from '../../app/leaderboard/BenchRowItem';
 import RaisingPill from '../../app/components/ui/RaisingPill';
 import { benchCard } from '../../app/[handle]/card-response';
+import { shareCardFacts } from '../../app/[handle]/card-facts';
 import PolicySection from '../../app/terms/sections/PolicySection';
 
 /**
@@ -240,8 +241,9 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   // The card's pill.
   const card = (await benchCardFacts(b.id))!;
   assert.equal(card.raising, sym);
-  const cardHtml = renderToStaticMarkup(benchCard(card, null, false));
-  assert.ok(cardHtml.includes(`Backing · $${sym}`), cardHtml);
+  // GTM W4: the share card draws the page's own Token card facts (shareCardFacts): Backing open and the coin.
+  const cardHtml = renderToStaticMarkup(benchCard(shareCardFacts(d, site), null));
+  assert.ok(cardHtml.includes('Backing open') && cardHtml.includes(`$${sym}`), cardHtml);
   assert.doesNotMatch(cardHtml, /Community round/);
 
   // The leaderboard: the row's pill, the Backed chip and filter.
