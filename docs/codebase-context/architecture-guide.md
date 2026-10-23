@@ -7884,7 +7884,16 @@ Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnk
 - **View** `owner_people` (schema.sql, CREATE OR REPLACE): one row per profile; the wallet is the recipient else the
   newest proven; `funded_by_slug` is another profile that proved the funder; points from `builder_points`; `last_seen_at`
   over the group's installations. Guarded `GRANT SELECT ... TO earnkit_ro`.
-- Tests: `people-signals.test.ts`, `x-oauth.test.ts`.
+- **Owner tracker columns** (2026-10-23, appended after `referred_installs`, never reordered): `x_name`, `x_avatar_url`,
+  `main_project_key`, `project_name` (identity's builder-given name, else the builder_projects name), `main_repo` +
+  `repo_private` (verified repo source; newest reading's `private` unless a newer `public_at`), `site_url` (verified
+  site, not dns_txt), `shipping_score`/`shipping_rank`/`rank_total` (listedRanked's rule; skips the Bench's
+  confirmed-project check), `streak_weeks`/`commit_weeks_12`/`last_commit_week` (commit_weeks + shown shipped_code
+  weeks, no live current-week reading), `last_approved_week`, `last_activity_at` (latest of last seen, approved week + 7,
+  commit week), the coin (`coin_symbol`, `coin_url`, `coin_address`, `coin_backers`, `creator_fees_eth` from
+  creator_fees), `programs_applied/accepted/won` (distinct programs: statements + entries + outcomes), `checkin_on`
+  (standing_seen.checkin yes), `email_opted_in` (digest_subscriptions). All LATERALs keyed by builder_id.
+- Tests: `people-signals.test.ts`, `x-oauth.test.ts`, `owner-tracker.test.ts`.
 
 ## v3.1 GTM W3 credibility (2026-10-23, journey audit findings 1, 4, 7, 8, 18, 22, 24, 26)
 

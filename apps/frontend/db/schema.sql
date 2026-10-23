@@ -1887,13 +1887,124 @@ SELECT p.builder_id, p.slug, p.hidden,
   COALESCE(pt.total, 0)::int AS points_total, COALESCE(pt.weeks, 0)::int AS points_weeks, pt.last_week AS last_points_week,
   p.created_at AS joined_at,
   (SELECT max(i.last_seen_at) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))) AS last_seen_at,
-  (SELECT count(*) FROM installations r WHERE r.ref_builder_id = p.builder_id AND COALESCE(r.builder_id, r.id) <> p.builder_id)::int AS referred_installs
+  (SELECT count(*) FROM installations r WHERE r.ref_builder_id = p.builder_id AND COALESCE(r.builder_id, r.id) <> p.builder_id)::int AS referred_installs,
+  -- v3.1 owner tracker (owner ask 2026-10-23), appended only: the one project, its repo and site, the public score and
+  -- rank, the streak, the coin, programs and reach, for jenil.ai /people's views. Owner-only; private repo names are fine.
+  p.x_name, p.x_avatar_url, p.main_project_key,
+  left(COALESCE(rn.name, mp.name, p.main_project_key), 60) AS project_name,
+  rp.repo AS main_repo, rp.private AS repo_private, st.url AS site_url,
+  lv.score AS shipping_score, lv.rank AS shipping_rank, lv.total AS rank_total,
+  sk.streak AS streak_weeks, sk.weeks_12 AS commit_weeks_12, sk.last_week AS last_commit_week, ap.last_week AS last_approved_week,
+  GREATEST(
+    (SELECT max(i.last_seen_at) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))),
+    (ap.last_week + 7)::timestamptz, sk.last_week::timestamptz) AS last_activity_at,
+  cn.symbol AS coin_symbol, cn.url AS coin_url, cn.address AS coin_address,
+  COALESCE((SELECT count(*) FROM coin_backers cb WHERE cb.coin = cn.address), 0)::int AS coin_backers,
+  (SELECT sum(f.amount_wei) / 1e18 FROM creator_fees f WHERE f.coin IN (
+    SELECT lower(x.coin_address) FROM projects x JOIN installations i ON i.id = x.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND x.coin_address IS NOT NULL)) AS creator_fees_eth,
+  pg.applied AS programs_applied, pg.accepted AS programs_accepted, pg.won AS programs_won,
+  COALESCE(p.standing_seen->'checkin'->>'answer' = 'yes', false) AS checkin_on,
+  EXISTS (SELECT 1 FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
+    WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))
+      AND d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL) AS email_opted_in
 FROM builder_profiles p
 LEFT JOIN github_users g ON g.login = lower(p.github_login)
 LEFT JOIN LATERAL (
   SELECT wallet, recipient_at, proven_at, first_tx_at, funder FROM person_wallets
   WHERE builder_id = p.builder_id ORDER BY recipient_at DESC NULLS LAST, proven_at DESC, wallet LIMIT 1) w ON true
 LEFT JOIN LATERAL (
-  SELECT sum(points) AS total, count(*) AS weeks, max(week) AS last_week FROM builder_points WHERE builder_id = p.builder_id) pt ON true;
+  SELECT sum(points) AS total, count(*) AS weeks, max(week) AS last_week FROM builder_points WHERE builder_id = p.builder_id) pt ON true
+-- The one project's row (main_project_key), its builder-given name (identity.projects matched by repo or live link, as
+-- project-name.ts refKey), its verified repo (private per the newest reading unless a newer cheap read said public, as
+-- page-data.ts) and its verified site (any proof but dns_txt, which confirms nothing).
+LEFT JOIN LATERAL (
+  SELECT b.name, b.commit_weeks, b.link, b.confirmed FROM builder_projects b
+  WHERE b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key) LIMIT 1) mp ON true
+LEFT JOIN LATERAL (
+  SELECT e->>'name' AS name FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.identity->'projects') = 'array' THEN p.identity->'projects' ELSE '[]'::jsonb END) e
+  WHERE p.main_project_key IS NOT NULL AND jsonb_typeof(e) = 'object' AND jsonb_typeof(e->'name') = 'string' AND btrim(e->>'name') <> ''
+    AND lower(p.main_project_key) IN (
+      regexp_replace(regexp_replace(lower(btrim(COALESCE(e->>'repo', ''))), '^(https?://)?(www[.])?(github[.]com/)?', ''), '/+$', ''),
+      regexp_replace(regexp_replace(lower(btrim(COALESCE(e->>'live_url', ''))), '^(https?://)?(www[.])?', ''), '/+$', ''))
+  LIMIT 1) rn ON true
+LEFT JOIN LATERAL (
+  SELECT COALESCE(s.repo, CASE WHEN lower(p.main_project_key) ~ '^[a-z0-9][a-z0-9-]*/[a-z0-9._-]+$' THEN lower(p.main_project_key) END) AS repo,
+    CASE WHEN s.public_at IS NOT NULL AND s.public_at > COALESCE(s.read_at, '-infinity'::timestamptz) THEN false
+      WHEN s.priv IS NULL THEN NULL ELSE s.priv = 'true'::jsonb END AS private
+  FROM (SELECT 1) one
+  LEFT JOIN LATERAL (
+    SELECT regexp_replace(lower(btrim(r.ref)), '^(https?://)?(www[.])?github[.]com/', '') AS repo, r.public_at, n.at AS read_at, n.signals->'private' AS priv
+    FROM builder_sources r
+    LEFT JOIN LATERAL (
+      SELECT x.signals, x.at FROM (
+        (SELECT q.signals, q.day::timestamptz AS at FROM source_readings q WHERE q.source_id = r.id ORDER BY q.day DESC LIMIT 1)
+        UNION ALL (SELECT v.signals, v.read_at FROM source_live v WHERE v.source_id = r.id)
+      ) x ORDER BY x.at DESC LIMIT 1) n ON true
+    WHERE r.builder_id = p.builder_id AND r.kind = 'repo' AND r.state = 'verified' AND lower(r.project_key) = lower(p.main_project_key)
+    ORDER BY (regexp_replace(lower(btrim(r.ref)), '^(https?://)?(www[.])?github[.]com/', '') = lower(p.main_project_key)) DESC, r.id LIMIT 1) s ON true
+  WHERE p.main_project_key IS NOT NULL) rp ON true
+LEFT JOIN LATERAL (
+  SELECT s.ref AS url FROM builder_sources s
+  WHERE s.builder_id = p.builder_id AND s.kind = 'site' AND s.state = 'verified' AND s.proof IS DISTINCT FROM 'dns_txt'
+    AND lower(s.project_key) = lower(p.main_project_key)
+  ORDER BY s.verified_at DESC NULLS LAST, s.id DESC LIMIT 1) st ON true
+-- The public score and rank (person-score.ts listedRanked: the live Shipping calibration, not pending, a claimed shown
+-- page): 1 + those listed higher, of all listed. Owner approximation: it skips the Bench's confirmed-project check.
+LEFT JOIN LATERAL (
+  SELECT l.score::int AS score,
+    1 + (SELECT count(*) FROM builder_live z JOIN builder_profiles zp ON zp.builder_id = z.builder_id
+      WHERE z.ranked AND z.calibration = 'v2-shipping' AND z.pending IS NULL AND zp.x_user_id IS NOT NULL AND zp.x_handle IS NOT NULL
+        AND NOT zp.hidden AND NOT zp.held AND z.score > l.score)::int AS rank,
+    (SELECT count(*) FROM builder_live z JOIN builder_profiles zp ON zp.builder_id = z.builder_id
+      WHERE z.ranked AND z.calibration = 'v2-shipping' AND z.pending IS NULL AND zp.x_user_id IS NOT NULL AND zp.x_handle IS NOT NULL
+        AND NOT zp.hidden AND NOT zp.held)::int AS total
+  FROM builder_live l
+  WHERE l.builder_id = p.builder_id AND l.ranked AND l.calibration = 'v2-shipping' AND l.pending IS NULL
+    AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL AND NOT p.hidden AND NOT p.held) lv ON true
+-- The streak (site-streak.ts gridWeeks/weeks.ts streakOf, without the live reading's current week): the one project's
+-- rescored commit weeks and its shown ship-log weeks with checked commits; weeks in a row ending this UTC week, or last
+-- week while this one has none. weeks_12: those weeks among the last 12 (this one included).
+LEFT JOIN LATERAL (
+  SELECT COALESCE(array_agg(DISTINCT d), '{}'::date[]) AS weeks FROM (
+    SELECT to_date(c, 'IYYY-"W"IW') AS d FROM unnest(COALESCE(mp.commit_weeks, '{}'::text[])) c WHERE c ~ '^[0-9]{4}-W[0-9]{2}$'
+    UNION ALL
+    SELECT u.week FROM project_updates u
+    WHERE u.builder_id = p.builder_id AND lower(u.project_key) = lower(p.main_project_key) AND NOT u.hidden
+      AND u.facts->'shipped_code'->'n' > '0'::jsonb AND u.week >= (now() AT TIME ZONE 'UTC')::date - 400) x) cw ON true
+LEFT JOIN LATERAL (
+  SELECT (SELECT min(k) FROM generate_series(0, 60) k WHERE NOT ((s.start - 7 * k) = ANY(cw.weeks)))::int AS streak,
+    (SELECT count(*) FROM unnest(cw.weeks) d WHERE d > s.this_week - 84 AND d <= s.this_week)::int AS weeks_12,
+    (SELECT max(d) FROM unnest(cw.weeks) d) AS last_week
+  FROM (SELECT t.this_week, CASE WHEN t.this_week = ANY(cw.weeks) THEN t.this_week ELSE t.this_week - 7 END AS start
+    FROM (SELECT date_trunc('week', now() AT TIME ZONE 'UTC')::date AS this_week) t) s) sk ON true
+LEFT JOIN LATERAL (
+  SELECT max(u.week) AS last_week FROM project_updates u
+  WHERE u.builder_id = p.builder_id AND u.facts->'approved' = 'true'::jsonb) ap ON true
+-- The coin (raising.ts raisingCoin's read): the group's launched entry coin on the one project first, else the newest.
+LEFT JOIN LATERAL (
+  SELECT x.token_symbol AS symbol, x.token_url AS url, lower(x.coin_address) AS address
+  FROM projects x JOIN installations i ON i.id = x.installation_id
+  WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND x.token_symbol IS NOT NULL AND x.token_url ~ '^https://'
+    AND x.token_status = 'launched'
+  ORDER BY (x.token_repo_key = 'github.com/' || lower(p.main_project_key)
+    OR lower(x.repo_url) IN (lower('https://github.com/' || p.main_project_key), lower('https://github.com/' || p.main_project_key || '/'))) DESC NULLS LAST,
+    x.coin_launched_at DESC NULLS LAST, x.id DESC LIMIT 1) cn ON true
+-- Programs (distinct program ids): applied, the builder's applied/accepted/funded/rejected statements and entries
+-- (projects, the internal coin program left out); accepted, accepted or funded or an outcome won, placed or finalist;
+-- won, funded or won or placed.
+LEFT JOIN LATERAL (
+  SELECT count(DISTINCT a.program_id) FILTER (WHERE a.k >= 1)::int AS applied,
+    count(DISTINCT a.program_id) FILTER (WHERE a.k >= 2)::int AS accepted,
+    count(DISTINCT a.program_id) FILTER (WHERE a.k >= 3)::int AS won
+  FROM (
+    SELECT s.program_id, CASE s.status WHEN 'funded' THEN 3 WHEN 'accepted' THEN 2 ELSE 1 END AS k
+    FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+    WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL)) AND s.status <> 'not_interested'
+    UNION ALL
+    SELECT x.program_id, COALESCE((SELECT max(CASE WHEN o.result IN ('won', 'placed') THEN 3 WHEN o.result = 'finalist' THEN 2 ELSE 1 END)
+      FROM entry_outcomes o WHERE o.project_id = x.id), 1)
+    FROM projects x JOIN installations i ON i.id = x.installation_id
+    WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND x.program_id <> 'earnkit-coin') a) pg ON true;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF; END $$;
 

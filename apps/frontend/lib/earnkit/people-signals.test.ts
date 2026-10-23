@@ -126,6 +126,11 @@ test('the daily steps and owner_people: one row per profile, the recipient walle
     'builder_id', 'slug', 'hidden', 'installation_ids', 'x_handle', 'x_proven', 'x_created_at', 'x_followers', 'github_login', 'gh_created_at',
     'wallet', 'wallet_recipient', 'wallet_proven_at', 'wallet_first_tx_at', 'wallet_funder', 'funded_by_slug',
     'points_total', 'points_weeks', 'last_points_week', 'joined_at', 'last_seen_at', 'referred_installs',
+    // v3.1 owner tracker (owner-tracker.test.ts), appended after.
+    'x_name', 'x_avatar_url', 'main_project_key', 'project_name', 'main_repo', 'repo_private', 'site_url',
+    'shipping_score', 'shipping_rank', 'rank_total', 'streak_weeks', 'commit_weeks_12', 'last_commit_week', 'last_approved_week',
+    'last_activity_at', 'coin_symbol', 'coin_url', 'coin_address', 'coin_backers', 'creator_fees_eth',
+    'programs_applied', 'programs_accepted', 'programs_won', 'checkin_on', 'email_opted_in',
   ]);
 });
 
