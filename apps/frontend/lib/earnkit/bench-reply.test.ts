@@ -182,13 +182,14 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), 'Backing is open on your page.');
 });
 
-test('Task 16: the ranked order is connect, apply, backing, share, ship', () => {
+test('Task 16, GTM W2: the ranked order is connect, backing, apply, share, ship', () => {
   const backing = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
   const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
   const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, backing, apply };
   assert.equal(stateAsk(all).kind, 'connect');
-  assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
-  assert.equal(stateAsk({ ...all, connect: null, apply: null }).kind, 'backing');
+  // GTM W2 (owner: no coin launched is the biggest revenue failure): backing right after connect, above the apply step.
+  assert.equal(stateAsk({ ...all, connect: null }).kind, 'backing');
+  assert.equal(stateAsk({ ...all, connect: null, backing: null }).kind, 'apply');
   assert.equal(stateAsk({ ...all, connect: null, apply: null, backing: null }).kind, 'share');
   assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, backing: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
   assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');

@@ -5,7 +5,7 @@ import { appProvenRepo, storedBuilderCode } from './builder-codes-check';
 import { raisingEnabled } from './builder-score-flag';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
-import { PRIVATE_NAME, norm, projectProgramsDated } from './page-data';
+import { PRIVATE_NAME, norm, programLabel, projectProgramsDated } from './page-data';
 import { listedRanked, standingOf, weekCounts } from './person-score';
 import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
@@ -241,9 +241,10 @@ export function repoItem(name: string, reading: Record<string, unknown> | null, 
 
 /** 5. won and applied (page-data.ts projectProgramsDated), won first, at most PROGRAMS_MAX, linked to the program's guide when it has one. */
 async function programItems(builderId: number, key: string): Promise<Highlight[]> {
+  // GTM W2: an acceptance or funding a public page proved moves the item from Applied to the outcome.
   return (await projectProgramsDated(builderId, key)).slice(0, PROGRAMS_MAX).map((g) => ({
-    icon: g.won ? 'won' : 'applied',
-    title: g.won ? `Won ${g.title}` : `Applied to ${g.title}`,
+    icon: g.won || g.outcome ? 'won' : 'applied',
+    title: programLabel(g) ?? `Applied to ${g.title}`,
     sub: monthYear(g.at),
     ...(g.guide && { href: `/programs/${encodeURIComponent(g.guide)}` }),
   }));

@@ -88,6 +88,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   const step2 = (link: string) => [
     `You're in, @${handle}.`,
+    // GTM W2 (value before the ask): the open grant's line before the GitHub step.
+    'Base pays up to $5,000 for apps on Base.',
     `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}`,
     'Built with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first.',
     'Done?',

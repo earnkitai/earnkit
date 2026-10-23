@@ -24,7 +24,7 @@ import BenchView from '../../app/leaderboard/BenchView';
 import { BENCH_TOP_EMPTY, EARN_FOOT, EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
-import { endsOnRankedStep } from './fixtures/ranked-step';
+import { endsOnQuietStep, endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -183,6 +183,10 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
     assert.equal(r.move_up?.kind, 'ship');
     await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'no' } }, { installationId: id } as never);
+    // GTM W2: within 7 days of the ship question the quiet reply asks nothing; after, a no never silences it.
+    const quiet = (await tools.score({}, { installationId: id } as never)) as R;
+    assert.ok(endsOnQuietStep(quiet.show_to_builder), quiet.show_to_builder);
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('ship_asked', (now() - interval '8 days')::text) WHERE builder_id = ${id}`;
     const s = (await tools.score({}, { installationId: id } as never)) as R;
     assert.ok(endsOnRankedStep(s.show_to_builder), s.show_to_builder);
     assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 1, 'one question');

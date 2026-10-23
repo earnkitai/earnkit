@@ -200,7 +200,7 @@ test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" s
   const c = (await connectInstallation(t))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false, freshDeps } as Ctx, 'find', {});
   const s = show(r);
-  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: connect your app's code on GitHub/, s);
+  assert.match(s, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub/, s);
   assert.doesNotMatch(s, / pays .* for tip jars\.|V31 Pitch pays/, s);
   assert.equal(r.reply?.build_offer, undefined);
 }));

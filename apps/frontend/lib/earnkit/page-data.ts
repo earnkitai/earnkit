@@ -233,46 +233,56 @@ async function programEntries(builderId: number) {
 }
 /**
  * v3 Stage 2: the programs the builder told EarnKit they applied to (builder_program_status applied, accepted, funded or
- * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project.
+ * rejected: all read as "Applied", so a self-reported acceptance never shows), for their one project. GTM W2
+ * (2026-10-23): `outcome`, an accepted, funded or won outcome a public page proved (a post drafted from it with its
+ * checked proof link, post-moments.ts verifiedOutcomeCandidate; the best one), which the label then names.
  */
 async function toldApplied(builderId: number) {
-  return sql()<{ title: string; at: Date; guide: string | null }[]>`
-    SELECT g.title, max(s.at) AS at, CASE WHEN ${guideProgramSql(sql())} THEN g.id END AS guide
+  return sql()<{ title: string; at: Date; guide: string | null; outcome: 'accepted' | 'funded' | 'won' | null }[]>`
+    SELECT g.title, max(s.at) AS at, CASE WHEN ${guideProgramSql(sql())} THEN g.id END AS guide,
+      (SELECT d.moment FROM post_drafts d WHERE d.builder_id = ${builderId} AND d.proof_url IS NOT NULL
+        AND d.moment_key IN ('accepted:' || g.id, 'funded:' || g.id, 'won:' || g.id)
+        ORDER BY CASE d.moment WHEN 'won' THEN 0 WHEN 'funded' THEN 1 ELSE 2 END LIMIT 1) AS outcome
     FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status IN ('applied', 'accepted', 'funded', 'rejected')
     GROUP BY g.id ORDER BY g.title`;
 }
-/** A program on the Project tab: won (announced only), else applied (submitted, or the builder said so). */
-export type ProgramLabel = { title: string; won: boolean; applied: boolean };
-/** "Won X", "Applied to X", else nothing (an entry never submitted has no label). Pure. */
-export const programLabel = (g: ProgramLabel): string | null => (g.won ? `Won ${g.title}` : g.applied ? `Applied to ${g.title}` : null);
+/**
+ * A program on the Project tab: won (announced, or GTM W2: proved by a public page), else applied (submitted, or the
+ * builder said so); `outcome`, an acceptance or funding a public page proved (GTM W2).
+ */
+export type ProgramLabel = { title: string; won: boolean; applied: boolean; outcome?: 'accepted' | 'funded' | null };
+/** "Won X", "Funded by X", "Accepted into X", "Applied to X", else nothing (an entry never submitted has no label). Pure. */
+export const programLabel = (g: ProgramLabel): string | null =>
+  g.won ? `Won ${g.title}` : g.outcome === 'funded' ? `Funded by ${g.title}` : g.outcome === 'accepted' ? `Accepted into ${g.title}` : g.applied ? `Applied to ${g.title}` : null;
 /**
  * The programs one project (by key) won or applied to, won first; plus what the builder told EarnKit (`told`). `at`: the
  * earliest date of a row that earns the label (an entry's submitted_at, a told row's at). `guide`: the id of a program
  * by that title with a guide page (/programs/<id>: guide-pages.ts guideProgramSql, the guide set's own rule), else null. Pure.
  */
 const programsOf = (
-  entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date; guide?: string | null }[] = [],
+  entries: Awaited<ReturnType<typeof programEntries>>, key: string, told: { title: string; at: Date; guide?: string | null; outcome?: 'accepted' | 'funded' | 'won' | null }[] = [],
 ): (ProgramLabel & { at: Date; guide: string | null })[] => {
   const k = norm(key);
-  const programs = new Map<string, { won: boolean; applied: boolean; at: Date; guide: string | null }>();
-  const add = (title: string, won: boolean, applied: boolean, at: Date, guide: string | null) => {
+  const programs = new Map<string, { won: boolean; applied: boolean; at: Date; guide: string | null; outcome: 'accepted' | 'funded' | null }>();
+  const add = (title: string, won: boolean, applied: boolean, at: Date, guide: string | null, outcome: 'accepted' | 'funded' | null = null) => {
     const was = programs.get(title);
     // The date comes from a row that earns the label (an entry never submitted dates nothing once another row does).
     const counts = won || applied;
     const wasCounts = Boolean(was && (was.won || was.applied));
     const date = !was || (counts && !wasCounts) ? at : wasCounts && !counts ? was.at : was.at <= at ? was.at : at;
-    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date, guide: was?.guide ?? guide });
+    const best = was?.outcome === 'funded' || outcome === 'funded' ? 'funded' : was?.outcome ?? outcome;
+    programs.set(title, { won: (was?.won ?? false) || won, applied: (was?.applied ?? false) || applied, at: date, guide: was?.guide ?? guide, outcome: best });
   };
   for (const e of entries) if (e.keys.some((x) => x && norm(x) === k)) add(e.title, e.won, e.applied, new Date(e.submitted_at), e.guide ?? null);
-  for (const t of told) add(t.title, false, true, new Date(t.at), t.guide ?? null);
+  for (const t of told) add(t.title, t.outcome === 'won', true, new Date(t.at), t.guide ?? null, t.outcome === 'won' ? null : (t.outcome ?? null));
   return [...programs]
-    .map(([title, g]) => ({ title, ...g }))
+    .map(([title, { outcome, ...g }]) => ({ title, ...g, ...(outcome && { outcome }) }))
     .filter((g) => programLabel(g) !== null)
-    .sort((a, b) => Number(b.won) - Number(a.won));
+    .sort((a, b) => Number(b.won) - Number(a.won) || Number(Boolean(b.outcome)) - Number(Boolean(a.outcome)));
 };
 /** v3.1 site S10: the programs the person's project `key` won or applied to (projectPrograms' rule), each with its date. */
 export const projectProgramsDated = async (builderId: number, key: string) => programsOf(await programEntries(builderId), key, await toldApplied(builderId));
 /** v2.13 T11: the programs the person's project `key` won or applied to (v3 Stage 2: told applications too). */
 export const projectPrograms = async (builderId: number, key: string): Promise<ProgramLabel[]> =>
-  (await projectProgramsDated(builderId, key)).map((g) => ({ title: g.title, won: g.won, applied: g.applied }));
+  (await projectProgramsDated(builderId, key)).map((g) => ({ title: g.title, won: g.won, applied: g.applied, ...(g.outcome && { outcome: g.outcome }) }));

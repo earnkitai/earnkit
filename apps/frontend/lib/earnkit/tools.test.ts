@@ -2229,8 +2229,10 @@ test('9.3 R16 tell: submitted marks the newest entry submitted; fix round 1 (I2)
       // Another installation's entry is not found.
       const other = await confirmSetup('t9tell2');
       await assert.rejects(tools.tell({ submitted: { program_id: t.p.id, project_id: first.project_id } }, other.ctx), /No entry/);
-      // No entry yet in that program: confirm first.
-      await assert.rejects(tools.tell({ submitted: { program_id: other.p.id } }, other.ctx), /record a sent application with tell program_status applied/);
+      // GTM W2: no entry yet in that program (prepare only drafts): recorded as applied outside EarnKit, never an error.
+      const outside = (await tools.tell({ submitted: { program_id: other.p.id } }, other.ctx)) as { show_to_builder: string; saved: string[] };
+      assert.match(outside.show_to_builder, /^Saved: you applied to the /);
+      assert.deepEqual(outside.saved, [`${other.p.id}: applied outside EarnKit`]);
     }),
   ));
 

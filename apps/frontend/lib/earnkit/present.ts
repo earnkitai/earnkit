@@ -395,8 +395,8 @@ const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 /** v2.10 item 6 (Pre-flight P14): the matched table's heading when every row has low odds (never "fit"). */
 export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
 
-const CHAT_ONLY =
-  "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
+/** GTM W2 (2026-10-23): never sends a chat-only builder (Grok Bot, Lovable) off to another agent. */
+const CHAT_ONLY = "I can't build or deploy from here, but I can plan it and write every answer for you to submit.";
 
 /**
  * v2.10 item 7: one line per private repo matched from its local report (final fix I2: the first may

@@ -26,7 +26,9 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
  * reply once every onboarding question was asked; `new_repo`, the one nudge for a main project quiet for STALE_WEEKS.
  */
 export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post' | 'wallet'
-  | 'base_start' | 'next_step' | 'new_repo';
+  | 'base_start' | 'next_step' | 'new_repo'
+  /** GTM W2 (2026-10-23): `base_help`, the walk-through's step 1 help; `checkin`, the Monday check-in (once, clients that schedule); `none`, no question. */
+  | 'base_help' | 'checkin' | 'none';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -103,6 +105,12 @@ export const NO_GITHUB_HINT = 'Built with Lovable or Bolt and no GitHub yet: con
 /** Task 16, 2026-10-22: the step 2 action (the repo picker, or a named repo's install link), in plain words. */
 export const pickRepoAsk = (link: string) =>
   `Step 2 of 2: connect your app's code on GitHub. I only get read access (one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
+/** GTM W2: the ship question is asked at most once in this many days per builder. */
+export const SHIP_ASK_DAYS = 7;
+/** GTM W2: the install ask for one more repo once setup is done (its own install link). Pure. */
+export const installMoreAsk = (link: string) => `Install the read-only EarnKit app on it too (one click): ${link}\nDone?`;
+/** The step 2 reply (the repo picker, or the first repo's install link), never the one-more-repo install. Pure. */
+const isStep2 = (a: BenchAsk) => a.kind === 'pick_repo' || (a.kind === 'install_app' && a.line.startsWith('Step 2 of 2'));
 /** Task 16, step 5: the shipping points line (`lead`: the weekly target without its period, else "Ship code this week"). */
 export const shipPointsLine = (lead: string = 'Ship code this week') => `${lead}: up to +${MAX_WEEK_POINTS} points`;
 /** v3 Stage 1 (spec 5.1), Task 16 step 3: the connect weeks' one question (ranked, once a person); the page is its link. */
@@ -207,6 +215,22 @@ export const BASE_START_STEPS = [
 ].join('\n');
 /** The no-project reply once the onboarding questions were asked: one question (a yes gives step 2's link again). */
 export const NEXT_STEP_ASK = "Is your app's code on GitHub yet?";
+/**
+ * GTM W2 (2026-10-23): the yes to "Want help with step 1 now?" after the Base steps: how to connect GitHub inside
+ * Lovable or Bolt (v3.1-install-research.md, the labels BASE_START_STEPS names), then the resting question, so the
+ * next yes gives the one-click link. Never the same block again.
+ */
+export const BASE_HELP_STEP = [
+  "Step 1: put your app's code on GitHub from the tool you built it in.",
+  'Lovable: Project settings, then Git, then GitHub.',
+  'Bolt: the GitHub icon, top right.',
+  NEXT_STEP_ASK,
+].join('\n');
+/** GTM W2: a no to the resting question or the walk-through (never "Okay." on the no-GitHub path). */
+export const NEXT_STEP_LATER = "No rush. Once your app's code is on GitHub, tell me and I'll send the one-click link.";
+/** GTM W2: the Monday check-in, asked once on a client that can schedule (its yes: the agent sets its own weekly routine). */
+export const CHECKIN_ASK = 'Want me to check in here every Monday?';
+export const CHECKIN_ON = "Done. I'll check in every Monday with your week and any new money.";
 /**
  * The next reply after the repo picker refused only forks or templates (github-app.ts pickSetup): the way out in one
  * line, a statement so the reply keeps its one question.
@@ -385,28 +409,42 @@ export function stateAsk(
     baseAsk?: boolean;
     /** The ranked main project had no commits in STALE_WEEKS (asked once). */
     newRepo?: boolean;
+    /** GTM W2: the Monday check-in is due (once, a client that can schedule, after setup). */
+    checkin?: boolean;
+    /** GTM W2: the ship question was asked within SHIP_ASK_DAYS (the quiet reply then asks nothing). */
+    shipAsked?: boolean;
+    /** GTM W2: the builder already connected a repo with the App (setup is done): never "Step 2 of 2" again. */
+    appDone?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
+  // GTM W2 (2026-10-23): a project named only by its live link (no repo: Lovable, Bolt) is on the no-GitHub path too.
+  const noCode = v.state === 'no_project' || (v.state === 'not_counted' && v.variant === 'no_repo');
   // 2026-10-23 Base onboarding: after the GitHub no, the Base walk-through once, then the optional wallet step once, then
   // the resting question; step 2 never again (until the builder asks: bench-find.ts benchMoveUp).
-  if (v.state === 'no_project' && v.githubNo) {
+  if (noCode && v.githubNo) {
     if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
     return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
   }
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
+  // GTM W2: a live link with no repo: step 2's repo picker (its no starts the Base walk-through), never "Where does it live?".
+  if (noCode && v.link) return { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) };
   // Fix round 1 ruling: the page is the connect reply's one https link.
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(v.connect.weeks, `https://${pageUrl(v.handle)}`) };
+  // GTM W2 (owner: no coin launched is the biggest revenue failure): the backing offer comes in the first reply after the
+  // builder is proven with an approved code week, right after connect, above the event post and the apply step.
+  if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   // v3.1 one-tap posts: an event's post (went live and won jump ahead of apply for 48 hours; benchView holds the rest
   // until the share slot).
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
-  if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
+  // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
+  if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
   if (v.state === 'ranked' && v.wallet) return { kind: 'wallet', project_key: key, line: walletOffer(v.wallet) };
   // 2026-10-23: a main project quiet for STALE_WEEKS: one light nudge to connect the new one.
@@ -415,10 +453,13 @@ export function stateAsk(
   if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
   if (v.state === 'ranked' && v.qualify)
     return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps.length) };
-  if (v.state === 'ranked') return { kind: 'ship', project_key: key, line: SHIP_ASK };
+  // GTM W2: the ship question at most once in SHIP_ASK_DAYS; between, the quiet reply asks nothing.
+  if (v.state === 'ranked') return v.shipAsked ? { kind: 'none', project_key: key, line: '' } : { kind: 'ship', project_key: key, line: SHIP_ASK };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
   if (v.variant === 'no_repo') return { kind: 'repo_behind', project_key: key, line: VARIANT_COPY.no_repo.ask(name) };
   if (v.variant === 'app_off' || !v.link) return { kind: 'suggest', project_key: key, line: VARIANT_COPY.app_off.ask(name) };
+  // GTM W2: past setup (another repo connected), switching repos is one install for this repo, never step 2 again.
+  if (v.appDone && key) return { kind: 'install_app', project_key: key, line: installMoreAsk(v.link) };
   return { kind: 'install_app', project_key: key, line: STATE_COPY.not_counted.ask(v.link) };
 }
 
@@ -441,21 +482,25 @@ const paras = (...ps: (string | null | undefined)[][]) =>
   ps.map((p) => p.filter((x): x is string => typeof x === 'string' && x.length > 0)).filter((p) => p.length > 0).map((p) => p.join('\n')).join('\n\n');
 
 /** Task 16: the step 2 reply names the account ("You're in, @maya."), so no account line goes above it. Pure. */
-export const namesAccount = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'ask'>) =>
-  Boolean(v.handle) && (v.state === 'no_project' || (v.state === 'not_counted' && !v.held && v.ask.kind === 'install_app'));
+export const namesAccount = (v: Pick<BenchView, 'state' | 'handle' | 'held' | 'ask'> & { variant?: Variant }) =>
+  Boolean(v.handle) && (v.state === 'no_project' || (v.state === 'not_counted' && !v.held && isStep2(v.ask) && (v.variant ?? null) === (v.ask.kind === 'pick_repo' ? 'no_repo' : null)));
 /** Task 16: the reply, as the owner approved it, for each state and step. Pure. */
 export function benchReply(v: BenchView): string {
   const name = v.project?.name ?? '';
   // 2026-10-22 (owner): no points lines in the first two replies.
   if (v.state === 'signed_out') return paras([INTRO_LINE, introWhat(v.open ?? null)], [v.ask.line]);
   const ask = v.held ?? v.ask.line;
-  const step2 = !v.held && (v.ask.kind === 'pick_repo' || v.ask.kind === 'install_app');
+  const step2 = !v.held && isStep2(v.ask);
   const named = namesAccount(v);
   const notice = v.notice ?? null;
-  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, notice, ...v.due, ask]);
+  // GTM W2 (2026-10-23, value before the ask): step 2 names the open grant ("Base pays up to $5,000 for apps on Base.")
+  // before the GitHub step; a statement with no link, so the step keeps the reply's one link and one question.
+  const money = step2 && v.open ? grantHook(v.open) : null;
+  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);
   if (v.state === 'not_counted') {
-    if (step2) return paras([named ? youreIn(v.handle!) : null, notice, ...v.due, ask]);
-    return paras([v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, ...v.due, ask]);
+    if (step2 && !v.variant) return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);
+    // GTM W2: a link-only project's step 2 (Lovable, Bolt) names the account too, then the project as the builder named it.
+    return paras([named ? youreIn(v.handle!) : null, v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due, ask]);
   }
   return notice ? paras([notice]) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
@@ -476,7 +521,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
   if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras([standing, ...v.due, ask]);
-  const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
+  const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
   const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [grantHook(v.qualify.grant), qualifyMissing(name, v.qualify)] : [];

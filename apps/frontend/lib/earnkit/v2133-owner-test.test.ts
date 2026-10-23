@@ -18,7 +18,7 @@ import { fakeGitHub } from './fixtures/fake-github-branch';
 import { INTRO_LINE, SHIP_ASK, STATE_COPY, applyAsk, pickRepoAsk, stateAsk } from './bench-reply';
 import { INSTALL_APP_NOTE, START_NOTE, START_YES_NOTE } from './bench-find';
 import { ownLinks, postUpdate } from './updates';
-import { coinLine, coinYes, offerCoin } from './coin-moments';
+import { COIN_NO_PUBLIC_NAME, coinLine, coinYes, offerCoin } from './coin-moments';
 import { proveByApp } from './repo-proof';
 import { appTokenFor } from './github-app';
 import { ProgramFile } from './program-file';
@@ -373,9 +373,10 @@ test('5.3 App on, but the proof is another person\'s: their installation never r
 test('A.1 pure (R8 supersedes owner ruling A): a ranked project moves up by shipping, never an entry or a community round; one that can\'t join asks for another project', () => {
   const p = { key: 'maya/recipes', name: 'Recipe planner', confirmed: true, live: false, weeks: 0 };
   assert.deepEqual(stateAsk({ state: 'ranked', variant: null, project: p, link: null }), { kind: 'ship', project_key: p.key, line: SHIP_ASK });
-  // v3.1 spec 3.2 (R1): the drafted application comes before the backing offer; backing waits a reply.
+  // GTM W2: the backing offer comes before the drafted application (the apply step waits a reply).
   const apply = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
-  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply, backing: 'Want to open backing?' }).kind, 'apply');
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply, backing: 'Want to open backing?' }).kind, 'backing');
+  assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply, backing: null }).kind, 'apply');
   assert.equal(stateAsk({ state: 'ranked', variant: null, project: p, link: null, apply: null, backing: 'Want to open backing?' }).kind, 'backing');
   // A project that can't join (v2.14: not counted, taken) asks for a different project, never an entry.
   assert.equal(stateAsk({ state: 'not_counted', variant: 'taken', project: { ...p, confirmed: false }, link: null }).kind, 'other_project');
@@ -433,7 +434,7 @@ test('R1 (I1) the ship log links the repo only while it was read public in the l
     assert.equal((await ownLinks(id)).repo, null);
   }));
 
-test('R2 (I1) no community round for a repo not read public; once public it is offered; a coin made for a private one uses the safe name and no repo link', dbTest, () =>
+test('R2 (I1), GTM W2: no backing for a repo not read public with no public name; once public it is offered; gone private with no public name, nothing launches', dbTest, () =>
   withEnv({ ...ON, EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'test' }, async () => {
     const key = `${uniq('earnkitai')}/secret`;
     const id = await confirmedRepo(key);
@@ -443,12 +444,12 @@ test('R2 (I1) no community round for a repo not read public; once public it is o
     await markPublic(id);
     const ask = await offerCoin(id, key, 'countable', { check: async () => true });
     assert.match(ask!.line, /\. Want to open backing for secret\?$/);
-    // The repo goes private after the offer: the yes makes the coin under the safe name, with no repo link.
+    // The repo goes private after the offer and the project has no public name (GTM W2: a coin needs one; with one, it
+    // launches under that name with no repo link: gtm-w2-replies.test.ts): the yes launches nothing.
     await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${id} AND kind = 'repo'`;
     const yes = await coinYes(id, key, `0x${'d'.repeat(40)}`, { check: async () => true });
-    assert.ok('project_id' in yes, JSON.stringify(yes));
-    const [x] = await sql()<{ name: string; repo_url: string | null }[]>`SELECT name, repo_url FROM projects WHERE id = ${(yes as { project_id: number }).project_id}`;
-    assert.deepEqual({ ...x }, { name: 'Private project', repo_url: null });
+    assert.deepEqual(yes, { show_to_builder: COIN_NO_PUBLIC_NAME });
+    assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${id} AND program_id = 'earnkit-coin'`).length, 0);
   }));
 
 test('R4 (M1) a slow App token mint never holds the reply: find answers in time and the install ask stands', dbTest, () =>
