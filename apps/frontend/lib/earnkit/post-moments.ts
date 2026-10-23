@@ -126,11 +126,16 @@ export type ProofContext = {
  * never a host taken from the listing or submission page; never a shared host such as github.io or dorahacks.io even
  * when listed, never ethglobal.com/showcase, never the listing page itself), or (b) a post on X
  * (x.com/<user>/status/<id>) by one of the program's own X accounts. Never earnkit.com, the builder's own site, repo or
- * X account. The stored form drops the fragment. Null: not proof. The page must also name the builder
+ * X account. The stored form drops the query and fragment; a path with an encoded slash, backslash or dot, a
+ * backslash, an empty or a dot segment is refused. Null: not proof. The page must also name the builder
  * (outcome-proof.ts proofNamesBuilder, fetched by verifiedOutcomeCandidate). Pure.
  */
 export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   if (typeof raw !== 'string' || raw.length > 2048 || !URL.canParse(raw.trim())) return null;
+  // Last fix wave (B): a path with an encoded slash, backslash or dot, a backslash, an empty or a dot segment is
+  // never proof (checked on the link as given, before the URL parser folds it).
+  const rawPath = raw.trim().replace(/^https?:\/\/[^/?#]*/i, '').split(/[?#]/)[0];
+  if (/%(2f|5c|2e)/i.test(rawPath) || rawPath.includes('\\') || /\/\//.test(rawPath) || /(^|\/)\.\.?(\/|$)/.test(rawPath)) return null;
   const u = new URL(raw.trim());
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
   const host = u.hostname.toLowerCase().replace(/\.$/, '');
@@ -138,7 +143,9 @@ export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   if (under(bare(host), 'earnkit.com')) return null;
   if (o.own.sites.some((s) => URL.canParse(s) && bare(new URL(s).hostname) === bare(host))) return null;
   if (o.own.repo && under(bare(host), 'github.com') && u.pathname.toLowerCase().startsWith(`/${o.own.repo.toLowerCase()}`)) return null;
+  // Last fix wave (B): stored and fetched without its query and fragment.
   u.hash = '';
+  u.search = '';
   if (X_HOSTS.has(host)) {
     const who = X_POST.exec(u.pathname)?.[1]?.toLowerCase();
     if (!who || who === o.builderHandle?.toLowerCase()) return null;
@@ -312,12 +319,15 @@ export async function verifiedOutcomeCandidate(
   // Final review 1: no proof hosts and no X accounts listed: no link could prove it (its posts come from announced outcomes only).
   if (!g.proof_hosts?.length && !g.x_handles?.length) return 'no_proof_source';
   const [b] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const own = await ownLinksOf(builderId);
   const proof = proofUrlOk(o.proofUrl, {
-    proofHosts: g.proof_hosts ?? [], listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own: await ownLinksOf(builderId),
+    proofHosts: g.proof_hosts ?? [], listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own,
   });
   if (!proof) return 'no_proof';
-  // Proof ruling: the page (or the X post's own words) must name the builder; any fetch failure is no proof.
-  if (!(await proofNamesBuilder(proof, { xHandles: g.x_handles ?? [], handle: b?.handle ?? null, name: p.name }, deps.proofFetch))) return 'no_proof';
+  // Proof ruling, last fix wave (A): the page (or the X post's own words) must name the builder by their verified handle,
+  // verified site or public repo, never the project's name; any fetch failure is no proof.
+  const who = { handle: b?.handle ?? null, sites: own.sites, repo: own.repo, programTitle: g.title, xHandles: g.x_handles ?? [] };
+  if (!(await proofNamesBuilder(proof, who, deps.proofFetch))) return 'no_proof';
   const [won] = o.result === 'accepted' ? [] : await sql()<{ prize: number | null }[]>`
     SELECT max(o.prize_usd)::float8 AS prize FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.program_id = ${o.programId} AND o.basis = 'announcement' AND o.prize_usd > 0`;

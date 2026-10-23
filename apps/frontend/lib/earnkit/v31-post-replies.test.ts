@@ -165,8 +165,8 @@ async function withProofHosts(hosts: string[], run: () => Promise<void>, handles
   }
 }
 const PROOF_ASK_TEXT = "Send me a public link that shows it, like the program's post.";
-/** Proof ruling: a proof page naming the project (Kit). */
-const NAMES_KIT = (async () => '<html><title>Recipients</title><p>October recipients: Kit, and others.</p></html>') as ProofFetch;
+/** Proof ruling (last fix wave A): a proof page naming the builder by their verified handle. */
+const namesHandle = (handle: string) => (async () => `<html><title>Recipients</title><p>October recipients: Kit by @${handle}, and others.</p></html>`) as ProofFetch;
 
 test('final review 1: a program that lists no proof hosts or X accounts: an acceptance told is acknowledged, never asked for a proof link, never a post', db, () => withProofHosts([], async () => {
   const k = await kit('pn');
@@ -184,7 +184,7 @@ test('final review 1: a program that lists no proof hosts or X accounts: an acce
 
 test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
   const kk = await kit('po');
-  const k = { ...kk, ctx: { ...kk.ctx, proofFetch: NAMES_KIT } };
+  const k = { ...kk, ctx: { ...kk.ctx, proofFetch: namesHandle(kk.handle) } };
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
   // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
@@ -219,10 +219,10 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const d = (await draftByCode(tap.split('/').pop()!))!;
   assert.equal(d.proof_url, proof);
   assert.doesNotMatch(s, /50,000|\$/);
-  // Proof ruling: a page on the listed path that names no one is no proof (asked again).
+  // Proof ruling: a page on the listed path that names only the project, not the builder, is no proof (asked again).
   const other = await kit('pq');
   await mcpCall(other.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
-  const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Zed.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
+  const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
   assert.equal(show(unnamed), PROOF_ASK_TEXT);
 }));
 
