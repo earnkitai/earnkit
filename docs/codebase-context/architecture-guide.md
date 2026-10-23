@@ -7823,3 +7823,20 @@ the change link.
 - `stand-view.ts takeNews` keeps `github_no`, `base_asked`, `base_walk`, `template_refused`, `new_repo_asked`.
 - Tests: `v31-base-onboarding.test.ts` (exact texts, one link and one question, each no remembered, no loops, the page).
 
+
+## v3.1 owner people view, EarnKit side (design: v3.1-owner-people-view.md, owner ask 2026-10-23)
+
+Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnkit_ro`. Never shown, scored or ranked.
+- **X at sign-in.** `x-oauth.ts` reads `/2/users/me` with `created_at,public_metrics`; `xUserFrom` adds `createdAt`
+  (ISO or null) and `followers` (non-negative int or null; optional on `XUser`). `x-install.ts bindXIn` writes
+  `builder_profiles.x_created_at`, `x_followers` (COALESCE: a sign-in without them keeps the stored ones) and
+  `x_checked_at`. The fallback link carries them on `x_signin_links` until the paste code binds (`x-link.ts`). No backfill.
+- **Daily cron step** `people-signals.ts peopleSignals`, full runs only, once a UTC day (the `peopleSignals:<day>` rate
+  window, as feed.ts), in its own slice (`builderCodesSliceEnd`): `githubAgesStep` (profiles' logins missing from
+  `github_users`, via `github-verify.ts githubUser`, at most 50) and `walletSignalsStep` (`person_wallets` never checked, or
+  with no tx and checked 7+ days ago, at most 30; Blockscout txlist oldest first, 20 rows; `walletSignalsFrom` keeps
+  `first_tx_at` and `funder`, the sender of the earliest tx sent to the wallet). A failed read stores nothing.
+- **View** `owner_people` (schema.sql, CREATE OR REPLACE): one row per profile; the wallet is the recipient else the
+  newest proven; `funded_by_slug` is another profile that proved the funder; points from `builder_points`; `last_seen_at`
+  over the group's installations. Guarded `GRANT SELECT ... TO earnkit_ro`.
+- Tests: `people-signals.test.ts`, `x-oauth.test.ts`.

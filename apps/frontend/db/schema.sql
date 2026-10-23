@@ -1850,3 +1850,41 @@ ALTER TABLE x_signins ADD CONSTRAINT x_signins_purpose_check CHECK (purpose IN (
 -- v3.1 wallet proof security follow-up: an X check belongs to the browser that signed in (its __Host-ekwx- cookie holds
 -- a random secret; only its sha256 is kept here). A check without it (rows from before) never counts.
 ALTER TABLE wallet_x_checks ADD COLUMN IF NOT EXISTS browser_hash text;
+
+-- v3.1 owner people view (owner ask 2026-10-23): signals that help the owner spot people who may farm, private to the
+-- owner (jenil.ai reads owner_people as earnkit_ro). Never shown, scored or ranked. Additive.
+-- The X account's creation time and followers, written at each Sign in with X (x-install.ts bindXIn); no backfill.
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_created_at timestamptz;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_followers integer;
+ALTER TABLE builder_profiles ADD COLUMN IF NOT EXISTS x_checked_at timestamptz;
+-- The same two carried by a fallback link's sign-in until its paste code binds (x-link.ts).
+ALTER TABLE x_signin_links ADD COLUMN IF NOT EXISTS x_created_at timestamptz;
+ALTER TABLE x_signin_links ADD COLUMN IF NOT EXISTS x_followers integer;
+-- A proven wallet's history (people-signals.ts, the daily cron): its first Base transaction and who first sent to it
+-- (lowercase); a wallet with none yet is read again a week later.
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS first_tx_at timestamptz;
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS funder text;
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS signals_checked_at timestamptz;
+-- One row per profile. The wallet is the reward recipient (newest recipient_at), else the newest proven one;
+-- funded_by_slug is another profile that proved the wallet's funder. Runs with the owner's rights, so earnkit_ro sees
+-- only these columns (no emails, tokens or IPs). installation_ids: test installs live in an env var SQL can't read.
+CREATE OR REPLACE VIEW owner_people AS
+SELECT p.builder_id, p.slug, p.hidden,
+  COALESCE((SELECT array_agg(i.id ORDER BY i.id) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))), '{}'::int[]) AS installation_ids,
+  p.x_handle, p.x_user_id IS NOT NULL AS x_proven, p.x_created_at, p.x_followers,
+  p.github_login, g.created_at AS gh_created_at,
+  w.wallet, w.recipient_at IS NOT NULL AS wallet_recipient, w.proven_at AS wallet_proven_at, w.first_tx_at AS wallet_first_tx_at,
+  w.funder AS wallet_funder,
+  (SELECT o.slug FROM person_wallets fw JOIN builder_profiles o ON o.builder_id = fw.builder_id
+    WHERE fw.wallet = w.funder AND fw.builder_id <> p.builder_id) AS funded_by_slug,
+  COALESCE(pt.total, 0)::int AS points_total, COALESCE(pt.weeks, 0)::int AS points_weeks, pt.last_week AS last_points_week,
+  p.created_at AS joined_at,
+  (SELECT max(i.last_seen_at) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))) AS last_seen_at
+FROM builder_profiles p
+LEFT JOIN github_users g ON g.login = lower(p.github_login)
+LEFT JOIN LATERAL (
+  SELECT wallet, recipient_at, proven_at, first_tx_at, funder FROM person_wallets
+  WHERE builder_id = p.builder_id ORDER BY recipient_at DESC NULLS LAST, proven_at DESC, wallet LIMIT 1) w ON true
+LEFT JOIN LATERAL (
+  SELECT sum(points) AS total, count(*) AS weeks, max(week) AS last_week FROM builder_points WHERE builder_id = p.builder_id) pt ON true;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF; END $$;

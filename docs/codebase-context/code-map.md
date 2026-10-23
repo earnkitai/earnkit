@@ -2316,3 +2316,8 @@ site host, public repo URL; no project name); `post-moments.ts proofUrlOk` (path
 past the cap); `person-score.ts` (lost sites skipped); `week-summary.ts` (`BARE_FILE`, more extensions); schema
 `builder_sources.proof_lost_at`; base-builder-grants proof_hosts `["www.base.org/blog/"]`. Tests: `post-moments.test.ts`,
 `v31-post-replies.test.ts`, `site-proof.test.ts` SP15/SP15b/SP16, `week-facts.test.ts` 4.11d, `week-summary.test.ts` W6d.
+v3.1 owner people view (2026-10-23): `people-signals.ts` (new: `peopleSignals`, `githubAgesStep`, `walletSignalsStep`,
+`walletSignalsFrom`, caps `GH_AGES_PER_RUN`, `WALLET_SIGNALS_PER_RUN`), wired in `cron.ts` (`people_signals`);
+`x-oauth.ts` (`XUser.createdAt`, `followers`), `x-install.ts bindXIn`, `x-link.ts` (carry them); schema
+`builder_profiles.x_created_at/x_followers/x_checked_at`, `x_signin_links.x_created_at/x_followers`,
+`person_wallets.first_tx_at/funder/signals_checked_at`, view `owner_people`; `events-redact.mts` lists `person_wallets.funder`. Tests: `people-signals.test.ts`, `x-oauth.test.ts`, `events-redact.test.ts` (base tables only).

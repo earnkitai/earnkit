@@ -32,6 +32,7 @@ import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, v
 import { githubAppEnabled } from './github-app';
 import { runBuilderCodes } from './builder-codes-check';
 import { backfillContractOrigins } from './contract-origins';
+import { peopleSignals } from './people-signals';
 import type { ContractOrigin } from './source-readers';
 import { sweepPublicReads } from './repo-cache';
 import { sweepRateWindows } from './rate-limit';
@@ -409,6 +410,17 @@ export async function runCron(
       origins = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v3.1 owner people view: GitHub account ages and wallet histories for the owner's private view (people-signals.ts;
+  // once a UTC day, capped, free), after the email, in its own slice. Full runs only (a scoped test run skips it).
+  let people: Awaited<ReturnType<typeof peopleSignals>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only) {
+    try {
+      people = await peopleSignals(now, builderCodesSliceEnd(Date.now(), deadline));
+    } catch (err) {
+      console.error('[cron] people signals', err instanceof Error ? err.name : 'error');
+      people = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // Campaigns whose payout waits on the owner (manual check, changed terms, a wallet short of the
   // prize or of gas, or PAY_FAILED_RUNS failed pay steps in a row): the endpoint answers 503.
   const needs_owner = campaigns
@@ -469,6 +481,7 @@ export async function runCron(
     ...(builderScore && { builder_score: builderScore }),
     ...(builderCodes && { builder_codes: builderCodes }),
     ...(origins && { contract_origins: origins }),
+    ...(people && { people_signals: people }),
     needs_owner,
   };
 }

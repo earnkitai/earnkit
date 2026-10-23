@@ -115,6 +115,7 @@ export async function linkSignedIn(installationId: number, user: XUser, headers:
   const code = pasteCode();
   const [row] = await sql()<{ link_hash: string }[]>`
     UPDATE x_signin_links SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${user.avatar},
+      x_created_at = ${user.createdAt ?? null}::timestamptz, x_followers = ${user.followers ?? null}::int,
       paste_hash = ${sha256(code)}, paste_expires_at = ${new Date(now.getTime() + PASTE_TTL_MS)}
     WHERE link_hash = ${linkHash} AND installation_id = ${installationId} AND used_at IS NULL AND x_user_id IS NULL AND expires_at > ${now}
     RETURNING link_hash`;
@@ -137,11 +138,11 @@ export async function bindFromPaste(own: number, raw: unknown, now: Date): Promi
   const code = normalizePaste(raw);
   if (!code) return { ok: false };
   const h = sha256(code);
-  const [row] = await sql()<{ link_hash: string; x_user_id: string; x_handle: string; x_name: string | null; x_avatar_url: string | null }[]>`
+  const [row] = await sql()<{ link_hash: string; x_user_id: string; x_handle: string; x_name: string | null; x_avatar_url: string | null; x_created_at: Date | null; x_followers: number | null }[]>`
     UPDATE x_signin_links SET used_at = ${now}
     WHERE paste_hash = ${h} AND installation_id = ${own} AND used_at IS NULL AND paste_expires_at > ${now}
       AND x_user_id IS NOT NULL
-    RETURNING link_hash, x_user_id, x_handle, x_name, x_avatar_url`;
+    RETURNING link_hash, x_user_id, x_handle, x_name, x_avatar_url, x_created_at, x_followers`;
   if (!row) {
     const [again] = await sql()<{ root: number; handle: string }[]>`
       SELECT p.builder_id AS root, p.x_handle AS handle FROM x_signin_links l
@@ -150,7 +151,10 @@ export async function bindFromPaste(own: number, raw: unknown, now: Date): Promi
       WHERE l.paste_hash = ${h} AND l.installation_id = ${own} AND l.used_at IS NOT NULL AND l.paste_expires_at > ${now}`;
     return again ? { ok: true, root: again.root, handle: again.handle } : { ok: false };
   }
-  const user: XUser = { id: row.x_user_id, username: row.x_handle, name: row.x_name ?? row.x_handle, avatar: row.x_avatar_url };
+  const user: XUser = {
+    id: row.x_user_id, username: row.x_handle, name: row.x_name ?? row.x_handle, avatar: row.x_avatar_url,
+    createdAt: row.x_created_at?.toISOString() ?? null, followers: row.x_followers,
+  };
   let r: Awaited<ReturnType<typeof attachToX>>;
   try {
     r = await attachToX(own, user, now);

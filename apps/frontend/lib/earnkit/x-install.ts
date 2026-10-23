@@ -324,9 +324,16 @@ export async function bindXIn(tx: postgres.TransactionSql, root: number, user: X
     await tx`INSERT INTO profile_slug_history (old_slug, builder_id, moved_at) VALUES (${p.slug}, ${root}, ${now}) ON CONFLICT (old_slug) DO NOTHING`;
   // v2.13 R12 (B14, F9): the picture is refreshed at every sign-in; X sending none keeps the stored one.
   const keep = user.avatar === null;
+  // v3.1 owner people view: the X account's age and followers, for the owner's private view only (never shown or
+  // scored); a sign-in that carried neither keeps the stored ones.
+  const xAge = user.createdAt ?? null;
+  const xFollowers = user.followers ?? null;
+  const facts = xAge !== null || xFollowers !== null;
   await tx`
     UPDATE builder_profiles SET x_user_id = ${user.id}, x_handle = ${user.username}, x_name = ${user.name}, x_avatar_url = ${keep ? tx`x_avatar_url` : user.avatar},
-      claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now()
+      claimed_at = COALESCE(claimed_at, ${now}), slug = ${slug}, updated_at = now(),
+      x_created_at = COALESCE(${xAge}::timestamptz, x_created_at), x_followers = COALESCE(${xFollowers}::int, x_followers),
+      x_checked_at = ${facts ? now : tx`x_checked_at`}
     WHERE builder_id = ${root}`;
   await tx`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${root}`;
   return { ok: true as const, handle: user.username, renamed, first: p.x_user_id === null };
