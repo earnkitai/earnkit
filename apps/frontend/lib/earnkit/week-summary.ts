@@ -135,9 +135,19 @@ export async function aiSummary(titles: string[], create: SummaryCreate | null =
   }
 }
 
-/** A file path or file name in a summary ("src/app.ts", "package.json"): never on a private repo's card. Pure. */
-const FILE_PATH = /[\w.-]+\/[\w.-]+|\b[\w-]+\.(?:[cm]?[jt]sx?|py|go|rs|sol|rb|java|kt|swift|c|h|cpp|cs|php|json|ya?ml|toml|lock|md|mdx|css|scss|html|sql|sh|env|txt)\b/i;
-export const namesPath = (text: string): boolean => FILE_PATH.test(text);
+/** Source-file extensions a file name in a summary may carry (never plain "js": "Next.js", "Node.js" are names). */
+const SOURCE_EXT = '(?:tsx?|jsx|mjs|cjs|py|go|rs|sol|rb|java|kt|swift|cpp|cs|php|json|ya?ml|toml|lock|mdx?|css|scss|html|sql|sh|env)';
+/** A path: segments joined by "/" whose last one has a file extension ("src/app.ts", "lib/timer.js"; never "CI/CD", "and/or"). */
+const SLASH_PATH = new RegExp(`(?:^|[^\\w./-])[\\w.-]+(?:\\/[\\w.-]+)*\\/[\\w-]+\\.${SOURCE_EXT}(?![\\w/])`, 'i');
+/** A lowercase ".js" file after a slash ("lib/timer.js"; never "React/Next.js"). */
+const SLASH_JS = /(?:^|[^\w./-])[\w.-]+(?:\/[\w.-]+)*\/[a-z0-9_-]+\.js(?![\w/])/;
+/** A bare file name with a source extension ("package.json", "README.md", "index.ts"). */
+const FILE_NAME = new RegExp(`\\b[\\w-]+\\.${SOURCE_EXT}\\b`, 'i');
+/**
+ * A file path or file name in a summary: never on a private repo's card. Fix wave (8): "Next.js", "Node.js", "CI/CD"
+ * and "and/or" are words, not paths. Pure.
+ */
+export const namesPath = (text: string): boolean => SLASH_PATH.test(text) || SLASH_JS.test(text) || FILE_NAME.test(text);
 
 /**
  * The stored summary for one week: Haiku's, else the rule one, through the update filter. Null when neither

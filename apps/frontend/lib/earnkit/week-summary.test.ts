@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
-import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
+import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
 import { logCards, STARTED_CHIP } from './bench-data';
 import { NOTE_LINE, momentLines } from './weekly-moment';
 
@@ -81,6 +81,16 @@ test('W6c fix round: consent binds to the exact text the week was approved with'
   assert.equal(summaryConsented({ approved: false, approved_summary: 'Fixed the timer.' }, 'Fixed the timer.'), false);
   assert.equal(summaryConsented(null, 'Fixed the timer.'), false);
   assert.equal(summaryConsented({ approved: true, approved_summary: '' }, ''), false);
+});
+
+test('W6d fix wave: namesPath catches paths and file names, never tech names or slashed words', () => {
+  for (const t of ['Moved to Next.js and Node.js.', 'Set up CI/CD.', 'Fixed sign-in and/or sign-up.', 'Ported React/Next.js pages.', 'Used Vue.js and Three.js.', 'Shipped v2.1 of the app.'])
+    assert.equal(namesPath(t), false, t);
+  for (const t of ['Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Moved app/api/route.tsx.'])
+    assert.equal(namesPath(t), true, t);
+  const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp', consented: true };
+  assert.equal(summaryShown('Moved to Next.js and set up CI/CD.', [], priv), 'Moved to Next.js and set up CI/CD.');
+  assert.equal(summaryShown('Shipped Secretapp on Node.js.', [], priv), null, 'the repo name check stays');
 });
 
 test('W5b weekSummary for a private repo: the model\'s words only (never the rule summary), never naming the repo or a file', async () => {
