@@ -95,8 +95,7 @@ test('11.11 the profile\'s words pass the v2.13 rule; chain names only in the Ba
   const c = await import('./site-copy');
   const texts = [
     confirmingCardLine('Maya Chen', 'Recipe planner'), noProjectLine('Maya Chen'), streakWords(6)!, streakWords(1)!, shippedWords(9), shippedWords(1),
-    benchShareText({ handle: 'maya_makes', bench: 'Shipping 62 · Top 4% of builders', project: null, streak: 0 }), benchShareText({ handle: 'maya_makes', bench: 'Shipping 40 · #2 of 18 builders', project: null, streak: 0 }),
-    benchShareText({ handle: 'maya_makes', bench: null, project: 'Recipe planner', streak: 6 }), benchShareText({ handle: 'maya_makes', bench: null, project: null, streak: 0 }),
+    benchShareText({ project: 'Recipe planner', streak: 6 }), benchShareText({ project: 'Recipe planner', streak: 0 }),
     startedLine('Recipe planner'), ...startedChips({ live: true, weeks: 3, people: 31 }), ...startedChips({ live: false, weeks: 1, people: 1 }),
     ...factChips({ went_live: true, won: [{ title: 'Base Builder Grants' }], users_up: { n: 31 }, earned: { usd: 120 }, shipped_code: { n: 12 }, streak: { w: 6 } }),
     c.SCORE_TITLE, c.scoreNote('Maya'), c.SCORE_PENDING, c.STREAK_TITLE, c.PROFILE_ACTIVITY, c.shippedAgo('2h ago'), c.HIGHLIGHTS_TITLE,

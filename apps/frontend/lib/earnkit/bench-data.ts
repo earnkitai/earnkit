@@ -442,12 +442,10 @@ export async function benchCardFacts(builderId: number, o: { money?: boolean; no
 }
 
 /**
- * The share post's words, matching the card: the Bench line, else the confirmed
- * project and its streak, else the person's page. Pure.
+ * The share post's words: what the builder is building, and the streak once it is 2+ weeks. The score stays on the
+ * card (the link's preview), never in the text. No project: no text, the card alone. Pure.
  */
-export function benchShareText(f: Pick<BenchCardFacts, 'handle' | 'bench' | 'project' | 'streak'>): string {
-  if (f.bench) return `${f.bench} at EarnKit.`;
-  const streak = streakWords(f.streak);
-  if (f.project) return streak ? `Shipping ${f.project}, ${streak}, on EarnKit.` : `Shipping ${f.project} on EarnKit.`;
-  return `@${f.handle} on EarnKit.`;
+export function benchShareText(f: Pick<BenchCardFacts, 'project' | 'streak'>): string {
+  if (!f.project) return '';
+  return f.streak >= 2 ? `Building ${f.project}. Shipped every week for the last ${f.streak} weeks.` : `Building ${f.project}.`;
 }
