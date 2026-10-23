@@ -341,9 +341,13 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
         SELECT week::text AS week, text, titles, summary, facts FROM project_updates
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.main}) AND NOT hidden ORDER BY week DESC LIMIT ${LOG_MAX}`
     : [];
-  // Preflight S9: a repo that isn't read public shows its week's work only while titles are on (and never its name).
+  // Preflight S9: a repo that isn't read public shows its titles only while titles are on (and never its name);
+  // its summary also once the builder approved the week (owner batch 2026-10-23).
   const rule = { hiddenRepo: shown.hiddenRepo, titlesOn: p.titles_on, repoKey: p.main! };
-  const updates = stored.map(({ titles, ...u }) => ({ ...u, summary: summaryShown(u.summary, titlesShown(titles, rule), rule) }));
+  const updates = stored.map(({ titles, ...u }) => {
+    const r = { ...rule, approved: u.facts?.approved === true };
+    return { ...u, summary: summaryShown(u.summary, titlesShown(titles, r), r) };
+  });
   // The streak's inputs and rule are streak.ts's (the leaderboard, card, replies and JSON read the same), not recomputed here.
   const lit = confirmed ? (await streaksFor([builderId], now)).get(builderId) : undefined;
   const weeks = lit?.weeks ?? new Set<string>();

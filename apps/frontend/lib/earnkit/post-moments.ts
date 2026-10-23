@@ -201,7 +201,8 @@ export async function weeklyCandidate(builderId: number, now: Date, o: { week?: 
   if (!u) return 'no_week';
   // The streak alone (or people or money) is not a week worth a post.
   if (!hasFacts(u.facts)) return 'no_facts';
-  const summary = (await weekLineRule(builderId, p.key))(u);
+  // Owner batch 2026-10-23: a private repo's summary only once the week is approved.
+  const summary = (await weekLineRule(builderId, p.key))({ ...u, approved: u.facts?.approved === true });
   const checked = u.text ? checkUpdate(u.text, await ownLinksOf(builderId)) : null;
   const note = checked?.ok ? checked.text : null;
   const week = o.week ?? u.facts.streak?.w ?? (u.facts.shipped_code ? 1 : 0);
@@ -336,8 +337,8 @@ export async function newsCandidate(builderId: number, text: unknown, now: Date)
   const checked = checkUpdate(text, await ownLinksOf(builderId));
   if (!checked.ok) return 'text';
   // Task 5: the card shows last week's summary (as the profile shows it), never the note again.
-  const [u] = await sql()<{ titles: string[]; summary: string | null }[]>`
-    SELECT titles, summary FROM project_updates
+  const [u] = await sql()<{ titles: string[]; summary: string | null; approved: boolean }[]>`
+    SELECT titles, summary, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${p.key}) AND week = ${lastFinishedMonday(now)} AND NOT hidden`;
   const summary = u ? (await weekLineRule(builderId, p.key))(u) : null;
   return {

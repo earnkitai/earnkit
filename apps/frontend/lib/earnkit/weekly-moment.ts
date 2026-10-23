@@ -117,8 +117,8 @@ async function weekStanding(builderId: number, monday: string): Promise<WeekStan
 
 /**
  * Last finished week for the one project `key`: its standing, the week before's (for the deltas), and the ship
- * log's titles as the profile would show them (ship-titles.ts titlesShown: a private repo's only with titles on,
- * never one naming it). Null without a ranked day last week (the moment is skipped). Throws on a database error.
+ * log's line as the builder is asked to approve it (weekLineRule `asking`: a private repo's summary too, never its
+ * titles unless titles are on, never text naming it). Null without a ranked day last week (the moment is skipped). Throws on a database error.
  */
 export async function lastWeekOf(builderId: number, key: string, now: Date): Promise<LastWeek | null> {
   const monday = lastFinishedMonday(now);
@@ -130,7 +130,7 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     SELECT titles, summary, facts, facts ? 'checked' AS checked, COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   if (u && (u.titles.length > 0 || u.summary)) {
-    const line = (await weekLineRule(builderId, key))(u);
+    const line = (await weekLineRule(builderId, key, { asking: true }))(u);
     if (line) titles = [line];
   }
   return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved: u?.approved ?? false, facts: hasFacts(u?.facts ?? {}) };
@@ -139,10 +139,15 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
 /**
  * The one line a reply may carry for a week of `key`'s ship log: its summary as the profile would show it
  * (ship-titles.ts titlesShown: a private repo's titles only with titles on, never one naming it; week-summary.ts
- * summaryShown), checked again as when stored (update-text.ts checkUpdate) and never holding a link. Null: nothing
- * to show. Reads once; the rule it returns is pure. Throws on a database error.
+ * summaryShown: a private repo's summary once the week is approved, `u.approved`), checked again as when stored
+ * (update-text.ts checkUpdate) and never holding a link. `asking`: a line in a question to the builder alone about
+ * approving the week (the weekly moment, the connect offer, the weekly email), so the builder sees the summary they
+ * approve before it shows anywhere (owner batch 2026-10-23). Null: nothing to show. Reads once; the rule it returns
+ * is pure. Throws on a database error.
  */
-export async function weekLineRule(builderId: number, key: string): Promise<(u: { titles: string[]; summary: string | null }) => string | null> {
+export async function weekLineRule(
+  builderId: number, key: string, o: { asking?: boolean } = {},
+): Promise<(u: { titles: string[]; summary: string | null; approved?: boolean }) => string | null> {
   const db = sql();
   const [p] = await db<{ titles_on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS titles_on FROM builder_profiles WHERE builder_id = ${builderId}`;
   const shown = ((await shownProjects([builderId])).get(builderId) ?? []).find((r) => norm(r.key) === norm(key));
@@ -155,8 +160,9 @@ export async function weekLineRule(builderId: number, key: string): Promise<(u: 
   return (u) => {
     // Weekly updates: the week's summary stands in for the titles; written from the titles a reply may carry
     // when the stored one names a host.
-    const shownTitles = titlesShown(u.titles, rule).flatMap((t) => safe(t) ?? []);
-    const summary = summaryShown(u.summary && safe(u.summary), shownTitles, rule);
+    const r = { ...rule, approved: o.asking === true || u.approved === true };
+    const shownTitles = titlesShown(u.titles, r).flatMap((t) => safe(t) ?? []);
+    const summary = summaryShown(u.summary && safe(u.summary), shownTitles, r);
     return (summary && safe(summary)) || null;
   };
 }

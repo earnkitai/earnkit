@@ -7,7 +7,8 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { connectInstallation, saveInstallation } from './installations';
 import { feedWeeks } from './feed';
 import { profileData } from './bench-data';
-import { weeklyFactsStep } from './week-facts';
+import { weeklyFactsStep, writeWeek } from './week-facts';
+import { approveWeek, weekLineRule } from './weekly-moment';
 import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
 import { UPDATE_LINES } from './updates';
@@ -131,6 +132,45 @@ test('8.10 S9: a public repo\'s titles always show, titles on or not', db, async
   assert.equal(await profileTitles(p.id), 'Fixed the timer and added the shopping list.');
   await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
   assert.equal(await feedTitles(p.id), 'Fixed the timer and added the shopping list.');
+});
+
+test('8.10b owner batch: a private repo\'s week gets an AI summary that shows once the builder approves it; titles stay hidden', db, async () => {
+  const key = `vic${RUN}/quietproj`;
+  const p = await provenPerson('vic', key, true, [{ sha: 'h', message: 'Ship quietproj dark mode', date: '2026-10-16T10:00:00Z', login: 'vic' }]);
+  let seen = '';
+  const summarize = async (body: { messages: { content: unknown }[] }) => {
+    seen = String(body.messages[0].content);
+    return { content: [{ type: 'text', text: 'Added a shopping list and fixed the timer.' }], stop_reason: 'end_turn' } as never;
+  };
+  await writeWeek({ id: p.id, key }, WEEK, MONDAY_RUN, { ghFetch: p.gh, summarize });
+  assert.ok(seen.includes('Fix the timer') && !/quietproj/i.test(seen), 'the model saw the titles, never one naming the repo');
+  const [r] = await sql()<{ titles: string[]; summary: string | null }[]>`SELECT titles, summary FROM project_updates WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.deepEqual(r.titles, [], 'a private repo\'s titles are not stored while titles are off');
+  assert.equal(r.summary, 'Added a shopping list and fixed the timer.');
+  await onFeed(p.id);
+  assert.equal(await feedTitles(p.id), null, 'not approved: no summary on the feed');
+  assert.equal(await profileTitles(p.id), null, 'nor the profile');
+  const line = await weekLineRule(p.id, key);
+  assert.equal(line({ titles: [], summary: r.summary }), null, 'nor a post');
+  assert.equal((await weekLineRule(p.id, key, { asking: true }))({ titles: [], summary: r.summary }), r.summary, 'the builder sees what they approve');
+  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+  assert.equal(await feedTitles(p.id), 'Added a shopping list and fixed the timer.', 'approved: the feed shows it');
+  assert.equal(await profileTitles(p.id), 'Added a shopping list and fixed the timer.', 'and the profile');
+  assert.equal(line({ titles: [], summary: r.summary, approved: true }), r.summary, 'and a post');
+  const cards = JSON.stringify([await feedWeeks(MONDAY_RUN, { only: [p.id] }), await profileData(p.id, MONDAY_RUN, { only: [p.id] })]);
+  assert.ok(!/quietproj/i.test(cards) && !cards.includes('Fix the timer'), 'no repo name and no raw title on any card');
+  // A stored summary naming the repo or a file never shows, approved or not.
+  await sql()`UPDATE project_updates SET summary = 'Fixed the timer in src/app.ts.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await feedTitles(p.id), null);
+  await sql()`UPDATE project_updates SET summary = 'Shipped Quietproj dark mode.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await profileTitles(p.id), null);
+});
+
+test('8.10c owner batch: without a model a private repo\'s commits are still never read (titles off)', db, async () => {
+  const p = await provenPerson('wes', `wes${RUN}/nokey`, true);
+  p.gh.calls.length = 0;
+  await writeWeek({ id: p.id, key: `wes${RUN}/nokey` }, WEEK, MONDAY_RUN, { ghFetch: p.gh, summarize: null });
+  assert.equal(p.gh.calls.filter((c) => /\/commits|\/pulls/.test(c.path)).length, 0);
 });
 
 const facts = async (id: number) => (await row(id))?.facts ?? null;

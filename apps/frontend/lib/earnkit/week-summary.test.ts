@@ -60,6 +60,28 @@ test('W6 summaryShown: a private repo shows nothing unless titles are on, and ne
   assert.equal(summaryShown('Shipped secretapp v2.', ['Fix the timer'], { ...pub, hiddenRepo: true, titlesOn: true }), 'Fixed the timer.');
 });
 
+test('W6b owner batch: a private repo with titles off shows the stored summary of an approved week only, never one naming it or a file', () => {
+  const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp' };
+  assert.equal(summaryShown('Fixed the timer.', [], priv), null, 'not approved');
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, approved: false }), null);
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, approved: true }), 'Fixed the timer.');
+  assert.equal(summaryShown(null, ['Fix the timer'], { ...priv, approved: true }), null, 'never the rule summary of its titles');
+  assert.equal(summaryShown('Shipped Secret App v2.', [], { ...priv, approved: true }), null, 'names the repo');
+  assert.equal(summaryShown('Fixed the timer in src/timer.ts.', [], { ...priv, approved: true }), null, 'a path');
+  assert.equal(summaryShown('Updated package.json.', [], { ...priv, approved: true }), null, 'a file name');
+  // A public repo is unchanged by approval.
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, hiddenRepo: false }), 'Fixed the timer.');
+});
+
+test('W5b weekSummary for a private repo: the model\'s words only (never the rule summary), never naming the repo or a file', async () => {
+  const p = { titles: ['Fix the timer'], own, privateRepo: { repoKey: 'a/secretapp' } };
+  assert.equal(await weekSummary(p, reply('Fixed the cooking timer.')), 'Fixed the cooking timer.');
+  assert.equal(await weekSummary(p, null), null, 'no model: nothing');
+  assert.equal(await weekSummary(p, reply('NONE')), null);
+  assert.equal(await weekSummary(p, reply('Shipped secretapp dark mode.')), null);
+  assert.equal(await weekSummary(p, reply('Fixed the timer in lib/timer.ts.')), null);
+});
+
 test('W7 the ship log says "Started tracking" once: on the oldest week that stored a start', () => {
   const started = { started: { live: true, weeks: 0 } } as never;
   const log = logCards([

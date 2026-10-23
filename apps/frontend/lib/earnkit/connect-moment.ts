@@ -35,8 +35,8 @@ export const CONNECT_WEEKS_MAX = 12;
 /**
  * The weeks of `key` still to confirm, newest first, at most CONNECT_WEEKS_MAX: every finished, checked row with facts, not hidden, not
  * approved (v3 final review: not only the backfill's Mondays, so an older stored week is offered too). Each line is
- * "Week of Oct 5: <summary>" (the summary as the weekly moment shows it, weekly-moment.ts weekLineRule: a private
- * repo's only with titles on), else the week's chips. Throws on a database error.
+ * "Week of Oct 5: <summary>" (the summary as the weekly moment shows it, weekly-moment.ts weekLineRule `asking`: the
+ * builder sees what they approve), else the week's chips. Throws on a database error.
  */
 export async function connectWeeks(builderId: number, key: string, now: Date = new Date()): Promise<ConnectWeek[]> {
   const rows = await sql()<{ monday: string; facts: WeekFacts; titles: string[]; summary: string | null }[]>`
@@ -47,7 +47,7 @@ export async function connectWeeks(builderId: number, key: string, now: Date = n
     ORDER BY week DESC`;
   const open = rows.filter((r) => hasFacts(r.facts ?? {})).slice(0, CONNECT_WEEKS_MAX);
   if (open.length === 0) return [];
-  const line = await weekLineRule(builderId, key);
+  const line = await weekLineRule(builderId, key, { asking: true });
   return open.map((r) => ({
     monday: r.monday,
     line: `${weekLabel(r.monday)}: ${((r.titles.length > 0 || r.summary) ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
