@@ -6,7 +6,7 @@ import { sql } from './db';
 import { profileCode, profileCodesIn } from './discovery-clues';
 import { withEnv } from './fixtures/find';
 import { ScoreDeadline } from './campaigns';
-import { readSources } from './sources';
+import { SITE_PROOF_LOST, SITE_PROOF_MISSES_MAX, readSources } from './sources';
 import type { ReaderDeps } from './source-readers';
 
 /**
@@ -137,15 +137,57 @@ test('SP4 a stale or rejected site is never verified by earnkit.txt or a homepag
   assert.deepEqual(await stateOf(rejected), { state: 'rejected', proof: null });
 });
 
-test('SP5 a verified site keeps its proof and is not asked for earnkit.txt (repo_link is confirmed in the live score)', dbTest, async () => {
+test('SP5 a verified site keeps its proof; only an earnkit_txt one is asked for earnkit.txt again (fix round)', dbTest, async () => {
   const linked = await source({ state: 'verified', proof: 'repo_link', by: 'server' });
-  const proven = await source({ ref: `https://proven${ID}.example.com`, state: 'verified', proof: 'earnkit_txt', by: 'server' });
+  const provenSite = `https://proven${ID}.example.com`;
+  const proven = await source({ ref: provenSite, state: 'verified', proof: 'earnkit_txt', by: 'server' });
   const fetched: string[] = [];
-  await run(reader(200, { [`${SITE}/earnkit.txt`]: txt(ID) }, fetched));
-  assert.deepEqual(fetched, []);
+  await run(reader(200, { [`${SITE}/earnkit.txt`]: txt(ID), [`${provenSite}/earnkit.txt`]: txt(ID, provenSite) }, fetched));
+  assert.deepEqual(fetched, [`${provenSite}/earnkit.txt (plain)`]);
   assert.deepEqual(await stateOf(linked), { state: 'verified', proof: 'repo_link' });
   assert.deepEqual(await stateOf(proven), { state: 'verified', proof: 'earnkit_txt' });
   assert.equal((await readings(linked)).length, 1);
+});
+
+const misses = async (id: number) => (await sql()<{ m: number }[]>`SELECT proof_misses AS m FROM builder_sources WHERE id = ${id}`)[0].m;
+const runOn = (day: string, r: ReaderDeps) =>
+  withEnv({ EARNKIT_AUTH_SECRET: SECRET }, () => readSources(new Date(`${day}T10:00:00Z`), { deadline: Date.now() + 10_000, reader: r, only: [ID] }));
+
+test('SP11 fix round: a verified earnkit_txt site whose code is gone 3 days in a row is revoked; a day counts once', dbTest, async () => {
+  const id = await source({ state: 'verified', proof: 'earnkit_txt', by: 'server' });
+  await runOn('2026-10-23', reader(200, {}));
+  assert.equal(await misses(id), 1);
+  // The same day again (a second run): not counted twice.
+  await sql()`UPDATE builder_sources SET last_read_day = NULL WHERE id = ${id}`;
+  await runOn('2026-10-23', reader(200, {}));
+  assert.equal(await misses(id), 1);
+  await runOn('2026-10-24', reader(200, { [`${SITE}/earnkit.txt`]: txt(OTHER) }));
+  assert.equal(await misses(id), 2, 'another person\'s code is a miss');
+  assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' });
+  await runOn('2026-10-25', reader(200, { [`${SITE}/earnkit.txt`]: new Error('ECONNRESET') }));
+  const [r] = await sql()<{ state: string; reason: string | null }[]>`SELECT state, reject_reason AS reason FROM builder_sources WHERE id = ${id}`;
+  assert.deepEqual(r, { state: 'rejected', reason: SITE_PROOF_LOST }, 'a failed fetch is a miss too; the third revokes');
+  assert.equal(SITE_PROOF_MISSES_MAX, 3);
+});
+
+test('SP12 fix round: one success resets the misses', dbTest, async () => {
+  const id = await source({ state: 'verified', proof: 'earnkit_txt', by: 'server' });
+  await runOn('2026-10-23', reader(200, {}));
+  await runOn('2026-10-24', reader(200, {}));
+  assert.equal(await misses(id), 2);
+  await runOn('2026-10-25', reader(200, { [`${SITE}/earnkit.txt`]: txt(ID) }));
+  assert.equal(await misses(id), 0);
+  await runOn('2026-10-26', reader(200, {}));
+  await runOn('2026-10-27', reader(200, {}));
+  assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' }, 'two misses after the reset: still verified');
+});
+
+test('SP13 fix round: the run\'s deadline during the check counts nothing', dbTest, async () => {
+  const id = await source({ state: 'verified', proof: 'earnkit_txt', by: 'server' });
+  for (const day of ['2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26'])
+    await runOn(day, reader(200, { [`${SITE}/earnkit.txt`]: new ScoreDeadline() }));
+  assert.equal(await misses(id), 0);
+  assert.deepEqual(await stateOf(id), { state: 'verified', proof: 'earnkit_txt' });
 });
 
 test('SP6 a proposed site that is the homepage of the person\'s App-proven repo is verified repo_link (no GitHub call)', dbTest, async () => {

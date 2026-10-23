@@ -13,10 +13,12 @@ export const isConfirmedProof = (p: string | null | undefined): boolean => p != 
 
 /**
  * Owner batch 2026-10-23 (reverses plan S9 for sites): a site proven by its own earnkit.txt (the person's
- * `profile:` code) or a DNS TXT record is confirmed, so it counts toward the Shipping score. Only for a site
- * source: these proofs say nothing about a repo, a package or a contract.
+ * `profile:` code) is confirmed, so it counts toward the Shipping score and may be linked. It is checked again on
+ * every daily read (sources.ts recheckSite: three misses in a row revoke it). `dns_txt` is not: nothing verifies or
+ * re-checks a DNS record, so it confirms nothing. Only for a site source: the proof says nothing about a repo, a
+ * package or a contract.
  */
-export const SITE_PROOFS: ReadonlySet<string> = new Set(['earnkit_txt', 'dns_txt']);
+export const SITE_PROOFS: ReadonlySet<string> = new Set(['earnkit_txt']);
 /** The proofs that confirm a site source: the confirmed proofs and the site proofs. */
 export const CONFIRMED_SITE_PROOFS: readonly string[] = [...CONFIRMED_PROOFS, ...SITE_PROOFS];
 /** Whether a verified source's proof confirms it (a site proof only for a site). Pure. */

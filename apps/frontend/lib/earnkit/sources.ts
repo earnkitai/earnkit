@@ -156,6 +156,37 @@ export async function proveSite(s: { id: number; builder_id: number; ref: string
   if (siteOwnedByText(text, code)) await verifySource(s.id, 'earnkit_txt');
 }
 
+/** Owner batch fix round: consecutive daily misses of a verified earnkit_txt site's code before its proof is revoked. */
+export const SITE_PROOF_MISSES_MAX = 3;
+/** The reject reason of a site whose earnkit.txt stopped naming the person. */
+export const SITE_PROOF_LOST = 'site_proof_lost';
+
+/**
+ * Owner batch fix round: a verified `earnkit_txt` site is checked again on its daily read (`day`): its origin's
+ * /earnkit.txt (the same safe text/plain fetch as proveSite) must still carry the person's `profile:` code. A miss
+ * (no code, or a failed fetch) adds one to proof_misses, once a day; one success resets it; the
+ * SITE_PROOF_MISSES_MAX-th miss in a row revokes the proof (rejectSource, SITE_PROOF_LOST), so the site stops
+ * counting, being linked and being shown. The run's deadline (ScoreDeadline) propagates and counts nothing. No
+ * EARNKIT_AUTH_SECRET (no code to look for): nothing is checked.
+ */
+export async function recheckSite(s: { id: number; builder_id: number; ref: string }, d: ReaderDeps, day: string): Promise<void> {
+  const [row] = await sql()<{ checked: string | null }[]>`
+    SELECT proof_checked_day::text AS checked FROM builder_sources WHERE id = ${s.id} AND kind = 'site' AND state = 'verified' AND proof = 'earnkit_txt'`;
+  if (!row || row.checked === day || !URL.canParse(s.ref)) return;
+  const origin = new URL(s.ref).origin;
+  const code = profileCode(s.builder_id, origin);
+  if (code === null) return;
+  const text = await soft(d.fetchText(`${origin}/earnkit.txt`, { plainText: true }), '');
+  if (siteOwnedByText(text, code)) {
+    await sql()`UPDATE builder_sources SET proof_misses = 0, proof_checked_day = ${day} WHERE id = ${s.id}`;
+    return;
+  }
+  const [m] = await sql()<{ misses: number }[]>`
+    UPDATE builder_sources SET proof_misses = proof_misses + 1, proof_checked_day = ${day}
+    WHERE id = ${s.id} AND state = 'verified' AND proof_checked_day IS DISTINCT FROM ${day} RETURNING proof_misses AS misses`;
+  if (m && m.misses >= SITE_PROOF_MISSES_MAX) await rejectSource(s.id, SITE_PROOF_LOST);
+}
+
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
 export async function rejectSource(id: number, reason: string, db: Db = sql()): Promise<void> {
   const [row] = await db<{ builder_id: number }[]>`
@@ -685,6 +716,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (s.kind !== 'site' || signals === undefined) continue;
     // The reading is written first: a failing proof step never drops it; the deadline stops the run here.
     try {
+      // A verified earnkit_txt site is checked again (before proveSite, so a site proven today is fetched once).
+      await recheckSite(s, o.reader, day);
       await proveSite(s, (signals as SiteSignals).up, o.reader);
     } catch (err) {
       if (err instanceof ScoreDeadline) break;

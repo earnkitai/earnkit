@@ -263,8 +263,8 @@ test('4.11 a proposed site\'s days up add no shipping week; a confirmed one does
   assert.equal((await weeks()).includes(wk(21)), true, 'confirmed: its first day up is a shipping week');
 });
 
-test('4.11b owner batch: a site proven by earnkit.txt or DNS TXT counts toward Shipping (its first day up, the live bonus); an agent-typed one never does', dbTest, async () => {
-  for (const [n, proof] of [[15, 'earnkit_txt'], [16, 'dns_txt']] as const) {
+test('4.11b owner batch: a site proven by earnkit.txt counts toward Shipping (its first day up, the live bonus); an agent-typed one never does', dbTest, async () => {
+  for (const [n, proof] of [[15, 'earnkit_txt']] as const) {
     const id = T + n;
     const key = `site${n}${T}/app`;
     await person(id, key, { [wk(0)]: 1 });
@@ -280,6 +280,17 @@ test('4.11b owner batch: a site proven by earnkit.txt or DNS TXT counts toward S
     assert.equal((await project()).ship_weeks.includes(wk(21)), true, `${proof}: its first day up is a shipping week`);
     assert.ok(proven.score > typed.score, `${proof}: the live site adds to the score (${typed.score} -> ${proven.score})`);
   }
+  // Fix round: nothing re-checks a DNS record, so a dns_txt site adds nothing.
+  const id = T + 16;
+  const key = `site16${T}/app`;
+  await person(id, key, { [wk(0)]: 1 });
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${`https://site16${T}.example.com`}, ${key}, 'verified', 'dns_txt', 'agent') RETURNING id::int AS sid`;
+  for (const d of [21, 1])
+    await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.equal(p.ship_weeks.includes(wk(21)), false, 'dns_txt: no shipping week');
 });
 
 test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {
