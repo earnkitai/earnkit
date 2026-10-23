@@ -230,7 +230,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   const stale = (await mcpCall(a.ctx, 'find', {})).reply;
   const s = oneStatusOneStep(stale);
   // Task 16 step 2: a named repo not counted gets its install link ("You're in").
-  assert.match(s, /^You're in, @\S+\.\nStep 2 of 2: /);
+  // GTM W2: the open grant's line before the step (value before the ask).
+  assert.match(s, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: /);
   assert.doesNotMatch(s, RANKED, s);
   assert.doesNotMatch(s, /You moved up/, s);
   assert.deepEqual(stale?.rank_lines, []);

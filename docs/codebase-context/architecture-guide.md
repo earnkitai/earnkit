@@ -7824,6 +7824,51 @@ the change link.
 - Tests: `v31-base-onboarding.test.ts` (exact texts, one link and one question, each no remembered, no loops, the page).
 
 
+## GTM W2: the reply journey (2026-10-23, from the 5-persona journey audit)
+
+- **Value before the ask.** `BenchView.open` (the open grant, `openGrant`) is set for every state but ranked; a step 2
+  reply (`isStep2`: the picker, or the first repo's install link) puts `grantHook` ("Base pays up to $5,000 for apps on
+  Base.") between the account line and the step. One link, one question kept.
+- **Link-only projects (Lovable, Bolt).** A not-counted project whose key is a link (variant `no_repo`) is on the no-GitHub
+  path (`noCode` in benchView and stateAsk): the repo picker (`pick_repo`), then after a no the Base walk-through, the wallet
+  step and the resting question, as for no project. `githubAnswer` / `restAnswer` treat a link-only main as no repo
+  (`hasRepo`). Its name is the builder's (`reportedName` from identity), never the host (`linkName`, `YOUR_APP`). An old
+  stored `repo_behind` no goes to `githubAnswer`. The nos on this path say `NEXT_STEP_LATER`, never "Okay.". The Base steps
+  reply stores `base_help` (move_up); its yes (or a `base_start` yes while `base_help` is the stored ask) is
+  `BASE_HELP_STEP` (Lovable/Bolt GitHub labels) with the resting question (kind `next_step`), never the steps again.
+  present.ts `CHAT_ONLY` no longer sends a chat-only builder to a coding agent.
+- **Agent reach** (`agent-reach.ts`). `hosted` (Grok, Muse, Meta, Instinct, OpenClaw by client_name, or find told
+  `agent_can_build: false`, remembered as `standing_seen.no_folder`) picks the `*_HOSTED` ship and qualify notes (no "this
+  folder", no git log); draft-application's first note is neutral for every agent. `schedules` (Grok, Cursor, OpenClaw,
+  Hermes, or no_folder) allows the Monday check-in.
+- **Ranked order** is now connect, backing, post, apply, share, checkin, wallet, new_repo, titles, qualify, ship. The
+  ship question is asked at most once in `SHIP_ASK_DAYS` (7; `standing_seen.ship_asked`); between, ask kind `none` (no
+  question, no move_up, the points line stays). `checkin` is asked once (`checkin_asked`) on a client that schedules;
+  its move_up note tells the agent to set its own Monday routine that calls find; the answer is `standing_seen.checkin`.
+- **Coin.** Backing is computed before the hot post and the apply step in benchView, and the connect yes (the weeks it
+  approves prove the builder) offers it first (`connectBacking`, stored as the backing ask). A private repo is offerable
+  when the page has a public name for it (`coin-moments.ts publicName` = page-data safeNames, never `PRIVATE_NAME`): the
+  offer, the pair and the projects row use that name; the row keeps `repo_url` (the gate reads it through the App, one coin
+  per repo) with `repo_private = true`, so tokens.fun never gets the repo link. No public name: no offer, and a yes says
+  `COIN_NO_PUBLIC_NAME`. Every other gate is unchanged (approved code week, App proof at launch, sanctions, rate limits,
+  owner repo excluded, shared clients). `confirm`'s launched outcome gets `show_to_builder` from
+  `post-reply.ts coinLaunchedReply` (`coinLiveLine` + the coin_intro post as the one link and question; else the coin's
+  page). `coin_intro` and `accepted` skip the one-offered-a-week cap (`PAST_OFFER_LIMIT`). `tell token: 'ask'` on a launched,
+  backed coin answers `backersLine` (backers, fees, page).
+- **Applications and outcomes.** `tell submitted` with no EarnKit entry records `program_status applied` (`appliedOutside`,
+  `appliedLine`); `DRAFT_NOTE` says `tell submitted`. A told accepted/funded/won always gets `outcomeCongrats` (before the
+  proof ask, or as the post's head; alone when no post can follow). A proof-checked outcome (a post_drafts row with
+  `proof_url`) moves the Highlight: page-data `toldApplied.outcome`, `programLabel` "Accepted into X" / "Funded by X" /
+  "Won X".
+- **App already installed.** `repo-proof.ts proveCovered`: a repo owned by a GitHub login this person proved (an App
+  verification, or an App link's sign-in hop on `github_verify_nonces`) that GitHub names an App installation for is proven
+  at once (proveByApp + a verification row). Used by `rankAnswer` (tell main_project) and `coveredRead` (find and score,
+  when the one project is a repo not counted yet, within `COVERED_WAIT_MS`). A builder with an App-proven repo is never
+  shown "Step 2 of 2" again (`appConnected`, `installMoreAsk`).
+- **Email question** is a move_up (`weekly_email`, `EMAIL_ASK_NOTE`): a yes with the address goes to `tell weekly_email`,
+  a no by move_up is saved (`emailAnswer`).
+- Tests: `gtm-w2-replies.test.ts` (mcpCall), and the updated copy in the older reply tests.
+
 ## v3.1 owner people view, EarnKit side (design: v3.1-owner-people-view.md, owner ask 2026-10-23)
 
 Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnkit_ro`. Never shown, scored or ranked.

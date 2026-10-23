@@ -143,15 +143,14 @@ test('(a) after the first approved week the backing offer is the one question, o
   const again = await find(b);
   assert.doesNotMatch(show(again), /backing/i, show(again));
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'backing');
-  // v3.1 spec 3.2 (R1): an apply ask due goes first; backing waits, unclaimed, for the next reply.
+  // GTM W2: with an apply ask due too, backing goes first; the apply step waits for the next reply.
   const both = await builder('a2', { week: true, programs: ['base-builder-grants'] });
   const first = await find(both);
-  assert.equal((first.reply?.move_up as { kind: string }).kind, 'apply', show(first));
-  assert.doesNotMatch(show(first), /backing/i, show(first));
-  assert.equal((await moments(both.id)).length, 0, 'the backing moment waits unclaimed');
+  assert.equal((first.reply?.move_up as { kind: string }).kind, 'backing', show(first));
+  assert.match(lastLine(show(first)), OFFER_RE, show(first));
+  assert.equal(questions(show(first)), 1, show(first));
   const second = await find(both);
-  assert.match(lastLine(show(second)), OFFER_RE, show(second));
-  assert.equal(questions(show(second)), 1, show(second));
+  assert.equal((second.reply?.move_up as { kind: string }).kind, 'apply', show(second));
 }));
 
 test('(b) yes routes to the coin flow note; no counts a decline', db, () => on(async () => {

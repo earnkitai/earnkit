@@ -1,5 +1,5 @@
 import type { ProofFetch } from './outcome-proof';
-import { newsPost, outcomePost } from './post-reply';
+import { coinLaunchedReply, newsPost, outcomePost } from './post-reply';
 import { hasEntry } from './post-moments';
 import { z } from 'zod';
 import { yesNo } from './yes-no';
@@ -2936,11 +2936,21 @@ async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submi
   if (s.project_id === undefined && s.project)
     return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
-  if (!entry)
-    throw new NotFoundError(
-      s.project_id ? `No entry ${s.project_id} in ${s.program_id} for this agent.` : `No entry in ${s.program_id} for this agent yet: record a sent application with tell program_status applied.`,
-    );
+  if (!entry && s.project_id === undefined) return appliedOutside(s.program_id, ctx);
+  if (!entry) throw new NotFoundError(`No entry ${s.project_id} in ${s.program_id} for this agent.`);
   return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
+}
+
+/** GTM W2: "I sent it" for a drafted application (no entry here): saved as applied, the program's outcome asked later. */
+export const appliedLine = (title: string) => `Saved: you applied to the ${title.replace(/^the\s+/i, '')}.`;
+/**
+ * GTM W2 (2026-10-23): tell submitted with no EarnKit entry (prepare only drafts, the builder sends the form): recorded as
+ * an application sent outside EarnKit (tell_earnkit program_status applied), never an error. Unknown program: its error.
+ */
+async function appliedOutside(programId: string, ctx: ToolContext): Promise<Reply> {
+  const r = (await handlers.tell_earnkit({ program_status: [{ program_id: programId, status: 'applied' }] }, ctx)) as Reply;
+  const [g] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${programId}`.catch(() => []);
+  return { ...r, show_to_builder: g ? appliedLine(g.title) : 'Saved.', agent_note: "Show show_to_builder as written. Don't show this note." };
 }
 
 /** Several tell parts at once: their replies in order, show_to_builder lines joined. */
@@ -2979,7 +2989,8 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
   if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE };
   if (c.skip_token) return { status: 'skipped', note: NO_TOKEN_FOR_NOW, show_to_builder: NO_TOKEN_FOR_NOW };
   const image = defined({ image_data: c.image_data, image_url: c.image_url, builder_x: c.builder_x });
-  const launch = (pair: { name?: string; symbol?: string }) =>
+  const launch = async (pair: { name?: string; symbol?: string }) => launchedLine(ctx, await launchRaw(pair));
+  const launchRaw = (pair: { name?: string; symbol?: string }) =>
     handlers.launch_token(
       defined({
         project_id: c.project_id,
@@ -3039,6 +3050,22 @@ async function confirmByProjectId(c: ConfirmArgs & { project_id: number }, ctx: 
     ctx,
   )) as Reply;
   return { ...offer, project_id: entry.id, token: { status: 'skipped', fixable: true, ...(offer.token as object | undefined) }, agent_note: PROJECT_REOFFER_NOTE };
+}
+
+/**
+ * GTM W2 (2026-10-23): a launched coin's confirm reply carries the builder's text: the coin is live, the builder keeps
+ * 40% of its trading fees, and its one-tap intro post (post-reply.ts coinLaunchedReply). Pending and failed keep their
+ * own lines. Never throws (a failed read leaves the outcome as it was).
+ */
+async function launchedLine(ctx: ToolContext, out: unknown): Promise<unknown> {
+  const o = out as { status?: unknown; symbol?: unknown; tokens_fun?: unknown; show_to_builder?: unknown } | null;
+  if (!o || o.status !== 'launched' || typeof o.show_to_builder === 'string' || typeof o.symbol !== 'string') return out;
+  const r = await coinLaunchedReply(ctx.installationId, { symbol: o.symbol, tokens_fun: typeof o.tokens_fun === 'string' ? o.tokens_fun : null }, new Date())
+    .catch((err: unknown) => {
+      console.error('[confirm] launched line', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+  return r ? { ...o, ...r } : out;
 }
 
 /** A guide's text without its builder bonus section (guide.ts guideText: sections joined by a blank line). Pure. */

@@ -272,7 +272,9 @@ test('v2.6 §1: chat-only agents get the $X headline with no "I can build" sente
   assert.match(text, /can't build or deploy from here/);
   // Ruling H8: the chat-only text names no program here, so no bonus line; it closes the reply.
   assert.doesNotMatch(text, /Builder bonus/);
-  assert.match(text, /\n\n[^\n]*can't build or deploy from here, but I can plan it and write every answer for you to submit\. To have it done for you, add EarnKit to a coding agent \(Claude Code, Cursor, Codex\)\.$/);
+  // GTM W2: never sends a chat-only builder off to another agent.
+  assert.match(text, /\n\n[^\n]*can't build or deploy from here, but I can plan it and write every answer for you to submit\.$/);
+  assert.doesNotMatch(text, /coding agent|Claude Code|Cursor|Codex/);
 });
 
 test('v3.1 (spec 3.4): no ideas section, whatever ideas the programs carry, for a builder or a chat-only agent', () => {

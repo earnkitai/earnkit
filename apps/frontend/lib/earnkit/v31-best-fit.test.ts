@@ -145,18 +145,16 @@ test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 da
   assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
 });
 
-test('(c) apply before backing: with both due, the apply ask shows; the next reply offers backing', db, () =>
+test('(c) GTM W2: backing before apply: with both due, the backing offer shows (the Best fit still the money line); the next reply drafts', db, () =>
   withEnv({ EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'v31-best-key' }, async () => {
     const b = await builder('c', [ROLLING], { week: true });
     const f = await find(b);
-    assert.equal(kind(f), 'apply', show(f));
-    assert.doesNotMatch(show(f), /back Kit onchain/, 'backing waits');
-    const [m] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM coin_moments WHERE builder_id = ${b.id}`;
-    assert.equal(m.n, 0, 'the backing moment is not claimed while it waits');
+    assert.equal(kind(f), 'backing', show(f));
+    assert.match(show(f), /Want to open backing for Kit\?$/);
+    assert.equal(show(f).split('\n')[1], ROLLING_BEST, 'the Best fit is still the money line');
     const next = await find(b);
-    assert.equal(kind(next), 'backing', show(next));
-    assert.match(show(next), /Want to open backing for Kit\?$/);
-    assert.equal(show(next).split('\n')[1], ROLLING_BEST, 'the Best fit is still the money line');
+    assert.equal(kind(next), 'apply', show(next));
+    assert.ok(show(next).endsWith(applyEnd(ROLLING_TITLE, null)), show(next));
   }));
 
 test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db, async () => {

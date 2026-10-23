@@ -61,6 +61,8 @@ export function coinLine(moment: Moment, name: string, wallet: string | null, co
 /** The builder's line when a coin yes came without a wallet and none was shown. */
 export const COIN_WALLET_ASK = 'Send me the wallet the fees should go to.';
 const NOTED = 'Okay.';
+/** GTM W2: a private repo with no public name (no proven site, no name of the builder's own) can't carry a coin. */
+export const COIN_NO_PUBLIC_NAME = "Your repo is private and your project has no public name yet, so a coin can't launch for it.";
 /** Fix round 2: a yes after the coin launched. */
 export const COIN_LIVE = 'Your coin is already live.';
 export const COIN_LAUNCHING = 'Your coin is launching.';
@@ -136,8 +138,23 @@ export async function coinOfferable(builderId: number, projectKey: string): Prom
   if (!(await coinAllowed(builderId, projectKey))) return false;
   const { repo_url } = await confirmedLinks(builderId, projectKey);
   if (repo_url === null) return false;
-  // v2.13.3 review (I1): never for a repo not read public (the coin and its tokens.fun page would name it).
-  return (await repoReadPublic(builderId, repoOfUrl(repo_url)));
+  // v2.13.3 review (I1): a repo not read public is never named by the coin. GTM W2 (2026-10-23): it can still have one
+  // when the project has a public name (a proven site, or the name the builder gave: publicName), launched under it.
+  if (await repoReadPublic(builderId, repoOfUrl(repo_url))) return true;
+  return (await publicName(builderId, projectKey)) !== null;
+}
+/** A confirmed repo not read public: the coin's name and launch carry no repo link. True when this one is. */
+async function hiddenRepo(builderId: number, repoUrl: string | null): Promise<boolean> {
+  return repoUrl !== null && !(await repoReadPublic(builderId, repoOfUrl(repoUrl)));
+}
+/**
+ * GTM W2: a private repo's public name, the page's own safe name (page-data.ts safeNames: a proven site's name, or the
+ * name the builder gave that isn't the repo's), else null (no coin: nothing public to call it).
+ */
+export async function publicName(builderId: number, projectKey: string): Promise<string | null> {
+  const { safeNames, PRIVATE_NAME } = await import('./page-data');
+  const safe = (await safeNames([builderId]))(builderId, projectKey);
+  return safe && safe !== PRIVATE_NAME ? safe : null;
 }
 /** A confirmed repo link as its key (owner/repo, lowercase). Pure. */
 const repoOfUrl = (u: string) => u.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?github\.com\//, '').replace(/(\.git)?\/*$/, '');
@@ -186,7 +203,13 @@ export async function offerCoin(
   if (!p) return null;
   const { repo_url } = await confirmedLinks(builderId, p.project_key);
   const wallet = await coinWallet(builderId);
-  const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
+  // GTM W2: a private repo's coin is proposed from its public name only (never the repo's), and the line names it so.
+  const hidden = await hiddenRepo(builderId, repo_url);
+  const name = hidden ? await publicName(builderId, p.project_key) : p.name;
+  if (name === null) return null;
+  const pair = hidden
+    ? await proposeToken(name, deps.check ?? tokensFunTickerCheck, undefined)
+    : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   const coin = { name: pair.name, symbol: pair.symbol };
   if (deps.late?.()) return null;
   if (!(await claimMoment(builderId, p.project_key, moment, wallet))) return null;
@@ -196,7 +219,7 @@ export async function offerCoin(
     await sql()`DELETE FROM coin_moments WHERE builder_id = ${builderId} AND project_key = ${p.project_key} AND moment = ${moment} AND answer IS NULL`;
     return null;
   }
-  return { line: coinLine(moment, p.name, wallet, coin), wallet };
+  return { line: coinLine(moment, name, wallet, coin), wallet };
 }
 
 /**
@@ -246,11 +269,17 @@ export async function openCoinLine(builderId: number, projectKey: string, deps: 
   const { repo_url } = await confirmedLinks(builderId, m.project_key);
   const key = offerKey(repo_url, p.name);
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
+  // GTM W2: a private repo's offer is shown again under its public name, never the repo's.
+  const hidden = await hiddenRepo(builderId, repo_url);
+  const name = hidden ? await publicName(builderId, m.project_key) : p.name;
+  if (name === null) return null;
   const coin = shown
     ? { name: shown.name, symbol: shown.symbol }
-    : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
+    : hidden
+      ? await proposeToken(name, deps.check ?? tokensFunTickerCheck, undefined)
+      : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repo_url ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repo_url) });
   if (!shown) await saveOffer(builderId, COIN_PROGRAM, key, { name: coin.name, symbol: coin.symbol }, false, m.wallet);
-  return { line: coinLine(m.moment, p.name, m.wallet, { name: coin.name, symbol: coin.symbol }), wallet: m.wallet };
+  return { line: coinLine(m.moment, name, m.wallet, { name: coin.name, symbol: coin.symbol }), wallet: m.wallet };
 }
 
 type MomentRow = { project_key: string; moment: Moment; answer: 'yes' | 'no' | null; project_id: number | null; wallet: string | null };
@@ -286,6 +315,10 @@ export async function coinYes(
   if (existing?.token_url) return { show_to_builder: existing.token_url === 'pending' ? COIN_LAUNCHING : COIN_LIVE };
   const repoUrl = existing ? existing.repo_url : links.repo_url;
   const key = offerKey(repoUrl, p.name);
+  // GTM W2: a repo not read public is named only by the project's public name in every line (never the repo's).
+  const privateNow = !existing && (await hiddenRepo(builderId, links.repo_url));
+  const lineName = privateNow ? await publicName(builderId, m.project_key) : p.name;
+  if (lineName === null) return { show_to_builder: COIN_NO_PUBLIC_NAME };
   const shown = await readShownOffer(builderId, COIN_PROGRAM, key);
   const given = wallet && isWalletAddress(wallet.trim()) ? wallet.trim().toLowerCase() : null;
   // A launch already tried (a proof line missing, say): the same entry, pair and wallet, never rewritten.
@@ -301,10 +334,12 @@ export async function coinYes(
       UPDATE coin_moments SET wallet = ${to}, answer = NULL, answered_at = NULL
       WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
     await saveOffer(builderId, COIN_PROGRAM, key, coin, false, to);
-    return { show_to_builder: coinLine(m.moment, p.name, to, coin), agent_note: COIN_NOTE };
+    return { show_to_builder: coinLine(m.moment, lineName, to, coin), agent_note: COIN_NOTE };
   };
   if (!shown) {
-    const pair = await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repoUrl) });
+    const pair = privateNow
+      ? await proposeToken(lineName, deps.check ?? tokensFunTickerCheck, undefined)
+      : await proposeToken(p.name, deps.check ?? tokensFunTickerCheck, repoUrl ?? undefined, { ownEarnkit: await earnkitOwnRepo(builderId, repoUrl) });
     return again(given ?? m.wallet, { name: pair.name, symbol: pair.symbol });
   }
   const coin: Coin = { name: shown.name, symbol: shown.symbol };
@@ -314,16 +349,21 @@ export async function coinYes(
   const to = given ?? m.wallet ?? (await provenWallet(builderId));
   if (!to) return { show_to_builder: COIN_WALLET_ASK };
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
-  // v2.13.3 review (I1): a repo no longer read public (it went private after the offer): the coin, if made,
-  // carries only the page's safe name and no repo link, so nothing on tokens.fun names the repo.
-  if (!existing && links.repo_url && !(await repoReadPublic(builderId, repoOfUrl(links.repo_url)))) {
-    const safe = (await (await import('./page-data')).safeNames([builderId]))(builderId, m.project_key);
-    const pair = await proposeToken(safe, deps.check ?? tokensFunTickerCheck, undefined);
-    const hidden: Coin = { name: pair.name, symbol: pair.symbol };
+  // v2.13.3 review (I1), GTM W2 (2026-10-23): a repo not read public (private from the start, or it went private after
+  // the offer): the coin carries only the project's public name (publicName), and the entry keeps the repo only for the
+  // gate (the App reads it) and one-per-repo, marked repo_private, so tokens.fun never gets its link. No public name: no coin.
+  if (privateNow && links.repo_url) {
+    const safe = lineName;
+    // The pair the line showed, when it was proposed from this name; else (the repo went private after the offer) a
+    // fresh one from the name, shown before any yes.
+    const fresh = await proposeToken(safe, deps.check ?? tokensFunTickerCheck, undefined);
+    const hidden: Coin = fresh.name === coin.name ? coin : { name: fresh.name, symbol: fresh.symbol };
+    if (hidden !== coin) return again(to, hidden);
     const [{ id }] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice)
-      VALUES (${COIN_PROGRAM}, ${safe}, ${null}, ${links.live_url}, ${builderId}, ${to}, now(), 'go') RETURNING id`;
-    await saveOffer(builderId, COIN_PROGRAM, offerKey(null, safe), hidden, false, to);
+      INSERT INTO projects (program_id, name, repo_url, live_url, installation_id, creator_wallet, confirmed_at, confirm_choice, repo_private)
+      VALUES (${COIN_PROGRAM}, ${safe}, ${links.repo_url}, ${links.live_url}, ${builderId}, ${to}, now(), 'go', true) RETURNING id`;
+    if (raisingEnabled()) await sql()`UPDATE projects SET raising_at = COALESCE(raising_at, now()) WHERE id = ${id}`;
+    await saveOffer(builderId, COIN_PROGRAM, offerKey(links.repo_url, safe), hidden, false, to);
     await sql()`
       UPDATE coin_moments SET answer = 'yes', answered_at = COALESCE(answered_at, now()), project_id = ${id}
       WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;

@@ -6,7 +6,7 @@ import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-dr
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
 import {
-  HOT_HOURS, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
+  HOT_HOURS, coinIntroCandidate, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
 } from './post-moments';
 import { pagePath } from './reserved-routes';
 
@@ -115,13 +115,16 @@ export async function eventPost(id: number, handle: string, now: Date, o: { hot:
   return null;
 }
 
-/** A drafted moment's reply and its move_up, the ask stored. Null when it can't be drafted now. */
-async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now: Date): Promise<Record<string, unknown> | null> {
+/**
+ * A drafted moment's reply and its move_up, the ask stored. Null when it can't be drafted now. GTM W2: `head` replaces
+ * the moment's own head line (the coin's launch, a congrats).
+ */
+async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now: Date, o: { head?: string } = {}): Promise<Record<string, unknown> | null> {
   const handle = await handleOf(id);
   if (!handle) return null;
   const d = await draftMoment(id, c, { asked }, now).catch(logged('draft'));
   if (!d?.ok) return null;
-  const head = eventHead(c, now);
+  const head = o.head ?? eventHead(c, now);
   await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head, moment: c });
   return {
     show_to_builder: postReply({ head, ...offerOf(handle, d.draft) }, askOf(c)),
@@ -189,11 +192,42 @@ export async function outcomePost(
 ): Promise<Record<string, unknown> | null> {
   // Fix round: never an amount the agent states (prize_usd is not read here); the award is the announced one only.
   const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }, { proofFetch: o.proofFetch }).catch(logged('outcome'));
-  if (c === 'no_proof') return { show_to_builder: PROOF_ASK, agent_note: PROOF_NOTE };
+  // GTM W2 (2026-10-23): every told outcome gets a short congrats, never nothing; the post only with a checked proof.
+  const congrats = await congratsLine(s.program_id, s.status);
+  if (c === 'no_proof') return { show_to_builder: [congrats, PROOF_ASK].join('\n'), agent_note: PROOF_NOTE };
   // Final review 1: the program lists no proof hosts or X accounts, so no link could prove it: a plain acknowledgement.
   if (c === 'no_proof_source') return { show_to_builder: OUTCOME_NOTED };
-  if (!c || typeof c === 'string') return null;
-  return draftedReply(id, c, false, now);
+  if (!c || typeof c === 'string') return { show_to_builder: congrats };
+  return (await draftedReply(id, c, false, now, { head: [congrats, eventHead(c, now)].filter(Boolean).join(' ') })) ?? { show_to_builder: congrats };
+}
+
+/** GTM W2: "Congrats on getting into the Base Builder Grant Program." (funded, won: their own words). Never throws. */
+async function congratsLine(programId: string, status: 'accepted' | 'funded' | 'won'): Promise<string> {
+  const [g] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${programId}`.catch(() => []);
+  return outcomeCongrats(status, g?.title ?? null);
+}
+/** GTM W2: the congrats for a told outcome, the program named when known. Pure. */
+export function outcomeCongrats(status: 'accepted' | 'funded' | 'won', title: string | null): string {
+  if (!title) return 'Congrats.';
+  const the = /^the\s/i.test(title) ? title : `the ${title}`;
+  if (status === 'accepted') return `Congrats on getting into ${the}.`;
+  if (status === 'funded') return `Congrats on the funding from ${the}.`;
+  return `Congrats on winning ${the}.`;
+}
+
+/** GTM W2: the launch reply's head: the coin is live and the builder keeps 40% of its trading fees. Pure. */
+export const coinLiveLine = (symbol: string) => `Your coin $${symbol} is live. You keep 40% of its trading fees.`;
+/**
+ * GTM W2 (2026-10-23): confirm's reply when the coin launched: the coin is live, the builder's 40%, then its one-tap intro
+ * post (the coin_intro moment, once ever) as the reply's one link and question. No post can be drafted (backing not on
+ * the page, or the intro already drafted): the coin's own page is the one link. Never throws.
+ */
+export async function coinLaunchedReply(id: number, coin: { symbol: string; tokens_fun: string | null }, now: Date): Promise<Record<string, unknown>> {
+  const head = coinLiveLine(coin.symbol);
+  const c = await coinIntroCandidate(id, now).catch(logged('coin intro'));
+  const post = c && typeof c !== 'string' ? await draftedReply(id, c, false, now, { head }) : null;
+  if (post) return post;
+  return { show_to_builder: coin.tokens_fun && /^https:\/\//.test(coin.tokens_fun) ? `${head}\nIts page: ${coin.tokens_fun}` : head };
 }
 
 /**

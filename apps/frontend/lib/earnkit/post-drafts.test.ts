@@ -107,7 +107,7 @@ test('limits: 1 offered draft a person per 7 days, 1 asked per 24 hours, 3 in al
   assert.deepEqual([OFFERED_PER_WEEK, ASKED_PER_DAY, DRAFTS_PER_WEEK], [1, 1, 3]);
   const id = person();
   assert.ok((await createDraft(draft(id), at(0))).ok);
-  assert.deepEqual(await createDraft(draft(id, { momentKey: 'coin_intro:0xabc', moment: 'coin_intro' }), at(1)), { ok: false, reason: 'offered_limit' });
+  assert.deepEqual(await createDraft(draft(id, { momentKey: 'news:maya/recipes:x', moment: 'news', shape: 'note' }), at(1)), { ok: false, reason: 'offered_limit' });
   assert.deepEqual(await createDraft(draft(id), at(24 * 7 - 1)), { ok: false, reason: 'offered_limit' }, 'still inside the 7 days');
   // Asked drafts: one a day.
   assert.ok((await createDraft(draft(id, { asked: true, shape: 'change' }), at(2))).ok);
@@ -121,8 +121,8 @@ test('limits: 1 offered draft a person per 7 days, 1 asked per 24 hours, 3 in al
   assert.ok((await createDraft(draft(person()), at(1))).ok);
 });
 
-test('controller ruling: went live, won and funded skip the one offered a week (a real win is never crowded out by a weekly); still 3 a week', dbTest, async () => {
-  assert.deepEqual([...PAST_OFFER_LIMIT], ['went_live', 'won', 'funded']);
+test('controller ruling, GTM W2: went live, won, funded, accepted and the coin intro skip the one offered a week (a money moment is never crowded out by a weekly); still 3 a week', dbTest, async () => {
+  assert.deepEqual([...PAST_OFFER_LIMIT], ['went_live', 'won', 'funded', 'accepted', 'coin_intro']);
   const id = person();
   assert.ok((await createDraft(draft(id), at(0))).ok, 'an ordinary weekly offered first');
   assert.ok((await createDraft(draft(id, { momentKey: 'went_live:maya/recipes', moment: 'went_live', shape: 'live' }), at(1))).ok);
@@ -131,8 +131,11 @@ test('controller ruling: went live, won and funded skip the one offered a week (
   assert.deepEqual(await createDraft(draft(id, { momentKey: 'funded:arc', moment: 'funded', shape: 'funded' }), at(3)), { ok: false, reason: 'week_limit' });
   const other = person();
   assert.ok((await createDraft(draft(other), at(0))).ok);
-  assert.deepEqual(await createDraft(draft(other, { momentKey: 'accepted:arc', moment: 'accepted', shape: 'accepted' }), at(1)), { ok: false, reason: 'offered_limit' });
-  assert.ok((await createDraft(draft(other, { momentKey: 'funded:arc', moment: 'funded', shape: 'funded' }), at(2))).ok);
+  assert.ok((await createDraft(draft(other, { momentKey: 'accepted:arc', moment: 'accepted', shape: 'accepted' }), at(1))).ok);
+  assert.ok((await createDraft(draft(other, { momentKey: 'coin_intro:0xabc', moment: 'coin_intro', shape: 'coin_intro' }), at(2))).ok);
+  const third = person();
+  assert.ok((await createDraft(draft(third), at(0))).ok);
+  assert.deepEqual(await createDraft(draft(third, { momentKey: 'news:maya/recipes:y', moment: 'news', shape: 'note' }), at(1)), { ok: false, reason: 'offered_limit' });
 });
 
 test('limits hold under ten drafts at once: exactly one offered draft is written', dbTest, async () => {

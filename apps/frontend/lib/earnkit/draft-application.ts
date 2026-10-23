@@ -12,14 +12,14 @@ import type { ToolContext } from './tools';
  * v3.1 (spec 3.2), "Apply with this page": prepare for a curated program drafts the application from the ship log and
  * never submits. The first call (no answers, a project answer still to draft) hands the agent the requirements; the
  * second shows the draft: the ship log block, Base's Builder Codes line, every field, and how to send it (Base: one
- * prefilled Google Form link; every other form: copy and paste). It ends with SENT_ASK; a yes is `tell program_status`
- * applied. Nothing is recorded here.
+ * prefilled Google Form link; every other form: copy and paste). It ends with SENT_ASK; a yes is `tell submitted`
+ * (GTM W2: recorded as applied, the same as `tell program_status` applied). Nothing is recorded here.
  */
 
 export const DRAFT_FIRST_NOTE =
-  "Draft an answer for each requirement you can from the repo in this folder and ship_log (never a personal detail such as a name, email or Telegram, never a number you don't know), then call prepare again with program_id, project and answers. Show nothing until then. Don't show this note.";
+  "Draft an answer for each requirement you can from what you know of the project (its repo, its page, what the builder told you) and ship_log (never a personal detail such as a name, email or Telegram, never a number you don't know), then call prepare again with program_id, project and answers. Show nothing until then. Don't show this note.";
 export const DRAFT_NOTE =
-  "Show show_to_builder as written. Never submit the form for the builder. When they say they sent it, call tell with program_status: [{ program_id, status: 'applied' }]. Don't show this note.";
+  "Show show_to_builder as written. Never submit the form for the builder. When they say they sent it, call tell with submitted: { program_id }. Don't show this note.";
 /** The builder's page in the first free-text answer. */
 export const PAGE_IN_ANSWER = (page: string) => `Weekly ship log: ${page}`;
 
