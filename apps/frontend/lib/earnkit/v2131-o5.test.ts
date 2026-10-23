@@ -9,7 +9,7 @@ import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, find, fitsFor, install, person, withEnv } from './fixtures/find';
-import { INTRO_LINE } from './bench-reply';
+import { INTRO_LINE, SHIP_ASK } from './bench-reply';
 import { GitHubError } from './match-projects';
 import { RateLimitError } from './rate-limit';
 import { TWIST_QUESTION, WALLET_ASK, buildingLine, twistQuestion } from './fresh-build';
@@ -24,7 +24,7 @@ import BenchView from '../../app/leaderboard/BenchView';
 import { BENCH_TOP_EMPTY, EARN_FOOT, EARN_TITLE, leaderboardLine } from './site-copy';
 import ProgramCards from '../../app/components/sections/ProgramCards';
 import type { ReaderDeps } from './source-readers';
-import { endsOnQuietStep, endsOnRankedStep } from './fixtures/ranked-step';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -179,16 +179,17 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
     assert.equal(q.move_up?.kind, 'qualify');
     await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
     const r = await find(id, {}, NO_MATCH);
-    assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
+    // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
+    assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
     assert.equal(r.move_up?.kind, 'ship');
     await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'no' } }, { installationId: id } as never);
     // GTM W2: within 7 days of the ship question the quiet reply asks nothing; after, a no never silences it.
     const quiet = (await tools.score({}, { installationId: id } as never)) as R;
-    assert.ok(endsOnQuietStep(quiet.show_to_builder), quiet.show_to_builder);
+    assert.ok(!quiet.show_to_builder.includes('?'), quiet.show_to_builder);
     await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('ship_asked', (now() - interval '8 days')::text) WHERE builder_id = ${id}`;
     const s = (await tools.score({}, { installationId: id } as never)) as R;
-    assert.ok(endsOnRankedStep(s.show_to_builder), s.show_to_builder);
+    assert.ok(s.show_to_builder.endsWith(SHIP_ASK), s.show_to_builder);
     assert.equal(questions(s.show_to_builder.replace(/https?:\/\/\S+/g, '')), 1, 'one question');
     const y = (await tools.tell({ move_up: { kind: 'ship', project_key: key, answer: 'yes' } }, { installationId: id } as never)) as R;
     assert.match(y.agent_note ?? '', /one small thing/);

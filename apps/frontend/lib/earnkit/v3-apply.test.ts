@@ -265,7 +265,7 @@ test('(g) readStats applications and accepted', db, async () => {
   });
 });
 
-test('(h) an investment closing within 30 days is the apply step (find and score), and a fit line (v3.1 F1), never the lead', db, async () => {
+test('(h) v3.1 cold read: an investment closing within 30 days (it takes a company) is never the apply step or the lead (find and score)', db, async () => {
   // v3 Stage 2 final review: the spec's example is an accelerator ("Alliance ALL19 closes Nov 18. Want me to draft
   // your application from your ship log?"), so an investment is an apply candidate. v3.1 F1: it is a fit line too,
   // its award read as an investment; the lead (the earn note's program) stays a grant.
@@ -277,10 +277,12 @@ test('(h) an investment closing within 30 days is the apply step (find and score
     // find writes the fits score reads (installations.fit_repos); the first reply here is the builder's own.
     const r = await mcpCall(b.ctx, tool, {});
     const s = show(r);
-    assert.ok(s.endsWith(`\n${applyAsk(p.title, '$400,000 investment', p.when)}\nShip code this week: up to +100 points`), `${tool}: ${s}`);
+    // v3.1 cold read (owner-approved): a program that takes a company with a full-time team is never offered unprompted.
+    assert.ok(!s.includes(applyAsk(p.title, '$400,000 investment', p.when)), `${tool}: ${s}`);
+    assert.doesNotMatch(s, new RegExp(p.title), `${tool}: never the money line either`);
     assert.notEqual((r.reply?.lead as { program_id?: string } | undefined)?.program_id, p.id, `${tool}: an investment is never the lead`);
     assert.equal(questions(s), 1, s);
     assert.equal(links(s).length <= 1, true, s);
-    assert.equal((r.reply?.move_up as { kind: string }).kind, 'apply', tool);
+    // Another program (a grant from this file) may be the apply step; never this investment (its title is never named above).
   }
 });

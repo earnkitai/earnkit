@@ -154,7 +154,7 @@ test('(d) the guide header: the facts as separate muted spans (award, when, chai
   assert.ok(text(h).includes('Difficulty: '));
   assert.equal(asks(fullGuide).length, 1);
   assert.match(h, /<h2[^>]*>What Arc wants now<\/h2>/);
-  assert.match(h, /<h2[^>]*>Your best bet<\/h2>/);
+  assert.match(h, /<h2[^>]*>Most likely to win<\/h2>/);
   assert.match(h, /Sources:/);
   assert.match(h, /href="\/#earn"/);
   // The parts are a ROWS list: it closes with a hairline, each part opens with one.

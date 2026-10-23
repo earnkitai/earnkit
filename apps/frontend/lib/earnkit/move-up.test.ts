@@ -14,10 +14,11 @@ import { upsertProgram } from './programs';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { scoreFits } from './stand-view';
-import { fitLines, fitWhy, tokenUnavailable } from './bench-find';
+import { fitLines, fitWhy } from './bench-find';
+import { COIN_BLOCKED } from './coin-moments';
 import { INTRO_LINE, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import type { RepoFit } from './present';
-import { endsOnQuietStep, endsOnRankedStep } from './fixtures/ranked-step';
+import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -138,8 +139,9 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const t = String(sc.show_to_builder);
   assert.match(t, /^Kit · /m);
   assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
-  // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days).
-  assert.ok(endsOnQuietStep(t), t);
+  // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days); v3.1 cold read: the points
+  // line was shown this week (find), so score leaves it out too (at most once an ISO week).
+  assert.ok(!t.includes('?') && !/points/.test(t), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
@@ -150,14 +152,15 @@ test('R8: asking about a token (tell token: \'ask\', through the MCP schema) wit
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${a.id} AND kind = 'repo'`;
   // Launches off (no tokens.fun key): asking says so, nothing is recorded.
   const off = (await mcpCall(a.ctx, 'tell', { token: 'ask' })).reply!;
-  assert.equal(off.show_to_builder, tokenUnavailable('Tokenkit'));
+  // v3.1 cold read: one honest line why, never a bare "not available".
+  assert.equal(off.show_to_builder, COIN_BLOCKED.off);
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   try {
     const ctx = { ...a.ctx, tokenDeps: { check: async () => true } };
     // v3.1 final fix 1: launches on but EARNKIT_RAISING off: confirm isn't registered, so no coin is offered (the
     // flag-on offer, yes and confirm are v31-mcp-surface (j)).
     const asked = (await mcpCall(ctx, 'tell', { token: 'ask' })).reply!;
-    assert.equal(asked.show_to_builder, tokenUnavailable('Tokenkit'), JSON.stringify(asked));
+    assert.equal(asked.show_to_builder, COIN_BLOCKED.off, JSON.stringify(asked));
     assert.equal(asked.coin, undefined);
     assert.doesNotMatch(String(asked.agent_note ?? ''), /tell with coin|confirm/);
     for (const tool of ['find', 'score'] as const) assert.doesNotMatch(String((await mcpCall(a.ctx, tool, {})).reply?.show_to_builder), COIN_WORDS, tool);
@@ -168,15 +171,16 @@ test('R8: asking about a token (tell token: \'ask\', through the MCP schema) wit
 
 test('R16a: the steps\' copy before the account has a page, one table (signed_out, no_project, not_counted); ranked asks to ship', () => {
   assert.deepEqual(Object.keys(STATE_COPY), ['signed_out', 'no_project', 'not_counted']);
-  assert.equal(STATE_COPY.not_counted.stand('Kit'), "Kit isn't counted yet.");
+  // v3.1 cold read: never "<Project> isn't counted yet.".
+  assert.equal(STATE_COPY.not_counted.stand('Kit'), null);
   assert.equal(SHIP_ASK, 'Want me to suggest one small thing to ship?');
   // The other states keep their next steps: sign in, name a repo, install the App.
   assert.match(STATE_COPY.signed_out.ask('https://x'), /^Step 1 of 2: sign in with X/);
   assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
-  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Step 2 of 2: connect your app's code on GitHub/);
+  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Connect your app's code on GitHub so I can match it/);
   for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit'))),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), SHIP_ASK])
-    assert.doesNotMatch(l, COIN_WORDS, l);
+    if (l !== null) assert.doesNotMatch(l, COIN_WORDS, l);
 });
 
 test('R16a through mcpCall: signed out, no project and not counted keep their own step; only ranked asks to ship', db, async () => {
@@ -186,10 +190,10 @@ test('R16a through mcpCall: signed out, no project and not counted keep their ow
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
   // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.
-  assert.match(s2, /\nStep 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first\.\nDone\?$/, s2);
+  assert.match(s2, /\nConnect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
-  assert.match(s3, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub/);
+  assert.match(s3, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it/);
   for (const s of [s1, s2, s3]) {
     assert.ok(!s.includes(SHIP_ASK), s);
     assert.doesNotMatch(s, COIN_WORDS, s);

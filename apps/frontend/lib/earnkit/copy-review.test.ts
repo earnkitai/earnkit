@@ -891,8 +891,8 @@ function weeklyCopy(): [string, string][] {
     ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
     // v3.1 Task 16 step 7: the moment, the post to paste and its question.
-    ['momentHead', momentHead({ week: 4, place: 'still', rank: 3 })],
-    ['momentHead first', momentHead({ week: 0, place: null, rank: 1 })],
+    ['momentHead', momentHead({ week: 4 })],
+    ['momentHead first', momentHead({ week: 0 })],
     ['postReply went live', postReply({ head: eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: new Date().toISOString() } }), text: 'Tally is live.', link: 'https://earnkit.com/sam/post/abcdefghij' }, POST_ASK)],
     ['postReply won', postReply({ head: eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Spring Builder Grant' } }), text: 'Ledgerline won the Spring Builder Grant ($5,000).', link: 'https://earnkit.com/lee/post/abcdefghij' }, POST_ASK)],
     ['pageLine', pageLine('https://earnkit.com/lee')],
@@ -914,7 +914,7 @@ export const v2121Texts: [string, string][] = [
   // v3.1 Task 16: the ranked replies' lines (steps 3, 4, 5 and the ship step) and the draft's (step 6).
   ['SHIP_ASK', SHIP_ASK],
   ['shipPointsLine', shipPointsLine()],
-  ['connectAsk', connectAsk(3, 'earnkit.com/maya')],
+  ['connectAsk', connectAsk('earnkit.com/maya')],
   ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 2)],
   ['standingLine', standingLine('Recipes', '#3 of 12 builders', 2, 340)],
   ['applyAsk', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
@@ -1228,8 +1228,9 @@ test('v2.6 §3 copy review: "You could" shows only with no repo and no GitHub us
   // part of this exclusivity check; it is in the scan above for its own (alert) copy.
 });
 
-test('v2.6 §3 copy review: the with-repo hook keeps "qualify"', () => {
-  assert.match(withRepos, /you qualify for/);
+test('v2.6 §3 copy review, v3.1 cold read: the with-repo header names the best fit (never a pooled "in prizes" total)', () => {
+  assert.match(withRepos, /^\d+ programs? (?:is|are) open\. Your best fit: /);
+  assert.doesNotMatch(withRepos, /in prizes/);
 });
 
 test('v2.8 Task 9: the coach screens are short: at most 3 numbered questions and one bullet, 25 words each, at most 3 fixes', () => {
@@ -1281,8 +1282,8 @@ test('v2.9 Task 12: never an em dash in builder-facing text', async () => {
   for (const [label, text] of [...builderFacing, ...(await gatherGateReasons())]) assert.doesNotMatch(text, /\u2014/, label);
 });
 
-test('v2.9 A3: the applied line reads "applied outside EarnKit"', () => {
-  assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied outside EarnKit\./);
+test('v2.9 A3, v3.1 cold read: the applied line reads "applied" (never "applied outside EarnKit": EarnKit may have drafted it)', () => {
+  assert.match(appliedOutsideText, /^Your entries: Base Builder Grant Program: applied\./);
 });
 
 test('v2.9 B9, v2.14: the App link copy: short, no em dashes, no tool names', () => {
@@ -1349,7 +1350,9 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.
   assert.equal(landing.open_text, `${fig} in grants and prizes open`);
   assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} in grants and prizes open`));
-  assert.ok(presentFirstMessage(msg({ cards, now })).startsWith(`${fig} in prizes open right now.`));
+  // v3.1 cold read: the first reply's table header counts programs, never a pooled total.
+  assert.match(presentFirstMessage(msg({ cards, now })), /^\d+ programs? (?:is|are) open\./);
+  assert.ok(!presentFirstMessage(msg({ cards, now })).includes('in prizes'));
   const rows = cards.map((c) => ({
     max_award_usd: c.max_award_usd ?? null, status: 'active', campaign: c.earnkit_campaign ? {} : null,
     source: c.sponsored ? 'sponsor' : 'file', starts_at: null, ends_at: c.ends_at?.toISOString() ?? null,
@@ -1427,8 +1430,8 @@ function v31Texts(): [string, string][] {
     ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 2)],
     ['qualifySteps', qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'])],
     ['TITLES_ASK', TITLES_ASK],
-    ['connectAsk', connectAsk(1, 'earnkit.com/maya')],
-    ['connectAsk weeks', connectAsk(4, 'earnkit.com/maya')],
+    ['connectAsk', connectAsk('earnkit.com/maya')],
+    ['connectAsk weeks', connectAsk('earnkit.com/ana')],
     ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 4)],
     ['connectStanding unranked', connectStanding('Recipes', null, 4)],
     ['applyAsk dated', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
@@ -1449,9 +1452,9 @@ function v31Texts(): [string, string][] {
     ['week start behind', ws({ above: { rank: 1, score: 90 } })],
     ['week start hold', ws({ rank: 1 })],
     ['week start unranked', ws({ rank: null })],
-    ['momentHead still', momentHead({ week: 4, place: 'still', rank: 3 })],
-    ['momentHead now', momentHead({ week: 4, place: 'now', rank: 3 })],
-    ['momentHead on EarnKit', momentHead({ week: 0, place: null, rank: 1 })],
+    ['momentHead still', momentHead({ week: 4 })],
+    ['momentHead now', momentHead({ week: 5 })],
+    ['momentHead on EarnKit', momentHead({ week: 0 })],
     ['POST_HEAD', POST_HEAD],
     ['MOMENT_ASK', MOMENT_ASK],
     ['draft prefilled', prefilled.show_to_builder],
@@ -1484,7 +1487,7 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
     qualifyMissing: ['Base', 'Builder Codes'],
     'qualifyAsk all': ['Base'],
     'qualifyAsk some': ['Base'],
-    qualifySteps: ['Base', 'Builder Codes'],
+    qualifySteps: ['Base', 'Builder Code'],
     'Best fit dated': [GRANT],
     'Best fit rolling': [GRANT],
     builderCodesFound: ['Builder Codes'],

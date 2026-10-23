@@ -57,10 +57,14 @@ const GUIDE = 'https://docs.base.org/base-chain/builder-codes/builder-codes';
 
 test('the hook names the grant from its program facts', () => {
   const card = (o: Partial<Card>): Card => ({ id: 'p', title: 'P', summary: '', tag: null, each_time: [], status: 'active', ...o });
-  assert.deepEqual(grantOf(card({ organizer: 'Base', chains: ['base'], max_award_usd: 5000 })), BASE);
+  // v3.1 cold read: the hook names the program ("Base Builder Grant Program" reads "Base Builder Grants").
+  const named = grantOf(card({ title: 'Base Builder Grant Program', organizer: 'Base', chains: ['base'], max_award_usd: 5000 }));
+  assert.deepEqual(named, { ...BASE, name: 'Base Builder Grants' });
+  assert.equal(grantHook(named!), 'Base Builder Grants pay up to $5,000 for apps on Base.');
+  // Without a program name, the organizer.
   assert.equal(grantHook(BASE), 'Base pays up to $5,000 for apps on Base.');
-  const arc = grantOf(card({ organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 }))!;
-  assert.equal(grantHook(arc), 'Arc House pays up to $10,000 for apps.');
+  const arc = grantOf(card({ title: 'Arc Microgrant', organizer: 'Arc House (Circle)', any_chain: true, max_award_usd: 10000 }))!;
+  assert.equal(grantHook(arc), 'Arc Microgrant pays up to $10,000 for apps.');
   assert.equal(grantOf(card({ organizer: 'Base', chains: ['base'] })), null, 'no award: no hook');
 });
 
@@ -109,17 +113,15 @@ test('the no-fit copy, word for word', () => {
   assert.equal(all, [
     "3 steps to qualify for Base's $5,000 grant:",
     '1. Put your app on Base.',
-    `2. Add Builder Codes (Base asks for this first): ${GUIDE}`,
+    `2. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: ${GUIDE}`,
     '3. Have a live product people use.',
     '',
-    'I check your code for Builder Codes and offer to draft your application once Base fits.',
     'Want help with step 1 now?',
   ].join('\n'));
   assert.equal(rule(qualifySteps(BASE, ['use'])), [
     "Your next step toward Base's $5,000 grant:",
     '1. Have a live product people use.',
     '',
-    'I check your code for Builder Codes and offer to draft your application once Base fits.',
     'Want help with step 1 now?',
   ].join('\n'));
 
@@ -148,7 +150,7 @@ test('the no-fit copy, word for word', () => {
   assert.equal(stateAsk(v).line, 'Want me to suggest one small thing to ship?');
   // The titles question comes before it, once.
   assert.equal(stateAsk({ ...v, titles: true, qualify: q }).line, TITLES_ASK);
-  assert.equal(TITLES_ASK, 'Show your commit titles on your page? Your code stays private.');
+  assert.equal(TITLES_ASK, 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.');
 });
 
 test('a closed or unlisted Base grant keeps the ship step', async () => {
@@ -217,23 +219,22 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   const r = await mcpCall(ctx, 'find', {});
   const s = rule(show(r));
   const lines = s.split('\n');
-  assert.match(lines[0], /^Kit · #\d+ of 13 builders · \d+ weeks? in a row$/);
-  assert.deepEqual(lines.slice(1, 4), [
-    'Base pays up to $5,000 for apps on Base.',
+  // v3.1 cold read: the standing was said in the connect reply and hasn't changed, so it isn't repeated.
+  assert.deepEqual(lines.slice(0, 3), [
+    'Base Builder Grants pay up to $5,000 for apps on Base.',
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
     "Want the 2 steps toward Base's $5,000 grant?",
   ]);
-  assert.match(lines[4], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
-  assert.equal(lines.length, 5);
+  assert.match(lines[3], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
+  assert.equal(lines.length, 4);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(rule(show(yes)), [
     "Your next 2 steps toward Base's $5,000 grant:",
-    `1. Add Builder Codes (Base asks for this first): ${GUIDE}`,
+    `1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: ${GUIDE}`,
     '2. Have a live product people use.',
     '',
-    'I check your code for Builder Codes and offer to draft your application once Base fits.',
     'Want help with step 1 now?',
   ].join('\n'));
   assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
@@ -243,7 +244,7 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   const next = await mcpCall(ctx, 'find', {});
   const n = rule(show(next));
   assert.ok(n.includes('Want me to suggest one small thing to ship?'), n);
-  assert.doesNotMatch(n, /Base pays|steps/);
+  assert.doesNotMatch(n, /pays? up to|steps/);
   assert.equal((next.reply?.move_up as { kind: string }).kind, 'ship');
 
   // The offer returns after 30 days (a yes or a no), and never for a builder who told EarnKit about Base's grant.
@@ -268,7 +269,7 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   assert.equal(await titlesAskDue(c.id, 'someone/else', new Date()), false);
   const r4 = await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
   const s4 = rule(show(r4));
-  assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show your commit titles on your page? Your code stays private.'].join('\n'));
+  assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'].join('\n'));
   assert.match(s4.split('\n')[2], /^\+\d+ points added · \d+ total$/);
   assert.deepEqual(r4.reply?.move_up, { kind: 'titles', project_key: key, agent_note: TITLES_NOTE });
 
@@ -280,7 +281,7 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   // no missing line: the question counts all three steps.
   const next = rule(show(await mcpCall(ctx, 'find', {})));
   assert.doesNotMatch(next, /Your code stays private|still needs/);
-  assert.ok(next.includes("Base pays up to $5,000 for apps on Base.\nWant the 3 steps to qualify for Base's $5,000 grant?"), next);
+  assert.ok(next.includes("Base Builder Grants pay up to $5,000 for apps on Base.\nWant the 3 steps to qualify for Base's $5,000 grant?"), next);
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');

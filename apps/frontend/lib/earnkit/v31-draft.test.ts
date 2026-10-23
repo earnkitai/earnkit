@@ -198,12 +198,9 @@ test('(e) Alliance: the email field, the continues line, the form link', db, asy
   assert.equal(r.isError, false, r.text);
   const s = show(r);
   assert.deepEqual(links(s), [alliance.submission_url]);
+  // v3.1 cold read: EarnKit fills nothing here (the form lives on Alliance's site), so never "I filled 0 of 1 answer".
   assert.equal(s, [
-    `${draftReadyLine(alliance.title, 0, 1)}`,
-    "You add: the first founder's email.",
-    "After the email (1st founder) step, the application continues on Alliance's site.",
-    '',
-    `Paste each answer into the form: ${alliance.submission_url}`,
+    `Alliance's application is on their site and starts with the first founder's email: ${alliance.submission_url}`,
     SENT_ASK,
   ].join('\n'));
 });

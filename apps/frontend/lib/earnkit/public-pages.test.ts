@@ -131,7 +131,7 @@ test('v2.7 §2: a partial guide leaves out the parts it has no data for', () => 
   const h = guideHtml(partialGuide);
   assert.doesNotMatch(h, /What won/);
   assert.match(h, /<h2[^>]*>What Arc wants now<\/h2>/);
-  assert.match(h, /<h2[^>]*>Your best bet<\/h2>/);
+  assert.match(h, /<h2[^>]*>Most likely to win<\/h2>/);
 });
 
 test('v2.7 §2: an empty guide is the header, the difficulty and "Ask your agent"', () => {

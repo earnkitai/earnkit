@@ -59,7 +59,8 @@ const RANKED = /#[\d,]+ of [\d,]+ builders?|Top [\d.]+% of builders/;
 /** R10, Task 16: exactly one status line and one next step: one question in all. */
 function oneStatusOneStep(reply: Record<string, unknown> | null): string {
   const s = String(reply?.show_to_builder ?? '');
-  assert.equal((s.match(STATUS) ?? []).length, 1, `one status line: ${s}`);
+  // v3.1 cold read: "You're in" only on the first reply after sign-in, so a later step reply may carry no status line; never two.
+  assert.ok((s.match(STATUS) ?? []).length <= 1, `at most one status line: ${s}`);
   const questions = (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
   assert.equal(questions, 1, `one question in all: ${s}`);
   return s;
@@ -112,7 +113,7 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
     INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
-  for (const c of copy) assert.doesNotMatch(c, /bench/i, c);
+  for (const c of copy) if (c !== null) assert.doesNotMatch(c, /bench/i, c);
   assert.match(STATE_COPY.signed_out.ask('L'), /^Step 1 of 2: sign in with X \(one click\): L\nDone\?$/);
   const llms = readFileSync(join(FRONTEND, 'lib/earnkit/llms/v213.txt'), 'utf8');
   assert.match(llms, /^## The leaderboard$/m);
@@ -229,9 +230,9 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   await seen(5);
   const stale = (await mcpCall(a.ctx, 'find', {})).reply;
   const s = oneStatusOneStep(stale);
-  // Task 16 step 2: a named repo not counted gets its install link ("You're in").
+  // Task 16 step 2: a named repo not counted gets its install link (v3.1 cold read: "You're in" was said already).
   // GTM W2: the open grant's line before the step (value before the ask).
-  assert.match(s, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: /);
+  assert.match(s, /^(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it /);
   assert.doesNotMatch(s, RANKED, s);
   assert.doesNotMatch(s, /You moved up/, s);
   assert.deepEqual(stale?.rank_lines, []);

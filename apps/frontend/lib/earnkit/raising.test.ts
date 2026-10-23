@@ -39,9 +39,9 @@ const confirm = async (id: number, key: string) => {
 
 test('9.1 the offer line names the coin before the yes (v3 Stage 2: the backing offer); the wallet is shown when known (B13)', () => {
   assert.equal(raiseLine('Recipe planner', 'RECIPE', null),
-    'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+    'I can launch $RECIPE, a coin for Recipe planner on Base. Every trade pays a fee and you keep 40%. Coins can go to zero. Launch it?');
   assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-    'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees, paid to 0x12ab…9f3e. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+    'I can launch $RECIPE, a coin for Recipe planner on Base. Every trade pays a fee and you keep 40%, sent to 0x12ab…9f3e. Coins can go to zero. Launch it?');
   assert.equal(showRaisingLine('RECIPE'), 'Want your page to show backing for $RECIPE?');
 });
 
@@ -69,7 +69,10 @@ test('9.4 R8: the community-round line for an old coin comes only when the build
   assert.deepEqual(await tokenAsk(id), { show_to_builder: showRaisingLine('RECIPE'), agent_note: RAISE_NOTE });
   assert.deepEqual(await tokenAsk(id), { show_to_builder: showRaisingLine('RECIPE'), agent_note: RAISE_NOTE }, 'asked again: the same line');
   await setRaising(id, true);
-  assert.equal((await tokenAsk(id)).show_to_builder, 'Your coin is already live.', 'already showing');
+  // v3.1 cold read: once showing, asking is answered with its backers and fees, then one post question.
+  const showing = await tokenAsk(id);
+  assert.equal(showing.show_to_builder, 'No backers yet. Backers follow posts about real progress. Want a post about this week?', 'already showing');
+  assert.equal((showing.move_up as { kind?: string } | undefined)?.kind, 'backers_post');
 });
 
 test('9.5 tell coin { raising } through the tool turns raising on', dbTest, async () => {

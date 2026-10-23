@@ -74,7 +74,7 @@ test('L2.1 signed in with no project: the reply carries the repo picker link and
   const p = await signedIn('ana');
   const r = await mcpCall(p.ctx, 'find', {});
   const s = String(r.reply?.show_to_builder);
-  assert.match(s, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first\.\nDone\?$/, s);
+  assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/, s);
   assert.doesNotMatch(s, /What's your GitHub|link to something you've made/);
   assert.equal(links(s).length, 1, 'one https link');
   assert.ok(s.includes(`@${p.username}.`), s);
@@ -83,9 +83,13 @@ test('L2.1 signed in with no project: the reply carries the repo picker link and
   const [row] = await sql()<{ repo_key: string; purpose: string; installation_id: number }[]>`
     SELECT repo_key, purpose, installation_id FROM github_verify_nonces WHERE nonce_hash = ${sha(new URL(links(s)[0]!).searchParams.get('n')!)}`;
   assert.deepEqual(row, { repo_key: PICK_REPOS, purpose: 'app', installation_id: p.id });
-  // A yes is told to wait for the install, then find again.
+  // v3.1 cold read (bug 1): a yes before anything is connected is never an empty reply: it says so, with a fresh link.
   const yes = await mcpCall(p.ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' } });
-  assert.match(String(yes.reply?.agent_note), /installed EarnKit from the link and picked their repos/);
+  const y = String(yes.reply?.show_to_builder);
+  assert.ok(y.startsWith("I don't see your code on GitHub yet. "), y);
+  assert.equal(links(y).length, 1, y);
+  assert.ok(y.endsWith('Done?'), y);
+  assert.equal((yes.reply?.move_up as { kind?: string })?.kind, 'pick_repo');
 });
 
 test('L2.2 S7: the picker\'s confirm page names the page every repo goes to; no page, no link', db, async () => {

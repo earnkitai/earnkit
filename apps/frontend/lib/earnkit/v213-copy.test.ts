@@ -23,7 +23,7 @@ import { fitWhy } from './bench-find';
 /** Builder and public text added in v2.13, checked by the v2.13 rule (plan B17). Names (projects, programs, $TICKERS) are exempt. */
 const EXEMPT = ['Recipe planner', 'Avalanche Team1 Mini Grants', 'Base Builder Grants', 'Builder Codes', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
 const s = (rank: number, total: number) => ({ ranked: true, rank, total });
-export const TEXTS: string[] = [
+export const TEXTS: string[] = ([
   ...[s(18, 100), s(3, 1000), s(10, 19), s(70, 100)].flatMap((x) => [rankLine(x)!, scoreLine(62, rankLine(x))]),
   ...(['base', 'arc', 'robinhood'] as const).flatMap((chain) => [rankLine(s(1, 100), { chain })!, rankLine(s(2, 12), { chain })!]),
   // T8: the reply's lines. The 2b lines name a funder and the starter's offer through the BENCH_PITCH_ALLOWED hook (plan B12).
@@ -33,8 +33,8 @@ export const TEXTS: string[] = [
   grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' }), qualifyMissing('Recipe planner', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!, qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3),
   qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
-  connectAsk(3, 'earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
-  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4, place: 'now', rank: 3 }), MOMENT_ASK,
+  connectAsk('earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
+  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4 }), MOMENT_ASK,
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
     { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },
@@ -47,7 +47,7 @@ export const TEXTS: string[] = [
   // T9: the raise lines and the pill's words.
   raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
   pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),
-];
+] as (string | null)[]).filter((x): x is string => x !== null);
 
 test('7.5 every v2.13 string passes the v2.13 copy rule', () => {
   for (const t of TEXTS) assert.deepEqual(bannedInBench(t, EXEMPT), [], t);

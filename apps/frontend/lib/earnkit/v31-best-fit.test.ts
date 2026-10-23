@@ -125,9 +125,10 @@ test('(a) a rolling fit only: the rolling ask, once; then the Best fit is the mo
   assert.ok(s.endsWith(applyEnd(ROLLING_TITLE, null)), s);
   assert.equal(kind(f), 'apply');
   assert.doesNotMatch(s, /—/);
-  // Once: the next reply names the Best fit as its money line, and asks the weekly step instead.
+  // Once: the next reply names the Best fit as its money line, and asks the weekly step instead (v3.1 cold read: the
+  // standing line was just shown and hasn't changed, so the Best fit leads).
   const again = await find(b);
-  assert.equal(show(again).split('\n')[1], ROLLING_BEST, show(again));
+  assert.equal(show(again).split('\n')[0], ROLLING_BEST, show(again));
   assert.doesNotMatch(show(again), /I can draft it/);
   assert.notEqual(kind(again), 'apply');
 });
@@ -139,7 +140,7 @@ test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 da
   const f = await find(b);
   const s = show(f);
   assert.ok(s.endsWith(applyEnd(soon.title, soon.when)), s);
-  assert.equal(show(await find(b)).split('\n')[1], qualifyLine({ title: soon.title, amount: '$5,000', when: `closes ${soon.when}` }));
+  assert.equal(show(await find(b)).split('\n')[0], qualifyLine({ title: soon.title, amount: '$5,000', when: `closes ${soon.when}` }));
   const c = await builder('b2', [ROLLING, far.id]);
   const t = show(await find(c));
   assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
@@ -150,11 +151,12 @@ test('(c) GTM W2: backing before apply: with both due, the backing offer shows (
     const b = await builder('c', [ROLLING], { week: true });
     const f = await find(b);
     assert.equal(kind(f), 'backing', show(f));
-    assert.match(show(f), /Want to open backing for Kit\?$/);
+    assert.match(show(f), /^I can launch \$KIT, a coin for Kit on Base\. [^\n]*Launch it\?$/m);
     assert.equal(show(f).split('\n')[1], ROLLING_BEST, 'the Best fit is still the money line');
     const next = await find(b);
     assert.equal(kind(next), 'apply', show(next));
-    assert.ok(show(next).endsWith(applyEnd(ROLLING_TITLE, null)), show(next));
+    // v3.1 cold read: the unchanged standing isn't repeated, so the apply step leads.
+    assert.ok(`\n${show(next)}`.endsWith(applyEnd(ROLLING_TITLE, null)), show(next));
   }));
 
 test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db, async () => {
@@ -165,13 +167,14 @@ test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db
   await unguard();
   const s = show(await find(b));
   assert.doesNotMatch(s, /I can draft it/, s);
-  // Still a fit: the money line names it (the first fit line), never as the ask.
-  assert.equal(s.split('\n')[1], ROLLING_BEST, s);
+  // Still a fit: the money line names it (the first fit line), never as the ask (the unchanged standing isn't repeated).
+  assert.equal(s.split('\n')[0], ROLLING_BEST, s);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
     WHERE builder_id = ${b.id}`;
   await unguard();
   const back = show(await find(b));
-  assert.ok(back.endsWith(applyEnd(ROLLING_TITLE, null)), back);
+  // v3.1 cold read: the points line was this week's already (at most once an ISO week).
+  assert.ok(`\n${back}`.endsWith(`\n${applyAsk(ROLLING_TITLE, '$5,000', null)}`), back);
 });
 
 test('(e) a taken repo or a program in builder_program_status: no Best fit, no ask', db, async () => {

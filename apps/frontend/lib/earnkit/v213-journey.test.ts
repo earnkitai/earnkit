@@ -1,7 +1,7 @@
 import './fixtures/no-network-checks';
 import { walletOffered } from './fixtures/wallet-step';
 import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
-import { BACKING_NOT_YET } from './bench-find';
+import { TOKEN_LOG_PENDING } from './bench-find';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -548,15 +548,17 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
   assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
-  assert.equal(r2.move_up?.kind, 'ship');
+  // v3.1 cold read: long shots (the investments this repo matches) never lead, so with no real fit the step is Base's path.
+  assert.equal(r2.move_up?.kind, 'qualify');
   // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
   // v3 Stage 2 review: under EARNKIT_RAISING, backing opens after the first approved week with code.
-  assert.equal((await call('tell', { token: 'ask' }, ctx(id))).show_to_builder, BACKING_NOT_YET);
+  // v3.1 cold read: no dead end: the shipping log isn't written up yet (no backfilled week), said plainly.
+  assert.equal((await call('tell', { token: 'ask' }, ctx(id))).show_to_builder, TOKEN_LOG_PENDING);
   await sql()`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
   const asked = await call('tell', { token: 'ask' }, ctx(id));
-  assert.match(asked.show_to_builder, /^People can back Recipe planner onchain\. EarnKit launches a \$\w+ coin on tokens\.fun for it; you keep 40% of its trading fees\. It is a tradable token on Base and can go to zero\. Want to open backing for Recipe planner\?$/, asked.show_to_builder);
+  assert.match(asked.show_to_builder, /^I can launch \$\w+, a coin for Recipe planner on Base\. Every trade pays a fee and you keep 40%\. Coins can go to zero\. Launch it\?$/, asked.show_to_builder);
   MAYA.offer = asked.show_to_builder;
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes');
@@ -586,7 +588,7 @@ test('16.2 acceptance 2, without a project: the repo picker and no build offer (
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're in, @maya2_builds\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub\./, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it /, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');
@@ -603,7 +605,7 @@ test('16.3 acceptance 3, the weekly update: no yes (v2.14 spec 3), the agent\'s 
   assert.equal(ask.schedule_weekly_update, undefined);
   const posted = await call('tell', { update: { text: 'Added fridge photo import, so it plans a week of meals from a picture.' } }, ctx(id));
   // v3.1 one-tap posts (design 6): posted to the page, and the builder's news becomes their post for X (its one-tap link).
-  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X, with your page card:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant to change any words\?$/);
+  assert.match(String(posted.show_to_builder), /^Added to your page\.\nYour post for X:\n"Added fridge photo import, so it plans a week of meals from a picture\."\nPost it in one tap: https:\/\/earnkit\.com\/maya_makes\/post\/[a-z2-7]{10}\nWant to change any words\?$/);
   const log = await renderProfile('maya_makes');
   assert.match(log, /data-ek-activity[\s\S]*Added fridge photo import/, log);
   assert.doesNotMatch(log, /written by an agent/i);
@@ -641,7 +643,7 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   const id = MAYA.id;
   await giveFivePeople(id);
   // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
-  assert.match(MAYA.offer, /Want to open backing for Recipe planner\?/);
+  assert.match(MAYA.offer, /a coin for Recipe planner on Base\. .*Launch it\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
   assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise|backing/i);

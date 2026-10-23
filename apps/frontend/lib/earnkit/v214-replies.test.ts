@@ -61,8 +61,8 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
 test('9.9 state 2, signed in with no project: the page and the repo picker (launch ready L2)', db, async () => {
   const a = await agent({ x: 'abe' });
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, new RegExp(`^You're in, @abe${RUN}\\.\n`, 'i'));
-  assert.match(s, /Step 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.match(s, new RegExp(`^You're in, @abe${RUN}\\. I find grants your app qualifies for and write the applications\\.\n`, 'i'));
+  assert.match(s, /Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.ok(s.endsWith("Done?"));
   assert.doesNotMatch(s, /What's your GitHub/);
 });
@@ -73,7 +73,7 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   const a = await agent({ x: 'bo' });
   const key = `bo${RUN}/kit`;
   const s = rule((await mcpCall(a.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } })).reply);
-  assert.match(s, new RegExp(`^You're in, @bo${RUN}\\.\n`, 'i'));
+  assert.match(s, new RegExp(`^You're in, @bo${RUN}\\. I find grants`, 'i'));
   assert.match(s, /https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.match(s, /Done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
@@ -141,19 +141,22 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const first = rule(bound.reply);
   // Task 16 step 2 names the account itself ("You're in"), so no "Signed in as" line above it.
-  assert.ok(first.startsWith(`You're in, @${handle}.\n`), first);
+  assert.ok(first.startsWith(`You're in, @${handle}. I find grants`), first);
   assert.doesNotMatch(first, /Signed in as/);
   const c = (await connectInstallation(String(a.token)))!;
   const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);
-  assert.ok(next.startsWith(`You're in, @${handle}.\n`), next);
+  // v3.1 cold read: "You're in" only on the first reply after sign-in.
+  assert.doesNotMatch(next, /You're in/, next);
+  assert.match(next, /Connect your app's code on GitHub so I can match it/, next);
 });
 
 test('9.14 the first reply after the sign-in at install names the account (Task 16: "You\'re in")', db, async () => {
   const a = await agent({ x: 'eve' });
   const first = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(first.split('\n')[0], new RegExp(`^You're in, @eve${RUN}\\.$`, 'i'));
+  assert.match(first.split('\n')[0], new RegExp(`^You're in, @eve${RUN}\\. I find grants your app qualifies for and write the applications\\.$`, 'i'));
   assert.doesNotMatch(first, /Signed in as/);
-  assert.match(rule((await mcpCall(a.ctx, 'score', {})).reply), new RegExp(`^You're in, @eve${RUN}\\.\n`, 'i'));
+  // v3.1 cold read: said once; the next reply (score) goes straight to the step.
+  assert.doesNotMatch(rule((await mcpCall(a.ctx, 'score', {})).reply), /You're in/);
 });
 
 test('9.15 fix round 1: signed out with a results question due: the sign-in question wins and the results question waits for the bind', db, async () => {

@@ -341,11 +341,12 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
 
   // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
   const intro = show(await find(b));
-  assert.match(intro, /(?:^|\n)Backing is open on your page\.\nYour post for X, with your page card:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
+  assert.match(intro, /(?:^|\n)Backing is open on your page\.\nYour post for X:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
   const r = show(await find(b));
   assert.match(standLine(r), / · \$200 earned$/, r);
-  assert.ok(r.includes(`Backing: 2 backers, $200 in fees. Your page: https://earnkit.com/${b.handle}`), r);
-  assert.equal(links(r).length, 1, r);
+  // v3.1 cold read: the backing line came with the launch (the intro above); unchanged backers are not said again.
+  assert.ok(!r.includes('Backing: 2 backers'), r);
+  assert.ok(links(r).length <= 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.doesNotMatch(r, /—/);
   assert.equal(backingLine(1, 0, 'earnkit.com/x'), 'Backing: 1 backer, $0 in fees. Your page: earnkit.com/x');

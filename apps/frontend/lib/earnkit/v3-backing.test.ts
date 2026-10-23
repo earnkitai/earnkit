@@ -13,8 +13,8 @@ import { pageWords, unsign } from './fixtures/page-words';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
-import { BACKING_OFFER, COIN_YES_NOTE, coinAllowed, raiseLine } from './coin-moments';
-import { BACKING_NOT_YET, tokenUnavailable } from './bench-find';
+import { BACKING_OFFER, COIN_BLOCKED, COIN_YES_NOTE, coinAllowed, raiseLine } from './coin-moments';
+import { BACKING_NOT_YET, TOKEN_LOG_PENDING } from './bench-find';
 import { RAISE_LINES, showRaisingLine } from './raising';
 import { backingLine } from './bench-reply';
 import { BACKING_EXCLUDED_REPOS } from './policy-constants';
@@ -105,7 +105,10 @@ const find = (b: B) => mcpCall(b.ctx, 'find', {});
 const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', args);
 const lastLine = (s: string) => s.split('\n').at(-1) ?? '';
 const moments = async (id: number) => (await sql()<{ moment: string; answer: string | null }[]>`SELECT moment, answer FROM coin_moments WHERE builder_id = ${id}`).map((r) => ({ ...r }));
-const OFFER_RE = /^People can back (.+) onchain\. EarnKit launches a \$([A-Z0-9]+) coin on tokens\.fun for it; you keep 40% of its trading fees, paid to (0x[0-9a-f]{4}…[0-9a-f]{4})\. It is a tradable token on Base and can go to zero\. Want to open backing for \1\?$/;
+/** v3.1 cold read (owner-approved rewrite 4): $1 the symbol, $2 the project, $3 the short wallet. */
+const OFFER_RE = /^I can launch \$([A-Z0-9]+), a coin for (.+) on Base\. Every trade pays a fee and you keep 40%, sent to (0x[0-9a-f]{4}…[0-9a-f]{4})\. Coins can go to zero\. Launch it\?$/;
+/** The offer anywhere in a reply (v3.1 cold read: its words no longer say "backing"). */
+const OFFERED = /backing|I can launch \$/i;
 /** The coin launched (as tokens.ts would record it) for the entry the yes made. */
 async function launched(b: B, projectId: number, symbol: string) {
   await sql()`
@@ -115,24 +118,24 @@ async function launched(b: B, projectId: number, symbol: string) {
 
 test('(a) after the first approved week the backing offer is the one question, once', db, () => on(async () => {
   assert.equal(BACKING_OFFER('Kit', 'KIT', null),
-    'People can back Kit onchain. EarnKit launches a $KIT coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Kit?');
+    'I can launch $KIT, a coin for Kit on Base. Every trade pays a fee and you keep 40%. Coins can go to zero. Launch it?');
   assert.equal(BACKING_OFFER('Kit', 'KIT', WALLET),
-    'People can back Kit onchain. EarnKit launches a $KIT coin on tokens.fun for it; you keep 40% of its trading fees, paid to 0x12ab…9f3e. It is a tradable token on Base and can go to zero. Want to open backing for Kit?');
+    'I can launch $KIT, a coin for Kit on Base. Every trade pays a fee and you keep 40%, sent to 0x12ab…9f3e. Coins can go to zero. Launch it?');
   const b = await builder('a');
   // No approved week yet: never offered.
   const before = show(await find(b));
-  assert.doesNotMatch(before, /backing/i, before);
+  assert.doesNotMatch(before, OFFERED, before);
   assert.equal((await moments(b.id)).length, 0);
   // A week approved but with no code is not the moment either.
   await approvedWeek(b, { checked: true, approved: true });
-  assert.doesNotMatch(show(await find(b)), /backing/i);
+  assert.doesNotMatch(show(await find(b)), OFFERED);
   await approvedWeek(b);
   const f = await find(b);
   const s = show(f);
   const m = lastLine(s).match(OFFER_RE);
   assert.ok(m, s);
   // Task 16: the standing, then the offer as the one question (no points line: backing earns none).
-  assert.equal(s, `Kit · 1 week in a row\n${BACKING_OFFER(m[1], m[2], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
+  assert.equal(s, `Kit · 1 week in a row\n${BACKING_OFFER(m[2], m[1], `0x${(b.id + 1000).toString(16).padStart(40, '0')}`)}`);
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—|community round|\braise\b|raising/i);
@@ -142,7 +145,7 @@ test('(a) after the first approved week the backing offer is the one question, o
   assert.deepEqual(await moments(b.id), [{ moment: 'first_week', answer: null }]);
   // Once: the next reply never repeats it.
   const again = await find(b);
-  assert.doesNotMatch(show(again), /backing/i, show(again));
+  assert.doesNotMatch(show(again), OFFERED, show(again));
   assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'backing');
   // GTM W2: with an apply ask due too, backing goes first; the apply step waits for the next reply.
   const both = await builder('a2', { week: true, programs: ['base-builder-grants'] });
@@ -157,7 +160,7 @@ test('(a) after the first approved week the backing offer is the one question, o
 test('(b) yes routes to the coin flow note; no counts a decline', db, () => on(async () => {
   const b = await builder('b', { week: true });
   const s = show(await find(b));
-  const sym = lastLine(s).match(OFFER_RE)?.[2];
+  const sym = lastLine(s).match(OFFER_RE)?.[1];
   assert.ok(sym, s);
   const yes = await tell(b, { move_up: { kind: 'backing', project_key: b.key, answer: 'yes' } });
   assert.equal(yes.reply?.agent_note, COIN_YES_NOTE, JSON.stringify(yes.reply));
@@ -174,7 +177,7 @@ test('(b) yes routes to the coin flow note; no counts a decline', db, () => on(a
   const no = await tell(c, { move_up: { kind: 'backing', project_key: c.key, answer: 'no' } });
   assert.equal(show(no), 'Okay.');
   assert.deepEqual(await moments(c.id), [{ moment: 'first_week', answer: 'no' }], 'a decline (counts toward DECLINES_MAX)');
-  assert.doesNotMatch(show(await find(c)), /backing/i);
+  assert.doesNotMatch(show(await find(c)), OFFERED);
 }));
 
 test('(c) never for a private repo, a held profile, a taken repo, a project with a coin, or earnkitai/earnkit', db, () => on(async () => {
@@ -184,7 +187,7 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
     const s = show(r);
     // Ranked (the offer's own state), so only the rule under test keeps it away.
     if (ranked) assert.equal((r.reply?.move_up as { kind: string } | undefined)?.kind !== undefined && /^Kit (is on EarnKit\.|· )/m.test(s), true, `${label} is ranked: ${s} ${JSON.stringify(r.reply?.move_up)}`);
-    assert.doesNotMatch(s, /backing/i, `${label}: ${s}`);
+    assert.doesNotMatch(s, OFFERED, `${label}: ${s}`);
     assert.equal((await moments(b.id)).length, 0, label);
   };
   const priv = await builder('cp', { week: true, private: true });
@@ -199,7 +202,8 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
   await none(own, 'earnkitai/earnkit');
   // Review fix 1: nor when the builder asks about a token (tell token: 'ask'); the exclusion is in coinAllowed.
   const ownAsk = await tell(own, { token: 'ask' });
-  assert.equal(show(ownAsk), tokenUnavailable('Kit'), show(ownAsk));
+  // v3.1 cold read: one honest line why.
+  assert.equal(show(ownAsk), COIN_BLOCKED.own, show(ownAsk));
   assert.equal((await moments(own.id)).length, 0);
   assert.equal(await coinAllowed(own.id, 'earnkitai/earnkit'), false);
   assert.equal(await coinAllowed(own.id, 'EarnKitAI/EarnKit'), false, 'compared lowercase');
@@ -212,13 +216,13 @@ test('(c) never for a private repo, a held profile, a taken repo, a project with
   const c2 = (await connectInstallation(t))!;
   const taker = { ctx: { installationId: c2.id, ownInstallationId: c2.own, sharedClient: false, tokenDeps: { check: async () => true } } as Parameters<typeof mcpCall>[0], id: c2.id, key: holder.key, handle: '' };
   const r = await mcpCall(taker.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${holder.key}` } } });
-  assert.doesNotMatch(show(r), /backing/i);
+  assert.doesNotMatch(show(r), OFFERED);
   assert.equal((await moments(c2.id)).length, 0);
 }));
 
 test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard chip Backed, and the JSON carries backing', db, () => on(async () => {
   const b = await builder('d', { week: true });
-  const sym = lastLine(show(await find(b))).match(OFFER_RE)![2];
+  const sym = lastLine(show(await find(b))).match(OFFER_RE)![1];
   const yes = await tell(b, { move_up: { kind: 'backing', project_key: b.key, answer: 'yes' } });
   // Not launched yet: nothing shows.
   assert.equal((await profileData(b.id, new Date()))!.backing, null);
@@ -265,11 +269,12 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
 
   // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
   const intro = show(await find(b));
-  assert.match(intro, /^Backing is open on your page\.\nYour post for X, with your page card:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
+  assert.match(intro, /^Backing is open on your page\.\nYour post for X:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
   // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
+  // v3.1 cold read: "Backing open" is said with the launch (the intro above), then only when backers grow.
   const r = show(await find(b));
-  assert.ok(r.includes(`\nBacking open. Your page: https://earnkit.com/${b.handle}\n`), r);
-  assert.equal(links(r).length, 1, r);
+  assert.ok(!r.includes('Backing open'), r);
+  assert.ok(links(r).length <= 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.equal(backingLine(0, 0, 'earnkit.com/x'), 'Backing open. Your page: earnkit.com/x');
   assert.equal(backingLine(3, 12, 'earnkit.com/x'), 'Backing: 3 backers, $12 in fees. Your page: earnkit.com/x');
@@ -295,6 +300,11 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${other.id}`;
   const hidden = await builderRoute(`${other.handle}.json`);
   assert.equal(hidden.status, 404);
+  // v3.1 cold read: a new backer since the builder last looked is said once, in one line, no link.
+  await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${`0x${String(b.id).padStart(40, 'd')}`}, ${`0x${'e'.repeat(40)}`}, 7000)`;
+  const grew = show(await find(b));
+  assert.match(grew, /(?:^|\n)1 new backer since you last looked\.\n/, grew);
+  assert.doesNotMatch(show(await find(b)), /new backer/, 'said once');
 }));
 
 test('(e) the terms section renders only with the flag on and contains no "community round"', () => {
@@ -343,7 +353,7 @@ test('(f) flag off: no backing text anywhere (reply, page, card, terms, JSON bac
     assert.doesNotMatch(renderToStaticMarkup(React.createElement(BenchRowItem, { r: all.rows[0], ranked: false })), /Backed|Backing/);
     assert.equal((await builderJson(b.handle, new Date()))!.backing, null);
     const r = show(await find(b));
-    assert.doesNotMatch(r, /backing/i, r);
+    assert.doesNotMatch(r, OFFERED, r);
     // The tell coin schema keeps its old shape (no raising).
     const t = await tell(b, { coin: { raising: true } });
     assert.equal(t.isError, true, t.text);
@@ -362,7 +372,8 @@ test('(g) copy-review: "community round", "raise", "raising" absent from builder
   assert.equal(RAISE_LINES.on('RECIPE'), 'Done. Your page shows backing for $RECIPE.');
   assert.equal(RAISE_LINES.off, 'Okay. Your page no longer shows backing. Your coin stays onchain.');
   assert.equal(RAISE_LINES.notLaunched, 'Backing opens once your coin is launched.');
-  const EXEMPT = ['Recipe planner', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
+  // v3.1 cold read: the owner-approved offer names the chain its coin launches on ("a coin for <Project> on Base").
+  const EXEMPT = ['Recipe planner on Base', 'Recipe planner', 'EarnKit', 'tokens.fun', '$RECIPE', 'RECIPE'];
   for (const t of texts) {
     assert.deepEqual(bannedInBench(t, EXEMPT), [], t);
     assert.doesNotMatch(t, /community round|\braise\b|\braising\b|fundrais|—/i, t);
@@ -371,9 +382,11 @@ test('(g) copy-review: "community round", "raise", "raising" absent from builder
 });
 
 test('(h) review fix 3: tell token: \'ask\' before the first approved week says backing opens after it; after it, the same once-a-project offer', db, () => on(async () => {
-  assert.equal(BACKING_NOT_YET, 'Backing opens after your first confirmed week.');
+  // v3.1 cold read: no jargon ("confirmed week"); says what unlocks it.
+  assert.equal(BACKING_NOT_YET, 'A coin launches after a week of shipped code shows on your page. Ship something this week and ask me again.');
   const b = await builder('h');
-  assert.equal(show(await tell(b, { token: 'ask' })), BACKING_NOT_YET);
+  // Weeks shipped but not written up yet (the backfill pending): said so, never a dead end.
+  assert.equal(show(await tell(b, { token: 'ask' })), TOKEN_LOG_PENDING);
   assert.equal((await moments(b.id)).length, 0, 'nothing spent');
   await approvedWeek(b);
   const asked = await tell(b, { token: 'ask' });
@@ -381,7 +394,7 @@ test('(h) review fix 3: tell token: \'ask\' before the first approved week says 
   assert.deepEqual(await moments(b.id), [{ moment: 'first_week', answer: null }]);
   // Asked again: the same line (the open offer), and find never offers it a second time.
   assert.equal(show(await tell(b, { token: 'ask' })), show(asked));
-  assert.doesNotMatch(show(await find(b)), /backing/i);
+  assert.doesNotMatch(show(await find(b)), OFFERED);
 }));
 
 test('(i) review fix 2: a slow ticker check never holds the reply; the offer waits for a later reply, unspent', db, () => on(async () => {
@@ -396,7 +409,7 @@ test('(i) review fix 2: a slow ticker check never holds the reply; the offer wai
   const t = Date.now();
   const late = show(await find(b));
   assert.ok(Date.now() - t < 2_400, `the reply went on (${Date.now() - t} ms)`);
-  assert.doesNotMatch(late, /backing/i, late);
+  assert.doesNotMatch(late, OFFERED, late);
   await new Promise((r) => setTimeout(r, 2_000));
   assert.equal((await moments(b.id)).length, 0, 'the late offer never claimed the moment');
   slow = false;

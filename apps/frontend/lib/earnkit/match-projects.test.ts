@@ -279,7 +279,7 @@ test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a te
         more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
         alerts: [], campaigns: [], cards: [card], repos: r, githubGiven: true, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: T_NOW,
       });
-      assert.match(text, /None of your 6 repos fits an open program yet\./);
+      assert.match(text, /Your app doesn't fit an open program yet\./);
       assert.doesNotMatch(text, /launch/i);
     },
   );
@@ -1050,7 +1050,7 @@ test('H5 I1: a live, active local Arc product (count unknown) is good odds and c
     sponsorEntries: null, now: T_NOW, more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
   }) as Parameters<typeof presentFirstMessage>[0];
   const alone = presentFirstMessage(msg([live]));
-  assert.match(alone, /EarnKit matches you to \$500 in prizes you qualify for\./, alone);
+  assert.match(alone, /^2 programs are open\. Your best fit: Arc Microgrants, up to \$500\./, alone);
   assert.match(alone, /\| Arc Microgrants \| .+ \| quill \|$/m, alone);
   const measured = { ...live, repo: 'payapp', key: 'alice/payapp', verdicts: [{ ...live.verdicts[0], program_id: 'base-x', program: 'Base X' }], product: { ...live.product, traction: 9 } };
   const both = presentFirstMessage(msg([live, measured]));

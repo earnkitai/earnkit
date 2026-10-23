@@ -267,7 +267,9 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
     const id = await install();
     await claimFx(id);
     const r = await find(id, named(key, uniq('jenil')), NO_MATCH);
-    assert.equal(r.show_to_builder.split('\n')[0], STATE_COPY.not_counted.stand('Secret'), r.show_to_builder);
+    // v3.1 cold read: never "<Project> isn't counted yet.": the reply is the step alone.
+    assert.equal(STATE_COPY.not_counted.stand('Secret'), null);
+    assert.equal(r.show_to_builder.split('\n')[0], 'Want me to suggest one small thing to ship in Secret this week?', r.show_to_builder);
     // v2.14 A15: the App off: one small thing to ship, no install link.
     assert.equal(r.move_up?.kind, 'suggest');
     assert.equal(r.proof, undefined);
@@ -392,12 +394,13 @@ test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered
     assert.ok(r.show_to_builder.endsWith(`${applyAsk(prog.title, '$10,000', null)}\nShip code this week: up to +100 points`), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'apply');
     const next = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
-    assert.ok(next.show_to_builder.includes(`\nYou qualify for the ${prog.title}, up to $10,000.\n${SHIP_ASK}\n`), next.show_to_builder);
+    // v3.1 cold read: the unchanged standing isn't repeated and the points line was this week's already.
+    assert.ok(next.show_to_builder.includes(`You qualify for the ${prog.title}, up to $10,000.\n${SHIP_ASK}`), next.show_to_builder);
     assert.equal(next.move_up?.kind, 'ship');
   }));
 
 test('B.1 (v3 Stage 2) "Backing", never a community round, raise or raising, in builder text; the banned-word check under the Bench catches them', () => {
-  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+  assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'I can launch $RECIPE, a coin for Recipe planner on Base. Every trade pays a fee and you keep 40%. Coins can go to zero. Launch it?');
   assert.match(renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/c/1' })), />Backing · \$RECIPE</);
   for (const s of [raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, HERO_SUB, `${STEPS[2].text} ${STEPS[2].backing}`, TELL_DESCRIPTION_BENCH.replace('{ raising }', '{ field }')])
     assert.deepEqual(bannedInBench(s, ['Recipe planner']).filter((w) => /rais/.test(w)), [], s);
@@ -443,7 +446,7 @@ test('R2 (I1), GTM W2: no backing for a repo not read public with no public name
     assert.equal((await sql()`SELECT 1 FROM coin_moments WHERE builder_id = ${id}`).length, 0, 'no moment used up');
     await markPublic(id);
     const ask = await offerCoin(id, key, 'countable', { check: async () => true });
-    assert.match(ask!.line, /\. Want to open backing for secret\?$/);
+    assert.match(ask!.line, /^I can launch \$SECRET, a coin for secret on Base\. .*Launch it\?$/);
     // The repo goes private after the offer and the project has no public name (GTM W2: a coin needs one; with one, it
     // launches under that name with no repo link: gtm-w2-replies.test.ts): the yes launches nothing.
     await sql()`UPDATE builder_sources SET public_at = NULL WHERE builder_id = ${id} AND kind = 'repo'`;
@@ -491,9 +494,9 @@ test('R6 (M4) the token is minted for the installation GitHub names for the repo
 
 test('R3 one question, last: the community round and coin lines end on their question (Bench)', () =>
   on(async () => {
-    assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+    assert.equal(raiseLine('Recipe planner', 'RECIPE', null), 'I can launch $RECIPE, a coin for Recipe planner on Base. Every trade pays a fee and you keep 40%. Coins can go to zero. Launch it?');
     assert.equal(raiseLine('Recipe planner', 'RECIPE', '0x12ab000000000000000000000000000000009f3e'),
-      'People can back Recipe planner onchain. EarnKit launches a $RECIPE coin on tokens.fun for it; you keep 40% of its trading fees, paid to 0x12ab…9f3e. It is a tradable token on Base and can go to zero. Want to open backing for Recipe planner?');
+      'I can launch $RECIPE, a coin for Recipe planner on Base. Every trade pays a fee and you keep 40%, sent to 0x12ab…9f3e. Coins can go to zero. Launch it?');
     const coin = { name: 'Recipe planner', symbol: 'RECIPE' };
     for (const m of ['built_live', 'countable', 'first_five', 'has_people', 'streak_five'] as const) {
       const l = coinLine(m, 'Recipe planner', null, coin);
