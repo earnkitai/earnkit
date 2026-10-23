@@ -7795,12 +7795,19 @@ the change link.
   (`baseStartAnswer`), so a late answer or the builder asking later works: either answer is kept in
   `standing_seen.base_walk { answer, at }`. A yes is `BASE_START_STEPS` (four steps from v3.1-install-research.md and
   the Base program file; the Builder Codes guide is the one link; `BASE_STEPS_NOTE`: help with step 1, never build for
-  them). A no is followed by the wallet step when due, else "Okay.".
+  them). A no is followed by the wallet step when due, else "Okay.". A yes is saved only when the steps are returned.
+  The tell paths use find's gate (`baseOpenFor`: `baseGrantOpen` over `scoreApplies`' cards and skip), so a hidden or
+  entered Base Builder Grants is never offered.
 - **Wallet step for builders who skip GitHub.** After the GitHub no, the optional wallet step (`walletOffer`) comes once:
   in the reply to the Base no (`walletStep`), else in the next find (no_project, `githubNo`, the walk-through asked).
   Builders who connect GitHub keep it after setup (ranked quiet slot). Never two questions in one reply.
-- **Resting reply.** With every onboarding question asked: `You're in, @maya.` / `NEXT_STEP_LINE` / `NEXT_STEP_ASK`
-  (kind `next_step`, `NEXT_STEP_NOTE`), never step 2.
+- **Resting reply.** With every onboarding question asked: `You're in, @maya.` / `Is your app's code on GitHub yet?`
+  (`NEXT_STEP_ASK`, kind `next_step`, `NEXT_STEP_NOTE`), never step 2 itself. Its yes (`restAnswer`) is step 2 again
+  (`connectAfterAll`: `github_no` cleared, a fresh picker link, the `pick_repo` ask stored); its no keeps resting. A
+  GitHub no with nothing else due returns this question as its reply. `BASE_START_NOTE` and `WALLET_NOTE` tell the agent
+  that a builder who wants to connect after all is a `pick_repo` yes.
+- **Kindless answers.** A `tell move_up` with no `kind` is routed by the stored ask when it is `pick_repo`,
+  `base_start`, `next_step` or `new_repo` (`KINDLESS_ROUTED`).
 - **Profile.** `site-data.ts mainOf` reads `base_walk.answer = 'yes'` (`starting`): the Highlights single item reads
   `STARTING_ON_BASE` ("Getting started on Base") instead of `NO_PROJECT_YET`, and `ProfileSite.starting` makes the hero
   line `startingLine` ("<name> is getting started on Base.") in place of `noProjectLine`. Otherwise today's wording.
@@ -7810,7 +7817,7 @@ the change link.
   make a copy in your own account, then connect that.") under the account line (`BenchView.notice`; ranked: its own
   paragraph above). A statement, so the reply keeps one question.
 - **Old repo nudge.** A ranked main project whose lit weeks (streak.ts) miss the last `STALE_WEEKS` (8) ISO weeks
-  (`staleRepo`; no weeks known is never stale) gets `NEW_REPO_ASK` ("Working on something new? Connect that repo
+  (`staleRepo`; no weeks known is never stale), and not proven within `NEW_REPO_GRACE_DAYS` (14, `connectedSince`), gets `NEW_REPO_ASK` ("Working on something new? Connect that repo
   instead.") once, in the quiet slot after the wallet step and before titles (`standing_seen.new_repo_asked`). Its yes:
   `NEW_REPO_YES_NOTE` (ask which repo, then `tell main_project`).
 - `stand-view.ts takeNews` keeps `github_no`, `base_asked`, `base_walk`, `template_refused`, `new_repo_asked`.

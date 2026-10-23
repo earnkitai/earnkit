@@ -205,9 +205,8 @@ export const BASE_START_STEPS = [
   '',
   QUALIFY_HELP_ASK,
 ].join('\n');
-/** The no-project reply once the onboarding questions were asked: a statement and one question (never step 2 again). */
-export const NEXT_STEP_LINE = "When your app's code is on GitHub, tell me and I'll connect it.";
-export const NEXT_STEP_ASK = 'Want help with your next step?';
+/** The no-project reply once the onboarding questions were asked: one question (a yes gives step 2's link again). */
+export const NEXT_STEP_ASK = "Is your app's code on GitHub yet?";
 /**
  * The next reply after the repo picker refused only forks or templates (github-app.ts pickSetup): the way out in one
  * line, a statement so the reply keeps its one question.
@@ -396,7 +395,7 @@ export function stateAsk(
   if (v.state === 'no_project' && v.githubNo) {
     if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
-    return { kind: 'next_step', project_key: null, line: `${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}` };
+    return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
   }
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };

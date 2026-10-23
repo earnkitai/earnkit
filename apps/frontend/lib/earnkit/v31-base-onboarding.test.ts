@@ -17,7 +17,7 @@ import { attachToX } from './x-install';
 import { appSetup, PICK_PAGE } from './github-app';
 import { csrfCookieName } from './github-verify';
 import {
-  BASE_START_ASK, BASE_START_STEPS, NEW_REPO_ASK, NEXT_STEP_ASK, NEXT_STEP_LINE, TEMPLATE_NOTICE, TITLES_ASK, benchReply, stateAsk, walletOffer,
+  BASE_START_ASK, BASE_START_STEPS, NEW_REPO_ASK, NEXT_STEP_ASK, TEMPLATE_NOTICE, TITLES_ASK, benchReply, stateAsk, walletOffer,
   type BenchProject, type BenchView,
 } from './bench-reply';
 import { BASE_START_NOTE, BASE_STEPS_NOTE, NEW_REPO_NOTE, NEW_REPO_YES_NOTE, NEXT_STEP_NOTE, PICK_REPO_NOTE, staleRepo } from './bench-find';
@@ -115,14 +115,15 @@ test('the copy, word for word, one question each', () => {
     'Want help with step 1 now?',
   ].join('\n'));
   assert.equal(links(BASE_START_STEPS).length, 1);
-  assert.equal(NEXT_STEP_LINE, "When your app's code is on GitHub, tell me and I'll connect it.");
-  assert.equal(NEXT_STEP_ASK, 'Want help with your next step?');
+  assert.equal(NEXT_STEP_ASK, "Is your app's code on GitHub yet?");
+  // Fix round: the notes tell the agent how a builder connects after all.
+  for (const n of [BASE_START_NOTE, WALLET_NOTE]) assert.match(n, /connect after all, call tell with move_up: \{ kind: 'pick_repo', project_key: null, answer: 'yes' \}/, n);
   assert.equal(TEMPLATE_NOTICE, 'If you made your app from a template, make a copy in your own account, then connect that.');
   assert.equal(NEW_REPO_ASK, 'Working on something new? Connect that repo instead.');
   assert.equal(noProjectLine('Maya Chen'), 'Maya Chen has no project on the leaderboard yet.');
   assert.equal(startingLine('Maya Chen'), 'Maya Chen is getting started on Base.');
   assert.deepEqual([STARTING_ON_BASE, NO_PROJECT_YET], ['Getting started on Base', 'No project on the leaderboard yet']);
-  for (const s of [BASE_START_ASK, BASE_START_STEPS, `${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}`, NEW_REPO_ASK, `${TEMPLATE_NOTICE}\n${BASE_START_ASK}`]) rule(s);
+  for (const s of [BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, NEW_REPO_ASK, `${TEMPLATE_NOTICE}\n${BASE_START_ASK}`]) rule(s);
 });
 
 test('the order: step 2 until a no; then the walk-through, the wallet step, the resting question; the nudge before titles', () => {
@@ -132,9 +133,9 @@ test('the order: step 2 until a no; then the walk-through, the wallet step, the 
   assert.equal(stateAsk({ ...v, link: null, githubNo: true, baseAsk: true, wallet: W }).kind, 'base_start');
   assert.equal(stateAsk({ ...v, link: null, githubNo: true, wallet: W }).line, walletOffer(W));
   const rest = stateAsk({ ...v, link: null, githubNo: true });
-  assert.deepEqual([rest.kind, rest.line], ['next_step', `${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}`]);
+  assert.deepEqual([rest.kind, rest.line], ['next_step', NEXT_STEP_ASK]);
   const view: BenchView = { ...v, link: null, rank: null, streak: 0, target: null, fund: [], due: [], held: null, ask: rest, notice: TEMPLATE_NOTICE };
-  assert.equal(rule(benchReply(view)), `You're in, @maya.\n${TEMPLATE_NOTICE}\n${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}`);
+  assert.equal(rule(benchReply(view)), `You're in, @maya.\n${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
 
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const r = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit' };
@@ -198,17 +199,18 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, the wal
   // Then the resting reply, every time: no loop back to step 2 or the walk-through.
   for (let i = 0; i < 2; i++) {
     const r = await find(p.ctx);
-    assert.equal(rule(show(r)), `You're in, @${p.username}.\n${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}`);
+    assert.equal(rule(show(r)), `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
     assert.deepEqual(r.reply?.move_up, { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE });
   }
-  const restYes = await tell(p.ctx, 'next_step', 'yes');
-  assert.equal(restYes.reply?.agent_note, NEXT_STEP_NOTE);
-
-  // The builder asks to connect after all: the no is cleared and step 2's link given again.
-  const again = await tell(p.ctx, 'pick_repo', 'yes');
+  // Its no keeps resting.
+  assert.equal(show(await tell(p.ctx, 'next_step', 'no')), 'Okay.');
+  assert.equal(show(await find(p.ctx)), `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
+  // Its yes: the no is cleared and step 2's link given again.
+  const again = await tell(p.ctx, 'next_step', 'yes');
   assert.match(rule(show(again)), STEP2);
   assert.deepEqual(again.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.equal((await seen(p.id)).github_no, undefined);
+  assert.equal(((await seen(p.id)).bench_ask as { kind: string }).kind, 'pick_repo');
   assert.match(show(await find(p.ctx)), /Step 2 of 2/);
 });
 
@@ -225,9 +227,14 @@ test('GitHub no, then no to Base: the wallet step in that reply, both nos rememb
   assert.equal(show(await tell(p.ctx, 'wallet', 'no')), 'Skipped. Ask me anytime to add your reward wallet.');
   for (let i = 0; i < 2; i++) {
     const r = rule(show(await find(p.ctx)));
-    assert.equal(r, `You're in, @${p.username}.\n${NEXT_STEP_LINE}\n${NEXT_STEP_ASK}`);
+    assert.equal(r, `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
     assert.doesNotMatch(r, /Step 2|start building on Base|wallet/);
   }
+  // The builder asks to connect after all (the notes' path): step 2's link again.
+  const again = await tell(p.ctx, 'pick_repo', 'yes');
+  assert.match(rule(show(again)), STEP2);
+  assert.equal((await seen(p.id)).github_no, undefined);
+  await tell(p.ctx, 'pick_repo', 'no');
   const pg = await pageText(p.id);
   assert.equal(pg.sub, NO_PROJECT_YET);
   assert.ok(pg.text.includes(noProjectLine('Maya Chen')));
@@ -245,6 +252,31 @@ test('the GitHub no right away (find again before answering): the walk-through o
   assert.match(w.split('\n').slice(1).join('\n'), WALLET);
   // A late yes still gets the steps (answered by its kind).
   assert.equal(show(await tell(p.ctx, 'base_start', 'yes')), BASE_START_STEPS);
+});
+
+test('kindless answers route by the stored question: a no to step 2, a yes to the walk-through', db, async () => {
+  const p = await signedIn('k');
+  await find(p.ctx);
+  const kindless = (answer: 'yes' | 'no') => mcpCall(p.ctx, 'tell', { move_up: { project_key: null, answer } });
+  assert.equal(rule(show(await kindless('no'))), BASE_START_ASK);
+  assert.equal(typeof (await seen(p.id)).github_no, 'string');
+  assert.equal(rule(show(await kindless('yes'))), BASE_START_STEPS);
+  assert.equal(((await seen(p.id)).base_walk as { answer: string }).answer, 'yes');
+});
+
+test('Base Builder Grants entered or hidden: no walk-through (tell matches find); a GitHub no with nothing due rests on its one question', db, async () => {
+  const p = await signedIn('h');
+  await walletOffered(p.id);
+  await sql()`INSERT INTO projects (program_id, name, installation_id) VALUES ('base-builder-grants', 'Kit', ${p.id})`;
+  await find(p.ctx);
+  const no = await tell(p.ctx, 'pick_repo', 'no');
+  assert.equal(rule(show(no)), NEXT_STEP_ASK);
+  assert.deepEqual(no.reply?.move_up, { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE });
+  // Asked for anyway: "Okay.", and base_walk is never saved without the steps (the page keeps today's words).
+  assert.equal(show(await tell(p.ctx, 'base_start', 'yes')), 'Okay.');
+  assert.equal((await seen(p.id)).base_walk, undefined);
+  assert.equal((await pageText(p.id)).sub, NO_PROJECT_YET);
+  assert.equal(show(await find(p.ctx)), `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
 });
 
 test('the picker refused only forks or templates: the next reply says the way out in one line, once', db, async () => {
@@ -269,6 +301,10 @@ test('the picker refused only forks or templates: the next reply says the way ou
 test('a ranked main project with no commits in 8 weeks: one light nudge, remembered; its yes asks for the new repo', db, async () => {
   await padPool(12);
   const { ctx, key, id } = await rankedOld();
+  // Fix round: never within 14 days of connecting it.
+  assert.doesNotMatch(show(await mcpCall(ctx as never, 'find', {})), /Working on something new/, 'just connected');
+  assert.equal((await seen(id)).new_repo_asked, undefined, 'not claimed');
+  await sql()`UPDATE builder_sources SET verified_at = now() - interval '15 days' WHERE builder_id = ${id} AND kind = 'repo'`;
   const r = await mcpCall(ctx as never, 'find', {});
   const s = rule(show(r));
   assert.match(s, new RegExp(`\\n${NEW_REPO_ASK.replace(/[?.]/g, '\\$&')}$`));
