@@ -42,6 +42,7 @@ export const WALLET_TEXT = {
   taken: 'That wallet is already on another EarnKit page.',
   expired: 'This link has expired. Ask your agent for a new wallet link.',
   used: 'This link was already used. Ask your agent for a new wallet link.',
+  pick: 'Pick the wallet to sign with.',
   noWallet: "No wallet found in this browser. Copy this link and open it in your wallet app's browser.",
   busy: 'Too many tries from here. Try again in an hour.',
   xOther: 'That X account is not the one on this EarnKit page. Sign in with the same X account to change the reward wallet.',
