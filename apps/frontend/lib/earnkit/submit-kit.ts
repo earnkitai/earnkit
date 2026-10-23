@@ -379,6 +379,15 @@ export function kitReplyNote(kit: SubmitKit, program: Pick<KitProgram, 'submissi
   );
 }
 
+/**
+ * v3.1 cold read round 2: what the builder still adds, in one short line: "You add 10 more in the form: your email,
+ * your Telegram username and 8 short answers." (the form's own items, never invented). Pure.
+ */
+export function youAddLine(missing: string[]): string {
+  const n = missing.length;
+  if (n <= 2) return `You add ${n} more in the form: ${missing.join(' and ')}.`;
+  return `You add ${n} more in the form: ${missing[0]}, ${missing[1]} and ${n - 2} short ${n - 2 === 1 ? 'answer' : 'answers'}.`;
+}
 /** v3.1 (spec 3.2), Task 16 step 6: the one question after a drafted application; a yes records `applied`. */
 export const SENT_ASK = 'Sent it?';
 /** Task 16 step 6: "Your Base Builder Grant Program application is ready. I filled 6 of 16 answers from your work.". Pure. */
@@ -455,7 +464,7 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
       ];
   const explain = [
     draftReadyLine(program.title, filled.length, fields.length),
-    ...(missing.length ? [`You add: ${missing.join(', ')}.`] : []),
+    ...(missing.length ? [youAddLine(missing)] : []),
     ...(o.note ? [o.note] : []),
     ...(continuesLine(program) ? [continuesLine(program)!] : []),
   ];

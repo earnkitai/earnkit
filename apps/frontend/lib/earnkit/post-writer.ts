@@ -149,12 +149,13 @@ function candidates(i: PostInput): Post[] {
       const milestone = isMilestone(i.week);
       if (i.note?.trim() && noteProblems(i.note).length === 0) add('note', i.note.trim());
       if (milestone) {
-        add('count', s && i.name && `${i.week} weeks shipping ${i.name} without missing one. This week: ${lowered(s)}`);
+        // v3.1 cold read round 2: a weekly post is about the finished week, so "Last week:", never "This week:".
+        add('count', s && i.name && `${i.week} weeks shipping ${i.name} without missing one. Last week: ${lowered(s)}`);
         add('bare', i.week >= BARE_FROM && `Week ${i.week}.`);
       }
       add('name_week', s && i.name && i.week > 0 && `${i.name}, week ${i.week}: ${lowered(s)}`);
       add('change', s);
-      add('this_week', s && !/^this week\b/i.test(s) && `This week: ${lowered(s)}`);
+      add('this_week', s && !/^(this|last) week\b/i.test(s) && `Last week: ${lowered(s)}`);
       break;
     }
     case 'went_live':

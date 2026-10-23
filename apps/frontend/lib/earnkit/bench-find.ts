@@ -11,7 +11,7 @@ import { installLink, pickLink, proveCovered, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import {
-  COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, COIN_NO_PUBLIC_NAME, approvedCodeWeek, askedCoinOffer, backingOffer, coinBlocked, coinOpen, coinPreview, openCoinLine,
+  COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, COIN_NO_PUBLIC_NAME, approvedCodeWeek, askedCoinOffer, backingOffer, coinBlocked, coinOpen, coinPreview, coinWalletWaiting, openCoinLine,
 } from './coin-moments';
 import { UPDATE_LINES, setShipTitles, takeTitlesAsk, titlesAskDue } from './updates';
 import { grantOf, qualifyOffer } from './base-qualify';
@@ -37,7 +37,7 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, welcomeFits,
+  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, COIN_WALLET_REASK, LOVABLE_PROMPT_ASK, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, welcomeFits,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -200,6 +200,10 @@ export type Seen = StandSeen & {
   backers_seen?: number;
   /** v3.1 cold read: a live app (no repo) whose builder said no to GitHub once: its tool's GitHub steps from then on. */
   github_no_app?: string;
+  /** v3.1 cold read round 2: the agent was told to write the builder's Lovable prompt (the base_help yes). */
+  lovable_prompt?: string;
+  /** v3.1 cold read round 2: a coin yes waiting for its fee wallet (coin-moments.ts walletWait). */
+  coin_wallet_wait?: string;
 };
 type Reply = Record<string, unknown>;
 
@@ -333,7 +337,10 @@ const COVERED_WAIT_MS = 4_000;
  */
 async function coveredRead(id: number, own: number, now: Date, read: BenchRead): Promise<BenchRead> {
   if (!read.main || read.row?.confirmed || !REPO_KEY.test(read.main.toLowerCase())) return read;
-  return (await settleWithin(proveCovered(id, read.main), COVERED_WAIT_MS)) ? benchRead(id, own, now) : read;
+  if (!(await settleWithin(proveCovered(id, read.main), COVERED_WAIT_MS))) return read;
+  // v3.1 cold read round 2: proven now, so its shipping log is written now too (the connect question can follow).
+  await backfillNow(id, read.main, now);
+  return benchRead(id, own, now);
 }
 /** v2.13.4 (spec 4): the live check never holds a reply long; it gets what is left of the wait, at least this. */
 const LIVE_WAIT_MIN_MS = 300;
@@ -354,7 +361,7 @@ export const tokenPublishFirst = (symbol: string) =>
 /** v3.1 cold read: proven, but no week with shipped code to publish yet (honest, no jargon). */
 export const TOKEN_NO_WEEK = 'A coin launches after a week of shipped code shows on your page. Ship something this week and ask me again.';
 /** v3.1 cold read: proven, weeks shipped, but the shipping log isn't written up yet (the backfill after connecting). */
-export const TOKEN_LOG_PENDING = "I'm still writing up your shipping log. Ask me again tomorrow and your coin can launch.";
+export const TOKEN_LOG_PENDING = "I'm still writing up your shipping log from your code. Ask me again in an hour and your coin can launch.";
 /** R8: tell token: 'ask' when no coin can be offered for the project now and no plainer reason is known. */
 export const tokenUnavailable = (name: string) => `A coin can't launch for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
@@ -375,6 +382,12 @@ export const COIN_PUBLISH_NOTE =
 /** v3.1 cold read: the backers answer's note (a yes drafts a post about this week). */
 export const BACKERS_POST_NOTE =
   "A yes or no to the question: call tell with move_up: { kind: 'backers_post', project_key, answer } (project_key as given here). Never post for the builder. Don't show this note.";
+/** v3.1 cold read round 2: the fee wallet question's note (the wallet goes to tell coin, never a launch without it). */
+export const COIN_WALLET_NOTE =
+  "The builder's answer is the 0x wallet the coin's fees go to: call tell with coin: { project_key, answer: 'yes', wallet } (project_key as given here). " +
+  "A no: call tell with move_up: { kind: 'coin_wallet', project_key, answer: 'no' }. Never ask them to sign anything here. Don't show this note.";
+/** v3.1 cold read round 2: the token ask with no project yet; its question is the walk-through's Lovable prompt. */
+export const TOKEN_BUILD_FIRST = "Build your app first and connect it here, then I can launch a coin for it. You'd keep 40% of its trading fees.";
 /** v3.1 cold read: the connect-first answer's note. */
 export const TOKEN_CONNECT_NOTE =
   "The builder connects their code from the link in show_to_builder. A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they connected it, call tell with token: 'ask' again. Don't show this note.";
@@ -398,6 +411,11 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${main})`.catch(() => [])
     : [];
   const given = main ? await reportedName(id, main) : null;
+  if (!row?.confirmed && main === null) {
+    // v3.1 cold read round 2: no project at all: build first; the one question is the Lovable prompt (no link).
+    await storeAsk(id, { kind: 'base_help', key: null });
+    return { show_to_builder: `${TOKEN_BUILD_FIRST}\n${LOVABLE_PROMPT_ASK}`, move_up: { kind: 'base_help', project_key: null, agent_note: BASE_HELP_NOTE } };
+  }
   if (!row?.confirmed) {
     // Not connected: the connect link (the repo's own install link, else the picker) as the one link and question.
     const repo = main !== null && REPO_KEY.test(main.toLowerCase());
@@ -435,12 +453,19 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
     // Proven, no week published: one yes publishes the shipping log, then the coin offer follows (its own yes launches).
     const weeks = await connectWeeks(id, row.key, now).catch(logged('token weeks'));
     const pair = weeks?.length ? await coinPreview(id, row.key, deps) : null;
-    // Weeks shipped but not written up yet (the backfill runs after connecting): said so, never "ship first".
-    if (!weeks?.length) return { show_to_builder: (await backfillComplete(id, row.key, now).catch(() => true)) ? TOKEN_NO_WEEK : TOKEN_LOG_PENDING };
-    if (!pair) return { show_to_builder: COIN_NO_PUBLIC_NAME };
-    await openConnect(id, { key: row.key, weeks: weeks.map((w) => w.monday) });
+    // v3.1 cold read round 2: weeks shipped but not written up yet: written now from the App-proven commits (the
+    // connect backfill), so the publish-first question works the same day.
+    let open2 = weeks ?? [];
+    if (open2.length === 0 && !(await backfillComplete(id, row.key, now).catch(() => true))) {
+      await backfillNow(id, row.key, now);
+      open2 = (await connectWeeks(id, row.key, now).catch(logged('token weeks'))) ?? [];
+    }
+    if (!open2.length) return { show_to_builder: (await backfillComplete(id, row.key, now).catch(() => true)) ? TOKEN_NO_WEEK : TOKEN_LOG_PENDING };
+    const preview = pair ?? (await coinPreview(id, row.key, deps));
+    if (!preview) return { show_to_builder: COIN_NO_PUBLIC_NAME };
+    await openConnect(id, { key: row.key, weeks: open2.map((w) => w.monday) });
     await storeAsk(id, { kind: 'coin_publish', key: row.key });
-    return { show_to_builder: tokenPublishFirst(pair.symbol), move_up: { kind: 'coin_publish', project_key: row.key, agent_note: COIN_PUBLISH_NOTE } };
+    return { show_to_builder: tokenPublishFirst(preview.symbol), move_up: { kind: 'coin_publish', project_key: row.key, agent_note: COIN_PUBLISH_NOTE } };
   }
   const offer = await askedCoinOffer(id, row.key, deps);
   if (!offer) return { show_to_builder: (await coinPreview(id, row.key, deps)) ? tokenUnavailable(name) : COIN_NO_PUBLIC_NAME };
@@ -617,7 +642,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const liveOnly = variant === 'no_repo' && project !== null && LINK_KEY.test(project.key);
   const githubNo = noCode && !liveOnly && Boolean(read.seen.github_no) && !held;
   // Launch ready L2: with no project, the repo picker's install link (GitHub's page picks the repos; S7: a page is needed).
-  const pick = noCode && !githubNo ? await pickLink(id, now).catch(logged('pick link')) : null;
+  // v3.1 cold read round 2: after the walk-through: its question until the Lovable prompt is written, then the next step
+  // (build it and connect GitHub, with the picker link).
+  const walk: 'help' | 'built' | null = githubNo && read.seen.base_walk?.answer === 'yes' ? (read.seen.lovable_prompt ? 'built' : 'help') : null;
+  const pick = noCode && (!githubNo || walk === 'built') ? await pickLink(id, now).catch(logged('pick link')) : null;
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
@@ -644,15 +672,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // GTM W2 (owner: no coin launched is the biggest revenue failure): right after connect, before the event post and the apply step.
   const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
-  const hot = ranked && project && handle && !held && !connect && !backing ? await eventPost(id, handle, now, { hot: true }) : null;
+  // v3.1 cold read round 2: a coin yes waiting for its fee wallet asks for it again, before anything else (and never the
+  // wallet-proof step meanwhile).
+  const coinWallet = Boolean(ranked && project && !held && !connect && !backing && (await coinWalletWaiting(id)) !== null);
+  const hot = ranked && project && handle && !held && !connect && !backing && !coinWallet ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
-  const apply = !connect && !hot && !backing && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
+  const apply = !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held && !connect && !hot && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
+  const moment = ranked && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
-  const event = hot ?? (ranked && project && handle && !held && !connect && !backing && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
+  const event = hot ?? (ranked && project && handle && !held && !connect && !backing && !coinWallet && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment && !event;
+  const quiet = ranked && project !== null && !held && !connect && !backing && !coinWallet && !apply && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
@@ -702,7 +733,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const appDone = state === 'not_counted' && install !== null && (await appConnected(id));
   // v3.1 cold read: a live app (Lovable, Bolt) whose builder said no to GitHub once hears its tool's GitHub steps.
   const liveTool = liveOnly && !held && (read.seen.github_no_app || read.seen.github_no) ? { tool: builtWith(project!.key) ?? builtWith(read.liveUrl) } : null;
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
   let finalAsk = stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
@@ -755,7 +786,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
     : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'base_start' ? BASE_START_NOTE
-    : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
+    : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE : finalAsk.kind === 'coin_wallet' ? COIN_WALLET_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -882,8 +914,14 @@ async function takeApplyAsk(id: number, programId: string, now: Date): Promise<b
  */
 async function connectMoment(id: number, key: string, now: Date, best: Fit | null): Promise<ConnectOffer | null> {
   if (!(await connectDue(id))) return null;
-  const weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
+  let weeks = await connectWeeks(id, key, now).catch(logged('connect weeks'));
   if (!weeks) return null;
+  // v3.1 cold read round 2: a one project whose log the connect never wrote (the App proved it before it became the one
+  // project): written now from its App-proven commits, so the connect question comes before the check-in.
+  if (weeks.length === 0 && !(await backfillComplete(id, key, now).catch(() => true))) {
+    await backfillNow(id, key, now);
+    weeks = (await connectWeeks(id, key, now).catch(logged('connect weeks'))) ?? [];
+  }
   if (weeks.length === 0) {
     // v3 final review: closed only once the backfill is complete; until then the offer waits for its rows.
     if (await backfillComplete(id, key, now).catch(logged('connect backfill'))) await closeConnect(id, now);
@@ -1339,6 +1377,13 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v3.1 cold read: the coin ask's publish-first question and the backers answer's post question.
   if (m.kind === 'coin_publish') return coinPublishAnswer(ctx, id, m.project_key ?? null, m.answer, now);
   if (m.kind === 'backers_post') return backersPostAnswer(id, m.answer, now);
+  // v3.1 cold read round 2: the fee wallet is given with tell coin; a bare yes asks for it again, a no closes the offer.
+  if (m.kind === 'coin_wallet') {
+    const key = await coinWalletWaiting(id);
+    if (!key) return { show_to_builder: NOTED_LINE };
+    if (m.answer === 'no') return (await import('./tools')).coinAnswer(ctx, { project_key: key, answer: 'no' });
+    return { show_to_builder: COIN_WALLET_REASK, move_up: { kind: 'coin_wallet', project_key: key, agent_note: COIN_WALLET_NOTE } };
+  }
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
@@ -1610,7 +1655,8 @@ async function baseHelpAnswer(id: number, answer: 'yes' | 'no'): Promise<Reply> 
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
     WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'base_help'`.catch(logged('base help'));
   if (answer === 'no') return { show_to_builder: NEXT_STEP_LATER };
-  await storeAsk(id, { kind: 'next_step', key: null });
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('lovable_prompt', ${new Date().toISOString()}::text)
+    WHERE builder_id = ${id}`.catch(logged('lovable prompt'));
   return { show_to_builder: '', agent_note: LOVABLE_PROMPT_NOTE };
 }
 
@@ -1694,6 +1740,18 @@ async function backersPostAnswer(id: number, answer: 'yes' | 'no', now: Date): P
   return (await weekPostReply(id, now)) ?? { show_to_builder: '', agent_note: BACKERS_NEWS_NOTE };
 }
 
+/**
+ * v3.1 cold read round 2: the one project's shipping log written now from its App-proven commits (week-facts.ts
+ * backfillOnConnect, the connect's own backfill), within the reply's wait; the hourly catch-up finishes what this
+ * leaves. For a project made the one project after its App proof (a repo switch), whose log the connect never wrote. Never throws.
+ */
+async function backfillNow(id: number, key: string, now: Date): Promise<void> {
+  await settleWithin(
+    import('./week-facts').then((w) => w.backfillOnConnect(id, key, now, { deadline: Date.now() + REPLY_WAIT_MS })).catch(logged('backfill now')),
+    REPLY_WAIT_MS,
+  );
+}
+
 /** Launch ready L2: tell main_project's lines (the builder named the repo to rank instead). */
 export const RANK_LINES = {
   set: (key: string) => `EarnKit now ranks github.com/${key}.`,
@@ -1719,6 +1777,9 @@ export async function rankAnswer(ctx: Pick<ToolContext, 'installationId'>, key: 
   if (r === 'same') return { show_to_builder: RANK_LINES.same(key) };
   if (r === 'set') {
     await (await import('./person-score')).rescorePerson(id, now).catch(logged('rank rescore'));
+    // v3.1 cold read round 2: a repo the App proved before it was the one project: its log is written now, so the
+    // connect question comes in the next reply (Kai: switched to VaultPilot after the picker).
+    await backfillNow(id, key, now);
     (await import('./profile-cache')).profileChanged();
     return { show_to_builder: RANK_LINES.set(key), agent_note: RANK_SET_NOTE };
   }

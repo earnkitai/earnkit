@@ -386,7 +386,11 @@ export async function coinYes(
   // A wallet given when the line asked for one is the builder's answer to it. v3.1 wallet proof: with none, the wallet
   // the builder proved by signature (their reward recipient) is used, so COIN_WALLET_ASK is only for a builder without one.
   const to = given ?? m.wallet ?? (await provenWallet(builderId));
-  if (!to) return { show_to_builder: COIN_WALLET_ASK };
+  if (!to) {
+    await walletWait(builderId, m.project_key);
+    return { show_to_builder: COIN_WALLET_ASK };
+  }
+  await walletWait(builderId, null);
   if (!m.wallet) await sql()`UPDATE coin_moments SET wallet = ${to} WHERE builder_id = ${builderId} AND project_key = ${m.project_key}`;
   // v2.13.3 review (I1), GTM W2 (2026-10-23): a repo not read public (private from the start, or it went private after
   // the offer): the coin carries only the project's public name (publicName), and the entry keeps the repo only for the
@@ -432,6 +436,25 @@ export async function coinYes(
     type: 'coin_answered', dedupe_key: `coin_answered:${builderId}:${m.project_key.toLowerCase()}`, installation_id: builderId, project_id: projectId, detail: { answer: 'yes', moment: m.moment },
   }));
   return { project_id: projectId, token: coin, wallet: to, agent_note: COIN_YES_NOTE };
+}
+
+/**
+ * v3.1 cold read round 2: a coin yes is waiting for its fee wallet (standing_seen.coin_wallet_wait = the project key), or
+ * not (null clears it). Never throws.
+ */
+async function walletWait(builderId: number, key: string | null): Promise<void> {
+  await (key
+    ? sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('coin_wallet_wait', ${key}::text) WHERE builder_id = ${builderId}`
+    : sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'coin_wallet_wait' WHERE builder_id = ${builderId} AND standing_seen ? 'coin_wallet_wait'`
+  ).catch((err: unknown) => console.error('[coin] wallet wait', err instanceof Error ? err.name : 'error'));
+}
+/** v3.1 cold read round 2: the project whose coin yes still waits for a fee wallet (its offer open, no wallet), else null. Never throws. */
+export async function coinWalletWaiting(builderId: number): Promise<string | null> {
+  const [r] = await sql()<{ key: string }[]>`
+    SELECT m.project_key AS key FROM builder_profiles p JOIN coin_moments m ON m.builder_id = p.builder_id
+      AND lower(m.project_key) = lower(p.standing_seen->>'coin_wallet_wait')
+    WHERE p.builder_id = ${builderId} AND m.answer IS NULL AND m.wallet IS NULL`.catch(() => []);
+  return r?.key ?? null;
 }
 
 /** The no to a coin offer: never offered for this project again, and one of the DECLINES_MAX (recordDecline, as the confirm line's skip). */

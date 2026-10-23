@@ -30,7 +30,9 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   /** GTM W2 (2026-10-23): `base_help`, the walk-through's step 1 help; `checkin`, the Monday check-in (once, clients that schedule); `none`, no question. */
   | 'base_help' | 'checkin' | 'none'
   /** v3.1 cold read: `coin_publish`, the coin ask's publish-first question; `backers_post`, the backers answer's post question. */
-  | 'coin_publish' | 'backers_post';
+  | 'coin_publish' | 'backers_post'
+  /** v3.1 cold read round 2: `coin_wallet`, a coin yes waiting for its fee wallet (asked again, never the wallet step). */
+  | 'coin_wallet';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -272,6 +274,10 @@ export const baseStartSteps = (g: OpenGrant) =>
     "3. Connect GitHub here and I'll tell you what's left.",
     LOVABLE_PROMPT_ASK,
   ].join('\n');
+/** v3.1 cold read round 2: after the Lovable prompt was written, the no-project reply's one step (the connect link). Pure. */
+export const nextBuild = (link: string) => `Next: build your app in Lovable or Bolt, then connect GitHub here: ${link}\nDone?`;
+/** v3.1 cold read round 2: a coin yes waiting for its fee wallet (coin-moments.ts COIN_WALLET_ASK's words). */
+export const COIN_WALLET_REASK = 'Send me the wallet the fees should go to.';
 /** The no-project reply once the onboarding questions were asked: one question (a yes gives step 2's link again). */
 export const NEXT_STEP_ASK = "Is your app's code on GitHub yet?";
 /** GTM W2: a no to the resting question or the walk-through (never "Okay." on the no-GitHub path). */
@@ -473,6 +479,10 @@ export function stateAsk(
     appDone?: boolean;
     /** v3.1 cold read: a live link with no GitHub after one no: its tool's GitHub steps with the connect link. */
     liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
+    /** v3.1 cold read round 2: the Base walk-through was taken: 'help' (the Lovable prompt not written yet), 'built' (written). */
+    walk?: 'help' | 'built' | null;
+    /** v3.1 cold read round 2: a coin yes is waiting for its fee wallet. */
+    coinWallet?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -484,6 +494,10 @@ export function stateAsk(
   // the resting question; step 2 never again (until the builder asks: bench-find.ts benchMoveUp).
   if (noCode && v.githubNo) {
     if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
+    // v3.1 cold read round 2: after the walk-through, its question stands until the Lovable prompt is written; then the
+    // next step is building it and connecting GitHub (never "Is your app's code on GitHub yet?" again).
+    if (v.walk === 'help') return { kind: 'base_help', project_key: null, line: LOVABLE_PROMPT_ASK };
+    if (v.walk === 'built' && v.link) return { kind: 'pick_repo', project_key: null, line: nextBuild(v.link) };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
     return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
   }
@@ -498,6 +512,8 @@ export function stateAsk(
   // GTM W2 (owner: no coin launched is the biggest revenue failure): the backing offer comes in the first reply after the
   // builder is proven with an approved code week, right after connect, above the event post and the apply step.
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
+  // v3.1 cold read round 2: a coin yes waiting for its fee wallet is asked again (never the wallet-proof step meanwhile).
+  if (v.state === 'ranked' && v.coinWallet) return { kind: 'coin_wallet', project_key: key, line: COIN_WALLET_REASK };
   // v3.1 one-tap posts: an event's post (went live and won jump ahead of apply for 48 hours; benchView holds the rest
   // until the share slot).
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
@@ -579,7 +595,7 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
-  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo') return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
 
@@ -605,7 +621,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipPointsLine() : null]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
-  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
+  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet')) return paras(orStanding([standing, ...v.due, ask]));
   const points = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
