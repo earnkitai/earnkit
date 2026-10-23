@@ -185,9 +185,13 @@ export async function shownProjects(ids: number[]): Promise<Map<number, ShownPro
     // The agent's own name for it is the builder's; the repo's name only while the repo reads public.
     const repoName = k.split('/')[1] ?? '';
     const nameIsRepo = r.name.trim().toLowerCase() === repoName || !own?.names.has(r.name.trim().toLowerCase());
-    const safeName = hiddenRepo && nameIsRepo
-      ? (sites.filter((x) => x.builder_id === r.builder_id && norm(x.project_key) === k).map((x) => siteName(x.ref, repoName)).find(Boolean) ?? PRIVATE_NAME)
-      : r.name;
+    const hosts = sites.filter((x) => x.builder_id === r.builder_id && norm(x.project_key) === k).map((x) => siteName(x.ref, repoName)).filter((h): h is string => !!h);
+    // The builder's own name for it, when it is also the name of a site they proved (EarnKit for earnkit.com), is
+    // already public: show it as they wrote it, even when it matches the private repo's name.
+    const ownName = r.name.trim();
+    const squash = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const publicBySite = !!own?.names.has(ownName.toLowerCase()) && hosts.some((h) => squash(h.split('.')[0] ?? '') === squash(ownName));
+    const safeName = hiddenRepo && nameIsRepo && !publicBySite ? (hosts[0] ?? PRIVATE_NAME) : r.name;
     const safeWhat = hiddenRepo && !(r.what && own?.whats.has(r.what)) ? null : r.what;
     const list = out.get(r.builder_id) ?? [];
     // A hidden repo's own GitHub page (or its Pages site) would name it: no link then.
