@@ -118,6 +118,8 @@ test('proof (owner ruling 3, proof ruling): a page on an exact proof host under 
     // Last fix wave (B): encoded slashes, backslashes or dots, backslashes, empty or dot segments.
     'https://www.base.org/builders/..%2fmaya/', 'https://www.base.org/builders/%2E%2E/maya', 'https://www.base.org/builders%5cmaya', 'https://www.base.org/builders/x%2Fy',
     'https://www.base.org/builders\\..\\maya', 'https://www.base.org/builders//maya', 'https://www.base.org/builders/./w', 'https://www.base.org/builders/../maya/',
+    // Whitespace or control characters the URL parser strips (tab, newline) never pass.
+    'https://www.base.org/builders/\t../maya', 'https://www.base.org/builders/.\n./maya', 'https://www.base.org/builders/win\rners',
   ])
     assert.equal(proofUrlOk(bad, o), null, String(bad).slice(0, 60));
   // Last fix wave (B): stored without its query and fragment.
