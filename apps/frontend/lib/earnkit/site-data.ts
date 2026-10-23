@@ -25,13 +25,21 @@ export const BASE_GENESIS_UNIX = 1686789347;
 const WEEK_S = 7 * 86_400;
 const DAY_MS = 86_400_000;
 
-type MainRow = { key: string | null; claimed_at: Date; confirmed: boolean };
+type MainRow = { key: string | null; claimed_at: Date; confirmed: boolean; starting: boolean };
 
-/** The one project's key, the claim's time (else the profile's creation) and whether the Bench counts the project confirmed now. */
+/** 2026-10-23 Base onboarding: what a page with no project on the leaderboard says once the builder said yes to the Base walk-through. */
+export const STARTING_ON_BASE = 'Getting started on Base';
+export const NO_PROJECT_YET = 'No project on the leaderboard yet';
+
+/**
+ * The one project's key, the claim's time (else the profile's creation), whether the Bench counts the project confirmed
+ * now, and whether the builder said yes to the Base walk-through (standing_seen.base_walk, bench-find.ts).
+ */
 async function mainOf(builderId: number): Promise<MainRow | null> {
   const db = sql();
   const [r] = await db<MainRow[]>`
-    SELECT p.main_project_key AS key, COALESCE(p.claimed_at, p.created_at) AS claimed_at, COALESCE(b.confirmed, false) AS confirmed
+    SELECT p.main_project_key AS key, COALESCE(p.claimed_at, p.created_at) AS claimed_at, COALESCE(b.confirmed, false) AS confirmed,
+      COALESCE(p.standing_seen->'base_walk'->>'answer' = 'yes', false) AS starting
     FROM builder_profiles p
     LEFT JOIN LATERAL (SELECT ${benchConfirmedSql(db)} AS confirmed FROM builder_projects b
       WHERE b.builder_id = p.builder_id AND lower(b.project_key) = lower(p.main_project_key)) b ON true
@@ -263,7 +271,7 @@ export async function highlights(builderId: number, d: ProfileData, now: Date): 
 async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: MainRow | null, reading: Record<string, unknown> | null): Promise<Highlight[]> {
   const claimedAt = main ? new Date(main.claimed_at) : now;
   const since = `On EarnKit since ${monthDay(claimedAt)}`;
-  if (!main?.key || !main.confirmed || !d.project?.confirmed) return [{ icon: 'start', title: since, sub: 'No project on the leaderboard yet' }];
+  if (!main?.key || !main.confirmed || !d.project?.confirmed) return [{ icon: 'start', title: since, sub: main?.starting ? STARTING_ON_BASE : NO_PROJECT_YET }];
   const key = main.key;
   // profileData links a repo-shaped key unless the repo is hidden (page-data.ts shownProjects), so no link is hidden.
   const hiddenRepo = REPO_KEY.test(norm(key)) && d.project.repo === null;
@@ -336,6 +344,8 @@ export type ProjectPanel = {
 };
 export type ProfileSite = {
   lastShippedAt: string | null; thisWeek: number; highlights: Highlight[]; standing: StandingPill | null; token: TokenCard | null; project: ProjectPanel | null; first: string;
+  /** 2026-10-23: the builder said yes to the Base walk-through (the hero's no-project line reads "getting started on Base"). */
+  starting?: boolean;
 };
 
 /** The GitHub owner of a project key ("owner/repo"), lowercase. Pure. */
@@ -401,6 +411,7 @@ export async function profileSite(builderId: number, d: ProfileData, now: Date, 
     token,
     project: projectPanel(d, key),
     first: firstName(d.name, d.handle),
+    starting: main?.starting === true,
   };
 }
 

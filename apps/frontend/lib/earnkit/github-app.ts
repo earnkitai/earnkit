@@ -342,6 +342,7 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
   const proven: Awaited<ReturnType<typeof proveOne>>[] = [];
   let tried = 0;
   let threw = 0;
+  let copies = 0;
   for (const r of order) {
     if (Date.now() >= deadline || (org && proven.length > 0)) break;
     tried++;
@@ -350,6 +351,7 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
       threw++;
       return null;
     });
+    if (p && !p.out.ok && p.out.why === 'copy') copies++;
     if (!p?.out.ok) continue;
     await saveVerification(
       { ...row, repo_key: r.key },
@@ -359,6 +361,9 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
     );
     proven.push(p);
   }
+  // 2026-10-23: every picked repo was refused as a fork or template: the next agent reply says the way out, once
+  // (standing_seen.template_refused, bench-find.ts takeTemplateNotice); a later success clears it.
+  await templateRefused(builderId, proven.length === 0 && tried > 0 && copies === tried, now);
   // M3: GitHub failed every proof (or none could start): the failed page, never "none could count".
   if (!proven.length) return threw === tried ? verifyPage(VERIFY_PAGE.failed, 502, clear) : verifyPage(PICK_PAGE.noneCounted, 403, clear);
   // `mine` is newest push first, so the first proven is the most recently pushed.
@@ -370,6 +375,15 @@ async function pickSetup(row: NonceRow & { login: string; account_created_at: Da
   await connectProven(builderId, proven, { ...deps, now }, { deadline })
     .catch((err: unknown) => console.error('[github-app] connect', err instanceof Error ? err.name : 'error'));
   return donePage([PICK_PAGE.ranked(ranked, await pageHandle(row.installation_id)), PICK_PAGE.next], proven.length > 1, clear);
+}
+
+/** 2026-10-23: records (`refused`) or clears the picker's fork-or-template-only refusal for the next reply. Never throws. */
+async function templateRefused(builderId: number, refused: boolean, now: Date): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = CASE WHEN ${refused}
+      THEN COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('template_refused', ${now.toISOString()}::text)
+      ELSE standing_seen - 'template_refused' END
+    WHERE builder_id = ${builderId} AND (${refused} OR COALESCE(standing_seen ? 'template_refused', false))`.catch((err: unknown) =>
+    console.error('[github-app] template refused', err instanceof Error ? err.name : 'error'));
 }
 
 /** GitHub's install page for the App, with the v2.9 nonce as `state` (R8). Pure. */
