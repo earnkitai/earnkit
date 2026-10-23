@@ -99,9 +99,9 @@ export const CTA_INSTALL = 'Add EarnKit to your agent';
 export const NAV_INSTALL = 'Add to your agent';
 export const STEPS_TITLE = 'From commit to capital';
 export const STEPS = [
-  { title: 'Connect', text: "Add EarnKit to your agent, sign in with X and pick the repo you're building." },
-  { title: 'Ship', text: 'Every day we read your commits and score how steadily you ship, out of 100.' },
-  { title: 'Get funded', text: 'We match your repo to open grants. Your agent drafts the application for you to send.', backing: 'People can back you by buying your coin.' },
+  { title: 'Connect', text: 'Add EarnKit to your agent. Connect your GitHub.' },
+  { title: 'Ship', text: 'We score how steadily you ship, every day.' },
+  { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.', backing: 'Fans can back you with your coin.' },
 ] as const;
 export const ACTIVITY_TITLE = 'Activity';
 export const ACTIVITY_MORE = 'See the leaderboard';

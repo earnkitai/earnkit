@@ -15,7 +15,7 @@ const ICONS: [string, string, string][] = [
 
 /**
  * "From commit to capital" (Landing board): Connect, Ship, Get funded on the step cards. The Get funded card adds
- * "People can back you by buying your coin." only while Backing is on (raisingEnabled). Every icon sits in the same
+ * "Fans can back you with your coin." only while Backing is on (raisingEnabled). Every icon sits in the same
  * 56px box and the title follows it at a fixed gap, so the three titles share one line whatever the text's length.
  */
 export default function Steps() {
