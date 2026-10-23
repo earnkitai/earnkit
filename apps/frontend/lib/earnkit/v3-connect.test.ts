@@ -13,7 +13,7 @@ import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, ope
 
 /** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
 /** v3.1 cold read: Base's steps question (its count leaves out a step the project's facts show met). */
-const RANKED_END = /\nWant the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?\nShip code this week: up to \+100 points$/;
+const RANKED_END = /(?:^|\n)Want the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?\nShip code this week: up to \+100 points$/;
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**

@@ -792,6 +792,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
+    // Owner test 2026-10-23: "how many points do I have" had no fact to answer from (ANSWER_FIRST_NOTE).
+    points_total: await pointsTotal(id).catch(() => null),
   };
   return { view, fields };
 }
