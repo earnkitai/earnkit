@@ -2085,9 +2085,10 @@ export const handlers = {
       ? { saved: [] as string[], outcomes: 0 }
       : await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
     // Ruling G21: only the caller's own subscription (none on a shared client).
-    // v3.1 answerable replies (spec 3): a yes without an address is never "Done": the address is asked for (nothing saved).
+    // v3.1 answerable replies (spec 3): a yes without an address is "Done" only when an address is already on file
+    // (saveWeeklyEmail); else the address is asked for, and an agent that can schedule may offer the check-in instead.
     const noAddress = weekly?.answer === 'yes' && weekly.email === undefined && !ctx.sharedClient;
-    const mail = !weekly ? null : noAddress ? { show_to_builder: WHICH_EMAIL, saved: false } : await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login: null });
+    const mail = !weekly ? null : await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login: null });
     if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
     const mailNote =
       mail?.show_to_builder === WHICH_EMAIL

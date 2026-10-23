@@ -195,7 +195,7 @@ test('7.6 alsoText: the table and "Still needed", with no bonus sentence (v2.10 
     text,
     [
       'You also qualify for:',
-      '| Program | Up to | Ends | Still needed |',
+      '| Program | Amount | Ends | Still needed |',
       '|---|---|---|---|',
       '| Base Builder Grant Program | $5,000 | rolling | 1 answer |',
       '| Avalanche Team1 Mini Grants | $10,000 | rolling | nothing |',

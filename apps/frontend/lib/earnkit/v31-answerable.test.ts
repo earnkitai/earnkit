@@ -136,7 +136,7 @@ test('copy: the jargon lines and the answer note', () => {
   assert.equal(pickRepoAgain('https://x.test/l'), "Connect your app's code so I can match it (read-only, one click): https://x.test/l\nDone?");
   rule(pickRepoAgain('https://x.test/l'));
   // Money tables say "Up to" (grants and investments aren't prizes), the cell without its own "up to".
-  assert.equal(AMOUNT_HEADER, 'Up to');
+  assert.equal(AMOUNT_HEADER, 'Amount');
   assert.equal(upToCell('up to $5,000'), '$5,000');
   assert.equal(upToCell('500 USDC × 20 grants'), '500 USDC × 20 grants');
   // find points "what can I earn" at more: true; every description stays under 800 characters.
@@ -203,15 +203,15 @@ test('the connect pitch: in full once a day, then its link and question alone', 
   assert.match(show(await mcpCall(p.ctx, 'find', {})), /Lovable or Bolt/);
 });
 
-test('weekly email yes without an address: never "Done", asks which email; with one, done', db, () => withEnv(ON, async () => {
+test('weekly email yes without an address: asks which email unless one is on file; with one, done', db, () => withEnv(ON, async () => {
   const p = await signedIn('e');
   const r = await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes' } });
   assert.equal(rule(show(r)), WHICH_EMAIL);
   assert.match(String(r.reply?.agent_note), /which email to use/);
   assert.doesNotMatch(String(r.reply?.agent_note), /check in/);
   await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes', email: 'maya@example.com' } });
-  // Even with an address on file, a yes without one asks (it never says Done for an address the builder didn't name).
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes' } })), WHICH_EMAIL);
+  // With an address on file, a plain yes ("remind me every Monday") is done: the address is already theirs.
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes' } })), EMAIL_ON);
   assert.equal(show(await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes', email: 'maya@example.com' } })), EMAIL_ON);
   // A client that can schedule, check-in never answered: the note may offer the check-in instead (one question).
   const g = await signedIn('g', 'Grok');
@@ -251,3 +251,8 @@ test('a ranked builder with a live coin: the coin ask leads with its link; facts
   for (const other of ['pad', 'an', 'acs'].map((x) => `"${x}`)) assert.ok(!json.includes(`earnkit.com/${other}`), json);
   process.stdout.write(`# facts example: ${json}\n`);
 }));
+
+test('"Your entries" says what the builder last told: accepted after applied, never "applied" again', async () => {
+  const { entryStatusWord } = await import('./present');
+  assert.deepEqual(['applied', 'accepted', 'funded', 'won', 'rejected', undefined].map(entryStatusWord), ['applied', 'accepted', 'funded', 'won', 'not selected', 'applied']);
+});

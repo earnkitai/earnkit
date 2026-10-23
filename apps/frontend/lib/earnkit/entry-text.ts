@@ -76,7 +76,7 @@ export const prizeOf = (c: { summary: string; investment?: boolean }) => {
 };
 
 /** v3.1 answerable replies (spec 4): the money tables' column header (grants and investments aren't prizes). */
-export const AMOUNT_HEADER = 'Up to';
+export const AMOUNT_HEADER = 'Amount';
 /** A money table's cell under AMOUNT_HEADER: the prize part without its own "up to " ("$5,000", "500 USDC × 20 grants"). Pure. */
 export const upToCell = (prize: string) => prize.replace(/^up to\s+/i, '');
 
