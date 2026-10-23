@@ -4,7 +4,7 @@ import { hit } from './rate-limit';
 import { listedRanked } from './person-score';
 import { PRIVATE_NAME, avatarUrl, displayName, norm, shownProjects } from './page-data';
 import { titlesShown } from './ship-titles';
-import { summaryShown } from './week-summary';
+import { summaryConsented, summaryShown } from './week-summary';
 import { factChips, hasFacts, pointsOf, WEEKLY_HOUR_UTC, type WeekFacts } from './week-facts';
 import { lastFinishedMonday, weekLabel } from './weeks';
 
@@ -69,8 +69,8 @@ async function feedRows(since: string, until: string, only?: number[]): Promise<
   return rows.map(({ titles_on, titles, ...r }) => {
     const s = (shown.get(r.builder_id) ?? []).find((x) => norm(x.key) === norm(r.key));
     // Preflight S9: a repo that isn't read public shows its titles only while titles are on (and never its name);
-    // its summary also once the builder approved the week (owner batch 2026-10-23).
-    const rule = { hiddenRepo: s?.hiddenRepo ?? true, titlesOn: titles_on, repoKey: r.key, approved: r.facts?.approved === true };
+    // its summary also once the builder approved that exact text (owner batch 2026-10-23).
+    const rule = { hiddenRepo: s?.hiddenRepo ?? true, titlesOn: titles_on, repoKey: r.key, consented: summaryConsented(r.facts, r.summary) };
     return { ...r, project: s?.safeName ?? PRIVATE_NAME, summary: summaryShown(r.summary, titlesShown(titles, rule), rule) };
   });
 }

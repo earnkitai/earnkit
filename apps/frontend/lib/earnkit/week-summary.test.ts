@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
-import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, ruleSummary, summaryShown, tidySummary, weekSummary } from './week-summary';
+import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
 import { logCards, STARTED_CHIP } from './bench-data';
 import { NOTE_LINE, momentLines } from './weekly-moment';
 
@@ -60,17 +60,27 @@ test('W6 summaryShown: a private repo shows nothing unless titles are on, and ne
   assert.equal(summaryShown('Shipped secretapp v2.', ['Fix the timer'], { ...pub, hiddenRepo: true, titlesOn: true }), 'Fixed the timer.');
 });
 
-test('W6b owner batch: a private repo with titles off shows the stored summary of an approved week only, never one naming it or a file', () => {
+test('W6b owner batch: a private repo with titles off shows the stored summary only when consented to, never one naming it or a file', () => {
   const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp' };
   assert.equal(summaryShown('Fixed the timer.', [], priv), null, 'not approved');
-  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, approved: false }), null);
-  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, approved: true }), 'Fixed the timer.');
-  assert.equal(summaryShown(null, ['Fix the timer'], { ...priv, approved: true }), null, 'never the rule summary of its titles');
-  assert.equal(summaryShown('Shipped Secret App v2.', [], { ...priv, approved: true }), null, 'names the repo');
-  assert.equal(summaryShown('Fixed the timer in src/timer.ts.', [], { ...priv, approved: true }), null, 'a path');
-  assert.equal(summaryShown('Updated package.json.', [], { ...priv, approved: true }), null, 'a file name');
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, consented: false }), null);
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, consented: true }), 'Fixed the timer.');
+  assert.equal(summaryShown(null, ['Fix the timer'], { ...priv, consented: true }), null, 'never the rule summary of its titles');
+  assert.equal(summaryShown('Shipped Secret App v2.', [], { ...priv, consented: true }), null, 'names the repo');
+  assert.equal(summaryShown('Fixed the timer in src/timer.ts.', [], { ...priv, consented: true }), null, 'a path');
+  assert.equal(summaryShown('Updated package.json.', [], { ...priv, consented: true }), null, 'a file name');
   // A public repo is unchanged by approval.
   assert.equal(summaryShown('Fixed the timer.', [], { ...priv, hiddenRepo: false }), 'Fixed the timer.');
+});
+
+test('W6c fix round: consent binds to the exact text the week was approved with', () => {
+  assert.equal(summaryConsented({ approved: true, approved_summary: 'Fixed the timer.' }, 'Fixed the timer.'), true);
+  assert.equal(summaryConsented({ approved: true, approved_summary: 'Fixed the timer.' }, 'Fixed the timer and the oven.'), false, 'changed after the yes');
+  assert.equal(summaryConsented({ approved: true }, 'Fixed the timer.'), false, 'approved before approvals carried the text');
+  assert.equal(summaryConsented({ approved: true, approved_summary: null }, 'Fixed the timer.'), false, 'approved with no summary, one written later');
+  assert.equal(summaryConsented({ approved: false, approved_summary: 'Fixed the timer.' }, 'Fixed the timer.'), false);
+  assert.equal(summaryConsented(null, 'Fixed the timer.'), false);
+  assert.equal(summaryConsented({ approved: true, approved_summary: '' }, ''), false);
 });
 
 test('W5b weekSummary for a private repo: the model\'s words only (never the rule summary), never naming the repo or a file', async () => {

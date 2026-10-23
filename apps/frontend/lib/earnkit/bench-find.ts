@@ -596,7 +596,7 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
   const pick: ConnectBest | undefined = best
     ? { program_id: best.program_id, title: best.title, amount: best.amount, when: best.ends_at ? best.when.replace(/^closes /, '') : null, ...(best.repo && { repo: best.repo }) }
     : undefined;
-  await openConnect(id, { key, weeks: mondays, ...(pick && { best: pick }) });
+  await openConnect(id, { key, weeks: mondays, seen: Object.fromEntries(weeks.map((w) => [w.monday, w.summary])), ...(pick && { best: pick }) });
   return { weeks: weeks.length, points };
 }
 
@@ -619,7 +619,7 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
     return null;
   }
   if (!(await takeMoment(own, now))) return null;
-  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
+  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now), summary: last.summary });
   const week = weekNumber(commitWeeks, last.monday);
   const post = await weeklyPost(id, handle, week, now);
   return { week, place: momentPlace(last), rank: last.now.rank, post };

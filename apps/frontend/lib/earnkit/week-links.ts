@@ -5,7 +5,8 @@ import { siteUrl } from './entry-text';
 import { mainProjectOf } from './main-project';
 import { pagePath } from './reserved-routes';
 import { noteEvent } from './events';
-import { approveWeek, lastWeekOf, momentLines } from './weekly-moment';
+import type { WeekFacts } from './week-facts';
+import { approveWeek, lastWeekOf, momentLines, weekRules } from './weekly-moment';
 import { lastFinishedMonday, weekOfMonday } from './weeks';
 
 /**
@@ -117,7 +118,7 @@ export async function weekGet(request: Request): Promise<Response> {
   );
 }
 
-/** POST: approves the week (via 'email', points once) or hides it. Idempotent: an approved week keeps its first approval. */
+/** POST: approves the week (via 'email', points once) or hides it. Idempotent: an approved week keeps its first approval (a private repo's changed summary is approved again). */
 export async function weekPost(request: Request): Promise<Response> {
   const r = await resolve(request);
   if (!r) return bad();
@@ -126,10 +127,12 @@ export async function weekPost(request: Request): Promise<Response> {
   const { builderId, monday, action } = r.t;
   let done: string;
   if (action === 'approve') {
-    const [had] = await sql()<{ approved: boolean }[]>`
-      SELECT COALESCE((facts->>'approved')::boolean, false) AS approved FROM project_updates
+    const [had] = await sql()<{ titles: string[]; summary: string | null; facts: WeekFacts }[]>`
+      SELECT titles, summary, facts FROM project_updates
       WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday}`;
-    if (!had?.approved && !(await approveWeek(builderId, r.key, monday, now, 'email'))) return bad();
+    // Owner batch fix round: an approval that no longer stands (a private repo's summary changed since) is given again.
+    const stands = had ? (await weekRules(builderId, r.key)).current(had) : false;
+    if (!stands && !(await approveWeek(builderId, r.key, monday, now, 'email'))) return bad();
     // Fix round 1: Looks right after Hide shows the week again (the page says it does).
     await sql()`UPDATE project_updates SET hidden = false
       WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday} AND hidden`;

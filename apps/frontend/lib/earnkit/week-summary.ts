@@ -157,15 +157,24 @@ export async function weekSummary(p: { titles: string[]; own: OwnLinks; privateR
 }
 
 /**
+ * Owner batch fix round (consent binds to the exact text): the week was approved with this very summary stored
+ * (facts.approved_summary, written by weekly-moment.ts approveWeek). A summary rewritten or read again after the
+ * approval is not consented to until the builder approves again. Pure.
+ */
+export function summaryConsented(facts: { approved?: unknown; approved_summary?: unknown } | null | undefined, summary: string | null | undefined): boolean {
+  return facts?.approved === true && typeof summary === 'string' && summary !== '' && facts.approved_summary === summary;
+}
+
+/**
  * What a card shows for the week's work (read time, the titles rule of ship-titles.ts titlesShown): the stored
  * summary, else the rule summary of the titles the card may show. A repo that doesn't read public: with titles on,
- * as a public one but never text naming the repo; with titles off, only a week the builder approved (approval is
- * consent, owner batch 2026-10-23), and then only its stored summary, never one naming the repo or a file. Pure.
+ * as a public one but never text naming the repo; with titles off, only a summary the builder approved word for word
+ * (`consented`: summaryConsented, or the builder's own approval prompt), never one naming the repo or a file. Pure.
  */
 export function summaryShown(
-  summary: string | null | undefined, shownTitles: string[], o: { hiddenRepo: boolean; titlesOn: boolean; repoKey: string; approved?: boolean },
+  summary: string | null | undefined, shownTitles: string[], o: { hiddenRepo: boolean; titlesOn: boolean; repoKey: string; consented?: boolean },
 ): string | null {
-  if (o.hiddenRepo && !o.titlesOn) return o.approved && summary && !namesRepo(summary, o.repoKey) && !namesPath(summary) ? summary : null;
+  if (o.hiddenRepo && !o.titlesOn) return o.consented && summary && !namesRepo(summary, o.repoKey) && !namesPath(summary) ? summary : null;
   const ok = (s: string | null | undefined): s is string => Boolean(s) && !(o.hiddenRepo && namesRepo(s!, o.repoKey));
   const rule = ruleSummary(shownTitles);
   return ok(summary) ? summary : ok(rule) ? rule : null;

@@ -8,7 +8,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { feedWeeks } from './feed';
 import { profileData } from './bench-data';
 import { weeklyFactsStep, writeWeek } from './week-facts';
-import { approveWeek, weekLineRule } from './weekly-moment';
+import { answerShare, approveWeek, openShare, weekLineRule, weekRules } from './weekly-moment';
+import { isoWeekOf } from './weeks';
 import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
 import { UPDATE_LINES } from './updates';
@@ -102,6 +103,7 @@ async function onFeed(id: number) {
     VALUES (${id}, 50, '{}'::jsonb, true, 1, 0, 'v2', 'v2-shipping', now()) ON CONFLICT (builder_id) DO UPDATE SET ranked = true`;
   await sql()`UPDATE project_updates SET points = 10 WHERE builder_id = ${id} AND week = ${WEEK}`;
 }
+const facts = async (id: number) => (await row(id))?.facts ?? null;
 const feedTitles = async (id: number) => (await feedWeeks(MONDAY_RUN, { only: [id] })).flatMap((w) => w.cards).find((c) => c.week === WEEK)?.summary ?? null;
 const profileTitles = async (id: number) => (await profileData(id, MONDAY_RUN, { only: [id] }))?.log.find((c) => c.week === WEEK)?.summary ?? null;
 
@@ -154,16 +156,61 @@ test('8.10b owner batch: a private repo\'s week gets an AI summary that shows on
   assert.equal(line({ titles: [], summary: r.summary }), null, 'nor a post');
   assert.equal((await weekLineRule(p.id, key, { asking: true }))({ titles: [], summary: r.summary }), r.summary, 'the builder sees what they approve');
   assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+  assert.equal((await facts(p.id))?.approved_summary, r.summary, 'the yes stores the text it approved');
   assert.equal(await feedTitles(p.id), 'Added a shopping list and fixed the timer.', 'approved: the feed shows it');
   assert.equal(await profileTitles(p.id), 'Added a shopping list and fixed the timer.', 'and the profile');
-  assert.equal(line({ titles: [], summary: r.summary, approved: true }), r.summary, 'and a post');
+  const stored = async () => (await sql()<{ titles: string[]; summary: string | null; facts: Record<string, unknown> }[]>`
+    SELECT titles, summary, facts FROM project_updates WHERE builder_id = ${p.id} AND week = ${WEEK}`)[0];
+  assert.equal(line((await stored()) as never), r.summary, 'and a post');
   const cards = JSON.stringify([await feedWeeks(MONDAY_RUN, { only: [p.id] }), await profileData(p.id, MONDAY_RUN, { only: [p.id] })]);
   assert.ok(!/quietproj/i.test(cards) && !cards.includes('Fix the timer'), 'no repo name and no raw title on any card');
-  // A stored summary naming the repo or a file never shows, approved or not.
-  await sql()`UPDATE project_updates SET summary = 'Fixed the timer in src/app.ts.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
-  assert.equal(await feedTitles(p.id), null);
-  await sql()`UPDATE project_updates SET summary = 'Shipped Quietproj dark mode.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
-  assert.equal(await profileTitles(p.id), null);
+  // Fix round: a summary rewritten after the yes is hidden until approved again; the approval itself stays.
+  await sql()`UPDATE project_updates SET summary = 'Added a shopping list, fixed the timer and the oven.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await feedTitles(p.id), null, 'changed text: hidden on the feed');
+  assert.equal(await profileTitles(p.id), null, 'and the profile');
+  assert.equal(line((await stored()) as never), null, 'and a post');
+  assert.equal((await facts(p.id))?.approved, true, 'history kept');
+  const rules = await weekRules(p.id, key, { asking: true });
+  assert.equal(rules.current((await stored()) as never), false, 'the approval no longer stands: asked again');
+  assert.equal(rules.line((await stored()) as never), 'Added a shopping list, fixed the timer and the oven.', 'the builder sees the new text');
+  const firstAt = (await facts(p.id))?.approved_at;
+  assert.ok(await approveWeek(p.id, key, WEEK, new Date(MONDAY_RUN.getTime() + 3_600_000)));
+  assert.equal((await facts(p.id))?.approved_at, firstAt, 'the first approval time is kept');
+  assert.equal(await feedTitles(p.id), 'Added a shopping list, fixed the timer and the oven.', 're-approved: shown');
+  // A yes binds to the text shown with the offer: changed in between, it is not consented to.
+  await sql()`UPDATE project_updates SET summary = 'Rewrote it after the offer.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN, 'share', 'Added a shopping list, fixed the timer and the oven.'));
+  assert.equal(await feedTitles(p.id), null, 'approved text differs from the stored one: hidden');
+  // A stored summary naming the repo or a file never shows, even approved word for word.
+  for (const bad of ['Fixed the timer in src/app.ts.', 'Shipped Quietproj dark mode.']) {
+    await sql()`UPDATE project_updates SET summary = ${bad} WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+    assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+    assert.equal(await feedTitles(p.id), null, bad);
+    assert.equal(await profileTitles(p.id), null, bad);
+  }
+});
+
+test('8.10d fix round: a summary written while titles were on is not shown once titles are off, unless approved word for word', db, async () => {
+  const key = `xan${RUN}/ontheoff`;
+  const p = await provenPerson('xan', key, true);
+  await mcpCall(p.ctx, 'tell', { updates: { titles: true } });
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  await onFeed(p.id);
+  await sql()`UPDATE project_updates SET summary = 'Added a shopping list.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await feedTitles(p.id), 'Added a shopping list.', 'titles on: shown as before');
+  await mcpCall(p.ctx, 'tell', { updates: { titles: false } });
+  assert.equal(await feedTitles(p.id), null, 'titles off, never approved: hidden');
+  await sql()`UPDATE project_updates SET facts = facts || '{"approved": true}'::jsonb WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await feedTitles(p.id), null, 'approved without that text (an older approval): hidden');
+  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+  assert.equal(await feedTitles(p.id), 'Added a shopping list.', 'approved word for word: shown');
+  // The moment's yes binds to the summary shown with the offer (openShare keeps it), not to a later rewrite.
+  const now = new Date();
+  await openShare(p.id, { key, week: WEEK, shown_week: isoWeekOf(now), summary: 'Added a shopping list.' });
+  await sql()`UPDATE project_updates SET summary = 'Rewritten after the offer.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  assert.equal(await answerShare(p.id, key, 'yes', now), true);
+  assert.equal((await facts(p.id))?.approved_summary, 'Added a shopping list.');
+  assert.equal(await feedTitles(p.id), null, 'the rewrite was never shown, so never consented to');
 });
 
 test('8.10c owner batch: without a model a private repo\'s commits are still never read (titles off)', db, async () => {
@@ -172,8 +219,6 @@ test('8.10c owner batch: without a model a private repo\'s commits are still nev
   await writeWeek({ id: p.id, key: `wes${RUN}/nokey` }, WEEK, MONDAY_RUN, { ghFetch: p.gh, summarize: null });
   assert.equal(p.gh.calls.filter((c) => /\/commits|\/pulls/.test(c.path)).length, 0);
 });
-
-const facts = async (id: number) => (await row(id))?.facts ?? null;
 
 test('8.13 fix round 1: a week with no shipped code reads no titles (facts still written)', db, async () => {
   const p = await provenPerson('quin', `quin${RUN}/quiet`, false, [], { shipped: false });
