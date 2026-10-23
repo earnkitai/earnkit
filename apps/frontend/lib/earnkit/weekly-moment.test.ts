@@ -190,7 +190,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   const statsApp = await readStats(new Date());
   assert.equal(statsApp.activated, stats0.activated, 'an App-proven repo alone is not activated');
   const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
-  assert.equal(show(yes), 'Thanks. Last week is confirmed.');
+  assert.equal(show(yes), 'Thanks. Last week is on your page.');
   const [row] = await sql()<{ facts: Record<string, unknown>; n: number }[]>`
     SELECT facts, (SELECT count(*)::int FROM project_updates WHERE builder_id = ${me.id}) AS n FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
@@ -229,7 +229,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
   await sql()`DELETE FROM project_updates WHERE builder_id = ${me.id}`;
   // Final fix M1: an agent that drops project_key still answers the one open offer.
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: null, answer: 'yes' } })), 'Thanks. Last week is on your page.');
   const [row] = await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${me.id} AND week = ${monday}`;
   assert.equal(row.facts.approved, true);
   assert.deepEqual((await profileData(me.id, new Date()))!.log, [], 'an approval-only week is no card');
@@ -266,7 +266,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   assert.equal(questions(s), 1);
   // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.
   await sql()`UPDATE project_updates SET summary = 'Fixed the login loop and more.' WHERE builder_id = ${me.id} AND week = ${monday}`;
-  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
   const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
   assert.equal((await facts(me.id)).approved_summary, 'Fixed the login loop.');
 
@@ -278,7 +278,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
     VALUES (${other.id}, ${other.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${named})`;
   const t = show(await mcpCall(ctx(other.id), 'score', {}));
   assert.doesNotMatch(t, /dark mode|"/, t);
-  assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
   assert.equal((await facts(other.id)).approved_summary, null);
   assert.equal((await facts(other.id)).offered_summary, named, 'counted as offered, not approved');
   const { weekRules } = await import('./weekly-moment');
@@ -358,7 +358,7 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   assert.match(s, /^Week \d+ done:\n/, s);
   assert.doesNotMatch(s, /points/, s);
   const before = await pointsTotal(paid.id);
-  assert.equal(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(show(await mcpCall(ctx(paid.id), 'tell', { move_up: { kind: 'share', project_key: paid.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
   assert.ok((await pointsTotal(paid.id)) - before > 0, 'the yes still earns the week\'s points');
 
   const none = await builder('wmpn', 'Nia', [1, 2]);
@@ -367,6 +367,6 @@ test('Task 16 fix round 1, v3.1 one-tap posts: the Monday reply shows no points 
   const t = show(await mcpCall(ctx(none.id), 'find', {}));
   assert.match(t, /^Last week done:\n/, t);
   assert.doesNotMatch(t, /points/, t);
-  assert.equal(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal(show(await mcpCall(ctx(none.id), 'tell', { move_up: { kind: 'share', project_key: none.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
   assert.equal(await pointsTotal(none.id), 0, '0 promised, 0 added');
 });

@@ -1,6 +1,6 @@
 import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { closeDayOf, endsOf, prizeOf } from './entry-text';
+import { AMOUNT_HEADER, closeDayOf, endsOf, prizeOf, upToCell } from './entry-text';
 import { shortDate } from './dates';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
@@ -160,7 +160,7 @@ export type FirstMessage = {
    * to outside EarnKit this round. Never in a table or the offer; applied ones are listed in "Your
    * entries" as "applied outside EarnKit".
    */
-  hidden?: { notInterested: Set<string>; applied: Set<string> };
+  hidden?: { notInterested: Set<string>; applied: Set<string>; statuses?: Map<string, string> };
   /**
    * v2.10 item 15 (alerts.ts takeDeadlineLine): "Arc Microgrants closes in 2 days; your entry isn't
    * submitted.", right after "Your entries" (R12), or null. Pre-flight P19: T8 reuses it.
@@ -208,6 +208,9 @@ function withWonLine(sections: string[], bodyStart: number, wonUsd: number | und
 
 /** v2.9 A3: a program the builder applied to outside EarnKit, in "Your entries". */
 export const APPLIED_OUTSIDE = 'applied';
+/** v3.1 answerable: the builder's own last word on an applied program ("accepted" after "applied"). Pure. */
+export const entryStatusWord = (status: string | undefined) =>
+  status === 'accepted' || status === 'funded' || status === 'won' ? status : status === 'rejected' || status === 'not_selected' || status === 'lost' ? 'not selected' : APPLIED_OUTSIDE;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
@@ -548,7 +551,7 @@ export function entriesLine(m: Pick<FirstMessage, 'entries' | 'cards' | 'hidden'
   const applied = [...(m.hidden?.applied ?? [])].filter((id) => titles.has(id));
   const lines = [
     ...(m.entries ?? []).filter((e) => e.program_id !== COIN_PROGRAM).map((e) => `${titles.get(e.program_id) ?? e.title} (${e.name}, ${e.submitted ? 'submitted' : 'not submitted yet'})`),
-    ...applied.map((id) => `${titles.get(id)}: ${APPLIED_OUTSIDE}`),
+    ...applied.map((id) => `${titles.get(id)}: ${entryStatusWord(m.hidden?.statuses?.get(id))}`),
   ];
   if (lines.length === 0) return null;
   const more = lines.length - MAX_ENTRIES;
@@ -862,11 +865,11 @@ export function presentFirstMessage(given: FirstMessage): string {
     matchedSection = (
       `${longOnly ? LOW_ODDS_HEADING : bestRow ? header : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
         table(
-          ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
+          ['Program', AMOUNT_HEADER, 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v, row, odds, low_reason }) => {
             return [
               programCell(card, entered, false),
-              prizeOf(card),
+              upToCell(prizeOf(card)),
               rowCell(card, row),
               endsOf(card),
               odds === 'low'
@@ -910,8 +913,8 @@ export function presentFirstMessage(given: FirstMessage): string {
             : 'Open money right now:'
       }\n\n` +
         table(
-          ['Program', couldWin ? 'You could win' : 'Prize', 'Difficulty', 'Ends'],
-          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), prizeOf(c), difficultyCell(c), endsOf(c)]),
+          ['Program', couldWin ? 'You could win' : AMOUNT_HEADER, 'Difficulty', 'Ends'],
+          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), couldWin ? prizeOf(c) : upToCell(prizeOf(c)), difficultyCell(c), endsOf(c)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );

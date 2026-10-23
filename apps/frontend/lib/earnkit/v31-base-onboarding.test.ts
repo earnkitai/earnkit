@@ -216,7 +216,8 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   assert.deepEqual(again.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.equal((await seen(p.id)).github_no, undefined);
   assert.equal(((await seen(p.id)).bench_ask as { kind: string }).kind, 'pick_repo');
-  assert.match(show(await find(p.ctx)), /Connect your app's code on GitHub/);
+  // v3.1 answerable replies (spec 6): the same day, the short form.
+  assert.match(show(await find(p.ctx)), /Connect your app's code (?:on GitHub )?so I can match it/);
 });
 
 test('GitHub no, then no to Base: "No rush." (no wallet step without contracts), both nos remembered, the page keeps today\'s wording', db, async () => {
@@ -294,6 +295,8 @@ test('the picker refused only forks or templates: the next reply says the way ou
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, limit: async () => {} });
   assert.equal(res.status, 403);
   assert.ok((await res.text()).includes(PICK_PAGE.noneCounted.split(':')[0]));
+  // A new day (v3.1 answerable replies, spec 6): the connect step's full pitch again, under the notice.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'pitch_day' WHERE builder_id = ${p.id}`;
   const r = rule(show(await find(p.ctx)));
   const lines = r.split('\n');
   // v3.1 cold read: the welcome was the first reply's; this one starts with the way out.

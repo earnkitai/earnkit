@@ -232,7 +232,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   const s = oneStatusOneStep(stale);
   // Task 16 step 2: a named repo not counted gets its install link (v3.1 cold read: "You're in" was said already).
   // GTM W2: the open grant's line before the step (value before the ask).
-  assert.match(s, /^(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it /);
+  // v3.1 answerable replies (spec 6): the same day after the full pitch, its short form.
+  assert.match(s, /^(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code (?:on GitHub )?so I can match it /);
   assert.doesNotMatch(s, RANKED, s);
   assert.doesNotMatch(s, /You moved up/, s);
   assert.deepEqual(stale?.rank_lines, []);

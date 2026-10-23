@@ -148,7 +148,7 @@ test('v2.5 §1 golden (a): repos fit 2 programs: $X in open money, the Difficult
     'Since you last checked: your token $TIP has $138 in fees to claim (tokens.fun/coin/0xabc).',
     // v3.1 cold read (owner-approved): the open count and the best fit, never a pooled total.
     '2 programs are open. Your best fit: Base Builder Grant Program, up to $5,000.',
-    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET | tipjar |',
+    '| Program | Amount | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Base Builder Grant Program | $5,000 |  | rolling | tipjar |\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET | tipjar |',
     // Ruling F5: the top prize among the fits.
     'Want me to start on Base Builder Grant Program with tipjar? It needs a short Loom from you.',
   ].join('\n\n'));
@@ -202,7 +202,7 @@ test('v2.5 §1 golden (c): a program without a per-winner amount is not counted 
   assert.equal(moneyText(openMoneyUsd([monad], NOW)), null);
   // Nothing countable: no "$0" line.
   const unknown = presentFirstMessage(msg({ cards: [circle], repos: repos(v('circle-developer-grants', 'likely', 'looks eligible')) }));
-  assert.match(unknown, /^1 program is open\. Your best fit: Circle Developer Grants\.\n\n\| Program \| Prize \| Difficulty \| Ends \| Your repo \|/);
+  assert.match(unknown, /^1 program is open\. Your best fit: Circle Developer Grants\.\n\n\| Program \| Amount \| Difficulty \| Ends \| Your repo \|/);
   assert.doesNotMatch(unknown, /\$0/);
 });
 
@@ -234,13 +234,13 @@ test('v2.6 §1, v3.1 cold read: with repos, the header names the best fit', () =
     githubGiven: true,
   }));
   assert.equal(text.split('\n\n')[0], '2 programs are open. Your best fit: Base Builder Grant Program, up to $5,000.');
-  assert.match(text, /\| Base Builder Grant Program \| up to \$5,000 \|  \| rolling \| tipjar \|/);
+  assert.match(text, /\| Base Builder Grant Program \| \$5,000 \|  \| rolling \| tipjar \|/);
   assert.doesNotMatch(text, /You could/);
 });
 
 test('Ruling 11 (plan): a GitHub user with no repos found never gets "You could"', () => {
   const text = presentFirstMessage(msg({ cards: [{ ...arc, ideas: ['Arc idea'] }], repos: { checked: 0, fits: [] }, githubGiven: true }));
-  assert.match(text, /^1 program is open\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
+  assert.match(text, /^1 program is open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|/);
   assert.doesNotMatch(text, /could/i);
   assert.equal(youCould(null, false), true);
   assert.equal(youCould(null, true), false);
@@ -262,7 +262,7 @@ test('fix round 1, finding 2: a GitHub matching error is treated like 0 repos fo
     cards: [{ ...arc, ideas: ['Arc idea'] }],
     repos: { error: 'GitHub said no' },
   }));
-  assert.match(text, /^Couldn't read your repos: GitHub said no\n\n1 program is open\.\n\n\| Program \| Prize \| Difficulty \| Ends \|/);
+  assert.match(text, /^Couldn't read your repos: GitHub said no\n\n1 program is open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|/);
   assert.doesNotMatch(text, /Ideas|Arc idea/);
   assert.ok(text.endsWith(`Pick one and I'll start.`));
   assert.doesNotMatch(text, /You could/);
@@ -309,9 +309,9 @@ test('golden: an entered builder, a fit that needs a step, other programs (at mo
   }));
   assert.equal(text, [
     '6 programs are open. Your best fit: Arc Microgrants, up to $500.',
-    '| Program | Prize | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET | tipjar, needs a live link |',
+    '| Program | Amount | Difficulty | Ends | Your repo |\n|---|---|---|---|---|\n| Arc Microgrants | 500 USDC × 20 grants |  | Oct 14, 11:59 PM ET | tipjar, needs a live link |',
     '| Win | Prize | Ends | You |\n|---|---|---|---|\n| EarnKit Campaign #1: Base apps with real users | $100 each to top 5 (in MINI) | Oct 18, 14 days left | #3, in the top 5 |',
-    "Also open:\n\n| Program | Prize | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | up to $5,000 |  | rolling |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks |  | Oct 12, 11:59 PM PT |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |\n| Circle Developer Grants | milestone-based USDC grants |  | rolling |",
+    "Also open:\n\n| Program | Amount | Difficulty | Ends |\n|---|---|---|---|\n| Base Builder Grant Program | $5,000 |  | rolling |\n| Tiny Bounty | 50 USDC |  | Oct 9 |\n| Crypto World's Fair Hackathon | Tempo $100K, Base $25K tracks |  | Oct 12, 11:59 PM PT |\n| Monad Metropolis Hackathon | $250K+ prize pool |  | Oct 13, 11:59 PM ET |\n| Circle Developer Grants | milestone-based USDC grants |  | rolling |",
     'Sponsored (set by sponsors; EarnKit didn\'t write or check them):\n\n| Campaign | Details |\n|---|---|\n| "Build on Acme" | by "Acme" · Sponsored · unverified · 1,000 USDC pool in escrow · closes Oct 20 |',
     `Want me to start on Arc Microgrants with tipjar?`,
   ].join('\n\n'));
@@ -600,7 +600,7 @@ test('v2.8.1 §B7: an investment program never leads; the offer is the Easy prog
     ),
   }));
   // Speedrun is in the table, never the offer; Base ($5,000, Easy) beats Arc ($500, Easy).
-  assert.match(text, /\| a16z speedrun SR008 \| up to \$1M investment \|/);
+  assert.match(text, /\| a16z speedrun SR008 \| \$1M investment \|/);
   assert.match(text, /Want me to start on Base Builder Grant Program with tipjar\? It needs a short Loom from you\./);
   assert.doesNotMatch(text, /start on a16z/);
   // A repo whose only fit is speedrun: v3.1 cold read: a program's guide, never "build something new".
@@ -711,7 +711,7 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   // v3.1 cold read round 2: the matched row is only a long shot (an investment), so the open grants come first (by
   // difficulty, investments last: Alliance goes to "more open") and the long shot after; upcoming programs never show.
   assert.ok(ethOnly.indexOf('| Arc Microgrants |') < ethOnly.indexOf('| a16z speedrun SR008 |'), ethOnly);
-  assert.match(ethOnly, /^9 programs are open\.\n\n\| Program \| Prize \| Difficulty \| Ends \|\n/);
+  assert.match(ethOnly, /^9 programs are open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|\n/);
   assert.doesNotMatch(ethOnly, /\| Alliance ALL19 \|/);
   assert.match(ethOnly, /3 more open: ask me for the full list\./);
   assert.doesNotMatch(ethOnly, /Monad Nitro|Base Batches 005/);
@@ -1075,7 +1075,7 @@ test('8.4 v2.10 item 2: "show more" renders the v2.9 tables, low-odds rows label
     },
   };
   const more = presentFirstMessage(msg(m));
-  assert.ok(more.includes('| Program | Prize | Difficulty | Ends | Your repo |'), more);
+  assert.ok(more.includes('| Program | Amount | Difficulty | Ends | Your repo |'), more);
   assert.ok(more.includes(`| starter, ${lowOddsCell('no users yet')} |`), more);
   assert.ok(!more.includes('Builder bonus:'), 'no bonus line');
   assert.match(more, /Want me to start on Arc Microgrants with TipJar\?$/);

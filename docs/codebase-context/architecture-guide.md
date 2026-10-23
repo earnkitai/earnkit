@@ -8045,3 +8045,18 @@ Five journeys read cold; every reply now answers the builder, says one name and 
   one project's log on demand (rankAnswer, coveredRead, connectMoment, tokenAsk) when the connect never did. Outcome posts
   need only the proof checks (no earlier entry). Weekly posts say "Last week:". Drafts: `youAddLine`, and
   `BUILDER_CODES_FIRST` in the approved wording with a plain guide path.
+
+## v3.1 answerable replies (2026-10-23, design: v3.1-answerable-replies.md)
+
+Owner Grok Bot test: most builder questions ("how many points", "what's my wallet", "who backed me", "what is EarnKit")
+route to find or score, whose reply showed only the status line. Now every find and score reply carries `facts`
+(`reply-facts.ts`, added in `tools.ts withFacts`), and `ANSWER_FIRST_NOTE` tells the agent to answer the question in one
+short line from show_to_builder and facts only (a link it needs comes from facts). Facts are the builder's own data,
+read through `bench-data.ts profileData` so they follow the page's visibility rules (private titles, coin only with
+Backing on); a shared client without a signed-in builder gets only `about`, whose lines are existing site and docs copy
+(no deletion policy: `about.data` is "You can hide your page anytime"). Same pass: the token ask with a live coin leads
+with "$SYM is live: <tokens.fun>"; a weekly email yes without an address asks which email (never "Done"; a scheduling
+client may get the check-in instead); the connect step's full pitch is shown once a UTC day (`standing_seen.pitch_day`),
+then only its link and question; jargon lines ("Backing open", "Last week is confirmed", the tables' "Prize" header, the
+guide's "(estimate)") replaced.
+

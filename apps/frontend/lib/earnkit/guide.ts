@@ -314,7 +314,8 @@ export function guideSourceList(p: GuideFacts & { source_url?: string }, first: 
  */
 export function guideText(g: Guide): string {
   const sections = [
-    [g.header, ...(g.opens_note ? [g.opens_note] : []), `Difficulty: ${difficultyText(g.difficulty)}`].join('\n'),
+    // v3.1 answerable replies (spec 4): the level only, never "(estimate)" (as the tables' Difficulty cell).
+    [g.header, ...(g.opens_note ? [g.opens_note] : []), `Difficulty: ${difficultyText({ ...g.difficulty, estimate: false })}`].join('\n'),
     g.won && [wonHeading(g.won), ...(g.won.event ? [g.won.event] : []), ...g.won.lines.map((l) => `- ${l}`)].join('\n'),
     g.wants && `What ${g.wants.ecosystem} wants now\n- ${g.wants.areas.join(' · ')}`,
     // v2.10 item 3: only sourced parts; the rules fallback, one per line.

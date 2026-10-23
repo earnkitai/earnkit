@@ -285,7 +285,7 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
 test('(f) the connect yes asks for the address once; tell weekly_email yes with an address subscribes', db, () =>
   withEnv(ON, async () => {
     assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
-    assert.equal(EMAIL_ON, 'Done. Every Monday, once your week is written.');
+    assert.equal(EMAIL_ON, 'Done. Your summary comes every Monday.');
     await freshBoard();
     const me = await builder('mef');
     // Backfill-style weeks to confirm at connect.
@@ -319,14 +319,14 @@ test('(g) the first share yes asks for the address when it was never asked', db,
     await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
-    assert.equal(s, `Thanks. Last week is confirmed.\n${EMAIL_QUESTION}`);
+    assert.equal(s, `Thanks. Last week is on your page.\n${EMAIL_QUESTION}`);
     assert.equal(questions(s), 1);
     assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /weekly_email/);
     // Without the email on, nothing is asked.
     await withEnv({ RESEND_API_KEY: undefined }, async () => {
       const other = await builder('meg2');
       await openShare(other.id, { key: other.key, week: LAST, shown_week: isoWeekOf(new Date()) });
-      assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+      assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is on your page.');
     });
   }),
 );

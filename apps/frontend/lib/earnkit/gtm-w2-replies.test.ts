@@ -386,7 +386,10 @@ test('a private repo with a public name is offered and launches under that name,
   assert.equal(moveUp(c)?.kind, 'post');
   // "Did anyone back it?": the backers and the fees, then one post question (v3.1 cold read).
   const t = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  assert.equal(rule(show(t)), backersLine(0, 0));
+  // v3.1 answerable replies (spec 2): "$SYM is live: <tokens.fun>" first, the reply's one link, then one question.
+  const [coinRow] = await sql()<{ u: string }[]>`SELECT token_url AS u FROM projects WHERE id = ${pid}`;
+  assert.equal(rule(show(t)), `$${m[1]} is live: ${coinRow.u}\n${backersLine(0, 0)}`);
+  assert.equal(links(show(t)).length, 1);
   assert.equal(moveUp(t)?.kind, 'backers_post');
 }));
 

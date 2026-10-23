@@ -37,10 +37,13 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
 /**
  * v3.1 cold read (owner-approved, structural): the builder's own question is answered first. If the builder asked
  * something ("What is EarnKit?", "How much can I get?", "How did last week go?"), the agent answers it in one short line
- * from the facts in show_to_builder only, then shows show_to_builder exactly as written.
+ * from show_to_builder and the reply's facts (reply-facts.ts) only, then shows show_to_builder exactly as written.
  */
 export const ANSWER_FIRST_NOTE =
-  "If the builder asked a question, first answer it in one short line using only facts in this reply (show_to_builder, points_total, rank_lines, streak); never invent amounts or program facts. Then show show_to_builder to the builder exactly as written.";
+  "If the builder asked a question (their points, rank, page, wallet, coin, backers, what they shipped, what they earned, " +
+  "their applications, what EarnKit is, how ranking works, a Builder Code), first answer it in one short line from show_to_builder and facts only; " +
+  "if that answer needs a link, use the one in facts. A fact that isn't there is unknown: say so, never invent amounts, dates or program facts. " +
+  "Then show show_to_builder to the builder exactly as written.";
 export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, its next step.';
 /** The plain answer when a yes or no changes nothing (v2.12.1 make-countable.ts COUNT_LINES.noted). */
 export const NOTED_LINE = 'Okay.';

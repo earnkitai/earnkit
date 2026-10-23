@@ -131,16 +131,21 @@ export function roundLabel(p: { starts_at: Date | null; ends_at: Date | null }):
 export function hiddenPrograms(
   m: BuilderMemory,
   programs: { id: string; starts_at: Date | null; ends_at: Date | null; opened_at: Date | null }[],
-): { notInterested: Set<string>; applied: Set<string> } {
+): { notInterested: Set<string>; applied: Set<string>; statuses: Map<string, string> } {
   const notInterested = new Set<string>();
   const applied = new Set<string>();
+  // v3.1 answerable: what the builder last said of each applied program ("accepted" after "applied"), for "Your entries".
+  const statuses = new Map<string, string>();
   for (const p of programs) {
     const s = m.programs.get(p.id);
     if (!s) continue;
     if (s.status === 'not_interested') notInterested.add(p.id);
-    else if (s.round_label === roundLabel(p) && !(p.opened_at && p.opened_at > s.at)) applied.add(p.id);
+    else if (s.round_label === roundLabel(p) && !(p.opened_at && p.opened_at > s.at)) {
+      applied.add(p.id);
+      statuses.set(p.id, s.status);
+    }
   }
-  return { notInterested, applied };
+  return { notInterested, applied, statuses };
 }
 
 /** Both sets as one: what the builder never sees in tables, offers or Also qualifies. Pure. */

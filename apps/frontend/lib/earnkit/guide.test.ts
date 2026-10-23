@@ -200,7 +200,7 @@ test('Ruling C12: a round that is not own names its event under the heading; eac
 
 test('empty data: the header and the estimate only, no empty headings, no bonus line', () => {
   const text = guideText(programGuide({ ...base, title: arc.title, summary: arc.summary, ends_at: arc.ends_at, status: 'active' }, NOW));
-  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: Medium (estimate). No past results yet.');
+  assert.equal(text, 'Arc Microgrants · 500 USDC × 20 grants · ends Oct 14, 11:59 PM ET\nDifficulty: Medium. No past results yet.');
 });
 
 test('Ruling 7: focus.ecosystem names the heading', () => {
@@ -289,7 +289,8 @@ test('v2.8 Ruling 11: an estimate override shows "Hard (estimate)" and its basis
   assert.deepEqual(d, { level: 'Hard', estimate: true, rated: false, basis: 'a16z publishes no acceptance figures' });
   assert.equal(difficultyLabel(d), 'Hard (estimate)');
   const text = guideText(programGuide({ ...arc, past_rounds: [], focus: null, best_bet: null, difficulty_override: o }, NOW));
-  assert.match(text, /^Difficulty: Hard \(estimate\)\. A16z publishes no acceptance figures\.$/m);
+  // v3.1 answerable replies (spec 4): the guide's Difficulty line never says "(estimate)".
+  assert.match(text, /^Difficulty: Hard\. A16z publishes no acceptance figures\.$/m);
 });
 
 // ---- v2.9 A4, A6, A8: row difficulty ----

@@ -1615,6 +1615,13 @@ apps/frontend/
                                GTM W3: onBaseKnown + qualifyStatus(onBaseSaid): never "Put your app on Base" to a project on Base
     reply-format.ts            v3.1 (2026-10-23): formatReply (a blank line between lines, list items and table rows together, no
                                emphasis) and withFormattedReply; mcp.ts run applies it to every show_to_builder. tests reply-format.test.ts
+    reply-facts.ts             v3.1 answerable replies (2026-10-23): replyFacts(ctx) -> ReplyFacts { page {url, public}, points
+                               {total, this_week, what_for}, rank {line, score}, streak, shipped_last_week, wallet (short), coin
+                               {symbol, url, backers, fees_to_you} | null (Backing on only), earned {usd}, applications, about };
+                               the builder's own data via bench-data.ts profileData (its visibility rules); a shared client
+                               without an X-bound own installation gets `about` only; aboutFacts (existing site-copy/docs-copy
+                               lines only). tools.ts withFacts adds `facts` (and ANSWER_FIRST_NOTE) to every find and score
+                               reply. tests v31-answerable.test.ts
     agent-reach.ts             GTM W2 (2026-10-23): agentReach(own, builder) -> { hosted, schedules } from installations.client_name
                                (hosted: grok, muse, meta, instinct, openclaw; schedules: grok, cursor, openclaw, hermes) and
                                standing_seen.no_folder (find told agent_can_build: false: rememberNoFolder; both true); reachOf (pure)
@@ -2383,3 +2390,12 @@ v3.1 owner people view (2026-10-23): `people-signals.ts` (new: `peopleSignals`, 
 `person_wallets.first_tx_at/funder/signals_checked_at`, view `owner_people`; `events-redact.mts` lists `person_wallets.funder`. Tests: `people-signals.test.ts`, `x-oauth.test.ts`, `events-redact.test.ts` (base tables only).
 
 v3.1 owner tracker (2026-10-23): `owner_people` gains appended columns for jenil.ai /people (project name, repo + private, site, public score/rank, streak and 12-week commit weeks, last activity, avatar, coin + backers + creator fees ETH, programs applied/accepted/won, check-in and email opt-in). Test: `owner-tracker.test.ts`; `people-signals.test.ts` and `referral.test.ts` follow the new column order.
+v3.1 answerable replies (2026-10-23, design v3.1-answerable-replies.md): new `reply-facts.ts`; `tools.ts` (`withFacts` on
+find and score, `CHECKIN_INSTEAD_NOTE`, a weekly_email yes without an address asks `WHICH_EMAIL`); `stand-text.ts
+ANSWER_FIRST_NOTE` (answer from show_to_builder and facts); `bench-find.ts` (`coinLinkLine`: the token ask with a live coin
+leads "$SYM is live: <tokens.fun>"; `standing_seen.pitch_day`: the connect step's full pitch once a UTC day, else
+`bench-reply.ts pickRepoAgain`; kept by `stand-view.ts takeNews`); `bench-reply.ts` (`backingLine(..., symbol)` "Your coin
+$SYM is live.", exported `isStep2`); `digest.ts` (`EMAIL_ON`, `WHICH_EMAIL`), `weekly-moment.ts APPROVED_LINE`;
+`entry-text.ts` (`AMOUNT_HEADER` "Up to", `upToCell`) in `present.ts` and `also-qualifies.ts` tables; `guide.ts guideText`
+(never "(estimate)"); `mcp.ts FIND_DESCRIPTION_BENCH` (more: true for what can I earn / what fits me / show programs).
+Tests: `v31-answerable.test.ts`.

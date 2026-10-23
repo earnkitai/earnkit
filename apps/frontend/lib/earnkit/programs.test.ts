@@ -368,7 +368,7 @@ test('v2.7 §2: get_program carries the guide for curated programs only', () => 
   assert.ok(d.guide);
   // v2.14: no builder bonus line.
   assert.ok(!d.guide.text.includes('Builder bonus'), d.guide.text);
-  assert.ok(d.guide.text.startsWith('Base Builder Grant Program · up to $5,000 · rolling\nDifficulty: Medium (estimate)'));
+  assert.ok(d.guide.text.startsWith('Base Builder Grant Program · up to $5,000 · rolling\nDifficulty: Medium.'));
   assert.equal(d.guide.difficulty.level, 'Medium');
   assert.equal(d.guide.best_bet, null);
   assert.deepEqual(d.guide.sources, []);

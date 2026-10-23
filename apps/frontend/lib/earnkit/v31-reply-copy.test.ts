@@ -100,7 +100,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.match(links(s2)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
   const r2b = await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   const s2b = rule(show(r2b));
-  assert.equal(s2b, step2(links(s2b)[0]!));
+  // v3.1 answerable replies (spec 6): the same day, after the full pitch, the step is its link and question only.
+  assert.equal(s2b, `Connect your app's code so I can match it (read-only, one click): ${links(s2b)[0]}\nDone?`);
   assert.equal((r2b.reply?.move_up as { kind: string }).kind, 'install_app');
 
   // The App connects the repo (code in each of the last 4 weeks): ranked, its finished weeks backfilled.
