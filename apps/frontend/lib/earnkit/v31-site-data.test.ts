@@ -279,6 +279,23 @@ test('(c4) a private repo: the Builder Code and the track record show without a 
   for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy\/|github\.com/i);
 });
 
+test('(c5) owner batch: a private repo\'s track record names the proven site host and keeps its commit count when the newest reading predates it', db, async () => {
+  const key = `s${RUN}q/earnkit`;
+  const b = await builder({ key, name: 'earnkit', hidden: true, proof: 'github_app' });
+  const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'repo'`;
+  // The daily read has the count; a live read stamped later does not (read before commits_year existed).
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES
+    (${sid}, '2026-10-20', ${sql().json({ private: true, created_at: '2024-12-09T10:00:00Z', commits_year: 1373 } as never)}, true)`;
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
+    VALUES (${sid}, ${sql().json({ private: true, created_at: '2024-12-09T10:00:00Z' } as never)}, true, now())`;
+  const track = async () => (await highlights(b.id, await page(b.id), NOW)).find((x) => x.icon === 'repo');
+  assert.deepEqual(await track(), { icon: 'repo', title: 'Building since Dec 2024', sub: '1,373 commits in the last year' }, 'no safe name yet: no name, the count still shows');
+  const [{ id: site }] = await sql()<{ id: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)
+    VALUES (${b.id}, 'site', ${`https://www.earnkit${RUN}.com`}, ${key}, 'earnkit_txt', 'verified', 'agent', now()) RETURNING id::int AS id`;
+  assert.ok(site);
+  assert.deepEqual(await track(), { icon: 'repo', title: `Building earnkit${RUN}.com since Dec 2024`, sub: '1,373 commits in the last year' });
+});
+
 test('(d) backerWeeks buckets first_block by BASE_GENESIS_UNIX + 2 * block into the last 12 ISO weeks; an older backer counts nowhere; length is 12', db, async () => {
   assert.equal(BASE_GENESIS_UNIX, 1686789347);
   const coin = addr();
