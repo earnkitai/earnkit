@@ -99,7 +99,7 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   assert.match(h, /<h1[^>]*>Add EarnKit to your agent<\/h1>/);
   assert.deepEqual(codes(h), [MCP_URL]);
   // Install fixes: two or more steps are numbered, as in the install sheet.
-  const grokSteps = [...h.matchAll(/<li>([^<]*)<\/li>/g)].map((m) => m[1]);
+  const grokSteps = [...h.matchAll(/<li>([^<]*)<\/li>/g)].map((m) => decode(m[1]));
   assert.deepEqual(grokSteps, AGENTS[0].steps, 'Grok steps as a numbered list');
   // The copy button: labelled, an aria-live span for "Copied".
   assert.match(h, /<button [^>]*aria-label="Copy the command"/);
@@ -111,7 +111,9 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   // Every agent's panel shows exactly AGENTS' strings: the command (or the EarnKit link), then the after command.
   for (const a of AGENTS) {
     const p = renderToStaticMarkup(React.createElement(AgentPanel, { agent: a }));
-    assert.deepEqual(codes(p), [a.code ?? MCP_URL, ...(a.afterCode ? [a.afterCode] : [])], a.name);
+    // A message agent (Muse) shows its message instead of the bare link.
+    assert.deepEqual(codes(p), [...(a.message ? [] : [a.code ?? MCP_URL]), ...(a.afterCode ? [a.afterCode] : [])], a.name);
+    if (a.last) assert.ok(text(p).endsWith(a.last), a.name);
     if (a.after) assert.ok(text(p).includes(a.after), a.name);
   }
   const claude = AGENTS.find((a) => a.name === 'Claude Code')!;
@@ -129,8 +131,16 @@ test('(b) the install card: a tab per AGENTS name in AGENTS order, Grok Bot sele
   // Review fix: the connector line once on the card, above the tabs.
   assert.equal(h.split('A connector lets your AI use EarnKit.').length - 1, 1);
   assert.ok(h.indexOf('A connector lets') < h.indexOf('role="tablist"'));
-  // Cursor's single step still reads "Add" (no deep link above it on the docs).
-  assert.ok(text(renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS.find((a) => a.name === 'Cursor')! }))).startsWith('Add this to'));
+  // v3.1 GTM W1: the one-click buttons show on the docs too (Grok Bot's, Cursor's), each first in its panel.
+  assert.ok(text(renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS.find((a) => a.name === 'Cursor')! }))).startsWith('Add to Cursor Or add this to'));
+  const grok = renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS[0] }));
+  assert.ok(text(grok).startsWith('Open in Grok Bot Press Enter'), text(grok));
+  assert.match(grok, /<a href="grokbot:\/\/app\/v1\/prompt\?text=/);
+  // Muse: the message in its own box with a copy button, no command and no bare link.
+  const muse = renderToStaticMarkup(React.createElement(AgentPanel, { agent: AGENTS.find((a) => a.name === 'Muse')! }));
+  assert.deepEqual(codes(muse), []);
+  assert.match(muse, /data-ek-message=""[^>]*>Build a custom connector to https:\/\/earnkit\.com\/mcp/);
+  assert.match(muse, /aria-label="Copy the message"/);
   // No command text written outside AGENTS.
   for (const f of ['app/docs/InstallCard.tsx', 'app/docs/DocsView.tsx', 'lib/earnkit/docs-copy.ts']) assert.doesNotMatch(read(f), /mcp add|mcp login|mcp\.json|earnkit\.com\/mcp|--transport/, f);
 });

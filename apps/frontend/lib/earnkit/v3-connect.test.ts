@@ -197,7 +197,10 @@ test('(f) with the weekly email on, the Done line carries the email question as 
     assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n${EMAIL_QUESTION}\n+90 points added · 90 total`);
     assert.equal(links(s).length, 1);
     assert.equal(questions(s), 1);
-    assert.match(JSON.stringify(yes.reply), new RegExp(EMAIL_NOTE.replace(/[.']/g, '.')));
+    // GTM W2: the email question is a move_up (agents skipped the bare statement).
+    assert.equal((yes.reply?.move_up as { kind: string }).kind, 'weekly_email');
+    assert.match(String((yes.reply?.move_up as { agent_note: string }).agent_note), /call tell with weekly_email: \{ answer: 'yes', email \}/);
+    void EMAIL_NOTE;
   });
 });
 

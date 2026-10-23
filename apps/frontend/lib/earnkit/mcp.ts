@@ -111,13 +111,13 @@ export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit g
  * note is followed. Under 800 characters (mcp.test.ts 2.8).
  */
 export const FIND_DESCRIPTION_BENCH =
-  'Where the builder stands and how to get funded. Pass identity.project: the project in this folder (name and what from the README, repo from git remote, live_url), one, never a list, and identity.github_login (not github_user or repos); never ask. ' +
+  'Where the builder stands and how to get funded. Pass identity.project: the builder\'s project (name and what from the README, repo from git remote, live_url), one, never a list, and identity.github_login (not github_user or repos); never ask. ' +
   'Follow every agent_note. A yes or no to the question goes to tell move_up. program_id: one program and its guide. ' +
   SAFETY_TEXT;
 
 /** v2.13: find's identity field: the one project, never a list. */
 const BENCH_IDENTITY_WORDS =
-  "Fill it yourself, never ask the builder: { github_login (gh auth status), project: the project in this folder { name, what: a few plain words like 'a recipe planner' (README or package file), repo: git remote, live_url: README, package homepage or deploy config }, wallets }. One project, never a list.";
+  "Fill it yourself, never ask the builder: { github_login (gh auth status), project: the builder's project { name, what: a few plain words like 'a recipe planner' (README or package file), repo: git remote, live_url: README, package homepage or deploy config }, wallets }. One project, never a list.";
 
 /**
  * v2.10 item 4, v3.1 (spec 3.4): prepare's description. prepare only drafts (draft-application.ts); the builder sends

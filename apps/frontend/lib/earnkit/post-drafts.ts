@@ -24,9 +24,10 @@ export const ASKED_PER_DAY = 1;
 export const DRAFTS_PER_WEEK = 3;
 /**
  * Controller ruling (2026-10-22): a real win is never crowded out by an ordinary weekly post. These moments skip the
- * one-offered-a-week limit (the 3 a week still holds).
+ * one-offered-a-week limit (the 3 a week still holds). GTM W2 (2026-10-23): every money moment ends in a one-tap post,
+ * so a verified acceptance and the coin's launch (once ever) skip it too.
  */
-export const PAST_OFFER_LIMIT: readonly PostMoment[] = ['went_live', 'won', 'funded'];
+export const PAST_OFFER_LIMIT: readonly PostMoment[] = ['went_live', 'won', 'funded', 'accepted', 'coin_intro'];
 /** The stored text's ceiling (the column's CHECK); the writer keeps posts to POST_MAX (post-writer.ts). */
 export const DRAFT_TEXT_MAX = 240;
 /** 10 characters of RFC 4648 base32, lowercase: 50 random bits. */

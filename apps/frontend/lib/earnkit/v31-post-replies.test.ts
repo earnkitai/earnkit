@@ -188,28 +188,31 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
   // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
+  // GTM W2: a short congrats, never nothing.
+  const congrats = `Congrats on getting into the ${title}.`;
   const stranger = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
-  assert.equal(show(stranger), '', 'only the saved note');
+  assert.equal(show(stranger), congrats, 'only the congrats');
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
   // The unverified tell itself wrote an accepted row: it never counts as the entry.
-  assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] })), '');
+  assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] })), congrats);
   // They applied (as told earlier): now the acceptance can be a post.
   await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const none = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
-  assert.equal(show(none), "Send me a public link that shows it, like the program's post.");
+  assert.equal(show(none), `${congrats}\nSend me a public link that shows it, like the program's post.`);
   assert.match(String(none.reply?.agent_note), /proof_url/);
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0, 'never on the builder\'s word alone');
   // A link on the builder's own site is not proof.
   const own = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: `https://github.com/${k.key}` }] });
-  assert.equal(show(own), "Send me a public link that shows it, like the program's post.");
+  assert.equal(show(own), `${congrats}\nSend me a public link that shows it, like the program's post.`);
   // An X post from an account the program file doesn't list, the listing page itself, or a shared host: not proof.
   for (const bad of ['https://x.com/base/status/1849000000000000000', 'https://docs.base.org/get-started/builders', 'https://docs.base.org/other/recipients', 'https://forms.gle/urqjBJYJjR6Vqqre6/viewanalytics'])
-    assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), "Send me a public link that shows it, like the program's post.", bad);
+    assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), `${congrats}\nSend me a public link that shows it, like the program's post.`, bad);
   // An award the agent passes is never printed.
   const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof, prize_usd: 50000 }] });
   const s = rule(show(r));
   const tap = links(s)[0]!;
   assert.equal(s, [
+    congrats,
     'Your post for X, with your page card:',
     `"Kit was accepted into the ${title}."`,
     `Post it in one tap: ${tap}`,
@@ -223,7 +226,7 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const other = await kit('pq');
   await mcpCall(other.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
-  assert.equal(show(unnamed), PROOF_ASK_TEXT);
+  assert.equal(show(unnamed), `${congrats}\n${PROOF_ASK_TEXT}`);
 }));
 
 test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {

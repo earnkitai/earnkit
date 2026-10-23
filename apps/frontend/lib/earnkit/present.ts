@@ -4,7 +4,7 @@ import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
-import { moneyText, openMoneyUsd, wonLine } from './pool';
+import { moneyText, openMoneyUsd, openMoneyWords, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
 import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
 import type { Starter, StarterChain } from './starters';
@@ -187,7 +187,7 @@ export type FirstMessage = {
 };
 
 /** v2.9 E20: a money headline the won line joins as its next sentence. */
-const MONEY_HEADLINE = /in prizes (you qualify for|open right now)\.$/;
+const MONEY_HEADLINE = /in prizes (you qualify for|open right now)\.( Plus [^.]+\.)?$/;
 
 /**
  * v2.9 E20: the won line, once, right after the reply's headline: joined to the money headline
@@ -395,8 +395,8 @@ const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 /** v2.10 item 6 (Pre-flight P14): the matched table's heading when every row has low odds (never "fit"). */
 export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
 
-const CHAT_ONLY =
-  "I can't build or deploy from here, but I can plan it and write every answer for you to submit. To have it done for you, add EarnKit to a coding agent (Claude Code, Cursor, Codex).";
+/** GTM W2 (2026-10-23): never sends a chat-only builder (Grok Bot, Lovable) off to another agent. */
+const CHAT_ONLY = "I can't build or deploy from here, but I can plan it and write every answer for you to submit.";
 
 /**
  * v2.10 item 7: one line per private repo matched from its local report (final fix I2: the first may
@@ -631,8 +631,15 @@ export const leadRow = (m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, en
  * (moneyText(openMoneyUsd) over every open curated program), else "These programs are open right now.".
  * Pure.
  */
-const openHeadline = (fig: string | null) =>
-  fig ? `${fig} in prizes open right now.` : 'These programs are open right now.';
+const openHeadline = (fig: string | null, words: string | null = null) =>
+  fig ? `${fig} in prizes open right now.${words ? ` ${words}` : ''}` : 'These programs are open right now.';
+/**
+ * v3.1 GTM W3, the one money rule: a headline's figure is the sum of the top awards of the programs in the table under
+ * it (moneyText(openMoneyUsd): never an investment, never a pool), and the investments and hackathons in that table
+ * are named, never summed ("$105K in prizes open right now. Plus 2 accelerators."). Never a total over rows the
+ * builder can't see. Pure.
+ */
+export const shownHeadline = (shown: Card[], now: Date) => openHeadline(moneyText(openMoneyUsd(shown, now)), openMoneyWords(shown, now));
 
 /** v2.10 item 2: the short first reply's question when no repo leads; a yes is "show more". */
 export const MORE_QUESTION = 'Want the 3 easiest?';
@@ -875,7 +882,7 @@ export function presentFirstMessage(given: FirstMessage): string {
     sections.push(
       `${
         zeroState
-          ? openHeadline(moneyText(openMoneyUsd(given.cards, m.now)))
+          ? shownHeadline(shown, m.now)
           : above
             ? 'Also open:'
             : 'Open money right now:'

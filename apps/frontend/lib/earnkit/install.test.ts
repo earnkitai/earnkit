@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import AddToAgent, { AGENTS, INTRO } from '../../app/components/sections/AddToAgent';
-import { CONNECTOR_LINE } from '../../app/components/sections/agents';
+import { CONNECTOR_LINE, GROK_BOT_PROMPT, MUSE_MESSAGE, grokBotPromptLink } from '../../app/components/sections/agents';
 import { logoFileProblem } from './program-file';
 
 // v2.8 Ruling 18 (plan), Ruling C1: the install tabs (Muse kept as the 5th), local icons, no
@@ -24,8 +24,8 @@ const byName = (name: string) => AGENTS.find((a) => a.name === name)!;
 const CLAUDE_CODE = 'claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp';
 const CODEX = 'codex mcp add earnkit --url https://earnkit.com/mcp';
 
-test('the tabs: Grok Bot first (owner: most popular), Claude, the other personal agents (Muse, OpenClaw), then Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
-  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Claude', 'Muse', 'OpenClaw', 'Claude Code', 'Cursor', 'Codex']);
+test('v3.1 GTM W1, the tabs: the personal agents first (Grok Bot, Muse, OpenClaw, Hermes), then Claude, Claude Code, Cursor, Codex; Grok Bot is selected first', () => {
+  assert.deepEqual(AGENTS.map((a) => a.name), ['Grok Bot', 'Muse', 'OpenClaw', 'Hermes', 'Claude', 'Claude Code', 'Cursor', 'Codex']);
   // ChatGPT's steps could not be confirmed from OpenAI's own pages (2026-10-22): no tab.
   assert.ok(!AGENTS.some((a) => /chatgpt/i.test(a.name)));
   const first = html.match(/<button[^>]*role="tab"[^>]*aria-selected="true"[^>]*>(.*?)<\/button>/);
@@ -70,10 +70,52 @@ test('review fix: the sheet\'s agent tabs are a full tab pattern: ids, aria-cont
   assert.match(src, /tabs\.current\[next\]\?\.focus\(\)/);
 });
 
-test('OpenClaw: openclaw mcp add over streamable HTTP, then log in (docs.openclaw.ai/tools/mcp)', () => {
+test('OpenClaw: openclaw mcp add over streamable HTTP, then log in with the gateway stopped, the --code fallback (docs.openclaw.ai/tools/mcp)', () => {
   const oc = byName('OpenClaw');
   assert.equal(oc.code, 'openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http');
-  assert.equal(oc.afterCode, 'openclaw mcp login earnkit');
+  assert.equal(oc.after, 'Then sign in with the gateway stopped:');
+  assert.equal(oc.afterCode, 'openclaw gateway stop\nopenclaw mcp login earnkit\nopenclaw gateway start');
+  assert.equal(oc.last, 'On a server with no browser, run the --code command the login prints.');
+});
+
+test('v3.1 GTM W1, Grok Bot: an "Open in Grok Bot" button to its prompt link with the ask typed, then the fallback in the app\'s own labels', () => {
+  const g = byName('Grok Bot');
+  assert.equal(GROK_BOT_PROMPT, 'Add a custom MCP server called EarnKit at https://earnkit.com/mcp, sign me in, then ask EarnKit what I can earn.');
+  const link = new URL(g.install!);
+  assert.equal(`${link.protocol}//${link.host}${link.pathname}`, 'grokbot://app/v1/prompt');
+  assert.equal(link.searchParams.get('text'), GROK_BOT_PROMPT);
+  assert.ok(g.install!.length <= 2048, 'Grok Bot refuses links over 2048 characters');
+  assert.throws(() => grokBotPromptLink('x'.repeat(1001)), /1000/);
+  assert.equal(g.installLabel, 'Open in Grok Bot');
+  assert.equal(g.installNote, 'Press Enter, then "Add it" and "Authorize". Sign in with X.');
+  assert.equal(g.stepsLead, 'Or by hand:');
+  assert.deepEqual(g.steps, ['Plugins, then "Add a custom connector".', 'Server URL https://earnkit.com/mcp, "Save", then "Authenticate". Sign in with X.']);
+  // The old, wrong label is gone.
+  assert.doesNotMatch(JSON.stringify(AGENTS), /MCP connector|custom integration/);
+  // The sheet opens on Grok Bot: its button first in the panel, with the words.
+  const panel = html.split('id="sheet-agent-panel"')[1];
+  assert.match(panel, /<a href="grokbot:\/\/app\/v1\/prompt\?text=Add%20a%20custom[^"]*"[^>]*>Open in Grok Bot<\/a>/);
+  assert.ok(panel.indexOf('Open in Grok Bot') < panel.indexOf('Or by hand:'));
+});
+
+test('v3.1 GTM W1, Muse: a message to copy (Muse builds connectors in chat); Hermes: the config, the login and /reload-mcp', () => {
+  const m = byName('Muse');
+  assert.deepEqual(m.steps, ['Send Muse this message:']);
+  assert.equal(m.message, MUSE_MESSAGE);
+  assert.equal(MUSE_MESSAGE, 'Build a custom connector to https://earnkit.com/mcp (Streamable HTTP). Sign me in, test it, then save it as a skill.');
+  assert.equal(m.code, undefined);
+  const h = byName('Hermes');
+  assert.equal(h.icon, '/images/agents/hermes.png');
+  assert.equal(h.code, 'mcp_servers:\n  earnkit:\n    url: "https://earnkit.com/mcp"\n    auth: oauth');
+  assert.equal(h.afterCode, 'hermes mcp login earnkit');
+  assert.equal(h.last, 'Then type /reload-mcp in Hermes.');
+  // The sheet renders the message with its own Copy button, and the closing line after the after command.
+  const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
+  assert.match(src, /<CopyButton text=\{agent\.message\}/);
+  assert.ok(src.indexOf('{agent.last && ') > src.indexOf('{agent.afterCode && ('));
+  for (const a of AGENTS)
+    for (const t of [a.note, a.installNote, a.stepsLead, a.message, a.after, a.last, ...a.steps].filter(Boolean) as string[])
+      assert.doesNotMatch(t, /\u2014|\u2013|\p{Extended_Pictographic}/u, `${a.name}: ${t}`);
 });
 
 test('Claude Code: user scope, then /mcp and Authenticate (the menu item Claude Code shows)', () => {
@@ -162,8 +204,8 @@ test('launch-ready L1: Claude Code installs at user scope everywhere it is writt
   assert.equal(`${link.protocol}//${link.host}${link.pathname}`, 'cursor://anysphere.cursor-deeplink/mcp/install');
   assert.equal(link.searchParams.get('name'), 'earnkit');
   assert.deepEqual(JSON.parse(atob(link.searchParams.get('config')!)), { url: 'https://earnkit.com/mcp' });
-  // Only Cursor documents a one-click install link: no other tab gets one.
-  assert.deepEqual(AGENTS.filter((a) => a.install).map((a) => a.name), ['Cursor']);
+  // One-click links only where the agent has one: Grok Bot's prompt link and Cursor's install link.
+  assert.deepEqual(AGENTS.filter((a) => a.install).map((a) => a.name), ['Grok Bot', 'Cursor']);
   // In Cursor's tab the button is first, before the manual steps.
   const src = readFileSync(join(FRONTEND, 'app/components/sections/AddToAgent.tsx'), 'utf8');
   assert.ok(src.indexOf('{agent.install && (') < src.indexOf('{agent.steps.map('), 'the one-click button renders above the steps');

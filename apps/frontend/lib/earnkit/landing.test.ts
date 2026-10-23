@@ -463,3 +463,9 @@ test('12.9 the landing\'s parts never import the leaderboard page module (BenchV
     assert.doesNotMatch(src, /leaderboard\/BenchView'/, f);
   }
 });
+
+test('v3.1 GTM W3: the hero chip sums only the Base programs the Opportunities cards show beside it', () => {
+  const many = Array.from({ length: 6 }, (_, i): Card => ({ ...base, id: `b${i}`, title: `Base grant ${i}`, max_award_usd: 1000 }));
+  const l = landingFrom(many, stats(), now);
+  assert.equal(l.open_chip, '$4K in Base grants open now');
+});

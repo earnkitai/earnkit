@@ -401,3 +401,8 @@ test('4.1 redirect classes, who serves many, and the per-X installation key', ()
   assert.equal(exchangeCode(cform(issueCode(cq.req, user).searchParams.get('code')!)).shared, false);
   assert.equal(exchangeCode(cform(issueCode(cq.req, null).searchParams.get('code')!)).shared, true, 'anonymous: today\'s rule');
 });
+
+test('v3.1 GTM W1 security ruling: Grok Bot\'s bot and grok.com callbacks still see the page naming the host', () => {
+  for (const uri of ['https://www.cursor.com/bot/mcp/oauth/callback', 'https://grok.com/connectors-oauth-exchange-code/', 'grokbot://mcp/oauth/callback'])
+    assert.equal(redirectClass(uri).cls, 'other', uri);
+});

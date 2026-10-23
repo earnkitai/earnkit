@@ -297,7 +297,9 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     // Task 16 step 4 with no Best fit: the email question, then the points line.
     assert.ok(s.includes(`\n${EMAIL_QUESTION}\n+`), s);
     assert.equal(questions(s), 1, s);
-    assert.match(String(yes.reply?.agent_note ?? ''), new RegExp(EMAIL_NOTE.replace(/[.']/g, '.')));
+    // GTM W2: the email question is a move_up.
+    assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /"kind":"weekly_email".*call tell with weekly_email: \{ answer: 'yes', email \}/);
+    void EMAIL_NOTE;
     // Asked once: a share yes later asks nothing.
     await openShare(me.id, { key: me.key, week: LAST, shown_week: isoWeekOf(new Date()) });
     const share = show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } }));
@@ -319,7 +321,7 @@ test('(g) the first share yes asks for the address when it was never asked', db,
     const s = show(yes);
     assert.equal(s, `Thanks. Last week is confirmed.\n${EMAIL_QUESTION}`);
     assert.equal(questions(s), 1);
-    assert.match(String(yes.reply?.agent_note ?? ''), /weekly_email/);
+    assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /weekly_email/);
     // Without the email on, nothing is asked.
     await withEnv({ RESEND_API_KEY: undefined }, async () => {
       const other = await builder('meg2');

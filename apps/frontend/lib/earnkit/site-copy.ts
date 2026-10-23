@@ -114,6 +114,9 @@ export const EARN_FOOT = 'Your agent finds the fit and drafts the application.';
 export const FOOT_CTA = 'Your next week starts now.';
 export const ART_CREDIT = 'Art: C.W. Eckersberg, 1815 · G.P. Panini, c. 1734';
 export const FOOT_GET_PAGE = 'Get your page';
+/** v3.1 GTM W1: the visitor card at the bottom of every profile (the same install sheet as the header). */
+export const PROFILE_CTA_TITLE = 'Get your own page';
+export const PROFILE_CTA_TEXT = 'Find grants you fit and get ranked for what you ship. Free.';
 export const SCORE_TITLE = 'Shipping score';
 /** The small caption under a bare Shipping score number (Activity cards, feed rows, leaderboard rows). */
 export const SCORE_UNIT = 'Shipping';

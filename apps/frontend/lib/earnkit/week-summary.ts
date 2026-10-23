@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { namesRepo } from './ship-titles';
+import { pastVerb } from './past-verb';
 import { checkUpdate, type OwnLinks } from './update-text';
 
 /**
@@ -23,6 +24,8 @@ const SYSTEM = [
   'At most 90 characters. Past tense, no subject ("Added...", not "We added..."). Never add a trailing list of minor fixes.',
   'No internal jargon and no tool names unless they are the product. Never name the project. No version numbers, counts, file names, people, links, emojis, quotes or hype words.',
   'Examples: "Shipped automatic campaign scoring and capped payouts." / "Added Sign in with X at install, with a fallback link."',
+  'A fix is a fix: say "Fixed the streak reset across time zones", never present a bug as something shipped ("Shipped timezone bug" is wrong).',
+  'Leave out chores: dependency bumps, formatting, tests, CI and refactors nobody sees.',
   'Never use a dash as punctuation.',
   'If the titles say nothing a user would care about, reply with exactly NONE.',
 ].join('\n');
@@ -51,27 +54,13 @@ export function clauseOf(title: string): string | null {
   return first.length > 1 && first.slice(1) !== first.slice(1).toLowerCase() ? t : t[0].toLowerCase() + t.slice(1);
 }
 
-/** The past tense of the verbs commit titles start with ("Fix", "Adds", "Added"); null when the word is not one. Pure. */
-const IRREGULAR: Record<string, string> = { make: 'made', build: 'built', write: 'wrote', keep: 'kept', send: 'sent', hide: 'hid', run: 'ran', let: 'let', set: 'set', cut: 'cut', split: 'split', put: 'put', read: 'read', get: 'got', rebuild: 'rebuilt', rewrite: 'rewrote' };
-const DOUBLED = new Set(['ship', 'drop', 'stop', 'wrap', 'plan', 'log', 'swap', 'pin', 'trim', 'skip', 'tag', 'map']);
-const VERBS = new Set([
-  ...Object.keys(IRREGULAR), ...DOUBLED, 'add', 'fix', 'update', 'remove', 'improve', 'show', 'support', 'use', 'move', 'rename', 'refactor',
-  'clean', 'handle', 'allow', 'create', 'change', 'polish', 'speed', 'simplify', 'launch', 'migrate', 'replace', 'enable', 'disable',
-  'implement', 'introduce', 'redesign', 'rework', 'document', 'tweak', 'upgrade', 'prevent', 'open', 'close', 'return', 'guard', 'track',
-  'start', 'finish', 'connect', 'integrate', 'port', 'restore', 'revert', 'wire', 'sort', 'filter', 'cache', 'retry', 'check', 'block',
-  'reduce', 'increase', 'raise', 'lower', 'limit', 'validate', 'verify', 'publish', 'deploy', 'host', 'link', 'mark', 'name', 'store',
-  'save', 'load', 'fetch', 'extend', 'expand', 'shorten', 'harden', 'tighten', 'redirect', 'render', 'resize', 'reorder', 'rewire', 'split',
-  'unify', 'merge', 'show', 'display', 'cover', 'test', 'release', 'shorten', 'lead', 'drive', 'invite', 'accept', 'require', 'detect',
-]);
-const pastOf = (base: string) =>
-  IRREGULAR[base] ?? (DOUBLED.has(base) ? `${base}${base.at(-1)}ed` : base.endsWith('e') ? `${base}d` : /[^aeiou]y$/.test(base) ? `${base.slice(0, -1)}ied` : `${base}ed`);
-function pastVerb(word: string): string | null {
-  const w = word.toLowerCase();
-  if (VERBS.has(w)) return pastOf(w);
-  for (const base of [w.replace(/es$/, ''), w.replace(/s$/, '')]) if (base !== w && VERBS.has(base)) return pastOf(base);
-  for (const base of [w.replace(/ed$/, ''), w.replace(/d$/, ''), w.replace(/ied$/, 'y'), w.replace(/(.)\1ed$/, '$1')]) if (base !== w && VERBS.has(base) && pastOf(base) === w) return w;
-  return Object.values(IRREGULAR).includes(w) ? w : null;
-}
+/**
+ * v3.1 GTM W3: words that make a title a fix, not a feature. A title with one and no verb ("Timezone bug in streak
+ * reset", stored before cleanTitle kept "fix:" readable) reads "Fixed ..." and never "Shipped ...".
+ */
+const BUG = /\b(bugs?|crash(es|ing)?|errors?|typos?|issues?|regressions?|glitch(es)?|leaks?|spam|broken|failures?|failing|flaky|race conditions?|off by one|wrong|incorrect)\b/i;
+/** Whether text presents a bug as something shipped ("Shipped timezone bug in streak reset."). Pure. */
+export const boastsFix = (text: string): boolean => /\bshipped\b[^.!?]*/i.test(text) && BUG.test(text.match(/\bshipped\b[^.!?]*/i)![0]);
 
 /**
  * The week in one short sentence (at most SUMMARY_MAX characters) from up to two titles: verb-led ones in the past tense ("Fixed the timer and
@@ -87,8 +76,11 @@ export function ruleSummary(titles: string[]): string | null {
     if (!c || seen.has(c.toLowerCase())) continue;
     seen.add(c.toLowerCase());
     const [head, ...rest] = c.split(' ');
-    const past = rest.length > 0 ? pastVerb(head) : null;
-    const next = { done: past ? [...done, `${past} ${rest.join(' ')}`] : done, shipped: past ? shipped : [...shipped, c] };
+    const verb = rest.length > 0 ? pastVerb(head) : null;
+    // A bug named with no verb is a fix ("Reminder spam" is "fixed reminder spam"), never "Shipped reminder spam".
+    const past = verb ?? (BUG.test(c) ? 'fixed' : null);
+    const clause = verb ? `${past} ${rest.join(' ')}` : `${past} ${c}`;
+    const next = { done: past ? [...done, clause] : done, shipped: past ? shipped : [...shipped, c] };
     const text = sentences(next.done, next.shipped);
     if (done.length + shipped.length > 0 && [...text].length > SUMMARY_MAX) break;
     done.splice(0, done.length, ...next.done);
@@ -188,6 +180,7 @@ export const namesPath = (text: string): boolean => {
 export async function weekSummary(p: { titles: string[]; own: OwnLinks; privateRepo?: { repoKey: string } }, create?: SummaryCreate | null): Promise<string | null> {
   const pass = (t: string | null) => {
     if (!t) return null;
+    if (boastsFix(t)) return null;
     const c = checkUpdate(t, p.own);
     if (p.privateRepo && c.ok && (namesRepo(c.text, p.privateRepo.repoKey) || namesPath(c.text))) return null;
     return c.ok && [...c.text].length <= SUMMARY_MAX ? c.text : null;
@@ -214,8 +207,9 @@ export function summaryConsented(facts: { approved?: unknown; approved_summary?:
 export function summaryShown(
   summary: string | null | undefined, shownTitles: string[], o: { hiddenRepo: boolean; titlesOn: boolean; repoKey: string; consented?: boolean },
 ): string | null {
-  if (o.hiddenRepo && !o.titlesOn) return o.consented && summary && !namesRepo(summary, o.repoKey) && !namesPath(summary) ? summary : null;
-  const ok = (s: string | null | undefined): s is string => Boolean(s) && !(o.hiddenRepo && namesRepo(s!, o.repoKey));
+  // v3.1 GTM W3: a stored summary that boasts a bug (written by the old rule) never shows; the rule one is rewritten.
+  if (o.hiddenRepo && !o.titlesOn) return o.consented && summary && !boastsFix(summary) && !namesRepo(summary, o.repoKey) && !namesPath(summary) ? summary : null;
+  const ok = (s: string | null | undefined): s is string => Boolean(s) && !boastsFix(s!) && !(o.hiddenRepo && namesRepo(s!, o.repoKey));
   const rule = ruleSummary(shownTitles);
   return ok(summary) ? summary : ok(rule) ? rule : null;
 }

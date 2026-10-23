@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
-import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, fitSummary, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
+import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, boastsFix, clauseOf, fitSummary, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
 import { logCards, STARTED_CHIP } from './bench-data';
 import { NOTE_LINE, momentLines } from './weekly-moment';
 
@@ -178,4 +178,33 @@ test('W7 the ship log says "Started tracking" once: on the oldest week that stor
 test('W8 the moment ends with the note line under the summary', () => {
   const lines = momentLines({ monday: '2026-10-12', now: { score: 60, rank: 1, total: 1 }, before: null, titles: ['Fixed the timer.'], checked: true });
   assert.deepEqual(lines.slice(1), ['Fixed the timer.', NOTE_LINE]);
+});
+
+test('GTM W3 a fix never reads as shipped: fix titles say Fixed, chores are gone, an old boast never shows', async () => {
+  const { cleanTitle, shipTitles } = await import('./ship-titles');
+  const titles = shipTitles(['fix: timezone bug in streak reset', 'fix: reminder spam', 'chore: tidy imports', 'feat: streak freeze tokens']
+    .map((title) => ({ title, at: '2026-10-14T10:00:00Z', source: 'commit' as const, bot: false, merge: false })), own, 10);
+  assert.deepEqual(titles, ['Fix timezone bug in streak reset', 'Fix reminder spam', 'Streak freeze tokens']);
+  const s = ruleSummary(titles)!;
+  assert.equal(s, 'Fixed timezone bug in streak reset and fixed reminder spam.');
+  assert.ok(!boastsFix(s));
+  assert.equal(ruleSummary(['Streak freeze tokens', 'Fix reminder spam']), 'Fixed reminder spam. Shipped streak freeze tokens.');
+  // Titles stored before the fix (prefix already stripped) read as fixes at read time too.
+  assert.equal(ruleSummary(['Timezone bug in streak reset']), 'Fixed timezone bug in streak reset.');
+  assert.equal(cleanTitle('fix: cache invalidation on logout'), 'Fix cache invalidation on logout');
+  assert.equal(cleanTitle('fix: handle a null user'), 'Handle a null user');
+  assert.equal(cleanTitle('fix(api): API timeout on login'), 'Fix API timeout on login');
+  for (const t of ['chore: tidy imports', 'ci: cache pnpm', 'test: cover the timer', 'style: format', 'build(docker): slim image']) assert.equal(cleanTitle(t), null, t);
+  // A stored boast is never shown: the rule summary of the shown titles stands in, or nothing.
+  const open = { hiddenRepo: false, titlesOn: false, repoKey: 'r/streakr' };
+  assert.equal(summaryShown('Shipped timezone bug in streak reset.', ['Timezone bug in streak reset'], open), 'Fixed timezone bug in streak reset.');
+  assert.equal(summaryShown('Shipped reminder spam and streak freeze tokens.', [], open), null);
+  assert.equal(summaryShown('Shipped reminder spam.', [], { hiddenRepo: true, titlesOn: false, repoKey: 'r/streakr', consented: true }), null);
+  assert.equal(summaryShown('Shipped streak freeze tokens.', [], open), 'Shipped streak freeze tokens.');
+  // The model's boast is not stored; the rule one is.
+  assert.equal(await weekSummary({ titles: ['Fix timezone bug in streak reset'], own }, reply('Shipped timezone bug in streak reset.')), 'Fixed timezone bug in streak reset.');
+  let system = '';
+  await aiSummary(['Fix the timer'], async (b) => { system = String(b.system); return reply('Fixed the timer.')(); });
+  assert.match(system, /never present a bug as something shipped/);
+  assert.match(system, /Leave out chores/);
 });

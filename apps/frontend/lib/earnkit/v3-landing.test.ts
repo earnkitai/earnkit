@@ -9,7 +9,7 @@ import Header from '../../app/components/common/Header';
 import Hero from '../../app/components/landing/Hero';
 import Opportunities from '../../app/components/landing/Opportunities';
 import { CTA_INSTALL, EARN_FOOT, EARN_TITLE, HERO_SUB, HERO_TITLE, NAV_INSTALL, STEPS_TITLE } from './site-copy';
-import AddToAgent from '../../app/components/sections/AddToAgent';
+import AddToAgent, { AGENTS } from '../../app/components/sections/AddToAgent';
 import { type Landing } from './landing';
 import { RESERVED_ROUTES } from './reserved-routes';
 import { homeFixture } from './fixtures/landing';
@@ -106,7 +106,7 @@ test('(i) the install modal: v3.1 SITE sheet (panel, 32px radius, scrim), a bott
   assert.doesNotMatch(panel, /gradient|shadow/);
   // Tabs: one SegTabs rail (page colour) that wraps (install fixes: never cut off, no scroll), the current tab a white pill, 44px tall.
   const tabs = [...h.matchAll(/<button[^>]*role="tab"[^>]*aria-selected="(true|false)"[^>]*class="([^"]*)"/g)];
-  assert.equal(tabs.length, 7);
+  assert.equal(tabs.length, AGENTS.length);
   const rail = h.match(/<div role="tablist"[^>]*class="([^"]*)"/)?.[1] ?? '';
   for (const c of ['flex-wrap', 'rounded-[26px]', 'bg-s-page']) assert.ok(rail.split(' ').includes(c), c);
   for (const c of ['flex-nowrap', 'overflow-x-auto']) assert.ok(!rail.split(' ').includes(c), c);

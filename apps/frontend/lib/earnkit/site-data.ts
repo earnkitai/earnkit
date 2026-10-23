@@ -1,14 +1,13 @@
 import { sql } from './db';
 import type { ProfileData } from './bench-data';
-import { benchPool } from './bench-rank';
 import { appProvenRepo, storedBuilderCode } from './builder-codes-check';
 import { raisingEnabled } from './builder-score-flag';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
-import { PRIVATE_NAME, norm, projectProgramsDated } from './page-data';
+import { PRIVATE_NAME, norm, programLabel, projectProgramsDated } from './page-data';
 import { listedRanked, standingOf, weekCounts } from './person-score';
 import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
-import { RANK_MIN_POOL, benchPercent, percentText, rankLine, type Standing } from './rank';
+import { benchPercent, shownRankLine, type Standing } from './rank';
 import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
 import { shipReading } from './week-facts';
@@ -241,9 +240,10 @@ export function repoItem(name: string, reading: Record<string, unknown> | null, 
 
 /** 5. won and applied (page-data.ts projectProgramsDated), won first, at most PROGRAMS_MAX, linked to the program's guide when it has one. */
 async function programItems(builderId: number, key: string): Promise<Highlight[]> {
+  // GTM W2: an acceptance or funding a public page proved moves the item from Applied to the outcome.
   return (await projectProgramsDated(builderId, key)).slice(0, PROGRAMS_MAX).map((g) => ({
-    icon: g.won ? 'won' : 'applied',
-    title: g.won ? `Won ${g.title}` : `Applied to ${g.title}`,
+    icon: g.won || g.outcome ? 'won' : 'applied',
+    title: programLabel(g) ?? `Applied to ${g.title}`,
     sub: monthYear(g.at),
     ...(g.guide && { href: `/programs/${encodeURIComponent(g.guide)}` }),
   }));
@@ -291,38 +291,24 @@ async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: 
 
 export type StandingPill = { label: string; tier: 'gold' | 'silver' | 'bronze'; title: string };
 
-/** The Base pool's standing of the builder (bench-rank.ts rankLines' chain SQL). */
-async function baseStanding(builderId: number, o: { only?: number[] }): Promise<Standing | null> {
-  const [me] = await sql()<{ score: number }[]>`SELECT score FROM builder_live WHERE builder_id = ${builderId}`;
-  if (!me) return null;
-  const [r] = await sql()<{ total: number; rank: number }[]>`
-    SELECT (count(*) + CASE WHEN bool_or(x.builder_id = ${builderId}) THEN 0 ELSE 1 END)::int AS total,
-      (1 + count(*) FILTER (WHERE x.score > ${me.score} AND x.builder_id <> ${builderId}))::int AS rank
-    FROM ${benchPool(o.only)} x WHERE 'base' = ANY(x.chains)`;
-  return { ranked: true, rank: r.rank, total: r.total };
-}
-
 /**
- * Plan S5: the metal "Top N%" pill. Only on a ranked page (d.rankListed); the Base pool's percentile when the project
- * is on Base and that pool has RANK_MIN_POOL ranked builders, else the whole pool's from RANK_MIN_POOL; none outside
- * the top 25% (standingTier). `title` is the place, "#N of M builders" (" on Base" for the Base pool). `only` limits the pool (tests).
+ * Plan S5, v3.1 GTM W3 (one rank everywhere): the metal standing pill. Only on a ranked page (d.rankListed). Its words
+ * are the rank line every other surface shows (rank.ts shownRankLine over the whole leaderboard pool, person-score
+ * standingOf, as bench-rank.ts rankLines: the replies, the card, the page meta and the email read the same), so never
+ * "Top 7%" on the page beside "#1 of 13 builders" in a reply; none under RANK_MIN_POOL ranked builders. The metal
+ * (standingTier) still comes from the percentile; none outside the top 25%. `only` limits the pool (tests).
  */
 export async function standingPill(builderId: number, d: ProfileData, o: { only?: number[] } = {}): Promise<StandingPill | null> {
   if (!d.rankListed) return null;
-  const pill = (s: Standing, where: 'base' | null): StandingPill | null => {
-    // rankLine is the validity guard only; the title is always the place (the approved board): "#3 of 42 builders on Base".
-    if (!rankLine(s)) return null;
-    const title = `#${s.rank.toLocaleString('en-US')} of ${s.total.toLocaleString('en-US')} ${s.total === 1 ? 'builder' : 'builders'}${where ? ' on Base' : ''}`;
-    const pct = benchPercent(s.rank, s.total);
-    const tier = standingTier(pct);
-    return tier ? { label: `Top ${percentText(pct)}% ${where ? 'on Base' : 'of builders'}`, tier, title } : null;
-  };
-  if (d.project?.chains.includes('base')) {
-    const s = await baseStanding(builderId, o);
-    if (s && s.total >= RANK_MIN_POOL) return pill(s, 'base');
-  }
   const s = await standingOf(builderId, o);
-  return s.listed && s.total >= RANK_MIN_POOL ? pill(s, null) : null;
+  return s.listed ? pillOf(s) : null;
+}
+/** The pill for a whole-pool standing: label and title the one rank line, the metal from its percentile. Pure. */
+export function pillOf(s: Standing): StandingPill | null {
+  const line = shownRankLine(s);
+  if (!line) return null;
+  const tier = standingTier(benchPercent(s.rank, s.total));
+  return tier ? { label: line, tier, title: line } : null;
 }
 
 /** Plan S8: new backers per ISO week over the last 12 (oldest first), from coin_backers.first_block (Base's 2s blocks). */

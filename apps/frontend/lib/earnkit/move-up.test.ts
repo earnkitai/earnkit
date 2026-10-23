@@ -17,7 +17,7 @@ import { scoreFits } from './stand-view';
 import { fitLines, fitWhy, tokenUnavailable } from './bench-find';
 import { INTRO_LINE, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import type { RepoFit } from './present';
-import { endsOnRankedStep } from './fixtures/ranked-step';
+import { endsOnQuietStep, endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -43,8 +43,8 @@ const CLOSED = ['arc-microgrants', 'colosseum-worlds-fair', 'monad-metropolis'] 
 const OPEN = ['base-builder-grants', 'circle-developer-grants'] as const;
 const COIN_WORDS = /\bcoin\b|\btokens?\b|community round|tokens\.fun|\$[A-Z]{3,}/i;
 /** R12: "<program>: <award>, <closes Mon D | rolling>. <Why>." */
-/** Task 16: the ranked reply's money line. */
-const FIT_LINE = /^You qualify for the [^\n]+, up to \$[\d,]+( investment)?(, closes [A-Z][a-z]{2} \d{1,2})?\.$/;
+/** Task 16: the ranked reply's money line. v3.1 GTM W3: "You qualify" only with nothing in the way, else its condition. */
+const FIT_LINE = /^(You qualify for the [^\n]+, up to \$[\d,]+(, closes [A-Z][a-z]{2} \d{1,2})?\.|Long shot: [^\n]+, up to \$[\d,]+( investment)?(, closes [A-Z][a-z]{2} \d{1,2})?\.( It takes a company with a full-time team\.)?|[^\n]+, up to \$[\d,]+(, closes [A-Z][a-z]{2} \d{1,2})?, once (your app is live|you have real users)\.)$/;
 
 /** The program files as committed: R12 closes three, synced into this file's database. */
 async function syncPrograms() {
@@ -138,7 +138,8 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const t = String(sc.show_to_builder);
   assert.match(t, /^Kit · /m);
   assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
-  assert.ok(endsOnRankedStep(t), t);
+  // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days).
+  assert.ok(endsOnQuietStep(t), t);
   assert.doesNotMatch(t, COIN_WORDS, t);
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
@@ -188,7 +189,7 @@ test('R16a through mcpCall: signed out, no project and not counted keep their ow
   assert.match(s2, /\nStep 2 of 2: connect your app's code on GitHub\. I only get read access \(one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt with Lovable or Bolt and no GitHub yet: connect GitHub inside Lovable or Bolt first\.\nDone\?$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
-  assert.match(s3, /^You're in, @\S+\.\nStep 2 of 2: connect your app's code on GitHub/);
+  assert.match(s3, /^You're in, @\S+\.\n(?:[^\n]+ pays up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Step 2 of 2: connect your app's code on GitHub/);
   for (const s of [s1, s2, s3]) {
     assert.ok(!s.includes(SHIP_ASK), s);
     assert.doesNotMatch(s, COIN_WORDS, s);

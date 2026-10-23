@@ -331,6 +331,47 @@ export async function recheckAppSource(
   return r;
 }
 
+/**
+ * GTM W2 (2026-10-23): a repo the builder's own App installation already covers (they picked all repos, or this one, on
+ * an earlier install) is proven now, so they are never asked to install the App again. Only on their own GitHub account
+ * (R8): a login this person proved through the App owns the repo, and the installation GitHub names for it
+ * (repoInstallation) is one recorded on that same App verification (a login alone never proves it); then proveByApp's
+ * checks (no fork or template, the repo hold, taken) and a verification row for the repo (appTokenFor's scope). True when
+ * proven. Never throws.
+ */
+export async function proveCovered(builderId: number, repoKey: string, deps: AppDeps = {}): Promise<boolean> {
+  const key = repoKey.toLowerCase();
+  if (!githubAppEnabled() || !/^[a-z0-9-]+\/[a-z0-9._-]+$/.test(key)) return false;
+  try {
+    const owner = key.split('/')[0];
+    // Security review: a login alone is not enough (GitHub logins can be released and taken by someone else). The App
+    // installation GitHub names for the repo must be one this person set up: recorded on their own App verification.
+    const mine = await sql()<{ installation_id: number; login: string; created: Date | null; repos: number | null; gid: string }[]>`
+      SELECT v.installation_id, v.login, v.account_created_at AS created, v.public_repos AS repos, v.github_installation_id::text AS gid
+      FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+      WHERE v.via = 'app' AND v.purpose = 'app' AND v.github_installation_id IS NOT NULL
+        AND lower(v.login) = ${owner} AND COALESCE(i.builder_id, i.id) = ${builderId}
+      ORDER BY v.verified_at DESC`;
+    if (!mine.length) return false;
+    const gid = await repoInstallation(key, deps);
+    const v = gid === null ? undefined : mine.find((m) => m.gid === String(gid));
+    if (gid === null || !v) return false;
+    const out = await proveByApp({ builderId, repoKey: key, githubInstallationId: gid }, deps);
+    if (!out.ok) return false;
+    const { saveVerification } = await import('./github-verify');
+    await saveVerification(
+      { installation_id: v.installation_id, project_id: null, repo_key: key, purpose: 'app', wallet: null, symbol: null },
+      { login: v.login, created_at: v.created ?? new Date(0), public_repos: v.repos ?? 0 },
+      deps.now ?? new Date(),
+      { githubInstallationId: gid },
+    );
+    return true;
+  } catch (err) {
+    console.error('[repo-proof] covered', err instanceof Error ? err.name : 'error');
+    return false;
+  }
+}
+
 /** The reply's install link (the v2.10 App link: sign-in hop, then install), or null while the App is off (or the person has no page). */
 export async function installLink(builderId: number, repoKey: string, now: Date): Promise<string | null> {
   if (!githubAppEnabled()) return null;

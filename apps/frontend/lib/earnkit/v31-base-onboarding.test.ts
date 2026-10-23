@@ -17,7 +17,7 @@ import { attachToX } from './x-install';
 import { appSetup, PICK_PAGE } from './github-app';
 import { csrfCookieName } from './github-verify';
 import {
-  BASE_START_ASK, BASE_START_STEPS, NEW_REPO_ASK, NEXT_STEP_ASK, TEMPLATE_NOTICE, TITLES_ASK, benchReply, stateAsk, walletOffer,
+  BASE_START_ASK, BASE_START_STEPS, NEW_REPO_ASK, NEXT_STEP_ASK, NEXT_STEP_LATER, TEMPLATE_NOTICE, TITLES_ASK, benchReply, stateAsk, walletOffer,
   type BenchProject, type BenchView,
 } from './bench-reply';
 import { BASE_START_NOTE, BASE_STEPS_NOTE, NEW_REPO_NOTE, NEW_REPO_YES_NOTE, NEXT_STEP_NOTE, PICK_REPO_NOTE, staleRepo } from './bench-find';
@@ -161,7 +161,9 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, the wal
   const first = await find(p.ctx);
   const s1 = rule(show(first));
   assert.equal(s1.split('\n')[0], `You're in, @${p.username}.`);
-  assert.match(s1.split('\n').slice(1).join('\n'), STEP2);
+  // GTM W2 (value before the ask): the open grant's line, then step 2.
+  assert.match(s1.split('\n')[1], / pays up to \$[\d,]+ for apps/);
+  assert.match(s1.split('\n').slice(2).join('\n'), STEP2);
   assert.deepEqual(first.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.match(PICK_REPO_NOTE, /no GitHub yet, or not connecting it now, is a no/);
   assert.equal((await pageText(p.id)).sub, NO_PROJECT_YET);
@@ -202,8 +204,8 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, the wal
     assert.equal(rule(show(r)), `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
     assert.deepEqual(r.reply?.move_up, { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE });
   }
-  // Its no keeps resting.
-  assert.equal(show(await tell(p.ctx, 'next_step', 'no')), 'Okay.');
+  // Its no keeps resting (GTM W2: "later", with the way back, never "Okay.").
+  assert.equal(show(await tell(p.ctx, 'next_step', 'no')), NEXT_STEP_LATER);
   assert.equal(show(await find(p.ctx)), `You're in, @${p.username}.\n${NEXT_STEP_ASK}`);
   // Its yes: the no is cleared and step 2's link given again.
   const again = await tell(p.ctx, 'next_step', 'yes');
@@ -294,7 +296,8 @@ test('the picker refused only forks or templates: the next reply says the way ou
   const r = rule(show(await find(p.ctx)));
   const lines = r.split('\n');
   assert.deepEqual(lines.slice(0, 2), [`You're in, @${p.username}.`, TEMPLATE_NOTICE]);
-  assert.match(lines.slice(2).join('\n'), STEP2);
+  assert.match(lines[2], / pays up to \$[\d,]+ for apps/);
+  assert.match(lines.slice(3).join('\n'), STEP2);
   assert.doesNotMatch(show(await find(p.ctx)), /template/, 'once');
 });
 

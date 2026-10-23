@@ -13,7 +13,26 @@ export function tabKeyTarget(key: string, at: number, n: number): number | null 
   return null;
 }
 
-export type AgentName = 'Grok Bot' | 'Claude' | 'Muse' | 'OpenClaw' | 'Claude Code' | 'Cursor' | 'Codex';
+export type AgentName = 'Grok Bot' | 'Muse' | 'OpenClaw' | 'Hermes' | 'Claude' | 'Claude Code' | 'Cursor' | 'Codex';
+
+/**
+ * v3.1 GTM W1: what the Grok Bot button types into Grok Bot's composer (the builder presses Enter, then "Add it" and
+ * "Authorize"). "custom MCP server" so the bot adds it with AddMcpServer instead of searching the plugin catalog.
+ */
+export const GROK_BOT_PROMPT = `Add a custom MCP server called EarnKit at ${MCP_URL}, sign me in, then ask EarnKit what I can earn.`;
+
+/**
+ * Grok Bot's prompt deep link (registered schemes grokbot:// and sand://, route app/v1/prompt, read from the Grok Bot
+ * app v0.75.0): it opens Grok Bot with `text` (at most 1000 characters) typed in the main bot's composer and never
+ * sends it. A composer that already holds a draft keeps it. Pure.
+ */
+export const grokBotPromptLink = (text: string): string => {
+  if (text.length > 1000) throw new Error('Grok Bot prompt links carry at most 1000 characters');
+  return `grokbot://app/v1/prompt?text=${encodeURIComponent(text)}`;
+};
+
+/** v3.1 GTM W1: the message a Muse builder sends (Muse builds connectors in chat; it has no add-server form). */
+export const MUSE_MESSAGE = `Build a custom connector to ${MCP_URL} (Streamable HTTP). Sign me in, test it, then save it as a skill.`;
 
 export type Agent = {
   name: AgentName;
@@ -26,12 +45,22 @@ export type Agent = {
   note?: string;
   /** One-click install deep link, when the agent supports one. */
   install?: string;
+  /** The deep link button's words ("Add to <name>" when unset). */
+  installLabel?: string;
+  /** One line under the deep link button: what the builder does next. */
+  installNote?: string;
+  /** One line above the steps (Grok Bot: the steps are the fallback to its button). */
+  stepsLead?: string;
+  /** A message the builder copies and sends to their agent, shown in a box with its own Copy button. */
+  message?: string;
   steps: string[];
   code?: string;
   /** One line after the command (the approve step). */
   after?: string;
   /** A command inside `after` the builder runs too, shown with its own Copy button. */
   afterCode?: string;
+  /** One closing line after the after command (Hermes: reload its MCP servers). */
+  last?: string;
 };
 
 /**
@@ -62,25 +91,60 @@ export type Agent = {
  * Commands: Claude Code per https://code.claude.com/docs/en/mcp (--transport http, --scope user,
  * then /mcp to sign in); Codex per https://developers.openai.com/codex/mcp
  * (codex mcp add <name> --url <url>, then codex mcp login <name>); OpenClaw per https://docs.openclaw.ai/tools/mcp
- * (openclaw mcp add <name> --url <url> --transport streamable-http, then openclaw mcp login <name>).
+ * (openclaw mcp add <name> --url <url> --transport streamable-http; the login runs with the gateway stopped, and a
+ * headless server pastes the printed --code command); Hermes per
+ * https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp (no add-by-URL command: mcp_servers in
+ * ~/.hermes/config.yaml with auth: oauth, then hermes mcp login <name> and /reload-mcp). hermes.png: Hermes Agent's own
+ * icon from its official site (https://hermes-agent.nousresearch.com/, the page's 48px icon.png), unchanged.
  * Claude (claude.ai and the desktop app) per https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp
  * (install fixes 2026-10-22, the confirmed steps in docs/design-docs-and-implementation-plans/v3.1-install-research.md);
  * its icon is the same Claude Spark as Claude Code's. ChatGPT has no tab: OpenAI's official pages could not be read
  * on 2026-10-22, so its steps are unconfirmed.
- * Grok Bot leads (owner: the most popular), then Claude, then the other personal agents (Muse, OpenClaw); Instinct documents no way to add an MCP server, so it has no tab.
- * Launch-ready L1: Claude Code's line is user scope (EarnKit works in every folder). One-click links only where the
- * agent documents one: Cursor's MCP install deep link (Cursor docs, "Add to Cursor" links:
- * cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>), shown first in
- * its tab. Claude Code, Codex, Grok Bot, Muse and OpenClaw document none, so none is made up.
+ * v3.1 GTM W1 (journey audit): the owner's order, the personal agents first (Grok Bot, Muse, OpenClaw, Hermes), then
+ * Claude, Claude Code, Cursor, Codex. Instinct documents no way to add an MCP server, so it has no tab.
+ * One-click links only where the agent has one: Grok Bot's prompt link (grokBotPromptLink, read from the Grok Bot app:
+ * it types GROK_BOT_PROMPT and the builder presses Enter) and Cursor's MCP install deep link (Cursor docs, "Add to
+ * Cursor" links: cursor://anysphere.cursor-deeplink/mcp/install?name=<name>&config=<base64 of the server's config>),
+ * each shown first in its tab. Grok Bot's fallback uses the app's own labels (Plugins, "Add a custom connector",
+ * "Server URL", Save, Authenticate). Muse has no add-server form: the builder sends MUSE_MESSAGE and Muse builds the
+ * connector in chat. Claude Code, Codex, OpenClaw and Hermes document none, so none is made up.
  */
 export const AGENTS: Agent[] = [
   {
     name: 'Grok Bot',
     icon: '/images/agents/grok-bot.png',
+    install: grokBotPromptLink(GROK_BOT_PROMPT),
+    installLabel: 'Open in Grok Bot',
+    installNote: 'Press Enter, then "Add it" and "Authorize". Sign in with X.',
+    stepsLead: 'Or by hand:',
     steps: [
-      'Add an MCP connector in Grok Bot.',
-      'Paste the EarnKit link and save.',
+      'Plugins, then "Add a custom connector".',
+      `Server URL ${MCP_URL}, "Save", then "Authenticate". Sign in with X.`,
     ],
+  },
+  {
+    name: 'Muse',
+    icon: '/images/agents/muse.svg',
+    steps: ['Send Muse this message:'],
+    message: MUSE_MESSAGE,
+  },
+  {
+    name: 'OpenClaw',
+    icon: '/images/agents/openclaw.svg',
+    steps: ['Run this where OpenClaw runs:'],
+    code: `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http`,
+    after: 'Then sign in with the gateway stopped:',
+    afterCode: 'openclaw gateway stop\nopenclaw mcp login earnkit\nopenclaw gateway start',
+    last: 'On a server with no browser, run the --code command the login prints.',
+  },
+  {
+    name: 'Hermes',
+    icon: '/images/agents/hermes.png',
+    steps: ['Add this to ~/.hermes/config.yaml:'],
+    code: `mcp_servers:\n  earnkit:\n    url: "${MCP_URL}"\n    auth: oauth`,
+    after: 'Then sign in:',
+    afterCode: 'hermes mcp login earnkit',
+    last: 'Then type /reload-mcp in Hermes.',
   },
   {
     name: 'Claude',
@@ -93,22 +157,6 @@ export const AGENTS: Agent[] = [
       'Choose "Sign in now", then "Add". Sign in with X.',
       'In a chat, choose "+", then "Connectors", and turn EarnKit on.',
     ],
-  },
-  {
-    name: 'Muse',
-    icon: '/images/agents/muse.svg',
-    steps: [
-      'Add a custom integration in Muse.',
-      'Paste the EarnKit link and save.',
-    ],
-  },
-  {
-    name: 'OpenClaw',
-    icon: '/images/agents/openclaw.svg',
-    steps: ['Run this where OpenClaw runs:'],
-    code: `openclaw mcp add earnkit --url ${MCP_URL} --transport streamable-http`,
-    after: 'Then sign in:',
-    afterCode: 'openclaw mcp login earnkit',
   },
   {
     name: 'Claude Code',

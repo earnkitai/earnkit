@@ -7824,6 +7824,51 @@ the change link.
 - Tests: `v31-base-onboarding.test.ts` (exact texts, one link and one question, each no remembered, no loops, the page).
 
 
+## GTM W2: the reply journey (2026-10-23, from the 5-persona journey audit)
+
+- **Value before the ask.** `BenchView.open` (the open grant, `openGrant`) is set for every state but ranked; a step 2
+  reply (`isStep2`: the picker, or the first repo's install link) puts `grantHook` ("Base pays up to $5,000 for apps on
+  Base.") between the account line and the step. One link, one question kept.
+- **Link-only projects (Lovable, Bolt).** A not-counted project whose key is a link (variant `no_repo`) is on the no-GitHub
+  path (`noCode` in benchView and stateAsk): the repo picker (`pick_repo`), then after a no the Base walk-through, the wallet
+  step and the resting question, as for no project. `githubAnswer` / `restAnswer` treat a link-only main as no repo
+  (`hasRepo`). Its name is the builder's (`reportedName` from identity), never the host (`linkName`, `YOUR_APP`). An old
+  stored `repo_behind` no goes to `githubAnswer`. The nos on this path say `NEXT_STEP_LATER`, never "Okay.". The Base steps
+  reply stores `base_help` (move_up); its yes (or a `base_start` yes while `base_help` is the stored ask) is
+  `BASE_HELP_STEP` (Lovable/Bolt GitHub labels) with the resting question (kind `next_step`), never the steps again.
+  present.ts `CHAT_ONLY` no longer sends a chat-only builder to a coding agent.
+- **Agent reach** (`agent-reach.ts`). `hosted` (Grok, Muse, Meta, Instinct, OpenClaw by client_name, or find told
+  `agent_can_build: false`, remembered as `standing_seen.no_folder`) picks the `*_HOSTED` ship and qualify notes (no "this
+  folder", no git log); draft-application's first note is neutral for every agent. `schedules` (Grok, Cursor, OpenClaw,
+  Hermes, or no_folder) allows the Monday check-in.
+- **Ranked order** is now connect, backing, post, apply, share, checkin, wallet, new_repo, titles, qualify, ship. The
+  ship question is asked at most once in `SHIP_ASK_DAYS` (7; `standing_seen.ship_asked`); between, ask kind `none` (no
+  question, no move_up, the points line stays). `checkin` is asked once (`checkin_asked`) on a client that schedules;
+  its move_up note tells the agent to set its own Monday routine that calls find; the answer is `standing_seen.checkin`.
+- **Coin.** Backing is computed before the hot post and the apply step in benchView, and the connect yes (the weeks it
+  approves prove the builder) offers it first (`connectBacking`, stored as the backing ask). A private repo is offerable
+  when the page has a public name for it (`coin-moments.ts publicName` = page-data safeNames, never `PRIVATE_NAME`): the
+  offer, the pair and the projects row use that name; the row keeps `repo_url` (the gate reads it through the App, one coin
+  per repo) with `repo_private = true`, so tokens.fun never gets the repo link. No public name: no offer, and a yes says
+  `COIN_NO_PUBLIC_NAME`. Every other gate is unchanged (approved code week, App proof at launch, sanctions, rate limits,
+  owner repo excluded, shared clients). `confirm`'s launched outcome gets `show_to_builder` from
+  `post-reply.ts coinLaunchedReply` (`coinLiveLine` + the coin_intro post as the one link and question; else the coin's
+  page). `coin_intro` and `accepted` skip the one-offered-a-week cap (`PAST_OFFER_LIMIT`). `tell token: 'ask'` on a launched,
+  backed coin answers `backersLine` (backers, fees, page).
+- **Applications and outcomes.** `tell submitted` with no EarnKit entry records `program_status applied` (`appliedOutside`,
+  `appliedLine`); `DRAFT_NOTE` says `tell submitted`. A told accepted/funded/won always gets `outcomeCongrats` (before the
+  proof ask, or as the post's head; alone when no post can follow). A proof-checked outcome (a post_drafts row with
+  `proof_url`) moves the Highlight: page-data `toldApplied.outcome`, `programLabel` "Accepted into X" / "Funded by X" /
+  "Won X".
+- **App already installed.** `repo-proof.ts proveCovered`: a repo owned by a GitHub login this person proved (an App
+  verification, or an App link's sign-in hop on `github_verify_nonces`) that GitHub names an App installation for is proven
+  at once (proveByApp + a verification row). Used by `rankAnswer` (tell main_project) and `coveredRead` (find and score,
+  when the one project is a repo not counted yet, within `COVERED_WAIT_MS`). A builder with an App-proven repo is never
+  shown "Step 2 of 2" again (`appConnected`, `installMoreAsk`).
+- **Email question** is a move_up (`weekly_email`, `EMAIL_ASK_NOTE`): a yes with the address goes to `tell weekly_email`,
+  a no by move_up is saved (`emailAnswer`).
+- Tests: `gtm-w2-replies.test.ts` (mcpCall), and the updated copy in the older reply tests.
+
 ## v3.1 owner people view, EarnKit side (design: v3.1-owner-people-view.md, owner ask 2026-10-23)
 
 Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnkit_ro`. Never shown, scored or ranked.
@@ -7840,3 +7885,58 @@ Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnk
   newest proven; `funded_by_slug` is another profile that proved the funder; points from `builder_points`; `last_seen_at`
   over the group's installations. Guarded `GRANT SELECT ... TO earnkit_ro`.
 - Tests: `people-signals.test.ts`, `x-oauth.test.ts`.
+
+## v3.1 GTM W3 credibility (2026-10-23, journey audit findings 1, 4, 7, 8, 18, 22, 24, 26)
+
+Every number and name a builder or visitor reads agrees with what sits beside it.
+- **Week summaries never boast a fix.** `ship-titles.ts cleanTitle` drops `chore|build|ci|style|test:` titles and keeps a
+  `fix:` title reading as a fix (`asFix`: "Fix timezone bug in streak reset"; a real verb stays, a noun-ish one gets "Fix").
+  `week-summary.ts ruleSummary` writes a verbless clause with a bug word (`BUG`) as "Fixed ..."; `boastsFix` keeps a
+  stored or model "Shipped <bug>" from being stored (`weekSummary`) or shown (`summaryShown`, so old rows fall back to the
+  rule summary). The Haiku prompt says so too. The past-tense helpers moved to `past-verb.ts`.
+- **"You qualify" only with nothing in the way.** `bench-reply.ts fitBar` from the program's own facts (investment =
+  company with a full-time team, match.ts INVESTMENT_NOTE; the "long shot" tag; "needs a live product" without a live
+  link; the matcher's "no users yet"); `qualifyLine` says the condition ("Long shot: ..., It takes a company with a
+  full-time team."). bench-find threads `bar` onto Fit, BestFit and the fund lines.
+- **One money rule.** A headline's figure sums the top awards of the non-investment programs in the table under it
+  (`present.ts shownHeadline`; investments and hackathons in the table are named by `openMoneyWords`, "Plus 2
+  accelerators."). The landing chip sums only the Base programs among the Opportunities cards (`landing.ts`).
+- **No guessed package link.** `person-score.ts packageLinkable`: a registry page is the project link only when the
+  package source is verified by `repo_link`, its readings name a repo the GitHub App proved for the project, and that repo
+  reads public; `page-data.ts shownProjects` also drops npm/PyPI links on a hidden repo.
+- **One rank line.** `site-data.ts standingPill`/`pillOf` label and title the pill with `shownRankLine` over the whole
+  pool (`standingOf`, as `bench-rank.ts rankLines`), so the pill, replies, card, page meta and email say the same; the
+  metal still comes from the percentile; nothing under RANK_MIN_POOL.
+- **One name.** `project-name.ts` (`refKey`, `reportedProject`, `reportedNameIn`, `reportedName`): the builder-given
+  name from the stored identity, matched loosely, wins in replies (bench-find benchView and tokenAsk) and in
+  person-score's row name; `bench-reply.ts displayName` never title-cases a host, `keyName` gives a link key's host.
+- **Money line hygiene.** The upcoming program's "not open yet" line is added only when nothing else is the money line,
+  only in a reply that shows it (`upcomingShown`), and once a week a program (`bench-find.ts takeUpcoming`,
+  `standing_seen.upcoming_said`, kept by stand-view). `base-qualify.ts qualifyStatus(m, codes, onBaseSaid)`: Base step met
+  when the project's chains include Base, a Base contract was reported (`onBaseKnown`) or the matcher credits a claim.
+- Tests: `week-summary.test.ts`, `bench-reply.test.ts`, `present.test.ts`, `landing.test.ts`, `person-score.test.ts`,
+  `v31-site-data.test.ts`, `project-name.test.ts`, `v31-reply-fixes.test.ts`, `v31-gtm-w3.test.ts`.
+
+## v3.1 GTM W1: install and arrival (design: v3.1-gtm-journey-audit.md, 2026-10-23)
+
+- **Install tabs** (`sections/agents.tsx AGENTS`, read by the sheet `AddToAgent.tsx` and `/docs` `InstallCard.tsx`): Grok
+  Bot, Muse, OpenClaw, Hermes, then Claude, Claude Code, Cursor, Codex. Grok Bot: an "Open in Grok Bot" button to
+  `grokbot://app/v1/prompt?text=<GROK_BOT_PROMPT>` (prefills only; Enter, "Add it", "Authorize"), then the 2-step fallback
+  in the app's labels. Muse: a copy-message box (`MUSE_MESSAGE`). OpenClaw: add, then gateway stop / login / start, the
+  `--code` note. Hermes (`public/images/agents/hermes.png`): the config.yaml snippet, `hermes mcp login earnkit`,
+  `/reload-mcp`. The docs panel now shows the one-click buttons too. Evidence: `v3.1-install-research.md` (Grok Bot section).
+- **OAuth (security ruling)**: Grok Bot registers as "Cursor". Its `https://www.cursor.com/bot/mcp/oauth/callback` and
+  `https://grok.com/connectors-oauth-exchange-code/` callbacks stay `other` (the page naming the host) until a real install
+  shows they bind the code to the signer's own session (login CSRF otherwise); `grokbot://` is not a trusted app scheme.
+- **Profile visitor card**: `BenchProfileView` ends with a panel (`data-ek-get-page`, `PROFILE_CTA_TITLE`/`TEXT`) holding
+  `InviteRow` (the header's install sheet; `pill` prop for the motion-safe variant).
+- **Referral attribution, measure only**: `app/[handle]/RefMark.tsx` sets `ek_ref=<handle>` (30 days, first page keeps it,
+  `ref-cookie.ts`); `authorizeGet` puts it on the pending request, `issueCode` signs it into the code (`rf`),
+  `exchangeCode` returns `ref`, and `tokenPost` calls `installations.ts noteReferral` for a new installation only:
+  `installations.ref_builder_id`, `ref_at`, set once, only for a public claimed page, never the builder's own group.
+  `owner_people.referred_installs` (last column) counts them, own excluded. Never public, no rewards.
+- **Cursor plugin** `integrations/cursor-plugin/earnkit/` (manifest, `mcp.json`, skill `what-can-i-earn`, logo); the owner
+  publishes it (`integrations/cursor-plugin/README.md`). Nothing is submitted from the repo.
+- **llms.txt** (`llms/v213.txt`): the site's positioning, every agent's install steps, `score`, find's `identity` input
+  (no `local_repos`), the one-tap post (no weekly "share it on X" promise), no "agents earning once there are 100".
+- Tests: `install.test.ts`, `v31-site-docs.test.ts`, `oauth.test.ts`, `referral.test.ts`, `people-signals.test.ts`.

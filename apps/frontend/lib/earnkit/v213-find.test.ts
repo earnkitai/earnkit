@@ -146,9 +146,9 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
     const yes = await tell({ kind: 'ship', project_key: key, answer: 'yes' });
     assert.match(String(yes.agent_note), /suggest one small thing to ship this week/);
     assert.equal((await tell({ kind: 'ship', project_key: key, answer: 'yes' })).show_to_builder, 'Okay.', 'answered once');
-    // The next reply asks the same step (never the updates yes).
+    // GTM W2: the ship question is asked at most once in SHIP_ASK_DAYS, so the next reply doesn't ask it again.
     const again = await find(id, {}, match);
-    assert.equal(again.move_up?.kind, 'ship');
+    assert.notEqual(again.move_up?.kind, 'ship');
   }),
 );
 

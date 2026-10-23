@@ -7,7 +7,7 @@ import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
 import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
-import { installLink, pickLink, repoProof } from './repo-proof';
+import { installLink, pickLink, proveCovered, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_NOTE, approvedCodeWeek, backingExcluded, backingOffer, coinOpen, openCoinLine } from './coin-moments';
@@ -29,13 +29,14 @@ import {
 import { byDeadline, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
-import { creditsMainnet, type Detection } from './match';
+import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
+import { reportedName } from './project-name';
 import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
-  type ApplyPick, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
+  APPLY_WINDOW_DAYS, BASE_HELP_STEP, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
+  type ApplyPick, type FitBar, fitBar, keyName, upcomingShown, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
@@ -49,12 +50,13 @@ import {
 } from './connect-moment';
 import { connectOfferPoints, pointsTotal } from './points';
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
-import { askWeeklyEmail, digestEnabled } from './digest';
+import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, walletOfferDue } from './wallet-offer';
+import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
 
 /**
@@ -75,6 +77,19 @@ export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with m
 export const SHIP_STEP_NOTE =
   "A yes to the question, or a question about what to ship: look at the repo in this folder (git log, open issues, the README) and suggest one small, real thing to ship this week, in one short line, then ask if they want you to build it now. " +
   "Never offer a coin or token here; only if the builder asks about one, call tell with token: 'ask'. Don't show this note.";
+/** GTM W2 (2026-10-23): SHIP_STEP_NOTE for an agent with no folder of the code (agent-reach.ts hosted): never "this folder" or git log. */
+export const SHIP_STEP_NOTE_HOSTED =
+  "A yes to the question, or a question about what to ship: from what you know of their project (its live page, its GitHub repo's recent commits and open issues, what they told you), suggest one small, real thing to ship this week, in one short line. " +
+  "Never offer a coin or token here; only if the builder asks about one, call tell with token: 'ask'. Don't show this note.";
+/** GTM W2: the Monday check-in's note (a client that can schedule): its yes is the agent's own weekly routine. */
+export const CHECKIN_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'checkin', project_key, answer } (project_key as given here). " +
+  "On a yes, create your own weekly routine (a scheduled task or cron) for Monday mornings that calls find and shows its show_to_builder to the builder as written. Don't show this note.";
+export const CHECKIN_YES_NOTE =
+  "Create your own weekly routine now (a scheduled task or cron) for Monday mornings: it calls find and shows its show_to_builder to the builder as written. If you can't schedule tasks, say so in one short line instead of show_to_builder. Don't show this note.";
+/** GTM W2: the Monday email question as a move_up (agents skipped the bare statement). */
+export const EMAIL_ASK_NOTE =
+  "A yes with their address: call tell with weekly_email: { answer: 'yes', email }. A no: call tell with move_up: { kind: 'weekly_email', project_key, answer: 'no' }. Don't show this note.";
 /** v2.14 no_project: the question asks for their work, so its answer goes to find with identity. */
 export const START_NOTE =
   "If the builder sends their GitHub login or a link to something they've made, call find with identity: { github_login, project: { name, repo or live_url } }. " +
@@ -104,10 +119,17 @@ export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up
 export const QUALIFY_STEPS_NOTE =
   "A yes to the question: help the builder with the first step listed, here in this folder (for Builder Codes, follow the guide linked). " +
   "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
+/** GTM W2: QUALIFY_STEPS_NOTE for an agent with no folder of the code. */
+export const QUALIFY_STEPS_NOTE_HOSTED =
+  "A yes to the question: walk the builder through the first step listed, in short plain steps they can do themselves (for Builder Codes, follow the guide linked). " +
+  "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
 /** 2026-10-23 Base onboarding: the walk-through offer's note; the builder can ask for it again any time. */
 export const BASE_START_NOTE =
   "A yes or no to the question: call tell with move_up: { kind: 'base_start', project_key: null, answer }. " +
   "If the builder wants to connect after all, call tell with move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' }. Don't show this note.";
+/** GTM W2: the walk-through's "Want help with step 1 now?" as a move_up (a yes is BASE_HELP_STEP, never the steps again). */
+export const BASE_HELP_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'base_help', project_key: null, answer }. Don't show this note.";
 /** The walk-through's steps: help with step 1 here; EarnKit guides and never builds for them. */
 export const BASE_STEPS_NOTE =
   "A yes to the question: help the builder start their app in Lovable or Bolt and connect GitHub inside it (the steps given). " +
@@ -156,6 +178,13 @@ export type Seen = StandSeen & {
   template_refused?: string;
   /** When the new-repo nudge was shown (asked once). */
   new_repo_asked?: string;
+  /** GTM W2: when the Monday check-in was asked (once), and the answer. */
+  checkin_asked?: string;
+  checkin?: { answer: 'yes' | 'no'; at: string };
+  /** GTM W2: when the ship question was last asked (at most once in SHIP_ASK_DAYS). */
+  ship_asked?: string;
+  /** GTM W2: find was told agent_can_build: false (agent-reach.ts). */
+  no_folder?: boolean;
 };
 type Reply = Record<string, unknown>;
 
@@ -199,6 +228,8 @@ type BenchRead = {
   profiled: boolean;
   /** v2.13.4 (spec 4): the live link the agent reported for the one project (identity), if any. */
   liveUrl: string | null;
+  /** GTM W2: the name the agent reported for the one project (identity), if any. */
+  reportedName: string | null;
 };
 const EMPTY_BASE: StandBase = { standing: { ranked: false, rank: 0, total: 0 }, claimed: false, handle: null, signInLink: null };
 const NO_RANK: RankLines = { bench: null, line: null, chains: [], listed: false };
@@ -239,6 +270,7 @@ async function benchRead(id: number, own: number, now: Date): Promise<BenchRead>
     base: stand?.base ?? EMPTY_BASE, seen, main, row: row ?? null, ranks, profiled: stand !== null,
     parts: live?.parts ?? null,
     liveUrl: main ? reportedLive(p?.identity, main) : null,
+    reportedName: main ? identityName(p?.identity, main) : null,
   };
 }
 
@@ -252,6 +284,42 @@ export function reportedLive(identity: unknown, key: string): string | null {
   return p && typeof p.live_url === 'string' && /^https:\/\//i.test(p.live_url) ? p.live_url : null;
 }
 
+/** GTM W2: the name the stored identity gives project `key` (matched as reportedLive matches), or null. Pure. */
+export function identityName(identity: unknown, key: string): string | null {
+  const projects = identity && typeof identity === 'object' && Array.isArray((identity as { projects?: unknown }).projects)
+    ? ((identity as { projects: unknown[] }).projects as Record<string, unknown>[])
+    : [];
+  const k = key.toLowerCase();
+  const p = projects.find((x) => x && typeof x === 'object' && [x.repo, x.live_url, x.package].some((v) => typeof v === 'string' && v.toLowerCase() === k));
+  const n = typeof p?.name === 'string' ? p.name.trim().slice(0, 60) : '';
+  return n && !/^https?:\/\//i.test(n) ? n : null;
+}
+/** GTM W2: a project key that is a link (no repo: a Lovable or Bolt app), never shown as the project's name. */
+const LINK_KEY = /^https?:\/\//i;
+/** GTM W2: the words for a link-only project with no name the builder gave ("Mealmate.lovable.app" never). */
+export const YOUR_APP = 'Your app';
+/** GTM W2: a link-only project's shown name: the builder's own, never a host ("mealmate.lovable.app"), else YOUR_APP. Pure. */
+export const linkName = (name: string | null | undefined) => {
+  const n = name?.trim() ?? '';
+  return n && !/^https?:\/\//i.test(n) && !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(n) ? n : YOUR_APP;
+};
+/** GTM W2: the builder has a repo proven by the read-only App (setup done). A failed read: false. Never throws. */
+async function appConnected(id: number): Promise<boolean> {
+  const [r] = await sql()<{ yes: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND state = 'verified' AND proof = 'github_app') AS yes`.catch(() => []);
+  return r?.yes === true;
+}
+/** GTM W2: how long a reply waits for an already-installed App to prove the one project (coveredRead). */
+const COVERED_WAIT_MS = 4_000;
+/**
+ * GTM W2 (2026-10-23): the one project is a repo not counted yet that the builder's own App installation already covers
+ * (repo-proof.ts proveCovered): proven now and read again, so the builder is never asked to install the App again (or
+ * sent back to "Step 2 of 2" after switching repos). Within COVERED_WAIT_MS; else the next reply has it. Never throws.
+ */
+async function coveredRead(id: number, own: number, now: Date, read: BenchRead): Promise<BenchRead> {
+  if (!read.main || read.row?.confirmed || !REPO_KEY.test(read.main.toLowerCase())) return read;
+  return (await settleWithin(proveCovered(id, read.main), COVERED_WAIT_MS)) ? benchRead(id, own, now) : read;
+}
 /** v2.13.4 (spec 4): the live check never holds a reply long; it gets what is left of the wait, at least this. */
 const LIVE_WAIT_MIN_MS = 300;
 /** The one project's live link, checked within `ms` (else null; the check lands for the next reply). Never throws. */
@@ -265,6 +333,9 @@ export const TOKEN_NOT_YET = 'A token comes after your project is counted on the
 /** R8: tell token: 'ask' when no coin can be offered for the project now (launches off, declined, a private repo). */
 export const tokenUnavailable = (name: string) => `A token isn't available for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
+/** GTM W2: the backers question's answer: the coin's backers and the fees it paid the builder, and the page. Pure. */
+export const backersLine = (symbol: string, backers: number, fees: number, page: string) =>
+  `${backers === 0 ? `$${symbol} has no backers yet` : `$${symbol} has ${backers.toLocaleString('en-US')} ${backers === 1 ? 'backer' : 'backers'}`} and $${fees.toLocaleString('en-US')} in fees to you so far. Your page: ${page}`;
 /** v3 Stage 2 review: tell token: 'ask' under EARNKIT_RAISING before the first approved week with code (the terms: offered after it). */
 export const BACKING_NOT_YET = 'Backing opens after your first confirmed week.';
 /** The agent's note with the line to show backing for an old coin: the yes is tell coin { raising: true }. */
@@ -287,10 +358,19 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${p.main})`.catch(() => [])
     : [];
   if (!row?.confirmed) return { show_to_builder: TOKEN_NOT_YET };
-  const name = displayName(row.name, row.key, null);
+  const name = displayName((await reportedName(id, row.key)) ?? row.name, row.key, null);
   const coin = await raisingCoin(id).catch(logged('token coin'));
   if (coin) {
     if (raisingEnabled() && coin.status === 'launched' && !coin.raising) return { show_to_builder: showRaisingLine(coin.symbol), agent_note: RAISE_NOTE };
+    // GTM W2: "Did anyone back it?" is answered with the backers and the fees, never only "already live".
+    if (raisingEnabled() && coin.status === 'launched') {
+      const [backers, earned, [h]] = await Promise.all([
+        backersOfCoin(coin.coin).catch(() => null), earnedUsd(id).catch(() => null),
+        sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []),
+      ]);
+      if (backers !== null && earned !== null && h?.handle)
+        return { show_to_builder: backersLine(coin.symbol, backers, Math.round(earned.fees_usd ?? 0), `${siteUrl()}${pagePath(h.handle)}`) };
+    }
     return { show_to_builder: coin.status === 'launched' ? COIN_LIVE : COIN_LAUNCHING };
   }
   if (row.has_coin) return { show_to_builder: tokenHasCoin(name) };
@@ -338,6 +418,8 @@ export type Fit = {
   investment?: boolean;
   /** v3.1 F1: the program's facts the fit lines sort (present.ts byRelevance) and later steps filter on. */
   card: Pick<Card, 'id' | 'status' | 'chains' | 'any_chain' | 'ends_at' | 'max_award_usd' | 'investment'>;
+  /** v3.1 GTM W3: what stands in the way (bench-reply.ts fitBar); only 'qualify' says "You qualify". */
+  bar?: FitBar;
 };
 /** v3.1 F1: a card's facts a Fit keeps. Pure. */
 const fitCard = (c: Card): Fit['card'] => ({
@@ -379,6 +461,8 @@ type ViewIn = {
   deadline?: number;
   /** v3.1 Task 7: test injection only (ToolContext.codesFetch): the background Builder Codes check's fetch. */
   codesFetch?: typeof fetch;
+  /** GTM W2: what the caller's agent can do (agent-reach.ts); read here when not given. */
+  reach?: AgentReach;
 };
 
 /** Test only: resolves when every running Builder Codes check has finished. */
@@ -431,10 +515,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
   const siteLive = o.live?.ok === true;
   const title = o.live?.ok ? o.live.title : null;
+  // v3.1 GTM W3 (one name per project): the name the builder gave (this call's, else the stored identity's) wins over
+  // the row's (written at the last rescore) and over the key's last part (never "Mealmate.lovable.app" for MealMate).
+  const given = o.name ?? (row || read.main ? await reportedName(id, row?.key ?? read.main!) : null);
   const project: BenchProject | null = row
-    ? { key: row.key, name: displayName(row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
+    ? { key: row.key, name: LINK_KEY.test(row.key) ? linkName(given ?? read.reportedName ?? row.name) : displayName(given ?? row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
     : read.main
-      ? { key: read.main, name: displayName(o.name ?? read.main.split('/').pop() ?? read.main, read.main, title), confirmed: false, live: siteLive, weeks: 0 }
+      ? {
+          key: read.main,
+          // GTM W2: a link-only project is named as the builder named it, never by its link's host.
+          name: LINK_KEY.test(read.main) ? linkName(given ?? read.reportedName) : displayName(given ?? read.reportedName ?? keyName(read.main), read.main, title),
+          confirmed: false, live: siteLive, weeks: 0,
+        }
       : null;
   // v2.14 spec 2: a repo-key project that isn't confirmed: is it proven (the read-only App), held by another
   // person, or a copy?
@@ -452,9 +544,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const install = state === 'not_counted' && !variant ? await installLink(id, project!.key, now).catch(logged('install link')) : null;
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
   // 2026-10-23 Base onboarding: a GitHub no is remembered; step 2 (and its link) is never repeated after it.
-  const githubNo = state === 'no_project' && Boolean(read.seen.github_no) && !held;
+  // GTM W2: a project named only by its live link (variant no_repo) is on the same no-GitHub path.
+  const noCode = state === 'no_project' || variant === 'no_repo';
+  const githubNo = noCode && Boolean(read.seen.github_no) && !held;
   // Launch ready L2: with no project, the repo picker's install link (GitHub's page picks the repos; S7: a page is needed).
-  const pick = state === 'no_project' && !githubNo ? await pickLink(id, now).catch(logged('pick link')) : null;
+  const pick = noCode && !githubNo ? await pickLink(id, now).catch(logged('pick link')) : null;
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
@@ -469,18 +563,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v3.1 Task 7: Base Builder Grants' Builder Codes answer (the stored one; a check for the draft starts in the background).
   const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null;
   const best: BestFit | null = open[0]
-    ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes }
+    ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes, ...(open[0].bar && { bar: open[0].bar }) }
     : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
+  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
+  // GTM W2 (owner: no coin launched is the biggest revenue failure): right after connect, before the event post and the apply step.
+  const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
-  const hot = ranked && project && handle && !held && !connect ? await eventPost(id, handle, now, { hot: true }) : null;
-  // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) backing and the weekly moment.
-  const apply = !connect && !hot && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
-  // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on);
-  // an apply ask shown holds it (unclaimed) for a later reply.
-  const backing = ranked && project && handle && !held && !connect && !hot && !apply ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
+  const hot = ranked && project && handle && !held && !connect && !backing ? await eventPost(id, handle, now, { hot: true }) : null;
+  // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
+  const apply = !connect && !hot && !backing && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = ranked && project && handle && !held && !connect && !hot && !backing && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
@@ -492,28 +586,25 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
   // step drafts that application), then the wallet step once.
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
-  const wallet = (quiet || (githubNo && !baseAsk)) && handle !== null ? await walletOfferDue(id, now) : null;
+  // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
+  const reach = o.reach ?? (await agentReach(o.own, id));
+  const checkin = quiet && handle !== null && reach.schedules && !read.seen.checkin_asked && (await takeOnce(id, 'checkin_asked', now));
+  const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
   // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
-  const newRepo = quiet && !wallet && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  const newRepo = quiet && !checkin && !wallet && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !wallet && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !wallet && !newRepo && !titles && o.fits.length === 0
+  const titles = quiet && !checkin && !wallet && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !checkin && !wallet && !newRepo && !titles && o.fits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch })
     : null;
-  const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? null : install;
+  const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
 
   let fund: FundLine[] = [];
   // O2 fix round 1 (ruling 3): a repo another person holds is never offered a program for it. R12: only programs the
   // matcher fits, each with its deadline (Task 16: the reply names the first, after the Best fit).
-  if (project && !taken) fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, amount: f.amount, when: f.when }));
+  if (project && !taken) fund = o.fits.slice(0, 3).map((f) => ({ kind: 'fits', title: f.title, amount: f.amount, when: f.when, ...(f.bar && { bar: f.bar }) }));
 
-  // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
-  // the program list's order (byRelevance), shown only when no fit is (benchReply).
-  if (ranked && streak >= UPCOMING_STREAK) {
-    const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
-    if (soon) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
-  }
 
   // v3 Stage 2 (spec 5.2): Earned (fees claimed plus announced prizes), for the ranked standing line.
   const earned = ranked ? await earnedUsd(id, now).catch(logged('earned')) : null;
@@ -526,14 +617,21 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   }
 
   // R8, L5, L6: each state's one next step.
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo };
+  // GTM W2: the ship question at most once in SHIP_ASK_DAYS (standing_seen.ship_asked).
+  const shipAsked = typeof read.seen.ship_asked === 'string' && now.getTime() - Date.parse(read.seen.ship_asked) < SHIP_ASK_DAYS * 86_400_000;
+  // GTM W2: a repo not counted yet for a builder who already connected one with the App: one install, never step 2 again.
+  const appDone = state === 'not_counted' && install !== null && (await appConnected(id));
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone };
   let finalAsk = stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
+  if (finalAsk.kind === 'ship' && !held) await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
+    WHERE builder_id = ${id}`.catch(logged('ship asked'));
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
   // v3.1 one-tap posts: an event's post stored its own ask (post-reply.ts: the moment, so a yes redrafts it).
-  const stored = held || finalAsk.kind === 'post' ? null : {
+  const stored = held || finalAsk.kind === 'post' || finalAsk.kind === 'none' ? null : {
     kind: finalAsk.kind, key: finalAsk.project_key,
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
     ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
@@ -543,17 +641,28 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
       ELSE COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(stored as never)}::jsonb) END
     WHERE builder_id = ${id}`.catch(logged('ask'));
+
+  // v3 Stage 2: a ranked builder on a 4-week streak (or more) hears of one program opening soon, the first by
+  // the program list's order (byRelevance), shown only when no fit is (benchReply). v3.1 GTM W3: only when nothing
+  // else is the money line (no Best fit, fit or backing) in a reply that says it
+  // (upcomingShown), and once a week a program (takeUpcoming), never every reply.
+  if (ranked && streak >= UPCOMING_STREAK && !best && fund.length === 0 && upcomingShown({ held, ask: finalAsk, connect, moment, handle, post: event, qualify })) {
+    const soon = [...(o.upcoming ?? [])].filter((c) => c.status === 'upcoming' && c.opens_note && !o.skip.has(c.id)).sort(byRelevance)[0];
+    if (soon && (await takeUpcoming(id, soon.id, now))) fund = [...fund, { kind: 'upcoming', title: soon.title, prize: earnPrize(soon), note: soon.opens_note! }];
+  }
+
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
-    ask: finalAsk, held, best, connect, moment, open: state === 'signed_out' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
+    // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
+    ask: finalAsk, held, best, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
   };
-  const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
+  const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
     : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
-    ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
+    ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
     streak,
   };
@@ -595,7 +704,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'checkin_asked', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -605,6 +714,21 @@ async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked', now: D
   return Boolean(taken);
 }
 const takeBaseAsk = (id: number, now: Date) => takeOnce(id, 'base_asked', now);
+/** v3.1 GTM W3: an upcoming program's "not open yet" line is said at most once a week (standing_seen.upcoming_said). */
+export const UPCOMING_EVERY_MS = 7 * 86_400_000;
+/** v3.1 GTM W3: claims the upcoming line for `programId` when it was not said within UPCOMING_EVERY_MS. Never throws. */
+export async function takeUpcoming(id: number, programId: string, now: Date): Promise<boolean> {
+  const since = new Date(now.getTime() - UPCOMING_EVERY_MS).toISOString();
+  const [taken] = await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('upcoming_said',
+      COALESCE(standing_seen->'upcoming_said', '{}'::jsonb) || jsonb_build_object(${programId}::text, ${now.toISOString()}::text))
+    WHERE builder_id = ${id} AND (standing_seen->'upcoming_said'->>${programId} IS NULL
+      OR standing_seen->'upcoming_said'->>${programId} <= ${since}) RETURNING 1`.catch((err: unknown) => {
+    logged('take upcoming')(err);
+    return [];
+  });
+  return Boolean(taken);
+}
 /**
  * 2026-10-23: the one-line notice after the repo picker refused only forks or templates (standing_seen.template_refused,
  * github-app.ts pickSetup), taken once. Never throws.
@@ -797,7 +921,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const id = ctx.installationId;
   const now = a.first.now;
   const own = ctx.ownInstallationId ?? id;
-  const read = await benchRead(id, own, now);
+  const read = await coveredRead(id, own, now, await benchRead(id, own, now));
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -814,10 +938,11 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const facts = new Map((a.repos && 'fits' in a.repos ? a.repos.fits : []).map((f) => [f.repo, f]));
   const fitOf = (r: (typeof can)[number]): Fit => {
     const f = facts.get(r.repo);
-    const why = fitWhy(r.card, whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified }));
+    const wf = whyFacts({ chains: f?.facts?.chains, homepage: f?.facts?.homepage, live_verified: f?.live_verified ?? f?.facts?.live_verified });
+    const why = fitWhy(r.card, wf);
     return {
       program_id: r.card.id, repo: r.repo, title: r.card.title, amount: awardAmount(r.card), when: fundWhen(r.card), why, ends_at: isoOf(r.card.ends_at),
-      investment: r.card.investment === true, card: fitCard(r.card),
+      investment: r.card.investment === true, card: fitCard(r.card), bar: fitBar(r.card, { live: wf.live, noUsers: r.low_reason === NO_USERS_YET }),
     };
   };
   const shownRows = fitLines(can);
@@ -833,6 +958,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
+  // GTM W2: an agent that said it can't build has no folder of the code; remembered so tell's notes fit it too.
+  if (a.first.agentCanBuild === false) await rememberNoFolder(id);
   const { view, fields } = await benchView({
     id, now, read, own, signedOut, name, fits, applies, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
     deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS, codesFetch: ctx.codesFetch,
@@ -885,7 +1012,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   await refresh.within(REPLY_WAIT_MS);
   // D14: the caller's own installation, as find's.
   const own = ctx.ownInstallationId ?? id;
-  const read = await benchRead(id, own, now);
+  const read = await coveredRead(id, own, now, await benchRead(id, own, now));
   const live = await liveOf(id, read, now, start + REPLY_WAIT_MS - Date.now());
   const { applies, cards: shown, upcoming, skip } = await scoreApplies(id, read.main, now);
   const fits: Fit[] = fitLines(applies);
@@ -932,7 +1059,7 @@ export async function scoreApplies(id: number, main: string | null, now: Date): 
   const applies: Fit[] = key
     ? (await scoreFits(id, key, { cards: shown, skip, now })).map((f) => ({
         program_id: f.card.id, title: f.card.title, amount: awardAmount(f.card), when: fundWhen(f.card), why: fitWhy(f.card, whyFacts(f.repo)), ends_at: isoOf(f.card.ends_at),
-        investment: f.card.investment === true, card: fitCard(f.card),
+        investment: f.card.investment === true, card: fitCard(f.card), bar: fitBar(f.card, { live: whyFacts(f.repo).live }),
       }))
     : [];
   return { applies, cards: shown, upcoming, skip };
@@ -959,7 +1086,7 @@ const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', '
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
 const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', 'new_repo', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
-const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo'];
+const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin'];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
@@ -1055,6 +1182,10 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     const added = total !== null && before !== null ? total - before : 0;
     const points = added > 0 && total !== null ? pointsAddedLine(added, total) : null;
     const done = p?.handle ? CONNECT_DONE(`${siteUrl()}${pagePath(p.handle)}`) : APPROVED_CONNECT;
+    // GTM W2 (owner: no coin launched is the biggest revenue failure): the weeks just approved prove the builder, so the
+    // backing offer comes here, the first reply after it, above the draft (EARNKIT_RAISING on, every coin gate kept).
+    const backing = p?.handle ? await connectBacking(ctx, id, m.project_key ?? null) : null;
+    if (backing) return { show_to_builder: [done, backing.line, points].filter(Boolean).join('\n'), move_up: backing.move_up };
     // Task 16 step 4: the Best fit the offer named is offered as a draft (the apply ask, once a program), else the email question.
     const apply = r.best && p?.handle ? await connectApply(id, r.best, m.project_key ?? null, now) : null;
     if (apply) return { show_to_builder: [done, apply.line, points].filter(Boolean).join('\n'), move_up: apply.move_up };
@@ -1063,7 +1194,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     if (titles) return { show_to_builder: [done, TITLES_ASK, points].filter(Boolean).join('\n'), move_up: titles };
     // The You're live line is a statement, so the email question (when it is asked) is the reply's one question.
     const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
-    return { show_to_builder: [done, email?.question, points].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
+    return { show_to_builder: [done, email?.question, points].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
   }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
   if (m.kind === 'share') {
@@ -1072,7 +1203,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'share'`.catch(logged('clear share ask'));
       // v3 Stage 1 (spec 5.4): the first yes after activation asks for the address, once (digest_asked_at), as the reply's one question.
       const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('share email')) : null;
-      return { show_to_builder: [APPROVED_LINE, email?.question].filter(Boolean).join('\n'), ...(email && { agent_note: email.agent_note }) };
+      return { show_to_builder: [APPROVED_LINE, email?.question].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
     }
     return okay;
   }
@@ -1085,8 +1216,16 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     const r = await githubAnswer(id, m.answer, now);
     if (r) return r;
   }
+  // GTM W2: an older reply's "Where does <app> live on GitHub?" answered no is the GitHub no too (never "Okay.").
+  if (m.kind === 'repo_behind' && m.answer === 'no') {
+    const r = await githubAnswer(id, 'no', now);
+    if (r) return r;
+  }
   if (m.kind === 'base_start') return baseStartAnswer(id, m.answer, now);
+  if (m.kind === 'base_help') return baseHelpAnswer(id, m.answer);
   if (m.kind === 'next_step') return restAnswer(id, m.answer, now);
+  if (m.kind === 'checkin') return checkinAnswer(id, m.answer, now);
+  if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
   if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
@@ -1136,7 +1275,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       return { show_to_builder: '', agent_note: REPO_BEHIND_NOTE };
     case 'ship':
     case 'suggest':
-      return asked.key ? { show_to_builder: '', agent_note: SHIP_NOTE } : okay;
+      return asked.key ? { show_to_builder: '', agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? SHIP_NOTE_HOSTED : SHIP_NOTE } : okay;
     case 'titles':
       // 2026-10-22: the titles question's yes turns titles on (the tell updates { titles: true } path).
       return setShipTitles(id, { titles: true }, now);
@@ -1147,7 +1286,10 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
-      return { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE };
+      return {
+        show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]),
+        agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
+      };
     case 'new_repo':
       return { show_to_builder: '', agent_note: NEW_REPO_YES_NOTE };
     case 'post':
@@ -1211,6 +1353,8 @@ async function walletStep(id: number, now: Date): Promise<Record<string, unknown
   return { show_to_builder: walletOffer(link), move_up: { kind: 'wallet', project_key: null, agent_note: WALLET_NOTE } };
 }
 
+/** GTM W2: a one project with a repo key (a link-only project, a Lovable or Bolt app, has none). Pure. */
+const hasRepo = (main: string | null) => main !== null && !LINK_KEY.test(main);
 /** No project yet: whether one exists and whether the GitHub no is held. Null on a read error. */
 async function noProjectState(id: number): Promise<{ main: string | null; no: boolean } | null> {
   const [p] = await sql()<{ main: string | null; no: boolean }[]>`
@@ -1237,7 +1381,8 @@ async function connectAfterAll(id: number, now: Date): Promise<Reply> {
  */
 async function githubAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply | null> {
   const p = await noProjectState(id);
-  if (!p || p.main) return null;
+  // GTM W2: a project named only by its live link (no repo) is on the no-GitHub path too.
+  if (!p || hasRepo(p.main)) return null;
   if (answer === 'no') {
     await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('github_no', ${now.toISOString()}::text))
         - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'pick_repo' THEN 'bench_ask' ELSE '' END)
@@ -1255,7 +1400,9 @@ async function restAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
     WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'next_step'`.catch(logged('rest answer'));
   const p = await noProjectState(id);
-  if (answer === 'no' || !p || p.main) return { show_to_builder: NOTED_LINE };
+  if (!p || hasRepo(p.main)) return { show_to_builder: NOTED_LINE };
+  // GTM W2: a no is a plain "later" with the way back, never "Okay.".
+  if (answer === 'no') return { show_to_builder: NEXT_STEP_LATER };
   return connectAfterAll(id, now);
 }
 
@@ -1266,6 +1413,12 @@ async function restAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<
  * the optional wallet step when due, else "Okay.". Never throws.
  */
 async function baseStartAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  // GTM W2: a yes right after the steps were given ("yes, help with step 1", the stored ask base_help) moves on to
+  // step 1's help, never the same block; asked again later, the steps are given again.
+  if (answer === 'yes') {
+    const [w] = await sql()<{ ask: string | null }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS ask FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+    if (w?.ask === 'base_help') return baseHelpAnswer(id, 'yes');
+  }
   const open = answer === 'yes' && (await baseOpenFor(id, now));
   if (answer === 'yes' && !open) return { show_to_builder: NOTED_LINE };
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb)
@@ -1273,8 +1426,59 @@ async function baseStartAnswer(id: number, answer: 'yes' | 'no', now: Date): Pro
       - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'base_start' THEN 'bench_ask' ELSE '' END)
     WHERE builder_id = ${id}`.catch(logged('base walk'));
   (await import('./profile-cache')).profileChanged();
-  if (answer === 'no') return (await walletStep(id, now)) ?? { show_to_builder: NOTED_LINE };
-  return { show_to_builder: BASE_START_STEPS, agent_note: BASE_STEPS_NOTE };
+  if (answer === 'no') return (await walletStep(id, now)) ?? { show_to_builder: NEXT_STEP_LATER };
+  // GTM W2: its question ("Want help with step 1 now?") is a move_up, so the yes moves on (baseHelpAnswer).
+  await storeAsk(id, { kind: 'base_help', key: null });
+  return { show_to_builder: BASE_START_STEPS, agent_note: BASE_STEPS_NOTE, move_up: { kind: 'base_help', project_key: null, agent_note: BASE_HELP_NOTE } };
+}
+
+/**
+ * GTM W2: the answer to "Want help with step 1 now?" after the Base steps. A yes is step 1's help (connect GitHub inside
+ * Lovable or Bolt) and the resting question, stored, so its yes gives the one-click link; a no is "later". Never throws.
+ */
+async function baseHelpAnswer(id: number, answer: 'yes' | 'no'): Promise<Reply> {
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
+    WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'base_help'`.catch(logged('base help'));
+  if (answer === 'no') return { show_to_builder: NEXT_STEP_LATER };
+  await storeAsk(id, { kind: 'next_step', key: null });
+  return { show_to_builder: BASE_HELP_STEP, move_up: { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE } };
+}
+
+/**
+ * GTM W2: the answer to the Monday check-in (asked once). Remembered (standing_seen.checkin); a yes tells the agent to set
+ * its own weekly routine that calls find. Never throws.
+ */
+async function checkinAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('checkin', jsonb_build_object('answer', ${answer}::text, 'at', ${now.toISOString()}::text)))
+      - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'checkin' THEN 'bench_ask' ELSE '' END)
+    WHERE builder_id = ${id}`.catch(logged('checkin'));
+  return answer === 'yes' ? { show_to_builder: CHECKIN_ON, agent_note: CHECKIN_YES_NOTE } : { show_to_builder: NOTED_LINE };
+}
+
+/** GTM W2: the Monday email question's move_up (a yes carries the address to tell weekly_email; a no comes here). Pure. */
+const emailMoveUp = (key: string | null) => ({ move_up: { kind: 'weekly_email', project_key: key, agent_note: EMAIL_ASK_NOTE } });
+/** GTM W2: a yes or no to the email question by move_up: a no is saved (never asked again); a yes asks which address. */
+async function emailAnswer(id: number, answer: 'yes' | 'no'): Promise<Reply> {
+  if (answer === 'yes') return { show_to_builder: WHICH_EMAIL, agent_note: EMAIL_NOTE };
+  return saveWeeklyEmail(id, { answer: 'no' }, { shared: false }).catch((err: unknown) => {
+    logged('email no')(err);
+    return { show_to_builder: NOTED_LINE };
+  });
+}
+
+/**
+ * GTM W2: the backing offer in the connect yes's reply (the first reply after the builder is proven with an approved code
+ * week), stored as the Bench's ask so its yes is the coin flow's. Null when backingOffer is (every coin gate kept). Never throws.
+ */
+async function connectBacking(ctx: Pick<ToolContext, 'tokenDeps'>, id: number, key: string | null): Promise<{ line: string; move_up: Reply } | null> {
+  const [p] = await sql()<{ key: string | null }[]>`SELECT main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const projectKey = key ?? p?.key ?? null;
+  if (!projectKey) return null;
+  const offer = await boundedBacking(id, projectKey, ctx.tokenDeps?.check, Date.now() + REPLY_WAIT_MS);
+  if (!offer) return null;
+  await storeAsk(id, { kind: 'backing', key: projectKey });
+  return { line: offer.line, move_up: { kind: 'backing', project_key: projectKey, agent_note: BACKING_NOTE } };
 }
 
 /** Launch ready L2: tell main_project's lines (the builder named the repo to rank instead). */
@@ -1296,7 +1500,9 @@ export const RANK_INSTALL_NOTE =
 export async function rankAnswer(ctx: Pick<ToolContext, 'installationId'>, key: string): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
-  const r = await rankRepo(id, key);
+  let r = await rankRepo(id, key);
+  // GTM W2: the App already installed on that repo (an earlier pick covered it): proven now, never asked to install again.
+  if (r === 'not_proven' && (await settleWithin(proveCovered(id, key), REPLY_WAIT_MS))) r = await rankRepo(id, key);
   if (r === 'same') return { show_to_builder: RANK_LINES.same(key) };
   if (r === 'set') {
     await (await import('./person-score')).rescorePerson(id, now).catch(logged('rank rescore'));
@@ -1326,6 +1532,9 @@ export const INSTALL_APP_YES_NOTE =
 /** v2.13.1 O2 fix round 1 (ruling 3): taken or a copy: the yes to "Want to use a different project?". */
 export const OTHER_PROJECT_NOTE =
   "Ask the builder in one short question which project is theirs (a repo under their own GitHub account), then call find with identity.project: that project. Don't show this note.";
+/** GTM W2: SHIP_NOTE for an agent with no folder of the code (agent-reach.ts hosted). */
+export const SHIP_NOTE_HOSTED =
+  "From what you know of their project (its live page, its GitHub repo's recent commits and open issues, what they told you), suggest one small thing to ship this week, in one short line. Don't show this note.";
 /** O5 N5, R8: the yes to "Ship this week to climb." (or app_off's "Want me to suggest one small thing to ship ..."). */
 export const SHIP_NOTE =
   "Look at the project in this folder (git log, open issues, the README) and suggest one small thing to ship this week, in one short line, then ask if they want you to build it now. Don't show this note.";

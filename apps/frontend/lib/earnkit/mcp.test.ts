@@ -426,7 +426,7 @@ test('2.8 flag on: find asks for identity.project (one, never a list) and stays 
   assert.match(d, /never a list/);
   const on = (await listed({})).tools.find((t) => t.name === 'find')!;
   assert.equal(on.description, FIND_DESCRIPTION_BENCH);
-  assert.match(identityWords(on) ?? '', /project: the project in this folder/);
+  assert.match(identityWords(on) ?? '', /project: the builder's project/);
   assert.match(identityWords(on) ?? '', /One project, never a list\.$/);
 });
 
