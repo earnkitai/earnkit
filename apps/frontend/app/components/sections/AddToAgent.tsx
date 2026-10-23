@@ -147,10 +147,12 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
         <div id="sheet-agent-panel" role="tabpanel" aria-labelledby={`sheet-tab-${active}`} className="mt-5 text-base text-s-card-body">
           {agent.note && <p className="mb-3 text-s-muted">{agent.note}</p>}
           {agent.install && (
-            <a href={agent.install} className={`${COPY_PRIMARY} mb-4`}>
-              Add to {agent.name}
+            <a href={agent.install} className={`${COPY_PRIMARY} ${agent.installNote ? 'mb-2' : 'mb-4'}`}>
+              {agent.installLabel ?? `Add to ${agent.name}`}
             </a>
           )}
+          {agent.installNote && <p className="mb-4">{agent.installNote}</p>}
+          {agent.stepsLead && <p className="mb-1.5 text-s-muted">{agent.stepsLead}</p>}
           {/* Launch ready L10: numbers only for two or more steps (never "1. Or add this"). */}
           {agent.steps.length > 1 ? (
             <ol className="list-decimal space-y-1.5 pl-5">
@@ -160,6 +162,12 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
             </ol>
           ) : (
             <p>{agent.steps[0]}</p>
+          )}
+          {agent.message && (
+            <div className={`${CODE_BOX} mt-3 items-start`}>
+              <p className="min-w-0 flex-1 py-2 text-sm text-s-text">{agent.message}</p>
+              <CopyButton text={agent.message} label={`Copy the message for ${agent.name}`} />
+            </div>
           )}
           {agent.code && (
             <div className={`${CODE_BOX} mt-3 items-start`}>
@@ -178,6 +186,7 @@ export default function AddToAgent({ onClose, prompt = START_PROMPT }: { onClose
               <CopyButton text={agent.afterCode} label={`Copy the ${agent.name} login`} />
             </div>
           )}
+          {agent.last && <p className="mt-3">{agent.last}</p>}
         </div>
 
         <p className="mt-6 border-t border-s-line pt-5 text-base text-s-text">

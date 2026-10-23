@@ -7840,3 +7840,27 @@ Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnk
   newest proven; `funded_by_slug` is another profile that proved the funder; points from `builder_points`; `last_seen_at`
   over the group's installations. Guarded `GRANT SELECT ... TO earnkit_ro`.
 - Tests: `people-signals.test.ts`, `x-oauth.test.ts`.
+
+## v3.1 GTM W1: install and arrival (design: v3.1-gtm-journey-audit.md, 2026-10-23)
+
+- **Install tabs** (`sections/agents.tsx AGENTS`, read by the sheet `AddToAgent.tsx` and `/docs` `InstallCard.tsx`): Grok
+  Bot, Muse, OpenClaw, Hermes, then Claude, Claude Code, Cursor, Codex. Grok Bot: an "Open in Grok Bot" button to
+  `grokbot://app/v1/prompt?text=<GROK_BOT_PROMPT>` (prefills only; Enter, "Add it", "Authorize"), then the 2-step fallback
+  in the app's labels. Muse: a copy-message box (`MUSE_MESSAGE`). OpenClaw: add, then gateway stop / login / start, the
+  `--code` note. Hermes (`public/images/agents/hermes.png`): the config.yaml snippet, `hermes mcp login earnkit`,
+  `/reload-mcp`. The docs panel now shows the one-click buttons too. Evidence: `v3.1-install-research.md` (Grok Bot section).
+- **OAuth**: `AGENT_REDIRECT_URIS` adds `https://www.cursor.com/bot/mcp/oauth/callback` and
+  `https://grok.com/connectors-oauth-exchange-code/` (Grok Bot registers as "Cursor"), exact strings only; `grokbot://` is
+  not a trusted app scheme.
+- **Profile visitor card**: `BenchProfileView` ends with a panel (`data-ek-get-page`, `PROFILE_CTA_TITLE`/`TEXT`) holding
+  `InviteRow` (the header's install sheet; `pill` prop for the motion-safe variant).
+- **Referral attribution, measure only**: `app/[handle]/RefMark.tsx` sets `ek_ref=<handle>` (30 days, first page keeps it,
+  `ref-cookie.ts`); `authorizeGet` puts it on the pending request, `issueCode` signs it into the code (`rf`),
+  `exchangeCode` returns `ref`, and `tokenPost` calls `installations.ts noteReferral` for a new installation only:
+  `installations.ref_builder_id`, `ref_at`, set once, only for a public claimed page, never the builder's own group.
+  `owner_people.referred_installs` (last column) counts them, own excluded. Never public, no rewards.
+- **Cursor plugin** `integrations/cursor-plugin/earnkit/` (manifest, `mcp.json`, skill `what-can-i-earn`, logo); the owner
+  publishes it (`integrations/cursor-plugin/README.md`). Nothing is submitted from the repo.
+- **llms.txt** (`llms/v213.txt`): the site's positioning, every agent's install steps, `score`, find's `identity` input
+  (no `local_repos`), the one-tap post (no weekly "share it on X" promise), no "agents earning once there are 100".
+- Tests: `install.test.ts`, `v31-site-docs.test.ts`, `oauth.test.ts`, `referral.test.ts`, `people-signals.test.ts`.

@@ -1,7 +1,8 @@
 # EarnKit
 
-Where agents earn. EarnKit gives AI agents live builder programs they can
-build for: hackathons, grants, and bounties with real rewards and deadlines.
+Get funded for shipping. EarnKit finds the grants a builder fits, drafts
+the application from what they ship, and ranks how steadily they ship on a
+public leaderboard. Free, from the builder's own agent.
 
 ## Connect
 
@@ -14,14 +15,27 @@ reply instead: the builder signs in with X there and pastes the code back
 (find with sign_in_code). Every agent signed in with the same X uses the
 same page.
 
-- Grok Bot: add the URL as an MCP connector
+- Grok Bot: ask it "Add a custom MCP server called EarnKit at
+  https://earnkit.com/mcp, sign me in", or Plugins, then "Add a custom
+  connector", Server URL https://earnkit.com/mcp, Save, Authenticate.
+- Muse: ask it to build a custom connector to https://earnkit.com/mcp,
+  sign you in, test it and save it as a skill.
+- OpenClaw: openclaw mcp add earnkit --url https://earnkit.com/mcp --transport streamable-http
+  Then, with the gateway stopped: openclaw gateway stop,
+  openclaw mcp login earnkit, openclaw gateway start.
+- Hermes: add earnkit under mcp_servers in ~/.hermes/config.yaml with
+  url "https://earnkit.com/mcp" and auth: oauth, then run
+  hermes mcp login earnkit and /reload-mcp.
+- Claude (claude.ai and the desktop app): Customize, Connectors, Add
+  custom connector, paste https://earnkit.com/mcp, sign in.
 - Claude Code: claude mcp add --transport http --scope user earnkit https://earnkit.com/mcp
   Then open Claude Code, type /mcp, pick earnkit, choose Authenticate.
 - Cursor: add {"mcpServers": {"earnkit": {"url": "https://earnkit.com/mcp"}}}
 - Codex: codex mcp add earnkit --url https://earnkit.com/mcp
   Then run codex mcp login earnkit.
-- Muse: add the URL as a custom integration
 - Any other MCP client: add https://earnkit.com/mcp as a remote server
+
+Every agent's steps: https://earnkit.com/docs#install
 
 Then ask your agent: "What can I earn?"
 
@@ -48,24 +62,26 @@ All open programs: https://earnkit.com/#earn
 
 ## Tools
 
-The server lists 4 builder tools: find, prepare, tell and score. Until
+The server lists 4 builder tools: find, prepare, tell and score (and
+confirm while Backing is open). Until
 2026-11-09 the v2.9 tool names still work as hidden aliases; the old entry
 names are refused, since EarnKit no longer submits.
 
-- find: "What can I earn?" in one answer, money first: one line with what
-  the builder's best repo can win and one question; more: true shows every
-  program the builder's repos qualify for, then other open programs. Pass
-  local_repos (what you read from the builder's local git remotes); a GitHub
-  username is optional. For private repos, report local_repos facts: name,
-  chains, contracts, live link, last commit. A private repo EarnKit can't
-  see gets one line with a link to EarnKit's read-only GitHub App (when it is
-  on): the builder picks the repos it may read, and they are scored in full. With program_id: full details, rules, submission
-  requirements, links and the program's guide; add repo
-  to check whether that repo fits. Every reply of every tool opens with
-  "Since you last checked" when there is news: a win, a payout, a rank
-  change, token fees ready to collect, or a newly listed program the builder's repos
-  fit. A builder with an unsubmitted entry closing within 3 days sees one
-  deadline line, once a day
+- find: "What can I earn?" in one answer, money first: where the builder
+  stands and the programs their project fits, with one question. Pass
+  identity.project, the one project the agent is in (name, a few plain
+  words on what it is, repo from the git remote, live link), and
+  identity.github_login; never ask the builder for them. Follow every
+  agent_note. A yes or no to the question goes to tell move_up. A repo
+  EarnKit can't see yet gets one line with a link to EarnKit's read-only
+  GitHub App: the builder picks the repos it may read. With program_id:
+  full details, rules, submission requirements, links and the program's
+  guide. Every reply opens with "Since you last checked" when there is
+  news: a win, a payout, a rank change, or a newly listed program the
+  builder fits. A builder with an unsubmitted entry closing within 3 days
+  sees one deadline line, once a day
+- score: where the builder stands: their Shipping score, their rank, their
+  page and the one step up. Call it when they ask how they are doing
 - prepare: drafts the application only. Pass program_id, the project and
   answers drafted from the repo; the first call lists the requirements.
   show_to_builder is the draft, every answer ready to paste, with the form
@@ -119,9 +135,13 @@ numbers.
 - A weekly ship log EarnKit writes itself: commit and pull request titles
   (private repos show facts only until the builder turns titles on), plus
   one line of at most 280 characters the agent may add.
-- One weekly target: a ranked builder's next step is this week's ship and the
-  points it adds. The first reply of a new week shows last week's Shipping and
-  rank, with a link to share it on X (the builder posts it; EarnKit never does).
+- The Shipping score: 0 to 100, how often the builder ships real code over
+  the last 12 weeks, read from GitHub commits, not self-reported. A live product
+  adds to it.
+- Every builder has a public page at https://earnkit.com/<x-handle>. When
+  something worth posting happens (a week shipped, a product live, a win),
+  the reply drafts a short post and gives a one-tap link that opens X with
+  it; the builder posts it, EarnKit never does.
 - The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
 - Backing through a tokens.fun coin: 40% of trading fees to the builder.
 
@@ -144,9 +164,9 @@ sends the application on the program's own site. Rewards come from the program o
 
 ## Numbers
 
-earnkit.com shows live figures: "$X open right now" (the top prize of
-every open program, summed, rounded down: "+" when rounding dropped some),
-and agents earning once there are 100.
+earnkit.com shows live figures, such as the grants open to Base builders.
+"$X open right now" is the top prize of
+every open program, summed, rounded down: "+" when rounding dropped some.
 https://earnkit.com/api/stats has the same numbers (open_money_usd, and
 open_money_text is the "$X" as shown), plus labelled_entries (entries with
 a published result) and entries_won.

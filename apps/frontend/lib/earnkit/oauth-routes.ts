@@ -1,8 +1,9 @@
 import { xSignInEnabled } from './builder-score-flag';
 import { json, readParams } from './http';
-import { installationExists, saveInstallation, setInstallationToken } from './installations';
+import { installationExists, noteReferral, saveInstallation, setInstallationToken } from './installations';
 import { OAuthError, checkAuthorize, clientLimitKey, exchangeCode, hostedRedirectHost, issueCode, publicOrigin, registerClient } from './oauth';
 import { LIMITS, REGISTER_HOST_WARN, RateLimitError, clientIp, enforce } from './rate-limit';
+import { refFromCookieHeader } from './ref-cookie';
 import { attachToX, signinPage, startInstallSignIn } from './x-install';
 
 // The OAuth register, token and authorize endpoints; app/oauth/{register,token,authorize}/route.ts re-export them.
@@ -39,12 +40,13 @@ async function ipFloor(name: 'installHour' | 'oauthRegister', ip: string, what: 
 
 export async function tokenPost(request: Request) {
   try {
-    const { token, clientKey, shared, limitKey, hostedHost, clientName, x } = exchangeCode(await readParams(request));
+    const { token, clientKey, shared, limitKey, hostedHost, clientName, x, ref } = exchangeCode(await readParams(request));
     // Only a client's first token counts (v2.2 §5): a replayed code, or re-authorizing a known
     // client (v2.4 §5), is free. v2.8.1 §E17, Ruling F11: 500 a day per registration (client id; a
     // hosted agent's users each register their own), and 50 an hour per IP as the abuse floor
     // (Ruling G25: 500 an hour per IP for a known hosted service's redirect host).
-    if (!(await installationExists(token, clientKey))) {
+    const isNew = !(await installationExists(token, clientKey));
+    if (isNew) {
       const ip = clientIp(request.headers);
       try {
         await ipFloor('installHour', ip, TOO_MANY, hostedHost);
@@ -72,6 +74,9 @@ export async function tokenPost(request: Request) {
       }
       await setInstallationToken(id, token);
     }
+    // v3.1 GTM W1: a new installation that came from a builder's page is counted for that builder (never trusted beyond
+    // counting); a failure here never blocks the install.
+    if (isNew && ref) await noteReferral(id, ref).catch((err) => console.warn('[oauth] referral not noted', err instanceof Error ? err.name : 'error'));
     return json({ access_token: token, token_type: 'Bearer' });
   } catch (err) {
     if (err instanceof RateLimitError)
@@ -100,6 +105,9 @@ export async function authorizeGet(request: Request, deps: AuthorizeDeps = {}) {
     await (deps.limit ?? authorizeLimit)(request);
     const checked = checkAuthorize(new URL(request.url).searchParams);
     if ('error' in checked) return Response.redirect(checked.error, 302);
+    // v3.1 GTM W1: the builder page this browser came from (ref-cookie.ts), carried in the code for counting only.
+    const ref = refFromCookieHeader(request.headers.get('cookie'));
+    if (ref) checked.req.ref = ref;
     const issuer = publicOrigin(request);
     if (!xSignInEnabled()) return Response.redirect(issueCode(checked.req, null, issuer), 302);
     return await startInstallSignIn(checked);

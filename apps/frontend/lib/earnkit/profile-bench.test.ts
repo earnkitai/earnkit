@@ -70,7 +70,9 @@ test('11.3 Activity is the page\'s log: cards newest first, the Started card las
   // A facts-only week reads its chips.
   assert.ok(words(act).includes('3 commits'));
   // R6: no "written by", no agent on the page (the shared footer is checked in v31-site-chrome.test.ts).
-  assert.doesNotMatch(words(h), /written by|agent/i, 'R6');
+  // v3.1 GTM W1: the visitor card at the bottom ("Get your own page") names the install, not who wrote the page.
+  assert.doesNotMatch(words(h.split('data-ek-get-page')[0]), /written by|agent/i, 'R6');
+  assert.doesNotMatch(words(h), /written by/i, 'R6');
   assert.ok(words(view({ ...DATA, log: [] })).includes(nextUpdateLine(new Date())));
 });
 

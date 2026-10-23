@@ -5,12 +5,13 @@ import { AGENTS, CONNECTOR_LINE, Command, MCP_URL, tabKeyTarget, type Agent } fr
 
 export { tabKeyTarget };
 import { segRail, segTab } from '../components/site/SegTabs';
+import { PILL_BLUE } from '../components/site/ui';
 
 /** The code block (Docs board): the page colour on the light card, 22px round, mono 14px; a long line scrolls inside it. */
 const CODE_BOX = 'flex items-start gap-3 rounded-[22px] bg-s-page py-3 pl-[22px] pr-3 text-s-text md:py-4';
 
 /** The copy button: 40px square (44px on a phone), copies `text` and announces "Copied" or "Copy failed" in its own live region. */
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label = 'Copy the command' }: { text: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -25,7 +26,7 @@ function CopyButton({ text }: { text: string }) {
     <>
       <button
         type="button"
-        aria-label="Copy the command"
+        aria-label={label}
         onClick={() => {
           // No clipboard (an insecure origin, an old browser) fails the same way as a refused write.
           if (!navigator.clipboard) return show('failed');
@@ -68,16 +69,35 @@ function Code({ text }: { text: string }) {
   );
 }
 
+/** A message the builder sends their agent (Muse): the code block's shape in the body font, with its copy button. */
+function Message({ text }: { text: string }) {
+  return (
+    <div className={CODE_BOX}>
+      <p data-ek-message="" className="min-w-0 flex-1 self-center py-1 text-[15px] leading-[1.6]">
+        {text}
+      </p>
+      <CopyButton text={text} label="Copy the message" />
+    </div>
+  );
+}
+
 /**
- * One agent's panel, every string from AGENTS: for an agent that pastes the EarnKit link (no command), the link first
- * (review fix: the steps say "paste the EarnKit link", so it sits above them); its note, its steps (numbered when there
- * are two or more, as in the install sheet), the command, then the after line and the after command. Cursor's "Or add"
- * reads "Add" here (no deep link above it).
+ * One agent's panel, every string from AGENTS: its one-click button and the line under it (Grok Bot, Cursor), the
+ * steps' lead line; for an agent that pastes the EarnKit link (no command, no message), the link (review fix: the steps
+ * say "paste the EarnKit link", so it sits above them); its note, its steps (numbered when there are two or more, as in
+ * the install sheet), the message to send, the command, then the after line, the after command and the closing line.
  */
 export function AgentPanel({ agent }: { agent: Agent }) {
   return (
     <div className="flex flex-col gap-3 text-[15px] text-s-ink-body">
-      {!agent.code && <Code text={MCP_URL} />}
+      {agent.install && (
+        <a href={agent.install} className={`${PILL_BLUE} self-start`}>
+          {agent.installLabel ?? `Add to ${agent.name}`}
+        </a>
+      )}
+      {agent.installNote && <p>{agent.installNote}</p>}
+      {agent.stepsLead && <p className="text-s-ink-muted">{agent.stepsLead}</p>}
+      {!agent.code && !agent.message && <Code text={MCP_URL} />}
       {agent.note && <p>{agent.note}</p>}
       {agent.steps.length > 1 ? (
         <ol className="list-decimal space-y-1.5 pl-5">
@@ -86,11 +106,13 @@ export function AgentPanel({ agent }: { agent: Agent }) {
           ))}
         </ol>
       ) : (
-        <p>{agent.steps[0].replace(/^Or add/, 'Add')}</p>
+        <p>{agent.steps[0]}</p>
       )}
+      {agent.message && <Message text={agent.message} />}
       {agent.code && <Code text={agent.code} />}
       {agent.after && <p>{agent.after}</p>}
       {agent.afterCode && <Code text={agent.afterCode} />}
+      {agent.last && <p>{agent.last}</p>}
     </div>
   );
 }

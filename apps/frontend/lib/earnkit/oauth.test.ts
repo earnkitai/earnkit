@@ -401,3 +401,33 @@ test('4.1 redirect classes, who serves many, and the per-X installation key', ()
   assert.equal(exchangeCode(cform(issueCode(cq.req, user).searchParams.get('code')!)).shared, false);
   assert.equal(exchangeCode(cform(issueCode(cq.req, null).searchParams.get('code')!)).shared, true, 'anonymous: today\'s rule');
 });
+
+test('v3.1 GTM W1: Grok Bot\'s "Cursor" client callbacks skip the warning page, exact strings only', () => {
+  // cursor.com/oauth/mcp-client.json (Grok Bot signs in as "Cursor"): the bot and grok.com callbacks are trusted.
+  assert.deepEqual(redirectClass('https://www.cursor.com/bot/mcp/oauth/callback'), { cls: 'agent_host', host: 'www.cursor.com' });
+  assert.deepEqual(redirectClass('https://grok.com/connectors-oauth-exchange-code/'), { cls: 'agent_host', host: 'grok.com' });
+  // Any variant of them is not: no trailing slash change, query, port, subdomain, case or sibling path.
+  for (const uri of [
+    'https://cursor.com/bot/mcp/oauth/callback',
+    'https://www.cursor.com/bot/mcp/oauth/callback/',
+    'https://www.cursor.com/bot/mcp/oauth/callback?x=1',
+    'https://www.cursor.com:8443/bot/mcp/oauth/callback',
+    'https://evil.www.cursor.com/bot/mcp/oauth/callback',
+    'https://WWW.CURSOR.COM/bot/mcp/oauth/callback',
+    'https://www.cursor.com/bot/mcp/oauth/other',
+    'https://grok.com/connectors-oauth-exchange-code',
+    'https://grok.com/connectors-oauth-exchange-code/x',
+    'https://x.grok.com/connectors-oauth-exchange-code/',
+    'https://grok.com.evil.example/connectors-oauth-exchange-code/',
+  ])
+    assert.equal(redirectClass(uri).cls, 'other', uri);
+  // grokbot:// is not a trusted app scheme: a custom scheme any app can claim sees the page.
+  assert.equal(redirectClass('grokbot://mcp/oauth/callback').cls, 'other');
+  // Both register, and an authorize request on them is checked as agent_host.
+  for (const uri of ['https://www.cursor.com/bot/mcp/oauth/callback', 'https://grok.com/connectors-oauth-exchange-code/']) {
+    const clientId = registerClient({ redirect_uris: [uri], client_name: 'Cursor' }).client_id;
+    const c = checkAuthorize(new URLSearchParams({ response_type: 'code', client_id: clientId, redirect_uri: uri, code_challenge: 'c'.repeat(43), code_challenge_method: 'S256' }));
+    assert.ok(!('error' in c));
+    assert.equal(c.redirectClass, 'agent_host', uri);
+  }
+});

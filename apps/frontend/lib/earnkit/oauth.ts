@@ -4,6 +4,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
+import { cleanRef } from './ref-cookie';
 import type { XUser } from './x-oauth';
 
 /**
@@ -187,7 +188,8 @@ export const clientKeyOf = (clientId: string) =>
   createHash('sha256').update(clientId).digest('hex').slice(0, 32);
 
 /** v2.14: `x`, the X user signed in at the authorize step (id, username, name, avatar), inside the signed code. */
-type CodePayload = { c: string; r: string; ch: string; e: number; n: string; x?: { id: string; u: string; n: string; a: string | null } };
+/** v3.1 GTM W1: `rf`, the handle of the builder page the browser came from (ref-cookie.ts), for counting only. */
+type CodePayload = { c: string; r: string; ch: string; e: number; n: string; x?: { id: string; u: string; n: string; a: string | null }; rf?: string };
 
 /** RFC 7591 dynamic client registration. The client id carries its redirect URIs. */
 export function registerClient(metadata: {
@@ -241,12 +243,18 @@ export const AGENT_REDIRECT_URIS = [
   'https://claude.ai/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
   'https://www.cursor.com/agents/mcp/oauth/callback',
+  // v3.1 GTM W1: Grok Bot (built by Anysphere) signs in as the client "Cursor"; its client metadata document
+  // (https://cursor.com/oauth/mcp-client.json, read 2026-10-23) lists these two callbacks besides the one above.
+  // Each returns into the signer's own Cursor or Grok session, as the agents callback does. Exact strings only.
+  'https://www.cursor.com/bot/mcp/oauth/callback',
+  'https://grok.com/connectors-oauth-exchange-code/',
 ] as const;
 /** v2.14 A1, v3 Stage 1: hosted agents that serve many builders from one registration: the warning page, then X sign-in. */
 export const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;
 const under = (host: string, list: readonly string[]) => list.some((h) => host === h || host.endsWith(`.${h}`));
 
-export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string };
+/** `ref` (v3.1 GTM W1): the remembered referring handle (ref-cookie.ts cleanRef), set by authorizeGet from the browser's cookie. */
+export type PendingAuthorize = { client_id: string; redirect_uri: string; state: string | null; code_challenge: string; ref?: string };
 export type RedirectClass = 'loopback' | 'app' | 'agent_host' | 'other';
 export type CheckedAuthorize = { req: PendingAuthorize; redirectClass: RedirectClass; host: string | null; many: boolean; clientName: string | null };
 
@@ -318,6 +326,7 @@ export function issueCode(req: PendingAuthorize, x: XUser | null, issuer?: strin
   back.searchParams.set('code', sign('code', {
     c: req.client_id, r: req.redirect_uri, ch: req.code_challenge, e: Date.now() + CODE_TTL_MS, n: randomBytes(12).toString('base64url'),
     ...(x && { x: { id: x.id, u: x.username, n: x.name, a: x.avatar } }),
+    ...(cleanRef(req.ref) && { rf: cleanRef(req.ref)! }),
   } satisfies CodePayload));
   return back;
 }
@@ -342,6 +351,8 @@ export function exchangeCode(form: URLSearchParams): {
   clientName: string | null;
   /** v2.14 spec 1: the X user signed in at the authorize step (from the signed code), or null (anonymous). */
   x: XUser | null;
+  /** v3.1 GTM W1: the referring builder's handle carried in the code (counting only), or null. */
+  ref: string | null;
 } {
   if (form.get('grant_type') !== 'authorization_code') {
     throw new OAuthError(
@@ -385,6 +396,7 @@ export function exchangeCode(form: URLSearchParams): {
     hostedHost: hostedRedirectHost(uris),
     clientName: clientNameOf(client?.cn),
     x,
+    ref: cleanRef(payload.rf),
   };
 }
 

@@ -4,8 +4,11 @@ import { PRIVATE_NAME, type PageHead } from '../../lib/earnkit/page-data';
 import { rankSplit } from '../../lib/earnkit/rank';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import type { ProfileSite } from '../../lib/earnkit/site-data';
-import { PAGE_COL, phoneRadius, CARD_BLUE } from '../components/site/ui';
+import { PROFILE_CTA_TEXT, PROFILE_CTA_TITLE } from '../../lib/earnkit/site-copy';
+import InviteRow from '../components/site/InviteRow';
+import { PAGE_COL, phoneRadius, CARD_BLUE, CARD_PANEL, PILL_WHITE } from '../components/site/ui';
 import Avatar from './Avatar';
+import RefMark from './RefMark';
 import ActivityCard from './site/ActivityCard';
 import HeroCard from './site/HeroCard';
 import HighlightsCard from './site/HighlightsCard';
@@ -102,6 +105,12 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
             <HighlightsCard items={site.highlights} />
           </aside>
         </section>
+        {/* v3.1 GTM W1: every page is an install ad. One calm panel for every visitor (the owner can't be told apart),
+            its pill the header's install sheet; RefMark remembers this page for counting an install that follows. */}
+        <section aria-label={PROFILE_CTA_TITLE} data-ek-get-page="" className={`${phoneRadius(CARD_PANEL)} p-6 md:px-9 md:py-8`}>
+          <InviteRow title={PROFILE_CTA_TITLE} text={PROFILE_CTA_TEXT} sub="text-s-muted" pill={PILL_WHITE.replace(' duration-200', ' motion-safe:duration-200')} />
+        </section>
+        <RefMark handle={d.handle} />
       </div>
       <Footer variant="minimal" />
     </>
