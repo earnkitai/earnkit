@@ -7849,9 +7849,9 @@ Private farm-watch signals for the owner, read by jenil.ai (`/people`) as `earnk
   in the app's labels. Muse: a copy-message box (`MUSE_MESSAGE`). OpenClaw: add, then gateway stop / login / start, the
   `--code` note. Hermes (`public/images/agents/hermes.png`): the config.yaml snippet, `hermes mcp login earnkit`,
   `/reload-mcp`. The docs panel now shows the one-click buttons too. Evidence: `v3.1-install-research.md` (Grok Bot section).
-- **OAuth**: `AGENT_REDIRECT_URIS` adds `https://www.cursor.com/bot/mcp/oauth/callback` and
-  `https://grok.com/connectors-oauth-exchange-code/` (Grok Bot registers as "Cursor"), exact strings only; `grokbot://` is
-  not a trusted app scheme.
+- **OAuth (security ruling)**: Grok Bot registers as "Cursor". Its `https://www.cursor.com/bot/mcp/oauth/callback` and
+  `https://grok.com/connectors-oauth-exchange-code/` callbacks stay `other` (the page naming the host) until a real install
+  shows they bind the code to the signer's own session (login CSRF otherwise); `grokbot://` is not a trusted app scheme.
 - **Profile visitor card**: `BenchProfileView` ends with a panel (`data-ek-get-page`, `PROFILE_CTA_TITLE`/`TEXT`) holding
   `InviteRow` (the header's install sheet; `pill` prop for the motion-safe variant).
 - **Referral attribution, measure only**: `app/[handle]/RefMark.tsx` sets `ek_ref=<handle>` (30 days, first page keeps it,

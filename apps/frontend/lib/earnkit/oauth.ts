@@ -243,11 +243,8 @@ export const AGENT_REDIRECT_URIS = [
   'https://claude.ai/api/mcp/auth_callback',
   'https://chatgpt.com/connector_platform_oauth_redirect',
   'https://www.cursor.com/agents/mcp/oauth/callback',
-  // v3.1 GTM W1: Grok Bot (built by Anysphere) signs in as the client "Cursor"; its client metadata document
-  // (https://cursor.com/oauth/mcp-client.json, read 2026-10-23) lists these two callbacks besides the one above.
-  // Each returns into the signer's own Cursor or Grok session, as the agents callback does. Exact strings only.
-  'https://www.cursor.com/bot/mcp/oauth/callback',
-  'https://grok.com/connectors-oauth-exchange-code/',
+  // v3.1 GTM W1 security ruling: Grok Bot's other callbacks (cursor.com/bot, grok.com/connectors-oauth-exchange-code/)
+  // stay `other` (the page naming the host) until a real install shows they bind the code to the signer's own session.
 ] as const;
 /** v2.14 A1, v3 Stage 1: hosted agents that serve many builders from one registration: the warning page, then X sign-in. */
 export const MANY_USER_HOSTS = ['grok.com', 'x.ai', 'x.com', 'meta.ai'] as const;

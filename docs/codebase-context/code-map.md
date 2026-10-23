@@ -611,7 +611,7 @@ apps/frontend/
                                the route is authorizeGet, tests compose checkAuthorize + issueCode as it does);
                                v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
                                redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other; v3.1 GTM W1 adds
-                               Grok Bot's cursor.com/bot and grok.com callbacks), servesMany; the code's `rf` (referring handle) -> exchangeCode ref
+                               Grok Bot's bot/grok.com callbacks stay untrusted), servesMany; the code's `rf` (referring handle) -> exchangeCode ref
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
