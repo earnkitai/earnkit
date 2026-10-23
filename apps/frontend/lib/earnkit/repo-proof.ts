@@ -334,8 +334,8 @@ export async function recheckAppSource(
 /**
  * GTM W2 (2026-10-23): a repo the builder's own App installation already covers (they picked all repos, or this one, on
  * an earlier install) is proven now, so they are never asked to install the App again. Only on their own GitHub account
- * (R8: the installation is the installer's account and the repo is on it): a GitHub login this person proved (an App
- * verification, or an App link's sign-in hop) owns the repo, and GitHub names an installation for it (repoInstallation); then proveByApp's
+ * (R8): a login this person proved through the App owns the repo, and the installation GitHub names for it
+ * (repoInstallation) is one recorded on that same App verification (a login alone never proves it); then proveByApp's
  * checks (no fork or template, the repo hold, taken) and a verification row for the repo (appTokenFor's scope). True when
  * proven. Never throws.
  */
@@ -344,23 +344,18 @@ export async function proveCovered(builderId: number, repoKey: string, deps: App
   if (!githubAppEnabled() || !/^[a-z0-9-]+\/[a-z0-9._-]+$/.test(key)) return false;
   try {
     const owner = key.split('/')[0];
-    // The GitHub logins this person proved by signing in with GitHub (an App verification, or an App link's sign-in hop
-    // whose repo was refused, a fork say), that own the repo.
-    const [v] = await sql()<{ installation_id: number; login: string; created: Date | null; repos: number | null }[]>`
-      SELECT x.installation_id, x.login, x.created, x.repos FROM (
-        SELECT v.installation_id, v.login, v.account_created_at AS created, v.public_repos AS repos, v.verified_at AS at
-        FROM github_verifications v WHERE v.via = 'app' AND v.purpose = 'app'
-        UNION ALL
-        SELECT n.installation_id, n.login, n.account_created_at, n.public_repos, n.created_at
-        FROM github_verify_nonces n WHERE n.purpose = 'app' AND n.login IS NOT NULL
-      ) x JOIN installations i ON i.id = x.installation_id
-      WHERE lower(x.login) = ${owner} AND COALESCE(i.builder_id, i.id) = ${builderId}
-      ORDER BY x.at DESC LIMIT 1`;
-    if (!v) return false;
-    // On the login's own account only the account's owner can install the App, so GitHub naming an installation for the
-    // repo means this person installed it (R8; proveOne checks the repo's owner and type again).
+    // Security review: a login alone is not enough (GitHub logins can be released and taken by someone else). The App
+    // installation GitHub names for the repo must be one this person set up: recorded on their own App verification.
+    const mine = await sql()<{ installation_id: number; login: string; created: Date | null; repos: number | null; gid: string }[]>`
+      SELECT v.installation_id, v.login, v.account_created_at AS created, v.public_repos AS repos, v.github_installation_id::text AS gid
+      FROM github_verifications v JOIN installations i ON i.id = v.installation_id
+      WHERE v.via = 'app' AND v.purpose = 'app' AND v.github_installation_id IS NOT NULL
+        AND lower(v.login) = ${owner} AND COALESCE(i.builder_id, i.id) = ${builderId}
+      ORDER BY v.verified_at DESC`;
+    if (!mine.length) return false;
     const gid = await repoInstallation(key, deps);
-    if (gid === null) return false;
+    const v = gid === null ? undefined : mine.find((m) => m.gid === String(gid));
+    if (gid === null || !v) return false;
     const out = await proveByApp({ builderId, repoKey: key, githubInstallationId: gid }, deps);
     if (!out.ok) return false;
     const { saveVerification } = await import('./github-verify');

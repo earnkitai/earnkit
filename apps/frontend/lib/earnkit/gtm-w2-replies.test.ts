@@ -224,6 +224,16 @@ test('App already installed: switching the main repo proves it at once, never "i
   } finally {
     globalThis.fetch = was;
   }
+  // Security review: the same login but an App installation that isn't on this builder's own verification proves nothing.
+  const { proveCovered } = await import('./repo-proof');
+  const stranger = `${b.login}/taken`;
+  b.gh.repos[stranger] = { id: Number(`78${RUN}`) + nextX, owner: b.login, installation: b.gid + 1, commits: [{ sha: 't1', message: 'Taken', date: new Date().toISOString() }] };
+  globalThis.fetch = b.gh as typeof fetch;
+  try {
+    assert.equal(await proveCovered(b.id, stranger), false, 'a login alone never proves a repo');
+  } finally {
+    globalThis.fetch = was;
+  }
   // A repo on another account the installation doesn't cover: its own install link, never "Step 2 of 2".
   const third = 'someoneelse/thing';
   await sql()`UPDATE builder_profiles SET main_project_key = ${third} WHERE builder_id = ${b.id}`;
