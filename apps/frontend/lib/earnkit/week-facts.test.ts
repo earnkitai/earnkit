@@ -263,6 +263,25 @@ test('4.11 a proposed site\'s days up add no shipping week; a confirmed one does
   assert.equal((await weeks()).includes(wk(21)), true, 'confirmed: its first day up is a shipping week');
 });
 
+test('4.11b owner batch: a site proven by earnkit.txt or DNS TXT counts toward Shipping (its first day up, the live bonus); an agent-typed one never does', dbTest, async () => {
+  for (const [n, proof] of [[15, 'earnkit_txt'], [16, 'dns_txt']] as const) {
+    const id = T + n;
+    const key = `site${n}${T}/app`;
+    await person(id, key, { [wk(0)]: 1 });
+    const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+      VALUES (${id}, 'site', ${`https://site${n}${T}.example.com`}, ${key}, 'proposed', null, 'agent') RETURNING id::int AS sid`;
+    for (const d of [21, 1])
+      await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+    const project = async () => (await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`)[0];
+    const typed = await rescorePerson(id, NOW);
+    assert.equal((await project()).ship_weeks.includes(wk(21)), false, `${proof}: typed, unverified: no shipping week`);
+    await sql()`UPDATE builder_sources SET state = 'verified', proof = ${proof} WHERE id = ${sid}`;
+    const proven = await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+    assert.equal((await project()).ship_weeks.includes(wk(21)), true, `${proof}: its first day up is a shipping week`);
+    assert.ok(proven.score > typed.score, `${proof}: the live site adds to the score (${typed.score} -> ${proven.score})`);
+  }
+});
+
 test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {
   const id = T + 10;
   const key = `fay${T}/dapp`;

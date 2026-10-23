@@ -1,6 +1,6 @@
 import { holdReason, publicRow } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { ScoreDeadline } from './campaigns';
-import { isConfirmedProof } from './confirmed';
+import { isConfirmedSource } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf, pickMainProject } from './main-project';
@@ -202,7 +202,7 @@ export async function personInputsV2(
     const k = lowKey(key);
     return identity.find((p) => [p.repo, p.live_url, p.package, ...list<unknown>(p.contracts)].some((v) => typeof v === 'string' && lowKey(v) === k));
   };
-  const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
+  const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedSource(s);
 
   const input: ScoreInput = { ships: [], commitWeeks: [] };
   const projects: ProjectRow[] = [];

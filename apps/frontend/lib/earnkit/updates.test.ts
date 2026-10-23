@@ -107,8 +107,10 @@ test('5.7d own links: confirmed sites, the hosted site and the confirmed repo on
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status)
     VALUES (${`v213u${id}`}, 'maya', ${key}, ${id}, 1, 1, 'live')`;
   const own = await ownLinks(id);
-  assert.deepEqual(own.sites.sort(), [`https://proved${id}.example`, `https://v213u${id}.earnkit.com`].sort(), 'an earnkit_txt site is not confirmed');
-  assert.deepEqual(await postUpdate(id, 'Live at https://recipes.app/x', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE });
+  // Owner batch 2026-10-23: an earnkit.txt site is confirmed, so its origin may be linked.
+  assert.deepEqual(own.sites.sort(), ['https://recipes.app', `https://proved${id}.example`, `https://v213u${id}.earnkit.com`].sort());
+  await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL WHERE builder_id = ${id} AND ref = 'https://recipes.app'`;
+  assert.deepEqual(await postUpdate(id, 'Live at https://recipes.app/x', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE }, 'a typed site is not');
   assert.deepEqual(await postUpdate(id, 'On npm: https://www.npmjs.com/package/recipes', now), { show_to_builder: '', agent_note: UPDATE_LINK_NOTE });
   assert.equal((await postUpdate(id, `Live at https://v213u${id}.earnkit.com/`, now)).show_to_builder, UPDATE_LINES.posted);
   assert.equal((await rows(key))[0].text, `Live at https://v213u${id}.earnkit.com/`);

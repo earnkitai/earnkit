@@ -126,9 +126,9 @@ export async function proveLinkedSite(id: number): Promise<void> {
  * the site's own project (the repo's ref is the site's project_key; a `<owner>.github.io` site also needs that
  * owner to be the repo's), else (2) `earnkit_txt` when it is up and its origin's /earnkit.txt, served as
  * text/plain, carries the person's `profile:` code (profileCode: HMAC of the person and the origin; one free
- * fetch, a 404 or any failure proves nothing). Only a proposed row: a verified one keeps its proof (repo_link is a
- * confirmed proof in the live score, earnkit_txt is not, so proveLinkedSite's upgrade would drop a scored site),
- * and verifySource never verifies a stale or rejected one. Throws only the run's deadline (or a database error).
+ * fetch, a 404 or any failure proves nothing). Only a proposed row: a verified one keeps its proof (both count in
+ * the live score since owner batch 2026-10-23, confirmed.ts isConfirmedSource), and verifySource never verifies a
+ * stale or rejected one. Throws only the run's deadline (or a database error).
  */
 export async function proveSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps): Promise<void> {
   const [row] = await sql()<{ reject_reason: string | null; project_key: string }[]>`

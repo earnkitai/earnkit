@@ -4833,8 +4833,11 @@ Confirmed: `github_signin`, `proof_line`, `repo_owner`, `repo_link`, `deployer`,
 `wallet_signed`, `earnkit_hosted`, `x_match` (GitHub's public X field equals the claimed X; T7,
 `discovery.ts provenLogin`; withdrawn, the login is released). Everything else the agent reported is
 shown, marked "Not yet confirmed" on the page (one quiet line when none is confirmed), and adds 0.
-`earnkit_txt` and `dns_txt` rows count as not confirmed (S9: discovery no longer proposes merged PRs
-or reads `earnkit.txt`; old rows stay).
+`earnkit_txt` and `dns_txt` confirm a site source only (owner batch 2026-10-23, reversing S9 for sites:
+`confirmed.ts SITE_PROOFS`, `isConfirmedSource`, `CONFIRMED_SITE_PROOFS`): a site proven by its own
+`earnkit.txt` or a DNS TXT record counts toward Shipping (its first day up is a shipping week; on a project
+with a confirmed repo it is a live ship) and its origin may be linked in an update (`updates.ts ownLinks`).
+They never confirm a repo, package or contract; an agent-typed site (proposed, no proof) still adds 0.
 
 **v2.12.2, a reported login's own repos** (`discovery.ts discoverOne`; design note
 `v2.12.2-reported-github-work.md`): with no proven login but an `identity.github_login` the agent
