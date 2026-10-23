@@ -121,5 +121,8 @@
     "level": "Hard",
     "basis": "14 of 881 proposals accepted so far in Cohort 2",
     "source_url": "https://circle.questbook.app/"
-  }
+  },
+  "x_handles": [
+    "circle"
+  ]
 }

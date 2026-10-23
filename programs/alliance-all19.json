@@ -45,5 +45,8 @@
   ],
   "tracks": [],
   "starters": [],
-  "difficulty_override": null
+  "difficulty_override": null,
+  "x_handles": [
+    "alliancedao"
+  ]
 }

@@ -115,7 +115,9 @@
   ],
   "tracks": [],
   "starters": [],
-  "fresh_build": { "starter": "arc-tipjar" },
+  "fresh_build": {
+    "starter": "arc-tipjar"
+  },
   "logo": {
     "path": "programs/arc-microgrants.svg",
     "source_url": "https://www.circle.com/pressroom#brandkit"
@@ -199,5 +201,11 @@
     "rated_by": "earnkit",
     "source_url": "https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq"
   },
-  "pitch": { "who": "Arc", "for": "payment apps" }
+  "pitch": {
+    "who": "Arc",
+    "for": "payment apps"
+  },
+  "x_handles": [
+    "arc"
+  ]
 }

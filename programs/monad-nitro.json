@@ -35,5 +35,8 @@
   "logo": {
     "path": "programs/monad-nitro.svg",
     "source_url": "https://www.monad.xyz/brand-and-media-kit"
-  }
+  },
+  "x_handles": [
+    "monad"
+  ]
 }

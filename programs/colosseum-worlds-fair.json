@@ -241,5 +241,8 @@
     "source_url": "https://colosseum.com/worldsfair",
     "ecosystem": "Colosseum"
   },
-  "best_bet": "A stablecoin payments or prediction-market startup built on Base or Tempo"
+  "best_bet": "A stablecoin payments or prediction-market startup built on Base or Tempo",
+  "x_handles": [
+    "colosseum"
+  ]
 }

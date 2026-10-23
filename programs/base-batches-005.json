@@ -35,5 +35,11 @@
   "logo": {
     "path": "programs/base-batches-005.svg",
     "source_url": "https://www.base.org/brand"
-  }
+  },
+  "x_handles": [
+    "base"
+  ],
+  "proof_hosts": [
+    "www.base.org"
+  ]
 }
