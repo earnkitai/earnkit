@@ -6,6 +6,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { createDraft, recentDrafts, type DraftLimit, type DraftRow, type PostMoment, type RecentDraft } from './post-drafts';
 import { isMilestone, writePost, type PostInput } from './post-writer';
 import { pillCoin } from './raising';
+import { X_HOSTS, proofNamesBuilder, type ProofFetch } from './outcome-proof';
 import { SHARED_HOSTS } from './submit-hosts';
 import { checkUpdate, type OwnLinks } from './update-text';
 import { firstLiveAt, hasFacts, type WeekFacts } from './week-facts';
@@ -86,7 +87,6 @@ export function liveTiming(first: Date, now: Date): 'settling' | 'stale' | null 
   return null;
 }
 
-const X_HOSTS = new Set(['x.com', 'twitter.com', 'mobile.x.com', 'mobile.twitter.com', 'www.x.com', 'www.twitter.com']);
 const X_POST = /^\/([A-Za-z0-9_]{1,15})\/status\/\d{1,25}\/?$/;
 /** Shared paths on an otherwise single-owner host: anyone's project page. */
 const SHARED_PATHS: [string, RegExp][] = [['ethglobal.com', /^\/showcase(?:\/|$)/i]];
@@ -95,10 +95,20 @@ const bare = (host: string) => host.toLowerCase().replace(/\.$/, '').replace(/^w
 /** A page's identity for "is it the listing page itself": host without www, path without a trailing slash. Pure. */
 const pageId = (u: URL) => `${bare(u.hostname)}${u.pathname.replace(/\/+$/, '').toLowerCase()}`;
 
+/**
+ * Proof ruling: a proof_hosts entry ("www.base.org/blog/") matches a page on exactly that host whose path starts with
+ * the entry's path ("/blog/"). An entry without "/" (an older form) matches nothing. Pure.
+ */
+export function proofEntryMatches(entry: string, host: string, path: string): boolean {
+  const slash = entry.indexOf('/');
+  if (slash < 1) return false;
+  return host === entry.slice(0, slash).toLowerCase() && path.startsWith(entry.slice(slash));
+}
+
 export type ProofContext = {
   /**
-   * Final review 1: the program file's proof_hosts, owner-reviewed exact hosts (a page there or on a subdomain may be
-   * proof). Never derived from the listing or submission page.
+   * Final review 1, proof ruling: the program file's proof_hosts, owner-reviewed "host/path-prefix/" entries (a page
+   * on that exact host under that path may be proof). Never derived from the listing or submission page.
    */
   proofHosts: string[];
   /** The program's listing pages (source_url, submission_url): the pages themselves are never proof. */
@@ -112,11 +122,12 @@ export type ProofContext = {
 /**
  * Owner ruling 3, fix round: the public page that verifies an accepted, funded or won moment, as the agent passes it.
  * An https link (no credentials, no port, no IP address) that is either (a) a page on one of the program file's
- * proof_hosts or a subdomain of it (final review 1: an owner-reviewed allowlist, never a host taken from the listing or
- * submission page; www. aside; never a shared host such as github.io or dorahacks.io even when listed, never
- * ethglobal.com/showcase, never the listing page itself), or (b) a post on X (x.com/<user>/status/<id>) by one of the
- * program's own X accounts. Never earnkit.com, the builder's own site, repo or X account. The stored form drops the
- * fragment. Null: not proof. EarnKit does not fetch it (the agent checked it). Pure.
+ * proof_hosts entries (proof ruling: that exact host, its path under the entry's prefix; an owner-reviewed allowlist,
+ * never a host taken from the listing or submission page; never a shared host such as github.io or dorahacks.io even
+ * when listed, never ethglobal.com/showcase, never the listing page itself), or (b) a post on X
+ * (x.com/<user>/status/<id>) by one of the program's own X accounts. Never earnkit.com, the builder's own site, repo or
+ * X account. The stored form drops the fragment. Null: not proof. The page must also name the builder
+ * (outcome-proof.ts proofNamesBuilder, fetched by verifiedOutcomeCandidate). Pure.
  */
 export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   if (typeof raw !== 'string' || raw.length > 2048 || !URL.canParse(raw.trim())) return null;
@@ -135,7 +146,7 @@ export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   }
   if (SHARED_HOSTS.some((h) => under(bare(host), h))) return null;
   if (SHARED_PATHS.some(([h, re]) => under(bare(host), h) && re.test(u.pathname))) return null;
-  if (!o.proofHosts.some((h) => under(bare(host), bare(h)))) return null;
+  if (!o.proofHosts.some((e) => proofEntryMatches(e, host, u.pathname))) return null;
   const listed = new Set(o.listings.flatMap((l) => (l && URL.canParse(l) ? [pageId(new URL(l))] : [])));
   if (listed.has(pageId(u))) return null;
   return u.toString();
@@ -289,6 +300,7 @@ export async function announcedWinCandidates(builderId: number, now: Date): Prom
  */
 export async function verifiedOutcomeCandidate(
   builderId: number, o: { programId: string; result: 'accepted' | 'funded' | 'won'; proofUrl: unknown; entered: boolean },
+  deps: { proofFetch?: ProofFetch } = {},
 ): Promise<MomentCandidate | Skip> {
   const p = await posterOf(builderId);
   if (typeof p === 'string') return p;
@@ -304,6 +316,8 @@ export async function verifiedOutcomeCandidate(
     proofHosts: g.proof_hosts ?? [], listings: [g.source_url, g.submission_url], xHandles: g.x_handles ?? [], builderHandle: b?.handle ?? null, own: await ownLinksOf(builderId),
   });
   if (!proof) return 'no_proof';
+  // Proof ruling: the page (or the X post's own words) must name the builder; any fetch failure is no proof.
+  if (!(await proofNamesBuilder(proof, { xHandles: g.x_handles ?? [], handle: b?.handle ?? null, name: p.name }, deps.proofFetch))) return 'no_proof';
   const [won] = o.result === 'accepted' ? [] : await sql()<{ prize: number | null }[]>`
     SELECT max(o.prize_usd)::float8 AS prize FROM entry_outcomes o JOIN projects x ON x.id = o.project_id JOIN installations i ON i.id = x.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND o.program_id = ${o.programId} AND o.basis = 'announcement' AND o.prize_usd > 0`;

@@ -287,7 +287,7 @@
     "base"
   ],
   "proof_hosts": [
-    "www.base.org",
-    "docs.base.org"
+    "www.base.org/blog/",
+    "docs.base.org/"
   ]
 }

@@ -40,6 +40,6 @@
     "base"
   ],
   "proof_hosts": [
-    "www.base.org"
+    "www.base.org/blog/"
   ]
 }

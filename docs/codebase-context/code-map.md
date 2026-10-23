@@ -2283,3 +2283,11 @@ Owner batch fix round (2026-10-23): `week-summary.ts summaryConsented` (facts.ap
 `builder_sources.proof_misses`, `proof_checked_day`; `confirmed.ts SITE_PROOFS` is earnkit_txt only. Tests:
 `week-summary.test.ts` W6c, `v214-ship-log.test.ts` 8.10b/8.10d/8.10e, `v3-monday-email.test.ts` (d2),
 `site-proof.test.ts` SP5/SP11-SP13, `person-score.test.ts` 4.0, `week-facts.test.ts` 4.11b.
+Owner batch fix wave (2026-10-23): `outcome-proof.ts` (new: `ProofFetch`, `defaultProofFetch`, `mentionsBuilder`,
+`proofNamesBuilder`, `X_HOSTS`); `post-moments.ts proofEntryMatches`, `verifiedOutcomeCandidate(..., { proofFetch })`;
+`post-reply.ts outcomePost` and `tools.ts ToolContext.proofFetch`; `program-file.ts proof_hosts` "host/path/" form;
+`bench-find.ts momentSummary` and `MomentView.summary` (bench-reply.ts); `weekly-moment.ts markOffered`,
+`LastWeek.stored`; `sources.ts` (`recheckSite(s, up, d, day)`, `SITE_PROOF_EXEMPT_MAX`, revoke to proposed, lost sites
+read; `proveLinkedSite` removed); schema `builder_sources.proof_exempt_days`. Tests: `post-moments.test.ts` (proof),
+`v31-post-replies.test.ts` (fixture proof sources), `program-file.test.ts`, `site-proof.test.ts` SP11/SP14/SP15,
+`week-facts.test.ts` 4.11c, `weekly-moment.test.ts` (fix wave), `v3-connect.test.ts` (b2), `week-summary.test.ts` W6d.
