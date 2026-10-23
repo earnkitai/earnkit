@@ -158,7 +158,9 @@ apps/frontend/
                                BuilderBonus.tsx ("Win twice") is gone (v2.8); HowItWorks.tsx is gone (v2.14 T3)
   app/components/sections/agents.tsx  v3 Stage 3 T5: a plain module (no 'use client') read by the install sheet (client) and
                                /docs (server): MCP_URL, CONNECTOR_LINE, tabKeyTarget (both tab rails), AGENTS (name, local icon, optional note, the install steps per agent;
-                               install fixes 2026-10-22: Grok Bot, Claude, Muse, OpenClaw, Claude Code, Cursor, Codex), Command
+                               v3.1 GTM W1: Grok Bot, Muse, OpenClaw, Hermes, Claude, Claude Code, Cursor, Codex; fields install +
+                               installLabel + installNote (one-click), stepsLead, message (a copy-message box), last), GROK_BOT_PROMPT,
+                               grokBotPromptLink (grokbot://app/v1/prompt?text=, at most 1000 chars), MUSE_MESSAGE, Command
   app/components/common/InstallButton.tsx  v2.7 fix round 1: a button that opens AddToAgent; v3.1 T5: `label` prop
                                (NAV_INSTALL in the nav, CTA_INSTALL in the footer)
   app/components/common/Footer.tsx  v3.1 site T5 (Foot board): variant 'full' (default: a rounded card over the Panini
@@ -599,13 +601,17 @@ apps/frontend/
                                T7: the new token replaces a known installation's only after the bind, so a refusal keeps the old one);
                                logLimited; ipFloor (Ruling G25): a known hosted service's redirect
                                host gets the 500/hour per-IP floor (refuses), everyone else 50/hour
+    ref-cookie.ts              v3.1 GTM W1 (client-safe, pure): REF_COOKIE ek_ref (30 days, first page keeps it), cleanRef,
+                               refFromCookieHeader, refCookieToSet; set by app/[handle]/RefMark.tsx, read by oauth-routes authorizeGet;
+                               installations.ts noteReferral stores installations.ref_builder_id once (referral.test.ts)
     oauth.ts(+.test.ts)        stateless OAuth: register (v2.4: a random nonce in every client id;
                                v2.8.1: s=1 for hosted clients), isSharedClient, HOSTED_CLIENT_NAMES,
                                HOSTED_REDIRECT_HOSTS, hostedRedirectHost (v2.9 T12), clientLimitKey, registrationLimitKey,
                                code -> token (+ shared, limitKey), metadata, clientKeyOf (v2.14 final fix: authorize() gone;
                                the route is authorizeGet, tests compose checkAuthorize + issueCode as it does);
                                v2.14 T4: checkAuthorize, issueCode(req, x, iss) (x in the signed code),
-                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other), servesMany
+                               redirectClass (AGENT_REDIRECT_URIS exact, loopback, AGENT_APP_SCHEMES app, other; v3.1 GTM W1 adds
+                               Grok Bot's bot/grok.com callbacks stay untrusted), servesMany; the code's `rf` (referring handle) -> exchangeCode ref
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)

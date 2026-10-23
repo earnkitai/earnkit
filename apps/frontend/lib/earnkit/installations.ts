@@ -135,6 +135,20 @@ export async function saveInstallation(token: string, clientKey?: string, shared
   return r.id;
 }
 
+/**
+ * v3.1 GTM W1 (measure only): installation `id` came from the page of the builder with X handle `handle`
+ * (ref-cookie.ts). Stored once (the first credit stays), only for a public claimed page, never for the builder's own
+ * installations. Counted in owner_people.referred_installs; never shown publicly or used for anything else.
+ */
+export async function noteReferral(id: number, handle: string): Promise<void> {
+  await sql()`
+    UPDATE installations i SET ref_builder_id = p.builder_id, ref_at = now()
+    FROM builder_profiles p
+    WHERE i.id = ${id} AND i.ref_builder_id IS NULL
+      AND lower(p.x_handle) = ${handle.toLowerCase()} AND p.x_user_id IS NOT NULL AND NOT p.hidden
+      AND COALESCE(i.builder_id, i.id) <> p.builder_id`;
+}
+
 /** v2.14 T7: installation `id`'s token is now `token` (after saveInstallation's keepToken, once the X bind succeeded). */
 export async function setInstallationToken(id: number, token: string): Promise<void> {
   await sql()`UPDATE installations SET token_hash = ${hash(token)} WHERE id = ${id}`;

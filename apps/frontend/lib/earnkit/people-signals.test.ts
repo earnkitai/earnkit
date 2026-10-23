@@ -125,7 +125,7 @@ test('the daily steps and owner_people: one row per profile, the recipient walle
   assert.deepEqual(Object.keys(ra), [
     'builder_id', 'slug', 'hidden', 'installation_ids', 'x_handle', 'x_proven', 'x_created_at', 'x_followers', 'github_login', 'gh_created_at',
     'wallet', 'wallet_recipient', 'wallet_proven_at', 'wallet_first_tx_at', 'wallet_funder', 'funded_by_slug',
-    'points_total', 'points_weeks', 'last_points_week', 'joined_at', 'last_seen_at',
+    'points_total', 'points_weeks', 'last_points_week', 'joined_at', 'last_seen_at', 'referred_installs',
   ]);
 });
 

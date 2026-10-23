@@ -1865,6 +1865,13 @@ ALTER TABLE x_signin_links ADD COLUMN IF NOT EXISTS x_followers integer;
 ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS first_tx_at timestamptz;
 ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS funder text;
 ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS signals_checked_at timestamptz;
+-- v3.1 GTM W1, referral attribution (measure only, no rewards): the builder whose page (/<handle>, where a one-tap
+-- post's link lands) the installing browser came from (ref-cookie.ts, a 30-day first-party cookie), stored once at the
+-- token exchange (installations.ts noteReferral). Never shown publicly, never trusted beyond counting. Additive; added
+-- before owner_people, whose last column (referred_installs) counts them, the builder's own excluded.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_builder_id integer;
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_at timestamptz;
+CREATE INDEX IF NOT EXISTS installations_ref_builder ON installations (ref_builder_id) WHERE ref_builder_id IS NOT NULL;
 -- One row per profile. The wallet is the reward recipient (newest recipient_at), else the newest proven one;
 -- funded_by_slug is another profile that proved the wallet's funder. Runs with the owner's rights, so earnkit_ro sees
 -- only these columns (no emails, tokens or IPs). installation_ids: test installs live in an env var SQL can't read.
@@ -1879,7 +1886,8 @@ SELECT p.builder_id, p.slug, p.hidden,
     WHERE fw.wallet = w.funder AND fw.builder_id <> p.builder_id) AS funded_by_slug,
   COALESCE(pt.total, 0)::int AS points_total, COALESCE(pt.weeks, 0)::int AS points_weeks, pt.last_week AS last_points_week,
   p.created_at AS joined_at,
-  (SELECT max(i.last_seen_at) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))) AS last_seen_at
+  (SELECT max(i.last_seen_at) FROM installations i WHERE (i.builder_id = p.builder_id OR (i.id = p.builder_id AND i.builder_id IS NULL))) AS last_seen_at,
+  (SELECT count(*) FROM installations r WHERE r.ref_builder_id = p.builder_id AND COALESCE(r.builder_id, r.id) <> p.builder_id)::int AS referred_installs
 FROM builder_profiles p
 LEFT JOIN github_users g ON g.login = lower(p.github_login)
 LEFT JOIN LATERAL (
@@ -1888,3 +1896,4 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
   SELECT sum(points) AS total, count(*) AS weeks, max(week) AS last_week FROM builder_points WHERE builder_id = p.builder_id) pt ON true;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF; END $$;
+
