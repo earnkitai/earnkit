@@ -253,6 +253,7 @@ apps/frontend/
                                v2.12 slug 308s to pagePath(handle)/post/<code>; a bad code or anything else 404
   app/claim/wallet/route.ts    v2.12.1 T7: the optional wallet signature page (walletGet, walletPost; PUT,
                                PATCH, DELETE -> walletOtherMethod 405, frame-ancestors kept)
+                               v3.1: linked from the wallet step and tell wallet 'change' (wallet-offer.ts)
   app/admin/scores/page.tsx    v2.12 T6 (spec 5): the owner's review of held scores (noindex, ?key= =
                                builder-score.ts scoresAdminKey, link from `pnpm campaign scores-link`; array key
                                404; veto rate limit): each held day's parts and top outcome beside the public
@@ -1779,9 +1780,16 @@ apps/frontend/
                                fix 1: signinGet rate limit (signinLink), exact link via x_signins.link_hash,
                                code given back on a thrown error, a bound retry is ok
     live-check.ts              v2.13.4 R3: liveDefaults, parkedPage, checkLive, liveSite (standing_seen.live_check, a day)
-    wallet-proof.ts(+test)     v2.12.1 T7: upgradeToken/upgradeOf (30 min), WALLET_TEXT, walletMessage,
-                               proveWallet (EIP-191, once per signature), walletGet, walletPost,
-                               walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
+    wallet-proof.ts(+test)     v2.12.1 T7, v3.1 wallet proof: upgradeToken/upgradeOf (30 min, random part), WALLET_TEXT,
+                               walletMessage (@handle, earnkit.com page, moves no funds), walletLink, provenWallet (the
+                               newest: the reward recipient), provenSince, verifierOn (viem on Base: EOA, ERC-1271,
+                               ERC-6492), proveWallet (each link once), walletGet (message, button, Copy link, Done),
+                               walletPost, walletOtherMethod (405); every non-200 answer carries WALLET_FRAME_CSP
+    wallet-offer.ts            v3.1 wallet proof: walletOfferLink (the optional step, once: standing_seen.wallet_asked),
+                               answerWallet (done / not yet / skip), walletChangeReply (tell wallet 'change'), WALLET_NOTE
+    v31-wallet-proof.test.ts   v3.1 wallet proof: offer timing, one link one question, skip, change, recipient,
+                               discovery and On Base since, the hero's GitHub button
+    fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step)
     v3-shells.test.ts          v3 Stage 3 Task 6: the shell pages, the unsubscribe pages, the card, the badge and the OG PNG on THEME
     docs-copy.ts               v3.1 site T10: every string on /docs (DOCS_NAV, DOCS_STEPS, DOCS_WEEK, DOCS_SCORE with score-v2
                                LIVE_BONUS, DOCS_MONEY, DOCS_SELECTORS, docsNav/docsMoney drop Backing with raising off,
