@@ -450,6 +450,23 @@ test('(g2) a hidden repo with a proven site is named by the site host; never Git
   assert.equal(s.project?.repo, null);
 });
 
+test('(g3) the builder\'s own name shows when a proven site already makes it public (EarnKit for earnkit.com), even if it is the repo\'s name', db, async () => {
+  const key = `s${RUN}g3/earnkit`;
+  const b = await builder({ key, name: 'EarnKit', what: 'x', hidden: true, commitWeeks: last52(NOW).slice(-2) });
+  // Not told by the builder: the host stands in.
+  await site(b, 'https://earnkit.example/', [['2026-08-03', true]]);
+  assert.equal((await safeNames([b.id]))(b.id, key), 'earnkit.example');
+  // Told by the builder (identity) and the proven site's name matches: their own spelling shows.
+  await sql()`UPDATE builder_profiles SET identity = ${sql().json({ projects: [{ name: 'EarnKit', repo: key }] })} WHERE builder_id = ${b.id}`;
+  assert.equal((await safeNames([b.id]))(b.id, key), 'EarnKit');
+  // A told name that no proven site shows stays private.
+  const k2 = `s${RUN}g3b/secretsauce`;
+  const c = await builder({ key: k2, name: 'secretsauce', what: 'x', hidden: true, commitWeeks: last52(NOW).slice(-2) });
+  await sql()`UPDATE builder_profiles SET identity = ${sql().json({ projects: [{ name: 'secretsauce', repo: k2 }] })} WHERE builder_id = ${c.id}`;
+  await site(c, 'https://sauce.example/', [['2026-08-03', true]]);
+  assert.equal((await safeNames([c.id]))(c.id, k2), 'sauce.example');
+});
+
 test('(h) projectProgramsDated returns the told application\'s at and the entry\'s submitted_at', db, async () => {
   const b = await builder();
   const base = committedProgram('alliance-all19');
