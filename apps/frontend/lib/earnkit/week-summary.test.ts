@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
-import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
+import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, fitSummary, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
 import { logCards, STARTED_CHIP } from './bench-data';
 import { NOTE_LINE, momentLines } from './weekly-moment';
 
@@ -9,10 +9,11 @@ const own = { sites: [], repo: null };
 const reply = (text: string, stop: Anthropic.Message['stop_reason'] = 'end_turn') =>
   (async () => ({ content: [{ type: 'text', text }], stop_reason: stop }) as unknown as Anthropic.Message);
 
-test('W1 the rule summary: verbs in the past tense, the rest after "Shipped", at most three', () => {
+test('W1 the rule summary: verbs in the past tense, the rest after "Shipped", at most two', () => {
   assert.equal(ruleSummary(['Fix the timer', 'Add the shopping list']), 'Fixed the timer and added the shopping list.');
-  assert.equal(ruleSummary(['Adds dark mode', 'Updated README', 'Drop the old cron', 'Fix a fourth thing']), 'Added dark mode, updated README and dropped the old cron.');
+  assert.equal(ruleSummary(['Adds dark mode', 'Updated README', 'Drop the old cron', 'Fix a fourth thing']), 'Added dark mode and updated README.');
   assert.equal(ruleSummary(['V2.11: one yes to a shipped entry (+ v2.10.3 DEPLOYCHAINS)', 'Add the picker']), 'Added the picker. Shipped one yes to a shipped entry.');
+  assert.equal(ruleSummary(['Fix the timer', 'Add the shopping list', 'Drop the old cron']), 'Fixed the timer and added the shopping list.');
   assert.equal(ruleSummary([]), null);
   assert.equal(ruleSummary(['...']), null);
 });
@@ -26,7 +27,61 @@ test('W2 a clause: no version label, no parentheses, the first clause, never a h
 test('W3 the model reply: quotes and dash punctuation go, NONE and too long are nothing', () => {
   assert.equal(tidySummary('"Added X sign-in — and a repo picker"'), 'Added X sign-in, and a repo picker.');
   assert.equal(tidySummary('NONE'), null);
-  assert.equal(tidySummary('x'.repeat(SUMMARY_MAX + 1)), null);
+  assert.equal(tidySummary('x'.repeat(281)), null, 'junk-long');
+});
+
+const WORDY = 'Shipped a weekly cron that scores campaigns, freezes entries, and makes capped automatic payouts, plus owner alerts for low funds, misconfigured payouts, and new campaigns. Hardened entry verification and scoring, added a review page, and tightened the sponsor and launch flow.';
+
+test('W3b the length rule: fits as is; longer is cut at the first clause, never mid-word, never ending in and or a comma', () => {
+  assert.equal(SUMMARY_MAX, 90);
+  assert.equal(fitSummary('Added Sign in with X at install, with a fallback link.'), 'Added Sign in with X at install, with a fallback link.');
+  const out = fitSummary(WORDY)!;
+  assert.equal(out, 'Shipped a weekly cron that scores campaigns.');
+  for (const t of [WORDY, 'Added capped contract deploys on Arc and Base and also a very long tail of unrelated things nobody asked for at all today',
+    'Reworked sign in ' + 'x'.repeat(40) + ' and ' + 'y'.repeat(60), 'Reworked the sponsor onboarding, launch flow and payout review pages and', 'Supercalifragilisticexpialidocious '.repeat(4)]) {
+    const f = fitSummary(t)!;
+    assert.ok([...f].length <= SUMMARY_MAX, f);
+    assert.match(f, /[a-z0-9]\.$/i, f);
+    assert.doesNotMatch(f, /(\b(and|or|the|a|of|to|with)|,)\.$/i, f);
+    assert.ok(t.startsWith(f.slice(0, -1)), 'a prefix of the original, never mid-word: ' + f);
+    assert.ok(t[f.length - 1] === ' ' || t[f.length - 1] === ',' || t[f.length - 1] === '.' || t.length === f.length - 1, 'ends at a word boundary: ' + f);
+  }
+  assert.equal(fitSummary(''), null);
+});
+
+test('W3c the prompt asks for one short sentence, at most 90 characters', async () => {
+  let system = '';
+  await aiSummary(['Fix the timer'], async (b) => { system = String(b.system); return reply('Fixed the timer.')(); });
+  assert.match(system, /one sentence/);
+  assert.match(system, /at most 90 characters/i);
+  assert.match(system, /non-developer/);
+  assert.match(system, /no internal jargon/i);
+  assert.match(system, /trailing list of minor fixes/);
+});
+
+test('W3d an over-long reply is asked for again once, then cut; a short second answer wins', async () => {
+  let calls = 0;
+  const seen: string[] = [];
+  const twice = (second: string) => async (b: Anthropic.MessageCreateParamsNonStreaming) => { calls++; seen.push(String(b.messages[0].content)); return reply(calls === 1 ? WORDY : second)(); };
+  assert.equal(await aiSummary(['x'], twice('Shipped automatic campaign scoring and capped payouts.')), 'Shipped automatic campaign scoring and capped payouts.');
+  assert.equal(calls, 2);
+  assert.match(seen[1], /too long/);
+  assert.doesNotMatch(seen[0], /too long/);
+  calls = 0;
+  assert.equal(await aiSummary(['x'], twice(WORDY)), 'Shipped a weekly cron that scores campaigns.', 'still long: cut at the first clause, no third call');
+  assert.equal(calls, 2);
+  calls = 0;
+  assert.equal(await aiSummary(['x'], async () => { calls++; return reply('Fixed the timer.')(); }), 'Fixed the timer.');
+  assert.equal(calls, 1, 'a short reply: one call');
+});
+
+test('W3e weekSummary keeps the privacy checks after the length rule, and never stores more than 90 characters', async () => {
+  const p = { titles: ['Fix the timer'], own, privateRepo: { repoKey: 'a/secretapp' } };
+  assert.equal(await weekSummary(p, reply('Fixed the timer in lib/timer.ts and made the cooking timer much faster for everyone using the app.')), null);
+  const out = await weekSummary({ titles: ['Fix the timer'], own }, reply(WORDY));
+  assert.equal(out, 'Shipped a weekly cron that scores campaigns.');
+  const long = await weekSummary({ titles: ['Add a long thing that goes on and on and on, with more words than any card could ever show at all'], own }, null);
+  assert.ok(long && [...long].length <= SUMMARY_MAX, String(long));
 });
 
 test('W4 aiSummary: Haiku at low effort, the titles as data; no key, an error or a refusal is null', async () => {
