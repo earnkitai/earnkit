@@ -19,6 +19,7 @@ import {
 import { SITE_PROOF_LOST, firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
 import { wholeWords } from './untrusted-text';
+import { reportedProject } from './project-name';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
 
 /**
@@ -213,10 +214,8 @@ export async function personInputsV2(
     (obs.get(sid) ?? []).filter((o) => (o.signals as Partial<SiteSignals>).up === true).reduce((m, o) => (o.at < m ? o.at : m), last);
 
   const identity = list<IdentityProject>(profile?.identity?.projects);
-  const named = (key: string) => {
-    const k = lowKey(key);
-    return identity.find((p) => [p.repo, p.live_url, p.package, ...list<unknown>(p.contracts)].some((v) => typeof v === 'string' && lowKey(v) === k));
-  };
+  // v3.1 GTM W3: matched as project-name.ts reportedProject (no scheme, "www." or trailing slash), as the replies do.
+  const named = (key: string) => reportedProject(identity, key);
   const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedSource(s);
 
   const input: ScoreInput = { ships: [], commitWeeks: [] };
@@ -302,9 +301,9 @@ export async function personInputsV2(
         // v3.1 GTM W3: a registry page is the project's link only once it is proven the builder's: verified by its
         // repository field (proof repo_link) naming this project's App-proven repo, read public. Never a package
         // guessed from package.json and still proposed (a stranger's "tipflow"), never on a private repo.
-        const named = (obs.get(s.id) ?? []).filter((o) => typeof o.signals.repo_url === 'string').sort((a, b) => b.rank - a.rank)[0];
+        const withRepo = (obs.get(s.id) ?? []).filter((o) => typeof o.signals.repo_url === 'string').sort((a, b) => b.rank - a.rank)[0];
         const repoPrivate = (rid: number) => latest(rid)?.signals.private;
-        if (packageLinkable(s, (named?.signals.repo_url as string | undefined) ?? null, srcs, repoPrivate)) pkgLink ??= packagePage(s);
+        if (packageLinkable(s, (withRepo?.signals.repo_url as string | undefined) ?? null, srcs, repoPrivate)) pkgLink ??= packagePage(s);
         if (fin((last?.signals as Partial<PackageSignals> | undefined)?.weekly) > 0) {
           shipped = true;
           lastActive = newest(lastActive, last!.at);

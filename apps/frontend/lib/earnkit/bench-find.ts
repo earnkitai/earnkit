@@ -30,12 +30,13 @@ import { byDeadline, byRelevance, canApply, enteredIds, layout, submitStep, subm
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
+import { reportedName } from './project-name';
 import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
-  type ApplyPick, type FitBar, fitBar, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
+  type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
@@ -287,7 +288,7 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
         FROM builder_projects b WHERE b.builder_id = ${id} AND lower(b.project_key) = lower(${p.main})`.catch(() => [])
     : [];
   if (!row?.confirmed) return { show_to_builder: TOKEN_NOT_YET };
-  const name = displayName(row.name, row.key, null);
+  const name = displayName((await reportedName(id, row.key)) ?? row.name, row.key, null);
   const coin = await raisingCoin(id).catch(logged('token coin'));
   if (coin) {
     if (raisingEnabled() && coin.status === 'launched' && !coin.raising) return { show_to_builder: showRaisingLine(coin.symbol), agent_note: RAISE_NOTE };
@@ -433,10 +434,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
   const siteLive = o.live?.ok === true;
   const title = o.live?.ok ? o.live.title : null;
+  // v3.1 GTM W3 (one name per project): the name the builder gave (this call's, else the stored identity's) wins over
+  // the row's (written at the last rescore) and over the key's last part (never "Mealmate.lovable.app" for MealMate).
+  const given = o.name ?? (row || read.main ? await reportedName(id, row?.key ?? read.main!) : null);
   const project: BenchProject | null = row
-    ? { key: row.key, name: displayName(row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
+    ? { key: row.key, name: displayName(given ?? row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
     : read.main
-      ? { key: read.main, name: displayName(o.name ?? read.main.split('/').pop() ?? read.main, read.main, title), confirmed: false, live: siteLive, weeks: 0 }
+      ? { key: read.main, name: displayName(given ?? keyName(read.main), read.main, title), confirmed: false, live: siteLive, weeks: 0 }
       : null;
   // v2.14 spec 2: a repo-key project that isn't confirmed: is it proven (the read-only App), held by another
   // person, or a copy?

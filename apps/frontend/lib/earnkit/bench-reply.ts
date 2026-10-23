@@ -516,9 +516,16 @@ const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
  * words of its own (it is untrusted text). Pure.
  */
 export function displayName(name: string, key: string, siteTitle: string | null): string {
-  const base = key.includes('/') ? key.split('/').pop()! : key;
+  const base = keyName(key);
   if (squash(name) !== squash(base) || !/^[a-z0-9][a-z0-9._-]*$/.test(name)) return name;
   const first = siteTitle?.split(/\s+[-|–—:·]\s+|\s*[|–—:·]\s*/)[0]?.trim() ?? '';
   if (first && /^[A-Za-z0-9][A-Za-z0-9 .&'+-]{0,39}$/.test(first) && squash(first) === squash(base)) return first;
-  return titleCase(name);
+  // v3.1 GTM W3: a host stays as written ("mealmate.lovable.app"), never title-cased into "Mealmate.lovable.app".
+  return name.includes('.') ? name : titleCase(name);
 }
+/**
+ * v3.1 GTM W3: a project key's own name: a repo's name ("maya/recipes" is "recipes"), a link's host
+ * ("https://mealmate.lovable.app/" is "mealmate.lovable.app"), else the key. Pure.
+ */
+export const keyName = (key: string): string =>
+  URL.canParse(key) && /^https?:/i.test(key) ? new URL(key).hostname.replace(/^www\./, '') : key.includes('/') ? key.split('/').pop()! : key;
