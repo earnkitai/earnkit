@@ -32,7 +32,6 @@ const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const ctxOf = (id: number, matchProjects: unknown = NO_MATCH) => ({ installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: matchProjects as never });
-const UPCOMING = 'Base Batches 005: up to $100K investment, not open yet. Batch 005 is not announced yet. Base Batches runs twice a year.';
 
 /** A ranked builder with a page, three weeks of code (so a why sentence exists) and a `streak`-week streak. */
 async function ranked(tag: string, streak = 0) {
@@ -80,7 +79,7 @@ test('(a) benchReply: the ranked reply is the standing, the question and the poi
   assert.ok(!s.includes(POINTS_LINE(100)), s);
 });
 
-test('(b) the upcoming line shows only with no fit', db, async () => {
+test('(b) a program that is not open is never a reply line, fit or no fit (owner 2026-10-23)', db, async () => {
   // A 4-week streak and no fit: the upcoming line is the money line (Task 16: after the standing, before the question).
   const lone = await ranked('rtb', 4);
   // 2026-10-22: Base's grant steps take the money line's place while offered; a no brings the upcoming line back.
@@ -88,7 +87,7 @@ test('(b) the upcoming line shows only with no fit', db, async () => {
   assert.doesNotMatch(q, / not open yet\. /, q);
   await mcpCall(ctxOf(lone.id), 'tell', { move_up: { kind: 'qualify', project_key: lone.key, answer: 'no' } });
   const s = show(await mcpCall(ctxOf(lone.id), 'find', {}));
-  assert.equal(s.split('\n')[1], UPCOMING, s);
+  assert.doesNotMatch(s, /not open yet|not announced/, s);
   // A 4-week streak and a fit: no upcoming line.
   const ava = await avalanche();
   const fit = await ranked('rtc', 4);

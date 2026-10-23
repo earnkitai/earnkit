@@ -2,23 +2,13 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { padPool } from './fixtures/rank-pool';
-import { UPCOMING_EVERY_MS, takeUpcoming } from './bench-find';
 import { onBaseKnown } from './base-qualify';
 import { reportedName } from './project-name';
 
-// v3.1 GTM W3 (credibility): the DB halves of the upcoming line's weekly guard, the Base step and the builder-given name.
+// v3.1 GTM W3 (credibility): the DB halves of the Base step and the builder-given name.
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (process.env.DATABASE_URL) await sql().end();
-});
-
-test('the "not open yet" line is said once a week a program, never every reply', db, async () => {
-  const [id] = await padPool(1);
-  const now = new Date('2026-10-23T12:00:00Z');
-  assert.equal(await takeUpcoming(id, 'base-batches-005', now), true);
-  assert.equal(await takeUpcoming(id, 'base-batches-005', new Date(now.getTime() + 60_000)), false, 'the next reply');
-  assert.equal(await takeUpcoming(id, 'other-program', now), true, 'another program is its own');
-  assert.equal(await takeUpcoming(id, 'base-batches-005', new Date(now.getTime() + UPCOMING_EVERY_MS)), true, 'a week on');
 });
 
 test('a project known on Base (its chains or a reported Base contract) skips "Put your app on Base"', db, async () => {
