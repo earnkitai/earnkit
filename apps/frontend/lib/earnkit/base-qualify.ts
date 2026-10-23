@@ -7,7 +7,7 @@ import { CHAIN_NAMES, type Chain } from './chains';
 import type { Card } from './present';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, refreshBuilderCodes } from './builder-codes-check';
-import { QUALIFY_STEPS, awardAmount, benchStepKey, type OpenGrant, type QualifyOffer, type QualifyStep } from './bench-reply';
+import { QUALIFY_STEPS, awardAmount, benchStepKey, grantProgramName, type OpenGrant, type QualifyOffer, type QualifyStep } from './bench-reply';
 
 /**
  * 2026-10-22 (owner-approved reply fix 3): a ranked builder with no program fit hears the path to Base Builder Grants
@@ -19,12 +19,13 @@ import { QUALIFY_STEPS, awardAmount, benchStepKey, type OpenGrant, type QualifyO
  */
 
 /** A program's grant as the copy names it: its organizer (no parenthesis), award and one chain's name. Null without an award. Pure. */
-export function grantOf(c: Pick<Card, 'organizer' | 'max_award_usd' | 'investment' | 'chains' | 'any_chain'>): OpenGrant | null {
+export function grantOf(c: Pick<Card, 'organizer' | 'max_award_usd' | 'investment' | 'chains' | 'any_chain'> & { title?: string | null }): OpenGrant | null {
   const amount = awardAmount(c);
   const org = c.organizer?.replace(/\s*\([^)]*\)/g, '').trim();
   if (!amount || !org) return null;
   const one = c.any_chain !== true && c.chains?.length === 1 ? c.chains[0] : null;
-  return { org, amount, chain: one ? (Object.hasOwn(CHAIN_NAMES, one) ? CHAIN_NAMES[one as Chain] : one) : null };
+  // v3.1 cold read: the hook names the program ("Base Builder Grants pay up to ..."), not only its organizer.
+  return { org, amount, chain: one ? (Object.hasOwn(CHAIN_NAMES, one) ? CHAIN_NAMES[one as Chain] : one) : null, ...(c.title?.trim() && { name: grantProgramName(c.title) }) };
 }
 
 type Status = 'met' | 'missing' | 'unknown';
@@ -35,11 +36,12 @@ type Status = 'met' | 'missing' | 'unknown';
  * - use: a likely verdict is met; `live_url` or `real_users` missing is missing; else unknown.
  * - codes: the stored answer.
  */
-export function qualifyStatus(m: { v: Verdict | null; chains: Detection } | null, codes: boolean | null, onBaseSaid = false): Record<QualifyStep, Status> {
+export function qualifyStatus(m: { v: Verdict | null; chains: Detection } | null, codes: boolean | null, onBaseSaid = false, usersSaid = false): Record<QualifyStep, Status> {
   // v3.1 GTM W3: a builder whose contracts are on Base (confirmed, or reported by the agent or the builder:
   // `onBaseSaid`) is never told "Put your app on Base."; the matcher's word only adds to that.
   const onBase = onBaseSaid ? 'met' : m === null ? 'unknown' : !m.v?.missing.includes('mainnet_deploy') && creditsMainnet(m.chains.base) ? 'met' : 'missing';
-  const use = m?.v?.status === 'likely' ? 'met' : m?.v?.missing.some((x) => x === 'live_url' || x === 'real_users') ? 'missing' : 'unknown';
+  // v3.1 cold read: users or a live app reported or known (`usersSaid`) is never told "Have a live product people use.".
+  const use = usersSaid || m?.v?.status === 'likely' ? 'met' : m?.v?.missing.some((x) => x === 'live_url' || x === 'real_users') ? 'missing' : 'unknown';
   return { base: onBase, codes: codes === null ? 'unknown' : codes ? 'met' : 'missing', use };
 }
 
@@ -53,6 +55,18 @@ export async function onBaseKnown(id: number, key: string): Promise<boolean> {
       OR EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND kind = 'contract'
         AND state <> 'rejected' AND ref ILIKE 'base:%') AS on`.catch(() => [{ on: false }]);
   return r?.on === true;
+}
+
+/**
+ * v3.1 cold read: whether `key`'s project is known live or used: a site (verified or reported), a live app row (shipped app), or users
+ * the builder reported (builder_repo_facts has_users). A failed read is false. Never throws.
+ */
+export async function liveOrUsersKnown(id: number, key: string): Promise<boolean> {
+  const [r] = await sql()<{ yes: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND kind = 'site' AND state <> 'rejected')
+      OR EXISTS (SELECT 1 FROM builder_projects WHERE builder_id = ${id} AND lower(project_key) = lower(${key}) AND shipped AND kind = 'app')
+      OR EXISTS (SELECT 1 FROM builder_repo_facts WHERE installation_id = ${id} AND lower(repo_key) = lower(${key}) AND (has_users OR live_url IS NOT NULL)) AS yes`.catch(() => [{ yes: false }]);
+  return r?.yes === true;
 }
 
 /** The offer's steps from their statuses: null when every step is known met (never a "you qualify"). Pure. */
@@ -70,7 +84,11 @@ export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>): 
 export async function qualifyOffer(
   id: number,
   key: string,
-  o: { cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string> }; now: Date; declineMs: number; codesFetch?: typeof fetch },
+  o: {
+    cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string> }; now: Date; declineMs: number; codesFetch?: typeof fetch;
+    /** v3.1 cold read: what this reply's own match read of the project (a Base deploy, a live link). */
+    known?: { onBase: boolean; live: boolean };
+  },
 ): Promise<QualifyOffer | null> {
   try {
     const card = o.cards.find((c) => c.id === BASE_GRANTS_ID);
@@ -97,7 +115,9 @@ export async function qualifyOffer(
       refreshBuilderCodes(id, key, known, o.now, o.codesFetch);
       codes = known?.found ?? null;
     }
-    return qualifyPlan(grant, qualifyStatus(m, codes, creditsMainnet(repo?.chains?.base) || Boolean(repo?.said?.mainnet.includes('base')) || (await onBaseKnown(id, key))));
+    const usersSaid = o.known?.live === true || repo?.said?.has_users === true || Boolean(repo?.said?.live_url) || (await liveOrUsersKnown(id, key));
+    const onBase = o.known?.onBase === true || creditsMainnet(repo?.chains?.base) || Boolean(repo?.said?.mainnet.includes('base')) || (await onBaseKnown(id, key));
+    return qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid));
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');
     return null;

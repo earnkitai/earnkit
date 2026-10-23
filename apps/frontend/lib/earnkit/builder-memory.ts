@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { githubRepo } from './campaigns';
-import { CHAINS, type Chain } from './chains';
+import { CHAINS, CHAIN_NAMES, type Chain } from './chains';
 import { sql, type Db } from './db';
 import { repoKey } from './answer-bank';
 import { reportedChains, reportedUrl } from './match-projects';
@@ -219,6 +219,24 @@ function repoWords(key: string, f: ParsedRepo): string {
   return `${key}: ${parts.length ? parts.join('; ') : 'nothing new'}`;
 }
 
+/**
+ * v3.1 cold read (bug 2): what the builder told about their repos, acknowledged in one short line ("Noted: live on Base
+ * with users."), from their own words only; null when there is nothing to say. Pure.
+ */
+export function factsAck(facts: { mainnet_chains?: { chain: string; mainnet: boolean }[]; testnet_chains?: { chain: string }[]; live_url?: string | null; has_users?: boolean; not_mine?: boolean }[]): string | null {
+  const f = facts[0];
+  if (!f) return null;
+  if (f.not_mine === true) return "Noted: that project isn't yours.";
+  const name = (c: string) => (Object.hasOwn(CHAIN_NAMES, c) ? CHAIN_NAMES[c as Chain] : c);
+  const list = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+  const main = [...new Set((f.mainnet_chains ?? []).filter((c) => c.mainnet).map((c) => name(c.chain)))];
+  const test = [...new Set([...(f.testnet_chains ?? []), ...(f.mainnet_chains ?? []).filter((c) => !c.mainnet)].map((c) => name(c.chain)))];
+  const where = main.length ? `live on ${list(main)}` : test.length ? `on ${list(test)} testnet` : f.live_url ? 'live' : null;
+  const users = f.has_users === true ? 'with users' : f.has_users === false ? 'no users yet' : null;
+  const words = [where, users].filter(Boolean).join(where && users === 'no users yet' ? ', ' : ' ');
+  return words ? `Noted: ${words}.` : 'Noted.';
+}
+
 const RESULT = { won: 'won', placed: 'placed', lost: 'not_selected' } as const;
 
 /**
@@ -279,7 +297,7 @@ export async function tell(
           status = EXCLUDED.status, round_label = EXCLUDED.round_label, at = EXCLUDED.at,
           -- v3.1 one-tap posts (fix round): when they said they applied, kept through a later accepted or funded.
           applied_at = COALESCE(builder_program_status.applied_at, EXCLUDED.applied_at)`;
-      saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied outside EarnKit' : s.status === 'not_interested' ? 'not interested' : `${s.status} (their own report)`}`);
+      saved.push(`${s.program_id}: ${s.status === 'applied' ? 'applied' : s.status === 'not_interested' ? 'not interested' : `${s.status} (their own report)`}`);
     }
     for (const o of outcomes) {
       events.push(await saveSelfReport(installationId, { project_id: o.project_id, result: RESULT[o.status], prize_usd: o.prize_usd }, tx));

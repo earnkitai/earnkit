@@ -93,7 +93,9 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
           || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'share_open', 'connect_open', 'connect_done', 'apply_asked',
             'titles_asked', 'qualify_given', 'wallet_asked', 'wallet_link_at', 'wallet_notice',
             'github_no', 'base_asked', 'base_walk', 'template_refused', 'new_repo_asked', 'upcoming_said',
-            'checkin_asked', 'checkin', 'ship_asked', 'no_folder']) k WHERE standing_seen ? k),
+            'checkin_asked', 'checkin', 'ship_asked', 'no_folder',
+            -- v3.1 cold read: the welcome said, the standing line, the weekly points line and the backers last shown, a live app's GitHub no.
+            'welcomed', 'status_seen', 'nag_week', 'backers_seen', 'github_no_app']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

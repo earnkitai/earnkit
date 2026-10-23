@@ -91,6 +91,18 @@ export function continuesLine(p: Pick<KitProgram, 'investment' | 'organizer' | '
   return `After ${step}, the application continues on ${org ? `${org}'s` : 'their'} site.`;
 }
 
+/**
+ * v3.1 cold read (owner-approved): an investment whose application is on its own site, where EarnKit's part is one email
+ * step (continuesLine): "a16z speedrun's application is on their site and starts with your email: <link>" (the round's
+ * code, "SR008", left out of the name). Null for every other program. Pure.
+ */
+export function siteFormLine(p: Pick<KitProgram, 'investment' | 'organizer' | 'submission_requirements' | 'title' | 'submission_url'>, todo: string | null): string | null {
+  if (!continuesLine(p) || p.submission_requirements.filter((r) => r.required).length !== 1) return null;
+  const name = p.title.trim().replace(/\s+[A-Z]{2,5}\d{1,4}$/, '');
+  const what = (todo ?? 'your email').replace(/\s*\(check it\)$/, '');
+  return `${name}'s application is on their site and starts with ${what}: ${p.submission_url}`;
+}
+
 /** Ruling 27 (plan): a prefilled URL never goes past this; answers that don't fit are pasted. */
 export const MAX_PREFILL_URL = 8000;
 
@@ -422,6 +434,11 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
     return [{ key: r.key, label: r.label, answer: '', missing: true }];
   });
   const filled = fields.filter((f) => !f.missing);
+  // v3.1 cold read (owner-approved): a program whose form lives on its own site and starts with only an email is never
+  // "Your ... application is ready. I filled 0 of 1 answer": one line with the form link, and "Sent it?".
+  const site = siteFormLine(program, missing[0] ?? null);
+  if (site)
+    return { mode: 'copy_paste', url: program.submission_url, fields, missing, show_to_builder: `${site}\n${SENT_ASK}` };
   const given = Object.fromEntries(filled.map((f) => [f.key, f.answer]));
   const kind = prefillKindOf(hostOf(program));
   const pre =

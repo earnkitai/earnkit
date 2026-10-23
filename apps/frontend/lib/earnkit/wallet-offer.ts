@@ -4,6 +4,10 @@ import {
   WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, walletChange, walletChangeX, walletContractsOnly, walletDone, walletNotYet, walletNotice,
 } from './bench-reply';
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
+import { COIN_PROGRAM } from './policy-constants';
+
+/** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
+export const FEE_WALLET_QUIET_DAYS = 7;
 
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): "ask in the onboarding after the profile is created as an optional
@@ -42,11 +46,23 @@ type Reply = Record<string, unknown>;
  */
 export async function walletOfferDue(builderId: number, now: Date): Promise<string | null> {
   try {
-    const [p] = await sql()<{ claimed: boolean; asked: boolean; any: boolean }[]>`
+    // v3.1 cold read: only for a builder with contracts on Base known or reported (the step's whole point: "so your
+    // contracts show"), and never right after a fee wallet was given for a coin (within FEE_WALLET_QUIET_DAYS).
+    const [p] = await sql()<{ claimed: boolean; asked: boolean; any: boolean; contracts: boolean; fee_wallet: boolean }[]>`
       SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, COALESCE(standing_seen ? 'wallet_asked', false) AS asked,
-        EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId}) AS any
-      FROM builder_profiles WHERE builder_id = ${builderId}`;
-    if (!p?.claimed || p.asked || p.any) return null;
+        EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId}) AS any,
+        main_project_key IS NOT NULL AND (
+          EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(p.main_project_key) AND 'base' = ANY(b.chains))
+          OR EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${builderId} AND lower(s.project_key) = lower(p.main_project_key)
+            AND s.kind = 'contract' AND s.state <> 'rejected' AND s.ref ILIKE 'base:%')
+          OR EXISTS (SELECT 1 FROM builder_repo_facts f JOIN installations i ON i.id = f.installation_id
+            WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(f.repo_key) = lower(p.main_project_key) AND 'base' = ANY(f.mainnet_chains))
+        ) AS contracts,
+        EXISTS (SELECT 1 FROM projects j JOIN installations i ON i.id = j.installation_id
+          WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND j.program_id = ${COIN_PROGRAM} AND j.creator_wallet IS NOT NULL
+            AND j.confirmed_at > ${now}::timestamptz - make_interval(days => ${FEE_WALLET_QUIET_DAYS})) AS fee_wallet
+      FROM builder_profiles p WHERE builder_id = ${builderId}`;
+    if (!p?.claimed || p.asked || p.any || !p.contracts || p.fee_wallet) return null;
     return walletLink(builderId, now);
   } catch (err) {
     return logged('offer')(err);

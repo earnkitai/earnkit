@@ -3,7 +3,7 @@ import { NO_CELL } from './no-cell';
 import { closeDayOf, endsOf, prizeOf } from './entry-text';
 import { shortDate } from './dates';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
-import { NEEDS_LIVE_PRODUCT, difficultyLabel, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
+import { NEEDS_LIVE_PRODUCT, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
 import { moneyText, openMoneyUsd, openMoneyWords, wonLine } from './pool';
 import { CANT_SEE_LINE, PRIVATE_LOCAL_LINE } from './match-projects';
 import { contextLine, freshLeadLine, freshPick, type FreshPick } from './fresh-build';
@@ -184,10 +184,12 @@ export type FirstMessage = {
   wonUsd?: number;
   /** v2.11 T7: the no-repo lead's switches (FreshOn); absent, the short reply is v2.10's. */
   fresh?: FreshOn;
+  /** v3.1 cold read: the builder's one project as named in replies ("<Project> doesn't fit an open program yet."). */
+  projectName?: string | null;
 };
 
 /** v2.9 E20: a money headline the won line joins as its next sentence. */
-const MONEY_HEADLINE = /in prizes (you qualify for|open right now)\.( Plus [^.]+\.)?$/;
+const MONEY_HEADLINE = /programs? (?:is|are) open\.(?: Your best fit: [^\n]+\.)?$/;
 
 /**
  * v2.9 E20: the won line, once, right after the reply's headline: joined to the money headline
@@ -205,7 +207,7 @@ function withWonLine(sections: string[], bodyStart: number, wonUsd: number | und
 }
 
 /** v2.9 A3: a program the builder applied to outside EarnKit, in "Your entries". */
-export const APPLIED_OUTSIDE = 'applied outside EarnKit';
+export const APPLIED_OUTSIDE = 'applied';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Rows in "Also open" (spec §1). */
@@ -220,9 +222,9 @@ export const eth = (wei: bigint) => {
 /** v2.8 Ruling 16 (plan): an empty table cell (no difficulty). Never an em dash. */
 export { NO_CELL };
 
-/** The Difficulty cell (v2.7 §3, Ruling 12 (plan)): the label only, or NO_CELL with none. Pure. */
+/** The Difficulty cell (v2.7 §3, Ruling 12 (plan)); v3.1 cold read: the level only (never "(estimate)"), or NO_CELL. Pure. */
 export function difficultyCell(c: Pick<Card, 'difficulty'>): string {
-  return c.difficulty ? difficultyLabel(c.difficulty) : NO_CELL;
+  return c.difficulty ? c.difficulty.level : NO_CELL;
 }
 
 /** Days until a deadline if it's within 3 days, else null. */
@@ -395,8 +397,17 @@ const TELL_WHEN_OPENS = 'Want me to tell you when something opens?';
 /** v2.10 item 6 (Pre-flight P14): the matched table's heading when every row has low odds (never "fit"). */
 export const LOW_ODDS_HEADING = 'Programs your repos could reach:';
 
-/** GTM W2 (2026-10-23): never sends a chat-only builder (Grok Bot, Lovable) off to another agent. */
-const CHAT_ONLY = "I can't build or deploy from here, but I can plan it and write every answer for you to submit.";
+/**
+ * v3.1 cold read (owner-approved): the money table's one header, "4 programs are open. Your best fit: Base Builder Grant
+ * Program, up to $5,000." (no pooled total, no "Plus 2 accelerators"); the best fit only when one qualifies. Pure.
+ */
+export function moneyHeader(open: number, best: Pick<Card, 'title' | 'max_award_usd'> | null): string {
+  const head = `${open} ${open === 1 ? 'program is' : 'programs are'} open.`;
+  if (!best) return head;
+  return `${head} Your best fit: ${best.title}${best.max_award_usd && best.max_award_usd > 0 ? `, up to ${usd(best.max_award_usd)}` : ''}.`;
+}
+/** v3.1 cold read (owner-approved): repos checked, none fits. Pure. */
+export const noFitLine = (name: string | null | undefined) => `${name?.trim() || 'Your app'} doesn't fit an open program yet.`;
 
 /**
  * v2.10 item 7: one line per private repo matched from its local report (final fix I2: the first may
@@ -480,8 +491,7 @@ export function rowLevel(card: Pick<Card, 'difficulty'>, fit: Pick<RepoFit, 'liv
 }
 
 /** v2.9 A4: a matched row's Difficulty cell: the row's level, else NO_CELL. Pure. */
-const rowCell = (card: Card, row: RowLevel) =>
-  row && card.difficulty ? difficultyLabel({ ...card.difficulty, level: row.level, estimate: row.estimate }) : NO_CELL;
+const rowCell = (card: Card, row: RowLevel) => (row && card.difficulty ? row.level : NO_CELL);
 
 /** v2.9 A4: Easy rows first; a row without a level sorts with Medium. Pure. */
 const byRowLevel = (a: Pick<Fit, 'row'>, b: Pick<Fit, 'row'>) => levelRank(a.row?.level ?? 'Medium') - levelRank(b.row?.level ?? 'Medium');
@@ -827,19 +837,18 @@ export function presentFirstMessage(given: FirstMessage): string {
       .join('\n');
   }
   if (privateLines) sections.push(privateLines);
+  // v3.1 cold read: one header over the tables: how many programs are open and the best fit (a row the builder
+  // qualifies for), never a pooled "in prizes" total or "Plus 2 accelerators".
+  const openCount = rows.length + shown.length + more;
+  const bestRow = rows.find(qualifies);
+  const header = moneyHeader(openCount, bestRow ? bestRow.card : null);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
-  else if (m.repos && !noRepo(m.repos) && rows.length === 0)
-    sections.push(
-      `None of your ${m.repos.checked} repo${m.repos.checked === 1 ? '' : 's'} fits an open program yet.`,
-    );
+  else if (m.repos && !noRepo(m.repos) && rows.length === 0) sections.push(noFitLine(m.projectName));
   else if (rows.length > 0) {
-    // v2.9 F21: the same function as the site's figure, over the rows the builder qualifies for
-    // now (v2.8.1 §B10).
-    // v2.10 item 6: a low-odds row is never counted, and never called a fit (Pre-flight P14).
-    const fig = moneyText(openMoneyUsd(rows.filter(qualifies).map((r) => r.card), m.now));
+    // v2.10 item 6: a low-odds row is never called a fit (Pre-flight P14).
     const anyGood = rows.some((r) => r.odds === 'good');
     sections.push(
-      `${fig ? `EarnKit matches you to ${fig} in prizes you qualify for.` : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
+      `${bestRow ? header : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
         table(
           ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v, row, odds, low_reason }) => {
@@ -881,8 +890,8 @@ export function presentFirstMessage(given: FirstMessage): string {
     const couldWin = zeroState && youCould(m.repos, m.githubGiven ?? false);
     sections.push(
       `${
-        zeroState
-          ? shownHeadline(shown, m.now)
+        zeroState || (!above && !bestRow)
+          ? moneyHeader(openCount, null)
           : above
             ? 'Also open:'
             : 'Open money right now:'
@@ -913,22 +922,11 @@ export function presentFirstMessage(given: FirstMessage): string {
   return done();
 }
 
-const isEasy = (c: Card) => c.difficulty?.level === 'Easy';
-
-/** Ruling 28: "build something new" for a program, saying what only the builder can give. Pure. */
-const buildNew = (c: Card): Offer => ({
-  text: `Want me to build something new for ${c.title} (${prizeOf(c)})?${needsForms(c) ? needsText(c) : ''}`,
-  campaign: false,
-});
 
 /** v2.8.1 §B7, Ruling F5; v2.9 A4: the fit to offer: good odds first (v2.10 item 6), then the easiest row, then the top prize, then the quicker fit. Pure. */
 const bestFit = (rows: Fit[]): Fit | undefined =>
   // v2.10.2 fix round 1 (M4): never an unknown row (its builder is asked about users instead).
   [...rows.filter((r) => r.odds !== 'unknown')].sort((a, b) => byOdds(a, b) || byRowLevel(a, b) || byPrize(a.card, b.card) || quickness(a.v) - quickness(b.v))[0];
-
-/** v2.8.1 §B7: the program to offer without a fit: the Easy one with the most money, else programs needing forms last. Pure. */
-const bestCard = (cards: Card[]): Card | undefined =>
-  [...cards].sort((a, b) => Number(isEasy(b)) - Number(isEasy(a)) || (isEasy(a) ? 0 : Number(needsForms(a)) - Number(needsForms(b))) || byPrize(a, b))[0];
 
 /**
  * v2.10 Ruling H1 (c1): the program a builder with no repo can enter as they are: known not to need a
@@ -982,8 +980,9 @@ function offer(
   const step = submitStep(m);
   if (step) return { text: submitStepLine(step), campaign: false };
   if (!m.agentCanBuild) {
-    const named = pick ? `${pick.card.title} with ${pick.repo}` : asTheyAre?.title;
-    return { text: named ? `Want me to start on ${named}? ${CHAT_ONLY}` : CHAT_ONLY, campaign: false };
+    // v3.1 cold read: never "I can't build or deploy from here..."; the one question names a program to start on.
+    const named = pick ? `${pick.card.title} with ${pick.repo}` : (asTheyAre ?? [...m.cards.filter(offerable)].sort(byRelevance)[0])?.title;
+    return { text: named ? `Want me to start on ${named}?` : `Nothing else is open right now. ${TELL_WHEN_OPENS}`, campaign: false };
   }
   const titleOf = (id: string): Offer | undefined => {
     const c = byId.get(id);
@@ -1015,9 +1014,10 @@ function offer(
   const anyOpen = curated.length > 0 || m.campaigns.some((r) => r.open);
   if (anyOpen && !buildOffer && (!m.repos || 'error' in m.repos))
     return { text: 'Want me to check which of your repos already qualify?', campaign: false };
-  // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of.
-  const top = bestCard(fresh);
-  if (top) return buildNew(top);
+  // Repos known and none fits (Ruling 28): never "start on" a program their repo was ruled out of. v3.1 cold read: never
+  // "build something new" either (a huge pivot as a casual yes); the program's guide says what it wants.
+  const top = [...fresh].sort(byRelevance)[0];
+  if (top) return { text: `Want the guide for ${top.title}?`, campaign: false };
   // Only sponsor campaigns open: never offered by name.
   if (m.cards.length > 0) return { text: "Pick one and I'll start.", campaign: false };
   if (m.campaigns.some((r) => r.you === 'in review'))
