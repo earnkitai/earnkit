@@ -41,7 +41,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { displayName } from './bench-reply';
+import { displayName, isStep2 } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -204,6 +204,8 @@ export type Seen = StandSeen & {
   lovable_prompt?: string;
   /** v3.1 cold read round 2: a coin yes waiting for its fee wallet (coin-moments.ts walletWait). */
   coin_wallet_wait?: string;
+  /** v3.1 answerable replies (spec 6): the UTC day (YYYY-MM-DD) the connect step's full pitch was last shown. */
+  pitch_day?: string;
 };
 type Reply = Record<string, unknown>;
 
@@ -365,6 +367,8 @@ export const TOKEN_LOG_PENDING = "I'm still writing up your shipping log from yo
 /** R8: tell token: 'ask' when no coin can be offered for the project now and no plainer reason is known. */
 export const tokenUnavailable = (name: string) => `A coin can't launch for ${name} right now.`;
 export const tokenHasCoin = (name: string) => `${name} already has a coin.`;
+/** v3.1 answerable replies (spec 2): a launched coin and its tokens.fun link, the token ask's first line. Pure. */
+export const coinLinkLine = (symbol: string, url: string) => `$${symbol} is live: ${url}`;
 /** v3.1 cold read (owner-approved): the backers question's answer, then the one post question. Pure. */
 export const BACKERS_POST_ASK = 'Want a post about this week?';
 export const backersLine = (backers: number, fees: number) =>
@@ -431,17 +435,19 @@ export async function tokenAsk(id: number, deps: { check?: TickerCheck } = {}): 
   if (coin) {
     if (raisingEnabled() && coin.status === 'launched' && !coin.raising) return { show_to_builder: showRaisingLine(coin.symbol), agent_note: RAISE_NOTE };
     // GTM W2, v3.1 cold read: "Did anyone back it?" is answered with the backers and the fees, then one post question.
+    // v3.1 answerable replies (spec 2): the live coin and its link lead ("$KIT is live: <tokens.fun>"), the one link.
     if (raisingEnabled() && coin.status === 'launched') {
       const [backers, earned] = await Promise.all([backersOfCoin(coin.coin).catch(() => null), earnedUsd(id).catch(() => null)]);
       if (backers !== null && earned !== null) {
         await storeAsk(id, { kind: 'backers_post', key: row.key });
         return {
-          show_to_builder: backersLine(backers, Math.round(earned.fees_usd ?? 0)),
+          show_to_builder: `${coinLinkLine(coin.symbol, coin.url)}\n${backersLine(backers, Math.round(earned.fees_usd ?? 0))}`,
           move_up: { kind: 'backers_post', project_key: row.key, agent_note: BACKERS_POST_NOTE },
         };
       }
     }
-    return { show_to_builder: coin.status === 'launched' ? COIN_LIVE : COIN_LAUNCHING };
+    // Backing off (EARNKIT_RAISING): the page shows no coin, so neither does this line.
+    return { show_to_builder: coin.status === 'launched' ? (raisingEnabled() && /^https:\/\//.test(coin.url) ? coinLinkLine(coin.symbol, coin.url) : COIN_LIVE) : COIN_LAUNCHING };
   }
   if (row.has_coin) return { show_to_builder: tokenHasCoin(name) };
   // v3.1 final fix 1 (D1): with EARNKIT_RAISING off confirm isn't registered, so no offer; v3.1 cold read: said plainly.
@@ -714,14 +720,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on, launched, opened): a statement, never a step,
   // with its backers (backers.ts) and the creator fees claimed (earned.ts fees_usd).
   const pill = ranked && handle ? await pillCoin(id).catch(logged('backing pill')) : null;
-  // v3.1 cold read: "Backing open. Your page: ..." only the first time it can be said (right after launch), then only when
+  // v3.1 cold read: "Your coin $KIT is live. Your page: ..." only the first time it can be said (right after launch), then only when
   // backers grew since last shown ("2 new backers since you last looked."); the count shown is kept (backers_seen).
   let backersShown: number | null = null;
   if (ranked && handle && pill) {
     const backers = (await backersOfCoin(pill.coin).catch(logged('backers'))) ?? 0;
     const seenB = typeof read.seen.backers_seen === 'number' ? read.seen.backers_seen : null;
     if (seenB === null || backers > seenB) {
-      fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}`, ...(seenB !== null && { news: backers - seenB }) }];
+      fund = [...fund, { kind: 'backing', backers, earned_usd: Math.round(earned?.fees_usd ?? 0), page: `${siteUrl()}${pagePath(handle)}`, symbol: pill.symbol, ...(seenB !== null && { news: backers - seenB }) }];
       backersShown = backers;
     }
   }
@@ -763,6 +769,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));
+  // v3.1 answerable replies (spec 6): the connect step's full pitch once a UTC day; later the same day, the short one.
+  if (!held && isStep2(finalAsk)) {
+    const today = now.toISOString().slice(0, 10);
+    view.pitched = read.seen.pitch_day === today;
+    if (!view.pitched)
+      await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('pitch_day', ${today}::text)
+        WHERE builder_id = ${id}`.catch(logged('pitch day'));
+  }
   // v3.1 cold read: the ranked standing line only when it changed since last shown (score always shows it: the builder
   // asked); the shipping points line at most once an ISO week. Each is remembered only when its reply carries it.
   if (ranked && project) {

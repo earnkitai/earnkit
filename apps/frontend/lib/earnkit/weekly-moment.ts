@@ -92,7 +92,7 @@ export const weekNumber = (commitWeeks: string[], monday: string) =>
  */
 export const momentPlace = (w: Pick<LastWeek, 'now' | 'before'>): 'still' | 'now' | null =>
   w.now.total < RANK_MIN_POOL ? null : w.before && w.before.rank === w.now.rank ? 'still' : 'now';
-export const APPROVED_LINE = 'Thanks. Last week is confirmed.';
+export const APPROVED_LINE = 'Thanks. Last week is on your page.';
 
 /**
  * The week of `monday` as the daily history left it: the builder's last ranked, unheld Shipping row that week, and

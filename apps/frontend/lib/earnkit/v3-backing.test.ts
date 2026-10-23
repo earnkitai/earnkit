@@ -273,10 +273,11 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   // The reply's money line (Task 16): a statement, its page the reply's one https link (no other link there).
   // v3.1 cold read: "Backing open" is said with the launch (the intro above), then only when backers grow.
   const r = show(await find(b));
-  assert.ok(!r.includes('Backing open'), r);
+  assert.ok(!r.includes('Backing open') && !r.includes('is live. Your page'), r);
   assert.ok(links(r).length <= 1, r);
   assert.ok(questions(r) <= 1, r);
-  assert.equal(backingLine(0, 0, 'earnkit.com/x'), 'Backing open. Your page: earnkit.com/x');
+  // v3.1 answerable replies (spec 4): never "Backing open".
+  assert.equal(backingLine(0, 0, 'earnkit.com/x', 'KIT'), 'Your coin $KIT is live. Your page: earnkit.com/x');
   assert.equal(backingLine(3, 12, 'earnkit.com/x'), 'Backing: 3 backers, $12 in fees. Your page: earnkit.com/x');
 
   // The builder JSON, for the tokens.fun coin page.

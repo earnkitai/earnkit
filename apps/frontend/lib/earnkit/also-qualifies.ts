@@ -2,7 +2,7 @@ import type { Chain } from './match';
 import type { FieldKind, SubmissionRequirement } from './program-file';
 import { bankFill } from './coach';
 import { prepareSubmission, type ProjectInfo } from './submission';
-import { endsOf, prizeOf } from './entry-text';
+import { AMOUNT_HEADER, endsOf, prizeOf, upToCell } from './entry-text';
 import { table } from './present';
 import type { Difficulty } from './guide';
 
@@ -140,6 +140,6 @@ const needs = (r: AlsoRow) => (r.needsLive ? 'a live link' : r.left === 0 ? 'not
  */
 export function alsoText(rows: AlsoRow[]): string | null {
   if (rows.length === 0) return null;
-  const body = rows.map((r) => [r.title, r.prize, r.ends, needs(r)]);
-  return `You also qualify for:\n${table(['Program', 'Prize', 'Ends', 'Still needed'], body)}\nSay "enter it here too" for any of them.`;
+  const body = rows.map((r) => [r.title, upToCell(r.prize), r.ends, needs(r)]);
+  return `You also qualify for:\n${table(['Program', AMOUNT_HEADER, 'Ends', 'Still needed'], body)}\nSay "enter it here too" for any of them.`;
 }

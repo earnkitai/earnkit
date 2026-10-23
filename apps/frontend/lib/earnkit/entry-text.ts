@@ -75,6 +75,11 @@ export const prizeOf = (c: { summary: string; investment?: boolean }) => {
   return c.investment && !/\binvestment\b/i.test(prize) ? `${prize} investment` : prize;
 };
 
+/** v3.1 answerable replies (spec 4): the money tables' column header (grants and investments aren't prizes). */
+export const AMOUNT_HEADER = 'Up to';
+/** A money table's cell under AMOUNT_HEADER: the prize part without its own "up to " ("$5,000", "500 USDC × 20 grants"). Pure. */
+export const upToCell = (prize: string) => prize.replace(/^up to\s+/i, '');
+
 /**
  * "Oct 14, 11:59 PM ET" from the summary's "closes Oct 14, 11:59 PM ET" (v2.8.1 §C15: the program's
  * own time zone), "rolling", else ends_at as deadlineLabel shows it. Pure; exported for tests.

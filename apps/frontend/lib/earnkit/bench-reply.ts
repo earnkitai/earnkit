@@ -41,17 +41,20 @@ export type FundLine =
   /** v3 Stage 2: one program not open yet, for a ranked builder on a 4-week streak: a statement, no link. */
   | { kind: 'upcoming'; title: string; prize: string; note: string }
   /** v3 Stage 2: backing is open on the one project (EARNKIT_RAISING on): its backers and fees earned, and the page. A statement, never a step. */
-  | { kind: 'backing'; backers: number; earned_usd: number; page: string; news?: number };
+  | { kind: 'backing'; backers: number; earned_usd: number; page: string; news?: number; symbol?: string };
 export type BenchProject = { key: string; name: string; confirmed: boolean; live: boolean; weeks: number };
 
 /** v3 Stage 2: "Base Batches 005: up to $100K, not open yet. <note>" (a statement, never a link or a question). Pure. */
 export const upcomingLine = (title: string, prize: string, note: string) => `${title}: ${prize}, not open yet. ${note}`;
 /**
  * v3 Stage 2 (spec 5.3 Route 2): the backing fund line, "Backing: 3 backers, $12 in fees. Your page: ..."; with none of
- * either yet, "Backing open. Your page: ...". Pure.
+ * either yet (right after launch), v3.1 answerable replies (spec 4): "Your coin $KIT is live. Your page: ..." (never
+ * "Backing open"). Pure.
  */
-export const backingLine = (backers: number, earned: number, page: string) =>
-  backers === 0 && earned === 0 ? `Backing open. Your page: ${page}` : `Backing: ${backers} ${backers === 1 ? 'backer' : 'backers'}, $${earned.toLocaleString('en-US')} in fees. Your page: ${page}`;
+export const backingLine = (backers: number, earned: number, page: string, symbol?: string) =>
+  backers === 0 && earned === 0
+    ? `${symbol ? `Your coin $${symbol} is live.` : 'Your coin is live.'} Your page: ${page}`
+    : `Backing: ${backers} ${backers === 1 ? 'backer' : 'backers'}, $${earned.toLocaleString('en-US')} in fees. Your page: ${page}`;
 /** v3.1 cold read: the backing line after launch, only when backers changed since last shown ("2 new backers since you last looked."). Pure. */
 export const newBackersLine = (n: number) => `${n.toLocaleString('en-US')} new ${n === 1 ? 'backer' : 'backers'} since you last looked.`;
 /** v3 Stage 2 (spec 5.3): a fit whose deadline is this many days away (or fewer) is offered as a drafted application. */
@@ -145,6 +148,11 @@ export const NO_GITHUB_HINT = 'Built it in Lovable or Bolt: connect GitHub there
 export const CONNECT_LEAD = "Connect your app's code on GitHub so I can match it";
 /** Task 16, v3.1 cold read (owner-approved): the connect action (the repo picker, or a named repo's install link). */
 export const pickRepoAsk = (link: string) => `${CONNECT_LEAD} (read-only, one click): ${link}\n${NO_GITHUB_HINT}\nDone?`;
+/**
+ * v3.1 answerable replies (spec 6): the connect step again the same day (UTC) after its full pitch: the link and its
+ * question only (the money line and the Lovable or Bolt hint once a day). Pure.
+ */
+export const pickRepoAgain = (link: string) => `Connect your app's code so I can match it (read-only, one click): ${link}\nDone?`;
 /** v3.1 cold read: the tool a live link was built with, from its host (only Lovable and Bolt are confirmed). Pure. */
 export const builtWith = (url: string | null | undefined): 'lovable' | 'bolt' | null => {
   const host = url && URL.canParse(url) ? new URL(url).hostname.toLowerCase() : '';
@@ -170,7 +178,7 @@ export const SHIP_ASK_DAYS = 7;
 /** GTM W2: the install ask for one more repo once setup is done (its own install link). Pure. */
 export const installMoreAsk = (link: string) => `Install the read-only EarnKit app on it too (one click): ${link}\nDone?`;
 /** The step 2 reply (the repo picker, or the first repo's install link), never the one-more-repo install. Pure. */
-const isStep2 = (a: BenchAsk) => (a.kind === 'pick_repo' && a.line.startsWith(CONNECT_LEAD)) || (a.kind === 'install_app' && a.line.startsWith(CONNECT_LEAD));
+export const isStep2 = (a: BenchAsk) => (a.kind === 'pick_repo' && a.line.startsWith(CONNECT_LEAD)) || (a.kind === 'install_app' && a.line.startsWith(CONNECT_LEAD));
 /** Task 16, step 5: the shipping points line (`lead`: the weekly target without its period, else "Ship code this week"). */
 export const shipPointsLine = (lead: string = 'Ship code this week') => `${lead}: up to +${MAX_WEEK_POINTS} points`;
 /** v3 Stage 1 (spec 5.1), v3.1 cold read: the connect weeks' one question (ranked, once a person); the page is its link (no count). */
@@ -448,6 +456,8 @@ export type BenchView = {
   nagShown?: boolean;
   /** v3.1 cold read: a live link with no GitHub (the builder said no once): its tool's GitHub steps (liveNoGithub). */
   liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
+  /** v3.1 answerable replies (spec 6): the connect step's full pitch was shown today: this one is short (pickRepoAgain). */
+  pitched?: boolean;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -551,7 +561,7 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
   const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
   if (fit) return qualifyLine(fit);
   const b = v.fund.find((f): f is Extract<FundLine, { kind: 'backing' }> => f.kind === 'backing');
-  if (b) return b.news ? newBackersLine(b.news) : backingLine(b.backers, b.earned_usd, b.page);
+  if (b) return b.news ? newBackersLine(b.news) : backingLine(b.backers, b.earned_usd, b.page, b.symbol);
   const u = o.upcoming ? v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming') : undefined;
   return u ? upcomingLine(u.title, u.prize, u.note) : null;
 }
@@ -572,13 +582,15 @@ export function benchReply(v: BenchView): string {
   const name = v.project?.name ?? '';
   // 2026-10-22 (owner): no points lines in the first two replies.
   if (v.state === 'signed_out') return paras([INTRO_LINE, introWhat(v.open ?? null)], [v.ask.line]);
-  const ask = v.held ?? v.ask.line;
   const step2 = !v.held && isStep2(v.ask);
+  // v3.1 answerable replies (spec 6): after today's full pitch, the step is the link and its question alone.
+  const again = step2 && v.pitched === true && v.link !== null;
+  const ask = again ? pickRepoAgain(v.link!) : (v.held ?? v.ask.line);
   const named = namesAccount(v);
   const notice = v.notice ?? null;
   // GTM W2 (2026-10-23, value before the ask): step 2 names the open grant ("Base pays up to $5,000 for apps on Base.")
   // before the GitHub step; a statement with no link, so the step keeps the reply's one link and one question.
-  const money = step2 && v.open ? grantHook(v.open) : null;
+  const money = step2 && !again && v.open ? grantHook(v.open) : null;
   if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);
   if (v.state === 'not_counted') {
     if (step2 && !v.variant) return paras([named ? youreIn(v.handle!) : null, notice, money, ...v.due, ask]);

@@ -71,7 +71,8 @@ test('9.4 R8: the community-round line for an old coin comes only when the build
   await setRaising(id, true);
   // v3.1 cold read: once showing, asking is answered with its backers and fees, then one post question.
   const showing = await tokenAsk(id);
-  assert.equal(showing.show_to_builder, 'No backers yet. Backers follow posts about real progress. Want a post about this week?', 'already showing');
+  // v3.1 answerable replies (spec 2): the live coin and its link lead.
+  assert.equal(showing.show_to_builder, '$RECIPE is live: https://tokens.fun/coin/3\nNo backers yet. Backers follow posts about real progress. Want a post about this week?', 'already showing');
   assert.equal((showing.move_up as { kind?: string } | undefined)?.kind, 'backers_post');
 });
 

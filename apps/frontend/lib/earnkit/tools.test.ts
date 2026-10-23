@@ -1382,8 +1382,13 @@ test('9.3 find: no program_id is list_programs; program_id shows the curated gui
     // reads may straddle one; a pair that differs is read again (at most 3 times).
     const agree = async (input: object) => {
       let pair: unknown[] = [];
+      // v3.1 answerable replies: find adds facts (and the answer-first note where the reply has none) to list_programs.
+      const bare = (r: object) => {
+        const { facts: _f, ...rest } = r as Record<string, unknown>;
+        return rest;
+      };
       for (let i = 0; i < 3; i++) {
-        pair = [await tools.find(input, ctx), await handlers.list_programs(input, ctx)];
+        pair = [bare(await tools.find(input, ctx)), await handlers.list_programs(input, ctx)];
         if (isDeepStrictEqual(pair[0], pair[1])) break;
       }
       assert.deepEqual(pair[0], pair[1]);
@@ -1395,6 +1400,10 @@ test('9.3 find: no program_id is list_programs; program_id shows the curated gui
     assert.match(one.show_to_builder, /^Arc Microgrants/);
     const rest: Record<string, unknown> = { ...one };
     delete rest.show_to_builder;
+    // v3.1 answerable replies: find adds its facts and the answer-first note.
+    assert.ok(rest.facts && typeof rest.note === 'string');
+    delete rest.facts;
+    delete rest.note;
     assert.deepEqual(rest, await handlers.get_program({ program_id: t.p.id }, ctx));
     await assert.rejects(tools.find({ program_id: t.p.id, nope: 1 }, ctx), /Unrecognized key/);
   }));

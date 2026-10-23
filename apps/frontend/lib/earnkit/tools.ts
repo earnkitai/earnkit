@@ -151,6 +151,8 @@ import { walletChangeReply } from './wallet-offer';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
+import { replyFacts, type ReplyFacts } from './reply-facts';
+import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
@@ -2083,11 +2085,14 @@ export const handlers = {
       ? { saved: [] as string[], outcomes: 0 }
       : await tell(ctx.installationId, input as Parameters<typeof tell>[1], undefined, key);
     // Ruling G21: only the caller's own subscription (none on a shared client).
-    const mail = weekly ? await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login: null }) : null;
+    // v3.1 answerable replies (spec 3): a yes without an address is never "Done": the address is asked for (nothing saved).
+    const noAddress = weekly?.answer === 'yes' && weekly.email === undefined && !ctx.sharedClient;
+    const mail = !weekly ? null : noAddress ? { show_to_builder: WHICH_EMAIL, saved: false } : await saveWeeklyEmail(ctx.installationId, weekly, { shared: Boolean(ctx.sharedClient), login: null });
     if (mail?.saved) saved.push(`weekly email: ${weekly!.answer === 'yes' ? 'on' : 'off'}`);
     const mailNote =
       mail?.show_to_builder === WHICH_EMAIL
-        ? "Ask the builder which email to use, then call tell again with weekly_email: { answer: 'yes', email }."
+        ? "Ask the builder which email to use, then call tell again with weekly_email: { answer: 'yes', email }." +
+          ((noAddress && (await checkinOpen(ctx))) ? ` ${CHECKIN_INSTEAD_NOTE}` : '')
         : null;
     // v3.1 cold read (bug 2): what they said about their repos is acknowledged in one short line, never nothing.
     const ack = !onlyEmail && key !== null && told.success && told.data.repo_facts?.length ? factsAck(told.data.repo_facts) : null;
@@ -3153,6 +3158,33 @@ async function draftWithSteps(
   return { ...r, show_to_builder: shown, ...(step && { deploy: step.deploy }), ...(host && { host }), ...(note && { agent_note: note }) };
 }
 
+/**
+ * v3.1 answerable replies (spec section 1): find's and score's facts (reply-facts.ts), and the answer-first note when the
+ * reply has none yet (a program guide). Pure.
+ */
+export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
+  const r = reply as T & { note?: unknown; agent_note?: unknown };
+  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && n.includes(ANSWER_FIRST_NOTE));
+  return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
+}
+
+/**
+ * v3.1 answerable replies (spec 3): on a client that can schedule, with the Monday check-in never answered, a weekly email
+ * yes without an address may become the check-in instead (still one question).
+ */
+export const CHECKIN_INSTEAD_NOTE =
+  "You can schedule tasks, so you may ask instead: \"Want me to check in here every Monday?\" (one question, not both); a yes or no to it: call tell with move_up: { kind: 'checkin', project_key: null, answer }.";
+async function checkinOpen(ctx: ToolContext): Promise<boolean> {
+  try {
+    const own = ctx.ownInstallationId ?? ctx.installationId;
+    if (!(await agentReach(own, ctx.installationId)).schedules) return false;
+    const [r] = await sql()<{ c: unknown }[]>`SELECT standing_seen->'checkin' AS c FROM builder_profiles WHERE builder_id = ${ctx.installationId}`;
+    return Boolean(r) && (r.c === null || r.c === undefined);
+  } catch {
+    return false;
+  }
+}
+
 /** The agent tools (v2.10 item 4): the MCP server forwards each call here; each dispatches to `handlers`. */
 export const tools = {
   // What can I earn (list_programs), or one program and its guide (get_program).
@@ -3168,7 +3200,7 @@ export const tools = {
       if (b.ok) ctx0 = { ...ctx0, installationId: b.root, ownInstallationId: own, sharedClient: false };
       signInNote = b.ok ? SIGN_IN_NOTES.bound : SIGN_IN_NOTES.bad;
     }
-    const reply = await findReply(input, ctx0);
+    const reply = withFacts(await findReply(input, ctx0), await replyFacts(ctx0));
     return signInNote ? { ...reply, sign_in_note: signInNote } : reply;
   },
 
@@ -3307,7 +3339,7 @@ export const tools = {
   },
 
   // v2.12 spec 7: the builder's score.
-  score: async (_input: unknown, ctx: ToolContext) => scoreReply(ctx, new Date(), { reader: ctx.readerDeps }),
+  score: async (_input: unknown, ctx: ToolContext) => withFacts(await scoreReply(ctx, new Date(), { reader: ctx.readerDeps }), await replyFacts(ctx)),
 
 } satisfies Record<string, (input: unknown, ctx: ToolContext) => Promise<unknown>>;
 

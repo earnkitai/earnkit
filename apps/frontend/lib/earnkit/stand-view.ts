@@ -95,7 +95,9 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
             'github_no', 'base_asked', 'base_walk', 'template_refused', 'new_repo_asked', 'upcoming_said',
             'checkin_asked', 'checkin', 'ship_asked', 'no_folder',
             -- v3.1 cold read: the welcome said, the standing line, the weekly points line and the backers last shown, a live app's GitHub no.
-            'welcomed', 'status_seen', 'nag_week', 'backers_seen', 'github_no_app', 'lovable_prompt', 'coin_wallet_wait', 'qualify_known']) k WHERE standing_seen ? k),
+            'welcomed', 'status_seen', 'nag_week', 'backers_seen', 'github_no_app', 'lovable_prompt', 'coin_wallet_wait', 'qualify_known',
+            -- v3.1 answerable replies: the day the connect step's full pitch was shown.
+            'pitch_day']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

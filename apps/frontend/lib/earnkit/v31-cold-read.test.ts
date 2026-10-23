@@ -119,7 +119,7 @@ test('the approved copy, word for word', () => {
   assert.equal(WALLET_ASK, 'Done?');
   assert.equal(newBackersLine(2), '2 new backers since you last looked.');
   assert.equal(APPLIED_OUTSIDE, 'applied');
-  assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line using only facts in this reply \(show_to_builder, points_total/);
+  assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line from show_to_builder and facts only/);
   assert.match(SERVER_INSTRUCTIONS, /answer it in one short line from facts in the reply, never invented/);
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));
   for (const s of [pickRepoAsk(LINK), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE), BACKING_OFFER('Kit', 'KIT', null), tokenConnectFirst('Kit', LINK),
@@ -161,7 +161,7 @@ test('status line and points line: shown only when changed or once a week; a rep
   assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), `${STAND}\n${shipPointsLine()}`);
   // Backing: the first time after launch, then only new backers.
   const page = 'https://earnkit.com/kit';
-  assert.match(benchReply(view({ standingShown: false, nagShown: false, fund: [{ kind: 'backing', backers: 0, earned_usd: 0, page }] })), /^Backing open\. Your page: https:\/\/earnkit\.com\/kit\n/);
+  assert.match(benchReply(view({ standingShown: false, nagShown: false, fund: [{ kind: 'backing', backers: 0, earned_usd: 0, page, symbol: 'KIT' }] })), /^Your coin \$KIT is live\. Your page: https:\/\/earnkit\.com\/kit\n/);
   assert.match(benchReply(view({ standingShown: false, nagShown: false, fund: [{ kind: 'backing', backers: 3, earned_usd: 0, page, news: 2 }] })), /^2 new backers since you last looked\.\n/);
 });
 
@@ -230,7 +230,8 @@ test('"You\'re in" only on the first reply; bug 1: a connect yes with nothing co
   assert.doesNotMatch(first, /Step 2 of 2|isn't counted yet/);
   const second = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   assert.doesNotMatch(second, /You're in/, second);
-  assert.match(second, /^.*pays? up to .*\nConnect your app's code on GitHub so I can match it/, second);
+  // v3.1 answerable replies (spec 6): the same day, the short form (the money line and the Lovable or Bolt hint once a day).
+  assert.equal(second, `Connect your app's code so I can match it (read-only, one click): ${second.match(/https:\/\/\S+/)?.[0]}\nDone?`);
   const yes = await mcpCall(p.ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' } });
   const s = show(yes);
   asks(s);

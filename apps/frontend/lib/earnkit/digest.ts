@@ -42,8 +42,8 @@ export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the 
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
-export const WHICH_EMAIL = 'Which email should I use?';
-export const EMAIL_ON = 'Done. Every Monday, once your week is written.';
+export const WHICH_EMAIL = 'Which email should your Monday summary go to?';
+export const EMAIL_ON = 'Done. Your summary comes every Monday.';
 export const EMAIL_OFF = 'No weekly email.';
 export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
 /** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */

@@ -172,7 +172,7 @@ test('alsoQualifies: a "needs a live product" program shows when the live link i
     programs: [prog('base-mini', { title: 'Base Builder Grant Program', tag: 'needs a live product', requirements: [liveField, otherField] })],
   });
   assert.deepEqual(rows, [{ id: 'base-mini', title: 'Base Builder Grant Program', prize: 'up to $5,000', ends: 'rolling', left: 1, needsLive: true }]);
-  assert.match(alsoText(rows)!, /\| Base Builder Grant Program \| up to \$5,000 \| rolling \| a live link \|/);
+  assert.match(alsoText(rows)!, /\| Base Builder Grant Program \| \$5,000 \| rolling \| a live link \|/);
 });
 
 test('alsoQualifies: a "needs a live product" program shows normally once the project has a live product', () => {
@@ -195,10 +195,10 @@ test('7.6 alsoText: the table and "Still needed", with no bonus sentence (v2.10 
     text,
     [
       'You also qualify for:',
-      '| Program | Prize | Ends | Still needed |',
+      '| Program | Up to | Ends | Still needed |',
       '|---|---|---|---|',
-      '| Base Builder Grant Program | up to $5,000 | rolling | 1 answer |',
-      '| Avalanche Team1 Mini Grants | up to $10,000 | rolling | nothing |',
+      '| Base Builder Grant Program | $5,000 | rolling | 1 answer |',
+      '| Avalanche Team1 Mini Grants | $10,000 | rolling | nothing |',
       'Say "enter it here too" for any of them.',
     ].join('\n'),
   );

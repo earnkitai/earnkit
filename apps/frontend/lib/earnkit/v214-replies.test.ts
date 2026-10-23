@@ -147,7 +147,8 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);
   // v3.1 cold read: "You're in" only on the first reply after sign-in.
   assert.doesNotMatch(next, /You're in/, next);
-  assert.match(next, /Connect your app's code on GitHub so I can match it/, next);
+  // v3.1 answerable replies (spec 6): the same day, the short form.
+  assert.match(next, /Connect your app's code (?:on GitHub )?so I can match it/, next);
 });
 
 test('9.14 the first reply after the sign-in at install names the account (Task 16: "You\'re in")', db, async () => {

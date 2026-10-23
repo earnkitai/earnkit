@@ -1,6 +1,6 @@
 import { usd } from './campaigns';
 import { NO_CELL } from './no-cell';
-import { closeDayOf, endsOf, prizeOf } from './entry-text';
+import { AMOUNT_HEADER, closeDayOf, endsOf, prizeOf, upToCell } from './entry-text';
 import { shortDate } from './dates';
 import { CHAIN_NAMES, EFFORT_ORDER, NOT_REAL_YET, NO_USERS_YET, hasRealUse, oddsRank, rowOdds, type Chain, type Effort, type Odds, type Product, type RepoFacts, type Verdict } from './match';
 import { NEEDS_LIVE_PRODUCT, levelRank, rowDifficulty, type Difficulty, type Level } from './guide';
@@ -862,11 +862,11 @@ export function presentFirstMessage(given: FirstMessage): string {
     matchedSection = (
       `${longOnly ? LOW_ODDS_HEADING : bestRow ? header : anyGood ? 'Your repos fit these open programs:' : LOW_ODDS_HEADING}\n\n` +
         table(
-          ['Program', 'Prize', 'Difficulty', 'Ends', 'Your repo'],
+          ['Program', AMOUNT_HEADER, 'Difficulty', 'Ends', 'Your repo'],
           rows.map(({ card, repo, v, row, odds, low_reason }) => {
             return [
               programCell(card, entered, false),
-              prizeOf(card),
+              upToCell(prizeOf(card)),
               rowCell(card, row),
               endsOf(card),
               odds === 'low'
@@ -910,8 +910,8 @@ export function presentFirstMessage(given: FirstMessage): string {
             : 'Open money right now:'
       }\n\n` +
         table(
-          ['Program', couldWin ? 'You could win' : 'Prize', 'Difficulty', 'Ends'],
-          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), prizeOf(c), difficultyCell(c), endsOf(c)]),
+          ['Program', couldWin ? 'You could win' : AMOUNT_HEADER, 'Difficulty', 'Ends'],
+          shown.map((c) => [programCell(c, entered, noMatch(m.repos)), couldWin ? prizeOf(c) : upToCell(prizeOf(c)), difficultyCell(c), endsOf(c)]),
         ) +
         (more > 0 ? `\n\n${more} more open: ask me for the full list.` : ''),
     );
