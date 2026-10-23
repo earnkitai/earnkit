@@ -2381,3 +2381,5 @@ v3.1 owner people view (2026-10-23): `people-signals.ts` (new: `peopleSignals`, 
 `x-oauth.ts` (`XUser.createdAt`, `followers`), `x-install.ts bindXIn`, `x-link.ts` (carry them); schema
 `builder_profiles.x_created_at/x_followers/x_checked_at`, `x_signin_links.x_created_at/x_followers`,
 `person_wallets.first_tx_at/funder/signals_checked_at`, view `owner_people`; `events-redact.mts` lists `person_wallets.funder`. Tests: `people-signals.test.ts`, `x-oauth.test.ts`, `events-redact.test.ts` (base tables only).
+
+v3.1 owner tracker (2026-10-23): `owner_people` gains appended columns for jenil.ai /people (project name, repo + private, site, public score/rank, streak and 12-week commit weeks, last activity, avatar, coin + backers + creator fees ETH, programs applied/accepted/won, check-in and email opt-in). Test: `owner-tracker.test.ts`; `people-signals.test.ts` and `referral.test.ts` follow the new column order.

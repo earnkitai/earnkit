@@ -36,6 +36,8 @@ test('v3 Stage 2 Task 4: a database with the first creator_fees (two-column key)
   const key = async () => (await sql()<{ def: string }[]>`
     SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'creator_fees_pkey' AND conrelid = 'creator_fees'::regclass`)[0]?.def;
   // The round-1 table, with an uncapped claim and its coin cursor.
+  // owner_people reads creator_fees (v3.1 owner tracker); the rerun below recreates it.
+  await sql()`DROP VIEW IF EXISTS owner_people`;
   await sql()`DROP TABLE creator_fees`;
   await sql()`CREATE TABLE creator_fees (tx_hash text NOT NULL, log_index integer NOT NULL, coin text NOT NULL, wallet text NOT NULL, amount_wei numeric NOT NULL, block_number bigint NOT NULL, block_time timestamptz NOT NULL, PRIMARY KEY (tx_hash, log_index))`;
   await sql()`INSERT INTO creator_fees VALUES ('0xold', 1, '0xc0', '0xw0', 10, 1, now())`;

@@ -126,24 +126,25 @@ test('an install from a builder page stores that builder once; no cookie or an u
   await noteReferral(r.id, r.handle);
   assert.equal((await refOf(r.id)).ref_builder_id, null, 'own root');
 
-  // owner_people: the count, the builder's own excluded, as the last column.
+  // owner_people: the count, the builder's own excluded, right after last_seen_at (the owner tracker's columns follow).
   const b = await installVia(`${REF_COOKIE}=${r.handle}`);
   assert.equal((await refOf(b.id)).ref_builder_id, r.id);
   await sql()`UPDATE installations SET ref_builder_id = ${r.id} WHERE id = ${own}`; // even if one slipped in, it is not counted
   const [row] = await sql()<Record<string, unknown>[]>`SELECT * FROM owner_people WHERE builder_id = ${r.id}`;
   assert.equal(row.referred_installs, 2);
-  assert.equal(Object.keys(row).at(-1), 'referred_installs');
+  const keys = Object.keys(row);
+  assert.equal(keys[keys.indexOf('last_seen_at') + 1], 'referred_installs');
   const [none] = await sql()<{ referred_installs: number }[]>`SELECT referred_installs FROM owner_people WHERE builder_id = ${other.id}`;
   assert.equal(none.referred_installs, 0);
 });
 
-test('schema: the referral columns are additive and idempotent, owner_people keeps its column order with referred_installs last', () => {
+test('schema: the referral columns are additive and idempotent, owner_people keeps its column order with referred_installs after last_seen_at', () => {
   const schema = readFileSync(join(import.meta.dirname, '../../db/schema.sql'), 'utf8');
   assert.match(schema, /ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_builder_id integer;/);
   assert.match(schema, /ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_at timestamptz;/);
   assert.ok(schema.indexOf('ADD COLUMN IF NOT EXISTS ref_builder_id') < schema.indexOf('CREATE OR REPLACE VIEW owner_people'), 'the columns exist before the view reads them');
   assert.equal(schema.split('CREATE OR REPLACE VIEW owner_people').length - 1, 1, 'one definition, so a rerun never drops a column');
-  assert.match(schema, /AS last_seen_at,\n {2}\(SELECT count\(\*\) FROM installations r WHERE r\.ref_builder_id = p\.builder_id[^\n]*AS referred_installs\nFROM builder_profiles p/);
+  assert.match(schema, /AS last_seen_at,\n {2}\(SELECT count\(\*\) FROM installations r WHERE r\.ref_builder_id = p\.builder_id[^\n]*AS referred_installs,\n/);
 });
 
 test('the profile: a calm "Get your own page" panel at the bottom with the header\'s install sheet, and the page remembered', () => {
