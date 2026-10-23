@@ -12,9 +12,11 @@ import { THEME } from './theme';
 import { WEEK_TEXT, weekGet } from './week-links';
 import { VERIFY_PAGE, confirmPage, verifyPage } from './github-verify';
 import { signinPage } from './x-install';
-import { WORDMARK_D } from '../../app/components/ui/Logo';
-import { benchCard, headlineSize } from '../../app/[handle]/card-response';
-import type { BenchCardFacts } from './bench-data';
+import { benchCard, factsLine } from '../../app/[handle]/card-response';
+import { shareCardFacts, type ShareCardFacts } from '../../app/[handle]/card-facts';
+import type { ProfileData } from './bench-data';
+import type { ProfileSite } from './site-data';
+import { SITE } from './site-theme';
 
 /**
  * v3 Stage 3 Task 6 (spec 5.6, 5.8): the route-handler HTML pages, the share card, the README badge and the OG image
@@ -85,35 +87,86 @@ test('T6.2 the unsubscribe pages go through brandShell and keep their status and
   assert.ok(typeof UNSUB_DONE === 'string');
 });
 
-const FACTS: BenchCardFacts = {
-  handle: 'maya_makes', name: 'Maya Chen', avatar: null, bench: 'Shipping 91 · #1 of 40 builders', project: 'recipes', streak: 6, raising: 'RCP', score: 91, earned: 340,
+const FACTS: ShareCardFacts = {
+  handle: 'maya_makes', name: 'Maya Chen', avatar: null, url: 'earnkit.com/maya_makes', idle: null,
+  project: { name: 'recipes', letter: 'R', color: SITE.logoViolet, onBase: true, live: 'recipes.app', facts: ['6 weeks in a row', 'Building since Mar 2025'] },
+  tiles: [{ kind: 'score', score: 91, rank: '#1 of 40 builders' }, { kind: 'backing', symbol: 'RCP', backers: 14 }],
 };
 
-test('T6.3 the card: black from THEME, the wordmark, name and handle, the rank line as the 64px headline, Shipping and Earned, project and streak, the URL, the Backing pill', () => {
+test('T6.3 (GTM W4) the card: the v3.1 site tokens only, the blue hero (name, @handle, project, live host, facts, the URL with the mark), the ring with the rank, Backing', () => {
   const src = readFileSync(join(ROOT, 'app/[handle]/card-response.tsx'), 'utf8');
-  assert.doesNotMatch(src, /#[0-9a-f]{3,8}\b/i, 'no hex outside THEME');
-  assert.match(src, /from '\.\.\/\.\.\/lib\/earnkit\/theme'/);
-  assert.doesNotMatch(src, /gradient\(/);
-  const html = renderToStaticMarkup(benchCard(FACTS, null, true));
-  assert.ok(html.includes(`background-color:${THEME.page}`), 'black');
-  assert.ok(html.includes(WORDMARK_D.slice(0, 40)), 'the wordmark');
+  assert.doesNotMatch(src, /#[0-9a-f]{3,8}\b/i, 'no hex outside SITE');
+  assert.match(src, /from '\.\.\/\.\.\/lib\/earnkit\/site-theme'/);
+  assert.doesNotMatch(src, /gradient\(/, 'flat cards, as the profile');
+  const html = renderToStaticMarkup(benchCard(FACTS, null));
+  assert.ok(html.includes(`background-color:${SITE.page}`) && html.includes(`background-color:${SITE.blue}`), 'the page ground and the blue hero');
   assert.ok(html.includes('Maya Chen') && html.includes('@maya_makes'));
-  assert.match(html, /font-size:64px[^>]*>#1 of 40 builders</, 'the rank line is the 64px headline');
-  assert.match(html, />91<[\s\S]*?>Shipping</, 'Shipping');
-  assert.match(html, />\$340<[\s\S]*?>Earned</, 'Earned');
-  assert.ok(html.includes('recipes · 6 weeks in a row'), 'project and streak');
+  // The quiet facts are one line that fits the panel: the second only when both fit (factsLine).
+  assert.match(html, />recipes<[\s\S]*?>recipes\.app<[\s\S]*?>6 weeks in a row</, 'project, live host, facts');
+  assert.equal(factsLine(['6 weeks in a row', 'Building since Mar 2025']), '6 weeks in a row');
+  assert.equal(factsLine(['Building since Mar 2025', 'Won Base Batches']), 'Building since Mar 2025');
+  assert.equal(factsLine(['3 weeks in a row', 'Won Arc grants']), '3 weeks in a row · Won Arc grants');
+  assert.match(html, />91<[\s\S]*?>Shipping score<|>Shipping score<[\s\S]*?>91</, 'the ring');
+  assert.match(html, />#1<[\s\S]*?>of 40 builders</, 'the rank helper\'s line, split');
+  assert.match(html, />Backing open<[\s\S]*?>\$RCP<[\s\S]*?>14 backers</, 'Backing');
   assert.ok(html.includes('earnkit.com/maya_makes'), 'the URL');
-  assert.ok(html.includes('Backing · $RCP'), 'the pill');
-  assert.doesNotMatch(html, /Shipping 91 · /, 'the score line is split into its numbers, not repeated');
-  assert.equal(headlineSize('#1 of 40 builders'), 64);
-  // No Earned at zero; no pill while closed; unranked: the project is the headline and no number shows.
-  const quiet = renderToStaticMarkup(benchCard({ ...FACTS, earned: null, raising: null }, null, true));
-  assert.doesNotMatch(quiet, /Earned|Backing/);
-  const unranked = renderToStaticMarkup(benchCard({ ...FACTS, bench: null, score: null, earned: null }, null, true));
-  assert.doesNotMatch(unranked, /Shipping|Earned|>91</);
-  assert.match(unranked, /font-size:64px[^>]*>recipes</);
-  // Every colour on the card is a THEME value.
-  for (const hex of html.match(/#[0-9a-f]{6}/gi) ?? []) assert.ok(Object.values(THEME).includes(hex as never), `card hex ${hex}`);
+  assert.doesNotMatch(html, /stroke-dasharray="[^"]*NaN/);
+  // Every colour on the card is a SITE value.
+  const site = Object.values(SITE).map((v) => v.toLowerCase());
+  for (const hex of html.match(/#[0-9a-f]{6}\b/gi) ?? []) assert.ok(site.includes(hex.toLowerCase()), `card hex ${hex}`);
+  // A painting fills a slot no fact fills; without one the hero takes the width.
+  const art = { tall: 'data:image/jpeg;base64,AAAA', half: 'data:image/jpeg;base64,BBBB' };
+  const one = renderToStaticMarkup(benchCard({ ...FACTS, tiles: [FACTS.tiles[0]] }, null, [], art));
+  assert.ok(one.includes('BBBB') && !one.includes('AAAA'), 'one fact: the half painting');
+  const none = renderToStaticMarkup(benchCard({ ...FACTS, tiles: [] }, null, [], art));
+  assert.ok(none.includes('AAAA') && !none.includes('BBBB'), 'no fact: the tall painting');
+  assert.ok(!renderToStaticMarkup(benchCard(FACTS, null, [], art)).includes('data:image/jpeg'), 'two facts: no painting');
+  const bare = renderToStaticMarkup(benchCard({ ...FACTS, tiles: [] }, null));
+  assert.ok(bare.includes('width:1152px'), 'no painting read: the wide hero');
+});
+
+test('GTM W4 shareCardFacts: verified facts only, in the page\'s words; no confirmed project, one calm line; never a near-empty card', () => {
+  const d = (o: Partial<ProfileData> = {}) =>
+    ({
+      handle: 'kai', name: 'Kai N', avatar: null, streak: 5, score: 64, rankListed: true, bench: 'Top 4% of builders',
+      grid: [], project: { name: 'Paylink', confirmed: true, chains: ['base'] }, ...o,
+    }) as unknown as ProfileData;
+  const site = (o: Partial<ProfileSite> = {}) =>
+    ({
+      highlights: [
+        { icon: 'live', title: 'Live at paylink.app', sub: 'Up 7 of the last 7 days checked' },
+        { icon: 'repo', title: 'Building Paylink since Jan 2025', sub: '412 commits in the last year' },
+        { icon: 'won', title: 'Won Base Batches', sub: 'Oct 2026' },
+      ],
+      token: null, starting: false,
+      project: { name: 'Paylink', about: null, link: null, repo: null, onBase: true, earnkit: false, letter: 'P', color: SITE.logoGreen },
+      ...o,
+    }) as unknown as ProfileSite;
+  const f = shareCardFacts(d(), site());
+  assert.deepEqual(f.tiles.map((t) => t.kind), ['score', 'won']);
+  assert.deepEqual(f.tiles[0], { kind: 'score', score: 64, rank: 'Top 4% of builders' });
+  assert.equal(f.project?.live, 'paylink.app');
+  assert.deepEqual(f.project?.facts, ['5 weeks in a row', 'Building since Jan 2025']);
+  assert.equal(f.url, 'earnkit.com/kai');
+  // Unranked: no ring; the win and the streak take the slots, the commits read under the name.
+  const u = shareCardFacts(d({ rankListed: false, score: null, bench: null }), site());
+  assert.deepEqual(u.tiles.map((t) => t.kind), ['won', 'streak']);
+  assert.deepEqual(u.project?.facts, ['Building since Jan 2025']);
+  // Backing (the Token card: EARNKIT_RAISING on, coin live): backers only from 5.
+  const b = shareCardFacts(d(), site({ token: { symbol: 'PAY', backers: 4 } as ProfileSite['token'] }));
+  assert.deepEqual(b.tiles[1], { kind: 'backing', symbol: 'PAY', backers: null });
+  // Commits as a tile carry "Building since" as their title.
+  const c = shareCardFacts(d({ rankListed: false, score: null, streak: 0 }), site({ highlights: site().highlights.filter((h) => h.icon !== 'won') }));
+  assert.deepEqual(c.tiles, [{ kind: 'commits', value: '412', label: 'commits in the last year', since: 'Building since Jan 2025' }]);
+  // A confirming project is never named; no project: the calm line and when they joined.
+  const start = [{ icon: 'start', title: 'On EarnKit since Oct 23', sub: 'No project on the leaderboard yet' }];
+  for (const x of [d({ project: { name: 'Paylink', confirmed: false } as ProfileData['project'] }), d({ project: null })]) {
+    const i = shareCardFacts(x, site({ highlights: start as ProfileSite['highlights'] }));
+    assert.equal(i.project, null);
+    assert.deepEqual(i.idle, { line: 'Building with AI', sub: 'On EarnKit since Oct 23' });
+    assert.deepEqual(i.tiles, []);
+  }
+  assert.equal(shareCardFacts(d({ project: null }), site({ starting: true, highlights: start as ProfileSite['highlights'] })).idle?.line, 'Getting started on Base');
 });
 
 test('T6.4 the badge: unchanged geometry, label black, value brand blue, white text, muted when not found, aria-label unchanged', () => {

@@ -230,9 +230,19 @@ apps/frontend/
                                v3.1 one-tap posts Task 5: loadFonts adds Kaftan Serif (assets/fonts/kaftan-serif.woff);
                                cardResponse(handle, path, m) draws a post's card (post-card.ts postCardFacts) for ?m=<code>,
                                else the page's; a rename's 308 keeps a well-formed ?m
+                               GTM W4: benchCard(ShareCardFacts, avatar, grid, art) is the v3.1 profile in small (blue
+                               hero, up to two fact cards, a public/art painting in a free slot; loadArt); shareCardRead
+                               reads profileData + profileSite; avatarData drops GitHub's default picture (githubDefault:
+                               a 420x420 PNG); fonts Funnel Sans 400/600 + Kaftan; nameSize, factsLine; re-exports CardWordmark
+  app/[handle]/card-facts.ts   GTM W4: shareCardFacts (pure): the share card's facts from the page's reads (Highlights'
+                               words, the rank helpers' line): project + live host + quiet facts, tiles (score, backing,
+                               won, streak, commits; at most 2), or the idle line ("Building with AI" / STARTING_ON_BASE)
+  app/[handle]/card-parts.tsx  GTM W4: pieces both cards draw: CardWordmark, CardMark, CardPhoto (initial when no
+                               picture), CardRing (the Shipping ring for satori), DISPLAY/SANS
   app/[handle]/post-card-image.tsx  v3.1 one-tap posts Task 5: postCard (pure): the number, milestone and text layouts on
                                the v3.1 SITE tokens, Kaftan headline and numbers, the 12 weeks as squares, the live Backing
-                               pill; clip, textHeadSize
+                               pill; clip, textHeadSize. GTM W4: each layout one rounded card on the page ground, Funnel
+                               Sans, labels 24px+, card-parts CardPhoto
   app/[handle]/{card.png/route.tsx,share/route.ts}  thin routes over card-response.tsx (live is exported for post-response.ts);
                                card.png passes ?m
   app/[handle]/handle-view.tsx  (v3.1 one-tap posts) postOf (?m, a well-formed code), handleMetadata(handle, post): og:image
