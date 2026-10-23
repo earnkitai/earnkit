@@ -6,7 +6,7 @@ import { mainProjectOf } from './main-project';
 import { pagePath } from './reserved-routes';
 import { noteEvent } from './events';
 import type { WeekFacts } from './week-facts';
-import { approveWeek, lastWeekOf, momentLines, weekRules } from './weekly-moment';
+import { approveWeek, lastWeekOf, momentLines } from './weekly-moment';
 import { lastFinishedMonday, weekOfMonday } from './weeks';
 
 /**
@@ -166,8 +166,8 @@ export async function weekPost(request: Request): Promise<Response> {
     const seenHash = await seenOf(request);
     if (seenHash && (!had?.summary || summaryHash(had.summary) !== seenHash)) return weekPage(r, WEEK_TEXT.changed, 409);
     const seen = seenHash ? had!.summary : null;
-    // An approval that no longer stands (a private repo's summary changed since its yes) is given again.
-    const stands = had ? (await weekRules(builderId, r.key)).current(had) : false;
+    // Approved again when not approved yet, or when the page showed a summary the approval is not bound to.
+    const stands = had?.facts?.approved === true && (seen === null || had.facts.approved_summary === seen);
     if (!stands && !(await approveWeek(builderId, r.key, monday, now, 'email', seen))) return bad();
     // Fix round 1: Looks right after Hide shows the week again (the page says it does).
     await sql()`UPDATE project_updates SET hidden = false

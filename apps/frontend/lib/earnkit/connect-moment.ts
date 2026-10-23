@@ -13,12 +13,12 @@ export { connectAsk };
  * standing_seen.connect_open (the open offer, its once-guard) and standing_seen.connect_done (answered, or nothing
  * to confirm).
  */
-export type ConnectWeek = { monday: string; line: string; /** The stored summary behind the line (the yes binds to it). */ summary: string | null };
+export type ConnectWeek = { monday: string; line: string };
 /**
  * Task 16: `best`, the Best fit the offer named ("You qualify for ..."), so the yes offers to draft it (step 4).
  */
 export type ConnectBest = { program_id: string; title: string; amount: string | null; when: string | null; repo?: string };
-export type ConnectOpen = { key: string; weeks: string[]; best?: ConnectBest; /** Owner batch fix round: each week's stored summary as shown. */ seen?: Record<string, string | null> };
+export type ConnectOpen = { key: string; weeks: string[]; best?: ConnectBest };
 
 /** Task 16 step 4: the yes's first line, the page its one link. */
 export const CONNECT_DONE = (url: string) => `You're live: ${url}`;
@@ -51,8 +51,6 @@ export async function connectWeeks(builderId: number, key: string, now: Date = n
   if (open.length === 0) return [];
   return open.map((r) => ({
     monday: r.monday,
-    // Owner batch fix round: the summary a yes binds to only when the line shows it word for word.
-    summary: r.summary !== null && line(r) === r.summary ? r.summary : null,
     line: `${weekLabel(r.monday)}: ${((r.titles.length > 0 || r.summary) ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
   }));
 }
@@ -123,9 +121,9 @@ export async function answerConnect(
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.o.key}) AND week = ${monday}::date
           AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'`;
       if (!ok) continue;
-      // An older offer without `seen` binds to nothing (approveWeek).
-      const seen = r.o.seen?.[monday] ?? null;
-      if (await approveWeek(builderId, r.o.key, monday, now, 'connect', seen)) approved++;
+      // Owner batch fix wave: the connect yes binds no summary (up to 12 weeks, none quoted word for word); consent to a
+      // private repo's summary comes from the weekly moment or the email page.
+      if (await approveWeek(builderId, r.o.key, monday, now, 'connect', null)) approved++;
     } catch (err) {
       console.error('[connect] approve', err instanceof Error ? err.name : 'error');
       failed.push(monday);

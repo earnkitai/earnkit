@@ -73,6 +73,8 @@ export type ConnectOffer = { weeks: number; points: number };
  */
 export type MomentView = {
   week: number; place: 'still' | 'now' | null; rank: number;
+  /** Owner batch fix wave: last week's stored summary, shown as one quoted line under the head; a yes binds to it. */
+  summary?: string | null;
   /** v3.1 one-tap posts (design 6): last week's drafted post, else null (the reply gives the page). */
   post: PostOffer | null;
 };
@@ -380,7 +382,7 @@ export function benchReply(v: BenchView): string {
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
     // v3.1 one-tap posts (design 6): last week's post and its one-tap link, else the page (the reply's one https link).
-    return paras([momentHead(v.moment), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
+    return paras([momentHead(v.moment), ...(v.moment.summary ? [`"${v.moment.summary}"`] : []), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);

@@ -97,6 +97,20 @@ test('(b) yes approves all three with via connect, 30 points each, activation co
   assert.ok(st.connect_done && !st.connect_open);
 });
 
+test('(b2) owner batch fix wave: the connect offer quotes no summary, so its yes binds none (consent comes from the moment or the email)', db, async () => {
+  await freshBoard();
+  const me = await ranked('cnbs');
+  await backfilled(me.id, me.key);
+  await sql()`UPDATE project_updates SET summary = 'Added the secret billing page.' WHERE builder_id = ${me.id}`;
+  const s = show(await mcpCall(ctx(me.id), 'find', {}));
+  assert.doesNotMatch(s, /secret billing/, s);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: /);
+  const rows = await sql()<{ approved: boolean; bound: string | null; has: boolean }[]>`
+    SELECT (facts->>'approved')::boolean AS approved, facts->>'approved_summary' AS bound, facts ? 'approved_summary' AS has FROM project_updates WHERE builder_id = ${me.id}`;
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every((r) => r.approved && r.has && r.bound === null), JSON.stringify(rows));
+});
+
 test('(c) a second yes is "Okay."', db, async () => {
   await freshBoard();
   const me = await ranked('cnc');

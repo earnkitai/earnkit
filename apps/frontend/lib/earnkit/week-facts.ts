@@ -34,6 +34,8 @@ export type WeekFacts = {
   approved?: boolean; approved_at?: string; approved_via?: string;
   /** Owner batch fix round: the stored summary at the latest approval (week-summary.ts summaryConsented). */
   approved_summary?: string | null;
+  /** Owner batch fix wave: a summary offered once without being shown (weekly-moment.ts markOffered). */
+  offered_summary?: string;
 };
 /** The terms' promise: an unconfirmed week is shown, marked this. Lives in update-links.ts so the card (a client component) never imports this server module. */
 export { UNCONFIRMED_LABEL } from './update-links';

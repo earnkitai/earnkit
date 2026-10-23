@@ -27,6 +27,8 @@ export type LastWeek = {
   monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean;
   /** Owner batch fix round: the stored summary, only when the line shows it word for word (a yes binds to it, approveWeek `seen`). */
   summary?: string | null;
+  /** The stored summary whatever the line shows (an offer that can't show it is recorded: markOffered). */
+  stored?: string | null;
   /** Task 16 fix round 1: the week's row has facts (week-facts.ts hasFacts), so its approval earns points (approveWeek). */
   facts: boolean;
 };
@@ -142,7 +144,7 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     // Owner batch fix round: a private repo's summary changed since the yes is asked about again.
     approved = rules.current(u);
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, facts: hasFacts(u?.facts ?? {}) };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, stored: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}) };
 }
 
 /** A ship-log row as the week rules read it. */
@@ -156,8 +158,9 @@ type LogRow = { titles: string[]; summary: string | null; facts?: WeekFacts | nu
  *   (update-text.ts checkUpdate) and never holding a link. `asking`: a line in a question to the builder alone about
  *   approving the week (the weekly moment, the connect offer, the weekly email), so the builder sees the summary they
  *   approve before it shows anywhere (owner batch 2026-10-23). Null: nothing to show.
- * - `current`: the week's approval still stands: approved, and for a private repo with titles off whose row has a
- *   summary, approved with that very summary (a rewritten or re-read one asks again).
+ * - `current`: nothing left to ask: approved, and for a private repo with titles off whose row has a summary, approved
+ *   with that very summary, or that summary was already offered once without being shown (facts.offered_summary,
+ *   markOffered: never re-offered forever). A rewritten or re-read one asks again, once.
  */
 export async function weekRules(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<{ line: (u: LogRow) => string | null; current: (u: LogRow) => boolean }> {
   const db = sql();
@@ -178,8 +181,19 @@ export async function weekRules(builderId: number, key: string, o: { asking?: bo
     return (summary && safe(summary)) || null;
   };
   const current = (u: LogRow) =>
-    u.facts?.approved === true && (!(rule.hiddenRepo && !rule.titlesOn) || !u.summary || summaryConsented(u.facts, u.summary));
+    u.facts?.approved === true &&
+    (!(rule.hiddenRepo && !rule.titlesOn) || !u.summary || summaryConsented(u.facts, u.summary) || u.facts.offered_summary === u.summary);
   return { line, current };
+}
+/**
+ * Owner batch fix wave (6): an offer for week `monday` that could not show its stored summary `summary` (the line was not
+ * it word for word) is recorded (facts.offered_summary), so that text counts as offered, not approved, and is not asked
+ * about again (weekRules `current`). Never throws.
+ */
+export async function markOffered(builderId: number, key: string, monday: string, summary: string): Promise<void> {
+  await sql()`UPDATE project_updates SET facts = facts || jsonb_build_object('offered_summary', ${summary}::text)
+    WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND summary = ${summary}`
+    .catch((err: unknown) => console.error('[moment] offered', err instanceof Error ? err.name : 'error'));
 }
 /** weekRules' `line` alone. */
 export async function weekLineRule(builderId: number, key: string, o: { asking?: boolean } = {}): Promise<(u: LogRow) => string | null> {

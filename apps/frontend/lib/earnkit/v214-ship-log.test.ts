@@ -10,7 +10,6 @@ import { profileData } from './bench-data';
 import { weeklyFactsStep, writeWeek } from './week-facts';
 import { answerShare, approveWeek, lastWeekOf, openShare, weekLineRule, weekRules } from './weekly-moment';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
-import { connectWeeks } from './connect-moment';
 import { isoWeekOf } from './weeks';
 import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
@@ -228,12 +227,10 @@ test('8.10e fix round: the moment binds a yes only to a summary its line shows w
   await sql()`UPDATE project_updates SET summary = 'Added a shopping list.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
   const shown = await lastWeekOf(p.id, key, MONDAY_RUN);
   assert.deepEqual([shown?.titles, shown?.summary], [['Added a shopping list.'], 'Added a shopping list.']);
-  assert.equal((await connectWeeks(p.id, key, MONDAY_RUN)).find((w) => w.monday === WEEK)?.summary, 'Added a shopping list.', 'the connect offer too');
   // A stored summary the line can't show (it names the repo): nothing to bind to.
   await sql()`UPDATE project_updates SET summary = 'Shipped Hushed dark mode.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
   const hidden = await lastWeekOf(p.id, key, MONDAY_RUN);
   assert.deepEqual([hidden?.titles, hidden?.summary], [[], null]);
-  assert.equal((await connectWeeks(p.id, key, MONDAY_RUN)).find((w) => w.monday === WEEK)?.summary, null);
 });
 
 test('8.10c owner batch: without a model a private repo\'s commits are still never read (titles off)', db, async () => {
