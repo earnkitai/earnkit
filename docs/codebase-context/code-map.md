@@ -1494,7 +1494,9 @@ apps/frontend/
                                repo_facts not_mine on the unconfirmed one project); launch ready L2: rankRepo (tell
                                main_project: the one project moves, even a confirmed one, only to a repo this person proved
                                with the App)
-    repo-proof.ts              v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
+    repo-proof.ts              GTM W2: proveCovered (a repo on a GitHub login this person proved, that GitHub names an App
+                               installation for: proveByApp + a verification row; never asked to install again).
+                               v2.14 T6 (spec 2): the App as the only proof (the proof-branch module and its test were
                                deleted; proof_branches and proof_line_issues stay, unused). APP_PROOF 'github_app', APP_REMOVED,
                                APP_CHECK_PER_RUN 50, APP_CHECK_EVERY_MS 1 day, APP_PROOF_FRESH_MS (a day + 2 h);
                                repoProof(builderId, key, db?, { forAction? }) (app / kept / none / taken / copy;
@@ -1578,6 +1580,19 @@ apps/frontend/
                                qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
+    agent-reach.ts             GTM W2 (2026-10-23): agentReach(own, builder) -> { hosted, schedules } from installations.client_name
+                               (hosted: grok, muse, meta, instinct, openclaw; schedules: grok, cursor, openclaw, hermes) and
+                               standing_seen.no_folder (find told agent_can_build: false: rememberNoFolder; both true); reachOf (pure)
+    bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
+                               (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
+                               host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;
+                               the Monday check-in (checkin_asked, CHECKIN_NOTE / CHECKIN_YES_NOTE, checkinAnswer); ship asked at
+                               most once in SHIP_ASK_DAYS (ship_asked; else ask kind none, no move_up); hosted notes
+                               (SHIP_STEP_NOTE_HOSTED, SHIP_NOTE_HOSTED, QUALIFY_STEPS_NOTE_HOSTED); base_help (baseHelpAnswer,
+                               BASE_HELP_NOTE); NEXT_STEP_LATER for the no-GitHub nos; repo_behind no routed to githubAnswer; the
+                               email question as move_up weekly_email (emailMoveUp, EMAIL_ASK_NOTE, emailAnswer); coveredRead and
+                               rankAnswer prove a repo the builder's App already covers (repo-proof.ts proveCovered); appConnected
+                               (installMoreAsk, never "Step 2 of 2" again); tokenAsk answers a launched, backed coin with backersLine.
     bench-find.ts(+test)       2026-10-23 Base onboarding: githubAnswer (pick_repo no/yes), connectAfterAll, restAnswer
                                (next_step), baseStartAnswer, afterGithubNo, walletStep, restStep, baseOpenFor, baseGrantOpen,
                                staleRepo, connectedSince (NEW_REPO_GRACE_DAYS), takeOnce, takeTemplateNotice, KINDLESS_ROUTED, BASE_START_NOTE,
@@ -1650,7 +1665,10 @@ apps/frontend/
                                coin_moments, once per project), openCoinLine (an open offer shown again), coinYes (the coin program's entry + saved offer;
                                confirm by project_id launches it), coinNo (recordDecline), coinOpen,
                                coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
-                               COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK
+                               COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK. GTM W2: a private repo is offerable with a public name
+                               (publicName: page-data.ts safeNames, never PRIVATE_NAME); offerCoin/openCoinLine/coinYes name and
+                               propose it from that name only; coinYes's private entry keeps repo_url (gate, one per repo) with
+                               repo_private true; COIN_NO_PUBLIC_NAME
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with
@@ -1700,7 +1718,9 @@ apps/frontend/
                                (tell program_status with proof_url, else PROOF_ASK + PROOF_NOTE; OUTCOME_NOTED when the program
                                lists no proof hosts or X accounts), redraftAnswer (the yes to "Want a different version?"),
                                POST_NOTE; final review: eventPost tries each offered moment in turn and remembers nothing to
-                               draft for the UTC day under eventStamp; v31-post-replies.test.ts through mcpCall
+                               draft for the UTC day under eventStamp; v31-post-replies.test.ts through mcpCall. GTM W2:
+                               outcomePost leads with outcomeCongrats (never nothing); coinLaunchedReply (confirm's launched
+                               reply: coinLiveLine + the coin_intro post, else the coin's page); draftedReply takes a head
     post-writer.ts(+test)      v3.1 one-tap posts Task 2: the pure writer. POST_SHAPES (note, name_week, change, this_week,
                                count, bare, live/live_alt, won/won_alt, accepted/accepted_alt, funded/funded_alt, coin_intro),
                                writePost(input, history) (rotation: never one of the last 2 shapes nor the last opening word,
@@ -1793,6 +1813,11 @@ apps/frontend/
                                walletXStart, walletXSignedIn (sets the __Host-ekwx- browser cookie), walletTokenCookie, walletXCookie, walletPost
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
                                state: wallet_link_at), walletChangeReply, takeWalletNotice, WALLET_NOTE
+    gtm-w2-replies.test.ts     GTM W2 (2026-10-23), through mcpCall: value before the ask, the Lovable live-link path and the
+                               walk-through (no "Okay.", no host as the name), hosted notes and the weekly ship question, the
+                               check-in, an App already installed, tell submitted, an acceptance's congrats + post + Highlight,
+                               backing above apply and in the connect yes, a private repo's coin under its public name, the
+                               launch reply, the backers answer, the email move_up
     v31-base-onboarding.test.ts 2026-10-23 Base onboarding: the GitHub no remembered (github_no), the Base walk-through once
                                (BASE_START_ASK / BASE_START_STEPS, base_walk), the wallet step after the GitHub no, the
                                resting reply (next_step), the profile's "Getting started on Base", the picker's template
