@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { brandShell } from './brand-page';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
@@ -66,7 +66,14 @@ export const WEEK_TEXT = {
   bad: 'This link is not valid.',
   expired: 'This link has expired.',
   page: 'See your page',
+  /** Owner batch fix round: the summary changed after the page was opened. */
+  changed: 'This week changed. Check it again.',
 } as const;
+
+/** Owner batch fix round: the form field binding a Looks right to the summary the page showed (summaryHash). */
+export const SEEN_FIELD = 's';
+/** The hash of a summary as the page carries it. Pure. */
+export const summaryHash = (summary: string): string => createHash('sha256').update(`week-summary:v1:${summary}`).digest('hex').slice(0, 32);
 
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -102,23 +109,47 @@ async function resolve(request: Request): Promise<{ t: WeekTarget; key: string; 
 const handleOf = async (builderId: number) =>
   (await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${builderId}`)[0]?.handle ?? null;
 
-/** GET: the week's lines (when it is still last week) and one button that POSTs to the same link. Changes nothing. No script. */
+/**
+ * The week's lines (when it is still last week) and one button that POSTs to the same link. Owner batch fix round: when
+ * the lines show the week's stored summary (lastWeekOf `summary`), the form carries its hash (SEEN_FIELD), so a Looks
+ * right binds to exactly that text. `note`: a line above the week (WEEK_TEXT.changed).
+ */
+async function weekPage(r: { t: WeekTarget; key: string; token: string }, note: string | null, status = 200): Promise<Response> {
+  const last = await lastWeekOf(r.t.builderId, r.key, new Date()).catch(() => null);
+  const shown = last && last.monday === r.t.monday ? last : null;
+  const lines = shown ? momentLines(shown) : [];
+  const seen = r.t.action === 'approve' && shown?.summary ? summaryHash(shown.summary) : null;
+  const label = r.t.action === 'approve' ? WEEK_TEXT.approve : WEEK_TEXT.hide;
+  return page(
+    `<h1>${escapeHtml(WEEK_TEXT.title)}</h1>` +
+      (note ? `<p class="ek-line">${escapeHtml(note)}</p>` : '') +
+      lines.map((l) => `<p class="ek-line">${escapeHtml(l)}</p>`).join('') +
+      `<div class="ek-actions"><form method="post" action="${escapeHtml(`${siteUrl()}/api/week?t=${encodeURIComponent(r.token)}`)}">` +
+      (seen ? `<input type="hidden" name="${SEEN_FIELD}" value="${seen}">` : '') +
+      `<button class="ek-btn" type="submit">${escapeHtml(label)}</button></form></div>`,
+    status,
+  );
+}
+
+/** GET: the week's page (weekPage). Changes nothing. No script. */
 export async function weekGet(request: Request): Promise<Response> {
   const r = await resolve(request);
   if (!r) return bad();
   if (!weekLinkLive(r.t.monday, new Date())) return expired();
-  const last = await lastWeekOf(r.t.builderId, r.key, new Date()).catch(() => null);
-  const lines = last && last.monday === r.t.monday ? momentLines(last) : [];
-  const label = r.t.action === 'approve' ? WEEK_TEXT.approve : WEEK_TEXT.hide;
-  return page(
-    `<h1>${escapeHtml(WEEK_TEXT.title)}</h1>` +
-      lines.map((l) => `<p class="ek-line">${escapeHtml(l)}</p>`).join('') +
-      `<div class="ek-actions"><form method="post" action="${escapeHtml(`${siteUrl()}/api/week?t=${encodeURIComponent(r.token)}`)}">` +
-      `<button class="ek-btn" type="submit">${escapeHtml(label)}</button></form></div>`,
-  );
+  return weekPage(r, null);
 }
 
-/** POST: approves the week (via 'email', points once) or hides it. Idempotent: an approved week keeps its first approval (a private repo's changed summary is approved again). */
+/** The form's SEEN_FIELD: a 32-character hex hash, else null (none, or not a form). */
+async function seenOf(request: Request): Promise<string | null> {
+  const body = await request.text().catch(() => '');
+  const v = new URLSearchParams(body.slice(0, 1000)).get(SEEN_FIELD);
+  return v && /^[0-9a-f]{32}$/.test(v) ? v : null;
+}
+
+/**
+ * POST: approves the week (via 'email', points once, bound to the summary the page showed) or hides it. Idempotent: an
+ * approved week keeps its first approval (a private repo's changed summary is approved again).
+ */
 export async function weekPost(request: Request): Promise<Response> {
   const r = await resolve(request);
   if (!r) return bad();
@@ -130,9 +161,14 @@ export async function weekPost(request: Request): Promise<Response> {
     const [had] = await sql()<{ titles: string[]; summary: string | null; facts: WeekFacts }[]>`
       SELECT titles, summary, facts FROM project_updates
       WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday}`;
-    // Owner batch fix round: an approval that no longer stands (a private repo's summary changed since) is given again.
+    // Owner batch fix round: the yes binds to the summary the page showed (its hash in the form); a summary changed
+    // since is asked about again; a page that showed none binds to none (the week is approved, no summary consented).
+    const seenHash = await seenOf(request);
+    if (seenHash && (!had?.summary || summaryHash(had.summary) !== seenHash)) return weekPage(r, WEEK_TEXT.changed, 409);
+    const seen = seenHash ? had!.summary : null;
+    // An approval that no longer stands (a private repo's summary changed since its yes) is given again.
     const stands = had ? (await weekRules(builderId, r.key)).current(had) : false;
-    if (!stands && !(await approveWeek(builderId, r.key, monday, now, 'email'))) return bad();
+    if (!stands && !(await approveWeek(builderId, r.key, monday, now, 'email', seen))) return bad();
     // Fix round 1: Looks right after Hide shows the week again (the page says it does).
     await sql()`UPDATE project_updates SET hidden = false
       WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.key}) AND week = ${monday} AND hidden`;

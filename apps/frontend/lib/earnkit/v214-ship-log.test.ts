@@ -8,7 +8,9 @@ import { connectInstallation, saveInstallation } from './installations';
 import { feedWeeks } from './feed';
 import { profileData } from './bench-data';
 import { weeklyFactsStep, writeWeek } from './week-facts';
-import { answerShare, approveWeek, openShare, weekLineRule, weekRules } from './weekly-moment';
+import { answerShare, approveWeek, lastWeekOf, openShare, weekLineRule, weekRules } from './weekly-moment';
+import { LIVE_CALIBRATION_V2 } from './score-calibration';
+import { connectWeeks } from './connect-moment';
 import { isoWeekOf } from './weeks';
 import { weekOfMonday } from './weeks';
 import { attachToX } from './x-install';
@@ -155,7 +157,11 @@ test('8.10b owner batch: a private repo\'s week gets an AI summary that shows on
   const line = await weekLineRule(p.id, key);
   assert.equal(line({ titles: [], summary: r.summary }), null, 'nor a post');
   assert.equal((await weekLineRule(p.id, key, { asking: true }))({ titles: [], summary: r.summary }), r.summary, 'the builder sees what they approve');
+  // Fix round: a yes with no shown text binds to nothing, never to the text stored now.
   assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+  assert.equal((await facts(p.id))?.approved_summary, null);
+  assert.equal(await feedTitles(p.id), null, 'approved without the shown text: hidden');
+  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN, 'share', r.summary));
   assert.equal((await facts(p.id))?.approved_summary, r.summary, 'the yes stores the text it approved');
   assert.equal(await feedTitles(p.id), 'Added a shopping list and fixed the timer.', 'approved: the feed shows it');
   assert.equal(await profileTitles(p.id), 'Added a shopping list and fixed the timer.', 'and the profile');
@@ -174,7 +180,7 @@ test('8.10b owner batch: a private repo\'s week gets an AI summary that shows on
   assert.equal(rules.current((await stored()) as never), false, 'the approval no longer stands: asked again');
   assert.equal(rules.line((await stored()) as never), 'Added a shopping list, fixed the timer and the oven.', 'the builder sees the new text');
   const firstAt = (await facts(p.id))?.approved_at;
-  assert.ok(await approveWeek(p.id, key, WEEK, new Date(MONDAY_RUN.getTime() + 3_600_000)));
+  assert.ok(await approveWeek(p.id, key, WEEK, new Date(MONDAY_RUN.getTime() + 3_600_000), 'share', 'Added a shopping list, fixed the timer and the oven.'));
   assert.equal((await facts(p.id))?.approved_at, firstAt, 'the first approval time is kept');
   assert.equal(await feedTitles(p.id), 'Added a shopping list, fixed the timer and the oven.', 're-approved: shown');
   // A yes binds to the text shown with the offer: changed in between, it is not consented to.
@@ -184,7 +190,7 @@ test('8.10b owner batch: a private repo\'s week gets an AI summary that shows on
   // A stored summary naming the repo or a file never shows, even approved word for word.
   for (const bad of ['Fixed the timer in src/app.ts.', 'Shipped Quietproj dark mode.']) {
     await sql()`UPDATE project_updates SET summary = ${bad} WHERE builder_id = ${p.id} AND week = ${WEEK}`;
-    assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+    assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN, 'share', bad));
     assert.equal(await feedTitles(p.id), null, bad);
     assert.equal(await profileTitles(p.id), null, bad);
   }
@@ -202,7 +208,7 @@ test('8.10d fix round: a summary written while titles were on is not shown once 
   assert.equal(await feedTitles(p.id), null, 'titles off, never approved: hidden');
   await sql()`UPDATE project_updates SET facts = facts || '{"approved": true}'::jsonb WHERE builder_id = ${p.id} AND week = ${WEEK}`;
   assert.equal(await feedTitles(p.id), null, 'approved without that text (an older approval): hidden');
-  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN));
+  assert.ok(await approveWeek(p.id, key, WEEK, MONDAY_RUN, 'share', 'Added a shopping list.'));
   assert.equal(await feedTitles(p.id), 'Added a shopping list.', 'approved word for word: shown');
   // The moment's yes binds to the summary shown with the offer (openShare keeps it), not to a later rewrite.
   const now = new Date();
@@ -211,6 +217,23 @@ test('8.10d fix round: a summary written while titles were on is not shown once 
   assert.equal(await answerShare(p.id, key, 'yes', now), true);
   assert.equal((await facts(p.id))?.approved_summary, 'Added a shopping list.');
   assert.equal(await feedTitles(p.id), null, 'the rewrite was never shown, so never consented to');
+});
+
+test('8.10e fix round: the moment binds a yes only to a summary its line shows word for word', db, async () => {
+  const key = `yul${RUN}/hushed`;
+  const p = await provenPerson('yul', key, true);
+  await weeklyFactsStep(MONDAY_RUN, { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh });
+  await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+    VALUES (${p.id}, '2026-10-18', 40, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${LIVE_CALIBRATION_V2}, false, true)`;
+  await sql()`UPDATE project_updates SET summary = 'Added a shopping list.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  const shown = await lastWeekOf(p.id, key, MONDAY_RUN);
+  assert.deepEqual([shown?.titles, shown?.summary], [['Added a shopping list.'], 'Added a shopping list.']);
+  assert.equal((await connectWeeks(p.id, key, MONDAY_RUN)).find((w) => w.monday === WEEK)?.summary, 'Added a shopping list.', 'the connect offer too');
+  // A stored summary the line can't show (it names the repo): nothing to bind to.
+  await sql()`UPDATE project_updates SET summary = 'Shipped Hushed dark mode.' WHERE builder_id = ${p.id} AND week = ${WEEK}`;
+  const hidden = await lastWeekOf(p.id, key, MONDAY_RUN);
+  assert.deepEqual([hidden?.titles, hidden?.summary], [[], null]);
+  assert.equal((await connectWeeks(p.id, key, MONDAY_RUN)).find((w) => w.monday === WEEK)?.summary, null);
 });
 
 test('8.10c owner batch: without a model a private repo\'s commits are still never read (titles off)', db, async () => {

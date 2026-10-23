@@ -19,7 +19,7 @@ import {
   type DigestFacts,
   type Mailer,
 } from './digest';
-import { WEEK_TEXT, weekGet, weekLinkLive, weekPost, weekTarget, weekToken, weekUrl, weekVerify } from './week-links';
+import { SEEN_FIELD, WEEK_TEXT, summaryHash, weekGet, weekLinkLive, weekPost, weekTarget, weekToken, weekUrl, weekVerify } from './week-links';
 import { profileData } from './bench-data';
 import { feedWeeks, rankFeed } from './feed';
 import { WEEKLY_HOUR_UTC } from './week-facts';
@@ -215,6 +215,49 @@ test('(d) GET /api/week changes nothing; POST approves with via email and awards
       assert.match(await html(g), /This link is not valid\./);
       assert.equal((await weekPost(req(bad, 'POST'))).status, 400);
     }
+  }),
+);
+
+const post = (url: string, form: Record<string, string> = {}) =>
+  new Request(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString() });
+const seenIn = (body: string) => body.match(new RegExp(`name="${SEEN_FIELD}" value="([0-9a-f]{32})"`))?.[1] ?? null;
+
+test('(d2) fix round: Looks right binds to the summary the page showed; changed since, it asks again; no summary shown binds none', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    const me = await builder('mesum');
+    await sql()`UPDATE project_updates SET summary = 'Fixed the login loop.' WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    const approve = weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' });
+    const body = await html(await weekGet(req(approve)));
+    assert.match(body, /Fixed the login loop\./);
+    const seen = seenIn(body);
+    assert.equal(seen, summaryHash('Fixed the login loop.'), 'the form carries the shown summary\'s hash');
+    // Changed after the page was opened: not approved, the page again with the new text.
+    await sql()`UPDATE project_updates SET summary = 'Fixed the login loop and the timer.' WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    const again = await weekPost(post(approve, { [SEEN_FIELD]: seen! }));
+    assert.equal(again.status, 409);
+    const againBody = await html(again);
+    assert.match(againBody, new RegExp(WEEK_TEXT.changed));
+    assert.match(againBody, /Fixed the login loop and the timer\./);
+    assert.equal((await row(me.id)).facts.approved, undefined, 'nothing approved');
+    // The new page's hash approves, bound to the new text.
+    assert.match(await html(await weekPost(post(approve, { [SEEN_FIELD]: seenIn(againBody)! }))), /Confirmed\./);
+    assert.equal((await row(me.id)).facts.approved_summary, 'Fixed the login loop and the timer.');
+
+    // No hash (an older page, or one that showed no summary): approved, bound to no text.
+    const other = await builder('menos');
+    await sql()`UPDATE project_updates SET summary = 'Added search.' WHERE builder_id = ${other.id} AND week = ${LAST}`;
+    const link = weekUrl({ builderId: other.id, key: other.key, monday: LAST, action: 'approve' });
+    assert.match(await html(await weekPost(post(link))), /Confirmed\./);
+    assert.equal((await row(other.id)).facts.approved, true);
+    assert.equal((await row(other.id)).facts.approved_summary, null, 'never bound to text the page did not show');
+    // The week before last shows no summary, so its form carries no hash.
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
+      VALUES (${other.id}, ${other.key}, ${BEFORE}, '{"checked": true, "shipped_code": {"n": 2}}'::jsonb, 'Added filters.')`;
+    const before = await html(await weekGet(req(weekUrl({ builderId: other.id, key: other.key, monday: BEFORE, action: 'approve' }))));
+    assert.ok(!before.includes('Added filters.') && seenIn(before) === null);
+    // A hash for text that is not stored is refused.
+    assert.equal((await weekPost(post(weekUrl({ builderId: other.id, key: other.key, monday: BEFORE, action: 'approve' }), { [SEEN_FIELD]: summaryHash('Something else.') }))).status, 409);
   }),
 );
 

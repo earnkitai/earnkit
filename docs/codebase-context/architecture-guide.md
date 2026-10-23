@@ -4833,11 +4833,15 @@ Confirmed: `github_signin`, `proof_line`, `repo_owner`, `repo_link`, `deployer`,
 `wallet_signed`, `earnkit_hosted`, `x_match` (GitHub's public X field equals the claimed X; T7,
 `discovery.ts provenLogin`; withdrawn, the login is released). Everything else the agent reported is
 shown, marked "Not yet confirmed" on the page (one quiet line when none is confirmed), and adds 0.
-`earnkit_txt` and `dns_txt` confirm a site source only (owner batch 2026-10-23, reversing S9 for sites:
-`confirmed.ts SITE_PROOFS`, `isConfirmedSource`, `CONFIRMED_SITE_PROOFS`): a site proven by its own
-`earnkit.txt` or a DNS TXT record counts toward Shipping (its first day up is a shipping week; on a project
-with a confirmed repo it is a live ship) and its origin may be linked in an update (`updates.ts ownLinks`).
-They never confirm a repo, package or contract; an agent-typed site (proposed, no proof) still adds 0.
+`earnkit_txt` confirms a site source only (owner batch 2026-10-23, reversing S9 for sites: `confirmed.ts
+SITE_PROOFS`, `isConfirmedSource`, `CONFIRMED_SITE_PROOFS`): a site proven by its own `earnkit.txt` counts toward
+Shipping (its first day up is a shipping week; on a project with a confirmed repo it is a live ship) and its origin
+may be linked in an update (`updates.ts ownLinks`). It is checked again on every daily read (`sources.ts
+recheckSite`, before `proveSite`): a miss (no code, or a failed fetch) adds one to `builder_sources.proof_misses`,
+once a day (`proof_checked_day`); the run's deadline counts nothing; one success resets it; the third miss in a row
+revokes it (`rejectSource`, `SITE_PROOF_LOST` = 'site_proof_lost'), so it stops counting, being linked and showing.
+`dns_txt` confirms nothing: nothing verifies or re-checks a DNS record. Neither confirms a repo, package or contract;
+an agent-typed site (proposed, no proof) still adds 0.
 
 **v2.12.2, a reported login's own repos** (`discovery.ts discoverOne`; design note
 `v2.12.2-reported-github-work.md`): with no proven login but an `identity.github_login` the agent
@@ -6584,9 +6588,15 @@ quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows th
   stored `titles` (3) stay for older readers and the read-time fallback.
 - **Read time.** `summaryShown(summary, titlesShown(...), rule)` in `feed.ts feedRows`, `bench-data.ts profileData`
   and `weekly-moment.ts lastWeekOf`: the titles privacy rule, and never text naming a private repo.
-- **Private repos (owner batch 2026-10-23).** Approval is consent: a private repo's week the builder approved
-  (`facts.approved`, from the weekly moment, the connect offer or the email link) shows its stored summary on the
-  feed, profile Activity and posts whatever the titles switch says; an unapproved one shows none. Raw titles stay
+- **Private repos (owner batch 2026-10-23).** Approval is consent, bound to the exact text: a private repo's week
+  with titles off shows its stored summary on the feed, profile Activity and posts only when it equals
+  `facts.approved_summary` (`week-summary.ts summaryConsented`). `weekly-moment.ts approveWeek(..., seen)` stores the
+  summary the builder was shown: the moment keeps it in `share_open.summary`, the connect offer in `connect_open.seen`
+  (each only when the line shows the stored summary word for word), the email page in a hidden form field
+  (`week-links.ts SEEN_FIELD`, `summaryHash`; a POST whose hash no longer matches gets the page again, 409). No `seen`
+  binds to nothing. A summary rewritten or re-read after the yes is hidden until approved again: `weekRules(...).current`
+  makes the moment, the connect offer and the email link ask again; the first approved_at and approved_via are kept.
+  A summary written while titles were on is not shown once they are off unless approved word for word. Raw titles stay
   hidden unless titles are on. `weekTitles` reads a private repo with titles off only when a model is set
   (`ANTHROPIC_API_KEY`): its titles (those naming the repo dropped) go to Haiku, the summary must pass `checkUpdate`
   and never name the repo or a file (`namesPath`), there is no rule-summary fallback (it repeats titles nearly word
@@ -7675,7 +7685,7 @@ gone; the Monday moment now carries a drafted post.)
   one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
   (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,
   Highlights "Live at") and, since the owner batch of 2026-10-23, counts toward Shipping (`confirmed.ts
-  isConfirmedSource`).
+  isConfirmedSource`) while its daily re-check holds (`recheckSite`).
 - **Owner proof file.** `apps/frontend/public/earnkit.txt` holds `profile: ae6e24ff180d7ee8` (builder 17, origin
   `https://earnkit.com`), served by Next at `/earnkit.txt` as `text/plain` (no middleware or proxy, no rewrites, no
   app route of that name; `site-proof.test.ts` SP9, SP10). `earnkit` joins `RESERVED_ROUTES` (every public name is

@@ -25,7 +25,7 @@ export type WeekStanding = { score: number; rank: number; total: number };
  */
 export type LastWeek = {
   monday: string; now: WeekStanding; before: WeekStanding | null; titles: string[]; checked: boolean; approved: boolean;
-  /** Owner batch fix round: the stored summary the builder is shown (its yes binds to it, approveWeek `seen`). */
+  /** Owner batch fix round: the stored summary, only when the line shows it word for word (a yes binds to it, approveWeek `seen`). */
   summary?: string | null;
   /** Task 16 fix round 1: the week's row has facts (week-facts.ts hasFacts), so its approval earns points (approveWeek). */
   facts: boolean;
@@ -132,14 +132,17 @@ export async function lastWeekOf(builderId: number, key: string, now: Date): Pro
     SELECT titles, summary, facts, facts ? 'checked' AS checked FROM project_updates WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} AND NOT hidden`;
   let titles: string[] = [];
   let approved = false;
+  let summary: string | null = null;
   if (u) {
     const rules = await weekRules(builderId, key, { asking: true });
     const line = u.titles.length > 0 || u.summary ? rules.line(u) : null;
     if (line) titles = [line];
+    // Owner batch fix round: the summary a yes binds to only when the line shows it word for word.
+    if (line !== null && line === u.summary) summary = u.summary;
     // Owner batch fix round: a private repo's summary changed since the yes is asked about again.
     approved = rules.current(u);
   }
-  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary: u?.summary ?? null, facts: hasFacts(u?.facts ?? {}) };
+  return { monday, now: cur, before, titles, checked: u?.checked ?? false, approved, summary, facts: hasFacts(u?.facts ?? {}) };
 }
 
 /** A ship-log row as the week rules read it. */
@@ -218,19 +221,18 @@ export async function approveWeek(
   builderId: number, key: string, monday: string, now: Date, via: ApproveVia = 'share', seen?: string | null,
 ): Promise<boolean> {
   const facts = sql().json({ approved: true, approved_at: now.toISOString(), approved_via: via });
-  // Owner batch fix round: the yes binds to the summary the builder was shown (`seen`, kept with the offer), else the
-  // one stored now (approved_summary, summaryConsented): one changed in between is not consented to. A second yes keeps
-  // the first approved_at and approved_via and binds to the new text.
-  const bound = seen !== undefined;
+  // Owner batch fix round: the yes binds only to the summary the builder was shown (`seen`, kept with the offer;
+  // approved_summary, summaryConsented). No `seen` (an older offer, a page that showed none) binds to nothing, never
+  // to the text stored now. A second yes keeps the first approved_at and approved_via and binds to the new text.
+  const bound = seen ?? null;
   const [had] = await sql()<{ facts: WeekFacts }[]>`
-    UPDATE project_updates SET facts = ${facts}::jsonb || facts
-      || jsonb_build_object('approved', true, 'approved_summary', CASE WHEN ${bound}::boolean THEN ${seen ?? null}::text ELSE summary END)
+    UPDATE project_updates SET facts = ${facts}::jsonb || facts || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND week = ${monday} RETURNING facts`;
   if (had) return award(builderId, monday, via, now, had.facts);
   const [r] = await sql()<{ facts: WeekFacts }[]>`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${builderId}, ${key}, ${monday}, ${facts})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts || project_updates.facts
-      || jsonb_build_object('approved', true, 'approved_summary', CASE WHEN ${bound}::boolean THEN ${seen ?? null}::text ELSE project_updates.summary END)
+      || jsonb_build_object('approved', true, 'approved_summary', ${bound}::text)
     WHERE project_updates.builder_id = EXCLUDED.builder_id RETURNING facts`;
   return r ? award(builderId, monday, via, now, r.facts) : false;
 }
@@ -263,5 +265,5 @@ export async function answerShare(builderId: number, projectKey: string | null |
     RETURNING old.o AS o`;
   if (!r) return null;
   if (answer === 'no') return false;
-  return approveWeek(builderId, r.o.key, r.o.week, now, 'share', 'summary' in r.o ? (r.o.summary ?? null) : undefined);
+  return approveWeek(builderId, r.o.key, r.o.week, now, 'share', r.o.summary ?? null);
 }

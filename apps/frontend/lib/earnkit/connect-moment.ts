@@ -51,7 +51,8 @@ export async function connectWeeks(builderId: number, key: string, now: Date = n
   if (open.length === 0) return [];
   return open.map((r) => ({
     monday: r.monday,
-    summary: r.summary,
+    // Owner batch fix round: the summary a yes binds to only when the line shows it word for word.
+    summary: r.summary !== null && line(r) === r.summary ? r.summary : null,
     line: `${weekLabel(r.monday)}: ${((r.titles.length > 0 || r.summary) ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
   }));
 }
@@ -122,7 +123,8 @@ export async function answerConnect(
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.o.key}) AND week = ${monday}::date
           AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'`;
       if (!ok) continue;
-      const seen = r.o.seen && monday in r.o.seen ? (r.o.seen[monday] ?? null) : undefined;
+      // An older offer without `seen` binds to nothing (approveWeek).
+      const seen = r.o.seen?.[monday] ?? null;
       if (await approveWeek(builderId, r.o.key, monday, now, 'connect', seen)) approved++;
     } catch (err) {
       console.error('[connect] approve', err instanceof Error ? err.name : 'error');

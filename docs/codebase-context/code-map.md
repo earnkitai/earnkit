@@ -2276,3 +2276,10 @@ facts.approved), `weekly-moment.ts weekLineRule` (`asking` for the builder's own
 (commits_year from the newest reading that has it). Tests: `week-summary.test.ts` W5b/W6b, `v214-ship-log.test.ts`
 8.10b/8.10c, `week-facts.test.ts` 4.11b, `person-score.test.ts` 4.0, `updates.test.ts` 5.7d, `v31-site-data.test.ts`
 (c5), `v31-site-copy.test.ts` (i), `v31-site-landing.test.ts` (f).
+Owner batch fix round (2026-10-23): `week-summary.ts summaryConsented` (facts.approved_summary), `weekly-moment.ts`
+(`weekRules` { line, current }, `approveWeek(..., seen)`, `LastWeek.summary`, `ShareOpen.summary`),
+`connect-moment.ts` (`ConnectWeek.summary`, `ConnectOpen.seen`), `week-links.ts` (`SEEN_FIELD`, `summaryHash`,
+`weekPage`, `WEEK_TEXT.changed`), `sources.ts recheckSite` (`SITE_PROOF_MISSES_MAX`, `SITE_PROOF_LOST`), schema
+`builder_sources.proof_misses`, `proof_checked_day`; `confirmed.ts SITE_PROOFS` is earnkit_txt only. Tests:
+`week-summary.test.ts` W6c, `v214-ship-log.test.ts` 8.10b/8.10d/8.10e, `v3-monday-email.test.ts` (d2),
+`site-proof.test.ts` SP5/SP11-SP13, `person-score.test.ts` 4.0, `week-facts.test.ts` 4.11b.
