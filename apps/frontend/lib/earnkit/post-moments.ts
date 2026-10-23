@@ -136,7 +136,11 @@ export function proofUrlOk(raw: unknown, o: ProofContext): string | null {
   // never proof (checked on the link as given, before the URL parser folds it).
   const rawPath = raw.trim().replace(/^https?:\/\/[^/?#]*/i, '').split(/[?#]/)[0];
   if (/%(2f|5c|2e)/i.test(rawPath) || rawPath.includes('\\') || /\/\//.test(rawPath) || /(^|\/)\.\.?(\/|$)/.test(rawPath)) return null;
+  // Whitespace or control characters inside the link are stripped by the URL parser, so the raw check above could
+  // miss what the parsed path holds: refuse them, then run the same path checks on the parsed pathname.
+  if (/[\u0000-\u0020\u007f]/.test(raw.trim())) return null;
   const u = new URL(raw.trim());
+  if (/%(2f|5c|2e)/i.test(u.pathname) || u.pathname.includes('\\') || /\/\//.test(u.pathname) || /(^|\/)\.\.?(\/|$)/.test(u.pathname)) return null;
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
   const host = u.hostname.toLowerCase().replace(/\.$/, '');
   if (/^[\d.]+$/.test(host) || host.includes(':') || !host.includes('.')) return null;
