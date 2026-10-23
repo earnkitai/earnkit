@@ -1,4 +1,5 @@
 import { checkUpdate, type OwnLinks } from './update-text';
+import { pastVerb } from './past-verb';
 
 /**
  * v2.14 spec 3: the ship log's words are the week's own PR and commit titles (no AI). Merges, "wip", bot
@@ -29,6 +30,26 @@ const cap = (t: string): string => {
 /** Fix round 1: the duplicate key: NFKC, lower case, letters and digits of any script. Pure. */
 const dedupeKey = (t: string) => t.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 const PREFIX = /^(feat|fix|chore|docs|refactor|perf|style|test|build|ci)(\([^)]*\))?!?:\s*/i;
+/**
+ * v3.1 GTM W3: housekeeping says nothing a visitor cares about, so these titles are dropped ("chore: tidy imports",
+ * "ci: cache pnpm", "test: cover the timer").
+ */
+const CHORE = /^(chore|build|ci|style|test)(\([^)]*\))?!?:/i;
+const FIX = /^fix(\([^)]*\))?!?:\s*/i;
+/** Verbs that are as often nouns in a title ("fix: cache invalidation"): after "fix:" they get "Fix" in front. */
+const NOUNISH = new Set(['cache', 'filter', 'block', 'check', 'map', 'log', 'tag', 'pin', 'link', 'name', 'mark', 'host', 'store', 'test', 'release',
+  'port', 'sort', 'track', 'limit', 'cover', 'load', 'save', 'set', 'cut', 'split', 'run', 'lead', 'display', 'plan', 'speed', 'wire', 'swap', 'trim']);
+/**
+ * v3.1 GTM W3: a "fix:" title keeps reading as a fix once its prefix is gone. "fix: timezone bug in streak reset"
+ * is "Fix timezone bug in streak reset" (never the bare "Timezone bug in streak reset", which the summary would
+ * turn into "Shipped timezone bug..."); "fix: stop the double save" stays "Stop the double save". Pure.
+ */
+function asFix(rest: string): string {
+  const head = rest.split(' ')[0] ?? '';
+  if (rest.includes(' ') && pastVerb(head) && !NOUNISH.has(head.toLowerCase())) return rest;
+  const acronym = head.length > 1 && head.slice(1) !== head.slice(1).toLowerCase();
+  return `Fix ${acronym ? rest : rest[0].toLowerCase() + rest.slice(1)}`;
+}
 
 /**
  * Final fix 13: how much a title says, counted in letter and digit code points (never UTF-16 units or punctuation);
@@ -42,9 +63,10 @@ const titleWeight = (t: string) => [...t].reduce((n, c) => n + (WIDE.test(c) ? 2
 
 export function cleanTitle(raw: string): string | null {
   const first = (raw.split(/\r?\n/)[0] ?? '').replace(/\s+/g, ' ').trim().replace(SQUASH, '');
-  if (!first || DROP.some((r) => r.test(first))) return null;
+  if (!first || DROP.some((r) => r.test(first)) || CHORE.test(first)) return null;
   let t = first.replace(PREFIX, '').trim();
   if (titleWeight(t) < TITLE_MIN || DROP.some((r) => r.test(t))) return null;
+  if (FIX.test(first)) t = asFix(t);
   t = t[0].toUpperCase() + t.slice(1);
   return cap(t);
 }
