@@ -20,7 +20,8 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** v3 Stage 2: `backing`, the backing offer after the first approved week with code (ranked, once a project, EARNKIT_RAISING on). */
 /** 2026-10-22: `titles`, a private repo's titles question (ranked, once a person); `qualify`, Base's grant steps for a ranked builder with no fit. */
 /** v3.1 one-tap posts: `post`, an event's drafted post for X (a yes redrafts it). */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post';
+/** v3.1 wallet proof: `wallet`, the optional signed wallet step after setup (once a person), or the change link (tell wallet). */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post' | 'wallet';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -110,6 +111,32 @@ export const applyAsk = (title: string, amount: string | null, when: string | nu
   `${title} ${when ? `closes ${when}` : 'is still open'}${upTo(amount)}. I can draft it in a minute.\nWant me to?`;
 /** Task 16: the ranked ship step's one question (a yes: one small thing to ship, SHIP_STEP_NOTE). */
 export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
+/**
+ * v3.1 wallet proof (owner-approved 2026-10-23): the optional step right after setup, offered once a person. Its one
+ * question takes "done" (a yes: the proof is checked) or "skip" (a no: remembered, never asked again). Pure.
+ */
+export const WALLET_ASK = 'Done, or want to skip it?';
+export const walletOffer = (link: string) =>
+  `Optional: prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
+/** Only when true: the Base Builder Code stays on the first wallet; a launched coin's fees stay with its launch wallet. */
+export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
+export const WALLET_COIN_FEES = "Your coin's fees keep going to the wallet it launched with.";
+/** The builder asked to add their reward wallet (none yet): a fresh signing link, the statements, one question. Pure. */
+export const walletChange = (link: string, extras: string[] = []) =>
+  [`Sign with the wallet you want your rewards sent to. One signature, no fee: ${link}`, ...extras, 'Done?'].join('\n');
+/** The builder asked to change their reward wallet: the current one (short), the X step, the statements, one question. Pure. */
+export const walletChangeX = (current: string, link: string, extras: string[] = []) =>
+  [`Your rewards go to ${current}. To change that, sign in with X and sign with the new wallet (one signature, no fee): ${link}`, ...extras, 'Done?'].join('\n');
+/** "Done" before the signature arrived: a fresh link (the last one may have expired) and the same question. Pure. */
+export const walletNotYet = (link: string) => `I don't see a signature yet. Here's a fresh link (one signature, no fee): ${link}\nDone?`;
+/** Done: the wallet is the reward recipient (short). Pure. */
+export const walletDone = (wallet: string) => `Done. Your rewards now go to ${wallet}. Your contracts on Base will show on your page soon.`;
+/** Done for contracts only: no X sign-in, so the rewards stay with the current wallet (short). Pure. */
+export const walletContractsOnly = (current: string) =>
+  `Done. That wallet counts for your contracts. Your rewards still go to ${current} until you sign in with X on the wallet page.`;
+/** The one-line notice on the next reply after the reward wallet changed. Pure. */
+export const walletNotice = (wallet: string) => `Your reward wallet changed to ${wallet}.`;
+export const WALLET_SKIPPED = 'Skipped. Ask me anytime to add your reward wallet.';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
 export const TITLES_ASK = 'Show your commit titles on your page? Your code stays private.';
 
@@ -306,13 +333,16 @@ export type ApplyPick = { program_id: string; title: string; amount: string | nu
 /**
  * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
  * (`connect`), the drafted application (`apply`; v3.1 spec 3.2: money to the builder first), the backing offer
- * (`backing`, its line given), the weekly moment's question once a week (L6, `share`), a private repo's titles
+ * (`backing`, its line given), the weekly moment's question once a week (L6, `share`), the optional wallet step once
+ * (`wallet`, v3.1 wallet proof), a private repo's titles
  * question once (`titles`), Base's grant steps with no fit (`qualify`), else the ship step. Pure.
  */
 export function stateAsk(
   v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & {
     handle?: string | null; connect?: ConnectOffer | null; share?: boolean; backing?: string | null; apply?: ApplyPick | null;
     titles?: boolean; qualify?: QualifyOffer | null;
+    /** v3.1 wallet proof: the signing link of the optional wallet step (wallet-offer.ts walletOfferLink), null: not offered. */
+    wallet?: string | null;
     /** v3.1 one-tap posts: an event's drafted post (benchView offers it only where it goes: hot before apply, else in the share slot). */
     post?: EventPost | null;
   },
@@ -330,6 +360,8 @@ export function stateAsk(
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
   if (v.state === 'ranked' && v.backing) return { kind: 'backing', project_key: key, line: v.backing };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
+  // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
+  if (v.state === 'ranked' && v.wallet) return { kind: 'wallet', project_key: key, line: walletOffer(v.wallet) };
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
   if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
   if (v.state === 'ranked' && v.qualify)
@@ -386,6 +418,8 @@ export function benchReply(v: BenchView): string {
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
+  // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
+  if (!v.held && v.ask.kind === 'wallet') return paras([standing, ...v.due, ask]);
   const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).

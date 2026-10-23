@@ -1,4 +1,5 @@
 import { after, mock, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -73,6 +74,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const handle = `rc${RUN}`.slice(0, 15);
   assert.ok((await attachToX(c0.own, { id: `93${RUN}`, username: handle, name: 'Kit Builder', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const key = `${handle}/kit`;
   const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });

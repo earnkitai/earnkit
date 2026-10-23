@@ -145,6 +145,8 @@ import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
 import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, rankAnswer, signedOutNow, tokenAsk } from './bench-find';
+import { provenWallet } from './wallet-proof';
+import { walletChangeReply } from './wallet-offer';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { setRaising } from './raising';
 import { scoreReply } from './score-tool';
@@ -276,7 +278,10 @@ function checkFix(v: Verified | undefined, liveGiven: boolean): Fix | null {
  * v2.8.1 §E17 (T6 carry): this installation's remembered wallet, never on a hosted agent
  * (shared_client): one registration may serve many builders, so the wallet is asked instead.
  */
-const walletMemory = (ctx: ToolContext) => (ctx.sharedClient ? Promise.resolve(null) : rememberedWallet(ctx.installationId));
+const walletMemory = async (ctx: ToolContext) =>
+  ctx.sharedClient ? null : ((await provenWallet(ctx.installationId)) ?? (await rememberedWallet(ctx.installationId)));
+/** Campaign entries' remembered wallet question names the last entry's wallet only (rememberedWalletQuestion's note). */
+const lastEntryWallet = (ctx: ToolContext) => (ctx.sharedClient ? Promise.resolve(null) : rememberedWallet(ctx.installationId));
 
 /**
  * The wallet this entry already holds, never on a hosted agent (shared_client): a name-keyed entry
@@ -1400,7 +1405,14 @@ export const handlers = {
     // This installation's last wallet (Ruling 10 (plan)). Campaign entries: asked about in full and
     // never prefilled (I8: a hosted client sharing one registration shares this memory). Other
     // programs: shown short on the confirmation offer's wallet line.
-    const remembered = await walletMemory(ctx);
+    // v3.1 wallet proof: outside campaigns the proven wallet (the builder's own signature) comes first.
+    const remembered = program.campaign ? await lastEntryWallet(ctx) : await walletMemory(ctx);
+    // v3.1 wallet proof: a campaign's payout wallet is the proven one when the builder gave none (their signature named
+    // it their reward wallet, so it is never asked again; I8's shared-memory worry is about remembered wallets only).
+    const proven = program.campaign && !ctx.sharedClient && !known.answers?.payout_wallet?.trim() && program.submission_requirements.some((r) => r.key === 'payout_wallet')
+      ? await provenWallet(ctx.installationId)
+      : null;
+    if (proven) known.answers = { ...(known.answers ?? {}), payout_wallet: proven };
     // Ruling 22: outside campaigns a wallet the builder gave is valid or the call fails.
     const given = program.campaign
       ? validWallet(known.answers?.payout_wallet)
@@ -2848,6 +2860,8 @@ export const TellToolInput = z
     token: z.literal('ask').optional(),
     // Launch ready L2: the repo the builder wants ranked instead (owner/repo or its GitHub URL; bench-find.ts rankAnswer).
     main_project: z.string().max(300).optional(),
+    // v3.1 wallet proof: the builder wants their rewards sent to another wallet (or to add one): a fresh signing link.
+    wallet: z.literal('change').optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
@@ -3166,12 +3180,12 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, wallet, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
-    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project))
+    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
@@ -3180,6 +3194,8 @@ export const tools = {
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
+      // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
+      if (wallet === 'change') replies.push(await walletChangeReply(ctx.installationId, new Date()));
       // R8: the coin or community-round line, only because the builder asked about a token.
       if (token === 'ask') replies.push(await tokenAsk(ctx.installationId, { check: ctx.tokenDeps?.check }));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).

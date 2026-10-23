@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -59,6 +60,7 @@ async function builder(key: string, files: Record<string, string> | null | undef
   const handle = key.split('/')[0];
   assert.ok((await attachToX(own, { id: `97${RUN}${n}`, username: handle, name: 'bc', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const ctx = {
     installationId: c.id, ownInstallationId: c.own, sharedClient: false, readerDeps: QUIET, matchProjects: (async () => ({ checked: 1, scored: 1, fits: repoFits(key) })) as never,
     tokenDeps: { check: async () => true },

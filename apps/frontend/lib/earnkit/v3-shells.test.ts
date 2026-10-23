@@ -12,7 +12,6 @@ import { THEME } from './theme';
 import { WEEK_TEXT, weekGet } from './week-links';
 import { VERIFY_PAGE, confirmPage, verifyPage } from './github-verify';
 import { signinPage } from './x-install';
-import { walletOtherMethod } from './wallet-proof';
 import { WORDMARK_D } from '../../app/components/ui/Logo';
 import { benchCard, headlineSize } from '../../app/[handle]/card-response';
 import type { BenchCardFacts } from './bench-data';
@@ -54,7 +53,6 @@ test('T6.1 every brandShell page is the flat system from THEME: black page, Funn
   await assertFlatShell(verifyPage(VERIFY_PAGE.expired, 410), 410, 'verify expired');
   await assertFlatShell(confirmPage({ repo_key: 'a/b', handle: 'ada' }, 'n', 'c'), null, 'GitHub confirm');
   await assertFlatShell(signinPage('Hello.', 200), 200, 'sign-in line');
-  await assertFlatShell(walletOtherMethod(), 405, 'wallet 405');
   const week = await weekGet(new Request('http://localhost/api/week?t=bad'));
   const weekHtml = await assertFlatShell(week, 400, 'week bad');
   assert.ok(weekHtml.includes(WEEK_TEXT.bad));

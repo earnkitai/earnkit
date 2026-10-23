@@ -1,4 +1,5 @@
 import './fixtures/no-network-checks';
+import { walletOffered } from './fixtures/wallet-step';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -274,6 +275,7 @@ test('10.6 tell coin reaches the coin answer through the MCP schema', dbTest, as
 
 test('10.7 R8: find never offers a coin (the step is to ship); asked about a token (tell token) with EARNKIT_RAISING off, not available and nothing offered (v3.1 final fix 1)', dbTest, async () => {
   const id = await person([{ key: 'lee/notes', name: 'Notes', people: 7 }]);
+  await walletOffered(id);
   const W = '0x' + randomBytes(20).toString('hex');
   await sql()`INSERT INTO installation_wallets (installation_id, wallet) VALUES (${id}, ${W})`;
   const r = await find(id);

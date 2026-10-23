@@ -1,4 +1,5 @@
 import { after, mock, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -170,6 +171,7 @@ async function rankedBuilder(tag: string, o: { private: boolean; chains: Detecti
   const handle = `rf${tag}${RUN}`.slice(0, 15);
   assert.ok((await attachToX(c0.own, { id: `95${tag}${RUN}`, username: handle, name: 'Kit Builder', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const key = `${handle}/kit`.toLowerCase();
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
   const tr = o.fit ? { tx_count: 120, live_ok: true, commits_90d: 25 } : { tx_count: 0, live_ok: false, commits_90d: 25 };

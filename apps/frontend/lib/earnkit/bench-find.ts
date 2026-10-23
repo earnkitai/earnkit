@@ -54,6 +54,7 @@ import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
+import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, walletOfferDue } from './wallet-offer';
 export { displayName };
 
 /**
@@ -120,6 +121,8 @@ export type Seen = StandSeen & {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
+    /** v3.1 wallet proof (kind 'wallet'): when the step was asked (ISO); its yes checks for a wallet proven since. */
+    at?: string;
   };
   /** Fix round 1: when the qualify steps were given ({ [lowercase project key]: iso }); held back DECLINE_MS. */
   qualify_given?: Record<string, string>;
@@ -454,8 +457,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const event = hot ?? (ranked && project && handle && !held && !connect && !backing && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
   const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment && !event;
-  const titles = quiet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !titles && o.fits.length === 0
+  // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
+  // question); claimed below only once this reply carries it.
+  const wallet = quiet && handle !== null ? await walletOfferDue(id, now) : null;
+  const titles = quiet && !wallet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !wallet && !titles && o.fits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch })
     : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? null : install;
@@ -483,7 +489,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   }
 
   // R8, L5, L6: each state's one next step.
-  const finalAsk = stateAsk({ state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event });
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event };
+  let finalAsk = stateAsk({ ...asks, wallet });
+  // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
+  if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
   // Only the ask shown is answerable: a held question clears the stored one. (The share offer stays open all week in
   // standing_seen.share_open, weeklyMoment.)
   // v3.1 one-tap posts: an event's post stored its own ask (post-reply.ts: the moment, so a yes redrafts it).
@@ -491,6 +500,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     kind: finalAsk.kind, key: finalAsk.project_key,
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
     ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
+    ...(finalAsk.kind === 'wallet' && { at: now.toISOString() }),
   };
   if (finalAsk.kind !== 'post') await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
@@ -503,7 +513,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -750,6 +760,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const news = view.rank ? recorded : null;
   const opener = newsOpener(a.alerts.lines, news ? [news] : []);
   const signedIn = accountLine(view, await takeSignedIn(own, view.handle));
+  // v3.1 wallet proof fix round: a changed reward wallet is said once, on the next reply.
+  const walletNews = await takeWalletNotice(id);
   await recordShown(
     id,
     rows.flatMap((r) =>
@@ -760,7 +772,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   ).catch(logged('match shown'));
   return {
     // The account line (it guards a wrong sign-in) and any news lead.
-    show_to_builder: [signedIn, opener, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: [signedIn, walletNews, opener, benchReply(view)].filter(Boolean).join('\n\n'),
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: ['Show show_to_builder to the builder exactly as written.', lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
@@ -802,8 +814,9 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     detail: { rank: read.base.standing.ranked ? read.base.standing.rank : null, total: read.base.standing.total },
   }));
   const signedIn = accountLine(view, await takeSignedIn(own, view.handle));
+  const walletNews = await takeWalletNotice(id);
   return {
-    show_to_builder: [signedIn, benchReply(view)].filter(Boolean).join('\n\n'),
+    show_to_builder: [signedIn, walletNews, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
     ...(leadFit && view.variant !== 'taken' && { lead: { program_id: leadFit.program_id }, note: EARN_NOTE }),
   };
@@ -967,8 +980,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     }
     return okay;
   }
+  // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
+  // "done" after another reply still checks it (wallet-offer.ts answerWallet).
+  if (m.kind === 'wallet') return answerWallet(id, m.answer, now);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
+  if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
   // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
   if (asked.kind === 'backing') {

@@ -55,11 +55,16 @@ const REPO = /^[a-z0-9-]+\/[a-z0-9._-]+$/;
  * projects. v2.13: `main` is the one project (main_project_key); `claimed` binds that X handle; a
  * confirmed project keyed by a GitHub repo also gets its verified repo source (the Bench's confirmed).
  */
-export async function person(o: { projects: Seed[]; score?: number; ranked?: boolean; seen?: Record<string, unknown>; main?: string; claimed?: string }): Promise<number> {
+export async function person(o: {
+  projects: Seed[]; score?: number; ranked?: boolean; seen?: Record<string, unknown>; main?: string; claimed?: string;
+  /** v3.1 wallet proof: true leaves the optional wallet step to be offered; by default it was offered already (wallet_asked). */
+  walletStep?: boolean;
+}): Promise<number> {
   const id = await install();
+  const seen = { ...(o.walletStep ? {} : { wallet_asked: NOW.toISOString() }), ...(o.seen ?? {}) };
   await sql()`
     INSERT INTO builder_profiles (builder_id, slug, standing_seen, main_project_key, x_user_id, x_handle)
-    VALUES (${id}, ${`v2121f-${id}`}, ${sql().json((o.seen ?? {}) as never)}, ${o.main ?? null}, ${o.claimed ? `x${id}` : null}, ${o.claimed ?? null})`;
+    VALUES (${id}, ${`v2121f-${id}`}, ${sql().json(seen as never)}, ${o.main ?? null}, ${o.claimed ? `x${id}` : null}, ${o.claimed ?? null})`;
   await sql()`
     INSERT INTO builder_live (builder_id, score, parts, ranked, shipped, people, formula, calibration, computed_at, read_at)
     VALUES (${id}, ${o.score ?? 0}, ${sql().json({ shipping: { points: o.score ?? 0, raw: { mask: 0, live_ships: 0 } } } as never)}, ${o.ranked ?? false},

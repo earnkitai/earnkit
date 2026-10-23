@@ -52,6 +52,11 @@ export type ReaderDeps = {
    * contract, at most READ_CAPS.walletPages pages). Asked only for a signed wallet (person_wallets).
    */
   walletCreations: (wallet: string) => Promise<{ address: string; created_at: string }[]>;
+  /**
+   * v3.1 wallet proof: when a signed wallet's first Base transaction happened (ISO; Blockscout's account txlist, oldest
+   * first, one row), null when it has none. Absent (test fakes): not read.
+   */
+  walletFirstTx?: (wallet: string) => Promise<string | null>;
   now: Date;
   /**
    * Epoch ms: the read's deadline (defaultReaderDeps'), so a reader can stop between calls rather than start one past
@@ -425,6 +430,16 @@ export async function walletCreationsFrom(wallet: string, page: (path: string) =
   return out;
 }
 
+type TxList = { status?: string; result?: { timeStamp?: string | number }[] | string | null };
+/** v3.1 wallet proof: `wallet`'s first Base transaction (ISO), from one oldest-first txlist row; null when none. */
+export async function walletFirstTxFrom(wallet: string, read: (path: string) => Promise<TxList>): Promise<string | null> {
+  if (!ADDRESS.test(wallet)) throw new Error('not a wallet');
+  const data = await read(`/api?module=account&action=txlist&address=${wallet.toLowerCase()}&sort=asc&page=1&offset=1`);
+  const first = Array.isArray(data?.result) ? data.result[0] : undefined;
+  const secs = Number(first?.timeStamp);
+  return Number.isFinite(secs) && secs > 0 ? new Date(secs * 1000).toISOString() : null;
+}
+
 /**
  * The real reads. Sites go through safe-fetch (public addresses only after DNS, https on 443, no
  * IP hosts, up to three same-site redirects each re-vetted, size and time capped), so a site source
@@ -444,6 +459,7 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
     walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
+    walletFirstTx: (wallet) => walletFirstTxFrom(wallet, (path) => (tick('blockscout'), blockscout<TxList>(path, deadline))),
     now,
     deadline,
     ghSpent: github.spent,

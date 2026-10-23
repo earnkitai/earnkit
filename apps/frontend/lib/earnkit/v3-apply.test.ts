@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -75,6 +76,7 @@ async function builder(tag: string, programs: string[]) {
   const handle = `va${tag}${RUN}`.slice(0, 15);
   assert.ok((await attachToX(own, { id: `97${RUN}${n}${tag.length}`, username: handle, name: 'va', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const key = `va${tag}${RUN}/kit`;
   const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });

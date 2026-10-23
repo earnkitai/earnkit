@@ -6,7 +6,6 @@ import { VERIFY_PAGE, confirmPage, verifyCallback, verifyConfirm, verifyPage, ve
 import { authorizeGet } from './oauth-routes';
 import { RateLimitError } from './rate-limit';
 import { signinPage } from './x-install';
-import { walletGet, walletOtherMethod } from './wallet-proof';
 import { GET as xCallbackGet } from '../../app/x/callback/route';
 
 // R14: every sign-in and verify page is the shared dark shell (brand-page.ts brandShell), with its slim top bar.
@@ -64,12 +63,5 @@ test('R14: OAuth authorize errors are the shell and keep their status', async ()
 test('R14: the X callback 404, sign-in pages and wallet pages are the shell', async () => {
   await assertShell(await xCallbackGet(new Request('http://localhost/x/callback?state=nope')), 404, 'x callback 404');
   await assertShell(signinPage('Hello.', 200), 200, 'signinPage');
-  const other = walletOtherMethod();
-  assert.equal(other.headers.get('allow'), 'GET, POST');
-  assert.match(other.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
-  assert.equal(other.headers.get('cache-control'), 'no-store');
-  await assertShell(other, 405, 'wallet 405');
-  const expired = await walletGet(new Request('http://localhost/claim/wallet?t=bad'));
-  assert.match(expired.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
-  await assertShell(expired, 410, 'wallet expired');
+  // v3.1 wallet proof fix round: /claim/wallet is a site page now (app/claim/wallet/page.tsx, v31-wallet-proof.test.ts).
 });

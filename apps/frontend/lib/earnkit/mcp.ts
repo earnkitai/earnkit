@@ -144,10 +144,11 @@ export const TELL_DESCRIPTION_BENCH =
   'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
   'main_project: owner/repo to rank instead. ' +
+  "wallet: 'change' for a new reward wallet. " +
   'coin: their coin answer, or { raising } to open or close backing. ' +
   "token: 'ask' only when they ask about a token. " +
   'move_up: their answer to the question, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
-  'program_status (applied, accepted, funded, rejected, won, placed, lost, not_interested), repo_facts, weekly_email: what they said; private.';
+  'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
 export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
@@ -432,6 +433,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
           // Launch ready L2: the repo to rank instead.
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
+          // v3.1 wallet proof: a fresh signing link for a new reward wallet.
+          wallet: z.literal('change').optional().describe("'change' when they want their rewards sent to a different wallet, or to add one"),
           move_up: z
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),

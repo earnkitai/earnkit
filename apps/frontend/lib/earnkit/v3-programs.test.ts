@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -170,6 +171,7 @@ test('(e) a ranked builder with a 4-week streak and no fit sees one upcoming lin
   const own = (await connectInstallation(t))!.own;
   assert.ok((await attachToX(own, { id: `97${RUN}4`, username: `vp${RUN}`.slice(0, 15), name: 'vp', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
   const key = `vp${RUN}/app`;
   await mcpCall(ctx, 'find', { identity: { project: { name: 'App', repo: `https://github.com/${key}` } } });
@@ -231,6 +233,7 @@ test('(g) an in-person program is never a fit in a ranked reply; it stays on the
   const own = (await connectInstallation(t))!.own;
   assert.ok((await attachToX(own, { id: `96${RUN}7`, username: `vg${RUN}`.slice(0, 15), name: 'vg', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   const key = `vg${RUN}/kit`;
   // v3.1 Task 8: ETHGlobal Mumbai is unlisted, so an active copy stands in for an open in-person program.
   const mumbai = `ethglobal-mumbai-v3g-${process.pid}`;

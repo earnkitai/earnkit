@@ -1825,3 +1825,25 @@ ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_exempt_days smallint 
 -- Owner batch last fix wave (E): when a site's earnkit.txt proof was lost (sources.ts recheckSite). Such a site is read
 -- for 60 days (so the code coming back re-proves it), then no longer; the agent can propose it again. Additive.
 ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_lost_at timestamptz;
+
+-- v3.1 wallet proof (owner-approved 2026-10-23): a proven wallet's first Base transaction, read once by discovery
+-- (Blockscout's txlist, oldest first) for the profile's "On Base since" line; base_since_read_at retries a wallet
+-- with no transaction yet a week later.
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS base_since timestamptz;
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS base_since_read_at timestamptz;
+-- v3.1 wallet proof fix round (security): the reward recipient is the wallet with the newest recipient_at. The first
+-- proof sets it; replacing it needs a fresh X sign-in (wallet_x_checks); a wallet proven without one counts for
+-- contracts only (recipient_at NULL). Backfill: each person's first proven wallet, as coin fees used before.
+ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS recipient_at timestamptz;
+UPDATE person_wallets w SET recipient_at = w.proven_at WHERE w.recipient_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM person_wallets o WHERE o.builder_id = w.builder_id AND o.recipient_at IS NOT NULL)
+  AND w.wallet = (SELECT f.wallet FROM person_wallets f WHERE f.builder_id = w.builder_id ORDER BY f.proven_at, f.wallet LIMIT 1);
+-- A signing link (its use hash) whose page passed an X sign-in as the same person (x_user_id), 30 minutes.
+CREATE TABLE IF NOT EXISTS wallet_x_checks (
+  use_hash   text PRIMARY KEY,
+  builder_id integer NOT NULL,
+  checked_at timestamptz NOT NULL DEFAULT now()
+);
+-- The wallet page's X sign-in rides the v2.14 X sign-in rows (purpose 'wallet').
+ALTER TABLE x_signins DROP CONSTRAINT IF EXISTS x_signins_purpose_check;
+ALTER TABLE x_signins ADD CONSTRAINT x_signins_purpose_check CHECK (purpose IN ('install', 'link', 'wallet'));

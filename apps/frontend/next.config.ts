@@ -22,8 +22,6 @@ export const securityHeaders = (production: boolean) => [
     : []),
 ];
 
-/** Every path but the wallet page (its route sends a nonce policy of its own). */
-export const WALLET_EXCEPT = '/:path((?!claim/wallet$).*)';
 
 /** Uploaded token images: nothing loads or runs, even if one is opened directly. */
 export const IMAGE_CSP = "default-src 'none'; sandbox; frame-ancestors 'none'";
@@ -54,16 +52,11 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      // v3.1 wallet proof fix round: /claim/wallet is a site page now (no route-level nonce policy), so every path
+      // gets the frame-ancestors policy; the image rules below replace it with their stricter one.
       {
         source: '/:path*',
-        headers: securityHeaders(process.env.NODE_ENV === 'production').filter((h) => h.key !== 'Content-Security-Policy'),
-      },
-      // v2.12.1 T11 fix round 3: config headers replace a route's own, so the frame-ancestors policy
-      // goes to every path except /claim/wallet, whose route sends its own per-response nonce policy
-      // (frame-ancestors 'none' included; wallet-proof.ts walletGet).
-      {
-        source: WALLET_EXCEPT,
-        headers: securityHeaders(process.env.NODE_ENV === 'production').filter((h) => h.key === 'Content-Security-Policy'),
+        headers: securityHeaders(process.env.NODE_ENV === 'production'),
       },
       // Config headers replace a route's own: keep the token image's stricter policy (a later
       // rule wins for the same header).

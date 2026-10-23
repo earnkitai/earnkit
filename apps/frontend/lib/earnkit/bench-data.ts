@@ -159,6 +159,11 @@ export const dollars = (usd: number) => `$${Math.round(usd).toLocaleString('en-U
 export type ProfileData = {
   handle: string; name: string; avatar: string | null; initials: string;
   /**
+   * v3.1 wallet proof batch: the builder's GitHub profile (https://github.com/<login>) from the login the App proved
+   * (builder_profiles.github_login), for the hero's GitHub button when no repo is linked (a private repo); else null.
+   */
+  github?: string | null;
+  /**
    * v3 Stage 2: backing open on the one project (pillOf: EARNKIT_RAISING on): its backers (backers.ts, distinct wallets
    * that received the coin) and the creator fees claimed from it, whole USD (earned.ts fees_usd).
    */
@@ -278,6 +283,10 @@ async function fundFits(builderId: number, key: string, now: Date): Promise<Mone
   }
 }
 
+/** A GitHub login's profile page, null for anything that is not a GitHub login. Pure. */
+export const githubProfileHref = (login: string | null | undefined): string | null =>
+  login && /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i.test(login) ? `https://github.com/${login}` : null;
+
 /**
  * The page at earnkit.com/<x-handle>, from stored rows only. Null without a
  * claimed profile. The one project's facts only while the Bench counts it confirmed (the repo's own
@@ -308,6 +317,7 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     name: displayName(p.x_name, p.x_handle),
     avatar: avatarUrl(p.x_avatar_url, p.github_login),
     initials: initialsOf(p.x_handle),
+    github: githubProfileHref(p.github_login),
     backing: pill ? { symbol: pill.symbol, url: pill.url, backers, earned_usd: Math.round(earned.fees_usd) } : null,
     earned: { paid_usd: earned.paid_usd, waiting_usd: earned.waiting_usd },
     bench: lines.bench,

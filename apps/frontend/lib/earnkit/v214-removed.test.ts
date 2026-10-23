@@ -24,7 +24,7 @@ const RUN = String(process.pid % 100000);
 test('7.1 the claim page, the join route and the join modules are gone', () => {
   for (const p of ['app/claim/[code]', 'app/claim/join', 'lib/earnkit/claim.ts', 'lib/earnkit/page-joins.ts', 'lib/earnkit/login-contests.ts'])
     assert.equal(existsSync(join(FRONTEND, p)), false, p);
-  assert.equal(existsSync(join(FRONTEND, 'app/claim/wallet/route.ts')), true, 'A21: the wallet page stays');
+  assert.equal(existsSync(join(FRONTEND, 'app/claim/wallet/page.tsx')), true, 'A21: the wallet page stays (a site page since v3.1)');
   const lib = join(FRONTEND, 'lib/earnkit');
   for (const f of readdirSync(lib).filter((x) => x.endsWith('.ts') && !x.endsWith('.test.ts'))) {
     const src = readFileSync(join(lib, f), 'utf8');

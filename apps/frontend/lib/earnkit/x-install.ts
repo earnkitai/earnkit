@@ -47,7 +47,10 @@ export function signinPage(line: string, status: number, headers: Record<string,
 }
 
 /** One pending sign-in row and its cookie; returns X's authorize URL and the Set-Cookie value. Exported for T5. */
-export async function newSignin(row: { purpose: 'install'; oauth: PendingAuthorize } | { purpose: 'link'; installationId: number; linkHash: string }, now = new Date()) {
+export async function newSignin(
+  row: { purpose: 'install'; oauth: PendingAuthorize } | { purpose: 'link' | 'wallet'; installationId: number; linkHash: string },
+  now = new Date(),
+) {
   const { verifier, challenge } = pkcePair();
   const state = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
@@ -56,8 +59,8 @@ export async function newSignin(row: { purpose: 'install'; oauth: PendingAuthori
   await sql()`DELETE FROM x_signins WHERE expires_at < now()`;
   await sql()`
     INSERT INTO x_signins (state_hash, purpose, oauth, installation_id, link_hash, code_verifier, csrf_hash, expires_at)
-    VALUES (${h}, ${row.purpose}, ${row.purpose === 'install' ? sql().json(row.oauth as never) : null}, ${row.purpose === 'link' ? row.installationId : null},
-      ${row.purpose === 'link' ? row.linkHash : null}, ${verifier}, ${sha256(csrf)}, ${new Date(now.getTime() + STATE_TTL_MS)})`;
+    VALUES (${h}, ${row.purpose}, ${row.purpose === 'install' ? sql().json(row.oauth as never) : null}, ${row.purpose !== 'install' ? row.installationId : null},
+      ${row.purpose !== 'install' ? row.linkHash : null}, ${verifier}, ${sha256(csrf)}, ${new Date(now.getTime() + STATE_TTL_MS)})`;
   return { to: xAuthorizeUrl({ state, challenge }), cookie: setCookie(h, csrf) };
 }
 
@@ -75,7 +78,7 @@ export async function startInstallSignIn(c: CheckedAuthorize, now = new Date()):
   return new Response(body, { status: 200, headers: { ...PAGE_HEADERS, 'Set-Cookie': cookie } });
 }
 
-type SigninRow = { purpose: 'install' | 'link'; oauth: PendingAuthorize | null; installation_id: number | null; link_hash: string | null; code_verifier: string };
+type SigninRow = { purpose: 'install' | 'link' | 'wallet'; oauth: PendingAuthorize | null; installation_id: number | null; link_hash: string | null; code_verifier: string };
 type CallbackDeps = { x?: XOAuthDeps; limit?: (request: Request) => Promise<unknown> };
 const limitOf = (request: Request) => enforce('xSignIn', clientIp(request.headers), SIGNIN_TEXT.busy);
 
@@ -121,6 +124,11 @@ export async function xSignInCallback(request: Request, deps: CallbackDeps = {})
   if (row.purpose === 'link')
     return row.installation_id !== null && row.link_hash
       ? (await import('./x-link')).linkSignedIn(row.installation_id, user, clear, new Date(), row.link_hash)
+      : signinPage(SIGNIN_TEXT.failed, 400, clear);
+  // v3.1 wallet proof fix round: the wallet page's X sign-in (changing the reward wallet needs the same X account).
+  if (row.purpose === 'wallet')
+    return row.installation_id !== null && row.link_hash
+      ? (await import('./wallet-proof')).walletXSignedIn(row.installation_id, row.link_hash, user, clear, request)
       : signinPage(SIGNIN_TEXT.failed, 400, clear);
   if (row.purpose !== 'install' || !row.oauth) return signinPage(SIGNIN_TEXT.failed, 400, clear);
   let to: URL;

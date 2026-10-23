@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -43,6 +44,7 @@ async function agent(o: { x?: string } = {}) {
   const own = (await connectInstallation(t))!.own;
   if (o.x) assert.ok((await attachToX(own, { id: `98${RUN}${o.x.length}${o.x.charCodeAt(0)}`, username: `${o.x}${RUN}`.slice(0, 15), name: o.x, avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
   // Fix round 1 (minor 4): repo matching stubbed, so nothing reaches for GitHub.
   return { id: c.id, token: t, ctx: { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH } };
 }

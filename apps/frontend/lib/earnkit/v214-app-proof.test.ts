@@ -1,4 +1,5 @@
 import { after, test } from 'node:test';
+import { walletOffered } from './fixtures/wallet-step';
 import { connectAsk } from './connect-moment';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -94,6 +95,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const commits = [0, 1, 2, 5].map((w, i) => ({ sha: `c${i}`, message: `change ${i}`, date: ago(w) }));
   const gh = fakeGitHub({ [key]: { id: 9101, owner: `gwen${RUN}`, installation: 91, private: true, commits } });
   const p = await connected(key, 'gwen', gh, 91);
+  await walletOffered(p.id);
   // Weeks 0, 1, 2 and 5: weights 12 + 11 + 10 + 7 = 40 of 78, so round(90 x 40 / 78) = 46.
   assert.equal(p.live.score, 46);
   assert.equal(p.live.ranked, true);
