@@ -94,7 +94,7 @@ export default function WalletSign({
       ) : null}
       <div className="flex flex-col gap-2">
         <p className="text-[13px] text-s-card-meta">{text.sign}</p>
-        <pre className="whitespace-pre-wrap break-all rounded-[22px] border border-s-line bg-s-inset22 px-5 py-4 font-mono text-[14px] leading-relaxed text-s-text">
+        <pre className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-[22px] border border-s-line bg-s-inset22 px-5 py-4 font-mono text-[14px] leading-relaxed text-s-text">
           {message}
         </pre>
       </div>
