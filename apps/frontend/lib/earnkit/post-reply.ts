@@ -1,3 +1,4 @@
+import type { ProofFetch } from './outcome-proof';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, PROOF_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
@@ -184,10 +185,10 @@ async function rewordNews(id: number, open: PostAsk, text: unknown, now: Date): 
  * Never throws.
  */
 export async function outcomePost(
-  id: number, s: { program_id: string; status: 'accepted' | 'funded' | 'won'; proof_url?: unknown }, o: { entered: boolean }, now: Date,
+  id: number, s: { program_id: string; status: 'accepted' | 'funded' | 'won'; proof_url?: unknown }, o: { entered: boolean; proofFetch?: ProofFetch }, now: Date,
 ): Promise<Record<string, unknown> | null> {
   // Fix round: never an amount the agent states (prize_usd is not read here); the award is the announced one only.
-  const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }).catch(logged('outcome'));
+  const c = await verifiedOutcomeCandidate(id, { programId: s.program_id, result: s.status, proofUrl: s.proof_url, entered: o.entered }, { proofFetch: o.proofFetch }).catch(logged('outcome'));
   if (c === 'no_proof') return { show_to_builder: PROOF_ASK, agent_note: PROOF_NOTE };
   // Final review 1: the program lists no proof hosts or X accounts, so no link could prove it: a plain acknowledgement.
   if (c === 'no_proof_source') return { show_to_builder: OUTCOME_NOTED };

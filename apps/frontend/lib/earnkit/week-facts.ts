@@ -9,7 +9,7 @@ import { hit, windowStart } from './rate-limit';
 import { APP_PROOF, appClient } from './repo-proof';
 import { repoReadPublic } from './repo-public';
 import { TITLES_MAX, namesRepo, readWeekTitles, shipTitles } from './ship-titles';
-import { SUMMARY_TITLES_MAX, weekSummary } from './week-summary';
+import { SUMMARY_TITLES_MAX, weekSummary, type SummaryCreate } from './week-summary';
 import { REPO_READER } from './sources';
 import { lastFinishedMonday, streakOf, weekOfMonday } from './weeks';
 
@@ -32,6 +32,10 @@ export type WeekFacts = {
   reader?: number;
   /** The builder's yes at the weekly moment (weekly-moment.ts approveWeek); a week without it reads UNCONFIRMED_LABEL. */
   approved?: boolean; approved_at?: string; approved_via?: string;
+  /** Owner batch fix round: the stored summary at the latest approval (week-summary.ts summaryConsented). */
+  approved_summary?: string | null;
+  /** Owner batch fix wave: a summary offered once without being shown (weekly-moment.ts markOffered). */
+  offered_summary?: string;
 };
 /** The terms' promise: an unconfirmed week is shown, marked this. Lives in update-links.ts so the card (a client component) never imports this server module. */
 export { UNCONFIRMED_LABEL } from './update-links';
@@ -188,12 +192,14 @@ const NO_WORK: WeekWork = { titles: [], summary: null };
 
 /**
  * v2.14 spec 3 (A11): the week's cleaned titles of the person's App-proven repo `key`, read with its installation
- * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) is read
- * only once the builder turned titles on; fix round 1: else one GET /repos/{key} through the same client checks it,
- * and a public answer stamps builder_sources.public_at. At most 3 GitHub calls (plus the token). Only called for a
- * week with shipped code (writeWeek). Weekly updates: also the week's summary, from up to SUMMARY_TITLES_MAX titles.
+ * token (repo-proof.ts appClient); [] for any other repo. A repo that doesn't read public (repo-public.ts) and has
+ * titles off: one GET /repos/{key} through the same client checks it (fix round 1; a public answer stamps
+ * builder_sources.public_at); a private one is still read for its AI summary (owner batch 2026-10-23; only with a
+ * model, `summarize` or ANTHROPIC_API_KEY) but its titles are not returned. At most 3 GitHub calls (plus the
+ * token). Only called for a week with shipped code (writeWeek). Weekly updates: also the week's summary, from up
+ * to SUMMARY_TITLES_MAX titles.
  */
-export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch): Promise<WeekWork> {
+export async function weekTitles(id: number, key: string, monday: string, now: Date, ghFetch: typeof fetch, summarize?: SummaryCreate | null): Promise<WeekWork> {
   const db = sql();
   const k = key.toLowerCase();
   const [app] = await db<{ id: number; titles_on: boolean }[]>`
@@ -203,18 +209,26 @@ export async function weekTitles(id: number, key: string, monday: string, now: D
   if (!app) return NO_WORK;
   const get = await appClient(id, k, ghFetch);
   if (!get) return NO_WORK;
-  if (!app.titles_on && !(await repoReadPublic(id, k, now))) {
+  let isPublic = await repoReadPublic(id, k, now);
+  if (!isPublic && !app.titles_on) {
     const meta = await get<{ private?: unknown }>(`/repos/${k}`);
-    if (meta?.private !== false) return NO_WORK;
-    await db`UPDATE builder_sources SET public_at = ${now} WHERE id = ${app.id}`;
+    if (meta?.private === false) {
+      await db`UPDATE builder_sources SET public_at = ${now} WHERE id = ${app.id}`;
+      isPublic = true;
+    } else if (meta?.private !== true) return NO_WORK;
   }
+  // A private repo with titles off is read only for its AI summary: with no model, not at all.
+  const aiOff = summarize === null || (summarize === undefined && !process.env.ANTHROPIC_API_KEY);
+  if (!isPublic && !app.titles_on && aiOff) return NO_WORK;
   // updates.ts imports this file: ownLinks is loaded when called.
   const own = await (await import('./updates')).ownLinks(id);
   const all = shipTitles(await readWeekTitles(get, k, monday), own, SUMMARY_TITLES_MAX);
   // Security review: the model never sees the project's name, and a private repo's titles naming it never reach it.
-  const fed = app.titles_on ? all.filter((t) => !namesRepo(t, k)) : all;
-  const summary = fed.length > 0 ? await weekSummary({ titles: fed, own }) : null;
-  return { titles: all.slice(0, TITLES_MAX), summary };
+  const fed = isPublic && !app.titles_on ? all : all.filter((t) => !namesRepo(t, k));
+  // Owner batch 2026-10-23: a private repo's week gets an AI summary too (shown only once the builder approves the
+  // week, week-summary.ts summaryShown); its titles are stored only while titles are on.
+  const summary = fed.length > 0 ? await weekSummary({ titles: fed, own, ...(!isPublic && { privateRepo: { repoKey: k } }) }, summarize) : null;
+  return { titles: isPublic || app.titles_on ? all.slice(0, TITLES_MAX) : [], summary };
 }
 
 /**
@@ -227,11 +241,12 @@ export async function weekTitles(id: number, key: string, monday: string, now: D
  *   reads it again. Completed: a titles call on the repo answered ok (GET /repos/{key} for the private check, or its
  *   commits and pulls) and no call failed (an answer other than ok or 404, or a throw). A token or client that came
  *   back null without such a call, or a failed or skipped read, leaves it for the catch-up.
+ * - `summarize`: the model call for the week's summary (tests); default Haiku with ANTHROPIC_API_KEY.
  * `wrote`: false when another builder's row holds the week (nothing written, no events).
  */
 export async function writeWeek(
   p: { id: number; key: string }, monday: string, now: Date,
-  d: { ghFetch?: typeof fetch; deadline?: number; mark?: boolean } = {},
+  d: { ghFetch?: typeof fetch; deadline?: number; mark?: boolean; summarize?: SummaryCreate | null } = {},
 ): Promise<{ wrote: boolean; facts: WeekFacts; titled: boolean }> {
   const { id, key } = p;
   const week = weekOfMonday(monday)!;
@@ -256,7 +271,7 @@ export async function writeWeek(
         throw err;
       }
     }) as typeof fetch;
-    work = await weekTitles(id, key, monday, now, tracked).catch((err: unknown) => {
+    work = await weekTitles(id, key, monday, now, tracked, d.summarize).catch((err: unknown) => {
       console.error('[weekly] titles', err instanceof Error ? err.name : 'error');
       failed = true;
       return NO_WORK;

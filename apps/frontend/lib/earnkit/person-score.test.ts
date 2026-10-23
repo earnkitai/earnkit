@@ -1,7 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { heldForReview, partLines, publicRow, scoresAdminKey, scoresPost } from './builder-score';
-import { isConfirmedProof } from './confirmed';
+import { isConfirmedProof, isConfirmedSource } from './confirmed';
 import { sql } from './db';
 import { PAGE_REFRESH_MS, pageViewRefresh, rescorePerson, refreshPerson, scorePeopleV2, standingOf, trackedKeys } from './person-score';
 import { needsPushCheck, previousRepoSignals } from './sources';
@@ -121,12 +121,18 @@ async function fakeBigUse(id: number, o: { rich?: boolean; seed?: number; active
 }
 
 
-test('4.0 confirmed proofs: earnkit.txt and DNS site proofs are not confirmed', () => {
+test('4.0 confirmed proofs: earnkit.txt confirms a site only (owner batch 2026-10-23); DNS TXT confirms nothing', () => {
   assert.equal(isConfirmedProof('repo_owner'), true);
   assert.equal(isConfirmedProof('earnkit_hosted'), true);
-  assert.equal(isConfirmedProof('earnkit_txt'), false);
+  assert.equal(isConfirmedProof('earnkit_txt'), false, 'never a repo proof');
   assert.equal(isConfirmedProof('dns_txt'), false);
   assert.equal(isConfirmedProof(null), false);
+  assert.equal(isConfirmedSource({ kind: 'site', proof: 'earnkit_txt' }), true);
+  assert.equal(isConfirmedSource({ kind: 'site', proof: 'dns_txt' }), false, 'fix round: nothing re-checks a DNS record');
+  assert.equal(isConfirmedSource({ kind: 'site', proof: 'repo_link' }), true);
+  assert.equal(isConfirmedSource({ kind: 'site', proof: null }), false, 'a typed site');
+  assert.equal(isConfirmedSource({ kind: 'contract', proof: 'earnkit_txt' }), false);
+  assert.equal(isConfirmedSource({ kind: 'repo', proof: 'dns_txt' }), false);
 });
 
 test('4.1 only confirmed sources score; an agent-reported repo shows as a project and adds nothing', dbTest, async () => {

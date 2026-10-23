@@ -54,5 +54,11 @@
   "logo": {
     "path": "programs/a16z-speedrun.png",
     "source_url": "https://speedrun.a16z.com/favicons/apple-touch-icon.png"
-  }
+  },
+  "x_handles": [
+    "speedrun"
+  ],
+  "proof_hosts": [
+    "speedrun.a16z.com/"
+  ]
 }

@@ -1,7 +1,7 @@
 import { sql } from './db';
 import { lastFinishedMonday, weekLabel } from './weeks';
 import { BACKFILL_WEEKS, backfillMondays, factChips, hasFacts, type WeekFacts } from './week-facts';
-import { approveWeek, weekLineRule } from './weekly-moment';
+import { approveWeek, weekRules } from './weekly-moment';
 import { connectAsk } from './bench-reply';
 export { connectAsk };
 
@@ -33,21 +33,22 @@ export const CONNECT_NOTE = "A yes or no to the question: call tell with move_up
 export const CONNECT_WEEKS_MAX = 12;
 
 /**
- * The weeks of `key` still to confirm, newest first, at most CONNECT_WEEKS_MAX: every finished, checked row with facts, not hidden, not
- * approved (v3 final review: not only the backfill's Mondays, so an older stored week is offered too). Each line is
- * "Week of Oct 5: <summary>" (the summary as the weekly moment shows it, weekly-moment.ts weekLineRule: a private
- * repo's only with titles on), else the week's chips. Throws on a database error.
+ * The weeks of `key` still to confirm, newest first, at most CONNECT_WEEKS_MAX: every finished, checked row with facts, not hidden, whose
+ * approval doesn't stand (weekRules `current`) (v3 final review: not only the backfill's Mondays, so an older stored week is offered too). Each line is
+ * "Week of Oct 5: <summary>" (the summary as the weekly moment shows it, weekly-moment.ts weekLineRule `asking`: the
+ * builder sees what they approve), else the week's chips. Throws on a database error.
  */
 export async function connectWeeks(builderId: number, key: string, now: Date = new Date()): Promise<ConnectWeek[]> {
   const rows = await sql()<{ monday: string; facts: WeekFacts; titles: string[]; summary: string | null }[]>`
     SELECT week::text AS monday, facts, titles, summary FROM project_updates
     WHERE builder_id = ${builderId} AND lower(project_key) = lower(${key}) AND NOT hidden
-      AND COALESCE((facts->>'approved')::boolean, false) = false
       AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'
     ORDER BY week DESC`;
-  const open = rows.filter((r) => hasFacts(r.facts ?? {})).slice(0, CONNECT_WEEKS_MAX);
+  if (rows.length === 0) return [];
+  // Owner batch fix round: not approved, or a private repo's summary changed since its yes (weekly-moment.ts weekRules).
+  const { line, current } = await weekRules(builderId, key, { asking: true });
+  const open = rows.filter((r) => hasFacts(r.facts ?? {}) && !current(r)).slice(0, CONNECT_WEEKS_MAX);
   if (open.length === 0) return [];
-  const line = await weekLineRule(builderId, key);
   return open.map((r) => ({
     monday: r.monday,
     line: `${weekLabel(r.monday)}: ${((r.titles.length > 0 || r.summary) ? line(r) : null) ?? factChips(r.facts).join(' · ')}`,
@@ -120,7 +121,9 @@ export async function answerConnect(
         WHERE builder_id = ${builderId} AND lower(project_key) = lower(${r.o.key}) AND week = ${monday}::date
           AND week <= ${lastFinishedMonday(now)}::date AND facts ? 'checked'`;
       if (!ok) continue;
-      if (await approveWeek(builderId, r.o.key, monday, now, 'connect')) approved++;
+      // Owner batch fix wave: the connect yes binds no summary (up to 12 weeks, none quoted word for word); consent to a
+      // private repo's summary comes from the weekly moment or the email page.
+      if (await approveWeek(builderId, r.o.key, monday, now, 'connect', null)) approved++;
     } catch (err) {
       console.error('[connect] approve', err instanceof Error ? err.name : 'error');
       failed.push(monday);

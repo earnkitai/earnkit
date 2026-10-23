@@ -41,7 +41,8 @@ function baseProgram() {
       'utf8',
     ),
   );
-  for (const k of ['logo', 'past_rounds', 'focus', 'best_bet', 'difficulty_override', 'winners_per_round', 'needs_contract']) delete p[k];
+  // Fix wave (3): the fixture lists no X accounts or proof hosts, whatever the committed file says today.
+  for (const k of ['logo', 'past_rounds', 'focus', 'best_bet', 'difficulty_override', 'winners_per_round', 'needs_contract', 'x_handles', 'proof_hosts']) delete p[k];
   return p;
 }
 
@@ -166,11 +167,11 @@ test('ProgramFile (v3.1 one-tap posts fix round): x_handles default to none; onl
     assert.equal(ProgramFile.safeParse({ ...base, x_handles: bad }).success, false, JSON.stringify(bad));
 });
 
-test('ProgramFile (final review 1): proof_hosts default to none; only exact lowercase hosts, never a shared host, at most 5', () => {
+test('ProgramFile (final review 1, proof ruling): proof_hosts default to none; a lowercase host and a path prefix ending in "/", never a shared host, at most 5', () => {
   const base = baseProgram();
   assert.deepEqual(ProgramFile.parse(base).proof_hosts, [], 'none listed: no page is proof for this program');
-  assert.deepEqual(ProgramFile.parse({ ...base, proof_hosts: ['base.org', 'blog.base.org'] }).proof_hosts, ['base.org', 'blog.base.org']);
-  for (const bad of [['https://base.org'], ['Base.org'], ['base'], ['base.org/winners'], ['github.io'], ['fund.vercel.app'], ['dorahacks.io'], ['earnkit.com'], ['co.uk'], ['x.com'], ['a.io', 'b.io', 'c.io', 'd.io', 'e.io', 'f.io']])
+  assert.deepEqual(ProgramFile.parse({ ...base, proof_hosts: ['www.base.org/blog/', 'docs.base.org/', 'speedrun.a16z.com/'] }).proof_hosts, ['www.base.org/blog/', 'docs.base.org/', 'speedrun.a16z.com/']);
+  for (const bad of [['base.org'], ['https://base.org/'], ['Base.org/'], ['base/'], ['base.org/winners'], ['www.base.org/Blog/'], ['github.io/'], ['fund.vercel.app/'], ['dorahacks.io/'], ['earnkit.com/'], ['co.uk/'], ['x.com/'], ['base.org//'], ['a.io/', 'b.io/', 'c.io/', 'd.io/', 'e.io/', 'f.io/']])
     assert.equal(ProgramFile.safeParse({ ...base, proof_hosts: bad }).success, false, JSON.stringify(bad));
 });
 

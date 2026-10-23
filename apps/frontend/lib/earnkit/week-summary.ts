@@ -108,15 +108,15 @@ export function tidySummary(raw: string): string | null {
   return /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
-type Create = (body: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
+export type SummaryCreate = (body: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
 let client: Anthropic | null = null;
-const defaultCreate: Create = (body) => {
+const defaultCreate: SummaryCreate = (body) => {
   client ??= new Anthropic({ timeout: 15_000, maxRetries: 1 });
   return client.messages.create(body);
 };
 
 /** Haiku's paragraph for the week, or null (no key, an error, a refusal, or nothing worth saying). */
-export async function aiSummary(titles: string[], create: Create | null = process.env.ANTHROPIC_API_KEY ? defaultCreate : null): Promise<string | null> {
+export async function aiSummary(titles: string[], create: SummaryCreate | null = process.env.ANTHROPIC_API_KEY ? defaultCreate : null): Promise<string | null> {
   if (!create || titles.length === 0) return null;
   try {
     const res = await create({
@@ -136,25 +136,59 @@ export async function aiSummary(titles: string[], create: Create | null = proces
 }
 
 /**
+ * Fix wave (8, security ruling): the file and path filter is deny by default. Only these tech names and word pairs
+ * are words, not paths; everything else that looks like a file name or a path hides a private repo's summary.
+ */
+const PATH_WORDS = ['React/Next.js', 'Next.js', 'Node.js', 'Vue.js', 'Three.js', 'Nuxt.js', 'Express.js', 'CI/CD', 'and/or', 'I/O', 'UI/UX', 'A/B'];
+const PATH_WORDS_RE = new RegExp(`(?<![\\w./-])(?:${PATH_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('|')})(?![\\w/-]|\\.\\w)`, 'gi');
+/** A file name with a source or text extension, any case ("config.js", "main.c", "README.txt", "page.TSX"). */
+const FILE_NAME = /\b[\w-]+\.(?:[cm]?[jt]sx?|[cm]ts|py|go|rs|sol|rb|java|kt|swift|c|h|cc|cpp|hpp|cs|php|json|ya?ml|toml|lock|md|mdx|txt|css|scss|less|html?|sql|sh|env|ini|cfg|conf|xml|csv|prisma|vue|svelte|graphql|gql|proto|tf)\b/i;
+/** Last fix wave (F): file names with no extension, and any dotfile token (".env", ".gitignore", ".eslintrc"). */
+const BARE_FILE = /\b(?:Dockerfile|Makefile|Procfile|Gemfile|Rakefile|Brewfile|Jenkinsfile|Vagrantfile|Containerfile)\b|(?:^|[\s("'`,;:[{])\.[A-Za-z0-9][\w.-]*/i;
+/** Any path: word characters joined by "/" ("lib/earnkit", "foo_bar/baz"), or a name with a trailing slash ("app/"). */
+const PATH = /[\w.-]+\/(?:[\w.-]+)?/;
+/** A file path or file name in a summary: never on a private repo's card (deny by default; PATH_WORDS aside). Pure. */
+export const namesPath = (text: string): boolean => {
+  const rest = text.replace(PATH_WORDS_RE, ' ');
+  return FILE_NAME.test(rest) || BARE_FILE.test(rest) || PATH.test(rest);
+};
+
+/**
  * The stored summary for one week: Haiku's, else the rule one, through the update filter. Null when neither
  * passes. Whether a private repo's summary may show is decided at read time (summaryShown).
+ * Owner batch 2026-10-23: `privateRepo` (a repo that doesn't read public): Haiku's only, never the rule one (it
+ * repeats the titles nearly word for word), and never text naming the repo or a file.
  */
-export async function weekSummary(p: { titles: string[]; own: OwnLinks }, create?: Create | null): Promise<string | null> {
+export async function weekSummary(p: { titles: string[]; own: OwnLinks; privateRepo?: { repoKey: string } }, create?: SummaryCreate | null): Promise<string | null> {
   const pass = (t: string | null) => {
     if (!t) return null;
     const c = checkUpdate(t, p.own);
+    if (p.privateRepo && c.ok && (namesRepo(c.text, p.privateRepo.repoKey) || namesPath(c.text))) return null;
     return c.ok && [...c.text].length <= SUMMARY_MAX ? c.text : null;
   };
-  return pass(await aiSummary(p.titles, create)) ?? pass(ruleSummary(p.titles));
+  const ai = pass(await aiSummary(p.titles, create));
+  return p.privateRepo ? ai : ai ?? pass(ruleSummary(p.titles));
+}
+
+/**
+ * Owner batch fix round (consent binds to the exact text): the week was approved with this very summary stored
+ * (facts.approved_summary, written by weekly-moment.ts approveWeek). A summary rewritten or read again after the
+ * approval is not consented to until the builder approves again. Pure.
+ */
+export function summaryConsented(facts: { approved?: unknown; approved_summary?: unknown } | null | undefined, summary: string | null | undefined): boolean {
+  return facts?.approved === true && typeof summary === 'string' && summary !== '' && facts.approved_summary === summary;
 }
 
 /**
  * What a card shows for the week's work (read time, the titles rule of ship-titles.ts titlesShown): the stored
- * summary, else the rule summary of the titles the card may show. A repo that doesn't read public: nothing
- * unless titles are on, and never text naming the repo. Pure.
+ * summary, else the rule summary of the titles the card may show. A repo that doesn't read public: with titles on,
+ * as a public one but never text naming the repo; with titles off, only a summary the builder approved word for word
+ * (`consented`: summaryConsented, or the builder's own approval prompt), never one naming the repo or a file. Pure.
  */
-export function summaryShown(summary: string | null | undefined, shownTitles: string[], o: { hiddenRepo: boolean; titlesOn: boolean; repoKey: string }): string | null {
-  if (o.hiddenRepo && !o.titlesOn) return null;
+export function summaryShown(
+  summary: string | null | undefined, shownTitles: string[], o: { hiddenRepo: boolean; titlesOn: boolean; repoKey: string; consented?: boolean },
+): string | null {
+  if (o.hiddenRepo && !o.titlesOn) return o.consented && summary && !namesRepo(summary, o.repoKey) && !namesPath(summary) ? summary : null;
   const ok = (s: string | null | undefined): s is string => Boolean(s) && !(o.hiddenRepo && namesRepo(s!, o.repoKey));
   const rule = ruleSummary(shownTitles);
   return ok(summary) ? summary : ok(rule) ? rule : null;

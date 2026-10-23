@@ -279,5 +279,14 @@
     "sign_in": "email_only",
     "read_at": "2026-10-21"
   },
-  "pitch": { "who": "Base", "for": "a live app" }
+  "pitch": {
+    "who": "Base",
+    "for": "a live app"
+  },
+  "x_handles": [
+    "base"
+  ],
+  "proof_hosts": [
+    "www.base.org/blog/"
+  ]
 }

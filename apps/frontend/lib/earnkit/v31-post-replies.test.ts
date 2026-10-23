@@ -1,3 +1,4 @@
+import type { ProofFetch } from './outcome-proof';
 import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
@@ -150,21 +151,27 @@ test('the builder\'s news (tell update): posted to the page and drafted in their
   assert.doesNotMatch(hype, /Your post for X/);
 });
 
-/** Final review 1: the program file's owner-reviewed proof hosts, for one test (restored after). */
-async function withProofHosts(hosts: string[], run: () => Promise<void>) {
-  const [{ before }] = await sql()<{ before: string[] }[]>`SELECT proof_hosts AS before FROM programs WHERE id = ${BASE_GRANTS_ID}`;
-  await sql()`UPDATE programs SET proof_hosts = ${hosts}::text[] WHERE id = ${BASE_GRANTS_ID}`;
+/**
+ * Final review 1, fix wave (3): the program's proof hosts and X accounts for one test, as a fixture (restored after),
+ * so the test never depends on what the committed program file lists today.
+ */
+async function withProofHosts(hosts: string[], run: () => Promise<void>, handles: string[] = []) {
+  const [{ before, xs }] = await sql()<{ before: string[]; xs: string[] }[]>`SELECT proof_hosts AS before, x_handles AS xs FROM programs WHERE id = ${BASE_GRANTS_ID}`;
+  await sql()`UPDATE programs SET proof_hosts = ${hosts}::text[], x_handles = ${handles}::text[] WHERE id = ${BASE_GRANTS_ID}`;
   try {
     await run();
   } finally {
-    await sql()`UPDATE programs SET proof_hosts = ${before}::text[] WHERE id = ${BASE_GRANTS_ID}`;
+    await sql()`UPDATE programs SET proof_hosts = ${before}::text[], x_handles = ${xs}::text[] WHERE id = ${BASE_GRANTS_ID}`;
   }
 }
+const PROOF_ASK_TEXT = "Send me a public link that shows it, like the program's post.";
+/** Proof ruling (last fix wave A): a proof page naming the builder by their verified handle. */
+const namesHandle = (handle: string) => (async () => `<html><title>Recipients</title><p>October recipients: Kit by @${handle}, and others.</p></html>`) as ProofFetch;
 
-test('final review 1: a program that lists no proof hosts or X accounts: an acceptance told is acknowledged, never asked for a proof link, never a post', db, async () => {
+test('final review 1: a program that lists no proof hosts or X accounts: an acceptance told is acknowledged, never asked for a proof link, never a post', db, () => withProofHosts([], async () => {
   const k = await kit('pn');
   const [{ hosts, handles }] = await sql()<{ hosts: string[]; handles: string[] }[]>`SELECT proof_hosts AS hosts, x_handles AS handles FROM programs WHERE id = ${BASE_GRANTS_ID}`;
-  assert.deepEqual([hosts, handles], [[], []], 'no program file lists any today');
+  assert.deepEqual([hosts, handles], [[], []], 'the fixture lists none');
   await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
   for (const proof_url of [undefined, 'https://docs.base.org/get-started/grant-recipients-october']) {
     const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', ...(proof_url && { proof_url }) }] });
@@ -173,10 +180,11 @@ test('final review 1: a program that lists no proof hosts or X accounts: an acce
     assert.doesNotMatch(String(r.reply?.agent_note ?? ''), /proof_url|nothing to show the builder/);
   }
   assert.equal((await sql()`SELECT 1 FROM post_drafts WHERE builder_id = ${k.id}`).length, 0);
-});
+}));
 
-test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked, it is drafted', db, () => withProofHosts(['docs.base.org'], async () => {
-  const k = await kit('po');
+test('owner ruling 3: an acceptance told without a proof link asks for one; with the link the agent checked and that names the builder, it is drafted', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
+  const kk = await kit('po');
+  const k = { ...kk, ctx: { ...kk.ctx, proofFetch: namesHandle(kk.handle) } };
   const [{ title }] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
   // Fix round: no entry or application in the program before: no post and no proof question, whatever the link.
@@ -195,7 +203,7 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const own = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: `https://github.com/${k.key}` }] });
   assert.equal(show(own), "Send me a public link that shows it, like the program's post.");
   // An X post from an account the program file doesn't list, the listing page itself, or a shared host: not proof.
-  for (const bad of ['https://x.com/base/status/1849000000000000000', 'https://docs.base.org/get-started/builders', 'https://forms.gle/urqjBJYJjR6Vqqre6/viewanalytics'])
+  for (const bad of ['https://x.com/base/status/1849000000000000000', 'https://docs.base.org/get-started/builders', 'https://docs.base.org/other/recipients', 'https://forms.gle/urqjBJYJjR6Vqqre6/viewanalytics'])
     assert.equal(show(await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: bad }] })), "Send me a public link that shows it, like the program's post.", bad);
   // An award the agent passes is never printed.
   const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof, prize_usd: 50000 }] });
@@ -211,6 +219,11 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const d = (await draftByCode(tap.split('/').pop()!))!;
   assert.equal(d.proof_url, proof);
   assert.doesNotMatch(s, /50,000|\$/);
+  // Proof ruling: a page on the listed path that names only the project, not the builder, is no proof (asked again).
+  const other = await kit('pq');
+  await mcpCall(other.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'applied' }] });
+  const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
+  assert.equal(show(unnamed), PROOF_ASK_TEXT);
 }));
 
 test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {

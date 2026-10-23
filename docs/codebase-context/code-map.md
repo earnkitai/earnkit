@@ -1540,8 +1540,9 @@ apps/frontend/
                                readWeekTitles (2 calls), namesRepo, titlesShown (S9: a private repo's titles show only
                                while builder_profiles.ship_titles_at is set, never naming the repo); week-facts.ts
                                weekTitles calls readWeekTitles; tests ship-titles.test.ts, v214-ship-log.test.ts
-    week-summary.ts(+test)     weekly updates: weekSummary (Haiku aiSummary when ANTHROPIC_API_KEY, else ruleSummary; checkUpdate),
-                               summaryShown (read-time privacy rule), tidySummary, clauseOf
+    week-summary.ts(+test)     weekly updates: weekSummary (Haiku aiSummary when ANTHROPIC_API_KEY, else ruleSummary; checkUpdate;
+                               privateRepo: AI only, never naming the repo or a file), summaryShown (read-time privacy rule;
+                               `approved` shows a private repo's stored summary), namesPath, SummaryCreate, tidySummary, clauseOf
     update-text.ts(+test)      v2.13 T5: checkUpdate (280 characters, no @, secrets, own links only), notes
     update-links.ts            v2.13.1 O4: RENDERED_LINK / RENDERED_TRAILING, the card's link rule; update-text
                                re-scans stored text with it (no hidden-character parser differential)
@@ -1620,7 +1621,7 @@ apps/frontend/
                                plus Review Focus 3 (a Confirming claimant of the same repo) and 4 (flag off);
                                fixtures/claim-x.ts (claimThroughX), fixtures/arc-chain.ts (fakeArc, TIPJAR_ABI)
     sources.ts(+test)          v2.12 T5: Proof (v2.14 final fix: repoOwned gone), packageOwned, siteOwnedByText, contractOwnership
-                               (fail strict), contractConflicts, proposeSource, verifySource, proveLinkedSite,
+                               (fail strict), contractConflicts, proposeSource, verifySource, recheckSite,
                                rejectSource, dueSources (R16b: never contract, coin or merged_pr), previousSignals,
                                readSources (READS_PER_RUN 200; no org contributors call); v3.1 site proof: proveSite
                                (a proposed site, after its daily reading: the latest homepage of the App-proven
@@ -1752,7 +1753,8 @@ apps/frontend/
                                (cron; v2 history rows); R16b: no people, money or ring
                                (rescorePerson(id, now, { cron }))
     read-cost.test.ts          R16b: the outside calls of one daily read and one refresh, by kind (before/after in the guide)
-    confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof
+    confirmed.ts               v2.12.1 T4: CONFIRMED_PROOFS, isConfirmedProof; owner batch 2026-10-23: SITE_PROOFS,
+                               CONFIRMED_SITE_PROOFS, isConfirmedSource (earnkit_txt and dns_txt confirm a site only)
     identity-input.ts(+test)   v2.12.1 T5: identityInput (find's identity, lenient), mergeIdentity (reports
                                merge by project, never wiped), noteIdentity (proposes agent sources, at
                                most 25 projects; remembers wallets, never proof)
@@ -2263,3 +2265,35 @@ after the email, `builderCodesSliceEnd`), `site-data.ts` (`liveSub`, newest ok r
 `HighlightsCard.tsx` (guide links in the same tab with a chevron), `streak.ts` (updates grouped once),
 `bench-find.ts` (no streak read: no weeks, never the cache). Schema: `repo_builder_codes_attempts`,
 `builder_sources.origin_read_at`.
+
+v3.1 owner batch (2026-10-23): `site-copy.ts STEPS` (shorter step copy, backing line "Fans can back you with your
+coin."); `week-facts.ts weekTitles` (a private repo with titles off is read for its AI summary only with a model,
+`summarize` or ANTHROPIC_API_KEY; its titles are not stored; `writeWeek` passes `d.summarize`), `week-summary.ts`
+(`privateRepo`, `approved`, `namesPath`), `feed.ts feedRows` and `bench-data.ts profileData` (rule `approved` from
+facts.approved), `weekly-moment.ts weekLineRule` (`asking` for the builder's own approval prompts: `lastWeekOf`,
+`connect-moment.ts connectWeeks`; `u.approved` for posts: `post-moments.ts weeklyCandidate`, `newsCandidate`);
+`confirmed.ts isConfirmedSource` (`person-score.ts confirmedSrc`, `updates.ts ownLinks`); `site-data.ts mainReading`
+(commits_year from the newest reading that has it). Tests: `week-summary.test.ts` W5b/W6b, `v214-ship-log.test.ts`
+8.10b/8.10c, `week-facts.test.ts` 4.11b, `person-score.test.ts` 4.0, `updates.test.ts` 5.7d, `v31-site-data.test.ts`
+(c5), `v31-site-copy.test.ts` (i), `v31-site-landing.test.ts` (f).
+Owner batch fix round (2026-10-23): `week-summary.ts summaryConsented` (facts.approved_summary), `weekly-moment.ts`
+(`weekRules` { line, current }, `approveWeek(..., seen)`, `LastWeek.summary`, `ShareOpen.summary`),
+`connect-moment.ts` (`ConnectWeek.summary`, `ConnectOpen.seen`), `week-links.ts` (`SEEN_FIELD`, `summaryHash`,
+`weekPage`, `WEEK_TEXT.changed`), `sources.ts recheckSite` (`SITE_PROOF_MISSES_MAX`, `SITE_PROOF_LOST`), schema
+`builder_sources.proof_misses`, `proof_checked_day`; `confirmed.ts SITE_PROOFS` is earnkit_txt only. Tests:
+`week-summary.test.ts` W6c, `v214-ship-log.test.ts` 8.10b/8.10d/8.10e, `v3-monday-email.test.ts` (d2),
+`site-proof.test.ts` SP5/SP11-SP13, `person-score.test.ts` 4.0, `week-facts.test.ts` 4.11b.
+Owner batch fix wave (2026-10-23): `outcome-proof.ts` (new: `ProofFetch`, `defaultProofFetch`, `mentionsBuilder`,
+`proofNamesBuilder`, `X_HOSTS`); `post-moments.ts proofEntryMatches`, `verifiedOutcomeCandidate(..., { proofFetch })`;
+`post-reply.ts outcomePost` and `tools.ts ToolContext.proofFetch`; `program-file.ts proof_hosts` "host/path/" form;
+`bench-find.ts momentSummary` and `MomentView.summary` (bench-reply.ts); `weekly-moment.ts markOffered`,
+`LastWeek.stored`; `sources.ts` (`recheckSite(s, up, d, day)`, `SITE_PROOF_EXEMPT_MAX`, revoke to proposed, lost sites
+read; `proveLinkedSite` removed); schema `builder_sources.proof_exempt_days`. Tests: `post-moments.test.ts` (proof),
+`v31-post-replies.test.ts` (fixture proof sources), `program-file.test.ts`, `site-proof.test.ts` SP11/SP14/SP15,
+`week-facts.test.ts` 4.11c, `weekly-moment.test.ts` (fix wave), `v3-connect.test.ts` (b2), `week-summary.test.ts` W6d.
+Owner batch last fix wave (2026-10-23): `outcome-proof.ts` (`ProofWho`, `namesBuilder`: verified @handle or x.com link,
+site host, public repo URL; no project name); `post-moments.ts proofUrlOk` (path hygiene, query and fragment dropped);
+`sources.ts` (`SITE_PROOF_LOST_READ_DAYS`, `proof_lost_at`, `proposeSource` re-propose of a lost site, exempt count kept
+past the cap); `person-score.ts` (lost sites skipped); `week-summary.ts` (`BARE_FILE`, more extensions); schema
+`builder_sources.proof_lost_at`; base-builder-grants proof_hosts `["www.base.org/blog/"]`. Tests: `post-moments.test.ts`,
+`v31-post-replies.test.ts`, `site-proof.test.ts` SP15/SP15b/SP16, `week-facts.test.ts` 4.11d, `week-summary.test.ts` W6d.

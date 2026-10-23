@@ -2,7 +2,7 @@ import { repoReadPublic } from './repo-public';
 import { APP_PROOF } from './repo-proof';
 import { sql } from './db';
 import { noteEvent } from './events';
-import { CONFIRMED_PROOFS } from './confirmed';
+import { CONFIRMED_SITE_PROOFS } from './confirmed';
 import { HOST_ZONE } from './hosting';
 import { REPO_KEY, mainConfirmed, mainProjectOf } from './main-project';
 import { hit } from './rate-limit';
@@ -61,7 +61,7 @@ export async function ownLinks(builderId: number): Promise<OwnLinks> {
   if (!key) return { sites: [], repo: null };
   const sites = await sql()<{ ref: string }[]>`
     SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'site' AND state = 'verified'
-      AND proof = ANY(${[...CONFIRMED_PROOFS]}::text[]) AND lower(project_key) = lower(${key})`;
+      AND proof = ANY(${[...CONFIRMED_SITE_PROOFS]}::text[]) AND lower(project_key) = lower(${key})`;
   const hosted = await sql()<{ slug: string }[]>`
     SELECT h.slug FROM hosted_sites h JOIN installations i ON i.id = h.installation_id
     WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(h.repo_key) = lower(${key}) AND h.status = 'live'`;

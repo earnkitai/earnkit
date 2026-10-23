@@ -1,4 +1,5 @@
 import { ScoreDeadline } from './campaigns';
+import { SafeFetchError } from './safe-fetch';
 import { afterCommit, inTx, sql, type Db } from './db';
 import { profileCode, profileCodesIn } from './discovery-clues';
 import { noteEvent } from './events';
@@ -88,7 +89,11 @@ export async function contractConflicts(builderId: number, ref: string, deployer
 
 export async function proposeSource(s: { builder_id: number; kind: string; ref: string; project_key: string; proposed_by: 'agent' | 'server' }): Promise<number | null> {
   const [row] = await sql()<{ id: string }[]>`
-    INSERT INTO builder_sources ${sql()(s)} ON CONFLICT (builder_id, kind, ref) DO NOTHING RETURNING id`;
+    INSERT INTO builder_sources ${sql()(s)} ON CONFLICT (builder_id, kind, ref) DO UPDATE
+      SET reject_reason = NULL, proof_lost_at = NULL, proposed_by = EXCLUDED.proposed_by, project_key = EXCLUDED.project_key
+      -- Last fix wave (E): only a site whose earnkit.txt proof was lost can be proposed again; anything else stays as it is.
+      WHERE builder_sources.state = 'proposed' AND builder_sources.reject_reason = ${SITE_PROOF_LOST}
+    RETURNING id`;
   if (!row) return null;
   const id = Number(row.id);
   await noteEvent('source_proposed', () => ({ type: 'source_proposed', dedupe_key: `source_proposed:${id}`, installation_id: s.builder_id, detail: { source_id: id, kind: s.kind, by: s.proposed_by } }));
@@ -101,7 +106,7 @@ export async function proposeSource(s: { builder_id: number; kind: string; ref: 
  */
 export async function verifySource(id: number, proof: Proof, deployer: string | null = null, db: Db = sql()): Promise<void> {
   const [row] = await db<{ builder_id: number; kind: string }[]>`
-    UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL,
+    UPDATE builder_sources SET state = 'verified', proof = ${proof}, verified_at = now(), reject_reason = NULL, proof_lost_at = NULL, proof_misses = 0, proof_exempt_days = 0, proof_checked_day = NULL,
       deployer = COALESCE(${deployer?.toLowerCase() ?? null}::text, deployer)
     -- v2.13.2 fix 1: a stale source (an org repo's expired proof branch) comes back only through the
     -- App (v2.14: the re-proof is the read-only GitHub App), never through any discovery clue.
@@ -110,25 +115,14 @@ export async function verifySource(id: number, proof: Proof, deployer: string | 
 }
 
 /**
- * v2.12 T8: a site a repo only links (proof repo_link, shown but never scored) whose earnkit.txt now
- * names the person: its proof becomes earnkit_txt, so its readings count as use (siteShowsUse).
- */
-export async function proveLinkedSite(id: number): Promise<void> {
-  const [row] = await sql()<{ builder_id: number }[]>`
-    UPDATE builder_sources SET proof = 'earnkit_txt', verified_at = now()
-    WHERE id = ${id} AND kind = 'site' AND state = 'verified' AND proof = 'repo_link' RETURNING builder_id`;
-  if (row) await noteEvent('source_verified', () => ({ type: 'source_verified', dedupe_key: `source_verified:${id}:earnkit_txt`, installation_id: row.builder_id, detail: { source_id: id, kind: 'site', proof: 'earnkit_txt' } }));
-}
-
-/**
  * v3.1 site proof, on the site's existing daily read (no paid call, no GitHub call): a proposed site is verified
  * (1) `repo_link` when it is the homepage (same origin), in the latest reading, of the person's App-proven repo of
  * the site's own project (the repo's ref is the site's project_key; a `<owner>.github.io` site also needs that
  * owner to be the repo's), else (2) `earnkit_txt` when it is up and its origin's /earnkit.txt, served as
  * text/plain, carries the person's `profile:` code (profileCode: HMAC of the person and the origin; one free
- * fetch, a 404 or any failure proves nothing). Only a proposed row: a verified one keeps its proof (repo_link is a
- * confirmed proof in the live score, earnkit_txt is not, so proveLinkedSite's upgrade would drop a scored site),
- * and verifySource never verifies a stale or rejected one. Throws only the run's deadline (or a database error).
+ * fetch, a 404 or any failure proves nothing). Only a proposed row: a verified one keeps its proof (both count in
+ * the live score since owner batch 2026-10-23, confirmed.ts isConfirmedSource), and verifySource never verifies a
+ * stale or rejected one. Throws only the run's deadline (or a database error).
  */
 export async function proveSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps): Promise<void> {
   const [row] = await sql()<{ reject_reason: string | null; project_key: string }[]>`
@@ -156,6 +150,74 @@ export async function proveSite(s: { id: number; builder_id: number; ref: string
   if (siteOwnedByText(text, code)) await verifySource(s.id, 'earnkit_txt');
 }
 
+/** Owner batch fix round: consecutive daily misses of a verified earnkit_txt site's code before its proof is revoked. */
+export const SITE_PROOF_MISSES_MAX = 3;
+/** The reject reason of a site whose earnkit.txt stopped naming the person. */
+export const SITE_PROOF_LOST = 'site_proof_lost';
+/** Last fix wave (E): days a site whose proof was lost is still read (proof_lost_at), so the code coming back re-proves it. */
+export const SITE_PROOF_LOST_READ_DAYS = 60;
+
+/** Fix wave (4, security ruling): consecutive exempt days (transport failures) before the day counts as a miss. */
+export const SITE_PROOF_EXEMPT_MAX = 7;
+/**
+ * Fix wave (4, security ruling): a transport failure says nothing about the file (timeout, DNS, a connection reset or
+ * refused). Every other answer that is not 200 text/plain with the code is a miss: any other status, a redirect, a body
+ * over the size cap, another content type.
+ */
+const transportFailure = (err: unknown) =>
+  err instanceof SafeFetchError
+    ? /^(no answer within|couldn't fetch it)|doesn't resolve$|doesn't point to a public address$/.test(err.message)
+    : /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|socket hang up/i.test(err instanceof Error ? err.message : String(err));
+
+/**
+ * Owner batch fix round, fix wave (4): a verified `earnkit_txt` site is checked again on its daily read (`day`) while
+ * it is up: its origin's /earnkit.txt (the same safe text/plain fetch as proveSite) must answer 200 text/plain with the
+ * person's `profile:` code. Anything else is a miss (fail closed), except a transport failure (transportFailure) or the
+ * run's deadline (ScoreDeadline, which propagates); SITE_PROOF_EXEMPT_MAX exempt days in a row count as a miss. A site
+ * down that day is not checked. Once a day; one success resets both counts; the SITE_PROOF_MISSES_MAX-th miss in a row
+ * revokes the proof: the row goes back to proposed (proof null, reject_reason SITE_PROOF_LOST), so it stops counting,
+ * being linked and being shown, but keeps being read (dueSources) and proveSite verifies it again as earnkit_txt once
+ * the code is back. No EARNKIT_AUTH_SECRET (no code to look for): nothing is checked.
+ */
+export async function recheckSite(s: { id: number; builder_id: number; ref: string }, up: boolean, d: ReaderDeps, day: string): Promise<void> {
+  if (!up) return;
+  const [row] = await sql()<{ checked: string | null }[]>`
+    SELECT proof_checked_day::text AS checked FROM builder_sources WHERE id = ${s.id} AND kind = 'site' AND state = 'verified' AND proof = 'earnkit_txt'`;
+  if (!row || row.checked === day || !URL.canParse(s.ref)) return;
+  const origin = new URL(s.ref).origin;
+  const code = profileCode(s.builder_id, origin);
+  if (code === null) return;
+  let text: string | null = null;
+  let exempt = false;
+  try {
+    text = await d.fetchText(`${origin}/earnkit.txt`, { plainText: true });
+  } catch (err) {
+    if (isBudgetStop(err) || err instanceof ScoreDeadline) throw err;
+    exempt = transportFailure(err);
+  }
+  if (text !== null && siteOwnedByText(text, code)) {
+    await sql()`UPDATE builder_sources SET proof_misses = 0, proof_exempt_days = 0, proof_checked_day = ${day} WHERE id = ${s.id}`;
+    return;
+  }
+  if (exempt) {
+    const [e] = await sql()<{ n: number }[]>`
+      UPDATE builder_sources SET proof_exempt_days = proof_exempt_days + 1, proof_checked_day = ${day}
+      WHERE id = ${s.id} AND state = 'verified' AND proof_checked_day IS DISTINCT FROM ${day} RETURNING proof_exempt_days AS n`;
+    if (!e || e.n < SITE_PROOF_EXEMPT_MAX) return;
+  }
+  const [m] = await sql()<{ misses: number; builder_id: number }[]>`
+    UPDATE builder_sources SET proof_misses = proof_misses + 1, proof_checked_day = ${day},
+      -- Last fix wave (D): a miss from an exempt day keeps the exempt count, so every exempt day past the cap is a miss.
+      proof_exempt_days = CASE WHEN ${exempt}::boolean THEN proof_exempt_days ELSE 0 END
+    WHERE id = ${s.id} AND state = 'verified' AND (proof_checked_day IS DISTINCT FROM ${day} OR ${exempt}::boolean)
+    RETURNING proof_misses AS misses, builder_id`;
+  if (!m || m.misses < SITE_PROOF_MISSES_MAX) return;
+  const [r] = await sql()`
+    UPDATE builder_sources SET state = 'proposed', proof = NULL, verified_at = NULL, reject_reason = ${SITE_PROOF_LOST}, proof_lost_at = ${day}::date, proof_misses = 0, proof_exempt_days = 0
+    WHERE id = ${s.id} AND state = 'verified' RETURNING 1`;
+  if (r) await noteEvent('source_rejected', () => ({ type: 'source_rejected', dedupe_key: `source_rejected:${s.id}:${SITE_PROOF_LOST}:${day}`, installation_id: m.builder_id, detail: { source_id: s.id, reason: SITE_PROOF_LOST } }));
+}
+
 /** Refuses a proposed source, or revokes a verified one (it stops being read and scored). */
 export async function rejectSource(id: number, reason: string, db: Db = sql()): Promise<void> {
   const [row] = await db<{ builder_id: number }[]>`
@@ -180,7 +242,12 @@ export const READ_FOR_DISPLAY = ['repo', 'site', 'package_npm', 'package_pypi'] 
 export async function dueSources(day: string, limit: number, only?: number[]): Promise<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]> {
   const rows = await sql()<{ id: number; builder_id: number; kind: string; ref: string; last_read_day: string | null }[]>`
     SELECT b.id::int AS id, b.builder_id, b.kind, b.ref, b.last_read_day::text FROM builder_sources b
-    WHERE (b.state = 'verified' OR (b.state = 'proposed' AND b.proposed_by = 'agent' AND b.kind IN ${sql()(READ_FOR_DISPLAY)}
+    WHERE (b.state = 'verified'
+      -- Fix wave (4): a site whose earnkit.txt proof was lost keeps being read, so the code coming back re-proves it.
+      -- Last fix wave (E): for SITE_PROOF_LOST_READ_DAYS after it was lost, then no longer (the agent can propose it again).
+      OR (b.state = 'proposed' AND b.kind = 'site' AND b.reject_reason = ${SITE_PROOF_LOST}
+        AND b.proof_lost_at > ${day}::date - ${SITE_PROOF_LOST_READ_DAYS}::int)
+      OR (b.state = 'proposed' AND b.proposed_by = 'agent' AND b.kind IN ${sql()(READ_FOR_DISPLAY)} AND b.reject_reason IS DISTINCT FROM ${SITE_PROOF_LOST}
         -- fix round 1: only a project the person tracks, or one their agent's latest report names
         AND (EXISTS (SELECT 1 FROM builder_projects p WHERE p.builder_id = b.builder_id AND p.project_key = b.project_key AND p.tracked)
           OR b.project_key IN (
@@ -210,9 +277,15 @@ export async function writeReading(id: number, builderId: number, day: string, r
   const written = await db.begin(async (tx) => {
     // Only a verified source is read, or (v2.12.1, for display, never scored) an agent-proposed repo,
     // site or package; a rejected or revoked one, or a proposed contract or coin, never gets a reading.
-    const [src] = await tx<{ state: string; kind: string; proposed_by: string }[]>`
-      SELECT state, kind, proposed_by FROM builder_sources WHERE id = ${id} FOR UPDATE`;
-    const display = src?.state === 'proposed' && src.proposed_by === 'agent' && (READ_FOR_DISPLAY as readonly string[]).includes(src.kind);
+    const [src] = await tx<{ state: string; kind: string; proposed_by: string; reject_reason: string | null; lost_fresh: boolean }[]>`
+      SELECT state, kind, proposed_by, reject_reason,
+        COALESCE(proof_lost_at > ${day}::date - ${SITE_PROOF_LOST_READ_DAYS}::int, false) AS lost_fresh FROM builder_sources WHERE id = ${id} FOR UPDATE`;
+    // Fix wave (4), last fix wave (E): a site whose earnkit.txt proof was lost is read for SITE_PROOF_LOST_READ_DAYS
+    // (proveSite can verify it again), then no longer.
+    const lostRow = src?.state === 'proposed' && src.kind === 'site' && src.reject_reason === SITE_PROOF_LOST;
+    const display = lostRow
+      ? src.lost_fresh
+      : src?.state === 'proposed' && src.proposed_by === 'agent' && (READ_FOR_DISPLAY as readonly string[]).includes(src.kind);
     if (src?.state !== 'verified' && !display) return false;
     const rows = await tx`
       INSERT INTO source_readings (source_id, day, signals, ok, error)
@@ -685,6 +758,8 @@ async function readAll(now: Date, day: string, o: { deadline: number; reader: Re
     if (s.kind !== 'site' || signals === undefined) continue;
     // The reading is written first: a failing proof step never drops it; the deadline stops the run here.
     try {
+      // A verified earnkit_txt site is checked again (before proveSite, so a site proven today is fetched once).
+      await recheckSite(s, (signals as SiteSignals).up, o.reader, day);
       await proveSite(s, (signals as SiteSignals).up, o.reader);
     } catch (err) {
       if (err instanceof ScoreDeadline) break;

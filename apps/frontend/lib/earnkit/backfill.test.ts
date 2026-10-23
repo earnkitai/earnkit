@@ -119,7 +119,7 @@ test('B2 a finished week without commits gets no entry (the Started card stays)'
   assert.deepEqual(await backfillStep(cronNow(), { deadline: Date.now() + 20_000, only: [p.id], ghFetch: p.gh }), { people: 0, rows: 0 });
 });
 
-test('B3 a private repo is facts only: no titles read, and the catch-up never comes back for them', db, async () => {
+test('B3 a private repo without a model (no ANTHROPIC_API_KEY) is facts only: no titles read, and the catch-up never comes back for them', db, async () => {
   const key = `owen${RUN}/secret`;
   const p = await connect('owen', key, { private: true, commits: [on(MONDAYS[0], 1, 'a', 'Add billing'), on(MONDAYS[1], 1, 'b', 'Add plans')] });
   const got = await rows(p.id);

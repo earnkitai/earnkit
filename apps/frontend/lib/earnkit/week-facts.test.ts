@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { EVENT_LOG_FLAG } from './events';
 import { factChips, hasFacts, startedChips, startedLine, upsertWeekFacts, weekFactsFor, weeklyFactsStep } from './week-facts';
-import { mainConfirmed } from './main-project';
+import { mainConfirmed, pickMainProject } from './main-project';
 import { personInputsV2, rescorePerson } from './person-score';
 import { isoWeekOf, mondayOf } from './weeks';
 import { randomBytes } from 'node:crypto';
@@ -261,6 +261,71 @@ test('4.11 a proposed site\'s days up add no shipping week; a confirmed one does
   await sql()`UPDATE builder_sources SET state = 'verified', proof = 'repo_link' WHERE id = ${sid}`;
   await rescorePerson(id, new Date(NOW.getTime() + 60_000));
   assert.equal((await weeks()).includes(wk(21)), true, 'confirmed: its first day up is a shipping week');
+});
+
+test('4.11b owner batch: a site proven by earnkit.txt counts toward Shipping (its first day up, the live bonus); an agent-typed one never does', dbTest, async () => {
+  for (const [n, proof] of [[15, 'earnkit_txt']] as const) {
+    const id = T + n;
+    const key = `site${n}${T}/app`;
+    await person(id, key, { [wk(0)]: 1 });
+    const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+      VALUES (${id}, 'site', ${`https://site${n}${T}.example.com`}, ${key}, 'proposed', null, 'agent') RETURNING id::int AS sid`;
+    for (const d of [21, 1])
+      await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+    const project = async () => (await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`)[0];
+    const typed = await rescorePerson(id, NOW);
+    assert.equal((await project()).ship_weeks.includes(wk(21)), false, `${proof}: typed, unverified: no shipping week`);
+    await sql()`UPDATE builder_sources SET state = 'verified', proof = ${proof} WHERE id = ${sid}`;
+    const proven = await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+    assert.equal((await project()).ship_weeks.includes(wk(21)), true, `${proof}: its first day up is a shipping week`);
+    assert.ok(proven.score > typed.score, `${proof}: the live site adds to the score (${typed.score} -> ${proven.score})`);
+  }
+  // Fix round: nothing re-checks a DNS record, so a dns_txt site adds nothing.
+  const id = T + 16;
+  const key = `site16${T}/app`;
+  await person(id, key, { [wk(0)]: 1 });
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${`https://site16${T}.example.com`}, ${key}, 'verified', 'dns_txt', 'agent') RETURNING id::int AS sid`;
+  for (const d of [21, 1])
+    await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ ship_weeks: string[] }[]>`SELECT ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.equal(p.ship_weeks.includes(wk(21)), false, 'dns_txt: no shipping week');
+});
+
+test('4.11c fix wave (5): a site-only project proven by earnkit.txt is not confirmed and never becomes the main project', dbTest, async () => {
+  const id = T + 17;
+  await clear(id);
+  const key = `solo${T}.example.com`;
+  await sql()`INSERT INTO installations (id, token_hash) VALUES (${id}, ${`v213-wf-${id}`})`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, ring) VALUES (${id}, ${`v213wf-${id}`}, ${sql().json({ ring: [], ringOwner: [] })})`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${`https://${key}`}, ${key}, 'verified', 'earnkit_txt', 'agent') RETURNING id::int AS sid`;
+  for (const d of [21, 1])
+    await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - d * DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  await rescorePerson(id, NOW);
+  const [p] = await sql()<{ confirmed: boolean; ship_weeks: string[] }[]>`SELECT confirmed, ship_weeks FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`;
+  assert.deepEqual([p.confirmed, p.ship_weeks.includes(wk(21))], [false, false], 'not confirmed, no shipping week');
+  assert.equal(await pickMainProject(id, sql()), null, 'never the main project');
+  const [f] = await sql()<{ key: string | null }[]>`SELECT main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
+  assert.equal(f.key, null);
+});
+
+test('4.11d last fix wave (E): a site whose earnkit.txt proof was lost is never the project\'s link, live site or ship', dbTest, async () => {
+  const id = T + 18;
+  const key = `lost${T}/app`;
+  await person(id, key, { [wk(0)]: 1 });
+  const site = `https://lost${T}.example.com`;
+  const [{ sid }] = await sql()<{ sid: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, state, proof, proposed_by)
+    VALUES (${id}, 'site', ${site}, ${key}, 'verified', 'earnkit_txt', 'agent') RETURNING id::int AS sid`;
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${sid}, ${new Date(NOW.getTime() - DAY).toISOString().slice(0, 10)}, ${sql().json({ up: true } as never)}, true)`;
+  const project = async () => (await sql()<{ link: string | null; shipped: boolean }[]>`SELECT link, shipped FROM builder_projects WHERE builder_id = ${id} AND project_key = ${key}`)[0];
+  await rescorePerson(id, NOW);
+  assert.equal((await project()).link, site, 'proven: the project\'s link');
+  await sql()`UPDATE builder_sources SET state = 'proposed', proof = NULL, reject_reason = 'site_proof_lost', proof_lost_at = now() WHERE id = ${sid}`;
+  await rescorePerson(id, new Date(NOW.getTime() + 60_000));
+  const p = await project();
+  assert.notEqual(p.link, site, 'lost: never the link');
 });
 
 test('4.12 a chain only from a confirmed contract, an EarnKit deploy, a launched coin or a program entry; never what an agent says', dbTest, async () => {

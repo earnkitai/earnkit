@@ -38,12 +38,13 @@ export type SourceRow = { id: number; kind: string; ref: string; project_key: st
 
 /**
  * Whether a verified site's "up" readings count as the project being used (staying power): only
- * when the site itself is proven (earnkit.txt or DNS TXT) or it is the repo's own GitHub Pages host.
+ * when the site itself is proven (earnkit.txt, re-checked daily) or it is the repo's own GitHub Pages host.
  * A site a repo merely links (homepage, CNAME, vercel.json, wrangler.toml) is shown, never scored:
  * anyone can link google.com. Pure.
  */
 export function siteShowsUse(s: Pick<SourceRow, 'ref' | 'project_key' | 'proof'>): boolean {
-  if (s.proof === 'earnkit_txt' || s.proof === 'dns_txt') return true;
+  // Fix wave (10): dns_txt confirms nothing (nothing verifies or re-checks it); earnkit.txt is checked daily.
+  if (s.proof === 'earnkit_txt') return true;
   return s.proof === 'repo_link' && ownPagesSite(s.ref, s.project_key);
 }
 export type ReadingRow = { source_id: number; day: string; ok: boolean; signals: unknown };

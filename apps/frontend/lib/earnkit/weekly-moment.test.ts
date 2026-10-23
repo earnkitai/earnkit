@@ -245,6 +245,41 @@ test('L6.4 the moment through score, once per installation (another agent of the
   assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Okay.', 'closed by the no');
 });
 
+test('owner batch fix wave: the moment quotes the stored summary under the head and the yes binds exactly it; one it can\'t show binds none and is asked once', db, async () => {
+  await freshBoard();
+  const monday = lastFinishedMonday(new Date());
+  const me = await builder('wmsy', 'Sam', [1, 2]);
+  await history(me.id, plusDays(monday, 6), 30);
+  await pad('wmpy', 9, [plusDays(monday, 6)]);
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
+    VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
+  const s = show(await mcpCall(ctx(me.id), 'score', {}));
+  assert.equal(s, `Last week done. You're now #1.\n"Fixed the login loop."\nYour page: https://earnkit.com/${me.handle}\nDoes last week look right?`);
+  assert.equal(links(s).length, 1);
+  assert.equal(questions(s), 1);
+  // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.
+  await sql()`UPDATE project_updates SET summary = 'Fixed the login loop and more.' WHERE builder_id = ${me.id} AND week = ${monday}`;
+  assert.equal(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'share', project_key: me.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  const facts = async (id: number) => (await sql()<{ facts: Record<string, unknown> }[]>`SELECT facts FROM project_updates WHERE builder_id = ${id} AND week = ${monday}`)[0].facts;
+  assert.equal((await facts(me.id)).approved_summary, 'Fixed the login loop.');
+
+  // A summary the line can't show (it names the repo): no quoted line, the yes binds none, the offer is recorded.
+  const other = await builder('wmsz', 'Lee', [1, 2]);
+  await history(other.id, plusDays(monday, 6), 31);
+  const named = `Shipped wmsz${RUN} app dark mode.`;
+  await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
+    VALUES (${other.id}, ${other.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${named})`;
+  const t = show(await mcpCall(ctx(other.id), 'score', {}));
+  assert.doesNotMatch(t, /dark mode|"/, t);
+  assert.equal(show(await mcpCall(ctx(other.id), 'tell', { move_up: { kind: 'share', project_key: other.key, answer: 'yes' } })), 'Thanks. Last week is confirmed.');
+  assert.equal((await facts(other.id)).approved_summary, null);
+  assert.equal((await facts(other.id)).offered_summary, named, 'counted as offered, not approved');
+  const { weekRules } = await import('./weekly-moment');
+  const rules = await weekRules(other.id, other.key);
+  const [row] = await sql()<{ titles: string[]; summary: string | null; facts: Record<string, unknown> }[]>`SELECT titles, summary, facts FROM project_updates WHERE builder_id = ${other.id} AND week = ${monday}`;
+  assert.equal(rules.current(row as never), true, 'not asked about again');
+});
+
 test('L5.6 security: another builder\'s X name or handle (text they control) never reaches find, score, the moment or the share link', db, async () => {
   await freshBoard();
   const monday = lastFinishedMonday(new Date());

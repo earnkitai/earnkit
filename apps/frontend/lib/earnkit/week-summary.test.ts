@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type Anthropic from '@anthropic-ai/sdk';
-import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, ruleSummary, summaryShown, tidySummary, weekSummary } from './week-summary';
+import { SUMMARY_MAX, SUMMARY_MODEL, aiSummary, clauseOf, namesPath, ruleSummary, summaryConsented, summaryShown, tidySummary, weekSummary } from './week-summary';
 import { logCards, STARTED_CHIP } from './bench-data';
 import { NOTE_LINE, momentLines } from './weekly-moment';
 
@@ -58,6 +58,54 @@ test('W6 summaryShown: a private repo shows nothing unless titles are on, and ne
   assert.equal(summaryShown(null, ['Fix the timer'], pub), 'Fixed the timer.', 'an older row: the rule summary of its titles');
   assert.equal(summaryShown('Fixed the timer.', ['Fix the timer'], { ...pub, hiddenRepo: true }), null);
   assert.equal(summaryShown('Shipped secretapp v2.', ['Fix the timer'], { ...pub, hiddenRepo: true, titlesOn: true }), 'Fixed the timer.');
+});
+
+test('W6b owner batch: a private repo with titles off shows the stored summary only when consented to, never one naming it or a file', () => {
+  const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp' };
+  assert.equal(summaryShown('Fixed the timer.', [], priv), null, 'not approved');
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, consented: false }), null);
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, consented: true }), 'Fixed the timer.');
+  assert.equal(summaryShown(null, ['Fix the timer'], { ...priv, consented: true }), null, 'never the rule summary of its titles');
+  assert.equal(summaryShown('Shipped Secret App v2.', [], { ...priv, consented: true }), null, 'names the repo');
+  assert.equal(summaryShown('Fixed the timer in src/timer.ts.', [], { ...priv, consented: true }), null, 'a path');
+  assert.equal(summaryShown('Updated package.json.', [], { ...priv, consented: true }), null, 'a file name');
+  // A public repo is unchanged by approval.
+  assert.equal(summaryShown('Fixed the timer.', [], { ...priv, hiddenRepo: false }), 'Fixed the timer.');
+});
+
+test('W6c fix round: consent binds to the exact text the week was approved with', () => {
+  assert.equal(summaryConsented({ approved: true, approved_summary: 'Fixed the timer.' }, 'Fixed the timer.'), true);
+  assert.equal(summaryConsented({ approved: true, approved_summary: 'Fixed the timer.' }, 'Fixed the timer and the oven.'), false, 'changed after the yes');
+  assert.equal(summaryConsented({ approved: true }, 'Fixed the timer.'), false, 'approved before approvals carried the text');
+  assert.equal(summaryConsented({ approved: true, approved_summary: null }, 'Fixed the timer.'), false, 'approved with no summary, one written later');
+  assert.equal(summaryConsented({ approved: false, approved_summary: 'Fixed the timer.' }, 'Fixed the timer.'), false);
+  assert.equal(summaryConsented(null, 'Fixed the timer.'), false);
+  assert.equal(summaryConsented({ approved: true, approved_summary: '' }, ''), false);
+});
+
+test('W6d fix wave (security ruling): namesPath is deny by default; only the listed tech names and word pairs pass', () => {
+  for (const t of ['Moved to Next.js and Node.js.', 'Set up CI/CD.', 'Fixed sign-in and/or sign-up.', 'Ported React/Next.js pages.', 'Used Vue.js, Three.js, Nuxt.js and Express.js.',
+    'Faster I/O.', 'A UI/UX pass.', 'Ran an A/B test.', 'Shipped v2.1 of the app.', 'Fixed sign-in. Added search.', 'Wait... it works.', 'Made it 2.5x faster.'])
+    assert.equal(namesPath(t), false, t);
+  for (const t of ['Edited src/app/page.tsx.', 'Moved lib/earnkit around.', 'Cleaned app/ up.', 'Renamed foo_bar/baz.', 'Fixed config.js.', 'Fixed main.c.', 'Edited README.txt.',
+    'Fixed the timer in src/timer.ts.', 'Updated package.json.', 'Edited README.md.', 'Fixed lib/timer.js.', 'Fixed index.ts', 'Fixed PAGE.TSX.', 'Moved Next.js/app.',
+    // Last fix wave (F): extensionless file names, dotfiles and the added extensions.
+    'Fixed the Dockerfile.', 'Cleaned up the makefile.', 'Added a Procfile.', 'Updated .env defaults.', 'Edited .gitignore.', 'Added .xyzrc.', '(.eslintrc) tidy.',
+    'Changed schema.prisma.', 'Fixed Nav.vue.', 'Fixed Card.svelte.', 'Edited schema.graphql.', 'Edited query.gql.', 'Edited api.proto.', 'Edited main.tf.',
+    'Edited app.ini.', 'Edited app.cfg.', 'Edited nginx.conf.', 'Edited feed.xml.', 'Edited data.csv.'])
+    assert.equal(namesPath(t), true, t);
+  const priv = { hiddenRepo: true, titlesOn: false, repoKey: 'a/secretapp', consented: true };
+  assert.equal(summaryShown('Moved to Next.js and set up CI/CD.', [], priv), 'Moved to Next.js and set up CI/CD.');
+  assert.equal(summaryShown('Shipped Secretapp on Node.js.', [], priv), null, 'the repo name check stays');
+});
+
+test('W5b weekSummary for a private repo: the model\'s words only (never the rule summary), never naming the repo or a file', async () => {
+  const p = { titles: ['Fix the timer'], own, privateRepo: { repoKey: 'a/secretapp' } };
+  assert.equal(await weekSummary(p, reply('Fixed the cooking timer.')), 'Fixed the cooking timer.');
+  assert.equal(await weekSummary(p, null), null, 'no model: nothing');
+  assert.equal(await weekSummary(p, reply('NONE')), null);
+  assert.equal(await weekSummary(p, reply('Shipped secretapp dark mode.')), null);
+  assert.equal(await weekSummary(p, reply('Fixed the timer in lib/timer.ts.')), null);
 });
 
 test('W7 the ship log says "Started tracking" once: on the oldest week that stored a start', () => {

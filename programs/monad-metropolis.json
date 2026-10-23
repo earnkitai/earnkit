@@ -163,5 +163,8 @@
     "source_url": "https://monad.xyz/developers/hackathons/metropolis",
     "ecosystem": "Monad"
   },
-  "best_bet": "Per-second streaming payments for agents or APIs on Monad"
+  "best_bet": "Per-second streaming payments for agents or APIs on Monad",
+  "x_handles": [
+    "monad"
+  ]
 }

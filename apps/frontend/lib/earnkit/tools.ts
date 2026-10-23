@@ -1,3 +1,4 @@
+import type { ProofFetch } from './outcome-proof';
 import { newsPost, outcomePost } from './post-reply';
 import { hasEntry } from './post-moments';
 import { z } from 'zod';
@@ -195,6 +196,8 @@ export type ToolContext = {
    * starter registry; each defaults to the real one (freshSwitches).
    */
   freshDeps?: Partial<Pick<FreshOn, 'deployOn' | 'hostOn' | 'starters'>>;
+  /** Proof ruling: test injection only: the fetch that reads an outcome's proof page or X oEmbed (outcome-proof.ts). */
+  proofFetch?: ProofFetch;
   /** v2.12.1 T8: test injection only: the on-demand refresh's readers (person-score.ts refreshPerson). */
   readerDeps?: ReaderDeps;
   /** v3.1 Task 7: test injection only: the fetch the background Builder Codes check reads GitHub with. */
@@ -3221,7 +3224,7 @@ export const tools = {
     if (Object.keys(statements).length > 0 || replies.length === 0)
       replies.push((await handlers.tell_earnkit(defined({ ...statements }), ctx)) as Reply);
     if (outcome) {
-      const r = await outcomePost(ctx.installationId, { program_id: outcome.program_id, status: outcome.status as 'accepted' | 'funded' | 'won', proof_url: outcome.proof_url }, { entered }, new Date());
+      const r = await outcomePost(ctx.installationId, { program_id: outcome.program_id, status: outcome.status as 'accepted' | 'funded' | 'won', proof_url: outcome.proof_url }, { entered, proofFetch: ctx.proofFetch }, new Date());
       if (r) {
         // The reply now shows something: the saved note's "nothing to show" no longer holds.
         for (const x of replies) if (typeof x.agent_note === 'string') x.agent_note = x.agent_note.replace(TELL_SAVED_NOTE, 'Saved.');

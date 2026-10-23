@@ -1,6 +1,6 @@
 import { holdReason, publicRow } from './builder-score'; // builder-score imports this file too: functions only, called after load
 import { ScoreDeadline } from './campaigns';
-import { isConfirmedProof } from './confirmed';
+import { SITE_PROOFS, isConfirmedSource } from './confirmed';
 import { sql, type Db } from './db';
 import { discoverPerson } from './discovery';
 import { REPO_KEY, benchConfirmedSql, mainProjectOf, pickMainProject } from './main-project';
@@ -16,7 +16,7 @@ import { FORMULA_V2, SHIPPING_WEEKS, computeScoreV2, type ScoreInput, type Ship 
 import {
   defaultReaderDeps, isBudgetStop, readError, readNpm, readNpmBulk, readPypi, type PackageSignals, type ReaderDeps, type RepoSignals, type SiteSignals,
 } from './source-readers';
-import { firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
+import { SITE_PROOF_LOST, firstPushes, needsPushCheck, previousRepoSignals, storedCommits } from './sources';
 import { CHAIN_IDS } from './tokens';
 import { wholeWords } from './untrusted-text';
 import { isoWeekOf, last52, mondayOf, streakOf, weeksShipping } from './weeks';
@@ -78,7 +78,7 @@ export function trackedKeys(projects: Pick<ProjectRow, 'key' | 'last_active_at'>
 
 // ---- Readings to inputs ---------------------------------------------------------------------------
 
-type Src = { id: number; kind: string; ref: string; project_key: string; proof: string | null; state: string; created_at: Date };
+type Src = { id: number; kind: string; ref: string; project_key: string; proof: string | null; state: string; created_at: Date; reject_reason?: string | null };
 /** One good observation of a source: a daily reading (`at` = its day) or the refresh's live one (`at` = read time). */
 type Obs = { at: Date; rank: number; signals: Record<string, unknown> };
 
@@ -143,7 +143,7 @@ export async function personInputsV2(
   const members = (await db<{ id: number }[]>`SELECT id FROM installations WHERE COALESCE(builder_id, id) = ${id}`).map((m) => m.id);
   const group = members.length ? members : [-1];
   const sources = [...(await db<Src[]>`
-    SELECT id::int AS id, kind, ref, project_key, proof, state, created_at FROM builder_sources
+    SELECT id::int AS id, kind, ref, project_key, proof, state, created_at, reject_reason FROM builder_sources
     WHERE builder_id = ${id} AND state <> 'rejected' AND kind <> 'merged_pr' ORDER BY id`)];
   const ids = sources.map((s) => s.id);
   const readings = ids.length === 0 ? [] : await db<{ source_id: number; day: string; at: Date; signals: unknown }[]>`
@@ -202,7 +202,7 @@ export async function personInputsV2(
     const k = lowKey(key);
     return identity.find((p) => [p.repo, p.live_url, p.package, ...list<unknown>(p.contracts)].some((v) => typeof v === 'string' && lowKey(v) === k));
   };
-  const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedProof(s.proof);
+  const confirmedSrc = (s: Src) => s.state === 'verified' && isConfirmedSource(s);
 
   const input: ScoreInput = { ships: [], commitWeeks: [] };
   const projects: ProjectRow[] = [];
@@ -228,7 +228,10 @@ export async function personInputsV2(
     const deploysHere = deploys.filter((x) => lowKey(x.repo_key) === low);
     const coinsHere = coins.filter((x) => (x.repo_key ? lowKey(x.repo_key) === low : `coin:${x.coin}` === key));
     const confirmedRepo = srcs.some((s) => s.kind === 'repo' && confirmedSrc(s));
-    const confirmed = srcs.some(confirmedSrc) || hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
+    // Fix wave (5): a site proven only by its own earnkit.txt counts only under a project with a confirmed repo; a
+    // site-only project is never confirmed by it (so it never reaches the Bench or pickMainProject).
+    const counts = (s: Src) => confirmedSrc(s) && (!(s.kind === 'site' && s.proof !== null && SITE_PROOFS.has(s.proof)) || confirmedRepo);
+    const confirmed = srcs.some(counts) || hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
 
     let shipped = hostedHere.length > 0 || deploysHere.length > 0 || coinsHere.length > 0;
     let liveSite: string | null = null;
@@ -249,7 +252,7 @@ export async function personInputsV2(
     let repoRead = false;
 
     for (const s of srcs) {
-      const scored = confirmedSrc(s);
+      const scored = counts(s);
       const last = latest(s.id);
       if (s.kind === 'repo') {
         const g = (last?.signals ?? {}) as Partial<RepoSignals & PersonRepo>;
@@ -266,6 +269,8 @@ export async function personInputsV2(
           if (inScope) input.commitWeeks.push(wk);
         }
       } else if (s.kind === 'site') {
+        // Last fix wave (E): a site whose earnkit.txt proof was lost is never the project's link, live site or ship.
+        if (s.reject_reason === SITE_PROOF_LOST) continue;
         hasSite = true;
         const up = last && (last.signals as Partial<SiteSignals>).up === true;
         if (up) {

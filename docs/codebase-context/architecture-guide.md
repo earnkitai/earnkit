@@ -4833,8 +4833,23 @@ Confirmed: `github_signin`, `proof_line`, `repo_owner`, `repo_link`, `deployer`,
 `wallet_signed`, `earnkit_hosted`, `x_match` (GitHub's public X field equals the claimed X; T7,
 `discovery.ts provenLogin`; withdrawn, the login is released). Everything else the agent reported is
 shown, marked "Not yet confirmed" on the page (one quiet line when none is confirmed), and adds 0.
-`earnkit_txt` and `dns_txt` rows count as not confirmed (S9: discovery no longer proposes merged PRs
-or reads `earnkit.txt`; old rows stay).
+`earnkit_txt` confirms a site source only (owner batch 2026-10-23, reversing S9 for sites: `confirmed.ts
+SITE_PROOFS`, `isConfirmedSource`, `CONFIRMED_SITE_PROOFS`): a site proven by its own `earnkit.txt` counts toward
+Shipping (its first day up is a shipping week; on a project with a confirmed repo it is a live ship) and its origin
+may be linked in an update (`updates.ts ownLinks`). It is checked again on every daily read (`sources.ts
+recheckSite`, before `proveSite`) while the site is up: anything but 200 text/plain with the code is a miss (any other
+status, a redirect, an oversized body, another type), once a day (`proof_checked_day`); only transport failures
+(timeout, DNS, a reset) and the run's deadline are exempt, and `SITE_PROOF_EXEMPT_MAX` (7) exempt days in a row count as
+a miss (`proof_exempt_days`, kept on that miss so every exempt day past the cap is a miss; a TLS or certificate failure is
+transport); one success resets both; the third miss in a row puts the row back to proposed (proof
+null, reject_reason `SITE_PROOF_LOST`), so it stops counting, being linked and showing, but it keeps being read
+(`dueSources`, `writeReading`) for `SITE_PROOF_LOST_READ_DAYS` (60) after `proof_lost_at`, then no longer, and
+`proveSite` verifies it again as earnkit_txt once the code is back; `proposeSource` lets the agent propose it again (only
+a lost site row is reset). A lost site is never the project's link, live site or ship (`person-score.ts`). A site proven
+only by earnkit.txt counts only under a project with a confirmed repo (`person-score.ts`), so a site-only project is
+never confirmed and never picked by `pickMainProject`.
+`dns_txt` confirms nothing: nothing verifies or re-checks a DNS record. Neither confirms a repo, package or contract;
+an agent-typed site (proposed, no proof) still adds 0.
 
 **v2.12.2, a reported login's own repos** (`discovery.ts discoverOne`; design note
 `v2.12.2-reported-github-work.md`): with no proven login but an `identity.github_login` the agent
@@ -6581,6 +6596,30 @@ quote (`UpdateCard`: `data-ek-summary`, `data-ek-note`; the square card shows th
   stored `titles` (3) stay for older readers and the read-time fallback.
 - **Read time.** `summaryShown(summary, titlesShown(...), rule)` in `feed.ts feedRows`, `bench-data.ts profileData`
   and `weekly-moment.ts lastWeekOf`: the titles privacy rule, and never text naming a private repo.
+- **Fix wave (owner batch, 2026-10-23).** The weekly moment's reply quotes last week's stored summary as one line under
+  the head (`bench-find.ts momentSummary`: never with "?" or a link) and its yes binds exactly that text; the connect
+  offer quotes none, so its yes binds none (`approveWeek(..., null)`). An offer that could not show the stored summary
+  records it (`weekly-moment.ts markOffered`, `facts.offered_summary`; the moment and the Monday email), so it is asked
+  once, not forever. `week-summary.ts namesPath` is deny by default: any slash path or file name with a source or text
+  extension (prisma, vue, svelte, graphql, gql, proto, tf, ini, cfg, conf, xml, csv included), an extensionless known
+  file name (Dockerfile, Makefile, Procfile and kin) or a dotfile token (".env", ".gitignore") hides a private repo's
+  summary, except the allowlist (Next.js, Node.js, Vue.js, Three.js, Nuxt.js,
+  Express.js, React/Next.js, CI/CD, and/or, I/O, UI/UX, A/B).
+- **Private repos (owner batch 2026-10-23).** Approval is consent, bound to the exact text: a private repo's week
+  with titles off shows its stored summary on the feed, profile Activity and posts only when it equals
+  `facts.approved_summary` (`week-summary.ts summaryConsented`). `weekly-moment.ts approveWeek(..., seen)` stores the
+  summary the builder was shown: the moment keeps it in `share_open.summary`, the connect offer in `connect_open.seen`
+  (each only when the line shows the stored summary word for word), the email page in a hidden form field
+  (`week-links.ts SEEN_FIELD`, `summaryHash`; a POST whose hash no longer matches gets the page again, 409). No `seen`
+  binds to nothing. A summary rewritten or re-read after the yes is hidden until approved again: `weekRules(...).current`
+  makes the moment, the connect offer and the email link ask again; the first approved_at and approved_via are kept.
+  A summary written while titles were on is not shown once they are off unless approved word for word. Raw titles stay
+  hidden unless titles are on. `weekTitles` reads a private repo with titles off only when a model is set
+  (`ANTHROPIC_API_KEY`): its titles (those naming the repo dropped) go to Haiku, the summary must pass `checkUpdate`
+  and never name the repo or a file (`namesPath`), there is no rule-summary fallback (it repeats titles nearly word
+  for word), and the titles are not stored. `weekLineRule(..., { asking: true })` shows the summary to the builder in
+  their own approval prompts (`lastWeekOf`: moment, digest, week link page; `connectWeeks`) so they see what they
+  approve. Past weeks: `pnpm feed:summaries` (it calls `weekTitles`) fills them once the key is set.
 - **The note.** `updates.ts noteMonday`: Monday and Tuesday UTC a `tell update { text }` goes under the finished
   week; from Wednesday, this week's. The moment adds `NOTE_LINE` under the summary; `SHARE_NOTE` tells the agent to
   post the builder's line with `tell update`.
@@ -7308,7 +7347,7 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   rest and a 300-unit sunset circle placed at the pointer through `getScreenCTM().inverse()`. Pointer moves (mouse
   only) write styles directly: glow opacity 1 (700ms) and a `translate(px*-8, py*-6)` drift (1200ms). Under
   `useReducedMotion()` no listener is attached.
-- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "People can back you by buying your coin." only with `raisingEnabled()`. Activity is
+- **Steps / Activity / Opportunities.** Steps (Connect, Ship, Get funded; titles aligned under one 56px icon box) append "Fans can back you with your coin." only with `raisingEnabled()` (owner batch 2026-10-23: "Add EarnKit to your agent. Connect your GitHub.", "We score how steadily you ship, every day.", "We find grants you fit. Your agent writes the application."). Activity is
   `landing.activity` (W1) as cards (photo, name to `pagePath`, `XHandle`, `ScoreText` when scored, summary, else text,
   else chips; meta `activityMeta`: project, week label, commits when above 0); one or two cards add the invite card;
   none hides the section. Opportunities shows `landingPrograms` (W2) as whole-card guide links in the board's colour
@@ -7344,6 +7383,9 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
   4. repo: "Building <name> since <Mon YYYY>" from the ship reading's `created_at`, sub "<N> commits" (or "... in the
      last year" for a repo older than the read's 52 weeks) from `commits_year` (GraphQL `history.totalCount`, already
      asked; `person-github.ts repoFrom` now keeps it and `default_branch`); a hidden repo's name never shows ("Building since").
+     Owner batch 2026-10-23: a hidden repo with a proven site reads as its host ("Building earnkit.com since Dec 2024",
+     `page-data.ts safeName`), and `site-data.ts mainReading` fills `commits_year` from the newest reading that has it
+     when the ship reading predates the field (production showed no sub until its first daily read with the count).
   5. won/applied (`page-data.ts projectProgramsDated`, at most 2, sub "<Mon YYYY>"), linked to `/programs/<id>` only
      when that guide page exists (`guide-pages.ts guideProgramSql`, the predicate `landing.ts readGuideIds` uses: a
      file program, not a campaign, not unlisted). A guide link opens in the same tab; other proof in a new tab.
@@ -7613,6 +7655,21 @@ gone; the Monday moment now carries a drafted post.)
   `backers_after_post` (distinct person and wallet first seen within 7 days after a first tap on an open backing; 0 while
   EARNKIT_RAISING is off; correlation only), people only (`notTest`); labels in `STATS_LABELS`; the route's cache key
   moved to `public-stats-posts`. Page opens from X (`post_drafts.x_visits`) are internal only (final review 4).
+- **Proof ruling (security, 2026-10-23, owner batch fix wave).** A proof must name the builder. (a) `proof_hosts`
+  entries are "host/path-prefix/" (`program-file.ts`: a lowercase host and a prefix ending in "/"; programs:check
+  validates it): `post-moments.ts proofEntryMatches` matches that exact host (no www widening, no subdomain) and a path
+  under the prefix, so user-content paths stay out. Today: base-builder-grants `["www.base.org/blog/"]`, base-batches-005 `["www.base.org/blog/"]`, a16z-speedrun `["speedrun.a16z.com/"]`. (b) A web
+  proof is fetched (`outcome-proof.ts defaultProofFetch`: the guarded fetch, HTML, `LARGE_PAGE_MAX_BYTES`) and its
+  page must name the builder (`namesBuilder`, last fix wave A): their verified X handle as "@handle" or an
+  x.com/twitter.com link to it (3+ characters, never a word of the program's title or one of its `x_handles`), their
+  verified site's host or their public repo's URL (github.com/owner/repo); never the project's name. (c) An X post is
+  read through `https://publish.twitter.com/oembed?url=<status url>` (JSON, `OEMBED_MAX_BYTES`): `author_url` must be
+  one of the program's `x_handles` and the post's own words (its first paragraph, never the attribution) must name the
+  builder by the same rule. (d) Last fix wave B: `proofUrlOk` refuses a path with %2f, %5c or %2e (any case), a
+  backslash, an empty or a dot segment, checked on the link as given; the stored and fetched link drops its query and
+  fragment.
+  Any fetch or parse failure fails closed (`proofNamesBuilder` false, 'no_proof'). `ToolContext.proofFetch` is test
+  injection only. Agent-stated awards are never printed.
 - **Final review fix wave (2026-10-23).** (1) Proof hosts are an owner-reviewed allowlist: program files may list
   `proof_hosts` (exact lowercase hosts, at most 5; `program-file.ts` refuses a shared host, a public suffix or
   earnkit.com via `submit-hosts.ts proofHostAllowed`, which now holds `SHARED_HOSTS` and `MULTI_SUFFIXES`), synced to
@@ -7653,13 +7710,14 @@ gone; the Monday moment now carries a drafted post.)
   `safeFetchText`'s `plainText` refuses any content-type but text/plain) has a `profile:` line equal to
   `profileCode(builder_id, origin)`: verified `earnkit_txt`. A 404 or any failure proves nothing (`soft`). The proof
   step has its own try/catch after the reading: a failure is logged and never drops or fails the reading; the
-  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched: `repo_link`
-  is in `CONFIRMED_PROOFS` (scored by `person-score.ts`) and `earnkit_txt` is not, so `proveLinkedSite`'s upgrade
-  would drop a scored site; it stays uncalled. Safety kept: never from typed input alone (the code is an HMAC under
+  deadline (`ScoreDeadline`) stops the run there. A verified site keeps its proof and is never fetched (both
+  `repo_link` and, since the owner batch of 2026-10-23, `earnkit_txt` are scored by `person-score.ts`);
+  `proveLinkedSite` was removed (fix wave 10). Safety kept: never from typed input alone (the code is an HMAC under
   `EARNKIT_AUTH_SECRET`, read from the live origin); `verifySource` verifies only a proposed row, never a `stale`
   one; rejected sites are not due (`read-cost.test.ts` tally unchanged). Discovery still never reads `earnkit.txt`
   (`score-tool.test.ts` 8.12). An `earnkit_txt` site is shown (the private repo's name falls back to its host,
-  Highlights "Live at") but, per S9, not a confirmed ship in the live score.
+  Highlights "Live at") and, since the owner batch of 2026-10-23, counts toward Shipping (`confirmed.ts
+  isConfirmedSource`) while its daily re-check holds (`recheckSite`).
 - **Owner proof file.** `apps/frontend/public/earnkit.txt` holds `profile: ae6e24ff180d7ee8` (builder 17, origin
   `https://earnkit.com`), served by Next at `/earnkit.txt` as `text/plain` (no middleware or proxy, no rewrites, no
   app route of that name; `site-proof.test.ts` SP9, SP10). `earnkit` joins `RESERVED_ROUTES` (every public name is

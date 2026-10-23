@@ -10,7 +10,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { freeTierRoom, takeFreeTier } from './free-tier';
 import { testInstallationIds } from './installations';
 import { mainConfirmed } from './main-project';
-import { lastWeekOf, momentLines, shareText, type WeekStanding } from './weekly-moment';
+import { lastWeekOf, markOffered, momentLines, shareText, type WeekStanding } from './weekly-moment';
 import { weekUrl } from './week-links';
 
 /**
@@ -384,6 +384,8 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
       return waiting ? { week: null, handle, person, pending: true } : { week: null, handle, person };
     }
     const link = (action: 'approve' | 'hide') => weekUrl({ builderId: p.id, key, monday: last.monday, action });
+    // Owner batch fix wave (6): an email that can't show the week's stored summary records the offer (asked once).
+    if (!last.approved && !last.summary && last.stored) await markOffered(p.id, key, last.monday, last.stored);
     return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved }, handle, person };
   } catch (err) {
     console.error('[digest] week', err instanceof Error ? err.name : 'error');

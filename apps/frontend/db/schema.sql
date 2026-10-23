@@ -1812,3 +1812,16 @@ ALTER TABLE programs ADD COLUMN IF NOT EXISTS proof_hosts text[] NOT NULL DEFAUL
 -- is stored. visit_day: the UTC day day_visits counts.
 ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS visit_day date;
 ALTER TABLE post_drafts ADD COLUMN IF NOT EXISTS day_visits integer NOT NULL DEFAULT 0;
+
+-- Owner batch fix round (2026-10-23): a verified earnkit_txt site's earnkit.txt is fetched again on its daily read
+-- (sources.ts recheckSite). proof_misses: consecutive days the profile code was missing or the fetch failed (the
+-- run's deadline never counts); one success resets it; at SITE_PROOF_MISSES_MAX the proof is revoked.
+-- proof_checked_day: the day of the last check, so a day counts once. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_misses smallint NOT NULL DEFAULT 0;
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_checked_day date;
+-- Fix wave (4, security ruling): consecutive days the earnkit.txt re-check was exempt (a transport failure while the
+-- site was up); at SITE_PROOF_EXEMPT_MAX in a row the day counts as a miss. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_exempt_days smallint NOT NULL DEFAULT 0;
+-- Owner batch last fix wave (E): when a site's earnkit.txt proof was lost (sources.ts recheckSite). Such a site is read
+-- for 60 days (so the code coming back re-proves it), then no longer; the agent can propose it again. Additive.
+ALTER TABLE builder_sources ADD COLUMN IF NOT EXISTS proof_lost_at timestamptz;

@@ -405,6 +405,7 @@ test('6.22 a site a repo merely links (google.com) adds no staying power; a prov
   assert.equal(siteShowsUse({ ref: 'https://lee.github.io/x/', project_key: 'lee/x', proof: 'repo_link' }), true);
   assert.equal(siteShowsUse({ ref: 'https://evil.github.io/x/', project_key: 'lee/x', proof: 'repo_link' }), false);
   assert.equal(siteShowsUse({ ref: 'https://mine.example.com', project_key: 'k', proof: 'earnkit_txt' }), true);
+  assert.equal(siteShowsUse({ ref: 'https://mine.example.com', project_key: 'k', proof: 'dns_txt' }), false, 'fix wave: nothing re-checks a DNS record');
   assert.equal(siteShowsUse({ ref: 'https://google.com', project_key: 'lee/x' }), false, 'no proof given: strict');
   const stars = { owner: 'lee', fork: false, template: false, stargazers: [old('gh:a', iso(100))], forkers: [], issue_authors: [], contributors: [], commit_weeks: [], partial: false };
   const run = (site: SourceRow) => {

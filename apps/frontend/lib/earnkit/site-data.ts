@@ -45,14 +45,24 @@ async function mainOf(builderId: number): Promise<MainRow | null> {
  */
 async function mainReading(builderId: number): Promise<Record<string, unknown> | null> {
   const db = sql();
-  const [r] = await db<{ signals: Record<string, unknown> }[]>`
-    SELECT x.signals FROM builder_profiles f
+  // Owner batch 2026-10-23: the ship reading can predate commits_year (readings before 2026-10-22, or a live read
+  // stamped later in the day than its daily row's midnight): then the count comes from the newest reading that has it.
+  const [r] = await db<{ signals: Record<string, unknown>; commits_year: unknown }[]>`
+    SELECT x.signals, cy.n AS commits_year FROM builder_profiles f
     JOIN builder_projects b ON b.builder_id = f.builder_id AND lower(b.project_key) = lower(f.main_project_key) AND ${benchConfirmedSql(db)}
     JOIN builder_sources s ON s.builder_id = f.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND lower(s.project_key) = lower(b.project_key)
     JOIN LATERAL ${shipReading(db)} x ON true
+    LEFT JOIN LATERAL (
+      SELECT y.n FROM (
+        (SELECT l.signals->'commits_year' AS n, l.read_at AS at FROM source_live l
+          WHERE l.source_id = s.id AND l.ok AND jsonb_typeof(l.signals->'commits_year') = 'number')
+        UNION ALL (SELECT r.signals->'commits_year', r.day::timestamptz FROM source_readings r
+          WHERE r.source_id = s.id AND r.ok AND jsonb_typeof(r.signals->'commits_year') = 'number' ORDER BY r.day DESC LIMIT 1)
+      ) y ORDER BY y.at DESC LIMIT 1) cy ON true
     WHERE f.builder_id = ${builderId}
     ORDER BY (lower(s.ref) = lower(b.project_key)) DESC, s.id LIMIT 1`;
-  return r?.signals ?? null;
+  if (!r) return null;
+  return typeof r.signals.commits_year !== 'number' && typeof r.commits_year === 'number' ? { ...r.signals, commits_year: r.commits_year } : r.signals;
 }
 
 /** Plan S6: the last push to the one project's repo (its ship reading's pushed_at); null when absent, unparsable or after `now`. */

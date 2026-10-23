@@ -40,7 +40,7 @@ import {
 import { liveSite, type LiveSite } from './live-check';
 import { displayName } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
-import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
+import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
 import { streaksFor } from './streak';
 import {
@@ -600,6 +600,9 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
   return { weeks: weeks.length, points };
 }
 
+/** Owner batch fix wave: the summary the weekly moment may quote: no question mark and no link (one of each per reply). Pure. */
+export const momentSummary = (s: string | null): string | null => (s && !/[?]|https?:\/\//i.test(s) ? s : null);
+
 /**
  * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
  * left the builder), when this installation hasn't seen this week's
@@ -619,10 +622,14 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
     return null;
   }
   if (!(await takeMoment(own, now))) return null;
-  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now) });
+  // Owner batch fix wave: the yes binds only to the summary the reply shows (one quoted line, never a question mark or
+  // a link, so the reply keeps one question and one link); none shown binds none, and the offer is recorded.
+  const shown = momentSummary(last.summary ?? null);
+  await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now), summary: shown });
+  if (!shown && last.stored) await markOffered(id, key, last.monday, last.stored);
   const week = weekNumber(commitWeeks, last.monday);
   const post = await weeklyPost(id, handle, week, now);
-  return { week, place: momentPlace(last), rank: last.now.rank, post };
+  return { week, place: momentPlace(last), rank: last.now.rank, summary: shown, post };
 }
 
 /**

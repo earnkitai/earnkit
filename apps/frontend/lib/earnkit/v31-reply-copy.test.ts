@@ -174,6 +174,8 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.match(tap, new RegExp(`^https://earnkit\\.com/${handle}/post/[a-z2-7]{10}$`));
   assert.equal(s7, [
     "Week 4 done. You're now #1.",
+    // Owner batch fix wave: the summary the yes binds to, quoted under the head.
+    '"Added tipping in one tap."',
     'Your post for X, with your page card:',
     '"4 weeks shipping Kit without missing one. This week: added tipping in one tap."',
     `Post it in one tap: ${tap}`,
