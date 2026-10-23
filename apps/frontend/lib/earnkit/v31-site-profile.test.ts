@@ -131,12 +131,12 @@ test('(d) Token card: only with site.token, with the board copy; site.token null
 test('(e) the standing pill: metal, its place as the title; standing null shows no rank anywhere', () => {
   const h = page(MAYA, MAYA_SITE);
   const pill = block(h, 'data-ek-standing');
-  assert.match(pill, /title="#1 of 42 builders on Base"/);
+  assert.match(pill, /title="Top 3% of builders"/);
   assert.match(pill, /var\(--ek-s-gold-top\)[^"]*var\(--ek-s-gold-mid\)[^"]*var\(--ek-s-gold-bottom\)/);
   assert.match(pill, /text-s-gold-ink/);
-  assert.ok(text(pill).includes('Top 3% on Base'));
+  assert.ok(text(pill).includes('Top 3% of builders'));
   for (const tier of ['silver', 'bronze'] as const)
-    assert.match(page(MAYA, { ...MAYA_SITE, standing: { label: 'Top 9% on Base', tier, title: '#4 of 42 builders on Base' } }), new RegExp(`--ek-s-${tier}-top`));
+    assert.match(page(MAYA, { ...MAYA_SITE, standing: { label: 'Top 10% of builders', tier, title: 'Top 10% of builders' } }), new RegExp(`--ek-s-${tier}-top`));
   // Review Focus 2: under the pool (standing null) the page says no rank, even with ProfileData's rank words.
   const none = page(MAYA, { ...MAYA_SITE, standing: null });
   assert.doesNotMatch(none, /data-ek-standing/);

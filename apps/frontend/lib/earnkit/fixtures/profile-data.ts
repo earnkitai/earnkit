@@ -98,7 +98,7 @@ export const MAYA_SITE: ProfileSite = {
     { icon: 'won', title: 'Won Base Builder Grant Program', sub: 'Oct 2026', href: '/programs/base-builder-grants' },
     { icon: 'applied', title: 'Applied to Alliance ALL19', sub: 'Oct 2026', href: '/programs/alliance-all19' },
   ],
-  standing: { label: 'Top 3% on Base', tier: 'gold', title: '#1 of 42 builders on Base' },
+  standing: { label: 'Top 3% of builders', tier: 'gold', title: 'Top 3% of builders' },
   token: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar', backers: 23, fees_usd: 412, weeks: [0, 1, 0, 2, 1, 3, 2, 4, 3, 2, 5, 4], letter: 'T', color: SITE.logoOrange },
   project: {
     name: 'Tipjar', about: 'Tips for creators, paid in USDC on Base.', link: { href: 'https://tipjar.xyz', text: 'tipjar.xyz' },

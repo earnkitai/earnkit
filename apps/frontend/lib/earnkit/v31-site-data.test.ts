@@ -316,7 +316,7 @@ test('(d) backerWeeks buckets first_block by BASE_GENESIS_UNIX + 2 * block into 
   assert.deepEqual(await backerWeeks(addr(), NOW), Array(12).fill(0));
 });
 
-test('(e) standingPill: under 10 none; Base percentile with its metal; outside the top 25% none; whole pool off Base', db, async () => {
+test('(e) standingPill, v3.1 GTM W3: under 10 none; the one rank line of the whole pool with its metal; outside the top 25% none', db, async () => {
   const onBase = async (ids: number[]) => sql()`UPDATE builder_projects SET chains = '{base}' WHERE builder_id IN ${sql()(ids)}`;
   const me = await builder({ chains: ['base'], score: 90, ranked: true });
   const eight = await padPool(8);
@@ -326,21 +326,23 @@ test('(e) standingPill: under 10 none; Base percentile with its metal; outside t
   const ninth = await padPool(1);
   await onBase(ninth);
   only = [...only, ...ninth];
-  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: 'Top 10% on Base', tier: 'silver', title: '#1 of 10 builders on Base' });
+  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: '#1 of 10 builders', tier: 'silver', title: '#1 of 10 builders' });
   const more = await padPool(30);
   await onBase(more);
   only = [...only, ...more];
-  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: 'Top 3% on Base', tier: 'gold', title: '#1 of 40 builders on Base' });
+  assert.deepEqual(await standingPill(me.id, await page(me.id, { only }), { only }), { label: 'Top 3% of builders', tier: 'gold', title: 'Top 3% of builders' });
+  // The same words the replies, the card and the page meta read (bench-rank.ts rankLines).
+  assert.equal((await (await import('./bench-rank')).rankLines(me.id, { only })).bench, 'Top 3% of builders');
   // Rank 11 of 40: 28%, no metal, no pill.
   const top = await padPool(10, 95);
   await onBase(top);
   const mid = [me.id, ...top, ...eight, ...ninth, ...more.slice(0, 20)];
   assert.equal(mid.length, 40);
   assert.equal(await standingPill(me.id, await page(me.id, { only: mid }), { only: mid }), null);
-  // An Arc builder: the whole pool.
+  // An Arc builder: the same whole pool.
   const arc = await builder({ chains: ['arc'], score: 90, ranked: true });
   const pool = [arc.id, ...(await padPool(9))];
-  assert.deepEqual(await standingPill(arc.id, await page(arc.id, { only: pool }), { only: pool }), { label: 'Top 10% of builders', tier: 'silver', title: '#1 of 10 builders' });
+  assert.deepEqual(await standingPill(arc.id, await page(arc.id, { only: pool }), { only: pool }), { label: '#1 of 10 builders', tier: 'silver', title: '#1 of 10 builders' });
   // Not ranked: none.
   const unranked = await builder({ chains: ['base'] });
   assert.equal(await standingPill(unranked.id, await page(unranked.id, { only }), { only }), null);

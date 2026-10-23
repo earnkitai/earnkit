@@ -39,8 +39,8 @@ test('(a) one Shipping ring with its number; no rank words, no Earned, no Origin
   const t = text(h);
   for (const s of ['#3', 'of 40 builders', 'Top 1% of builders on Base', 'Earned', '$340', 'Originality', 'points', 'Code this week passes #2.']) assert.ok(!t.includes(s), s);
   // The one rank on the page is the standing pill, and only when site.standing says so (Task 3: RANK_MIN_POOL).
-  const pill = view(RANKED, siteOf(RANKED, { standing: { label: 'Top 8% on Base', tier: 'silver', title: '#3 of 40 builders on Base' } }));
-  assert.match(pill, /data-ek-standing="" title="#3 of 40 builders on Base"[^>]*>[\s\S]*?Top 8% on Base</);
+  const pill = view(RANKED, siteOf(RANKED, { standing: { label: 'Top 8% of builders', tier: 'silver', title: 'Top 8% of builders' } }));
+  assert.match(pill, /data-ek-standing="" title="Top 8% of builders"[^>]*>[\s\S]*?Top 8% of builders</);
 });
 
 test('(b) tabs are gone: no tab rail, no ?tab= link, no Money or Project group; tabOf still parses and is ignored; pageOf reads ?page=', () => {
@@ -79,7 +79,7 @@ test('(d) confirming and no project: the hero and one calm line; no score, no ra
 });
 
 test('(e) the page adds no "this week" of its own after "builders"', () => {
-  for (const site of [siteOf(RANKED), siteOf(RANKED, { thisWeek: 14, standing: { label: 'Top 3% of builders', tier: 'gold', title: '#1 of 40 builders' } })])
+  for (const site of [siteOf(RANKED), siteOf(RANKED, { thisWeek: 14, standing: { label: 'Top 3% of builders', tier: 'gold', title: 'Top 3% of builders' } })])
     assert.doesNotMatch(text(view(RANKED, site)), /builders this week/);
 });
 
