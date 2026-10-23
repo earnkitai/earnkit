@@ -1569,13 +1569,19 @@ apps/frontend/
                                (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
                                PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
-                               displayName. At most one https link, exactly one question, the points line last.
+                               displayName. 2026-10-23 Base onboarding: kinds base_start, next_step, new_repo;
+                               BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, TEMPLATE_NOTICE (BenchView.notice),
+                               STALE_WEEKS, NEW_REPO_ASK; stateAsk inputs githubNo, baseAsk, newRepo. At most one https link, exactly one question, the points line last.
                                tests bench-reply.test.ts, reply-states.test.ts, v31-reply-copy.test.ts (mcpCall),
                                v31-reply-fixes.test.ts (2026-10-22 fixes)
     base-qualify.ts            2026-10-22: the no-fit path to Base Builder Grants. grantOf (organizer, award, one chain),
                                qualifyStatus (each step met/missing/unknown from alerts.ts programVerdict and the Builder
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
+    bench-find.ts(+test)       2026-10-23 Base onboarding: githubAnswer (pick_repo no/yes), connectAfterAll, restAnswer
+                               (next_step), baseStartAnswer, afterGithubNo, walletStep, restStep, baseOpenFor, baseGrantOpen,
+                               staleRepo, connectedSince (NEW_REPO_GRACE_DAYS), takeOnce, takeTemplateNotice, KINDLESS_ROUTED, BASE_START_NOTE,
+                               BASE_STEPS_NOTE, NEXT_STEP_NOTE, NEW_REPO_NOTE, NEW_REPO_YES_NOTE.
     bench-find.ts(+test)       v2.13 T8/T9: benchFind, benchScore, benchAsked, benchMoveUp; v3.1 Task 12: scoreApplies
                                (score's matcher-less candidates) and bestApplies (told filter + applyCandidates); scoring and clarity R8:
                                tokenAsk (tell token: 'ask', the only path to the coin or community-round line:
@@ -1787,6 +1793,10 @@ apps/frontend/
                                walletXStart, walletXSignedIn (sets the __Host-ekwx- browser cookie), walletTokenCookie, walletXCookie, walletPost
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
                                state: wallet_link_at), walletChangeReply, takeWalletNotice, WALLET_NOTE
+    v31-base-onboarding.test.ts 2026-10-23 Base onboarding: the GitHub no remembered (github_no), the Base walk-through once
+                               (BASE_START_ASK / BASE_START_STEPS, base_walk), the wallet step after the GitHub no, the
+                               resting reply (next_step), the profile's "Getting started on Base", the picker's template
+                               notice (template_refused), the old-repo nudge (new_repo, staleRepo)
     v31-wallet-proof.test.ts   v3.1 wallet proof: offer timing, one link one question, skip, change, recipient,
                                discovery and On Base since, the hero's GitHub button
     fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step), walletXSignIn (the page's X

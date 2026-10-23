@@ -21,7 +21,12 @@ export type Variant = 'taken' | 'copy' | 'no_repo' | 'app_off' | null;
 /** 2026-10-22: `titles`, a private repo's titles question (ranked, once a person); `qualify`, Base's grant steps for a ranked builder with no fit. */
 /** v3.1 one-tap posts: `post`, an event's drafted post for X (a yes redrafts it). */
 /** v3.1 wallet proof: `wallet`, the optional signed wallet step after setup (once a person), or the change link (tell wallet). */
-export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post' | 'wallet';
+/**
+ * 2026-10-23 Base onboarding: `base_start`, the one walk-through offer after the GitHub no; `next_step`, the no-project
+ * reply once every onboarding question was asked; `new_repo`, the one nudge for a main project quiet for STALE_WEEKS.
+ */
+export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | 'other_project' | 'repo_behind' | 'ship' | 'suggest' | 'share' | 'connect' | 'backing' | 'apply' | 'titles' | 'qualify' | 'post' | 'wallet'
+  | 'base_start' | 'next_step' | 'new_repo';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -184,6 +189,33 @@ export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
   const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
   return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', QUALIFY_NEXT, QUALIFY_HELP_ASK].join('\n');
 }
+/**
+ * 2026-10-23 Base onboarding (owner-approved): a builder who said no to step 2 (no GitHub, or not connecting now) is
+ * asked once to start building on Base; its yes is these steps, only from v3.1-install-research.md (Lovable and Bolt,
+ * confirmed) and the Base program file (Base, Builder Codes first); the Builder Codes guide is the one link. EarnKit
+ * guides; it never builds for them (v3.1 spec 3.4).
+ */
+export const BASE_START_ASK = "Want to start building on Base? I'll walk you through it.";
+export const BASE_START_STEPS = [
+  '4 steps to start building on Base:',
+  '1. Build your app with Lovable or Bolt and connect GitHub in it (Lovable: Project settings, Git, GitHub. Bolt: the GitHub icon, top right).',
+  `2. ${STEP_LINE.base}`,
+  `3. ${STEP_LINE.codes}`,
+  '4. Connect it here so EarnKit tracks it and drafts your Base grant application once it fits.',
+  '',
+  QUALIFY_HELP_ASK,
+].join('\n');
+/** The no-project reply once the onboarding questions were asked: one question (a yes gives step 2's link again). */
+export const NEXT_STEP_ASK = "Is your app's code on GitHub yet?";
+/**
+ * The next reply after the repo picker refused only forks or templates (github-app.ts pickSetup): the way out in one
+ * line, a statement so the reply keeps its one question.
+ */
+export const TEMPLATE_NOTICE = 'If you made your app from a template, make a copy in your own account, then connect that.';
+/** A main project with no commits in this many weeks (this one included) gets the one new-repo nudge. */
+export const STALE_WEEKS = 8;
+export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead.';
+
 /** Task 16, step 7: the weekly moment's question. */
 export const MOMENT_ASK = 'Does last week look right?';
 /**
@@ -326,6 +358,8 @@ export type BenchView = {
   qualify?: QualifyOffer | null;
   /** v3.1 one-tap posts: an event's drafted post (ask kind 'post'). */
   post?: EventPost | null;
+  /** 2026-10-23: a one-line statement said once (TEMPLATE_NOTICE), under the account line, else above the reply. */
+  notice?: string | null;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -345,11 +379,24 @@ export function stateAsk(
     wallet?: string | null;
     /** v3.1 one-tap posts: an event's drafted post (benchView offers it only where it goes: hot before apply, else in the share slot). */
     post?: EventPost | null;
+    /** 2026-10-23 Base onboarding: the builder said no to step 2 (standing_seen.github_no): step 2 is never repeated. */
+    githubNo?: boolean;
+    /** The Base walk-through offer is due (after the GitHub no, once). */
+    baseAsk?: boolean;
+    /** The ranked main project had no commits in STALE_WEEKS (asked once). */
+    newRepo?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
   const name = v.project?.name ?? '';
   if (v.state === 'signed_out') return { kind: 'sign_in', project_key: null, line: v.link ? STATE_COPY.signed_out.ask(v.link) : STATE_COPY.signed_out.retry() };
+  // 2026-10-23 Base onboarding: after the GitHub no, the Base walk-through once, then the optional wallet step once, then
+  // the resting question; step 2 never again (until the builder asks: bench-find.ts benchMoveUp).
+  if (v.state === 'no_project' && v.githubNo) {
+    if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
+    if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
+    return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
+  }
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   // Fix round 1 ruling: the page is the connect reply's one https link.
@@ -362,6 +409,8 @@ export function stateAsk(
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
   if (v.state === 'ranked' && v.wallet) return { kind: 'wallet', project_key: key, line: walletOffer(v.wallet) };
+  // 2026-10-23: a main project quiet for STALE_WEEKS: one light nudge to connect the new one.
+  if (v.state === 'ranked' && v.newRepo) return { kind: 'new_repo', project_key: key, line: NEW_REPO_ASK };
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
   if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
   if (v.state === 'ranked' && v.qualify)
@@ -402,11 +451,17 @@ export function benchReply(v: BenchView): string {
   const ask = v.held ?? v.ask.line;
   const step2 = !v.held && (v.ask.kind === 'pick_repo' || v.ask.kind === 'install_app');
   const named = namesAccount(v);
-  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, ...v.due, ask]);
+  const notice = v.notice ?? null;
+  if (v.state === 'no_project') return paras([named ? youreIn(v.handle!) : null, notice, ...v.due, ask]);
   if (v.state === 'not_counted') {
-    if (step2) return paras([named ? youreIn(v.handle!) : null, ...v.due, ask]);
-    return paras([v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), ...v.due, ask]);
+    if (step2) return paras([named ? youreIn(v.handle!) : null, notice, ...v.due, ask]);
+    return paras([v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, ...v.due, ask]);
   }
+  return notice ? paras([notice]) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
+}
+
+/** The ranked state's reply (benchReply). Pure. */
+function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
       [connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
@@ -419,7 +474,8 @@ export function benchReply(v: BenchView): string {
   const standing = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   if (!v.held && v.ask.kind === 'apply') return paras([standing, ...v.due, ask, shipPointsLine()]);
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
-  if (!v.held && v.ask.kind === 'wallet') return paras([standing, ...v.due, ask]);
+  // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
+  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras([standing, ...v.due, ask]);
   const points = !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify') ? shipPointsLine(shipLead(v.target)) : null;
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).

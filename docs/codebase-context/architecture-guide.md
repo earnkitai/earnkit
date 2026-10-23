@@ -7782,3 +7782,44 @@ the change link.
 - **Profile hero.** With no repo link, the GitHub button opens `https://github.com/<github_login>`; with neither, hidden.
 - Tests: `wallet-proof.test.ts`, `v31-wallet-proof.test.ts`; other ranked-step tests mark the step offered
   (`fixtures/wallet-step.ts walletOffered`; `fixtures/find.ts person` unless `walletStep: true`).
+
+## v3.1 Base onboarding for builders with no GitHub or no project (2026-10-23, owner-approved)
+
+- **Step 2's no is remembered.** In the no_project state, `tell move_up { kind: 'pick_repo', answer: 'no' }` (no GitHub
+  yet, or not connecting now; `PICK_REPO_NOTE` says so) sets `standing_seen.github_no` (`bench-find.ts githubAnswer`).
+  From then on benchView mints no picker link and `stateAsk` never returns step 2. A later `pick_repo` yes (the builder
+  asking to connect) clears `github_no` and gives step 2 with a fresh link.
+- **The Base walk-through, once.** The no's own reply is `BASE_START_ASK` ("Want to start building on Base? I'll walk
+  you through it."), only while Base Builder Grants is open (its last step drafts that application), claimed by
+  `standing_seen.base_asked` (also in find: `baseGrantOpen`, `takeOnce`). `base_start` is answered by its kind
+  (`baseStartAnswer`), so a late answer or the builder asking later works: either answer is kept in
+  `standing_seen.base_walk { answer, at }`. A yes is `BASE_START_STEPS` (four steps from v3.1-install-research.md and
+  the Base program file; the Builder Codes guide is the one link; `BASE_STEPS_NOTE`: help with step 1, never build for
+  them). A no is followed by the wallet step when due, else "Okay.". A yes is saved only when the steps are returned.
+  The tell paths use find's gate (`baseOpenFor`: `baseGrantOpen` over `scoreApplies`' cards and skip), so a hidden or
+  entered Base Builder Grants is never offered.
+- **Wallet step for builders who skip GitHub.** After the GitHub no, the optional wallet step (`walletOffer`) comes once:
+  in the reply to the Base no (`walletStep`), else in the next find (no_project, `githubNo`, the walk-through asked).
+  Builders who connect GitHub keep it after setup (ranked quiet slot). Never two questions in one reply.
+- **Resting reply.** With every onboarding question asked: `You're in, @maya.` / `Is your app's code on GitHub yet?`
+  (`NEXT_STEP_ASK`, kind `next_step`, `NEXT_STEP_NOTE`), never step 2 itself. Its yes (`restAnswer`) is step 2 again
+  (`connectAfterAll`: `github_no` cleared, a fresh picker link, the `pick_repo` ask stored); its no keeps resting. A
+  GitHub no with nothing else due returns this question as its reply. `BASE_START_NOTE` and `WALLET_NOTE` tell the agent
+  that a builder who wants to connect after all is a `pick_repo` yes.
+- **Kindless answers.** A `tell move_up` with no `kind` is routed by the stored ask when it is `pick_repo`,
+  `base_start`, `next_step` or `new_repo` (`KINDLESS_ROUTED`).
+- **Profile.** `site-data.ts mainOf` reads `base_walk.answer = 'yes'` (`starting`): the Highlights single item reads
+  `STARTING_ON_BASE` ("Getting started on Base") instead of `NO_PROJECT_YET`, and `ProfileSite.starting` makes the hero
+  line `startingLine` ("<name> is getting started on Base.") in place of `noProjectLine`. Otherwise today's wording.
+- **Fork or template refusal.** `github-app.ts pickSetup` sets `standing_seen.template_refused` when every picked repo
+  was refused as a copy (proveOne `why: 'copy'`), and clears it on a later success. The next find or score reply (never
+  signed out) takes it once (`takeTemplateNotice`) and shows `TEMPLATE_NOTICE` ("If you made your app from a template,
+  make a copy in your own account, then connect that.") under the account line (`BenchView.notice`; ranked: its own
+  paragraph above). A statement, so the reply keeps one question.
+- **Old repo nudge.** A ranked main project whose lit weeks (streak.ts) miss the last `STALE_WEEKS` (8) ISO weeks
+  (`staleRepo`; no weeks known is never stale), and not proven within `NEW_REPO_GRACE_DAYS` (14, `connectedSince`), gets `NEW_REPO_ASK` ("Working on something new? Connect that repo
+  instead.") once, in the quiet slot after the wallet step and before titles (`standing_seen.new_repo_asked`). Its yes:
+  `NEW_REPO_YES_NOTE` (ask which repo, then `tell main_project`).
+- `stand-view.ts takeNews` keeps `github_no`, `base_asked`, `base_walk`, `template_refused`, `new_repo_asked`.
+- Tests: `v31-base-onboarding.test.ts` (exact texts, one link and one question, each no remembered, no loops, the page).
+

@@ -22,6 +22,8 @@ export const confirmingCardLine = (name: string, project: string) =>
   `${name} is getting ${project === PRIVATE_NAME ? 'a private project' : project} on the leaderboard.`;
 /** Launch ready L10: a page with no project yet: one calm line in place of the project. */
 export const noProjectLine = (name: string) => `${name} has no project on the leaderboard yet.`;
+/** 2026-10-23 Base onboarding: in its place once the builder said yes to the Base walk-through. */
+export const startingLine = (name: string) => `${name} is getting started on Base.`;
 export { streakWords, rankSplit, dollars };
 
 /**
@@ -80,7 +82,7 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
   const quiet = confirming || d.project === null;
   // The page's own streak and grid (profileData, streak.ts); a quiet page never shows a run.
   const streak = quiet ? { streak: 0, grid: d.grid.map((g) => ({ ...g, on: false })) } : d;
-  const line = d.project === null ? noProjectLine(d.name) : confirming ? confirmingCardLine(d.name, d.project.name) : null;
+  const line = d.project === null ? (site.starting ? startingLine(d.name) : noProjectLine(d.name)) : confirming ? confirmingCardLine(d.name, d.project.name) : null;
   return (
     <>
       {/* No bottom padding from md: the minimal footer's 72px is the whole gap under the cards (Profile board). */}

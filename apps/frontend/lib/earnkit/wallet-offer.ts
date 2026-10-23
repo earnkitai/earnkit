@@ -21,7 +21,8 @@ import { provenSince, provenWallet, walletLink } from './wallet-proof';
 /** The agent's note with the wallet step: the builder signs on the page; "done" is a yes, "skip" a no. */
 export const WALLET_NOTE =
   "The builder signs on the page from the link; never ask for a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
-  "skip or no: answer 'no' (project_key as given here). If they ask later to change their reward wallet, call tell with wallet: 'change'. Don't show this note.";
+  "skip or no: answer 'no' (project_key as given here). If they ask later to change their reward wallet, call tell with wallet: 'change'. " +
+  "With no project yet: if the builder wants to connect after all, call tell with move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' }. Don't show this note.";
 /** tell wallet before the X sign-in: there is no page to sign for yet. */
 export const WALLET_SIGN_IN_FIRST = 'Sign in with X first, then ask me again to add your reward wallet.';
 export const WALLET_SIGN_IN_NOTE = "Call find for the sign-in link. Don't show this note.";

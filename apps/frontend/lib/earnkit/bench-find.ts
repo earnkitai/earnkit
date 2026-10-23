@@ -34,7 +34,7 @@ import { projectKeyOf, type IdentityProject } from './identity-input';
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk,
+  APPLY_WINDOW_DAYS, BASE_START_ASK, BASE_START_STEPS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, benchReply, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, walletOffer,
   type ApplyPick, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -82,7 +82,7 @@ export const START_NOTE =
 /** Launch ready L2, no_project: the repo picker's install link is in show_to_builder. */
 export const PICK_REPO_NOTE =
   'The builder installs EarnKit (read-only) from the link in show_to_builder and picks their repos on GitHub; never ask them for a GitHub URL. ' +
-  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here). Once they installed it, call find again: the most recently pushed repo they picked is ranked. Don't show this note.";
+  "A yes or no: call tell with move_up: { kind, project_key, answer } (as given here); no GitHub yet, or not connecting it now, is a no. Once they installed it, call find again: the most recently pushed repo they picked is ranked. Don't show this note.";
 /** v2.13.3 (5), v2.14 not_counted: the install link is in show_to_builder. */
 export const INSTALL_APP_NOTE =
   'The builder installs EarnKit (read-only) on the repo from the link in show_to_builder. ' +
@@ -104,6 +104,24 @@ export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up
 export const QUALIFY_STEPS_NOTE =
   "A yes to the question: help the builder with the first step listed, here in this folder (for Builder Codes, follow the guide linked). " +
   "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
+/** 2026-10-23 Base onboarding: the walk-through offer's note; the builder can ask for it again any time. */
+export const BASE_START_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'base_start', project_key: null, answer }. " +
+  "If the builder wants to connect after all, call tell with move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' }. Don't show this note.";
+/** The walk-through's steps: help with step 1 here; EarnKit guides and never builds for them. */
+export const BASE_STEPS_NOTE =
+  "A yes to the question: help the builder start their app in Lovable or Bolt and connect GitHub inside it (the steps given). " +
+  "Once their app's code is on GitHub, call tell with move_up: { kind: 'pick_repo', project_key: null, answer: 'yes' } for the connect link. " +
+  "Never tell them they qualify for a grant. Don't show this note.";
+/** The no-project reply once every onboarding question was asked; a yes gives step 2's link again. */
+export const NEXT_STEP_NOTE =
+  "A yes or no to the question: call tell with move_up: { kind: 'next_step', project_key: null, answer }. " +
+  "Not yet: help them get their app's code on GitHub if they want (in Lovable or Bolt, connect GitHub inside it). " +
+  "If they ask how to start building on Base, call tell with move_up: { kind: 'base_start', project_key: null, answer: 'yes' }. Don't show this note.";
+/** 2026-10-23: the new-repo nudge's note; a yes names the new repo (tell main_project). */
+export const NEW_REPO_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'new_repo', project_key, answer } (project_key as given here). Don't show this note.";
+export const NEW_REPO_YES_NOTE =
+  "Ask the builder in one short question which repo they're working on now (owner/repo), then call tell with main_project: that repo. Don't show this note.";
 /** v3 Stage 2: the yes to the apply step: prepare drafts the entry, the ship log's facts on top. */
 export const APPLY_YES_NOTE = (id: string) => `Call prepare with program_id "${id}" for this project and show the draft. Don't show this note.`;
 /** v3 Stage 2: find's held apply-outcome question (14 days after the deadline) is the reply's last line. */
@@ -128,6 +146,16 @@ export type Seen = StandSeen & {
   qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
   apply_asked?: Record<string, string>;
+  /** 2026-10-23 Base onboarding: when the builder said no to step 2 (no GitHub, or not connecting now). */
+  github_no?: string;
+  /** When the Base walk-through offer was shown (asked once). */
+  base_asked?: string;
+  /** The builder's answer to the walk-through ('yes' reads "Getting started on Base" on their page). */
+  base_walk?: { answer: 'yes' | 'no'; at: string };
+  /** The repo picker refused only forks or templates (github-app.ts pickSetup); said once on the next reply. */
+  template_refused?: string;
+  /** When the new-repo nudge was shown (asked once). */
+  new_repo_asked?: string;
 };
 type Reply = Record<string, unknown>;
 
@@ -423,8 +451,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   let variant: Variant = state !== 'not_counted' ? null : taken ? 'taken' : proof && !proof.ok && proof.why === 'copy' ? 'copy' : !isRepo ? 'no_repo' : null;
   const install = state === 'not_counted' && !variant ? await installLink(id, project!.key, now).catch(logged('install link')) : null;
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
+  // 2026-10-23 Base onboarding: a GitHub no is remembered; step 2 (and its link) is never repeated after it.
+  const githubNo = state === 'no_project' && Boolean(read.seen.github_no) && !held;
   // Launch ready L2: with no project, the repo picker's install link (GitHub's page picks the repos; S7: a page is needed).
-  const pick = state === 'no_project' ? await pickLink(id, now).catch(logged('pick link')) : null;
+  const pick = state === 'no_project' && !githubNo ? await pickLink(id, now).catch(logged('pick link')) : null;
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
@@ -459,9 +489,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const quiet = ranked && project !== null && !held && !connect && !backing && !apply && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
-  const wallet = quiet && handle !== null ? await walletOfferDue(id, now) : null;
-  const titles = quiet && !wallet && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !wallet && !titles && o.fits.length === 0
+  // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
+  // step drafts that application), then the wallet step once.
+  const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
+  const wallet = (quiet || (githubNo && !baseAsk)) && handle !== null ? await walletOfferDue(id, now) : null;
+  // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
+  // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
+  const newRepo = quiet && !wallet && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+    && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
+  const titles = quiet && !wallet && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !wallet && !newRepo && !titles && o.fits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch })
     : null;
   const link = state === 'signed_out' ? signIn : state === 'no_project' ? pick : state === 'ranked' ? null : install;
@@ -489,7 +526,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   }
 
   // R8, L5, L6: each state's one next step.
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo };
   let finalAsk = stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
@@ -513,7 +550,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const note = finalAsk.kind === 'ship' ? SHIP_STEP_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'base_start' ? BASE_START_NOTE
+    : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -531,6 +569,53 @@ export function openGrant(cards: Card[], now: Date, skip: Set<string>): OpenGran
   // Fix round 1: a grant (showable already drops investments; checked here too, so "pays" never names one).
   const c = cards.filter((x) => showable(x, now, skip) && x.investment !== true && (x.max_award_usd ?? 0) > 0 && x.organizer?.trim()).sort(byRelevance)[0];
   return c ? grantOf(c) : null;
+}
+
+/** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
+export const baseGrantOpen = (cards: Card[], now: Date, skip: Set<string>) => cards.some((c) => c.id === BASE_GRANTS_ID && showable(c, now, skip));
+/**
+ * 2026-10-23: a main project with no commits in the last STALE_WEEKS ISO weeks (this one included), from its lit weeks
+ * (streak.ts); no weeks known reads as not stale (never a nudge on a read not done yet). Pure.
+ */
+export function staleRepo(weeks: string[], now: Date): boolean {
+  if (weeks.length === 0) return false;
+  const recent = new Set(Array.from({ length: STALE_WEEKS }, (_, k) => isoWeekOf(new Date(now.getTime() - k * 7 * 86_400_000))));
+  return !weeks.some((w) => recent.has(w));
+}
+/** 2026-10-23 fix round: a repo connected this recently is never nudged as old. */
+export const NEW_REPO_GRACE_DAYS = 14;
+/** Whether the project's repo was proven within NEW_REPO_GRACE_DAYS (its newest verified source). A failed read: true (no nudge). */
+async function connectedSince(id: number, key: string, now: Date): Promise<boolean> {
+  const [r] = await sql()<{ at: Date | null }[]>`
+    SELECT max(verified_at) AS at FROM builder_sources
+    WHERE builder_id = ${id} AND kind = 'repo' AND state = 'verified' AND lower(project_key) = lower(${key})`.catch((err: unknown) => {
+    logged('connected since')(err);
+    return [{ at: now }];
+  });
+  return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
+}
+/** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked', now: Date): Promise<boolean> {
+  const [taken] = await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
+    WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
+    logged(`take ${key}`)(err);
+    return [];
+  });
+  return Boolean(taken);
+}
+const takeBaseAsk = (id: number, now: Date) => takeOnce(id, 'base_asked', now);
+/**
+ * 2026-10-23: the one-line notice after the repo picker refused only forks or templates (standing_seen.template_refused,
+ * github-app.ts pickSetup), taken once. Never throws.
+ */
+export async function takeTemplateNotice(id: number): Promise<string | null> {
+  const [r] = await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'template_refused'
+    WHERE builder_id = ${id} AND COALESCE(standing_seen ? 'template_refused', false) RETURNING 1`.catch((err: unknown) => {
+    logged('template notice')(err);
+    return [];
+  });
+  return r ? TEMPLATE_NOTICE : null;
 }
 
 /**
@@ -762,6 +847,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const signedIn = accountLine(view, await takeSignedIn(own, view.handle));
   // v3.1 wallet proof fix round: a changed reward wallet is said once, on the next reply.
   const walletNews = await takeWalletNotice(id);
+  // 2026-10-23: the picker refused only forks or templates: the way out, once (never signed out).
+  if (view.state !== 'signed_out') view.notice = await takeTemplateNotice(id);
   await recordShown(
     id,
     rows.flatMap((r) =>
@@ -815,6 +902,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   }));
   const signedIn = accountLine(view, await takeSignedIn(own, view.handle));
   const walletNews = await takeWalletNotice(id);
+  if (view.state !== 'signed_out') view.notice = await takeTemplateNotice(id);
   return {
     show_to_builder: [signedIn, walletNews, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
@@ -869,7 +957,9 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', 'new_repo', ...RETIRED_ASKS, ...OLD_ASKS];
+/** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
+const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo'];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
@@ -933,6 +1023,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
+  // 2026-10-23 fix round: a tell with no kind answers the stored question when it is an onboarding one (so a kindless
+  // no to step 2 is remembered and a kindless yes to the walk-through gives the steps).
+  if (m.kind === undefined) {
+    const stored = await benchAsked(id, { project_key: m.project_key });
+    if (stored && KINDLESS_ROUTED.includes(stored.kind)) m = { ...m, kind: stored.kind };
+  }
   // v3 Stage 1 (spec 5.1): the connect offer is answerable once (standing_seen.connect_open is its guard).
   if (m.kind === 'connect') {
     const before = await pointsTotal(id).catch(logged('connect points'));
@@ -983,6 +1079,14 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
   if (m.kind === 'wallet') return answerWallet(id, m.answer, now);
+  // 2026-10-23 Base onboarding: step 2's no is remembered (never repeated) and its yes after a no is the builder asking
+  // for the link again; the walk-through is answered by its kind, so the builder can ask for it any time.
+  if (m.kind === 'pick_repo') {
+    const r = await githubAnswer(id, m.answer, now);
+    if (r) return r;
+  }
+  if (m.kind === 'base_start') return baseStartAnswer(id, m.answer, now);
+  if (m.kind === 'next_step') return restAnswer(id, m.answer, now);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
   if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
@@ -1044,6 +1148,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
       return { show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]), agent_note: QUALIFY_STEPS_NOTE };
+    case 'new_repo':
+      return { show_to_builder: '', agent_note: NEW_REPO_YES_NOTE };
     case 'post':
       // v3.1 one-tap posts: a different version of the post (the next shape; the builder asked, so the asked limit holds).
       return (await redraftAnswer(id, asked as Parameters<typeof redraftAnswer>[1], now)) ?? okay;
@@ -1056,6 +1162,119 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;
   }
+}
+
+/** Stores `ask` as the Bench's question (its yes or no is answered as asked). */
+async function storeAsk(id: number, ask: Record<string, unknown>): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('store ask'));
+}
+
+/**
+ * 2026-10-23 Base onboarding (fix round: the same gate as find, baseGrantOpen over score's cards and skip, so a hidden
+ * or entered Base Builder Grants is never offered). Null on a read error. Never throws.
+ */
+async function baseOpenFor(id: number, now: Date): Promise<boolean> {
+  const { cards, skip } = await scoreApplies(id, null, now).catch((err: unknown) => {
+    logged('base open')(err);
+    return { cards: [] as Card[], skip: new Set<string>() };
+  });
+  return baseGrantOpen(cards, now, skip);
+}
+/** The resting question in its own reply, stored as the Bench's ask. */
+async function restStep(id: number): Promise<Reply> {
+  await storeAsk(id, { kind: 'next_step', key: null });
+  return { show_to_builder: NEXT_STEP_ASK, move_up: { kind: 'next_step', project_key: null, agent_note: NEXT_STEP_NOTE } };
+}
+
+/**
+ * 2026-10-23 Base onboarding: after the GitHub no, the next question in its own reply: the Base walk-through (once, Base
+ * Builder Grants open and shown), else the optional wallet step (once), else the resting question (fix round 7). Never throws.
+ */
+async function afterGithubNo(id: number, now: Date): Promise<Reply> {
+  const [p] = await sql()<{ asked: boolean; walk: boolean }[]>`
+    SELECT COALESCE(standing_seen ? 'base_asked', false) AS asked, COALESCE(standing_seen ? 'base_walk', false) AS walk FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('after no')(err);
+    return [];
+  });
+  if (p && !p.asked && !p.walk && (await baseOpenFor(id, now)) && (await takeBaseAsk(id, now))) {
+    await storeAsk(id, { kind: 'base_start', key: null });
+    return { show_to_builder: BASE_START_ASK, move_up: { kind: 'base_start', project_key: null, agent_note: BASE_START_NOTE } };
+  }
+  return (await walletStep(id, now)) ?? restStep(id);
+}
+/** The optional wallet step in its own reply (once a person, claimed here). Null when not due. Never throws. */
+async function walletStep(id: number, now: Date): Promise<Record<string, unknown> | null> {
+  const link = await walletOfferDue(id, now);
+  if (!link || !(await takeWalletAsk(id, now))) return null;
+  await storeAsk(id, { kind: 'wallet', key: null, at: now.toISOString() });
+  return { show_to_builder: walletOffer(link), move_up: { kind: 'wallet', project_key: null, agent_note: WALLET_NOTE } };
+}
+
+/** No project yet: whether one exists and whether the GitHub no is held. Null on a read error. */
+async function noProjectState(id: number): Promise<{ main: string | null; no: boolean } | null> {
+  const [p] = await sql()<{ main: string | null; no: boolean }[]>`
+    SELECT main_project_key AS main, COALESCE(standing_seen ? 'github_no', false) AS no FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('github answer')(err);
+    return [];
+  });
+  return p ?? null;
+}
+/** The builder will connect after all: the GitHub no cleared, step 2 with a fresh link, stored as the ask. Never throws. */
+async function connectAfterAll(id: number, now: Date): Promise<Reply> {
+  const link = await pickLink(id, now).catch(logged('pick link'));
+  if (!link) return { show_to_builder: NOTED_LINE };
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'github_no' WHERE builder_id = ${id}`.catch(logged('github yes'));
+  await storeAsk(id, { kind: 'pick_repo', key: null });
+  return { show_to_builder: STATE_COPY.no_project.ask(link), move_up: { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE } };
+}
+
+/**
+ * 2026-10-23 Base onboarding: the answer to step 2 for a builder with no project. A no is remembered
+ * (standing_seen.github_no) and its reply is the next question (afterGithubNo). A yes after that no is the builder
+ * asking to connect after all (connectAfterAll). Null: not this case (a project exists, or a yes with no no before it:
+ * the stored ask's own path). Never throws.
+ */
+async function githubAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply | null> {
+  const p = await noProjectState(id);
+  if (!p || p.main) return null;
+  if (answer === 'no') {
+    await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('github_no', ${now.toISOString()}::text))
+        - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'pick_repo' THEN 'bench_ask' ELSE '' END)
+      WHERE builder_id = ${id}`.catch(logged('github no'));
+    return afterGithubNo(id, now);
+  }
+  return p.no ? connectAfterAll(id, now) : null;
+}
+
+/**
+ * 2026-10-23 fix round: the answer to the resting question ("Is your app's code on GitHub yet?"). A yes is step 2 again
+ * (connectAfterAll); a no keeps resting ("Okay."). Answered once a stored ask (a project already: "Okay."). Never throws.
+ */
+async function restAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask'
+    WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'next_step'`.catch(logged('rest answer'));
+  const p = await noProjectState(id);
+  if (answer === 'no' || !p || p.main) return { show_to_builder: NOTED_LINE };
+  return connectAfterAll(id, now);
+}
+
+/**
+ * 2026-10-23 Base onboarding: the answer to the walk-through (asked once, or asked for by the builder). A yes, with Base
+ * Builder Grants open and shown (find's gate), is the steps and is remembered (standing_seen.base_walk; the page then
+ * reads "Getting started on Base"); not open: "Okay." and nothing saved (fix round 3). A no is remembered and followed by
+ * the optional wallet step when due, else "Okay.". Never throws.
+ */
+async function baseStartAnswer(id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  const open = answer === 'yes' && (await baseOpenFor(id, now));
+  if (answer === 'yes' && !open) return { show_to_builder: NOTED_LINE };
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('base_walk', jsonb_build_object('answer', ${answer}::text, 'at', ${now.toISOString()}::text), 'base_asked', COALESCE(standing_seen->'base_asked', to_jsonb(${now.toISOString()}::text))))
+      - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'base_start' THEN 'bench_ask' ELSE '' END)
+    WHERE builder_id = ${id}`.catch(logged('base walk'));
+  (await import('./profile-cache')).profileChanged();
+  if (answer === 'no') return (await walletStep(id, now)) ?? { show_to_builder: NOTED_LINE };
+  return { show_to_builder: BASE_START_STEPS, agent_note: BASE_STEPS_NOTE };
 }
 
 /** Launch ready L2: tell main_project's lines (the builder named the repo to rank instead). */
