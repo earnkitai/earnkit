@@ -158,7 +158,7 @@ import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
 import { SKIPPED_LINE, cardYes } from './share';
-import { SHARED_PROFILE_NOTE, ensureProfile, setFallback, setHidden } from './profiles';
+import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden } from './profiles';
 import { coinNo, coinOpen, coinPitchAllowed, coinYes } from './coin-moments';
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
@@ -2844,7 +2844,7 @@ export const TellToolInput = z
       .strict()
       .optional(),
     // v2.12 spec 8: "hide" or "show".
-    profile: z.enum(['hide', 'show']).optional(),
+    profile: z.enum(['hide', 'show', 'delete']).optional(),
     // v2.12.1 T12: kept and ignored. v2.12's tell took the X handle the builder confirmed; an agent
     // that kept that schema (the flag was on briefly in production) must not get a parse error.
     x_handle: z.string().max(20).optional(),
@@ -3283,7 +3283,9 @@ export const tools = {
     if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
-      if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
+      // Owner ruling 2026-10-24: "delete my data" is only offered a hidden page.
+      if (profile === 'delete') replies.push(await deleteAsk(ctx.installationId));
+      else if (profile) replies.push({ show_to_builder: await setHidden(ctx.installationId, profile === 'hide') });
       if (card === 'yes') replies.push(await cardYes(ctx.installationId, ctx.ownInstallationId ?? ctx.installationId));
       if (card === 'skip') replies.push({ show_to_builder: SKIPPED_LINE });
       if (move_up) replies.push(await moveUpAnswer(ctx, move_up));

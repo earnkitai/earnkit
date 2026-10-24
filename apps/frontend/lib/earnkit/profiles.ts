@@ -22,6 +22,10 @@ export const SHARED_PROFILE_NOTE =
 export const HIDDEN_LINE = 'Your page is hidden. Say show my page to list it again.';
 export const SHOWN_LINE = (handle: string | null) => (handle ? `Your page is public again: earnkit.com${pagePath(handle)}` : 'Your page is no longer hidden.');
 export const NO_PROFILE_LINE = 'You have no page yet.';
+/** Owner ruling 2026-10-24: "delete my data" gets only the offer to hide the page. */
+export const DELETE_OFFER = "I can't delete your data, but I can hide your page so no one can see it. Want me to?";
+export const DELETE_HIDDEN = 'Your page is already hidden, so no one can see it.';
+export const DELETE_NOTE = "A yes: call tell with profile: 'hide'. Don't show this note.";
 
 const ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789';
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,40}$/;
@@ -103,6 +107,13 @@ export async function setFallback(builderId: number, f: { github_login?: string;
     return login !== p.github_login;
   });
   if (changed) await afterCommit(db, profileChanged);
+}
+
+/** tell profile: 'delete': the offer to hide the page (already hidden: says so; no page: says that). Never changes anything. */
+export async function deleteAsk(builderId: number): Promise<{ show_to_builder: string; agent_note?: string }> {
+  const [p] = await sql()<{ hidden: boolean }[]>`SELECT hidden FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (!p) return { show_to_builder: NO_PROFILE_LINE };
+  return p.hidden ? { show_to_builder: DELETE_HIDDEN } : { show_to_builder: DELETE_OFFER, agent_note: DELETE_NOTE };
 }
 
 /** spec 8: "hide" and "show". The row stays; a hidden page is not shown or listed and is in no one's rank (person-score.ts listedRanked). */
