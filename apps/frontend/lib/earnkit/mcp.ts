@@ -283,7 +283,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         wallet: z
           .unknown()
           .optional()
-          .describe("The builder's 0x wallet, if they named one: its wins show here even from a new connection"),
+          .describe("Only the 0x wallet the builder named to add; the reply carries its signing link"),
         repos: z
           .unknown()
           .optional()
@@ -439,7 +439,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           // Launch ready L2: the repo to rank instead.
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
           // v3.1 wallet proof: a fresh signing link for a new reward wallet.
-          wallet: z.literal('change').optional().describe("'change' when they want their rewards sent to a different wallet, or to add one"),
+          wallet: z.string().max(100).optional().describe("'change' (or the address they named) when they want to add a wallet or send their rewards to a different one"),
           move_up: z
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),

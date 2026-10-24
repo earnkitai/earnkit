@@ -7744,6 +7744,10 @@ the change link.
   `walletNotYet` with a fresh link; no: `WALLET_SKIPPED`. Either ends the state (a later "done" is "Okay."). A reply in
   between changes nothing. `stand-view.ts takeNews` keeps every once-ask key (`apply_asked`, `titles_asked`,
   `qualify_given`, `wallet_asked`, `wallet_link_at`, `wallet_notice`).
+- **A named wallet gets the link.** "Add my wallet" arrives as `tell wallet: 'change'`, `tell wallet: '<address>'` (any
+  value) or `find wallet: '<address>'`. find answers a wallet that isn't the proven one with `walletChangeReply` in
+  place of the status, only when that reply carries a link (page signed in with X); otherwise it only shows the
+  wallet's wins, as before.
 - **The recipient** (`person_wallets.recipient_at`; `wallet-proof.ts provenWallet`: the newest `recipient_at`, else the
   first proven wallet for rows from before the column). The first proof needs only the link. **Replacing a recipient
   needs a fresh X sign-in on the page as the same person**: `/claim/wallet/x?t=` (`walletXStart`) starts the v2.14 X

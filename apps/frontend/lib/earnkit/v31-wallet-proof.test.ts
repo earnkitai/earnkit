@@ -230,6 +230,16 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   assert.equal(next.split('\n')[0], walletNotice(short(moved.wallet)));
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /Your reward wallet changed/, 'once');
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } })), walletDone(short(moved.wallet)));
+
+  // "Add my wallet": agents send the named address to find's wallet or tell's wallet. Either gets the signing link.
+  const named = `0x${randomBytes(20).toString('hex')}`;
+  const changeLine = new RegExp(`^Your rewards go to ${short(moved.wallet).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\. To change that, sign in with X .*https://earnkit\\.com/claim/wallet\\?t=\\S+`);
+  const viaFind = await mcpCall(ctx, 'find', { wallet: named });
+  assert.match(show(viaFind), changeLine);
+  assert.deepEqual(viaFind.reply?.move_up, { kind: 'wallet', project_key: key, agent_note: WALLET_NOTE });
+  assert.match(show(await mcpCall(ctx, 'tell', { wallet: named })), changeLine);
+  // The proven wallet itself is no request: the status reply.
+  assert.doesNotMatch(show(await mcpCall(ctx, 'find', { wallet: moved.wallet })), /claim\/wallet/);
 });
 
 test('v3.1 cold read: no wallet step without contracts on Base known or reported, nor within 7 days of a coin\'s fee wallet', db, async () => {
