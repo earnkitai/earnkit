@@ -144,14 +144,14 @@ export const CONFIRM_BACKING_DESCRIPTION =
  * instead; under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
-  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program's site; a shared agent adds project_id. " +
+  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program site; a shared agent adds project_id. " +
   'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
   'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
   'main_project: owner/repo to rank instead. ' +
   "wallet: 'change' to add or change a wallet. " +
   'coin: their coin answer, or { raising } to open or close backing. ' +
   "token: 'ask' only when they ask about a token. " +
-  'move_up: their answer to the question, with its kind and project_key. profile (hide or show), card (yes or skip): their answers. ' +
+  'move_up: their answer to the question, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
   'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
@@ -434,7 +434,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional(),
           // v2.12 spec 7, 8.
-          profile: z.enum(['hide', 'show']).optional().describe('hide or show their public page, when they say so'),
+          profile: z.enum(['hide', 'show', 'delete']).optional().describe("hide or show their public page, when they say so; 'delete' when they ask to delete their data or account"),
           card: z.enum(['yes', 'skip']).optional().describe('Their answer to "Want a card to share it?"'),
           // Launch ready L2: the repo to rank instead.
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),

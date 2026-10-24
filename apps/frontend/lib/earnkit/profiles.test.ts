@@ -2,7 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import {
-  HIDDEN_LINE, SHOWN_LINE, clearXHandle, xHandleConflicts, ensureProfile, profileOf, randomSlug,
+  DELETE_HIDDEN, DELETE_NOTE, DELETE_OFFER, HIDDEN_LINE, NO_PROFILE_LINE, SHOWN_LINE, clearXHandle, deleteAsk, xHandleConflicts, ensureProfile, profileOf, randomSlug,
   resolveHandle, resolveSlug, setFallback, setHidden,
 } from './profiles';
 
@@ -73,6 +73,19 @@ test('7.5 hide and show: a hidden page does not resolve (404) but keeps its row;
   assert.ok(await profileOf(T + 4), 'the row stays');
   assert.equal(await setHidden(T + 4, false), `Your page is public again: earnkit.com/${handle}`);
   assert.deepEqual(await resolveHandle(handle), { builderId: T + 4, handle });
+});
+
+test('"delete my data" only offers to hide the page (owner ruling 2026-10-24); nothing changes until the yes', dbTest, async () => {
+  await fresh(T + 6);
+  assert.deepEqual(await deleteAsk(T + 6), { show_to_builder: NO_PROFILE_LINE });
+  await shownProfile(T + 6, new Date());
+  const handle = `Dl${T % 100000}`;
+  await claim(T + 6, handle);
+  assert.deepEqual(await deleteAsk(T + 6), { show_to_builder: DELETE_OFFER, agent_note: DELETE_NOTE });
+  assert.equal(DELETE_OFFER, "I can't delete your data, but I can hide your page so no one can see it. Want me to?");
+  assert.deepEqual(await resolveHandle(handle), { builderId: T + 6, handle }, 'the offer hides nothing');
+  await setHidden(T + 6, true);
+  assert.deepEqual(await deleteAsk(T + 6), { show_to_builder: DELETE_HIDDEN });
 });
 
 test('7.7 a shared group never gets a profile', dbTest, async () => {

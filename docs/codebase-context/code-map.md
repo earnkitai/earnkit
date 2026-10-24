@@ -1714,7 +1714,8 @@ apps/frontend/
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with
-                               the page link), clearXHandle (owner: sticky via x_owner_clears), releaseXClear,
+                               the page link), deleteAsk (tell profile 'delete': only DELETE_OFFER, the offer to
+                               hide the page; owner ruling 2026-10-24), clearXHandle (owner: sticky via x_owner_clears), releaseXClear,
                                ownerClears, xHandleConflicts (reads v2.12 rows; no new writes),
                                resolveSlug (claimed only), resolveHandle (HANDLE_REDIRECT_DAYS 90),
                                mergeProfiles (older group keeps its page; hidden/held either side)
