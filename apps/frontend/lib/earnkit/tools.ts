@@ -1262,6 +1262,12 @@ export const handlers = {
     // move up) replaces the short v2.11 reply. "Show more" (more: true) and a shared client keep the
     // v2.11 tables.
     if ((scoring && profiled && !more) || hostedAnon) {
+      // A wallet the builder named ("add my wallet") that isn't their proven one: its signing link, never the status.
+      // Only with a link (a page signed in with X); else the wallet only shows its wins, as before.
+      if (scoring && profiled && wallet && wallet.toLowerCase() !== (await provenWallet(ctx.installationId))?.toLowerCase()) {
+        const change = await walletChangeReply(ctx.installationId, new Date());
+        if (change.move_up) return change;
+      }
       // v2.13.1 O5 N1: the reply waits for the refresh at most REPLY_WAIT_MS (it runs on).
       await refresh.started?.within(REPLY_WAIT_MS);
       const shownCards = withPools.filter((c) => !hide.has(c.id));
@@ -2873,7 +2879,7 @@ export const TellToolInput = z
     // Launch ready L2: the repo the builder wants ranked instead (owner/repo or its GitHub URL; bench-find.ts rankAnswer).
     main_project: z.string().max(300).optional(),
     // v3.1 wallet proof: the builder wants their rewards sent to another wallet (or to add one): a fresh signing link.
-    wallet: z.literal('change').optional(),
+    wallet: z.string().max(100).optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
@@ -3284,7 +3290,8 @@ export const tools = {
       // Launch ready L2: the repo to rank instead (only one this person proved with the App).
       if (main_project) replies.push(await rankAnswer(ctx, saidKey(main_project)));
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
-      if (wallet === 'change') replies.push(await walletChangeReply(ctx.installationId, new Date()));
+      // Any value: agents send the address the builder named as often as 'change'.
+      if (wallet?.trim()) replies.push(await walletChangeReply(ctx.installationId, new Date()));
       // R8: the coin or community-round line, only because the builder asked about a token.
       if (token === 'ask') replies.push(await tokenAsk(ctx.installationId, { check: ctx.tokenDeps?.check }));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).
