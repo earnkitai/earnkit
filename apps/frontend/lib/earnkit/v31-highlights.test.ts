@@ -7,10 +7,14 @@ import HighlightsCard from '../../app/[handle]/site/HighlightsCard';
 import { sql } from './db';
 import { PRIVATE_NAME } from './page-data';
 import { claimContract } from './sources';
-import { UPTIME_MIN_READS, basescanHref, githubFileHref, githubRepoHref, liveSub, repoItem, siteHref } from './site-data';
+import { HIGHLIGHTS_MAX, UPTIME_MIN_READS, consistencyItem, contractsOf, explorerHref, githubRepoHref, liveSub, productsOf, siteHref } from './site-data';
 import { backfillContractOrigins, ORIGIN_RETRY_MS } from './contract-origins';
 
-/** v3.1 Highlights redesign: the pure rules (uptime, proof links, the track record), the card's links, the stored and backfilled deploy time. */
+/**
+ * v3.1 Highlights redesign: the pure rules (uptime, proof links, contracts, products, consistency), the card's links, the
+ * stored and backfilled deploy time. v3.1 Highlights competence (2026-10-25): the Builder Code, commit count and wallet
+ * rows are gone.
+ */
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
@@ -25,37 +29,67 @@ test('liveSub: "Up N of the last D days checked" over the days EarnKit read (fro
   assert.equal(liveSub({ checked: 0, up: 0, first_up: '2025-03-01' }), 'Since Mar 2025');
 });
 
-test('proof links: https sites only, Basescan for an address only, GitHub paths escaped per segment, never a climb out', () => {
+test('proof links: https sites only, the chain\'s explorer for an address only, GitHub repo paths escaped per segment', () => {
   assert.equal(siteHref('https://www.kit.example'), 'https://www.kit.example');
   assert.equal(siteHref('https://kit.example/'), 'https://kit.example');
   assert.equal(siteHref('https://BÜCHER.example'), 'https://xn--bcher-kva.example');
   for (const bad of ['http://kit.example', 'javascript:alert(1)', 'kit.example', 'https://user:pw@kit.example', 'https://exa mple.com', '"><script>'])
     assert.equal(siteHref(bad), null, bad);
   const a = `0x${'AB'.repeat(20)}`;
-  assert.equal(basescanHref(a), `https://basescan.org/address/0x${'ab'.repeat(20)}`);
-  for (const bad of ['0x123', `0x${'g'.repeat(40)}`, `${a}/../x`, `javascript:${a}`]) assert.equal(basescanHref(bad), null, bad);
+  assert.equal(explorerHref('base', a), `https://basescan.org/address/0x${'ab'.repeat(20)}`);
+  assert.equal(explorerHref('ethereum', a), `https://etherscan.io/address/0x${'ab'.repeat(20)}`);
+  assert.equal(explorerHref('arbitrum', a), `https://arbiscan.io/address/0x${'ab'.repeat(20)}`);
+  assert.equal(explorerHref('optimism', a), `https://optimistic.etherscan.io/address/0x${'ab'.repeat(20)}`);
+  assert.equal(explorerHref('polygon', a), `https://polygonscan.com/address/0x${'ab'.repeat(20)}`);
+  assert.equal(explorerHref('arc', a), null, 'not a wallet chain');
+  for (const bad of ['0x123', `0x${'g'.repeat(40)}`, `${a}/../x`, `javascript:${a}`]) assert.equal(explorerHref('base', bad), null, bad);
   assert.equal(githubRepoHref('Lee/Tip.Jar'), 'https://github.com/lee/tip.jar');
   assert.equal(githubRepoHref('not a repo'), null);
   assert.equal(githubRepoHref('a/b/c'), null);
-  assert.equal(githubFileHref('lee/kit', 'main', 'src/onchain/tx.ts'), 'https://github.com/lee/kit/blob/main/src/onchain/tx.ts');
-  assert.equal(githubFileHref('lee/kit', 'feat/x y', 'src/a b#c?.ts'), 'https://github.com/lee/kit/blob/feat/x%20y/src/a%20b%23c%3F.ts');
-  assert.equal(githubFileHref('lee/kit', null, 'a.ts'), 'https://github.com/lee/kit/blob/HEAD/a.ts', 'GitHub reads HEAD as the default branch');
-  for (const bad of ['../x.ts', 'src/../../x.ts', './a.ts', '', 'src//a.ts']) assert.equal(githubFileHref('lee/kit', 'main', bad), null, bad);
-  assert.equal(githubFileHref('nope', 'main', 'a.ts'), null);
 });
 
-test('repoItem: since the repo was made, its commits in the read\'s year; "in the last year" only for an older repo; no date, no item', () => {
-  const href = 'https://github.com/lee/kit';
-  assert.deepEqual(repoItem('Kit', { created_at: '2024-02-10T00:00:00Z', commits_year: 1312 }, href, NOW), {
-    icon: 'repo', title: 'Building Kit since Feb 2024', sub: '1,312 commits in the last year', href,
+test('contractsOf: "N contracts on <chain>" on one chain, "N contracts on K chains" on several; since the earliest dated, linked to it; never a wallet', () => {
+  const [a, b, c] = ['a', 'b', 'c'].map((x) => `0x${x.repeat(40)}`);
+  assert.equal(contractsOf([]), null);
+  assert.deepEqual(contractsOf([{ chain: 'base', address: a, at: new Date('2025-06-10T00:00:00Z') }]), {
+    icon: 'contract', title: '1 contract on Base', sub: 'Since Jun 2025', href: `https://basescan.org/address/${a}`,
   });
-  assert.deepEqual(repoItem('Kit', { created_at: '2026-06-01T00:00:00Z', commits_year: 1 }, null, NOW), { icon: 'repo', title: 'Building Kit since Jun 2026', sub: '1 commit' });
-  assert.deepEqual(repoItem(PRIVATE_NAME, { created_at: '2026-06-01T00:00:00Z', commits_year: 4 }, null, NOW)?.title, 'Building since Jun 2026');
-  assert.equal(repoItem('Kit', { created_at: '2026-06-01T00:00:00Z' }, null, NOW)?.sub, '', 'a reading from before the count: no sub line');
-  assert.equal(repoItem('Kit', { commits_year: 4 }, null, NOW), null);
-  assert.equal(repoItem('Kit', { created_at: 'soon' }, null, NOW), null);
-  assert.equal(repoItem('Kit', { created_at: '2026-11-01T00:00:00Z' }, null, NOW), null, 'never a future date');
-  assert.equal(repoItem('Kit', null, null, NOW), null);
+  assert.deepEqual(contractsOf([
+    { chain: 'arbitrum', address: a, at: '2025-02-01T00:00:00Z' }, { chain: 'arbitrum', address: b, at: null }, { chain: 'arbitrum', address: c, at: '2024-11-01T00:00:00Z' },
+  ]), { icon: 'contract', title: '3 contracts on Arbitrum', sub: 'Since Nov 2024', href: `https://arbiscan.io/address/${c}` });
+  assert.deepEqual(contractsOf([
+    { chain: 'base', address: a, at: '2025-02-01T00:00:00Z' }, { chain: 'ethereum', address: b, at: '2023-07-01T00:00:00Z' }, { chain: 'polygon', address: c, at: '2025-03-01T00:00:00Z' },
+  ]), { icon: 'contract', title: '3 contracts on 3 chains', sub: 'Since Jul 2023', href: `https://etherscan.io/address/${b}` });
+  assert.deepEqual(contractsOf([{ chain: 'optimism', address: a, at: null }]), { icon: 'contract', title: '1 contract on Optimism', sub: '', href: `https://optimistic.etherscan.io/address/${a}` });
+  const many = Array.from({ length: 1200 }, (_, i) => ({ chain: 'base', address: `0x${i.toString(16).padStart(40, '0')}`, at: null }));
+  assert.equal(contractsOf(many)?.title, '1,200 contracts on Base');
+  assert.equal(contractsOf([{ chain: 'arc', address: a, at: null }]), null, 'a chain outside WALLET_CHAINS never counts');
+});
+
+test('productsOf: from 2 hosts, oldest first, at most 3 named then "and N more", linked to the oldest', () => {
+  const p = (host: string) => ({ host, ref: `https://${host}` });
+  assert.equal(productsOf([]), null);
+  assert.equal(productsOf([p('kit.example')]), null, 'one product is the live item');
+  assert.deepEqual(productsOf([p('kit.example'), p('tip.example')]), { icon: 'products', title: 'Shipped 2 products', sub: 'kit.example, tip.example', href: 'https://kit.example' });
+  assert.equal(productsOf([p('a.example'), p('b.example'), p('c.example')])?.sub, 'a.example, b.example, c.example');
+  assert.deepEqual(productsOf(['a', 'b', 'c', 'd', 'e'].map((x) => p(`${x}.example`))), {
+    icon: 'products', title: 'Shipped 5 products', sub: 'a.example, b.example, c.example and 2 more', href: 'https://a.example',
+  });
+});
+
+test('consistencyItem: the weeks with code of the 52, from one; "Building <name> since" from the repo\'s created_at; no name when private; empty sub when unknown', () => {
+  const href = 'https://github.com/lee/kit';
+  const grid = (on: number) => Array.from({ length: 52 }, (_, i) => ({ on: i < on }));
+  assert.deepEqual(consistencyItem('Kit', grid(38), { created_at: '2024-02-10T00:00:00Z' }, href, NOW), {
+    icon: 'consistency', title: 'Shipped in 38 of the last 52 weeks', sub: 'Building Kit since Feb 2024', href,
+  });
+  assert.deepEqual(consistencyItem('Kit', grid(1), { created_at: '2026-06-01T00:00:00Z' }, null, NOW), { icon: 'consistency', title: 'Shipped in 1 of the last 52 weeks', sub: 'Building Kit since Jun 2026' });
+  assert.equal(consistencyItem(PRIVATE_NAME, grid(4), { created_at: '2026-06-01T00:00:00Z' }, null, NOW)?.sub, 'Building since Jun 2026');
+  assert.equal(consistencyItem('Kit', grid(4), null, null, NOW)?.sub, '', 'no reading: no sub line');
+  assert.equal(consistencyItem('Kit', grid(4), { created_at: 'soon' }, null, NOW)?.sub, '');
+  assert.equal(consistencyItem('Kit', grid(4), { created_at: '2026-11-01T00:00:00Z' }, null, NOW)?.sub, '', 'never a future date');
+  assert.equal(consistencyItem('Kit', grid(0), { created_at: '2024-02-10T00:00:00Z' }, href, NOW), null, 'no week with code: no item');
+  assert.equal(HIGHLIGHTS_MAX, 5);
 });
 
 test('HighlightsCard: another site opens in a new tab (noopener noreferrer) with the arrow; a program guide in the same tab; an unlinked item is no link; no empty sub line', () => {
@@ -63,9 +97,10 @@ test('HighlightsCard: another site opens in a new tab (noopener noreferrer) with
   const html = renderToStaticMarkup(React.createElement(HighlightsCard, {
     items: [
       { icon: 'live', title: 'Live at kit.example', sub: 'Up 29 of the last 30 days checked', href: 'https://kit.example/?a="b"' },
-      { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' },
-      { icon: 'repo', title: 'Building since Jun 2026', sub: '' },
-      { icon: 'applied', title: 'Applied to X', sub: 'Oct 2026', href: '/programs/x' },
+      { icon: 'products', title: 'Shipped 2 products', sub: 'kit.example, tip.example' },
+      { icon: 'consistency', title: 'Shipped in 4 of the last 52 weeks', sub: '' },
+      { icon: 'won', title: 'Won X', sub: 'Oct 2026', href: '/programs/x' },
+      { icon: 'experience', title: 'Writing code since 2019', sub: 'On GitHub since Mar 2019' },
     ],
   }));
   const links = [...html.matchAll(/<a [^>]*>/g)].map((m) => m[0]);
@@ -78,7 +113,9 @@ test('HighlightsCard: another site opens in a new tab (noopener noreferrer) with
   assert.equal((html.match(/M7 7h10v10/g) ?? []).length, 1, 'the new-tab arrow on the external link only');
   assert.equal((html.match(/m9 18 6-6-6-6/g) ?? []).length, 1, 'a chevron on the guide link');
   for (const l of links) assert.match(l, /hover:bg-s-panel-hover hover:ring-s-line/, 'a visible, subtle hover');
-  assert.ok(html.includes('Builder Code in the repo'));
+  assert.ok(html.includes('Shipped 2 products'));
+  // v3.1 Highlights competence: the new rows' lucide icons (layers, calendar-check, terminal).
+  for (const d of ['m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65', 'm9 16 2 2 4-4', 'm4 17 6-6-6-6']) assert.ok(html.includes(`d="${d}"`), d);
   assert.ok(!/<span class="text-\[13px\] text-s-muted"><\/span>/.test(html), 'an empty sub is not rendered');
   assert.equal(renderToStaticMarkup(React.createElement(HighlightsCard, { items: [] })), '');
 });

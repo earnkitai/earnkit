@@ -154,7 +154,7 @@ test('(f) first week, no project, confirming: every card has text; nothing reads
   assert.doesNotMatch(score, /ek-arc|<stop /, 'track only');
   assert.match(score, /aria-label="Shipping score not shown yet"/);
   const t = text(sam);
-  for (const s of ['Week 2 starts Monday', 'Ship by Sunday', '1 week', nextUpdateLine(new Date()), 'Building Ledgerly since Oct 2026', 'Builder Code in the repo']) assert.ok(t.includes(s), s);
+  for (const s of ['Week 2 starts Monday', 'Ship by Sunday', '1 week', nextUpdateLine(new Date()), 'Building Ledgerly since Oct 2026', 'Writing code since 2021']) assert.ok(t.includes(s), s);
   assert.ok(!t.includes('Not in the repo'), 'final fix 4: never the negative Builder Code line');
   assert.match(block(sam, 'data-ek-activity'), /border-dashed/);
   const noProject: ProfileData = { ...SAM, project: null, log: [], streak: 0, grid: SAM.grid.map((g) => ({ ...g, on: false })) };
@@ -191,7 +191,7 @@ test('(g) a hidden repo: Private project, no github.com link, no about line', ()
   const site: ProfileSite = {
     ...MAYA_SITE, token: null, standing: null,
     project: { name: PRIVATE_NAME, about: null, link: null, repo: null, onBase: true, earnkit: false, letter: 'P', color: MAYA_SITE.project!.color },
-    highlights: [{ icon: 'repo', title: 'Building Tipjar since Aug 2026', sub: '214 commits' }],
+    highlights: [{ icon: 'consistency', title: 'Shipped in 11 of the last 52 weeks', sub: 'Building since Aug 2026' }],
   };
   const h = page(data, site);
   const hero = block(h, 'data-ek-hero');

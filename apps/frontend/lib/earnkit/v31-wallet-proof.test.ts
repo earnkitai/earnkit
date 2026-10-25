@@ -37,8 +37,8 @@ import { PRIVATE_NAME } from './page-data';
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional wallet step right after setup, once, never with another
  * question; "done" checks the signature, "skip" is remembered; "change my reward wallet" sends a fresh link; the newest
- * proven wallet is the reward recipient (coin fees, program payouts); a proof queues discovery, whose contracts and
- * "On Base since" show in Highlights; the hero's GitHub button falls back to the builder's GitHub profile.
+ * proven wallet is the reward recipient (coin fees, program payouts); a proof queues discovery, whose contracts (every
+ * chain, v3.1 Highlights competence) show in Highlights; the hero's GitHub button falls back to the builder's GitHub profile.
  */
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -335,12 +335,12 @@ test('the proven wallet is the reward recipient: coin fees use it without asking
   assert.equal(offer?.wallet, W3);
 });
 
-test('discovery: a proven wallet\'s contracts and its first Base transaction show in Highlights (never the address)', db, async () => {
+test('discovery: a proven wallet\'s own contracts on every chain show in Highlights (never the address); a token or an unused one never does', db, async () => {
   const key = `wpd${RUN}${randomBytes(2).toString('hex')}/app`;
   const id = await person({ projects: [{ key, name: 'App', confirmed: true }], main: key, claimed: `wpd${RUN}${randomBytes(2).toString('hex')}`, score: 50 });
   await sql()`UPDATE builder_projects SET chains = ${['base']} WHERE builder_id = ${id}`;
   const W = `0x${randomBytes(20).toString('hex')}`;
-  const contract = `0x${randomBytes(20).toString('hex')}`;
+  const [contract, coin, eth] = [0, 1, 2].map(() => `0x${randomBytes(20).toString('hex')}`);
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${W}, ${id})`;
   const no = async () => {
     throw new Error('not read');
@@ -349,21 +349,27 @@ test('discovery: a proven wallet\'s contracts and its first Base transaction sho
   const reader = {
     gh: async () => null, ghGraphql: no, probe: no, fetchText: no, json: no,
     contractOrigin: async () => ({ deployer: W, created_at: '2025-05-02T00:00:00Z' }),
-    walletCreations: async () => [{ address: contract, created_at: '2025-05-02T00:00:00Z' }],
+    // One read covers Base and the other chains: walletCreations is never asked.
+    walletCreations: no,
+    walletContracts: async () => [
+      { chain: 'base', address: contract, created_at: '2025-05-02T00:00:00Z', counts: true },
+      { chain: 'base', address: coin, created_at: '2025-06-02T00:00:00Z', counts: false },
+      { chain: 'ethereum', address: eth, created_at: '2023-09-14T00:00:00Z', counts: true },
+    ],
     walletFirstTx: async (w: string) => (firstTx.push(w), '2024-01-15T10:00:00Z'),
     now: new Date(),
   } as unknown as ReaderDeps;
   await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => null });
   assert.deepEqual(firstTx, [W]);
   const [src] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND ref = ${`base:${contract}`}`;
-  assert.deepEqual({ ...src }, { state: 'verified', proof: 'deploy_wallet' });
+  assert.deepEqual({ ...src }, { state: 'verified', proof: 'deploy_wallet' }, 'the Base claim still comes from the same read');
   const data = (await profileData(id, new Date())) as ProfileData;
   const items = await highlights(id, data, new Date());
   assert.deepEqual(items.find((h) => h.icon === 'contract'), {
-    icon: 'contract', title: '1 contract on Base', sub: 'First deployed May 2025 · On Base since Jan 2024', href: `https://basescan.org/address/${contract}`,
+    icon: 'contract', title: '2 contracts on 2 chains', sub: 'Since Sep 2023', href: `https://etherscan.io/address/${eth}`,
   });
-  assert.doesNotMatch(JSON.stringify(items), new RegExp(W.slice(2)), 'never the wallet');
-  // Read once: a second discovery doesn't ask again.
+  assert.doesNotMatch(JSON.stringify(items), new RegExp(`${W.slice(2)}|${coin.slice(2)}|On Base since`), 'never the wallet, the token or "On Base since"');
+  // Read once: a second discovery doesn't ask the first transaction again.
   await discoverPerson(id, { deadline: Date.now() + 10_000, reader, login: async () => null });
   assert.equal(firstTx.length, 1);
   // The read itself: one oldest-first txlist row; none is null.
@@ -374,13 +380,14 @@ test('discovery: a proven wallet\'s contracts and its first Base transaction sho
   await assert.rejects(walletFirstTxFrom('nope', async () => ({})));
 });
 
-test('a proven wallet with no contracts still shows: "On Base since" from its first transaction', db, async () => {
+test('a proven wallet with no counted contract: no contract row (v3.1 Highlights competence: "On Base since" is out)', db, async () => {
   const key = `wpn${RUN}${randomBytes(2).toString('hex')}/app`;
   const id = await person({ projects: [{ key, name: 'App', confirmed: true }], main: key, claimed: `wpn${RUN}${randomBytes(2).toString('hex')}`, score: 50 });
   const W = `0x${randomBytes(20).toString('hex')}`;
   await sql()`INSERT INTO person_wallets (wallet, builder_id, base_since) VALUES (${W}, ${id}, '2025-11-26T15:58:43Z')`;
   const items = await highlights(id, (await profileData(id, new Date())) as ProfileData, new Date());
-  assert.deepEqual(items.find((h) => h.icon === 'contract'), { icon: 'contract', title: 'On Base since Nov 2025', sub: 'Wallet proven by signature' });
+  assert.ok(!items.some((h) => h.icon === 'contract'));
+  assert.doesNotMatch(JSON.stringify(items), /On Base since|Wallet proven/);
 });
 
 test('the first transaction from the public RPC when the explorer refuses: a binary search on the nonce', async () => {

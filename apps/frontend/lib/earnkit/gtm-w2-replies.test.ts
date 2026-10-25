@@ -259,7 +259,7 @@ test('tell submitted with no entry here records the application as applied (neve
   assert.match(DRAFT_NOTE, /call tell with submitted: \{ program_id \}/);
 });
 
-test('an acceptance told: a short congrats, the outcome post with a checked proof, and the Highlight moves from Applied to Accepted', db, async () => {
+test('an acceptance told: a short congrats, the outcome post with a checked proof, and the Highlight shows Accepted (never Applied)', db, async () => {
   const b = await ranked('o', 'Claude Code', { seen: { checkin_asked: new Date().toISOString() } });
   const [{ hosts, xs, title }] = await sql()<{ hosts: string[]; xs: string[]; title: string }[]>`SELECT proof_hosts AS hosts, x_handles AS xs, title FROM programs WHERE id = ${BASE_GRANTS_ID}`;
   await sql()`UPDATE programs SET proof_hosts = ${['docs.base.org/get-started/']}::text[] WHERE id = ${BASE_GRANTS_ID}`;
@@ -267,7 +267,8 @@ test('an acceptance told: a short congrats, the outcome post with a checked proo
     const ctx = { ...(b.ctx as object), proofFetch: (async () => `<p>October recipients: Kit by @${b.username}.</p>`) as ProofFetch } as never as Ctx;
     await mcpCall(ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
     const d = (await profileData(b.id, new Date())) as ProfileData;
-    assert.ok((await highlights(b.id, d, new Date())).some((h) => h.title === `Applied to ${title}`), 'applied first');
+    // v3.1 Highlights competence (2026-10-25): an application alone is never a Highlight.
+    assert.ok(!(await highlights(b.id, d, new Date())).some((h) => h.title.includes(title)), 'applied: no row');
     // No proof link yet (v3.1 cold read): one line asks for the announcement it turns into a post.
     const none = await mcpCall(ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
     assert.equal(rule(show(none)), `Congrats on the ${title}. Got the announcement link? I'll turn it into a post.`);
