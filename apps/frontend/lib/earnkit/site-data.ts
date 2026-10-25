@@ -206,6 +206,12 @@ async function contractItem(builderId: number, key: string): Promise<Highlight |
   };
 }
 
+/** 2b. Without a contract item: a proven wallet's first Base transaction, so proving one always shows. Never the address. */
+async function walletItem(builderId: number): Promise<Highlight | null> {
+  const [w] = await sql()<{ since: Date | null }[]>`SELECT min(base_since) AS since FROM person_wallets WHERE builder_id = ${builderId}`;
+  return w?.since ? { icon: 'contract', title: `On Base since ${monthYear(new Date(w.since))}`, sub: 'Wallet proven by signature' } : null;
+}
+
 /**
  * 3. code: Base projects only, the stored Builder Codes answer for a repo the builder proved through the App, linked
  * to the file it is in while the repo is public. Only a found code is an item (v3.1 final fix 4): the public page never
@@ -285,7 +291,8 @@ async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: 
     part('programs', () => programItems(builderId, key), [] as Highlight[]),
   ]);
   const repo = REPO_KEY.test(norm(key)) ? repoItem(d.project.name, reading, publicRepo ? githubRepoHref(key) : null, now) : null;
-  const items = [live, contract, code, repo, ...programs].filter((h): h is Highlight => h !== null).slice(0, HIGHLIGHTS_MAX);
+  const wallet = contract ? null : await part('wallet', () => walletItem(builderId), null);
+  const items = [live, contract ?? wallet, code, repo, ...programs].filter((h): h is Highlight => h !== null).slice(0, HIGHLIGHTS_MAX);
   return items.length > 0 ? items : [{ icon: 'start', title: since, sub: 'On the leaderboard' }];
 }
 

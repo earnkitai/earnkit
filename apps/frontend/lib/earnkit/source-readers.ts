@@ -1,4 +1,4 @@
-import { ScoreDeadline, beforeDeadline, blockscout } from './campaigns';
+import { ScoreDeadline, baseRpcUntil, beforeDeadline, blockscout } from './campaigns';
 import { gh } from './match-projects';
 import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
 import { providerOfUrl, type Provider } from './read-usage';
@@ -440,6 +440,41 @@ export async function walletFirstTxFrom(wallet: string, read: (path: string) => 
   return Number.isFinite(secs) && secs > 0 ? new Date(secs * 1000).toISOString() : null;
 }
 
+/** The calls walletFirstTxRpc needs: a wallet's sent-transaction count at a block, and a block's time. */
+export type NonceRpc = { latest: () => Promise<bigint>; count: (wallet: string, block: bigint) => Promise<number>; time: (block: bigint) => Promise<bigint> };
+/** How many blocks walletFirstTxRpc reads at once per round. */
+export const NONCE_FANOUT = 8;
+/**
+ * `wallet`'s first sent Base transaction (ISO) from the public RPC, when the explorer can't answer: a search over the
+ * blocks for the first one where its nonce is above zero, NONCE_FANOUT reads at once per round (about 9 rounds), then
+ * that block's time. Null when it never sent one.
+ */
+export async function walletFirstTxRpc(wallet: string, rpc: NonceRpc): Promise<string | null> {
+  if (!ADDRESS.test(wallet)) throw new Error('not a wallet');
+  let hi = await rpc.latest();
+  if ((await rpc.count(wallet, hi)) === 0) return null;
+  // The first block with a nonce above zero is in (lo, hi]; lo = -1 means none ruled out yet.
+  let lo = -1n;
+  while (hi - lo > 1n) {
+    const step = (hi - lo) / BigInt(NONCE_FANOUT + 1) || 1n;
+    const points: bigint[] = [];
+    for (let b = lo + step; b < hi && points.length < NONCE_FANOUT; b += step) points.push(b);
+    const counts = await Promise.all(points.map((b) => rpc.count(wallet, b)));
+    const at = counts.findIndex((n) => n > 0);
+    if (at >= 0) hi = points[at];
+    if (at !== 0) lo = at < 0 ? (points.at(-1) ?? lo) : points[at - 1];
+  }
+  return new Date(Number(await rpc.time(hi)) * 1000).toISOString();
+}
+const nonceRpc = (deadline: number): NonceRpc => {
+  const c = baseRpcUntil(deadline);
+  return {
+    latest: () => c.getBlockNumber(),
+    count: (wallet, block) => c.getTransactionCount({ address: wallet as `0x${string}`, blockNumber: block }),
+    time: async (block) => (await c.getBlock({ blockNumber: block })).timestamp,
+  };
+};
+
 /**
  * The real reads. Sites go through safe-fetch (public addresses only after DNS, https on 443, no
  * IP hosts, up to three same-site redirects each re-vetted, size and time capped), so a site source
@@ -459,7 +494,12 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
     walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
-    walletFirstTx: (wallet) => walletFirstTxFrom(wallet, (path) => (tick('blockscout'), blockscout<TxList>(path, deadline))),
+    // The explorer first; its failure (a challenge, no key) falls back to the public RPC.
+    walletFirstTx: (wallet) =>
+      walletFirstTxFrom(wallet, (path) => (tick('blockscout'), blockscout<TxList>(path, deadline))).catch((err: unknown) => {
+        if (err instanceof ScoreDeadline) throw err;
+        return by(walletFirstTxRpc(wallet, nonceRpc(deadline)));
+      }),
     now,
     deadline,
     ghSpent: github.spent,

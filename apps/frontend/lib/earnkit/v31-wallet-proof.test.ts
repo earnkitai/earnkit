@@ -26,7 +26,8 @@ import { titlesAskDue } from './updates';
 import { walletXSignIn } from './fixtures/wallet-step';
 import { COIN_WALLET_ASK, coinWallet, coinYes, offerCoin } from './coin-moments';
 import { discoverPerson } from './discovery';
-import { walletFirstTxFrom, type ReaderDeps } from './source-readers';
+import { walletFirstTxFrom, walletFirstTxRpc, type NonceRpc, type ReaderDeps } from './source-readers';
+import { blockscoutUrl } from './campaigns';
 import { highlights } from './site-data';
 import { githubProfileHref, profileData, type ProfileData } from './bench-data';
 import HeroCard from '../../app/[handle]/site/HeroCard';
@@ -71,6 +72,8 @@ const short = (w: string) => `${w.slice(0, 6)}…${w.slice(-4)}`;
 const viemVerify = (a: { address: string; message: string; signature: string }) =>
   verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` });
 const tokenOf = (s: string) => decodeURIComponent(/https:\/\/earnkit\.com\/claim\/wallet\?t=(\S+)/.exec(s)![1]);
+/** The people whose discovery a proof ran at once (walletPost's discover). */
+const discovered: number[] = [];
 /** Signs the link's message with `acct` and posts it as the page does. */
 async function sign(handle: string, s: string, acct = privateKeyToAccount(generatePrivateKey()), cookie: string | null = null) {
   const t = tokenOf(s);
@@ -79,7 +82,7 @@ async function sign(handle: string, s: string, acct = privateKeyToAccount(genera
     new Request('https://earnkit.com/claim/wallet', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://earnkit.com', ...(cookie && { cookie }) }, body: JSON.stringify({ t, wallet: acct.address, signature }),
     }),
-    { limit: async () => {}, verify: viemVerify },
+    { limit: async () => {}, verify: viemVerify, discover: async (id) => void discovered.push(id) },
   );
   const j = (await r.json()) as { line: string; recipient?: boolean };
   return { status: r.status, line: j.line, recipient: j.recipient, wallet: acct.address.toLowerCase() };
@@ -185,6 +188,7 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   assert.deepEqual({ status: signed.status, line: signed.line, recipient: signed.recipient }, { status: 200, line: walletDoneLine(signed.wallet), recipient: true });
   const [q] = await sql()<{ reason: string; done_at: Date | null }[]>`SELECT reason, done_at FROM discovery_queue WHERE builder_id = ${c.id}`;
   assert.deepEqual({ ...q }, { reason: 'wallet', done_at: null });
+  assert.ok(discovered.includes(c.id), 'the proof runs the discovery at once');
   assert.equal(await provenWallet(c.id), signed.wallet);
   // The hourly discover step reads it (discovery tests); here it is marked done so a refresh never reads the network.
   await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${c.id}`;
@@ -368,6 +372,37 @@ test('discovery: a proven wallet\'s contracts and its first Base transaction sho
   assert.equal(paths[0], `/api?module=account&action=txlist&address=${W}&sort=asc&page=1&offset=1`);
   assert.equal(await walletFirstTxFrom(W, async () => ({ status: '0', result: [] })), null);
   await assert.rejects(walletFirstTxFrom('nope', async () => ({})));
+});
+
+test('a proven wallet with no contracts still shows: "On Base since" from its first transaction', db, async () => {
+  const key = `wpn${RUN}${randomBytes(2).toString('hex')}/app`;
+  const id = await person({ projects: [{ key, name: 'App', confirmed: true }], main: key, claimed: `wpn${RUN}${randomBytes(2).toString('hex')}`, score: 50 });
+  const W = `0x${randomBytes(20).toString('hex')}`;
+  await sql()`INSERT INTO person_wallets (wallet, builder_id, base_since) VALUES (${W}, ${id}, '2025-11-26T15:58:43Z')`;
+  const items = await highlights(id, (await profileData(id, new Date())) as ProfileData, new Date());
+  assert.deepEqual(items.find((h) => h.icon === 'contract'), { icon: 'contract', title: 'On Base since Nov 2025', sub: 'Wallet proven by signature' });
+});
+
+test('the first transaction from the public RPC when the explorer refuses: a binary search on the nonce', async () => {
+  const first = 38_691_688n;
+  const reads: bigint[] = [];
+  const rpc: NonceRpc = {
+    latest: async () => 52_000_000n,
+    count: async (_w, b) => (reads.push(b), b >= first ? 925 : 0),
+    time: async (b) => (b === first ? 1764172723n : 0n),
+  };
+  const W = `0x${randomBytes(20).toString('hex')}`;
+  assert.equal(await walletFirstTxRpc(W, rpc), '2025-11-26T15:58:43.000Z');
+  assert.ok(reads.length <= 80, `${reads.length} reads`);
+  assert.equal(await walletFirstTxRpc(W, { ...rpc, count: async () => 0 }), null, 'never sent one');
+  await assert.rejects(walletFirstTxRpc('nope', rpc));
+});
+
+test('Blockscout: the keyed API when BLOCKSCOUT_API_KEY is set, else the public host', () => {
+  assert.equal(blockscoutUrl('/api/v2/addresses/0xab', {}), 'https://base.blockscout.com/api/v2/addresses/0xab');
+  assert.equal(blockscoutUrl('/api/v2/addresses/0xab', { BLOCKSCOUT_API_KEY: 'k1' }), 'https://api.blockscout.com/8453/api/v2/addresses/0xab?apikey=k1');
+  assert.equal(blockscoutUrl('/api?module=account&action=txlist', { BLOCKSCOUT_API_KEY: 'k1' }), 'https://api.blockscout.com/8453/api?module=account&action=txlist&apikey=k1');
+  assert.equal(blockscoutUrl('/api/v2/x', { BLOCKSCOUT_API_KEY: 'k1', EARNKIT_BLOCKSCOUT_URL: 'http://localhost:9', NODE_ENV: 'test' }), 'http://localhost:9/api/v2/x', 'the test explorer wins');
 });
 
 test('the hero\'s GitHub button: the repo when public; the builder\'s GitHub profile when the repo is private; hidden with neither', () => {

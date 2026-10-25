@@ -3,7 +3,8 @@ import { createPublicClient, http, recoverMessageAddress, type PublicClient } fr
 import { base } from 'viem/chains';
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
-import { enqueueDiscovery } from './discovery';
+import { discoverPerson, enqueueDiscovery } from './discovery';
+import { defaultReaderDeps } from './source-readers';
 import { shortWallet, siteUrl } from './entry-text';
 import { noteEvent } from './events';
 import { cookieValue } from './github-verify';
@@ -297,7 +298,16 @@ export async function walletXSignedIn(builderId: number, useHash: string, user: 
   return new Response(null, { status: 303, headers });
 }
 
-type RouteDeps = { limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date };
+type RouteDeps = { limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date; discover?: (builderId: number) => Promise<void> };
+/** The new wallet's discovery budget: it runs beside the reply, so the page shows it moments after signing. */
+export const PROOF_DISCOVER_MS = 20_000;
+/** The new wallet's discovery now (its first Base transaction, its contracts), then the page's caches. Never throws. */
+async function discoverNow(builderId: number): Promise<void> {
+  const deadline = Date.now() + PROOF_DISCOVER_MS;
+  await discoverPerson(builderId, { deadline, reader: defaultReaderDeps(new Date(), deadline) })
+    .catch((err: unknown) => console.error('[wallet proof] discovery', err instanceof Error ? err.name : 'error'));
+  profileChanged();
+}
 const json = (body: { line: string; recipient?: boolean }, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
@@ -323,6 +333,9 @@ export async function walletPost(request: Request, deps: RouteDeps = {}): Promis
   const xSecret = cookieValue(request, xName);
   const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature, xSecret }, deps.now ?? new Date(), deps.verify);
   if (!r.ok) return json({ line: r.line }, r.line === WALLET_TEXT.unchecked ? 503 : 400);
+  // A newly proven wallet shows on the page at once, not on the next background run (never waited on).
+  const builderId = upgradeOf(b.t, deps.now ?? new Date());
+  if (builderId !== null) void (deps.discover ?? discoverNow)(builderId);
   const done = json({ line: r.line, recipient: r.recipient });
   // The X check is used up: its cookie goes too.
   if (xSecret) done.headers.append('Set-Cookie', `${walletXCookie(tokenUseKey(b.t))}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
