@@ -7789,6 +7789,10 @@ the change link.
   free key) for every explorer read when set; the first transaction falls back to the public RPC
   (`source-readers.ts walletFirstTxRpc`, a fanned-out nonce search). With no contract item, `site-data.ts walletItem`
   shows "On Base since <Mon YYYY>" alone.
+- **Alchemy for wallet reads (2026-10-25).** With `ALCHEMY_API_KEY` (prod: a reference to buyback-cron's key),
+  `alchemy.ts` serves `walletFirstTx` and the people-signals txlist (`alchemyTxList`: earliest sent and received,
+  Etherscan-shaped) and `walletCreations` (`alchemyCreations`: sent transfers with an empty `to`, receipts for the
+  address, at most `WALLET_CREATIONS_MAX`). Contract-deployer lookups, campaign and traction reads stay on Blockscout.
 - **Profile hero.** With no repo link, the GitHub button opens `https://github.com/<github_login>`; with neither, hidden.
 - Tests: `wallet-proof.test.ts`, `v31-wallet-proof.test.ts`; other ranked-step tests mark the step offered
   (`fixtures/wallet-step.ts walletOffered`; `fixtures/find.ts person` unless `walletStep: true`).

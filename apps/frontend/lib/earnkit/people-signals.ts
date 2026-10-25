@@ -1,5 +1,6 @@
 import { sql } from './db';
 import { blockscout } from './campaigns';
+import { alchemyCall, alchemyOn, alchemyTxList } from './alchemy';
 import { githubUser, type GitHubAccount } from './github-verify';
 import { hit } from './rate-limit';
 
@@ -79,7 +80,9 @@ export async function walletSignalsStep(
   for (const { wallet } of due) {
     if (Date.now() >= deadline) break;
     if (!WALLET.test(wallet)) continue;
-    const data = await read(`/api?module=account&action=txlist&address=${wallet}&sort=asc&page=1&offset=${WALLET_TXS}`).catch((err: unknown) => {
+    // Alchemy when its key is set (Blockscout challenges servers), else Blockscout.
+    const path = `/api?module=account&action=txlist&address=${wallet}&sort=asc&page=1&offset=${WALLET_TXS}`;
+    const data = await (!o.read && alchemyOn() ? alchemyTxList(wallet, WALLET_TXS, alchemyCall(deadline)) : read(path)).catch((err: unknown) => {
       console.error('[people-signals] wallet', err instanceof Error ? err.name : 'error');
       return undefined;
     });

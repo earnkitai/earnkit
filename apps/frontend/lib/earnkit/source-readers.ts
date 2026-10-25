@@ -1,4 +1,5 @@
 import { ScoreDeadline, baseRpcUntil, beforeDeadline, blockscout } from './campaigns';
+import { alchemyCall, alchemyCreations, alchemyOn, alchemyTxList } from './alchemy';
 import { gh } from './match-projects';
 import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
 import { providerOfUrl, type Provider } from './read-usage';
@@ -442,6 +443,8 @@ export async function walletFirstTxFrom(wallet: string, read: (path: string) => 
 
 /** The calls walletFirstTxRpc needs: a wallet's sent-transaction count at a block, and a block's time. */
 export type NonceRpc = { latest: () => Promise<bigint>; count: (wallet: string, block: bigint) => Promise<number>; time: (block: bigint) => Promise<bigint> };
+/** The most contract-creating transactions of one wallet whose receipts are read (Alchemy). */
+export const WALLET_CREATIONS_MAX = 25;
 /** How many blocks walletFirstTxRpc reads at once per round. */
 export const NONCE_FANOUT = 8;
 /**
@@ -493,10 +496,16 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
     json: <T>(url: string) => (tick(providerOfUrl(url)), by(packageJson<T>(url, deadline))),
     // Arc has no readable explorer API (Cloudflare challenge): its origin is unknown, so a repo_link is refused.
     contractOrigin: async (chain, address) => (chain === 'base' ? blockscoutOrigin(address, deadline, () => tick('blockscout')) : { deployer: null, created_at: null }),
-    walletCreations: (wallet) => walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
-    // The explorer first; its failure (a challenge, no key) falls back to the public RPC.
+    // Alchemy when its key is set (Blockscout challenges servers), else Blockscout.
+    walletCreations: (wallet) =>
+      alchemyOn()
+        ? by(alchemyCreations(wallet, alchemyCall(deadline), { pages: READ_CAPS.walletPages, max: WALLET_CREATIONS_MAX }))
+        : walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
+    // Alchemy or the explorer first; a failure falls back to the public RPC.
     walletFirstTx: (wallet) =>
-      walletFirstTxFrom(wallet, (path) => (tick('blockscout'), blockscout<TxList>(path, deadline))).catch((err: unknown) => {
+      walletFirstTxFrom(wallet, (path) =>
+        alchemyOn() ? by(alchemyTxList(wallet, 1, alchemyCall(deadline))) : (tick('blockscout'), blockscout<TxList>(path, deadline)),
+      ).catch((err: unknown) => {
         if (err instanceof ScoreDeadline) throw err;
         return by(walletFirstTxRpc(wallet, nonceRpc(deadline)));
       }),
