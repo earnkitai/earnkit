@@ -20,6 +20,7 @@ import { clearXHandle, setFallback } from './profiles';
 import { isBudgetStop, readContractOrigin, soft, type ReaderDeps } from './source-readers';
 import { claimContract, proposeSource, verifySource, type Proof } from './sources';
 import { APP_PROOF, appClient } from './repo-proof';
+import { walletChain } from './wallet-chains';
 
 /**
  * v2.12 spec 3: finding a person's past work. `find` never waits on it: it records the agent's
@@ -137,6 +138,30 @@ export async function provenLogin(builderId: number): Promise<LoginProof | null>
   return logins.length === 1 ? { login: logins[0].login, basis: 'app' } : null;
 }
 
+/**
+ * v3.1 Highlights competence (2026-10-25): one proven wallet's own contracts on every chain (ReaderDeps.walletContracts),
+ * upserted into wallet_contracts (one already counted is not classified again: `known`), and its Base creations for
+ * the T7 claims. A failed read is no rows (soft); the deadline and a spent budget propagate.
+ */
+async function walletContractsOf(wallet: string, read: NonNullable<ReaderDeps['walletContracts']>): Promise<{ address: string; created_at: string }[]> {
+  const db = sql();
+  const w = wallet.toLowerCase();
+  const known = new Set((await db<{ k: string }[]>`SELECT chain || ':' || address AS k FROM wallet_contracts WHERE wallet = ${w} AND counts`).map((r) => r.k));
+  const rows = new Map<string, { chain: string; address: string; wallet: string; created_at: string | null; counts: boolean }>();
+  for (const c of await soft(read(w, known), [])) {
+    const address = typeof c?.address === 'string' ? c.address.toLowerCase() : '';
+    if (!walletChain(c?.chain) || !/^0x[0-9a-f]{40}$/.test(address)) continue;
+    const at = typeof c.created_at === 'string' && Number.isFinite(Date.parse(c.created_at)) ? c.created_at : null;
+    rows.set(`${c.chain}:${address}`, { chain: c.chain, address, wallet: w, created_at: at, counts: c.counts === true });
+  }
+  if (rows.size > 0)
+    await db`
+      INSERT INTO wallet_contracts ${db([...rows.values()], 'chain', 'address', 'wallet', 'created_at', 'counts')}
+      ON CONFLICT (chain, address) DO UPDATE SET wallet = EXCLUDED.wallet, created_at = COALESCE(EXCLUDED.created_at, wallet_contracts.created_at),
+        counts = EXCLUDED.counts, read_at = now()`;
+  return [...rows.values()].filter((r) => r.chain === 'base').map((r) => ({ address: r.address, created_at: r.created_at ?? '' }));
+}
+
 type Counts = { people: number; proposed: number; verified: number };
 type Row = { id: number; state: string; proof?: string | null; gh_repo_id?: string | null; reject_reason?: string | null };
 type DiscoverOpts = { deadline: number; reader: ReaderDeps; login?: LoginOf };
@@ -211,8 +236,11 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
   };
   for (const x of deploys) await claim(`${x.chain}:${x.address}`, x.repo_key, {});
   // T7: the contracts a signed wallet created (the newest WALLET_READS wallets; Base); contractOwnership proves them deploy_wallet.
+  // v3.1 Highlights competence (2026-10-25): with walletContracts (Alchemy), one read covers every WALLET_CHAINS chain:
+  // its rows are kept in wallet_contracts at once (a cache like base_since, no verdict depends on it) and its Base
+  // creations, tokens and unused ones too, feed the same claims as before, so Base is read once.
   for (const w of [...proven].slice(0, WALLET_READS))
-    for (const c of await soft(d.walletCreations(w), [])) {
+    for (const c of d.walletContracts ? await walletContractsOf(w, d.walletContracts) : await soft(d.walletCreations(w), [])) {
       const a = typeof c?.address === 'string' ? c.address.toLowerCase() : '';
       if (/^0x[0-9a-f]{40}$/.test(a)) await claim(`base:${a}`, `base:${a}`, {});
     }
