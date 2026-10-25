@@ -6,7 +6,7 @@ import type { ReaderDeps } from './source-readers';
  * script." `perDay` null: the provider publishes no limit (watch for 429s). The basis says where
  * the number comes from.
  */
-export type Provider = 'github_graphql' | 'github_rest' | 'blockscout' | 'arc_rpc' | 'npm' | 'pypi' | 'site';
+export type Provider = 'github_graphql' | 'github_rest' | 'blockscout' | 'arc_rpc' | 'npm' | 'pypi' | 'site' | 'alchemy';
 export const FREE_LIMITS: Record<Provider, { perDay: number | null; basis: string }> = {
   github_graphql: { perDay: 120_000, basis: '5,000 points an hour per token (GitHub docs), shared with REST budgeting' },
   github_rest: { perDay: 120_000, basis: '5,000 requests an hour per token (GitHub docs)' },
@@ -15,6 +15,8 @@ export const FREE_LIMITS: Record<Provider, { perDay: number | null; basis: strin
   npm: { perDay: null, basis: 'npm publishes no limit for the downloads API' },
   pypi: { perDay: null, basis: 'pypistats asks for light use, no number' },
   site: { perDay: null, basis: "one HEAD per site per day, the builder's own server" },
+  // v3.1 Highlights competence: a proven wallet's contracts on every chain (alchemy.ts alchemyWalletContracts).
+  alchemy: { perDay: null, basis: "Alchemy's free tier meters compute units a month, not requests (watch for 429s)" },
 };
 
 /** npm or PyPI, by the URL a `json` read asks. Pure. */
@@ -68,6 +70,7 @@ export function countingDeps(d: ReaderDeps): { deps: ReaderDeps; counts: Map<Pro
       contractOrigin: wrap('blockscout', d.contractOrigin),
       walletCreations: wrap('blockscout', d.walletCreations),
       ...(d.walletFirstTx && { walletFirstTx: wrap('blockscout', d.walletFirstTx) }),
+      ...(d.walletContracts && { walletContracts: wrap('alchemy', d.walletContracts) }),
     },
   };
 }

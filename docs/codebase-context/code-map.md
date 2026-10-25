@@ -294,10 +294,11 @@ apps/frontend/
                                from the Landing board, lobehub MIT + muse.svg; AgentMark)
   lib/earnkit/site-theme.ts    v3.1 site T1: SITE tokens (mirrored as --ek-s-* in globals.css, Tailwind s-*) and siteVar
   lib/earnkit/site-data.ts     v3.1 site T3: the profile's reads beyond profileData: lastShippedAt (ship reading pushed_at),
-                               thisWeekCommits (commit_counts via weekCounts), highlights (W8, each linking its proof:
-                               live + liveSub, contracts on Base + first deployed, Builder Code file, repo track record
-                               via repoItem, won/applied + guide link; siteHref, basescanHref, githubRepoHref,
-                               githubFileHref build the escaped links), standingPill/pillOf (GTM W3: the one rank line, whole pool, metal by percentile),
+                               thisWeekCommits (commit_counts via weekCounts), highlights (W8; v3.1 Highlights competence
+                               2026-10-25, each linking its proof: live + liveSub, contracts on every chain (contractsOf
+                               over wallet_contracts), products (productsOf, from 2 hosts), consistency (consistencyItem,
+                               weeks with code), won only + guide link, experience filler (github_users); siteHref,
+                               explorerHref, githubRepoHref build the escaped links), standingPill/pillOf (GTM W3: the one rank line, whole pool, metal by percentile),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
@@ -2400,3 +2401,17 @@ $SYM is live.", exported `isStep2`); `digest.ts` (`EMAIL_ON`, `WHICH_EMAIL`), `w
 `entry-text.ts` (`AMOUNT_HEADER` "Up to", `upToCell`) in `present.ts` and `also-qualifies.ts` tables; `guide.ts guideText`
 (never "(estimate)"); `mcp.ts FIND_DESCRIPTION_BENCH` (more: true for what can I earn / what fits me / show programs).
 Tests: `v31-answerable.test.ts`.
+
+v3.1 Highlights competence (2026-10-25, design v3.1-highlights-competence.md): new `wallet-chains.ts` (`WALLET_CHAINS`:
+base, ethereum, arbitrum, optimism, polygon with Alchemy network, explorer, label; `WalletContract`, `walletChain`);
+`alchemy.ts` (`alchemyCall(deadline, network)` Base by default, `AlchemyNetworkOff` for "not enabled for this app",
+`contractCounts` (not a token, used by another address), `alchemyWalletContracts`); `source-readers.ts`
+(`ReaderDeps.walletContracts`, Alchemy only, ticks `alchemy`); `read-usage.ts` (provider `alchemy`); `discovery.ts`
+(`walletContractsOf`: upserts `wallet_contracts`, feeds the T7 Base claims from the same read); schema `wallet_contracts`
+(+ index on wallet); `events-redact.mts` lists `wallet_contracts.wallet`. `site-data.ts` Highlights rebuilt (no Builder
+Code, wallet, commit count or "Applied to" rows; `contractsOf`, `productsOf`, `consistencyItem`, `explorerHref`,
+`HIGHLIGHTS_MAX`, `PRODUCTS_MIN`; `repoItem`, `basescanHref`, `githubFileHref` removed); `HighlightsCard.tsx` icons
+`products` (layers), `consistency` (calendar-check), `experience` (terminal); `card-facts.ts` reads "Building since"
+from the consistency sub and drops the commits tile (`card-response.tsx`). Tests: `alchemy.test.ts`, `discovery.test.ts`
+7.4c, `v31-highlights.test.ts`, `v31-site-data.test.ts (c)-(c5)`, `v31-wallet-proof.test.ts`, `v3-shells.test.ts`,
+`v31-site-profile.test.ts`, `gtm-w2-replies.test.ts`, `v3-apply.test.ts`.

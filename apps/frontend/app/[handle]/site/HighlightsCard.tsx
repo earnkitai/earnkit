@@ -3,22 +3,27 @@ import type { Highlight, HighlightIcon } from '../../../lib/earnkit/site-data';
 import { CARD_PANEL, phoneRadius } from '../../components/site/ui';
 
 /**
- * The board's icon paths (lucide strokes): a globe, code brackets, a box, a commit, a send arrow, a calendar; won uses
- * applied's.
+ * The board's icon paths (lucide strokes): a globe, a box, layers, a calendar with a check, a send arrow, a terminal, a
+ * calendar. v3.1 Highlights competence (2026-10-25): products, consistency and experience added; code, repo and applied
+ * went with their rows.
  */
-const APPLIED = ['m22 2-7 20-4-9-9-4Z', 'M22 2 11 13'];
+const CALENDAR = ['M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z', 'M16 2v4M8 2v4', 'M3 10h18'];
 const ICON: Record<HighlightIcon, string[]> = {
   live: ['M2 12h20', 'M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20', 'M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20'],
-  code: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
   contract: [
     'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
     'm3.3 7 8.7 5 8.7-5',
     'M12 22V12',
   ],
-  repo: ['M12 9a3 3 0 1 0 0 6 3 3 0 1 0 0-6', 'M3 12h6', 'M15 12h6'],
-  applied: APPLIED,
-  won: APPLIED,
-  start: ['M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z', 'M16 2v4M8 2v4', 'M3 10h18'],
+  products: [
+    'm12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z',
+    'm22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65',
+    'm22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65',
+  ],
+  consistency: [...CALENDAR, 'm9 16 2 2 4-4'],
+  won: ['m22 2-7 20-4-9-9-4Z', 'M22 2 11 13'],
+  experience: ['m4 17 6-6-6-6', 'M12 19h8'],
+  start: CALENDAR,
 };
 /** lucide arrow-up-right: the opens-elsewhere mark on an external link; chevron-right on a page of EarnKit's own. */
 const OUT = ['M7 7h10v10', 'M7 17 17 7'];

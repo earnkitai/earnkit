@@ -104,8 +104,6 @@ async function site(b: B, ref: string, days: [string, boolean][]) {
   for (const [day, up] of days) await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES (${id}, ${day}, ${sql().json({ up } as never)}, true)`;
 }
 const addr = () => `0x${randomBytes(20).toString('hex')}`;
-const codes = (key: string, found: boolean) =>
-  sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key.toLowerCase()}, ${found}, ${NOW}) ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found`;
 
 /** `n` consecutive daily readings of a site ending at `last` (YYYY-MM-DD), up unless the index is in `down`. */
 const daysUp = (last: string, n: number, down: number[] = []): [string, boolean][] =>
@@ -118,44 +116,75 @@ const baseBuilder = (o: { key?: string; name?: string; hidden?: boolean; created
     signals: { created_at: o.created ?? '2025-03-04T10:00:00Z', commits_year: o.commits ?? 312, default_branch: o.branch ?? 'main' },
   });
 
-test('(c) Highlights: live with uptime, contracts on Base, Builder Code, track record, applied; each links its proof, in that order', db, async () => {
-  const b = await baseBuilder({ name: 'Kit' });
+/** A proven wallet of the builder with its wallet_contracts rows ([chain, created_at, counts]); returns the addresses. */
+async function walletContracts(b: B, rows: [string, string | null, boolean][]): Promise<string[]> {
+  const wallet = addr();
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${wallet}, ${b.id})`;
+  const out: string[] = [];
+  for (const [chain, at, counts] of rows) {
+    const a = addr();
+    out.push(a);
+    await sql()`INSERT INTO wallet_contracts (chain, address, wallet, created_at, counts) VALUES (${chain}, ${a}, ${wallet}, ${at}, ${counts})`;
+  }
+  return out;
+}
+/** The builder's proven GitHub login (set only from a verified source) and when GitHub says the account was made. */
+async function githubSince(b: B, created: string): Promise<string> {
+  const login = `s${RUN}gh${randomBytes(3).toString('hex')}`;
+  await sql()`UPDATE builder_profiles SET github_login = ${login} WHERE builder_id = ${b.id}`;
+  await sql()`INSERT INTO github_users (login, created_at) VALUES (${login}, ${created}) ON CONFLICT (login) DO UPDATE SET created_at = EXCLUDED.created_at`;
+  return login;
+}
+/** A won program for the builder's project (an announced outcome on an entry), its guide id when `guide`. */
+async function won(b: B, id: string, title: string, at: string) {
+  await upsertProgram(ProgramFile.parse({ ...committedProgram('alliance-all19'), id, title }));
+  await sql()`INSERT INTO projects (program_id, name, repo_url, repo_key, installation_id, submitted_at) VALUES (${id}, 'Kit', ${`https://github.com/${b.key}`}, ${b.key}, ${b.id}, ${at})`;
+  const [{ id: pid }] = await sql()<{ id: number }[]>`SELECT id FROM projects WHERE program_id = ${id} AND installation_id = ${b.id}`;
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, basis) VALUES (${pid}, ${id}, 'r1', 'won', 'announcement')`;
+}
+
+test('(c) Highlights, v3.1 competence: live, contracts on every chain, products, consistency, won; each links its proof, in that order', db, async () => {
+  const b = await builder({ name: 'Kit', chains: ['base'], proof: 'github_app', commitWeeks: last52(NOW).slice(-6), signals: { created_at: '2025-03-04T10:00:00Z', commits_year: 312, default_branch: 'main' } });
   await site(b, 'https://www.kit.example', daysUp('2026-10-21', 30, [3, 17]));
-  const first = addr();
-  // A verified Base source with its Blockscout time, an EarnKit deploy later; an Arc source, a proposed one and a reverted deploy never count.
+  // A second product of another project, up before the first: products lists it first.
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)
+    VALUES (${b.id}, 'site', 'https://tip.example', 'tip.example', 'earnkit_txt', 'verified', 'agent', now())`;
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2025-01-05', '{"up":true}'::jsonb, true FROM builder_sources WHERE builder_id = ${b.id} AND ref = 'https://tip.example'`;
+  const [, first] = await walletContracts(b, [['base', '2025-06-10T00:00:00Z', true], ['ethereum', '2024-03-01T00:00:00Z', true], ['base', '2023-01-01T00:00:00Z', false]]);
+  // The old rows' sources never count any more: a verified Base contract source, an EarnKit deploy, a found Builder Code.
   await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, deployed_at) VALUES
-    (${b.id}, 'contract', ${`base:${first}`}, ${b.key}, 'deployer', 'verified', 'agent', '2025-06-10T00:00:00Z'),
-    (${b.id}, 'contract', ${`arc:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent', null),
-    (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'proposed', 'agent', null)`;
+    (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent', '2025-06-10T00:00:00Z')`;
   await sql()`INSERT INTO contract_deploys (installation_id, builder_key, repo_key, chain, tx_hash, address, status, cost_micro_usd, created_at) VALUES
-    (${b.id}, 'k', ${b.key}, 'base', ${tx()}, ${addr()}, 'deployed', 0, '2026-02-01T00:00:00Z'),
-    (${b.id}, 'k', ${b.key}, 'base', ${tx()}, ${addr()}, 'reverted', 0, '2024-01-01T00:00:00Z')`;
+    (${b.id}, 'k', ${b.key}, 'base', ${tx()}, ${addr()}, 'deployed', 0, '2026-02-01T00:00:00Z')`;
   await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, true, ${NOW}, 'src/onchain/tx.ts')`;
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z')`;
+  const camp = `v31-site-${process.pid}-c-won`;
+  await won(b, camp, `Won program ${RUN}`, '2026-09-02T10:00:00Z');
+  await githubSince(b, '2019-03-01T00:00:00Z');
   const [owner, repo] = b.key.split('/');
-  assert.deepEqual(await highlights(b.id, await page(b.id), NOW), [
+  const h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h, [
     { icon: 'live', title: 'Live at kit.example', sub: 'Up 28 of the last 30 days checked', href: 'https://www.kit.example' },
-    { icon: 'contract', title: '2 contracts on Base', sub: 'First deployed Jun 2025', href: `https://basescan.org/address/${first}` },
-    { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21', href: `https://github.com/${owner}/${repo}/blob/main/src/onchain/tx.ts` },
-    { icon: 'repo', title: 'Building Kit since Mar 2025', sub: '312 commits in the last year', href: `https://github.com/${owner}/${repo}` },
-    { icon: 'applied', title: 'Applied to Alliance ALL19', sub: 'Oct 2026', href: '/programs/alliance-all19' },
+    { icon: 'contract', title: '2 contracts on 2 chains', sub: 'Since Mar 2024', href: `https://etherscan.io/address/${first}` },
+    { icon: 'products', title: 'Shipped 2 products', sub: 'tip.example, kit.example', href: 'https://tip.example' },
+    { icon: 'consistency', title: 'Shipped in 6 of the last 52 weeks', sub: 'Building Kit since Mar 2025', href: `https://github.com/${owner}/${repo}` },
+    { icon: 'won', title: `Won Won program ${RUN}`, sub: 'Sep 2026', href: `/programs/${camp}` },
   ]);
+  // Owner rulings: never anything coin related, no Base-only rows, no commit count, no "Applied to".
+  assert.doesNotMatch(JSON.stringify(h), /Builder Code|On Base since|Wallet proven|commit|Applied to|coin|token|fees|backer/i);
 });
 
-test('(c2) Highlights presence: uptime only from 7 days read, no date without one known, Base only, found only, never "in a row"', db, async () => {
-  // Six readings: since the first up day. A young repo: "N commits", no "in the last year".
+test('(c2) Highlights presence: uptime only from 7 days read, contracts counted only, products from 2, no Base-only rows, never "in a row"', db, async () => {
+  // Six readings: since the first up day.
   const b = await baseBuilder({ created: '2026-05-02T00:00:00Z', commits: 1 });
   await site(b, 'https://kit.example', daysUp('2026-10-21', 6));
-  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent')`;
-  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, false, ${NOW}, null)`;
+  await walletContracts(b, [['base', '2026-05-10T00:00:00Z', true]]);
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, true, ${NOW}, 'a.ts')`;
   const h = await highlights(b.id, await page(b.id), NOW);
   assert.deepEqual(h.map((x) => [x.icon, x.title, x.sub]), [
     ['live', 'Live at kit.example', 'Since Oct 2026'],
-    ['contract', '1 contract on Base', 'Verified onchain'],
-    ['repo', `Building App ${n} since May 2026`, '1 commit'],
-  ]);
-  // Final fix 4: not found is no item (never "Not in the repo").
-  assert.ok(!JSON.stringify(h).includes('Not in the repo'));
+    ['contract', '1 contract on Base', 'Since May 2026'],
+  ], 'one product is the live item; no week with code, no consistency; never the Builder Code');
   // Fix round 1 (uptime honesty): only days EarnKit read count. Seven read over ten days, one down, one a failed read
   // (not a read): up 6 of the 7 checked; older readings fall outside the 30 days.
   const seven = await baseBuilder();
@@ -168,96 +197,101 @@ test('(c2) Highlights presence: uptime only from 7 days read, no date without on
   await site(flaky, 'https://flaky.example', daysUp('2026-10-20', 8));
   await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-21', '{}'::jsonb, false FROM builder_sources WHERE builder_id = ${flaky.id} AND kind = 'site'`;
   assert.deepEqual((await highlights(flaky.id, await page(flaky.id), NOW))[0], { icon: 'live', title: 'Live at flaky.example', sub: 'Up 8 of the last 8 days checked', href: 'https://flaky.example' });
-  // Only failed reads: no item (nothing EarnKit read says it is up).
+  // Only failed reads: no item (nothing EarnKit read says it is up), and no product either.
   const unread = await baseBuilder();
   await site(unread, 'https://unread.example', []);
-  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-21', '{"up":true}'::jsonb, false FROM builder_sources WHERE builder_id = ${unread.id} AND kind = 'site'`;
-  assert.ok(!(await highlights(unread.id, await page(unread.id), NOW)).some((x) => x.icon === 'live'));
-  // Fix round 1: a site down at its newest ok reading is no item (it read up before).
+  await site(unread, 'https://other.example', daysUp('2026-10-21', 2));
+  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) SELECT id, '2026-10-21', '{"up":true}'::jsonb, false FROM builder_sources WHERE builder_id = ${unread.id} AND ref = 'https://unread.example'`;
+  const hu = await highlights(unread.id, await page(unread.id), NOW);
+  assert.deepEqual(hu.map((x) => x.title), ['Live at other.example'], 'a site never read up is not a product');
+  // Fix round 1: a site down at its newest ok reading is no live item (it read up before), yet it shipped: a product.
   const down = await baseBuilder();
   await site(down, 'https://down.example', [...daysUp('2026-10-20', 20), ['2026-10-21', false]]);
   assert.ok(!(await highlights(down.id, await page(down.id), NOW)).some((x) => x.icon === 'live'));
-  // A second site of the project, up at its newest reading, is the item then.
+  // A second site of the project, up at its newest reading, is the item then; both are products, oldest first.
   await site(down, 'https://up.example', daysUp('2026-10-21', 3));
-  assert.deepEqual((await highlights(down.id, await page(down.id), NOW))[0], { icon: 'live', title: 'Live at up.example', sub: 'Since Oct 2026', href: 'https://up.example' });
-  // Fix round 1: a contract with a date and one without: no "First deployed" (the undated one may be older).
-  const mixed = await baseBuilder();
-  const dated = addr();
-  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, deployed_at) VALUES
-    (${mixed.id}, 'contract', ${`base:${dated}`}, ${mixed.key}, 'deployer', 'verified', 'agent', '2026-06-10T00:00:00Z'),
-    (${mixed.id}, 'contract', ${`base:${addr()}`}, ${mixed.key}, 'deployer', 'verified', 'agent', null)`;
-  assert.deepEqual((await highlights(mixed.id, await page(mixed.id), NOW)).find((x) => x.icon === 'contract'), {
-    icon: 'contract', title: '2 contracts on Base', sub: 'Verified onchain', href: `https://basescan.org/address/${dated}`,
-  });
-  // Once every one is dated (the backfill), the earliest date and its contract.
-  const older = addr();
-  await sql()`UPDATE builder_sources SET deployed_at = '2025-02-01T00:00:00Z', ref = ${`base:${older}`} WHERE builder_id = ${mixed.id} AND kind = 'contract' AND deployed_at IS NULL`;
-  assert.deepEqual((await highlights(mixed.id, await page(mixed.id), NOW)).find((x) => x.icon === 'contract')?.sub, 'First deployed Feb 2025');
-  assert.equal((await highlights(mixed.id, await page(mixed.id), NOW)).find((x) => x.icon === 'contract')?.href, `https://basescan.org/address/${older}`);
-  // Builder Codes are a Base step: an Arc project gets no code item, whatever is stored; a stored answer from before paths has no link.
-  const arc = await builder({ chains: ['arc'], proof: 'github_app', signals: { created_at: '2025-01-01T00:00:00Z' } });
-  await codes(arc.key, true);
-  assert.ok(!(await highlights(arc.id, await page(arc.id), NOW)).some((x) => x.icon === 'code'));
-  const old = await baseBuilder();
-  await codes(old.key, true);
-  assert.deepEqual((await highlights(old.id, await page(old.id), NOW)).find((x) => x.icon === 'code'), { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' });
-  // Not proven through the App: the stored answer is not read.
-  const unproven = await builder({ chains: ['base'] });
-  await codes(unproven.key, true);
-  assert.ok(!(await highlights(unproven.id, await page(unproven.id), NOW)).some((x) => x.icon === 'code'));
+  const hd = await highlights(down.id, await page(down.id), NOW);
+  assert.deepEqual(hd[0], { icon: 'live', title: 'Live at up.example', sub: 'Since Oct 2026', href: 'https://up.example' });
+  assert.deepEqual(hd[1], { icon: 'products', title: 'Shipped 2 products', sub: 'down.example, up.example', href: 'https://down.example' });
+  // Contracts: a token or an unused one (counts false) never counts; one chain names it, several count them; another
+  // builder's wallet never counts here.
+  const chains = await baseBuilder();
+  await walletContracts(chains, [['arbitrum', '2025-02-01T00:00:00Z', true], ['arbitrum', '2024-01-01T00:00:00Z', false], ['arbitrum', null, true]]);
+  await walletContracts(await baseBuilder(), [['base', '2025-01-01T00:00:00Z', true]]);
+  const one = (await highlights(chains.id, await page(chains.id), NOW)).find((x) => x.icon === 'contract');
+  assert.deepEqual([one?.title, one?.sub], ['2 contracts on Arbitrum', 'Since Feb 2025']);
+  await walletContracts(chains, [['optimism', '2024-06-01T00:00:00Z', true]]);
+  const several = (await highlights(chains.id, await page(chains.id), NOW)).find((x) => x.icon === 'contract');
+  assert.deepEqual([several?.title, several?.sub, several?.href?.startsWith('https://optimistic.etherscan.io/address/0x')], ['3 contracts on 2 chains', 'Since Jun 2024', true]);
+  // A proven wallet with no counted contract: no contract row ("On Base since" and "Wallet proven by signature" are gone).
+  const bare = await baseBuilder();
+  await sql()`INSERT INTO person_wallets (wallet, builder_id, base_since) VALUES (${addr()}, ${bare.id}, '2025-11-26T15:58:43Z')`;
+  await walletContracts(bare, [['base', '2025-01-01T00:00:00Z', false]]);
+  const hb = await highlights(bare.id, await page(bare.id), NOW);
+  assert.ok(!hb.some((x) => x.icon === 'contract'));
+  assert.doesNotMatch(JSON.stringify(hb), /On Base since|Wallet proven/);
   // The Streak card owns the run of weeks: Highlights never repeats it, and never says "Deployed by the project".
   const streaky = await builder({ commitWeeks: last52(NOW).slice(-5), signals: { created_at: '2025-01-01T00:00:00Z' } });
-  for (const x of await highlights(streaky.id, await page(streaky.id), NOW)) assert.doesNotMatch(`${x.title} ${x.sub}`, /in a row|Shipping since|Deployed by the project/);
-  // A confirmed project with none of the five yet (no reading): on EarnKit since the claim.
+  const hs = await highlights(streaky.id, await page(streaky.id), NOW);
+  assert.deepEqual(hs.find((x) => x.icon === 'consistency')?.title, 'Shipped in 5 of the last 52 weeks');
+  for (const x of hs) assert.doesNotMatch(`${x.title} ${x.sub}`, /in a row|Shipping since|Deployed by the project/);
+  // A confirmed project with none of the rows yet (no reading, no week with code): on EarnKit since the claim.
   const quiet = await builder({ hidden: true, claimedAt: new Date('2026-03-02T00:00:00Z') });
   assert.deepEqual(await highlights(quiet.id, await page(quiet.id), NOW), [{ icon: 'start', title: 'On EarnKit since Mar 2', sub: 'On the leaderboard' }]);
   // No project at all.
-  const bare = await person({ projects: [], claimed: `s${RUN}bare` });
-  await sql()`UPDATE builder_profiles SET claimed_at = '2026-10-02T08:00:00Z' WHERE builder_id = ${bare}`;
-  assert.deepEqual(await highlights(bare, await page(bare), NOW), [{ icon: 'start', title: 'On EarnKit since Oct 2', sub: 'No project on the leaderboard yet' }]);
+  const none = await person({ projects: [], claimed: `s${RUN}bare` });
+  await sql()`UPDATE builder_profiles SET claimed_at = '2026-10-02T08:00:00Z' WHERE builder_id = ${none}`;
+  assert.deepEqual(await highlights(none, await page(none), NOW), [{ icon: 'start', title: 'On EarnKit since Oct 2', sub: 'No project on the leaderboard yet' }]);
   // A project not confirmed yet is not on the leaderboard either.
   const confirming = await builder({ confirmed: false });
   assert.deepEqual(await highlights(confirming.id, await page(confirming.id), NOW), [{ icon: 'start', title: 'On EarnKit since Apr 4', sub: 'No project on the leaderboard yet' }]);
 });
 
-test('(c3) Highlights: at most 5 (a second program drops), a program without a guide page has no link, won first', db, async () => {
+test('(c3) Highlights: won only (never "Applied to"), at most 2, won first; experience fills a free slot only; at most 5', db, async () => {
   const b = await baseBuilder();
-  await site(b, 'https://five.example', daysUp('2026-10-21', 8));
-  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by) VALUES (${b.id}, 'contract', ${`base:${addr()}`}, ${b.key}, 'deployer', 'verified', 'agent')`;
-  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${b.key}, true, ${NOW}, 'a.ts')`;
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z')`;
+  await githubSince(b, '2017-08-20T00:00:00Z');
+  const login = (await sql()<{ login: string }[]>`SELECT github_login AS login FROM builder_profiles WHERE builder_id = ${b.id}`)[0].login;
+  // Only an application and the GitHub account: the application never shows, experience fills the slot.
+  assert.deepEqual(await highlights(b.id, await page(b.id), NOW), [
+    { icon: 'experience', title: 'Writing code since 2017', sub: 'On GitHub since Aug 2017', href: `https://github.com/${login}` },
+  ]);
+  // A win (no guide page: a campaign has none) and an acceptance a public page proved (GTM W2) show; won first.
   const camp = `v31-site-${process.pid}-camp`;
-  await upsertProgram(ProgramFile.parse({ ...committedProgram('alliance-all19'), id: camp, title: `Campaign ${RUN}` }));
+  await won(b, camp, `Campaign ${RUN}`, '2026-09-02T10:00:00Z');
   await sql()`UPDATE programs SET campaign = '{"kind":"earnkit"}'::jsonb WHERE id = ${camp}`;
-  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES
-    (${b.id}, '', 'alliance-all19', 'applied', '2026-10-14T09:00:00Z'), (${b.id}, '', ${camp}, 'applied', '2026-09-01T09:00:00Z')`;
-  const h = await highlights(b.id, await page(b.id), NOW);
-  assert.deepEqual(h.map((x) => x.icon), ['live', 'contract', 'code', 'repo', 'applied']);
-  assert.deepEqual([h[4].title, h[4].href], ['Applied to Alliance ALL19', '/programs/alliance-all19']);
-  // Without the live item, both programs fit; a campaign has no guide page, so no link.
-  await sql()`DELETE FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'site'`;
-  const h2 = await highlights(b.id, await page(b.id), NOW);
-  assert.deepEqual(h2.slice(3).map((x) => [x.title, x.href]), [['Applied to Alliance ALL19', '/programs/alliance-all19'], [`Applied to Campaign ${RUN}`, undefined]]);
-  // A win comes first.
-  await sql()`UPDATE builder_sources SET state = 'rejected' WHERE builder_id = ${b.id} AND kind = 'contract'`;
-  await sql()`INSERT INTO projects (program_id, name, repo_url, repo_key, installation_id, submitted_at) VALUES (${camp}, 'Kit', ${`https://github.com/${b.key}`}, ${b.key}, ${b.id}, '2026-09-02T10:00:00Z')`;
-  const [{ id: pid }] = await sql()<{ id: number }[]>`SELECT id FROM projects WHERE program_id = ${camp} AND installation_id = ${b.id}`;
-  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, basis) VALUES (${pid}, ${camp}, 'r1', 'won', 'announcement')`;
-  const h3 = await highlights(b.id, await page(b.id), NOW);
+  const code = Array.from(randomBytes(10), (x) => 'abcdefghijklmnopqrstuvwxyz234567'[x % 32]).join('');
+  await sql()`INSERT INTO post_drafts (code, builder_id, project_key, moment, moment_key, shape, text, proof_url, asked, expires_at)
+    VALUES (${code}, ${b.id}, ${b.key}, 'accepted', 'accepted:alliance-all19', 'outcome', 'x', 'https://alliance.xyz/ALL19', false, now() + interval '1 day')`;
+  let h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => [x.icon, x.title, x.sub, x.href]), [
+    ['won', `Won Campaign ${RUN}`, 'Sep 2026', undefined],
+    ['won', 'Accepted into Alliance ALL19', 'Oct 2026', '/programs/alliance-all19'],
+    ['experience', 'Writing code since 2017', 'On GitHub since Aug 2017', `https://github.com/${login}`],
+  ]);
+  assert.ok(!JSON.stringify(h).includes('Applied to'));
+  // Rows 1 to 5 fill all five slots: experience is left out; the slice keeps the first 5.
+  await site(b, 'https://five.example', daysUp('2026-10-21', 8));
+  await site(b, 'https://six.example', daysUp('2026-10-21', 2));
+  await walletContracts(b, [['base', '2025-01-01T00:00:00Z', true]]);
+  h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => x.icon), ['live', 'contract', 'products', 'won', 'won']);
+  await sql()`UPDATE builder_projects SET commit_weeks = ${last52(NOW).slice(-3)} WHERE builder_id = ${b.id}`;
+  h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => x.icon), ['live', 'contract', 'products', 'consistency', 'won'], 'at most 5: the second program drops');
   // Fix round 1: an unlisted program's guide is a 404 (landing.ts readGuideIds): no link, by the same predicate.
   const gone = `v31-site-${process.pid}-gone`;
-  await upsertProgram(ProgramFile.parse({ ...committedProgram('alliance-all19'), id: gone, title: `Gone ${RUN}` }));
-  await sql()`UPDATE programs SET status = 'unlisted' WHERE id = ${gone}`;
   const u = await baseBuilder();
-  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${u.id}, '', ${gone}, 'applied', '2026-10-01T09:00:00Z')`;
-  const hu = (await highlights(u.id, await page(u.id), NOW)).find((x) => x.icon === 'applied');
-  assert.deepEqual([hu?.title, hu?.href], [`Applied to Gone ${RUN}`, undefined]);
+  await won(u, gone, `Gone ${RUN}`, '2026-10-01T09:00:00Z');
+  await sql()`UPDATE programs SET status = 'unlisted' WHERE id = ${gone}`;
+  const hu = (await highlights(u.id, await page(u.id), NOW)).find((x) => x.icon === 'won');
+  assert.deepEqual([hu?.title, hu?.href], [`Won Gone ${RUN}`, undefined]);
   assert.ok(!(await readGuideIds()).includes(gone));
-  assert.deepEqual(h3.slice(2).map((x) => [x.icon, x.title, x.sub]), [['won', `Won Campaign ${RUN}`, 'Sep 2026'], ['applied', 'Applied to Alliance ALL19', 'Oct 2026']]);
 });
 
-test('(c4) a private repo: the Builder Code and the track record show without a link (never a 404), the name never shows; its proven site shows', db, async () => {
+test('(c4) a private repo: consistency shows without a link (never a 404), the name never shows; its proven site shows; its GitHub-hosted site is never a product', db, async () => {
   const key = `s${RUN}p/stealthy`;
-  const b = await builder({ key, name: 'stealthy', hidden: true, chains: ['base'], proof: 'github_app' });
+  const b = await builder({ key, name: 'stealthy', hidden: true, chains: ['base'], proof: 'github_app', commitWeeks: last52(NOW).slice(-4) });
   // The App reads the private repo: its reading says private (shownProjects then hides it).
   await sql()`
     INSERT INTO source_live (source_id, signals, ok, read_at)
@@ -268,32 +302,29 @@ test('(c4) a private repo: the Builder Code and the track record show without a 
   assert.ok(!h.some((x) => x.icon === 'live'), 'a hidden repo\'s GitHub-hosted site names the repo: left out');
   // Owner ruling (fix round 1): a site the builder proved shows though the repo is private, even one carrying its name.
   await site(b, 'https://stealthy.app', daysUp('2026-10-21', 10));
+  await site(b, 'https://other.example', daysUp('2026-10-21', 3));
   h = await highlights(b.id, await page(b.id), NOW);
   assert.deepEqual(h[0], { icon: 'live', title: 'Live at stealthy.app', sub: 'Up 10 of the last 10 days checked', href: 'https://stealthy.app' });
-  h = h.slice(1);
-  assert.deepEqual(h, [
-    { icon: 'code', title: 'Builder Code in the repo', sub: 'Base, checked Oct 21' },
+  assert.deepEqual(h.slice(1), [
+    // The GitHub-hosted site of the hidden repo is left out of the products too.
+    { icon: 'products', title: 'Shipped 2 products', sub: 'stealthy.app, other.example', href: 'https://stealthy.app' },
     // 2026-10-22: with no name of its own the project reads as its proven site's host.
-    { icon: 'repo', title: 'Building stealthy.app since Mar 2025', sub: '40 commits in the last year' },
+    { icon: 'consistency', title: 'Shipped in 4 of the last 52 weeks', sub: 'Building stealthy.app since Mar 2025' },
   ]);
-  for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy\/|github\.com/i);
+  for (const x of h) assert.doesNotMatch(JSON.stringify(x), /stealthy\/|github\.(com|io)/i);
 });
 
-test('(c5) owner batch: a private repo\'s track record names the proven site host and keeps its commit count when the newest reading predates it', db, async () => {
+test('(c5) owner batch: a private repo\'s consistency line names the proven site host once one is proven, else no name', db, async () => {
   const key = `s${RUN}q/earnkit`;
-  const b = await builder({ key, name: 'earnkit', hidden: true, proof: 'github_app' });
+  const b = await builder({ key, name: 'earnkit', hidden: true, proof: 'github_app', commitWeeks: last52(NOW).slice(-2) });
   const [{ sid }] = await sql()<{ sid: number }[]>`SELECT id::int AS sid FROM builder_sources WHERE builder_id = ${b.id} AND kind = 'repo'`;
-  // The daily read has the count; a live read stamped later does not (read before commits_year existed).
-  await sql()`INSERT INTO source_readings (source_id, day, signals, ok) VALUES
-    (${sid}, '2026-10-20', ${sql().json({ private: true, created_at: '2024-12-09T10:00:00Z', commits_year: 1373 } as never)}, true)`;
   await sql()`INSERT INTO source_live (source_id, signals, ok, read_at)
-    VALUES (${sid}, ${sql().json({ private: true, created_at: '2024-12-09T10:00:00Z' } as never)}, true, now())`;
-  const track = async () => (await highlights(b.id, await page(b.id), NOW)).find((x) => x.icon === 'repo');
-  assert.deepEqual(await track(), { icon: 'repo', title: 'Building since Dec 2024', sub: '1,373 commits in the last year' }, 'no safe name yet: no name, the count still shows');
-  const [{ id: site }] = await sql()<{ id: number }[]>`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)
-    VALUES (${b.id}, 'site', ${`https://www.earnkit${RUN}.com`}, ${key}, 'earnkit_txt', 'verified', 'agent', now()) RETURNING id::int AS id`;
-  assert.ok(site);
-  assert.deepEqual(await track(), { icon: 'repo', title: `Building earnkit${RUN}.com since Dec 2024`, sub: '1,373 commits in the last year' });
+    VALUES (${sid}, ${sql().json({ private: true, created_at: '2024-12-09T10:00:00Z', commits_year: 1373 } as never)}, true, now())`;
+  const line = async () => (await highlights(b.id, await page(b.id), NOW)).find((x) => x.icon === 'consistency');
+  assert.deepEqual(await line(), { icon: 'consistency', title: 'Shipped in 2 of the last 52 weeks', sub: 'Building since Dec 2024' }, 'no safe name yet: no name');
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at)
+    VALUES (${b.id}, 'site', ${`https://www.earnkit${RUN}.com`}, ${key}, 'earnkit_txt', 'verified', 'agent', now())`;
+  assert.deepEqual((await line())?.sub, `Building earnkit${RUN}.com since Dec 2024`);
 });
 
 test('(d) backerWeeks buckets first_block by BASE_GENESIS_UNIX + 2 * block into the last 12 ISO weeks; an older backer counts nowhere; length is 12', db, async () => {

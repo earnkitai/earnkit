@@ -1,5 +1,6 @@
 import { ScoreDeadline, baseRpcUntil, beforeDeadline, blockscout } from './campaigns';
-import { alchemyCall, alchemyCreations, alchemyOn, alchemyTxList } from './alchemy';
+import { alchemyCall, alchemyCreations, alchemyOn, alchemyTxList, alchemyWalletContracts } from './alchemy';
+import type { WalletContract } from './wallet-chains';
 import { gh } from './match-projects';
 import { ErrorPageError, LINKCHECK_UA, RedirectError, SafeFetchError, errorPageText, safeFetchText, sameSite, type Resolver, type Transport } from './safe-fetch';
 import { providerOfUrl, type Provider } from './read-usage';
@@ -53,6 +54,13 @@ export type ReaderDeps = {
    * contract, at most READ_CAPS.walletPages pages). Asked only for a signed wallet (person_wallets).
    */
   walletCreations: (wallet: string) => Promise<{ address: string; created_at: string }[]>;
+  /**
+   * v3.1 Highlights competence (2026-10-25): every contract a signed wallet created itself on every WALLET_CHAINS chain,
+   * each with whether it counts (not a token, used by another address); `known` ("chain:address") counted before and is
+   * not asked again. One read feeds both wallet_contracts and the Base claims (walletCreations is then not asked).
+   * Absent (no ALCHEMY_API_KEY, test fakes): walletCreations alone, Base only.
+   */
+  walletContracts?: (wallet: string, known: Set<string>) => Promise<WalletContract[]>;
   /**
    * v3.1 wallet proof: when a signed wallet's first Base transaction happened (ISO; Blockscout's account txlist, oldest
    * first, one row), null when it has none. Absent (test fakes): not read.
@@ -501,6 +509,14 @@ export function defaultReaderDeps(now: Date, deadline: number): ReaderDeps {
       alchemyOn()
         ? by(alchemyCreations(wallet, alchemyCall(deadline), { pages: READ_CAPS.walletPages, max: WALLET_CREATIONS_MAX }))
         : walletCreationsFrom(wallet, (path) => (tick('blockscout'), blockscout<CreationPage>(path, deadline))),
+    // v3.1 Highlights competence: the multi-chain read needs Alchemy (one key, every network); without it, Base only.
+    ...(alchemyOn() && {
+      walletContracts: (wallet: string, known: Set<string>) =>
+        by(alchemyWalletContracts(wallet, (network) => {
+          const call = alchemyCall(deadline, network);
+          return <T>(method: string, params: unknown[]) => (tick('alchemy'), call<T>(method, params));
+        }, { pages: READ_CAPS.walletPages, max: WALLET_CREATIONS_MAX, known })),
+    }),
     // Alchemy or the explorer first; a failure falls back to the public RPC.
     walletFirstTx: (wallet) =>
       walletFirstTxFrom(wallet, (path) =>

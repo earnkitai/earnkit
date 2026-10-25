@@ -158,6 +158,42 @@ test('7.4 a contract a signed wallet created is confirmed on the next discovery'
   assert.deepEqual(none, []);
 }));
 
+test('7.4c v3.1 Highlights competence: one multi-chain read fills wallet_contracts (upserted) and feeds the Base claims; walletCreations is not asked', dbTest, () => withScore(async () => {
+  const id = await claimed(`wm${randomBytes(4).toString('hex')}`);
+  const [wallet, base, coin, eth] = [randomAddress(), randomAddress(), randomAddress(), randomAddress()];
+  await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${wallet}, ${id})`;
+  const known: string[][] = [];
+  let used = false;
+  const reader: ReaderDeps = {
+    ...fakeReader(),
+    walletContracts: async (w, k) => {
+      known.push([w, ...[...k].sort()]);
+      return [
+        { chain: 'base', address: base.toUpperCase().replace(/^0X/, '0x'), created_at: '2025-04-01T00:00:00Z', counts: used },
+        { chain: 'base', address: coin, created_at: '2025-05-01T00:00:00Z', counts: false },
+        { chain: 'ethereum', address: eth, created_at: '2024-02-01T00:00:00Z', counts: true },
+      ];
+    },
+    contractOrigin: async () => ({ deployer: wallet, created_at: '2025-04-01T00:00:00Z' }),
+  };
+  await discoverPerson(id, { deadline: Date.now() + 5000, reader });
+  const rows = async () => (await sql()<{ chain: string; address: string; wallet: string; counts: boolean; at: Date }[]>`
+    SELECT chain, address, wallet, counts, created_at AS at FROM wallet_contracts WHERE wallet = ${wallet} ORDER BY created_at`).map((r) => [r.chain, r.address, r.wallet, r.counts, r.at.toISOString()]);
+  assert.deepEqual(await rows(), [
+    ['ethereum', eth, wallet, true, '2024-02-01T00:00:00.000Z'],
+    ['base', base, wallet, false, '2025-04-01T00:00:00.000Z'],
+    ['base', coin, wallet, false, '2025-05-01T00:00:00.000Z'],
+  ]);
+  // Base creations, a token among them, still become claims as before (score code reads them); never another chain's.
+  const refs = (await sql()<{ ref: string }[]>`SELECT ref FROM builder_sources WHERE builder_id = ${id} AND kind = 'contract' ORDER BY ref`).map((r) => r.ref);
+  assert.deepEqual(refs, [`base:${base}`, `base:${coin}`].sort());
+  // A re-read upserts (now used), and passes what already counts so it is not classified again.
+  used = true;
+  await discoverPerson(id, { deadline: Date.now() + 5000, reader });
+  assert.deepEqual(known, [[wallet], [wallet, `ethereum:${eth}`]]);
+  assert.equal((await rows())[1][3], true);
+}));
+
 // ---- v2.13.4: verdicts on one transaction; effects only after its commit (scan on f2e7d33c) --------
 
 test('D.1 afterCommit inside withDeferred runs only after the commit, and never on a rollback', dbTest, async () => {

@@ -2008,3 +2008,17 @@ LEFT JOIN LATERAL (
     WHERE COALESCE(i.builder_id, i.id) = p.builder_id AND x.program_id <> 'earnkit-coin') a) pg ON true;
 DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'earnkit_ro') THEN GRANT SELECT ON owner_people TO earnkit_ro; END IF; END $$;
 
+-- v3.1 Highlights competence (2026-10-25): the contracts a proven wallet (person_wallets) created itself, per chain
+-- (wallet-chains.ts WALLET_CHAINS, read by discovery through alchemy.ts alchemyWalletContracts). counts: not a token
+-- (decimals() and totalSupply() do not both answer) and used (another address sent it a transaction); Highlights
+-- counts only those. A re-read upserts.
+CREATE TABLE IF NOT EXISTS wallet_contracts (
+  chain      text NOT NULL,
+  address    text NOT NULL CHECK (address ~ '^0x[0-9a-f]{40}$'),
+  wallet     text NOT NULL CHECK (wallet ~ '^0x[0-9a-f]{40}$'),
+  created_at timestamptz,
+  counts     boolean NOT NULL DEFAULT false,
+  read_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (chain, address)
+);
+CREATE INDEX IF NOT EXISTS wallet_contracts_wallet ON wallet_contracts (wallet);

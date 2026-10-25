@@ -135,7 +135,7 @@ test('GTM W4 shareCardFacts: verified facts only, in the page\'s words; no confi
     ({
       highlights: [
         { icon: 'live', title: 'Live at paylink.app', sub: 'Up 7 of the last 7 days checked' },
-        { icon: 'repo', title: 'Building Paylink since Jan 2025', sub: '412 commits in the last year' },
+        { icon: 'consistency', title: 'Shipped in 38 of the last 52 weeks', sub: 'Building Paylink since Jan 2025' },
         { icon: 'won', title: 'Won Base Batches', sub: 'Oct 2026' },
       ],
       token: null, starting: false,
@@ -148,16 +148,17 @@ test('GTM W4 shareCardFacts: verified facts only, in the page\'s words; no confi
   assert.equal(f.project?.live, 'paylink.app');
   assert.deepEqual(f.project?.facts, ['5 weeks in a row', 'Building since Jan 2025']);
   assert.equal(f.url, 'earnkit.com/kai');
-  // Unranked: no ring; the win and the streak take the slots, the commits read under the name.
+  // Unranked: no ring; the win and the streak take the slots, "Building since" reads under the name.
   const u = shareCardFacts(d({ rankListed: false, score: null, bench: null }), site());
   assert.deepEqual(u.tiles.map((t) => t.kind), ['won', 'streak']);
   assert.deepEqual(u.project?.facts, ['Building since Jan 2025']);
   // Backing (the Token card: EARNKIT_RAISING on, coin live): backers only from 5.
   const b = shareCardFacts(d(), site({ token: { symbol: 'PAY', backers: 4 } as ProfileSite['token'] }));
   assert.deepEqual(b.tiles[1], { kind: 'backing', symbol: 'PAY', backers: null });
-  // Commits as a tile carry "Building since" as their title.
+  // v3.1 Highlights competence (2026-10-25): no commits tile (the page shows no commit count); "Building since" stays a fact.
   const c = shareCardFacts(d({ rankListed: false, score: null, streak: 0 }), site({ highlights: site().highlights.filter((h) => h.icon !== 'won') }));
-  assert.deepEqual(c.tiles, [{ kind: 'commits', value: '412', label: 'commits in the last year', since: 'Building since Jan 2025' }]);
+  assert.deepEqual(c.tiles, []);
+  assert.deepEqual(c.project?.facts, ['Building since Jan 2025']);
   // A confirming project is never named; no project: the calm line and when they joined.
   const start = [{ icon: 'start', title: 'On EarnKit since Oct 23', sub: 'No project on the leaderboard yet' }];
   for (const x of [d({ project: { name: 'Paylink', confirmed: false } as ProfileData['project'] }), d({ project: null })]) {

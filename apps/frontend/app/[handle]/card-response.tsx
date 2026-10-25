@@ -31,8 +31,8 @@ export { CardWordmark } from './card-parts';
  * GTM W4 (2026-10-23): the card is the profile in small, in the v3.1 site language (DESIGN.md): the page's dark
  * ground, the blue hero (photo, name in Kaftan Serif, @handle, the project panel with its verified live host and
  * quiet facts, earnkit.com/<handle> with the mark), and beside it up to two big facts as the profile's own cards
- * (card-facts.ts: the navy Shipping ring while ranked, the white Backing card, a win, the rust streak, the commits
- * in the last year), and one of the site's paintings in a slot no fact fills. No confirmed project: one calm line in
+ * (card-facts.ts: the navy Shipping ring while ranked, the white Backing card, a win, the rust streak; the commits
+ * tile went with Highlights' commit count, v3.1 Highlights competence), and one of the site's paintings in a slot no fact fills. No confirmed project: one calm line in
  * the hero. Drawn to read at X's phone preview (about 0.42 of 1200px): nothing under 24px.
  */
 
@@ -218,7 +218,7 @@ function Weeks({ grid }: { grid: boolean[] }) {
 }
 
 /** One big fact beside the hero, drawn as the profile's card for it. */
-function Tile({ t, height, grid, navyTaken }: { t: CardTile; height: number; grid: boolean[]; navyTaken: boolean }) {
+function Tile({ t, height, grid }: { t: CardTile; height: number; grid: boolean[] }) {
   const tall = height > 400;
   switch (t.kind) {
     case 'score': {
@@ -270,15 +270,6 @@ function Tile({ t, height, grid, navyTaken }: { t: CardTile; height: number; gri
           </div>
         </Card>
       );
-    case 'commits':
-      return (
-        <Card bg={navyTaken ? S.cardTop : S.navy} border={navyTaken ? S.line : undefined} width={SIDE} height={height}>
-          {t.since ? <div style={{ display: 'flex', fontSize: 28, fontWeight: 600, color: navyTaken ? S.cardBody : S.text }}>{t.since}</div> : null}
-          <div style={{ display: 'flex', flex: 1 }} />
-          <div style={{ display: 'flex', fontFamily: DISPLAY, fontSize: tall ? 150 : 104, lineHeight: 0.9, color: S.text }}>{t.value}</div>
-          <div style={{ display: 'flex', marginTop: 14, fontSize: 26, color: navyTaken ? S.cardBody : S.onNavy }}>{t.label}</div>
-        </Card>
-      );
   }
 }
 
@@ -314,7 +305,6 @@ const ART_SIZE = { tall: [1600, 1036] as [number, number], half: [700, 383] as [
 export function benchCard(f: ShareCardFacts, avatar: string | null, grid: boolean[] = [], art: CardArt = { tall: null, half: null }) {
   const tiles = f.tiles;
   const half = (INNER_H - GAP) / 2;
-  const navyTaken = tiles.some((t) => t.kind === 'score');
   const hang = tiles.length === 0 ? art.tall : tiles.length === 1 ? art.half : null;
   const side = tiles.length > 0 || hang !== null;
   const tileH = tiles.length === 1 && !hang ? INNER_H : half;
@@ -324,7 +314,7 @@ export function benchCard(f: ShareCardFacts, avatar: string | null, grid: boolea
       {side ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
           {tiles.map((t) => (
-            <Tile key={t.kind} t={t} height={tileH} grid={grid} navyTaken={navyTaken} />
+            <Tile key={t.kind} t={t} height={tileH} grid={grid} />
           ))}
           {hang && tiles.length === 0 ? <Painting src={hang} w={SIDE} h={INNER_H} natural={ART_SIZE.tall} x={0.5} y={0.42} /> : null}
           {hang && tiles.length === 1 ? <Painting src={hang} w={SIDE} h={half} natural={ART_SIZE.half} x={0.56} y={0.3} /> : null}
