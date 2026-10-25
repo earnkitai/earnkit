@@ -7783,6 +7783,12 @@ the change link.
 - **Discovery.** A proof queues discovery; `walletCreations` claims the wallet's contracts (`deploy_wallet`, project key
   = ref); `site-data.ts contractItem` counts them and adds "On Base since <Mon YYYY>" (`person_wallets.base_since`,
   Blockscout txlist oldest first, read once per wallet; a wallet with none is read again after a week).
+- **At once, and without Blockscout (2026-10-25).** `walletPost` starts the person's discovery beside its reply
+  (`PROOF_DISCOVER_MS`), so the page shows the wallet moments after signing. base.blockscout.com answers servers with a
+  Cloudflare challenge: `campaigns.ts blockscoutUrl` uses the keyed API (`api.blockscout.com/8453`, `BLOCKSCOUT_API_KEY`,
+  free key) for every explorer read when set; the first transaction falls back to the public RPC
+  (`source-readers.ts walletFirstTxRpc`, a fanned-out nonce search). With no contract item, `site-data.ts walletItem`
+  shows "On Base since <Mon YYYY>" alone.
 - **Profile hero.** With no repo link, the GitHub button opens `https://github.com/<github_login>`; with neither, hidden.
 - Tests: `wallet-proof.test.ts`, `v31-wallet-proof.test.ts`; other ranked-step tests mark the step offered
   (`fixtures/wallet-step.ts walletOffered`; `fixtures/find.ts person` unless `walletStep: true`).

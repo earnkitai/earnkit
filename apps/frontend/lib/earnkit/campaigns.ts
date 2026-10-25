@@ -141,6 +141,15 @@ export class EntryError extends Error {
 }
 
 const BLOCKSCOUT = 'https://base.blockscout.com';
+/** Blockscout's keyed API for Base: base.blockscout.com answers servers with a Cloudflare challenge (2026-10-25). */
+const BLOCKSCOUT_PRO = 'https://api.blockscout.com/8453';
+
+/** The explorer URL for `path`: the keyed API when BLOCKSCOUT_API_KEY is set (no dev override), else the public host. Pure. */
+export function blockscoutUrl(path: string, env: Record<string, string | undefined> = process.env): string {
+  const key = env.BLOCKSCOUT_API_KEY?.trim();
+  if (!key || env.EARNKIT_BLOCKSCOUT_URL) return `${blockscoutBase(env)}${path}`;
+  return `${BLOCKSCOUT_PRO}${path}${path.includes('?') ? '&' : '?'}apikey=${encodeURIComponent(key)}`;
+}
 
 /**
  * Base Blockscout, or EARNKIT_BLOCKSCOUT_URL when NODE_ENV is exactly development or test (the
@@ -195,7 +204,7 @@ export async function blockscout<T>(
     if (wait >= left()) throw new ScoreDeadline();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     lastCall = Date.now();
-    const res = await fetch(`${blockscoutBase()}${path}`, {
+    const res = await fetch(blockscoutUrl(path), {
       headers: { Accept: 'application/json', 'User-Agent': 'earnkit' },
       signal: AbortSignal.timeout(Math.max(1, Math.min(20_000, left()))),
     }).catch((err: unknown) => {
