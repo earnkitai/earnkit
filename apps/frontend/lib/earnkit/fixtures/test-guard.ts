@@ -14,6 +14,8 @@ import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { perFileDatabase } from './test-db';
 const CLEARED = [
   'TOKENSFUN_DEPLOY_API_KEY',
+  // Alchemy's Base reads (alchemy.ts; a test passes its own call).
+  'ALCHEMY_API_KEY',
   'RESEND_API_KEY',
   'R2_ACCOUNT_ID',
   'R2_ACCESS_KEY_ID',
