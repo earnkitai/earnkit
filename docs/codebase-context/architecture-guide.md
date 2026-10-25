@@ -7366,7 +7366,8 @@ above; these are the rest, in task order. Tasks 11 to 15 (Monday X post, Monday 
 - **Last shipped / this week.** The one project's verified repo source, its `week-facts.ts shipReading` (now exported):
   `signals.pushed_at` (null if absent, unparsable, in the future, or the project not Bench-confirmed) and
   `signals.commit_counts[this ISO week]` through `person-score.ts weekCounts`.
-- **Highlights (W8, redesigned 2026-10-22).** Every item is a fact a judge can check in one click and links its proof
+- **Highlights (W8, redesigned 2026-10-22; rebuilt 2026-10-25, see "v3.1 Highlights competence" below: the rows here
+  for contracts on Base, Builder Code, the repo's commit count and "Applied to" are gone).** Every item is a fact a judge can check in one click and links its proof
   (`Highlight.href`, new tab, `rel="noopener noreferrer"`); at most 5, in order, each only when true:
   1. live: "Live at <host>" for a verified site source whose newest ok reading is up (down at its last read: no item;
      a failed read, ok false, is EarnKit's failure and never hides it),
@@ -7781,8 +7782,9 @@ the change link.
 - **Recipient readers.** `coin-moments.ts coinWallet`/`coinYes` (`COIN_WALLET_ASK` only without one), `tools.ts
   walletMemory` (proven first) and campaign payout prefill.
 - **Discovery.** A proof queues discovery; `walletCreations` claims the wallet's contracts (`deploy_wallet`, project key
-  = ref); `site-data.ts contractItem` counts them and adds "On Base since <Mon YYYY>" (`person_wallets.base_since`,
-  Blockscout txlist oldest first, read once per wallet; a wallet with none is read again after a week).
+  = ref); `person_wallets.base_since` (Blockscout txlist oldest first, read once per wallet; a wallet with none is read
+  again after a week) is still kept, but since 2026-10-25 Highlights shows neither it nor these claims: its contracts row
+  reads `wallet_contracts` on every chain (see "v3.1 Highlights competence").
 - **At once, and without Blockscout (2026-10-25).** `walletPost` starts the person's discovery beside its reply
   (`PROOF_DISCOVER_MS`), so the page shows the wallet moments after signing. base.blockscout.com answers servers with a
   Cloudflare challenge: `campaigns.ts blockscoutUrl` uses the keyed API (`api.blockscout.com/8453`, `BLOCKSCOUT_API_KEY`,
@@ -8074,3 +8076,54 @@ client may get the check-in instead); the connect step's full pitch is shown onc
 then only its link and question; jargon lines ("Backing open", "Last week is confirmed", the tables' "Prize" header, the
 guide's "(estimate)") replaced.
 
+## v3.1 Highlights competence (2026-10-25, design: v3.1-highlights-competence.md)
+
+Owner rulings: the old card was monitoring trivia, jargon and commit counts. Highlights now shows what ecosystems and
+investors value about the builder's competence, chain-agnostic; never anything coin related (no coins, tokens, factory
+launches, fees, backers); no Base-only rows (Builder Code stays in replies; "On Base since" and "Wallet proven by
+signature" are gone). Contracts deployed stays, across chains.
+
+- **The card** (`site-data.ts highlightsOf`, at most `HIGHLIGHTS_MAX` = 5, in order, a row with no data left out):
+  1. live: unchanged `liveItem` / `liveSub`.
+  2. contracts: the builder's `wallet_contracts` rows with `counts` (joined on `person_wallets.wallet`), `contractsOf`:
+     "3 contracts on Base" on one chain, "12 contracts on 3 chains" on several; sub "Since <Mon YYYY>" (earliest dated);
+     links the earliest on its chain's explorer (`explorerHref`). Never a wallet address. Verified Base contract
+     sources and EarnKit's `contract_deploys` no longer show here (they are not the builder's wallet's own creations).
+  3. products: distinct hosts of the builder's verified site sources (any project) that read up at least once, oldest
+     first up day first (`productsItem`/`productsOf`), from `PRODUCTS_MIN` = 2: "Shipped N products", sub the hosts
+     (3 named, then "and N more"), links the oldest site. A GitHub-hosted site is left out unless its project's repo
+     is shown (`page-data.ts shownProjects`, read only when such a site exists).
+  4. consistency: `consistencyItem`, the weeks on in `ProfileData.grid`: "Shipped in N of the last 52 weeks", sub
+     "Building <name> since <Mon YYYY>" from the ship reading's `created_at` (no name for `PRIVATE_NAME`; empty when
+     unknown); links the repo while public.
+  5. won: `projectProgramsDated` rows that are won, funded or accepted (`programLabel`), at most 2; never "Applied to".
+  6. experience: `github_users.created_at` for the proven `builder_profiles.github_login`: "Writing code since <YYYY>",
+     sub "On GitHub since <Mon YYYY>", links `https://github.com/<login>`. A filler: last in the list, so the slice to 5
+     keeps it only while rows 1 to 5 leave a slot.
+  The start item for unconfirmed builders and "On the leaderboard" for a confirmed one with no rows are unchanged.
+- **Contracts read** (`alchemy.ts alchemyWalletContracts`, through `ReaderDeps.walletContracts`, only with
+  `ALCHEMY_API_KEY`): per proven wallet (the newest `WALLET_READS`) and per `wallet-chains.ts WALLET_CHAINS` chain (base,
+  ethereum, arbitrum, optimism, polygon; Alchemy networks base-mainnet, eth-mainnet, arb-mainnet, opt-mainnet,
+  polygon-mainnet), `alchemyCreations` with its caps (`READ_CAPS.walletPages` pages, `WALLET_CREATIONS_MAX`), then per
+  creation `contractCounts`: a token (decimals() and totalSupply() both answer a 32-byte word via eth_call) never
+  counts; else it counts when one of its `USED_SCAN` newest external transfers in comes from another address. Chains
+  side by side, contracts one at a time (Alchemy's free throughput). `alchemyCall(deadline, network)` throws
+  `AlchemyNetworkOff` on "is not enabled for this app" (403 or error body): that chain is skipped with one
+  `[alchemy] <network> not enabled for this app, skipped` line per process and turns on by itself once the owner enables
+  the network (today base, ethereum, arbitrum). Any other chain failure is one `[alchemy] <chain> contracts` line and
+  that chain is left out; the deadline (`ScoreDeadline`) propagates. Reads are counted as provider `alchemy`.
+- **Store** (`wallet_contracts(chain, address, wallet, created_at, counts, read_at)`, PK (chain, address), index on
+  wallet): `discovery.ts walletContractsOf` upserts every row at once (a cache, like `base_since`; no verdict depends on
+  it). Rows already `counts` are passed as `known` and not classified again (a token stays one, a used contract stays
+  used). The same read's Base creations (tokens and unused ones too) feed the T7 claims as before, so Base is read once
+  and `walletCreations` is not asked; without Alchemy, `walletCreations` (Blockscout) alone, Base claims only. Runs at
+  proof time (`wallet-proof.ts discoverNow`) and whenever the person's discovery runs (the cron's `discover` step reads
+  only queued people: a clue queues them; there is no per-person daily discovery, so a contract that gets its first
+  outside user later counts at the person's next discovery). Rollout: builders whose wallets were proven before this
+  shipped have no rows until their discovery runs again; re-queue them once (`INSERT INTO discovery_queue (builder_id,
+  reason) SELECT DISTINCT builder_id, 'wallet' FROM person_wallets ON CONFLICT (builder_id) DO UPDATE SET reason =
+  EXCLUDED.reason, queued_at = now(), done_at = NULL WHERE discovery_queue.done_at IS NOT NULL`).
+- **Share card** (`card-facts.ts`): "Building since" now comes from the consistency sub; the commits tile is gone (the
+  page no longer shows a commit count), so `card-response.tsx` lost its `commits` case.
+- **Icons** (`HighlightsCard.tsx`, lucide strokes, same tile style): products layers, consistency calendar-check,
+  experience terminal; code, repo and applied removed.
