@@ -2026,3 +2026,20 @@ CREATE INDEX IF NOT EXISTS wallet_contracts_wallet ON wallet_contracts (wallet);
 -- v3.1 Used by (2026-10-27): the Builder Code strings written in an App-proven repo (builder-code.ts codesFromText: a
 -- hex data-suffix literal decoded, or a codes: ['...'] array), kept with the daily scan; null for a check before this.
 ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS codes text[];
+-- v3.1 Used by: how many people used what a builder built in the last 30 days, one row per builder, source and UTC day
+-- (used-by.ts, the cron's daily step). contracts: distinct outside senders to the builder's counted contracts (Alchemy,
+-- any WALLET_CHAINS chain); builder_code: distinct senders of transactions carrying the builder's Base Builder Code (the
+-- CDP SQL API, one query a day for everyone). returning: those active in 2 or more ISO weeks; capped: a contract's read
+-- stopped at its page cap (the title says "N+"); href: the proof link; chains: where the users were (the sub's label).
+-- Highlights reads the newest day per source, at most 3 days old.
+CREATE TABLE IF NOT EXISTS app_usage (
+  builder_id integer NOT NULL,
+  source     text NOT NULL CHECK (source IN ('contracts', 'builder_code')),
+  day        date NOT NULL,
+  users      integer NOT NULL CHECK (users >= 0),
+  "returning" integer NOT NULL CHECK ("returning" >= 0),
+  capped     boolean NOT NULL DEFAULT false,
+  href       text,
+  chains     text[] NOT NULL DEFAULT '{}',
+  PRIMARY KEY (builder_id, source, day)
+);

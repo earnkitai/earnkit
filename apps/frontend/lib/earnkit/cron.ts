@@ -32,6 +32,8 @@ import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, v
 import { githubAppEnabled } from './github-app';
 import { runBuilderCodes } from './builder-codes-check';
 import { backfillContractOrigins } from './contract-origins';
+import { runUsedBy } from './used-by';
+import type { AlchemyCall } from './alchemy';
 import { peopleSignals } from './people-signals';
 import type { ContractOrigin } from './source-readers';
 import { sweepPublicReads } from './repo-cache';
@@ -109,6 +111,8 @@ export type CronDeps = {
   builderCodes?: { fetch?: typeof fetch; only?: number[] };
   /** v3.1 Highlights fix round 1: the contract origins backfill's read and builders (tests); with `only`, the step runs only when given. */
   contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
+  /** v3.1 Used by: the step's Alchemy calls, CDP fetch and builders (tests); with `only`, the step runs only when given. */
+  usedBy?: { callFor?: (network: string) => AlchemyCall; fetch?: typeof fetch; only?: number[]; limit?: number };
 };
 
 /** v3.1 Highlights fix round 1: the Builder Codes step's time, at most a minute and never past the run's deadline. */
@@ -410,6 +414,18 @@ export async function runCron(
       origins = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v3.1 Used by (2026-10-27): how many people used each Bench-confirmed builder's work in the last 30 days (used-by.ts:
+  // the one Builder Code query of the day on the CDP SQL API, then the contracts on Alchemy, each builder once a UTC day,
+  // at most USED_PER_RUN a run), after the Builder Codes step (its scan keeps the code strings), in its own slice.
+  let usedBy: Awaited<ReturnType<typeof runUsedBy>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.usedBy) {
+    try {
+      usedBy = await runUsedBy(now, { ...deps.usedBy, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] used by', err instanceof Error ? err.name : 'error');
+      usedBy = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v3.1 owner people view: GitHub account ages and wallet histories for the owner's private view (people-signals.ts;
   // once a UTC day, capped, free), after the email, in its own slice. Full runs only (a scoped test run skips it).
   let people: Awaited<ReturnType<typeof peopleSignals>> | { step: 'error'; note: string } | undefined;
@@ -481,6 +497,7 @@ export async function runCron(
     ...(builderScore && { builder_score: builderScore }),
     ...(builderCodes && { builder_codes: builderCodes }),
     ...(origins && { contract_origins: origins }),
+    ...(usedBy && { used_by: usedBy }),
     ...(people && { people_signals: people }),
     needs_owner,
   };

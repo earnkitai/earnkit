@@ -113,13 +113,21 @@ const answers = (call: AlchemyCall, address: string, data: string) =>
   );
 
 /**
+ * Whether `address` is a token: decimals() and totalSupply() both answer one 32-byte word (contractCounts' test; v3.1
+ * Used by applies it to verified contract sources too, so a coin's holders are never "people who used" it).
+ */
+export async function isToken(address: string, call: AlchemyCall): Promise<boolean> {
+  const [decimals, supply] = await Promise.all([answers(call, address, DECIMALS), answers(call, address, TOTAL_SUPPLY)]);
+  return decimals && supply;
+}
+
+/**
  * Whether a contract `wallet` created counts as a Highlights contract: not a token (decimals() and totalSupply() do
  * not both answer) and used (some address other than the deployer sent it a transaction, among its USED_SCAN newest
  * external transfers), so coins and test deploys never count.
  */
 export async function contractCounts(address: string, wallet: string, call: AlchemyCall): Promise<boolean> {
-  const [decimals, supply] = await Promise.all([answers(call, address, DECIMALS), answers(call, address, TOTAL_SUPPLY)]);
-  if (decimals && supply) return false;
+  if (await isToken(address, call)) return false;
   const page = await call<TransferPage>('alchemy_getAssetTransfers', [
     { category: ['external'], excludeZeroValue: false, toAddress: address, order: 'desc', maxCount: `0x${USED_SCAN.toString(16)}` },
   ]);
@@ -154,12 +162,51 @@ export async function alchemyWalletContracts(
       return out;
     } catch (err) {
       if (err instanceof ScoreDeadline) throw err;
-      if (err instanceof AlchemyNetworkOff) {
-        if (!offLogged.has(network)) console.warn(`[alchemy] ${network} not enabled for this app, skipped`);
-        offLogged.add(network);
-      } else console.error(`[alchemy] ${chain} contracts`, err instanceof Error ? err.name : 'error');
+      if (err instanceof AlchemyNetworkOff) logNetworkOff(network);
+      else console.error(`[alchemy] ${chain} contracts`, err instanceof Error ? err.name : 'error');
       return [];
     }
   }));
   return perChain.flat();
+}
+
+/** One external transaction sent to a contract: its sender (lowercase) and time (epoch ms). */
+export type Send = { from: string; at: number };
+
+/**
+ * v3.1 Used by (2026-10-27): the external transactions sent to `address` since `since` (epoch ms), newest first
+ * (alchemy_getAssetTransfers toAddress, category external, zero-value ones too, with their times), pages of 1000 until
+ * one is older than `since`, at most `pages` pages. `capped`: the last page allowed still had newer ones after it, so
+ * the count is a floor. A transfer without a sender or a time is skipped.
+ */
+export async function contractSends(address: string, call: AlchemyCall, since: number, pages: number): Promise<{ sends: Send[]; capped: boolean }> {
+  const sends: Send[] = [];
+  let pageKey: string | undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = await transfers(call, { toAddress: address, order: 'desc', maxCount: '0x3e8', ...(pageKey && { pageKey }) });
+    for (const t of page.transfers ?? []) {
+      const at = Date.parse(t.metadata?.blockTimestamp ?? '');
+      if (!Number.isFinite(at)) continue;
+      if (at < since) return { sends, capped: false };
+      if (typeof t.from === 'string' && /^0x[0-9a-f]{40}$/i.test(t.from)) sends.push({ from: t.from.toLowerCase(), at });
+    }
+    pageKey = page.pageKey;
+    if (!pageKey) return { sends, capped: false };
+  }
+  return { sends, capped: true };
+}
+
+/**
+ * v3.1 Used by (anti-farming): the wallets `wallet` sent ETH to (alchemy_getAssetTransfers fromAddress, category
+ * external, value above zero, newest first, one page of 1000), lowercase. A wallet the builder funded is not a user.
+ */
+export async function fundedBy(wallet: string, call: AlchemyCall): Promise<Set<string>> {
+  const page = await transfers(call, { fromAddress: wallet, excludeZeroValue: true, order: 'desc', maxCount: '0x3e8' });
+  return new Set((page.transfers ?? []).map((t) => (typeof t.to === 'string' ? t.to.toLowerCase() : '')).filter((a) => /^0x[0-9a-f]{40}$/.test(a)));
+}
+
+/** Logs a network not enabled in Alchemy once per process (alchemyWalletContracts' and used-by.ts' skip line). */
+export function logNetworkOff(network: string) {
+  if (!offLogged.has(network)) console.warn(`[alchemy] ${network} not enabled for this app, skipped`);
+  offLogged.add(network);
 }

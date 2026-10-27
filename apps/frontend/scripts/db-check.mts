@@ -871,5 +871,16 @@ await db.unsafe(now);
 const [xb] = await db<{ h: string | null }[]>`SELECT browser_hash AS h FROM wallet_x_checks WHERE use_hash = 'dbcheck-x'`;
 ok(xb?.h === 'h', 'v3.1 wallet proof: a browser_hash survives the schema running again');
 
+// v3.1 Used by: the code strings a repo scan keeps (repo_builder_codes.codes) and the daily usage numbers (app_usage).
+ok((await cols('repo_builder_codes')).includes('codes'), 'v3.1 Used by: repo_builder_codes.codes');
+const usageCols = await cols('app_usage');
+ok(['builder_id', 'source', 'day', 'users', 'returning', 'capped', 'href', 'chains'].every((c) => usageCols.includes(c)), 'v3.1 Used by: app_usage');
+await db`UPDATE repo_builder_codes SET codes = '{maya}' WHERE repo_key = 'hl-check/new'`;
+await db`INSERT INTO app_usage (builder_id, source, day, users, "returning", href, chains) VALUES (-137, 'builder_code', '2026-10-27', 40, 4, null, '{base}')`;
+await db.unsafe(now);
+const [ubc] = await db<{ codes: string[] | null }[]>`SELECT codes FROM repo_builder_codes WHERE repo_key = 'hl-check/new'`;
+const [ubu] = await db<{ users: number; r: number }[]>`SELECT users, "returning" AS r FROM app_usage WHERE builder_id = -137`;
+ok(ubc?.codes?.[0] === 'maya' && ubu?.users === 40 && ubu.r === 4, 'v3.1 Used by: codes and an app_usage row survive the schema running again');
+
 await db.end();
 console.log(`db check: ${checks} checks passed`);

@@ -98,6 +98,7 @@ test('HighlightsCard: another site opens in a new tab (noopener noreferrer) with
     items: [
       { icon: 'live', title: 'Live at kit.example', sub: 'Up 29 of the last 30 days checked', href: 'https://kit.example/?a="b"' },
       { icon: 'products', title: 'Shipped 2 products', sub: 'kit.example, tip.example' },
+      { icon: 'users', title: 'Used by 240 people in the last 30 days', sub: '25% came back' },
       { icon: 'consistency', title: 'Shipped in 4 of the last 52 weeks', sub: '' },
       { icon: 'won', title: 'Won X', sub: 'Oct 2026', href: '/programs/x' },
       { icon: 'experience', title: 'Writing code since 2019', sub: 'On GitHub since Mar 2019' },
@@ -116,6 +117,8 @@ test('HighlightsCard: another site opens in a new tab (noopener noreferrer) with
   assert.ok(html.includes('Shipped 2 products'));
   // v3.1 Highlights competence: the new rows' lucide icons (layers, calendar-check, terminal).
   for (const d of ['m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65', 'm9 16 2 2 4-4', 'm4 17 6-6-6-6']) assert.ok(html.includes(`d="${d}"`), d);
+  // v3.1 Used by: lucide users.
+  assert.ok(html.includes('d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"') && html.includes('Used by 240 people in the last 30 days'));
   assert.ok(!/<span class="text-\[13px\] text-s-muted"><\/span>/.test(html), 'an empty sub is not rendered');
   assert.equal(renderToStaticMarkup(React.createElement(HighlightsCard, { items: [] })), '');
 });

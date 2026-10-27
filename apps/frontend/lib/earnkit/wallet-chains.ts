@@ -17,3 +17,12 @@ export type WalletChain = (typeof WALLET_CHAINS)[number]['chain'];
 export type WalletContract = { chain: WalletChain; address: string; created_at: string; counts: boolean };
 
 export const walletChain = (chain: string) => WALLET_CHAINS.find((c) => c.chain === chain) ?? null;
+
+/**
+ * A contract's page on its chain's explorer, null for another chain or anything not a 0x address. Pure. (Moved here
+ * from site-data.ts for v3.1 Used by, whose daily read stores the busiest contract's link; site-data re-exports it.)
+ */
+export const explorerHref = (chain: string, address: string): string | null => {
+  const c = walletChain(chain);
+  return c && /^0x[0-9a-f]{40}$/i.test(address) ? `https://${c.explorer}/address/${address.toLowerCase()}` : null;
+};
