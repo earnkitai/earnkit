@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AlchemyNetworkOff, alchemyCall, alchemyCreations, alchemyOn, alchemyTxList, alchemyWalletContracts, contractCounts, type AlchemyCall } from './alchemy';
+import { AlchemyNetworkOff, alchemyCall, alchemyCreationOf, alchemyCreations, alchemyOn, alchemyTxList, alchemyWalletContracts, contractCounts, type AlchemyCall } from './alchemy';
 import { ScoreDeadline } from './campaigns';
 import { walletSignalsFrom } from './people-signals';
 import { walletFirstTxFrom } from './source-readers';
@@ -190,4 +190,52 @@ test('contractCounts: decimals and totalSupply both answering is a token; one an
   assert.equal(await contractCounts(C, W, call(['0x313ce567', '0x18160ddd'])), false);
   assert.equal(await contractCounts(C, W, call(['0x18160ddd'])), true);
   assert.equal(await contractCounts(C, W, call([])), true, 'an empty answer is not a token');
+});
+
+/** A fake Base for alchemyCreationOf: code from each contract's block on, that block's receipts and traces. */
+function chain(o: { latest: number; code: Record<string, number>; receipts: object[]; traces: object[]; time: number }) {
+  const calls: string[] = [];
+  const call = (async (method: string, params: unknown[]) => {
+    calls.push(method);
+    if (method === 'eth_blockNumber') return `0x${o.latest.toString(16)}`;
+    if (method === 'eth_getCode') {
+      const from = o.code[(params[0] as string).toLowerCase()];
+      const tag = params[1] as string;
+      const at = tag === 'latest' ? o.latest : Number(tag);
+      return from !== undefined && at >= from ? '0x6080' : '0x';
+    }
+    if (method === 'eth_getBlockByNumber') return { timestamp: `0x${o.time.toString(16)}` };
+    if (method === 'eth_getBlockReceipts') return o.receipts;
+    if (method === 'trace_block') return o.traces;
+    throw new Error(`unexpected ${method}`);
+  }) as AlchemyCall;
+  return { call, calls };
+}
+
+test('alchemyCreationOf: the creating transaction\'s sender, never a factory; no code is null', async () => {
+  const DIRECT = '0x2222222222222222222222222222222222222222';
+  const MADE = '0x3333333333333333333333333333333333333333';
+  const FACTORY = '0x4e59b44847b379578588920ca78fbf26c0b4956c';
+  const H1 = `0x${'a'.repeat(64)}`;
+  const H2 = `0x${'b'.repeat(64)}`;
+  const time = Date.parse('2026-03-01T00:00:00Z') / 1000;
+  const c = chain({
+    latest: 5_000_000, time,
+    code: { [DIRECT]: 1_234_567, [MADE]: 1_234_567 },
+    receipts: [
+      { transactionHash: H1, from: W.toUpperCase().replace('0X', '0x'), contractAddress: DIRECT.toUpperCase().replace('0X', '0x') },
+      { transactionHash: H2, from: W, to: FACTORY, contractAddress: null },
+    ],
+    traces: [
+      { type: 'call', transactionHash: H2, action: { from: W, to: FACTORY } },
+      { type: 'create', transactionHash: H2, action: { from: FACTORY }, result: { address: MADE } },
+    ],
+  });
+  const at = new Date(time * 1000).toISOString();
+  assert.deepEqual(await alchemyCreationOf(DIRECT, c.call), { hash: H1, deployer: W, created_at: at });
+  assert.ok(!c.calls.includes('trace_block'), 'a direct deploy needs no trace');
+  assert.deepEqual(await alchemyCreationOf(MADE, c.call), { hash: H2, deployer: W, created_at: at });
+  assert.equal(await alchemyCreationOf(F, c.call), null, 'no code: not a contract');
+  // A binary search: tens of reads, not millions.
+  assert.ok(c.calls.filter((m) => m === 'eth_getCode').length < 80);
 });

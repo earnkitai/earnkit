@@ -100,7 +100,7 @@ function deps(): MatchDeps {
       probe: async () => {},
       getCode: async () => '0x6080',
       // Shared contracts and config-only contracts are busy; they must never read as anyone's real use.
-      blockscout: async (url: string) => ({ transactions_count: /0x498581ff|0x5c5c5c5c/i.test(url) ? '99999' : '0' }),
+      txCounter: async (address: string) => (/0x498581ff|0x5c5c5c5c/i.test(address) ? 99999 : 0),
       cache: { get: async (k) => store.get(k) ?? null, set: async (k, ok, now, extra) => void store.set(k, { ok, checked_at: now, n: extra?.n ?? null }) },
     },
   };
@@ -483,7 +483,7 @@ test('v2.11 8b (1.2): the tipjar starter on the real World\'s Fair (Base reporte
   // The build window is read only for a chain the repo's own files name, so its config names Base too.
   // Its transaction count can't be read, so the starter itself keeps its good odds.
   const base = deps();
-  const wfDeps: MatchDeps = { ...base, checks: { ...base.checks!, blockscout: async () => ({}) } };
+  const wfDeps: MatchDeps = { ...base, checks: { ...base.checks!, txCounter: async () => NaN } };
   const r = await withGitHub(async () => {
     const inner = globalThis.fetch;
     globalThis.fetch = (async (url: string | URL | Request) => {

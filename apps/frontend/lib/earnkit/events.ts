@@ -249,7 +249,7 @@ export type UsageDeps = {
    */
   db?: Db;
   /** Blockscout counters read (verify.ts txCount's seam). */
-  blockscout?: CheckDeps['blockscout'];
+  txCounter?: CheckDeps['txCounter'];
   /** eth_getCode on `chain`. */
   getCode?: (chain: Chain, address: string) => Promise<string>;
   /** Arc's latest block. */
@@ -312,12 +312,12 @@ async function readUsage(d: DueDeploy, address: string, now: Date, deps: UsageDe
   // count covers (Base's tx_count is lifetime, Arc's `recent` is ~2.9 days). Review M3.
   const base = { window: d.win, deployed_event: Number(d.id), address };
   if (chain === 'base') {
-    // v2.10's Blockscout counters (cached 24 h in url_checks); null is a failed read.
-    const tx = await txCount('base', address, { now, ...(deps.blockscout && { blockscout: deps.blockscout }) });
+    // v2.10's transaction count (Alchemy, cached 24 h in url_checks); null is a failed read.
+    const tx = await txCount('base', address, { now, ...(deps.txCounter && { txCounter: deps.txCounter }) });
     if (tx === null) throw new Error('no count');
-    // Review M2: Blockscout's transactions_count is the address's lifetime count (deploy to check),
-    // not a 30 or 90 day count; tx_scope says so.
-    return { ...base, tx_count: tx, tx_scope: 'lifetime', code, source: 'blockscout' };
+    // Review M2: the count is lifetime (deploy to check), not a 30 or 90 day count, and stops at TX_COUNT_CAP;
+    // tx_scope says so.
+    return { ...base, tx_count: tx, tx_scope: 'lifetime', code, source: 'alchemy' };
   }
   const starter = chain === 'arc' ? starterOf(d.detail.starter, deps.starters ?? STARTERS) : undefined;
   // Review I1: no code at the address means no use to count: one read, never a view or log read.

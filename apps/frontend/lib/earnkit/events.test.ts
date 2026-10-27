@@ -468,7 +468,7 @@ test('11.0 usageChecks with the log off reads nothing and writes nothing', async
   let reads = 0;
   const out = await usageChecks(new Date(), {
     getCode: async () => (reads++, '0x'),
-    blockscout: async () => (reads++, { transactions_count: '1' }),
+    txCounter: async () => (reads++, 1),
   });
   assert.deepEqual(out, { checked: 0, failed: 0 });
   assert.equal(reads, 0);
@@ -481,7 +481,7 @@ test('11.1 a 31-day-old Base deploy gets one 30-day check (Blockscout count, cod
   const deps = {
     only: [d.id],
     getCode: async (chain: string, a: string) => (urls.push(`code:${chain}:${a}`), '0x6080'),
-    blockscout: async (url: string) => (urls.push(url), { transactions_count: '7' }),
+    txCounter: async (address: string) => (urls.push(address), 7),
   };
   assert.deepEqual(await usageChecks(now, deps), { checked: 1, failed: 0 });
   const rows = await usageOf(d.id);
@@ -489,8 +489,8 @@ test('11.1 a 31-day-old Base deploy gets one 30-day check (Blockscout count, cod
   assert.equal(rows[0].dedupe_key, `usage:${d.id}:30`);
   assert.equal(rows[0].chain, 'base');
   assert.equal(rows[0].installation_id, 99911);
-  assert.deepEqual(rows[0].detail, { window: 30, deployed_event: Number(d.id), address: d.address, tx_count: 7, tx_scope: 'lifetime', code: true, source: 'blockscout' });
-  assert.deepEqual(urls, [`code:base:${d.address}`, `https://base.blockscout.com/api/v2/addresses/${d.address}/counters`]);
+  assert.deepEqual(rows[0].detail, { window: 30, deployed_event: Number(d.id), address: d.address, tx_count: 7, tx_scope: 'lifetime', code: true, source: 'alchemy' });
+  assert.deepEqual(urls, [`code:base:${d.address}`, d.address]);
   assert.deepEqual(await usageChecks(now, deps), { checked: 0, failed: 0 });
   assert.equal((await usageOf(d.id)).length, 1);
   assert.equal(urls.length, 2, 'a done check reads nothing again');
@@ -501,7 +501,7 @@ test('11.1 a 29-day-old deploy is not due; a code_differs deploy and one without
   const young = await seedDeployed(now, 29);
   const differs = await seedDeployed(now, 40, { detail: { code_differs: true } });
   const badAddress = await seedDeployed(now, 40, { detail: { address: 'not-an-address' } });
-  const out = await usageChecks(now, { only: [young.id, differs.id, badAddress.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) });
+  const out = await usageChecks(now, { only: [young.id, differs.id, badAddress.id], getCode: codeOk, txCounter: async () => 1 });
   assert.deepEqual(out, { checked: 0, failed: 0 });
 });
 
@@ -690,7 +690,7 @@ test('11.3 a 91-day-old deploy with its 30-day check done gets only the 90-day c
   const done30 = await seedDeployed(now, 91);
   assert.equal(await recordEvent({ type: 'usage_check', dedupe_key: `usage:${done30.id}:30`, detail: { window: 30 } }), true);
   const never = await seedDeployed(now, 95);
-  const deps = { only: [done30.id, never.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '3' }) };
+  const deps = { only: [done30.id, never.id], getCode: codeOk, txCounter: async () => 3 };
   assert.deepEqual(await usageChecks(now, deps), { checked: 2, failed: 0 });
   assert.deepEqual((await usageOf(done30.id)).map((r) => r.dedupe_key), [`usage:${done30.id}:30`, `usage:${done30.id}:90`]);
   assert.deepEqual((await usageOf(never.id)).map((r) => [r.dedupe_key, r.detail.window]), [[`usage:${never.id}:90`, 90]]);
@@ -703,7 +703,7 @@ test('11.4 25 due deploys with limit 20: the 20 oldest are checked, and the next
   for (let i = 0; i < 25; i++) seeded.push(await seedDeployed(now, 31 + i)); // seeded[24] is the oldest
   const only = seeded.map((s) => s.id);
   const read: string[] = [];
-  const deps = { only, getCode: async (_c: string, a: string) => (read.push(a), '0x6080'), blockscout: async () => ({ transactions_count: '0' }) };
+  const deps = { only, getCode: async (_c: string, a: string) => (read.push(a), '0x6080'), txCounter: async () => 0 };
   assert.deepEqual(await usageChecks(now, deps), { checked: 20, failed: 0 });
   assert.deepEqual(read, seeded.slice(5).reverse().map((s) => s.address), 'oldest first');
   read.length = 0;
@@ -718,7 +718,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
   const base = await seedDeployed(now, 31);
   const arc = await seedDeployed(now, 32, { chain: 'arc', detail: { block: 1, starter: 'arc-tipjar' } });
   const noCode = await seedDeployed(now, 33);
-  let blockscoutReads = 0;
+  let countReads = 0;
   let logReads = 0;
   const lines = await errors(async () => {
     const out = await usageChecks(now, {
@@ -728,9 +728,9 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
         if (a === noCode.address) throw Object.assign(new Error(`rpc down ${a}`), { name: 'HttpRequestError' });
         return '0x6080';
       },
-      blockscout: async () => {
-        blockscoutReads++;
-        throw new Error('blockscout 503');
+      txCounter: async () => {
+        countReads++;
+        throw new Error('alchemy 503');
       },
       arcHead: async () => 30_000n,
       arcLogs: async (_a, _t, from) => {
@@ -741,7 +741,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
     });
     assert.deepEqual(out, { checked: 0, failed: 3 });
   });
-  assert.equal(blockscoutReads, 1, 'no retry inside a run');
+  assert.equal(countReads, 1, 'no retry inside a run');
   assert.equal(logReads, 2, 'the check stops at its first failed chunk');
   for (const d of [base, arc, noCode]) assert.deepEqual(await usageOf(d.id), []);
   assert.ok(lines.length >= 3);
@@ -754,7 +754,7 @@ test('11.5 a failed read writes nothing, counts as failed, logs the class only, 
     ...LOGS,
     only: [base.id, arc.id, noCode.id],
     getCode: codeOk,
-    blockscout: async () => ({ transactions_count: '2' }),
+    txCounter: async () => 2,
     arcHead: async () => 30_000n,
     arcLogs: async () => ({ count: 0, senders: [] }),
   });
@@ -823,7 +823,7 @@ test('11.6 a deploy that failed USAGE_SKIP_AFTER (5) runs in a row is skipped fo
       if (a === bad.address && !works) throw new Error('rpc down');
       return '0x6080';
     },
-    blockscout: async () => ({ transactions_count: '1' }),
+    txCounter: async () => 1,
   });
   const day = (n: number) => new Date(t0.getTime() + n * DAY);
   await errors(async () => {
@@ -894,7 +894,7 @@ function eventInsertDb(mode: 'fail' | 'race'): Db {
 test('11.5 (review I2) a failed usage_check write counts as failed and adds to the counter; a concurrent write counts as done', dbTest, async () => {
   const now = new Date();
   const d = await seedDeployed(now, 31);
-  const reads = { only: [d.id], getCode: codeOk, blockscout: async () => ({ transactions_count: '1' }) };
+  const reads = { only: [d.id], getCode: codeOk, txCounter: async () => 1 };
   const lines = await errors(async () => assert.deepEqual(await usageChecks(now, { ...reads, db: eventInsertDb('fail') }), { checked: 0, failed: 1 }));
   assert.ok(lines.includes('[events] usage_check Error'), lines.join('|'));
   assert.deepEqual(await usageOf(d.id), []);

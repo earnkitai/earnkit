@@ -1,5 +1,6 @@
 import { FETCH_MAX_BYTES, FETCH_TIMEOUT_MS } from './safe-fetch';
-import { EntryError, blockscout, githubRepo } from './campaigns';
+import { alchemyCall, alchemyCreationOf } from './alchemy';
+import { EntryError, githubRepo } from './campaigns';
 import { GitHubError, repoByName } from './match-projects';
 
 /** Re-exported for callers that already import it from here (ownership.test.ts, token-gate.ts). */
@@ -463,27 +464,22 @@ const tooLarge = (): FetchResult => ({
 });
 
 /**
- * Who deployed a contract: the sender of the transaction that created it. Two Blockscout reads,
- * injectable for tests: the address's creation transaction (null when it has none on record), then
- * that transaction's sender.
+ * Who deployed a contract: the sender of the transaction that created it. Two reads, injectable for tests: the
+ * address's creation transaction (null when it holds no code), then that transaction's sender. Alchemy, never
+ * Blockscout (owner ruling; Blockscout challenges servers).
  */
 export type DeployerLookup = {
   creationTx: (contract: string) => Promise<string | null>;
   txSender: (hash: string) => Promise<string>;
 };
-export const blockscoutDeployer: DeployerLookup = {
-  creationTx: async (contract) =>
-    (
-      await blockscout<{ creation_transaction_hash?: string | null }>(
-        `/api/v2/addresses/${contract}`,
-      )
-    ).creation_transaction_hash ?? null,
-  txSender: async (hash) =>
-    (
-      await blockscout<{ from: { hash: string } }>(
-        `/api/v2/transactions/${hash}`,
-      )
-    ).from.hash,
+const DEPLOYER_READ_MS = 60_000;
+export const alchemyDeployer: DeployerLookup = {
+  creationTx: async (contract) => (await alchemyCreationOf(contract, alchemyCall(Date.now() + DEPLOYER_READ_MS)))?.hash ?? null,
+  txSender: async (hash) => {
+    const tx = await alchemyCall(Date.now() + DEPLOYER_READ_MS)<{ from?: string } | null>('eth_getTransactionByHash', [hash]);
+    if (!tx?.from) throw new Error('Alchemy: transaction not found');
+    return tx.from;
+  },
 };
 
 /** The deployer of `contract` (lowercase), or null when no creation transaction is on record. */
@@ -586,7 +582,7 @@ export async function checkOwnership(
   input: OwnershipInput,
   {
     fetchFile = fetchOwnershipFile,
-    deployer = blockscoutDeployer,
+    deployer = alchemyDeployer,
     repoFacts = githubRepoFacts,
     baseUrl = ownershipBaseUrl(),
   }: {
@@ -627,7 +623,7 @@ export async function checkOwnership(
     );
   const file = got.status === 'ok' ? parseOwnershipFile(got.text) : null;
   const deployers: Record<string, string | null | undefined> = {};
-  // Blockscout is asked about the contracts only once the file names this wallet.
+  // The contracts' deployers are read only once the file names this wallet.
   if (file?.payoutWallet === input.payoutWallet && !file.problems.length)
     for (const c of input.contracts)
       deployers[c] = await deployerOf(c, deployer).catch((err) => {

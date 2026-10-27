@@ -1,6 +1,5 @@
 import { sql } from './db';
-import { blockscout } from './campaigns';
-import { alchemyCall, alchemyOn, alchemyTxList } from './alchemy';
+import { alchemyCall, alchemyTxList } from './alchemy';
 import { githubUser, type GitHubAccount } from './github-verify';
 import { hit } from './rate-limit';
 
@@ -75,14 +74,13 @@ export async function walletSignalsStep(
       ${o.only ? db`AND builder_id IN ${db(o.only)}` : db``}
     ORDER BY signals_checked_at NULLS FIRST, proven_at, wallet LIMIT ${o.limit ?? WALLET_SIGNALS_PER_RUN}`;
   const deadline = o.deadline ?? Date.now() + 60_000;
-  const read = o.read ?? ((path: string) => blockscout<TxList>(path, deadline));
   let n = 0;
   for (const { wallet } of due) {
     if (Date.now() >= deadline) break;
     if (!WALLET.test(wallet)) continue;
-    // Alchemy when its key is set (Blockscout challenges servers), else Blockscout.
+    // Alchemy only (never Blockscout, owner ruling); tests inject `read`.
     const path = `/api?module=account&action=txlist&address=${wallet}&sort=asc&page=1&offset=${WALLET_TXS}`;
-    const data = await (!o.read && alchemyOn() ? alchemyTxList(wallet, WALLET_TXS, alchemyCall(deadline)) : read(path)).catch((err: unknown) => {
+    const data = await (o.read ? o.read(path) : alchemyTxList(wallet, WALLET_TXS, alchemyCall(deadline))).catch((err: unknown) => {
       console.error('[people-signals] wallet', err instanceof Error ? err.name : 'error');
       return undefined;
     });

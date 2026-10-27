@@ -67,9 +67,9 @@ export function countingDeps(d: ReaderDeps): { deps: ReaderDeps; counts: Map<Pro
       probe: wrap('site', d.probe),
       fetchText: wrap('site', d.fetchText),
       json: wrap((u: string) => providerOfUrl(u), d.json) as ReaderDeps['json'],
-      contractOrigin: wrap('blockscout', d.contractOrigin),
-      walletCreations: wrap('blockscout', d.walletCreations),
-      ...(d.walletFirstTx && { walletFirstTx: wrap('blockscout', d.walletFirstTx) }),
+      contractOrigin: wrap('alchemy', d.contractOrigin),
+      walletCreations: wrap('alchemy', d.walletCreations),
+      ...(d.walletFirstTx && { walletFirstTx: wrap('alchemy', d.walletFirstTx) }),
       ...(d.walletContracts && { walletContracts: wrap('alchemy', d.walletContracts) }),
     },
   };

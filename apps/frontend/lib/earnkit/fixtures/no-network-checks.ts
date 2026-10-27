@@ -12,7 +12,7 @@ const rows = new Map<string, { ok: boolean; checked_at: Date; note?: string | nu
 checkDefaults.probe = async () => {};
 checkDefaults.getCode = async () => '0x6080';
 // v2.10 item 6: no Blockscout read leaves the process; every contract has 0 transactions.
-checkDefaults.blockscout = async () => ({ transactions_count: '0' });
+checkDefaults.txCounter = async () => 0;
 checkDefaults.cache = {
   get: async (key) => rows.get(key) ?? null,
   set: async (key, ok, now, extra) => void rows.set(key, { ok, checked_at: now, ...extra }),
