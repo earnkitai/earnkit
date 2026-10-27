@@ -135,17 +135,36 @@ export async function alchemyCreationOf(address: string, call: AlchemyCall): Pro
   }
   const [block, receipts] = await Promise.all([
     call<{ timestamp?: string } | null>('eth_getBlockByNumber', [hex(lo), false]),
-    call<{ transactionHash?: string; from?: string; contractAddress?: string | null }[] | null>('eth_getBlockReceipts', [hex(lo)]),
+    call<{ transactionHash?: string; from?: string; status?: string; contractAddress?: string | null }[] | null>('eth_getBlockReceipts', [hex(lo)]),
   ]);
   const created_at = block?.timestamp ? new Date(Number(block.timestamp) * 1000).toISOString() : null;
-  let hash = (receipts ?? []).find((r) => r.contractAddress?.toLowerCase() === a)?.transactionHash;
-  if (!hash) {
-    const traces = await call<{ type?: string; transactionHash?: string; result?: { address?: string } | null }[] | null>('trace_block', [hex(lo)]);
-    hash = (traces ?? []).find((t) => t.type === 'create' && t.result?.address?.toLowerCase() === a)?.transactionHash;
+  // Security review 2026-10-27: only a creation that took effect counts. A transaction must have succeeded, and a
+  // create frame must not have failed itself or under a failed caller (a reverted attempt at the same CREATE2 address
+  // in the same block never names the deployer). More than one candidate fails closed.
+  const ok = (receipts ?? []).filter((r) => r.status === '0x1' && typeof r.transactionHash === 'string');
+  let hashes = ok.filter((r) => r.contractAddress?.toLowerCase() === a).map((r) => r.transactionHash!);
+  if (!hashes.length) {
+    const traces = await call<Trace[] | null>('trace_block', [hex(lo)]);
+    const okTx = new Set(ok.map((r) => r.transactionHash));
+    hashes = (traces ?? [])
+      .filter((t) => t.type === 'create' && t.result?.address?.toLowerCase() === a && okTx.has(t.transactionHash) && !failedFrame(t, traces ?? []))
+      .map((t) => t.transactionHash!);
   }
-  const from = hash ? (receipts ?? []).find((r) => r.transactionHash === hash)?.from?.toLowerCase() : undefined;
+  const unique = [...new Set(hashes)];
+  if (unique.length > 1) throw new Error('Alchemy: more than one creation transaction');
+  const hash = unique[0];
+  const from = hash ? ok.find((r) => r.transactionHash === hash)?.from?.toLowerCase() : undefined;
   if (!hash || !from || !created_at) throw new Error('Alchemy: creation transaction not found');
   return { hash, deployer: from, created_at };
+}
+
+type Trace = { type?: string; transactionHash?: string; traceAddress?: number[]; error?: string; result?: { address?: string } | null };
+/** Whether `t` failed, or any frame above it in its transaction (a traceAddress prefix) did. Pure. */
+function failedFrame(t: Trace, all: Trace[]): boolean {
+  if (t.error) return true;
+  const at = t.traceAddress ?? [];
+  return all.some((p) => p.error && p.transactionHash === t.transactionHash && (p.traceAddress ?? []).length < at.length
+    && (p.traceAddress ?? []).every((v, i) => at[i] === v));
 }
 
 /** ERC-20's decimals() and totalSupply() selectors: a contract answering both is a token (never a Highlights contract). */

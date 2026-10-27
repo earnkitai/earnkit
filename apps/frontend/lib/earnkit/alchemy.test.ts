@@ -218,17 +218,23 @@ test('alchemyCreationOf: the creating transaction\'s sender, never a factory; no
   const FACTORY = '0x4e59b44847b379578588920ca78fbf26c0b4956c';
   const H1 = `0x${'a'.repeat(64)}`;
   const H2 = `0x${'b'.repeat(64)}`;
+  const H0 = `0x${'c'.repeat(64)}`;
   const time = Date.parse('2026-03-01T00:00:00Z') / 1000;
   const c = chain({
     latest: 5_000_000, time,
     code: { [DIRECT]: 1_234_567, [MADE]: 1_234_567 },
     receipts: [
-      { transactionHash: H1, from: W.toUpperCase().replace('0X', '0x'), contractAddress: DIRECT.toUpperCase().replace('0X', '0x') },
-      { transactionHash: H2, from: W, to: FACTORY, contractAddress: null },
+      { transactionHash: H0, from: F, to: FACTORY, contractAddress: null, status: '0x1' },
+      { transactionHash: H1, from: W.toUpperCase().replace('0X', '0x'), contractAddress: DIRECT.toUpperCase().replace('0X', '0x'), status: '0x1' },
+      { transactionHash: H2, from: W, to: FACTORY, contractAddress: null, status: '0x1' },
     ],
     traces: [
-      { type: 'call', transactionHash: H2, action: { from: W, to: FACTORY } },
-      { type: 'create', transactionHash: H2, action: { from: FACTORY }, result: { address: MADE } },
+      // F's earlier attempt at MADE's CREATE2 address: created, then its caller reverted. Never the deployer.
+      { type: 'call', transactionHash: H0, traceAddress: [], action: { from: F, to: FACTORY } },
+      { type: 'call', transactionHash: H0, traceAddress: [0], error: 'Reverted', action: { from: FACTORY } },
+      { type: 'create', transactionHash: H0, traceAddress: [0, 0], action: { from: FACTORY }, result: { address: MADE } },
+      { type: 'call', transactionHash: H2, traceAddress: [], action: { from: W, to: FACTORY } },
+      { type: 'create', transactionHash: H2, traceAddress: [0], action: { from: FACTORY }, result: { address: MADE } },
     ],
   });
   const at = new Date(time * 1000).toISOString();
@@ -236,6 +242,16 @@ test('alchemyCreationOf: the creating transaction\'s sender, never a factory; no
   assert.ok(!c.calls.includes('trace_block'), 'a direct deploy needs no trace');
   assert.deepEqual(await alchemyCreationOf(MADE, c.call), { hash: H2, deployer: W, created_at: at });
   assert.equal(await alchemyCreationOf(F, c.call), null, 'no code: not a contract');
+  // A failed transaction never counts, and two live candidates fail closed.
+  const twice = chain({ latest: 10, time, code: { [MADE]: 3 }, receipts: [
+    { transactionHash: H1, from: F, contractAddress: MADE, status: '0x0' },
+    { transactionHash: H2, from: W, to: FACTORY, contractAddress: null, status: '0x1' },
+    { transactionHash: H0, from: F, to: FACTORY, contractAddress: null, status: '0x1' },
+  ], traces: [
+    { type: 'create', transactionHash: H2, traceAddress: [0], result: { address: MADE } },
+    { type: 'create', transactionHash: H0, traceAddress: [0], result: { address: MADE } },
+  ] });
+  await assert.rejects(alchemyCreationOf(MADE, twice.call), /more than one/);
   // A binary search: tens of reads, not millions.
   assert.ok(c.calls.filter((m) => m === 'eth_getCode').length < 80);
 });
