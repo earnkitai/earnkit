@@ -185,6 +185,7 @@ export type Seen = StandSeen & {
   new_repo_asked?: string;
   /** GTM W2: when the Monday check-in was asked (once), and the answer. */
   checkin_asked?: string;
+  checkin_asks?: number;
   checkin?: { answer: 'yes' | 'no'; at: string };
   /** GTM W2: when the ship question was last asked (at most once in SHIP_ASK_DAYS). */
   ship_asked?: string;
@@ -697,7 +698,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
   // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
   const reach = o.reach ?? (await agentReach(o.own, id));
-  const checkin = quiet && handle !== null && reach.schedules && !read.seen.checkin_asked && (await takeOnce(id, 'checkin_asked', now));
+  const checkin = quiet && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
   const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
   // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
@@ -847,7 +848,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'checkin_asked' | 'welcomed', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -857,6 +858,32 @@ async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'chec
   return Boolean(taken);
 }
 const takeBaseAsk = (id: number, now: Date) => takeOnce(id, 'base_asked', now);
+/**
+ * v3.2 (2026-10-27): the Monday check-in comes back when it went unanswered (the owner's was asked once and lost): a week
+ * after the last ask, at most CHECKIN_MAX_ASKS asks. An answer ends it (standing_seen.checkin). Pure.
+ */
+export const CHECKIN_MAX_ASKS = 3;
+export function checkinAskDue(seen: { checkin_asked?: string; checkin_asks?: number }, now: Date): boolean {
+  if (!seen.checkin_asked) return true;
+  const asks = seen.checkin_asks ?? 1;
+  return asks < CHECKIN_MAX_ASKS && now.getTime() - Date.parse(seen.checkin_asked) >= 7 * 86_400_000;
+}
+/** Claims this reply's check-in ask (the time and the count), the same test in SQL so two replies never both ask. Never throws. */
+async function takeCheckinAsk(id: number, now: Date): Promise<boolean> {
+  const week = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+  const [taken] = await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(
+      'checkin_asked', ${now.toISOString()}::text,
+      'checkin_asks', CASE WHEN standing_seen ? 'checkin_asked' THEN COALESCE((standing_seen->>'checkin_asks')::int, 1) + 1 ELSE 1 END)
+    WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? 'checkin', false)
+      AND (NOT COALESCE(standing_seen ? 'checkin_asked', false)
+        OR (standing_seen->>'checkin_asked' <= ${week} AND COALESCE((standing_seen->>'checkin_asks')::int, 1) < ${CHECKIN_MAX_ASKS}))
+    RETURNING 1`.catch((err: unknown) => {
+    logged('take checkin')(err);
+    return [];
+  });
+  return Boolean(taken);
+}
 /**
  * 2026-10-23: the one-line notice after the repo picker refused only forks or templates (standing_seen.template_refused,
  * github-app.ts pickSetup), taken once. Never throws.

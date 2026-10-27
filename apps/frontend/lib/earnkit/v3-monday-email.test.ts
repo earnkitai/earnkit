@@ -384,3 +384,25 @@ test('(j) fix round 1: a link older than the week before last has expired; nothi
     assert.equal(await pointsTotal(me.id), 0);
   }),
 );
+
+test('v3.2: confirming last week offers its one-tap post (one draft, reused); the email of an approved week carries it', db, () =>
+  withEnv(ON, async () => {
+    await freshBoard();
+    await clearCounters();
+    const me = await builder('mepost');
+    await sql()`UPDATE project_updates SET summary = 'Shipped the export button.' WHERE builder_id = ${me.id} AND week = ${LAST}`;
+    const approve = weekUrl({ builderId: me.id, key: me.key, monday: LAST, action: 'approve' });
+    const code = (b: string) => b.match(/href="[^"]*\/post\/([a-z2-7]{10})">Post it on X</)?.[1] ?? null;
+    const form = { [SEEN_FIELD]: seenIn(await html(await weekGet(req(approve))))! };
+    const first = await html(await weekPost(post(approve, form)));
+    assert.match(first, /Confirmed\./);
+    const c1 = code(first);
+    assert.ok(c1, first);
+    assert.equal(code(await html(await weekPost(post(approve, form)))), c1, 'the same draft, never a second one');
+    await subscribe(me.id, `mepost${me.id}@example.com`);
+    const { sent, mail } = recorder();
+    assert.equal((await sendDigests(new Date(MONDAY + 3_600_000), { mail, only: [me.id] })).sent, 1);
+    assert.match(sent[0]!.text, new RegExp(`Post it on X: \\S+/post/${c1}\\n`));
+    assert.doesNotMatch(sent[0]!.text, /Looks right/, 'approved: no approve link');
+  }),
+);

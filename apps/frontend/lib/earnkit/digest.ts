@@ -10,6 +10,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { freeTierRoom, takeFreeTier } from './free-tier';
 import { testInstallationIds } from './installations';
 import { mainConfirmed } from './main-project';
+import { weeklyPostLink } from './post-reply';
 import { lastWeekOf, markOffered, momentLines, shareText, type WeekStanding } from './weekly-moment';
 import { weekUrl } from './week-links';
 
@@ -70,6 +71,9 @@ export const DIGEST_HOUR_UTC = 16;
 /** A week not written by then is sent without its moment (the weekly job only writes confirmed projects). */
 const PENDING_MAX_MS = 86_400_000;
 
+/** v3.2: a week that failed to read waits (pending) until PENDING_MAX_MS after weekStart, then the email goes without it. Pure. */
+export const failedWeek = (now: Date): { pending?: true } => (now.getTime() < weekStart(now).getTime() + PENDING_MAX_MS ? { pending: true } : {});
+
 /** This week's Monday DIGEST_HOUR_UTC, or last week's before that moment. Pure. */
 export function weekStart(now: Date): Date {
   const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), DIGEST_HOUR_UTC));
@@ -95,7 +99,7 @@ export function digestDue(s: DigestState, now: Date): boolean {
 }
 
 /** Last week's moment: its lines (weekly-moment.ts momentLines), standing (the subject) and the two signed links. */
-export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean };
+export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
 export type DigestFacts = {
   week: DigestWeek | null;
   /** The person's X handle, when claimed. */
@@ -151,7 +155,11 @@ const ASK_LINE = 'Ask your agent "What can I earn?" to start.';
  */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
   const week = f.week
-    ? [...f.week.lines, ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`])].join('\n')
+    ? [
+        ...f.week.lines,
+        ...(f.week.postUrl ? [`Post it on X: ${f.week.postUrl}`] : []),
+        ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
+      ].join('\n')
     : null;
   const lines = [
     ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
@@ -386,10 +394,16 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
     const link = (action: 'approve' | 'hide') => weekUrl({ builderId: p.id, key, monday: last.monday, action });
     // Owner batch fix wave (6): an email that can't show the week's stored summary records the offer (asked once).
     if (!last.approved && !last.summary && last.stored) await markOffered(p.id, key, last.monday, last.stored);
-    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved }, handle, person };
+    // v3.2: the week's one-tap post (the reply's draft), only for an approved week (a builder's own text goes out only
+    // once they said it looks right).
+    const postUrl = handle && last.approved ? await weeklyPostLink(p.id, handle, now) : null;
+    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, ...(postUrl && { postUrl }) }, handle, person };
   } catch (err) {
-    console.error('[digest] week', err instanceof Error ? err.name : 'error');
-    return { week: null, handle, person };
+    // v3.2 (2026-10-27): a failed read waits like a week not written yet (retried next run, sent without the week
+    // after PENDING_MAX_MS), never an empty email that marks the week considered: the owner's first Monday email
+    // was lost that way.
+    console.error('[digest] week', err instanceof Error ? `${err.name}: ${err.message.slice(0, 200)}` : 'error');
+    return { week: null, handle, person, ...failedWeek(now) };
   }
 }
 
