@@ -245,6 +245,13 @@ const PAYOUT_ABI = parseAbi(['function payoutAddress(string code) view returns (
 export const CODE_VERIFY_MS = DAY_MS;
 /** Candidates verified per cron run (one eth_call each). */
 export const CODES_VERIFIED_PER_RUN = 100;
+/**
+ * Security review 2 (2026-10-27): an owned verdict older than this no longer counts (ownedCodes), so a code whose
+ * payout moved never keeps counting while its re-check waits; and a builder keeps at most TOLD_MAX told codes (the
+ * newest), so naming codes in bulk can't push other builders' re-checks out of a run.
+ */
+export const OWNED_MAX_MS = 3 * DAY_MS;
+export const TOLD_MAX = 3;
 
 /** The registry's payout address for `code` (lowercase), null when it reverts (unregistered); any other failure throws. */
 export async function payoutOf(code: string, call: AlchemyCall): Promise<string | null> {
@@ -262,20 +269,31 @@ export async function payoutOf(code: string, call: AlchemyCall): Promise<string 
 
 /**
  * Stores a code the builder named (tell builder_code) as a candidate, verified like the repo's at the next daily step.
- * False for anything but BUILDER_CODE (nothing stored).
+ * `id` is an installation or its group root: the claim is the builder's (person_wallets is keyed by builder). At most
+ * TOLD_MAX told codes per builder: the newest named stays, the oldest unowned told ones beyond it go. False for
+ * anything but BUILDER_CODE (nothing stored).
  */
-export async function tellBuilderCode(builderId: number, code: string): Promise<boolean> {
+export async function tellBuilderCode(id: number, code: string): Promise<boolean> {
   if (!BUILDER_CODE.test(code)) return false;
-  await sql()`
-    INSERT INTO builder_code_claims (code, builder_id, told) VALUES (${code}, ${builderId}, true)
-    ON CONFLICT (code, builder_id) DO UPDATE SET told = true`;
+  const db = sql();
+  const [r] = await db<{ b: number }[]>`SELECT COALESCE(i.builder_id, i.id) AS b FROM installations i WHERE i.id = ${id}`;
+  const builderId = r?.b ?? id;
+  await db.begin(async (tx) => {
+    await tx`
+      INSERT INTO builder_code_claims (code, builder_id, told, created_at) VALUES (${code}, ${builderId}, true, now())
+      ON CONFLICT (code, builder_id) DO UPDATE SET told = true, created_at = now()`;
+    await tx`
+      DELETE FROM builder_code_claims WHERE builder_id = ${builderId} AND told AND NOT owned AND code <> ${code}
+        AND code NOT IN (SELECT code FROM builder_code_claims WHERE builder_id = ${builderId} AND told ORDER BY created_at DESC, code LIMIT ${TOLD_MAX})`;
+  });
   return true;
 }
 
 /**
  * The daily registry check (before the usage query): every repo-scan code (repo_builder_codes.codes of a repo the
  * builder proved through the App) becomes a candidate, then the Bench-confirmed builders' candidates not verified
- * within CODE_VERIFY_MS (never verified first, at most CODES_VERIFIED_PER_RUN) are read one at a time: owned when the
+ * within CODE_VERIFY_MS (owned ones first, so a held verdict is re-checked before any new candidate; then never
+ * verified first; at most CODES_VERIFIED_PER_RUN) are read one at a time: owned when the
  * payout address is one of that builder's signature-proven wallets (person_wallets). Unregistered (a revert) is not
  * owned. A failed read stores nothing: the previous verdict stands and none is ever granted on a failure. Two
  * builders can name one code; only the one whose proven wallet the registry pays can own it (a wallet belongs to one
@@ -294,7 +312,7 @@ export async function verifyCodes(now: Date, call: AlchemyCall, o: { deadline: n
   const due = await db<{ code: string; builder_id: number }[]>`
     SELECT c.code, c.builder_id FROM builder_code_claims c
     WHERE c.builder_id IN (${confirmedSql(o.only)}) AND (c.verified_at IS NULL OR c.verified_at <= ${new Date(now.getTime() - CODE_VERIFY_MS)})
-    ORDER BY c.verified_at NULLS FIRST, c.code, c.builder_id LIMIT ${o.limit ?? CODES_VERIFIED_PER_RUN}`;
+    ORDER BY c.owned DESC, c.verified_at NULLS FIRST, c.code, c.builder_id LIMIT ${o.limit ?? CODES_VERIFIED_PER_RUN}`;
   let verified = 0;
   let owned = 0;
   let failed = 0;
@@ -320,10 +338,11 @@ export async function verifyCodes(now: Date, call: AlchemyCall, o: { deadline: n
 
 /**
  * The codes that count: owned (verifyCodes' verdict) by a Bench-confirmed builder (`only` limits them), each with the
- * file it is in when one of the builder's App-proven repos carries it (the link), else none. Should two rows ever be
+ * file it is in when one of the builder's App-proven repos carries it (the link), else none. A verdict older than
+ * OWNED_MAX_MS no longer counts (security review 2). Should two rows ever be
  * owned (a payout that moved while a read failed), the newest verdict wins.
  */
-export async function ownedCodes(o: { only?: number[] } = {}): Promise<Map<string, { builder_id: number; repo: string | null; path: string | null }>> {
+export async function ownedCodes(o: { only?: number[]; now?: Date } = {}): Promise<Map<string, { builder_id: number; repo: string | null; path: string | null }>> {
   const db = sql();
   const rows = await db<{ code: string; builder_id: number; repo: string | null; path: string | null }[]>`
     SELECT DISTINCT ON (c.code) c.code, c.builder_id, f.repo, f.path FROM builder_code_claims c
@@ -332,7 +351,7 @@ export async function ownedCodes(o: { only?: number[] } = {}): Promise<Map<strin
       JOIN builder_sources s ON s.builder_id = c.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app'
         AND regexp_replace(regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', ''), '([.]git)?/*$', '') = r.repo_key
       WHERE r.found AND c.code = ANY(r.codes) ORDER BY r.repo_key LIMIT 1) f ON true
-    WHERE c.owned AND c.builder_id IN (${confirmedSql(o.only)})
+    WHERE c.owned AND c.verified_at > ${new Date((o.now ?? new Date()).getTime() - OWNED_MAX_MS)} AND c.builder_id IN (${confirmedSql(o.only)})
     ORDER BY c.code, c.verified_at DESC NULLS LAST, c.builder_id`;
   return new Map(rows.filter((r) => BUILDER_CODE.test(r.code)).map((r) => [r.code, { builder_id: r.builder_id, repo: r.repo, path: r.path }]));
 }
@@ -350,7 +369,7 @@ export async function codesUsage(
   o: { fetch?: typeof fetch; deadline: number; only?: number[] },
 ): Promise<{ step: 'off' | 'none' | 'done_today' } | { codes: number; builders: number }> {
   if (!cdpOn()) return { step: 'off' };
-  const owners = await ownedCodes(o);
+  const owners = await ownedCodes({ only: o.only, now });
   if (owners.size === 0) return { step: 'none' };
   if (!(await hit(`usedByCodes:${now.toISOString().slice(0, 10)}`, 1, 86_400, now)).allowed) return { step: 'done_today' };
   const ids = [...new Set([...owners.values()].map((v) => v.builder_id))];

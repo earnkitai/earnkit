@@ -159,7 +159,7 @@ test('verifyCodes: a code counts only when Base\'s registry pays a wallet the bu
     { code: 'maya', told: false, payout: a.wallets[0], owned: false },
   ], 'the copy never counts, and the real owner keeps it (no "neither" rule)');
   assert.deepEqual(await claims(told.id), [{ code: 'told_code', told: true, payout: told.wallets[0], owned: true }]);
-  assert.deepEqual([...(await ownedCodes({ only })).entries()].map(([c, v]) => [c, v.builder_id, v.path]), [
+  assert.deepEqual([...(await ownedCodes({ only, now })).entries()].map(([c, v]) => [c, v.builder_id, v.path]), [
     ['maya', a.id, 'src/onchain/tx.ts'], ['maya_old', a.id, 'src/onchain/tx.ts'], ['told_code', told.id, null],
   ]);
   // Verified at most daily: the same day only the failed read is asked again.
@@ -179,7 +179,26 @@ test('verifyCodes: a code counts only when Base\'s registry pays a wallet the bu
   await tellBuilderCode(fresh.id, 'fresh_code');
   await verifyCodes(later, registry({ fresh_code: 'fail' }).call, { deadline: Date.now() + 5000, only: [fresh.id] });
   assert.deepEqual(await claims(fresh.id), [{ code: 'fresh_code', told: true, payout: null, owned: false }]);
-  assert.equal((await ownedCodes({ only: [fresh.id] })).size, 0);
+  assert.equal((await ownedCodes({ only: [fresh.id], now: later })).size, 0);
+});
+
+test('security review 2: told codes are the builder\'s (an installation resolves to its root), at most TOLD_MAX; an owned verdict past OWNED_MAX_MS stops counting; held verdicts are re-checked first', db, async () => {
+  const b = await builder();
+  // A second installation of the same builder names a code: the claim is the builder's, not the installation's.
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${'ub2' + randomBytes(8).toString('hex')}, ${b.id}) RETURNING id`;
+  assert.equal(await tellBuilderCode(inst.id, 'via_second'), true);
+  for (const c of ['t_one', 't_two', 't_three', 't_four']) assert.equal(await tellBuilderCode(b.id, c), true);
+  assert.deepEqual((await claims(b.id)).map((r) => r.code), ['t_four', 't_three', 't_two'], 'the newest TOLD_MAX told codes stay');
+  const now = new Date('2026-10-20T08:00:00Z');
+  const reg = registry({ t_two: b.wallets[0], t_three: addr(), t_four: addr() });
+  await verifyCodes(now, reg.call, { deadline: Date.now() + 5000, only: [b.id] });
+  assert.deepEqual([...(await ownedCodes({ only: [b.id], now })).keys()], ['t_two']);
+  assert.equal((await ownedCodes({ only: [b.id], now: new Date(now.getTime() + 3 * DAY + 1) })).size, 0, 'a stale verdict no longer counts');
+  // An owned code past its re-check comes before never-verified candidates, even with a one-read run.
+  await tellBuilderCode(b.id, 't_five');
+  reg.asked.length = 0;
+  await verifyCodes(new Date(now.getTime() + 2 * DAY), reg.call, { deadline: Date.now() + 5000, only: [b.id], limit: 1 });
+  assert.deepEqual(reg.asked, ['t_two']);
 });
 
 test('alchemyCall: an eth_call the contract reverted is AlchemyReverted (a verdict), any other error is not', async () => {
