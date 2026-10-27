@@ -228,8 +228,8 @@ async function teardown(tag: string, ids: number[]) {
   await sql()`DELETE FROM programs WHERE id = ${tag}`;
   await sql()`DELETE FROM installations WHERE id = ANY(${ids}::int[])`;
 }
-const subs = (ids: number[]) => sql()<{ installation_id: number; last_sent_at: Date | null; unsubscribed_at: Date | null }[]>`
-  SELECT installation_id, last_sent_at, unsubscribed_at FROM digest_subscriptions WHERE installation_id = ANY(${ids}::int[]) ORDER BY installation_id`;
+const subs = (ids: number[]) => sql()<{ installation_id: number; last_sent_at: Date | null; last_considered_at: Date | null; unsubscribed_at: Date | null }[]>`
+  SELECT installation_id, last_sent_at, last_considered_at, unsubscribed_at FROM digest_subscriptions WHERE installation_id = ANY(${ids}::int[]) ORDER BY installation_id`;
 const used = async (name: string, period: string) =>
   (await sql()<{ used: number }[]>`SELECT used FROM free_tier_usage WHERE name = ${name} AND period = ${period}`)[0]?.used ?? 0;
 
@@ -573,4 +573,29 @@ test('failedWeek: a week that failed to read waits a day after the Monday send h
   assert.deepEqual(failedWeek(new Date('2026-10-26T19:17:00Z')), { pending: true });
   assert.deepEqual(failedWeek(new Date('2026-10-27T15:59:00Z')), { pending: true });
   assert.deepEqual(failedWeek(new Date('2026-10-27T16:01:00Z')), {});
+});
+
+test('v3.2: a 403 (sender domain not verified) or 401 is the account: nothing is considered, the run stops, the next run sends', db, async () => {
+  const now = monday(3);
+  const tag = `digest-403-${process.pid}-${Date.now()}`;
+  await clearCounters(now);
+  const ids = await setup(tag, 3, now);
+  try {
+    for (const status of [403, 401]) {
+      let tries = 0;
+      const refused: Mailer = async () => {
+        tries++;
+        throw new MailError(status);
+      };
+      const r = await sendDigests(now, { mail: refused, only: ids });
+      assert.deepEqual(r, { sent: 0, skipped: 1, capped: false, stopped: true });
+      assert.equal(tries, 1, 'one try, then the run stops');
+      assert.ok((await subs(ids)).every((s) => s.last_considered_at === null && s.last_sent_at === null));
+    }
+    const { mail } = recorder();
+    assert.equal((await sendDigests(new Date(now.getTime() + 3_600_000), { mail, only: ids })).sent, 3);
+  } finally {
+    await teardown(tag, ids);
+    await clearCounters(now);
+  }
 });

@@ -607,6 +607,10 @@ export async function sendDigests(
         const status = err instanceof MailError ? err.status : 0;
         console.error('[digest] send', err instanceof MailError ? err.status : err instanceof Error ? err.name : 'error');
         if (status === 429) return 'capped' as const;
+        // v3.2 (2026-10-27): 401 or 403 is the account (a bad key, or the sender domain not verified in Resend), never
+        // this address: nothing is considered and the run stops, so every week goes out once it is fixed. The owner's
+        // emails were all lost this way (no domain in Resend; each 403 marked the week considered).
+        if (status === 401 || status === 403) return 'config' as const;
         if (status >= 400 && status < 500) {
           await consider();
           return 'rejected' as const;
@@ -623,6 +627,11 @@ export async function sendDigests(
     if (step === 'done') break;
     if (step === 'capped') {
       out.capped = true;
+      break;
+    }
+    if (step === 'config') {
+      out.skipped++;
+      out.stopped = true;
       break;
     }
     if (step === 'pending') {
