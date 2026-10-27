@@ -8127,3 +8127,53 @@ signature" are gone). Contracts deployed stays, across chains.
   page no longer shows a commit count), so `card-response.tsx` lost its `commits` case.
 - **Icons** (`HighlightsCard.tsx`, lucide strokes, same tile style): products layers, consistency calendar-check,
   experience terminal; code, repo and applied removed.
+
+## v3.1 Used by (2026-10-27, design: v3.1-used-by.md)
+
+Owner: "agreed and go". The strongest thing a builder can brag about, cheaply verified: real people use what they
+built. One Highlights row, read daily from two free sources; the competence rules stand (chain-agnostic, never coin
+related, no row without data, every row links to proof).
+
+- **The row** (`site-data.ts usedByOf` / `usedByItem`, second in `highlightsOf`: live, used by, contracts, products,
+  consistency, won, experience; still at most 5): "Used by N people in the last 30 days" (`toLocaleString('en-US')`,
+  "N+" when a contract read hit its page cap), only from `USED_MIN` = 10. Sub "P% came back" (P = round(100 *
+  returning / N); returning = wallets active in 2 or more ISO weeks), or the place when P rounds to 0 ("On Base",
+  "On 2 chains", empty when unknown). It reads the newest `app_usage` row per source no older than `USED_STALE_DAYS`
+  = 3 days and shows the larger (never summed; a tie keeps contracts). Link: the busiest contract on its explorer
+  (only a `WALLET_CHAINS` explorer host); for a Builder Code number the repo file the code is in, only while it is under
+  the public main repo's page (`githubFileHref`, back in site-data), else none. Icon `users` (lucide users).
+- **Source 1, contracts** (`used-by.ts contractsUsage`, Alchemy): the builder's `wallet_contracts` rows with `counts`
+  plus their verified contract `builder_sources` on a `WALLET_CHAINS` chain (a source that is a token, `alchemy.ts
+  isToken`, never counts), newest first, at most `USED_CONTRACTS` = 10 per builder. Per contract `alchemy.ts
+  contractSends`: external transfers to it, newest first, pages of 1000 until one is older than 30 days, at most
+  `USED_PAGES` = 5 (then capped). Excluded on every chain: the builder's proven wallets, every counted contract's
+  deployer (`wallet_contracts.wallet`, `builder_sources.deployer`), and every wallet a proven wallet sent ETH to
+  (`alchemy.ts fundedBy`: one page per chain, value above zero). A network not enabled is skipped (`AlchemyNetworkOff`,
+  `logNetworkOff`); any other failure fails that builder's read (nothing stored). `href` the busiest contract,
+  `chains` where users were counted.
+- **Source 2, Builder Code** (`used-by.ts codesUsage`, the CDP SQL API `POST https://api.cdp.coinbase.com/platform/
+  v2/data/query/run`, `Authorization: Bearer CDP_CLIENT_API_KEY`; off without the key, and the test guard clears
+  it): one query a day for every builder together (`hit('usedByCodes:<day>')`, as people-signals marks its day; no
+  owned code asks nothing and spends no day). `usageSql` builds it: GROUP BY code over an IN list, the union of
+  `base.transaction_attributions` joined to `base.transactions` (EOA senders) and `base.decoded_user_operations` (ARRAY
+  JOIN builder_codes, success only), action = 1, the last 30 days, per code distinct lowercase senders and those in 2+
+  distinct `toMonday` weeks, less `(code, wallet)` pairs of the owner's proven wallets. Only `builder-code.ts
+  BUILDER_CODE` (`^[a-z0-9_]{1,64}$`) codes and 0x wallets go in; nothing is escaped. Whose code (`codeOwners`):
+  `repo_builder_codes.codes` of a found repo some builder proved through the App; a code two builders' repos claim
+  counts for neither; only Bench-confirmed builders keep one. A builder with several codes keeps the largest.
+- **Code strings** (`builder-codes-check.ts checkBuilderCodes`, the existing daily scan): `builder-code.ts
+  codesFromText` reads each hex data-suffix literal (decoded with `codesIn`) and each `codes: ['...']` / `codes:
+  ["..."]` array, keeps `BUILDER_CODE` strings, stored in `repo_builder_codes.codes`. When the first file carrying
+  Builder Codes names none, the scan reads on to the next carrying Builder Codes that does (its path is then stored);
+  a stop after the first find keeps what it has. A code from an env var cannot be seen (documented limit).
+- **Store** `app_usage(builder_id, source CHECK contracts|builder_code, day, users, "returning", capped, href,
+  chains, PK (builder_id, source, day))` (`returning` is a reserved word: always quoted). `chains` is an addition to
+  the design's columns (the sub's "On Base" / "On 2 chains" label). A row is stored under `USED_MIN` too (the row
+  hides it).
+- **Schedule** (`cron.ts`, `used_by` in the answer, `CronDeps.usedBy`): `runUsedBy` after the Builder Codes step, in
+  its own slice (`builderCodesSliceEnd`): the one Builder Code query, then `contractsDue` (Bench-confirmed builders
+  with a contract and no contracts row today, never read first, at most `USED_PER_RUN` = 20) one at a time, each
+  claimed for its UTC day (`hit('usedByContracts:<id>:<day>')`) before its reads, so a failing builder waits a day.
+  Contracts are off without `ALCHEMY_API_KEY`. Alchemy cost per builder a day: at most 10 x 5 transfer pages, one
+  funding page per proven wallet and chain, two eth_calls per uncounted source.
+
