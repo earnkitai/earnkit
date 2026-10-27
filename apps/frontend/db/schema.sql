@@ -2022,3 +2022,7 @@ CREATE TABLE IF NOT EXISTS wallet_contracts (
   PRIMARY KEY (chain, address)
 );
 CREATE INDEX IF NOT EXISTS wallet_contracts_wallet ON wallet_contracts (wallet);
+
+-- v3.1 Used by (2026-10-27): the Builder Code strings written in an App-proven repo (builder-code.ts codesFromText: a
+-- hex data-suffix literal decoded, or a codes: ['...'] array), kept with the daily scan; null for a check before this.
+ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS codes text[];
