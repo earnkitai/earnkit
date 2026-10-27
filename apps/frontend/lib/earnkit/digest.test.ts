@@ -10,6 +10,7 @@ import {
   digestBody,
   digestDue,
   digestEnabled,
+  failedWeek,
   digestFacts,
   cleanName,
   NAME_MAX,
@@ -566,4 +567,10 @@ test('Ruling G21: on a shared install each login has its own subscription; one n
     await sql()`DELETE FROM installations WHERE id = ${s.id}`;
     await clearCounters(now);
   }
+});
+
+test('failedWeek: a week that failed to read waits a day after the Monday send hour, then the email goes without it', () => {
+  assert.deepEqual(failedWeek(new Date('2026-10-26T19:17:00Z')), { pending: true });
+  assert.deepEqual(failedWeek(new Date('2026-10-27T15:59:00Z')), { pending: true });
+  assert.deepEqual(failedWeek(new Date('2026-10-27T16:01:00Z')), {});
 });

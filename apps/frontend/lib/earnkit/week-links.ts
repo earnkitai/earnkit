@@ -61,6 +61,8 @@ export const WEEK_TEXT = {
   approve: 'Looks right',
   hide: 'Hide this week',
   approved: 'Confirmed. Your page shows it.',
+  /** v3.2: the confirmed page's one-tap post of the week. */
+  post: 'Post it on X',
   hidden: 'Hidden. Your page no longer shows this week.',
   none: 'There is no update that week.',
   bad: 'This link is not valid.',
@@ -187,6 +189,11 @@ export async function weekPost(request: Request): Promise<Response> {
     done = h ? WEEK_TEXT.hidden : WEEK_TEXT.none;
   }
   const handle = await handleOf(builderId);
-  const link = handle ? `<p class="ek-line"><a class="ek-link" href="${escapeHtml(`${siteUrl()}${pagePath(handle)}`)}">${escapeHtml(WEEK_TEXT.page)}</a></p>` : '';
-  return page(`<h1>${escapeHtml(done)}</h1>${link}`);
+  const line = (href: string, text: string) => `<p class="ek-line"><a class="ek-link" href="${escapeHtml(href)}">${escapeHtml(text)}</a></p>`;
+  // v3.2: confirming last week is the moment to post it: the reply's one-tap draft (never for an older week).
+  const postUrl = handle && done === WEEK_TEXT.approved && monday === lastFinishedMonday(now)
+    ? await (await import('./post-reply')).weeklyPostLink(builderId, handle, now)
+    : null;
+  const links = handle ? `${postUrl ? line(postUrl, WEEK_TEXT.post) : ''}${line(`${siteUrl()}${pagePath(handle)}`, WEEK_TEXT.page)}` : '';
+  return page(`<h1>${escapeHtml(done)}</h1>${links}`);
 }

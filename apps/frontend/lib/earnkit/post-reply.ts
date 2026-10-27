@@ -67,6 +67,20 @@ export async function weeklyPost(id: number, handle: string, week: number, now: 
   return d?.ok ? offerOf(handle, d.draft) : null;
 }
 
+/**
+ * v3.2 (2026-10-27): the Monday email's one-tap post: last week's draft, the same one the reply offers (an existing
+ * draft of this week is reused, else it is drafted as EarnKit's offer). Null with nothing worth posting or a limit.
+ * Never throws.
+ */
+export async function weeklyPostLink(id: number, handle: string, now: Date): Promise<string | null> {
+  const c = await weeklyCandidate(id, now).catch(logged('email week'));
+  if (!c || typeof c === 'string') return null;
+  const had = (await recentDrafts(id, 50).catch(() => [])).find((d) => d.moment_key === c.momentKey);
+  if (had) return shortLink(handle, had.code);
+  const d = await draftMoment(id, c, { asked: false }, now).catch(logged('email week draft'));
+  return d?.ok ? shortLink(handle, d.draft.code) : null;
+}
+
 /** Whether `c` jumps ahead of the apply step now: went live or won, under HOT_HOURS since it could be posted. Pure. */
 export const isHot = (c: Pick<MomentCandidate, 'moment' | 'at'>, now: Date) =>
   (c.moment === 'went_live' || c.moment === 'won') && c.at !== undefined && now.getTime() - c.at.getTime() < HOT_HOURS * 3_600_000;

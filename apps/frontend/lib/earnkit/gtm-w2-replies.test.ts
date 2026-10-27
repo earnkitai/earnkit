@@ -18,7 +18,7 @@ import { BASE_GRANTS_ID } from './builder-code';
 import {
   CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK, grantHook, liveNoGithub,
 } from './bench-reply';
-import { CHECKIN_NOTE, CHECKIN_YES_NOTE, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, backersLine, openGrant } from './bench-find';
+import { CHECKIN_MAX_ASKS, CHECKIN_NOTE, CHECKIN_YES_NOTE, checkinAskDue, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, backersLine, openGrant } from './bench-find';
 import { COIN_NO_PUBLIC_NAME } from './coin-moments';
 import { coinLiveLine, outcomeCongrats } from './post-reply';
 import { appliedLine } from './tools';
@@ -424,4 +424,21 @@ test('v3.1 reply format: the MCP route sends show_to_builder with a blank line b
   const s = String(r.reply?.show_to_builder);
   assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n\n/);
   assert.doesNotMatch(s.replace(/\n\n/g, ''), /\n(?!\d+\. )/, 'no single newline outside a list');
+});
+
+test('v3.2: an unanswered check-in comes back a week later, at most 3 asks; an answer ends it', db, async () => {
+  const now = new Date();
+  const days = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
+  assert.equal(checkinAskDue({}, now), true);
+  assert.equal(checkinAskDue({ checkin_asked: days(3) }, now), false, 'asked this week');
+  assert.equal(checkinAskDue({ checkin_asked: days(8) }, now), true, 'asked once, a week ago, never answered');
+  assert.equal(checkinAskDue({ checkin_asked: days(8), checkin_asks: CHECKIN_MAX_ASKS }, now), false);
+  // The owner's case: asked once 8 days ago, no answer; the next quiet reply asks again.
+  const b = await ranked('r', 'Cursor', { seen: { checkin_asked: days(8) } });
+  const c1 = await mcpCall(b.ctx, 'find', { agent_can_build: false });
+  assert.equal(moveUp(c1)?.kind, 'checkin');
+  assert.equal((await seen(b.id)).checkin_asks, 2);
+  // Asked again just now: not in the next reply.
+  const c2 = await mcpCall(b.ctx, 'find', { agent_can_build: false });
+  assert.notEqual(moveUp(c2)?.kind, 'checkin');
 });
