@@ -185,6 +185,24 @@ test('(d) App off, a 404 tree, or a timeout: null, nothing stored, no Builder Co
   for (const k of ['lena/app', 'omar/app', 'ivy/app']) assert.equal(await stored(k), null, k);
 });
 
+test('(c6) v3.1 Used by: the scan keeps the code strings; a dataSuffix fed from elsewhere reads on to the file naming the code; none written keeps []', db, async () => {
+  const key = 'zuri/app';
+  const b = await builder(key, {
+    'src/wagmi.ts': 'await walletClient.sendTransaction({ to, value, dataSuffix: DATA_SUFFIX });',
+    'src/config.ts': 'export const chain = base;',
+    'src/onchain/suffix.ts': `import { Attribution } from 'ox/erc8021';\nexport const DATA_SUFFIX = Attribution.toDataSuffix({ codes: ['zuri_app'] });`,
+    'src/onchain/other_later.ts': `export const OTHER = Attribution.toDataSuffix({ codes: ['never_read'] });`,
+  });
+  assert.equal(await checkBuilderCodes(b.id, key, new Date(), { fetch: b.gh }), true);
+  const codesOf = async (k: string) => [...await sql()<{ path: string | null; codes: string[] | null }[]>`SELECT path, codes FROM repo_builder_codes WHERE repo_key = ${k}`];
+  assert.deepEqual(await codesOf(key), [{ path: 'src/onchain/suffix.ts', codes: ['zuri_app'] }], 'the path is the file the code is in');
+  assert.ok(!contents(b.gh).some((c) => c.path.endsWith('other_later.ts')), 'stops at the first code');
+  const key2 = 'zuri2/app';
+  const env = await builder(key2, { 'src/wagmi.ts': 'await walletClient.sendTransaction({ to, value, dataSuffix: process.env.NEXT_PUBLIC_SUFFIX });' });
+  assert.equal(await checkBuilderCodes(env.id, key2, new Date(), { fetch: env.gh }), true);
+  assert.deepEqual(await codesOf(key2), [{ path: 'src/wagmi.ts', codes: [] }], 'a code from an env var cannot be seen');
+});
+
 test('(e) none found: the draft\'s line is the approved Builder Code step, the guide as a plain path (no https)', db, async () => {
   const key = 'noor/app';
   const b = await builder(key, {

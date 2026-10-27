@@ -2022,3 +2022,41 @@ CREATE TABLE IF NOT EXISTS wallet_contracts (
   PRIMARY KEY (chain, address)
 );
 CREATE INDEX IF NOT EXISTS wallet_contracts_wallet ON wallet_contracts (wallet);
+
+-- v3.1 Used by (2026-10-27): the Builder Code strings written in an App-proven repo (builder-code.ts codesFromText: a
+-- hex data-suffix literal decoded, or a codes: ['...'] array), kept with the daily scan; null for a check before this.
+ALTER TABLE repo_builder_codes ADD COLUMN IF NOT EXISTS codes text[];
+-- v3.1 Used by: how many people used what a builder built in the last 30 days, one row per builder, source and UTC day
+-- (used-by.ts, the cron's daily step). contracts: distinct outside senders to the builder's counted contracts (Alchemy,
+-- any WALLET_CHAINS chain); builder_code: distinct senders of transactions carrying the builder's Base Builder Code (the
+-- CDP SQL API, one query a day for everyone). returning: those active in 2 or more ISO weeks; capped: a contract's read
+-- stopped at its page cap (the title says "N+"); href: the proof link; chains: where the users were (the sub's label).
+-- Highlights reads the newest day per source, at most 3 days old.
+CREATE TABLE IF NOT EXISTS app_usage (
+  builder_id integer NOT NULL,
+  source     text NOT NULL CHECK (source IN ('contracts', 'builder_code')),
+  day        date NOT NULL,
+  users      integer NOT NULL CHECK (users >= 0),
+  "returning" integer NOT NULL CHECK ("returning" >= 0),
+  capped     boolean NOT NULL DEFAULT false,
+  href       text,
+  chains     text[] NOT NULL DEFAULT '{}',
+  PRIMARY KEY (builder_id, source, day)
+);
+
+-- v3.1 Used by, security review (2026-10-27): a Builder Code counts for a builder only when Base's Builder Codes
+-- registry (0x000000BC7E6457e610fe52Dcc0ca5b3ce59C8E80, payoutAddress(code)) pays one of their signature-proven
+-- wallets (person_wallets); a code in repo text is only a candidate (anyone can paste a popular app's code). One row per
+-- candidate: told (the builder named it through tell) or found by the repo scan; payout the registry's answer
+-- (lowercase, null when unregistered); owned the verdict; verified_at the last registry read (at most daily). A failed
+-- read keeps the previous verdict and never grants one.
+CREATE TABLE IF NOT EXISTS builder_code_claims (
+  code        text NOT NULL CHECK (code ~ '^[a-z0-9_]{1,64}$'),
+  builder_id  integer NOT NULL,
+  told        boolean NOT NULL DEFAULT false,
+  payout      text CHECK (payout ~ '^0x[0-9a-f]{40}$'),
+  owned       boolean NOT NULL DEFAULT false,
+  verified_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (code, builder_id)
+);

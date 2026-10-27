@@ -298,7 +298,9 @@ apps/frontend/
                                2026-10-25, each linking its proof: live + liveSub, contracts on every chain (contractsOf
                                over wallet_contracts), products (productsOf, from 2 hosts), consistency (consistencyItem,
                                weeks with code), won only + guide link, experience filler (github_users); siteHref,
-                               explorerHref, githubRepoHref build the escaped links), standingPill/pillOf (GTM W3: the one rank line, whole pool, metal by percentile),
+                               explorerHref (now in wallet-chains.ts, re-exported), githubRepoHref, githubFileHref build
+                               the escaped links; v3.1 Used by: usedByOf/usedByItem, second row, from USED_MIN over
+                               app_usage's newest fresh day per source), standingPill/pillOf (GTM W3: the one rank line, whole pool, metal by percentile),
                                backerWeeks (coin_backers.first_block by BASE_GENESIS_UNIX), profileSite (one call per view;
                                Token card only with EARNKIT_RAISING and never for EARNKIT_ORGS repos)
   app/fonts/kaftan-serif.woff2 Kaftan Serif 400 (owner-owned licence), --font-kaftan in layout.tsx
@@ -1065,7 +1067,13 @@ apps/frontend/
                                payingCampaign, publicNote; the board's review and funds
     prices.ts(+test)           DefiLlama price (llamaPrice), for golive
     campaign-text.ts(+test)    generated EarnKit campaign texts (earnkitTexts), ceilSig, goLive
-    builder-code.ts(+test)     EARNKIT_BUILDER_CODE (default "earnkit"), codesIn (ERC-8021 suffix)
+    builder-code.ts(+test)     EARNKIT_BUILDER_CODE (default "earnkit"), codesIn (ERC-8021 suffix); v3.1 Used by:
+                               BUILDER_CODE (^[a-z0-9_]{1,64}$), codesFromText (suffix literals, codes arrays)
+    used-by.ts                 v3.1 Used by: contractsUsage (Alchemy, anti-farming exclusions), usageSql + codesUsage
+                               (one CDP SQL query a day, CDP_CLIENT_API_KEY), verifyCodes/payoutOf (Base's Builder
+                               Codes registry: owned only when the payout is a proven wallet; builder_code_claims),
+                               ownedCodes, tellBuilderCode (tell builder_code), contractsDue, runUsedBy (the cron's
+                               daily step); app_usage rows. Tests: v31-used-by.test.ts
     entry-proof.ts(+test)      entryMessage ("EarnKit entry: <program> <repo key> <wallet> <contracts>"),
                                signToEnter, entrySigner (EIP-191)
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
@@ -1309,6 +1317,8 @@ apps/frontend/
                                v2.12 T6: last (always since v2.14 T3), builder-score.ts runScoreSteps
                                (CronDeps.builderScore: reader, login, only) inside scoreSliceEnd (40% of what
                                remains); `builder_score` in the result; needs_owner score-hold:<id> and X conflicts
+                               v3.1 Used by: used-by.ts runUsedBy after the Builder Codes step, its own slice
+                               (CronDeps.usedBy; `used_by` in the result)
     bonus-rounds.ts            deleted in v2.14 T3 (with bonus-payout.ts and bonus-board.ts): every deposit books to the Safe
     bonus-ledger.ts(+test,     v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
@@ -2415,3 +2425,15 @@ Code, wallet, commit count or "Applied to" rows; `contractsOf`, `productsOf`, `c
 from the consistency sub and drops the commits tile (`card-response.tsx`). Tests: `alchemy.test.ts`, `discovery.test.ts`
 7.4c, `v31-highlights.test.ts`, `v31-site-data.test.ts (c)-(c5)`, `v31-wallet-proof.test.ts`, `v3-shells.test.ts`,
 `v31-site-profile.test.ts`, `gtm-w2-replies.test.ts`, `v3-apply.test.ts`.
+
+v3.1 Used by (2026-10-27, design v3.1-used-by.md): new `used-by.ts` (`contractsUsage`, `usageSql`, `codesUsage`,
+`verifyCodes`, `payoutOf`, `ownedCodes`, `tellBuilderCode`, `BUILDER_CODES_REGISTRY`, `contractsDue`, `runUsedBy`, `USED_CONTRACTS`, `USED_PAGES`, `USED_PER_RUN`, `CDP_SQL_URL`, `cdpOn`);
+`alchemy.ts` (`isToken` split out of `contractCounts`, `contractSends`, `fundedBy`, `logNetworkOff`, `AlchemyReverted`);
+`mcp.ts` + `tools.ts` (tell `builder_code`, `BUILDER_CODE_SAVED`/`BUILDER_CODE_INVALID`; TELL_DESCRIPTION_BENCH shortened
+to fit); schema `builder_code_claims`; `events-redact.mts` lists `builder_code_claims.payout`; `wallet-chains.ts`
+(`explorerHref` moved here); `builder-code.ts` (`BUILDER_CODE`, `codesFromText`); `builder-codes-check.ts` (stores
+`codes`, reads on to the file naming the code); `cron.ts` (`CronDeps.usedBy`, `used_by`); `site-data.ts` (`usedByOf`,
+`USED_MIN`, `USED_STALE_DAYS`, `UsageRow`, `githubFileHref` back, `users` icon type); `HighlightsCard.tsx` (`users`
+icon); schema `repo_builder_codes.codes`, `app_usage`; `test-guard.ts` clears `CDP_CLIENT_API_KEY`; `db-check.mts`.
+Tests: `v31-used-by.test.ts`, `v31-builder-codes.test.ts (c6)`, `v31-site-data.test.ts (c3b)`, `v31-highlights.test.ts`,
+`schema-rerun.test.ts`.

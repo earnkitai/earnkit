@@ -9,7 +9,7 @@ import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { benchPercent, shownRankLine, type Standing } from './rank';
 import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
-import { walletChain } from './wallet-chains';
+import { WALLET_CHAINS, explorerHref, walletChain } from './wallet-chains';
 import { shipReading } from './week-facts';
 import { isoWeekOf, last52, mondayOfWeek } from './weeks';
 
@@ -97,7 +97,7 @@ function commitsFrom(g: Record<string, unknown> | null, now: Date): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
-export type HighlightIcon = 'live' | 'contract' | 'products' | 'consistency' | 'won' | 'experience' | 'start';
+export type HighlightIcon = 'live' | 'users' | 'contract' | 'products' | 'consistency' | 'won' | 'experience' | 'start';
 /** One Highlights fact; `href`, its proof (opened in a new tab), only where a visitor can open it (never a private repo's). */
 export type Highlight = { icon: HighlightIcon; title: string; sub: string; href?: string };
 export const HIGHLIGHTS_MAX = 5;
@@ -125,14 +125,23 @@ export const siteHref = (ref: string): string | null => {
   return u && u.protocol === 'https:' && u.hostname && !u.username && !u.password ? u.origin : null;
 };
 const ADDRESS = /^0x[0-9a-f]{40}$/i;
-/** A contract's page on its chain's explorer (wallet-chains.ts), null for another chain or anything not a 0x address. Pure. */
-export const explorerHref = (chain: string, address: string): string | null => {
-  const c = walletChain(chain);
-  return c && ADDRESS.test(address) ? `https://${c.explorer}/address/${address.toLowerCase()}` : null;
-};
+export { explorerHref };
+/** The explorers a stored Used by link may point at (wallet-chains.ts). */
+const WALLET_EXPLORERS = new Set<string>(WALLET_CHAINS.map((c) => c.explorer));
 const segments = (path: string) => path.split('/').map(encodeURIComponent).join('/');
 /** A public repo's GitHub page ("owner/repo" keys only). Pure. */
 export const githubRepoHref = (key: string): string | null => (REPO_KEY.test(norm(key)) ? `https://github.com/${segments(norm(key))}` : null);
+/**
+ * A file's GitHub page on a branch (each segment escaped; "HEAD", GitHub's default branch, when the branch is unknown);
+ * null for a key that is not "owner/repo", an empty path, or a path that climbs out ("..", "."). Pure. Back for v3.1
+ * Used by: a Builder Code number links the file the code is in (used-by.ts stores it, usedByOf shows it while public).
+ */
+export const githubFileHref = (key: string, branch: string | null, path: string): string | null => {
+  const repo = githubRepoHref(key);
+  const parts = path.split('/');
+  if (!repo || !path || parts.some((x) => x === '' || x === '.' || x === '..')) return null;
+  return `${repo}/blob/${segments(branch || 'HEAD')}/${segments(path)}`;
+};
 const LOGIN = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/i;
 
 /**
@@ -173,8 +182,50 @@ async function liveItem(builderId: number, key: string, hiddenRepo: boolean, now
   return null;
 }
 
+/** v3.1 Used by: the row shows from this many people (never "1 person"). */
+export const USED_MIN = 10;
+/** v3.1 Used by: a source's newest day older than this many days is hidden (its daily read has stopped). */
+export const USED_STALE_DAYS = 3;
+/** One app_usage row (used-by.ts): a source's newest day. */
+export type UsageRow = { source: 'contracts' | 'builder_code'; users: number; returning: number; capped: boolean; href: string | null; chains: string[] };
+
 /**
- * 2. contracts, v3.1 Highlights competence (2026-10-25, owner: contracts deployed are a good signal, across chains;
+ * 2. used by, v3.1 Used by (2026-10-27, owner: "agreed and go"; real people use what they built): from the newest
+ * fresh app_usage row of each source (used-by.ts reads them daily), the one with more people (they overlap, never
+ * summed; a tie keeps contracts), from USED_MIN. "Used by N people in the last 30 days" ("N+" when a contract's read
+ * hit its page cap); sub "P% came back" (returning: 2 or more ISO weeks), or where when P rounds to 0 ("On Base",
+ * "On 2 chains"; nothing when unknown). Link: the busiest contract on its explorer; for a Builder Code number, the
+ * file the code is in only while `repoPrefix` (the public main repo's page) starts it, else none. Never a wallet. Pure.
+ */
+export function usedByOf(rows: UsageRow[], repoPrefix: string | null): Highlight | null {
+  const best = rows
+    .filter((r) => Number.isInteger(r.users) && r.users >= USED_MIN)
+    .sort((a, b) => b.users - a.users || (a.source === 'contracts' ? -1 : 1))[0];
+  if (!best) return null;
+  const n = best.users;
+  const p = Math.round((100 * Math.min(Math.max(best.returning, 0), n)) / n);
+  const chains = best.chains.filter((c) => walletChain(c));
+  const where = chains.length === 1 ? `On ${walletChain(chains[0])!.label}` : chains.length > 1 ? `On ${count(chains.length)} chains` : '';
+  const href = best.source === 'contracts'
+    ? (best.href && /^https:\/\/[a-z.]+\/address\/0x[0-9a-f]{40}$/.test(best.href) && WALLET_EXPLORERS.has(new URL(best.href).hostname) ? best.href : null)
+    : (best.href && repoPrefix && best.href.startsWith(`${repoPrefix}/blob/`) ? best.href : null);
+  return {
+    icon: 'users',
+    title: `Used by ${count(n)}${best.capped ? '+' : ''} people in the last 30 days`,
+    sub: p > 0 ? `${p}% came back` : where,
+    ...(href && { href }),
+  };
+}
+async function usedByItem(builderId: number, repoPrefix: string | null, now: Date): Promise<Highlight | null> {
+  const rows = await sql()<UsageRow[]>`
+    SELECT DISTINCT ON (source) source, users, "returning" AS returning, capped, href, chains FROM app_usage
+    WHERE builder_id = ${builderId} AND day >= ${now.toISOString().slice(0, 10)}::date - ${USED_STALE_DAYS}::int
+    ORDER BY source, day DESC`;
+  return usedByOf(rows, repoPrefix);
+}
+
+/**
+ * 3. contracts, v3.1 Highlights competence (2026-10-25, owner: contracts deployed are a good signal, across chains;
  * never anything coin related): the builder's counted wallet_contracts rows (`rows`, oldest first), the contracts a
  * wallet they proved by signature created itself that are not tokens and that another address used (discovery reads
  * them, alchemy.ts alchemyWalletContracts). "3 contracts on Base" on one chain, "12 contracts on 3 chains" on several;
@@ -203,7 +254,7 @@ async function contractsItem(builderId: number): Promise<Highlight | null> {
 }
 
 /**
- * 3. products, v3.1 Highlights competence: the distinct hosts of the builder's verified site sources, any project, that
+ * 4. products, v3.1 Highlights competence: the distinct hosts of the builder's verified site sources, any project, that
  * read up at least once, oldest first up day first (liveItem's rules: hostOf, and a hidden repo's GitHub-hosted site
  * left out). From PRODUCTS_MIN: "Shipped N products", the first PRODUCTS_NAMED hosts named ("and N more" after),
  * linked to the oldest one's site.
@@ -234,7 +285,7 @@ export function productsOf(hosts: { host: string; ref: string }[]): Highlight | 
 }
 
 /**
- * 4. consistency, v3.1 Highlights competence (replaces the repo's commit count): the weeks with code in the profile's
+ * 5. consistency, v3.1 Highlights competence (replaces the repo's commit count): the weeks with code in the profile's
  * 52-week grid (ProfileData.grid), "Shipped in N of the last 52 weeks", from one week. Sub "Building <name> since
  * <Mon YYYY>" from the ship reading's created_at (no name for PRIVATE_NAME; empty when unknown or in the future),
  * linked to the repo while it is public. Pure.
@@ -250,7 +301,7 @@ export function consistencyItem(name: string, grid: { on: boolean }[], reading: 
 }
 
 /**
- * 5. won (page-data.ts projectProgramsDated): won, funded or accepted only (programLabel), never "Applied to", at most
+ * 6. won (page-data.ts projectProgramsDated): won, funded or accepted only (programLabel), never "Applied to", at most
  * PROGRAMS_MAX, linked to the program's guide when it has one.
  */
 async function programItems(builderId: number, key: string): Promise<Highlight[]> {
@@ -264,9 +315,9 @@ async function programItems(builderId: number, key: string): Promise<Highlight[]
 }
 
 /**
- * 6. experience, v3.1 Highlights competence: when the builder's GitHub account was made (github_users, which
+ * 7. experience, v3.1 Highlights competence: when the builder's GitHub account was made (github_users, which
  * people-signals.ts fills) for the proven login (builder_profiles.github_login is only ever set from a verified
- * source), linked to their GitHub profile. A filler: shown only while rows 1 to 5 leave a slot.
+ * source), linked to their GitHub profile. A filler: shown only while the rows before it leave a slot.
  */
 async function experienceItem(builderId: number): Promise<Highlight | null> {
   const [r] = await sql()<{ login: string; at: Date }[]>`
@@ -290,7 +341,8 @@ const part = async <T>(name: string, read: () => Promise<T>, fallback: T): Promi
 /**
  * The Highlights card, v3.1 Highlights competence (owner ruling 2026-10-25: what ecosystems and investors value about
  * the builder's competence, chain-agnostic; never anything coin related, no Base-only rows): every item a fact a judge
- * can check in one click, linked to its proof, at most HIGHLIGHTS_MAX in order: live, contracts deployed (every chain),
+ * can check in one click, linked to its proof, at most HIGHLIGHTS_MAX in order: live, used by (v3.1 Used by: people
+ * in the last 30 days, from USED_MIN), contracts deployed (every chain),
  * products shipped (from 2), consistency (weeks with code), won (at most 2), then experience (GitHub's account age)
  * only while a slot is free. Without a Bench-confirmed project, or with none of these yet, one item: on EarnKit since
  * the claim. Never empty.
@@ -308,16 +360,17 @@ async function highlightsOf(builderId: number, d: ProfileData, now: Date, main: 
   const hiddenRepo = REPO_KEY.test(norm(key)) && d.project.repo === null;
   // A repo is linked only while it reads public (shown) and the reading does not say private: never a link to a 404.
   const publicRepo = REPO_KEY.test(norm(key)) && !hiddenRepo && reading?.private !== true;
-  const [live, contracts, products, programs, experience] = await Promise.all([
+  const [live, usedBy, contracts, products, programs, experience] = await Promise.all([
     part('live', () => liveItem(builderId, key, hiddenRepo, now), null),
+    part('used by', () => usedByItem(builderId, publicRepo ? githubRepoHref(key) : null, now), null),
     part('contracts', () => contractsItem(builderId), null),
     part('products', () => productsItem(builderId), null),
     part('programs', () => programItems(builderId, key), [] as Highlight[]),
     part('experience', () => experienceItem(builderId), null),
   ]);
   const consistency = consistencyItem(d.project.name, d.grid, reading, publicRepo ? githubRepoHref(key) : null, now);
-  // Experience is last, so the slice keeps it only while rows 1 to 5 leave a slot.
-  const items = [live, contracts, products, consistency, ...programs, experience].filter((h): h is Highlight => h !== null).slice(0, HIGHLIGHTS_MAX);
+  // Experience is last, so the slice keeps it only while the rows before it leave a slot.
+  const items = [live, usedBy, contracts, products, consistency, ...programs, experience].filter((h): h is Highlight => h !== null).slice(0, HIGHLIGHTS_MAX);
   return items.length > 0 ? items : [{ icon: 'start', title: since, sub: 'On the leaderboard' }];
 }
 

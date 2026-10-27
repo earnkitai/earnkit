@@ -289,6 +289,47 @@ test('(c3) Highlights: won only (never "Applied to"), at most 2, won first; expe
   assert.ok(!(await readGuideIds()).includes(gone));
 });
 
+/** A day's app_usage row for the builder (used-by.ts writes them daily). */
+async function usedBy(b: B, source: 'contracts' | 'builder_code', day: string, users: number, returning: number, o: { href?: string | null; chains?: string[]; capped?: boolean } = {}) {
+  await sql()`INSERT INTO app_usage (builder_id, source, day, users, "returning", capped, href, chains)
+    VALUES (${b.id}, ${source}, ${day}, ${users}, ${returning}, ${o.capped ?? false}, ${o.href ?? null}, ${o.chains ?? ['base']}::text[])`;
+}
+
+test('(c3b) v3.1 Used by: the row comes second (after live), the larger source, the newest day of each, hidden past 3 days; at most 5 rows', db, async () => {
+  const b = await baseBuilder({ name: 'Kit' });
+  await sql()`UPDATE builder_projects SET commit_weeks = ${last52(NOW).slice(-3)} WHERE builder_id = ${b.id}`;
+  await site(b, 'https://kit.example', daysUp('2026-10-21', 8));
+  await site(b, 'https://two.example', daysUp('2026-10-21', 2));
+  const [c] = await walletContracts(b, [['base', '2025-01-01T00:00:00Z', true]]);
+  await won(b, `v31-site-${process.pid}-ub`, `Used ${RUN}`, '2026-09-02T10:00:00Z');
+  await githubSince(b, '2017-08-20T00:00:00Z');
+  const explorer = `https://basescan.org/address/${c}`;
+  // An older day of contracts (bigger, but superseded by the newest) and today's; a Builder Code number that is larger.
+  await usedBy(b, 'contracts', '2026-10-19', 900, 10, { href: explorer });
+  await usedBy(b, 'contracts', '2026-10-21', 240, 60, { href: explorer });
+  const file = `https://github.com/${b.key}/blob/HEAD/src/onchain/tx.ts`;
+  await usedBy(b, 'builder_code', '2026-10-20', 300, 0, { href: file });
+  let h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h.map((x) => x.icon), ['live', 'users', 'contract', 'products', 'consistency'], 'won and experience drop: at most 5');
+  assert.deepEqual(h[1], { icon: 'users', title: 'Used by 300 people in the last 30 days', sub: 'On Base', href: file });
+  // The Builder Code number goes stale (over 3 days old): the contracts number shows.
+  await sql()`UPDATE app_usage SET day = '2026-10-17' WHERE builder_id = ${b.id} AND source = 'builder_code'`;
+  h = await highlights(b.id, await page(b.id), NOW);
+  assert.deepEqual(h[1], { icon: 'users', title: 'Used by 240 people in the last 30 days', sub: '25% came back', href: explorer });
+  // Under USED_MIN: no row. Both stale: no row.
+  await usedBy(b, 'contracts', '2026-10-20', 1, 1);
+  await sql()`DELETE FROM app_usage WHERE builder_id = ${b.id} AND day = '2026-10-21'`;
+  assert.ok(!(await highlights(b.id, await page(b.id), NOW)).some((x) => x.icon === 'users'));
+  await sql()`DELETE FROM app_usage WHERE builder_id = ${b.id}`;
+  await usedBy(b, 'contracts', '2026-10-17', 500, 0);
+  assert.ok(!(await highlights(b.id, await page(b.id), NOW)).some((x) => x.icon === 'users'));
+  // A hidden or private repo never links its file.
+  const p = await builder({ hidden: true, chains: ['base'], proof: 'github_app', commitWeeks: last52(NOW).slice(-2) });
+  await usedBy(p, 'builder_code', '2026-10-21', 50, 0, { href: `https://github.com/${p.key}/blob/HEAD/a.ts` });
+  const hp = (await highlights(p.id, await page(p.id), NOW)).find((x) => x.icon === 'users');
+  assert.deepEqual(hp, { icon: 'users', title: 'Used by 50 people in the last 30 days', sub: 'On Base' });
+});
+
 test('(c4) a private repo: consistency shows without a link (never a 404), the name never shows; its proven site shows; its GitHub-hosted site is never a product', db, async () => {
   const key = `s${RUN}p/stealthy`;
   const b = await builder({ key, name: 'stealthy', hidden: true, chains: ['base'], proof: 'github_app', commitWeeks: last52(NOW).slice(-4) });

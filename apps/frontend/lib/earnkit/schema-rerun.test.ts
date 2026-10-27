@@ -89,6 +89,26 @@ test('v3.1 Highlights fix round 1: repo_builder_codes_attempts and builder_sourc
   await sql()`DELETE FROM builder_sources WHERE id = ${id}`;
 });
 
+test('v3.1 Used by: repo_builder_codes.codes and app_usage survive a rerun with their values; the source CHECK holds', dbTest, async () => {
+  const key = `rerun-ub-${process.pid}/app`;
+  const id = -process.pid - 2;
+  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at, path, codes) VALUES (${key}, true, now(), 'src/tx.ts', ${['maya', 'maya_2']}::text[])`;
+  await sql()`INSERT INTO app_usage (builder_id, source, day, users, "returning", capped, href, chains) VALUES (${id}, 'contracts', '2026-10-27', 120, 30, true, 'https://basescan.org/address/0x1', ${['base']}::text[])`;
+  await sql().unsafe(SCHEMA);
+  await sql().unsafe(SCHEMA);
+  assert.deepEqual([...await sql()`SELECT codes FROM repo_builder_codes WHERE repo_key = ${key}`], [{ codes: ['maya', 'maya_2'] }]);
+  assert.deepEqual([...await sql()`SELECT users, "returning" AS r, capped, chains FROM app_usage WHERE builder_id = ${id}`], [{ users: 120, r: 30, capped: true, chains: ['base'] }]);
+  await assert.rejects(sql()`INSERT INTO app_usage (builder_id, source, day, users, "returning") VALUES (${id}, 'tokens', '2026-10-27', 1, 0)`, /app_usage_source_check/);
+  // Security review: the registry verdicts survive too; a code outside ^[a-z0-9_]{1,64}$ is refused.
+  await sql()`INSERT INTO builder_code_claims (code, builder_id, told, payout, owned, verified_at) VALUES ('maya', ${id}, true, ${`0x${'c'.repeat(40)}`}, true, now())`;
+  await sql().unsafe(SCHEMA);
+  assert.deepEqual([...await sql()`SELECT told, owned FROM builder_code_claims WHERE builder_id = ${id}`], [{ told: true, owned: true }]);
+  await assert.rejects(sql()`INSERT INTO builder_code_claims (code, builder_id) VALUES ('Bad-Code', ${id})`, /builder_code_claims_code_check/);
+  await sql()`DELETE FROM builder_code_claims WHERE builder_id = ${id}`;
+  await sql()`DELETE FROM repo_builder_codes WHERE repo_key = ${key}`;
+  await sql()`DELETE FROM app_usage WHERE builder_id = ${id}`;
+});
+
 test('v3.1 one-tap posts: post_drafts and its index survive a rerun with their rows; a bad code or an over-long text is refused', dbTest, async () => {
   const code = `rr${'a'.repeat(8)}`;
   await sql()`DELETE FROM post_drafts WHERE code = ${code}`;

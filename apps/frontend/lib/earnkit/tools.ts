@@ -1,3 +1,4 @@
+import { tellBuilderCode } from './used-by';
 import type { ProofFetch } from './outcome-proof';
 import { coinLaunchedReply, newsPost, outcomePost } from './post-reply';
 import { hasEntry } from './post-moments';
@@ -2829,6 +2830,10 @@ export const ConfirmInput = z
 /** v3.1 (spec 3.4): what confirm says to a program_id (EarnKit drafts; the builder sends the application). */
 export const CONFIRM_ENTRY_GONE = "EarnKit drafts applications now; the builder sends them on the program's site. Call prepare for a draft.";
 
+/** v3.1 Used by: tell builder_code's replies (one short sentence each). */
+export const BUILDER_CODE_SAVED = 'Saved. Your Builder Code counts once its payout wallet is one you proved.';
+export const BUILDER_CODE_INVALID = 'That is not a Builder Code: lowercase letters, digits and underscores only.';
+
 export const TellToolInput = z
   .object({
     submitted: z
@@ -2880,6 +2885,8 @@ export const TellToolInput = z
     main_project: z.string().max(300).optional(),
     // v3.1 wallet proof: the builder wants their rewards sent to another wallet (or to add one): a fresh signing link.
     wallet: z.string().max(100).optional(),
+    // v3.1 Used by: a Base Builder Code the builder named, a candidate until the registry pays a wallet they proved.
+    builder_code: z.string().max(100).optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
     update: z.object({ text: z.string().max(2000).optional(), hide: z.string().max(20).optional() }).strict().optional(),
     // v2.14 spec 3 (A12): titles on or off for a private repo's log; an older agent's { on, scheduled } is answered, nothing changes.
@@ -3275,12 +3282,12 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, wallet, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, wallet, builder_code, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
-    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet))
+    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       // Owner ruling 2026-10-24: "delete my data" is only offered a hidden page.
@@ -3294,6 +3301,10 @@ export const tools = {
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
       // Any value: agents send the address the builder named as often as 'change'.
       if (wallet?.trim()) replies.push(await walletChangeReply(ctx.installationId, new Date()));
+      // v3.1 Used by (security review): a code they named is only a candidate; it counts once Base's registry pays a
+      // wallet they proved (used-by.ts verifyCodes, daily).
+      if (builder_code !== undefined)
+        replies.push({ show_to_builder: (await tellBuilderCode(ctx.installationId, builder_code.trim())) ? BUILDER_CODE_SAVED : BUILDER_CODE_INVALID });
       // R8: the coin or community-round line, only because the builder asked about a token.
       if (token === 'ask') replies.push(await tokenAsk(ctx.installationId, { check: ctx.tokenDeps?.check }));
       // v2.13 T9: coin { raising } turns the page's raising line on or off (EARNKIT_RAISING only).

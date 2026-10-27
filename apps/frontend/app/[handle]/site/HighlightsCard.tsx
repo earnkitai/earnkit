@@ -3,13 +3,14 @@ import type { Highlight, HighlightIcon } from '../../../lib/earnkit/site-data';
 import { CARD_PANEL, phoneRadius } from '../../components/site/ui';
 
 /**
- * The board's icon paths (lucide strokes): a globe, a box, layers, a calendar with a check, a send arrow, a terminal, a
- * calendar. v3.1 Highlights competence (2026-10-25): products, consistency and experience added; code, repo and applied
- * went with their rows.
+ * The board's icon paths (lucide strokes): a globe, two people, a box, layers, a calendar with a check, a send arrow, a
+ * terminal, a calendar. v3.1 Highlights competence (2026-10-25): products, consistency and experience added; code, repo
+ * and applied went with their rows. v3.1 Used by (2026-10-27): users (lucide users) for the people who used it.
  */
 const CALENDAR = ['M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z', 'M16 2v4M8 2v4', 'M3 10h18'];
 const ICON: Record<HighlightIcon, string[]> = {
   live: ['M2 12h20', 'M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20', 'M12 2a10 10 0 1 0 0 20 10 10 0 1 0 0-20'],
+  users: ['M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', 'M9 3a4 4 0 1 0 0 8 4 4 0 1 0 0-8', 'M22 21v-2a4 4 0 0 0-3-3.87', 'M16 3.13a4 4 0 0 1 0 7.75'],
   contract: [
     'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
     'm3.3 7 8.7 5 8.7-5',

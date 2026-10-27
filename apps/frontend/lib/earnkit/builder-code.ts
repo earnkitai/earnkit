@@ -34,6 +34,31 @@ const SUFFIX_LITERAL = new RegExp(`0x[0-9a-f]*${BUILDER_CODES_SUFFIX}\\b`, 'i');
 export function builderCodesIn(text: string): boolean {
   return text.includes('ox/erc8021') || text.includes('Attribution.toDataSuffix') || /\bdataSuffix\s*:/.test(text) || SUFFIX_LITERAL.test(text);
 }
+
+/**
+ * v3.1 Used by (2026-10-27): the only Builder Code strings EarnKit ever reads, stores or puts into the CDP SQL query
+ * (used-by.ts): lowercase letters, digits and underscores, 1 to 64 long. Anything else is dropped, never escaped.
+ */
+export const BUILDER_CODE = /^[a-z0-9_]{1,64}$/;
+const SUFFIX_LITERALS = new RegExp(`0x[0-9a-f]*${BUILDER_CODES_SUFFIX}\\b`, 'gi');
+const CODES_ARRAY = /\bcodes\s*:\s*\[([^\]]{0,2000})\]/g;
+const QUOTED = /(['"`])([^'"`\n]{1,200})\1/g;
+/**
+ * v3.1 Used by: the Builder Code strings written in source text, in first-seen order without repeats: each hex
+ * data-suffix literal decoded (codesIn), and each string in a `codes: ['...']` or `codes: ["..."]` array
+ * (Attribution.toDataSuffix's input). Only BUILDER_CODE strings are kept; a code read from an env var or built at
+ * runtime is invisible here (the builder can name it through tell). A code found here is only a candidate: it counts
+ * once Base's registry pays a wallet the builder proved (used-by.ts verifyCodes). Pure.
+ */
+export function codesFromText(text: string): string[] {
+  const out: string[] = [];
+  const add = (c: string) => {
+    if (BUILDER_CODE.test(c) && !out.includes(c)) out.push(c);
+  };
+  for (const m of text.matchAll(SUFFIX_LITERALS)) codesIn(m[0].toLowerCase()).forEach(add);
+  for (const m of text.matchAll(CODES_ARRAY)) for (const q of m[1].matchAll(QUOTED)) add(q[2]);
+  return out;
+}
 /** The program whose Best fit line carries the Builder Codes sentence. */
 export const BASE_GRANTS_ID = 'base-builder-grants';
 export const builderCodesFound = (repo: string) => `Builder Codes found in ${repo}.`;

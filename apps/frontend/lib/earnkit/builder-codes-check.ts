@@ -1,6 +1,6 @@
 import { sql } from './db';
 import { appClient } from './repo-proof';
-import { BUILDER_CODES_FIRST, builderCodesFound, builderCodesIn } from './builder-code';
+import { BUILDER_CODES_FIRST, builderCodesFound, builderCodesIn, codesFromText } from './builder-code';
 
 /**
  * v3.1 Task 7: Base says the first step to be eligible for Base Builder Grants is to integrate Builder Codes
@@ -72,21 +72,36 @@ export async function checkBuilderCodes(
       .filter((e) => e.type === 'blob' && typeof e.path === 'string' && !(typeof e.size === 'number' && e.size > MAX_FILE_BYTES))
       .map((e) => e.path as string);
     let found: string | null = null;
+    let codes: string[] = [];
     for (const path of codePaths(blobs)) {
-      if (past()) return null;
+      // v3.1 Used by: once found, the scan only goes on to look for the code strings; a stop then keeps what it has.
+      if (past()) {
+        if (found) break;
+        return null;
+      }
       const file = await get<Content>(`/repos/${key}/contents/${path.split('/').map(encodeURIComponent).join('/')}`);
-      if (!file) return null;
+      if (!file) {
+        if (found) break;
+        return null;
+      }
       // Fix round 1: a path that answers without text (a symlink, a submodule) is skipped; the scan goes on.
       if (file.encoding !== 'base64' || typeof file.content !== 'string') continue;
-      if (builderCodesIn(Buffer.from(file.content, 'base64').toString('utf8'))) {
+      const text = Buffer.from(file.content, 'base64').toString('utf8');
+      if (!builderCodesIn(text)) continue;
+      // v3.1 Used by (2026-10-27): the code strings themselves (codesFromText), so used-by.ts can ask CDP how many
+      // people used them. The first file carrying Builder Codes is `found`; when it names no code (a dataSuffix fed from
+      // a constant elsewhere), the next files carrying Builder Codes are read until one does, and the path is that one's.
+      found ??= path;
+      codes = codesFromText(text);
+      if (codes.length > 0) {
         found = path;
         break;
       }
     }
-    // v3.1 Highlights: the file it was found in (the profile links to it), null when none.
+    // v3.1 Highlights: the file it was found in (the profile links to it), null when none. v3.1 Used by: its codes.
     await sql()`
-      INSERT INTO repo_builder_codes (repo_key, found, checked_at, path) VALUES (${key}, ${found !== null}, ${now}, ${found})
-      ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at, path = EXCLUDED.path`;
+      INSERT INTO repo_builder_codes (repo_key, found, checked_at, path, codes) VALUES (${key}, ${found !== null}, ${now}, ${found}, ${codes}::text[])
+      ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at, path = EXCLUDED.path, codes = EXCLUDED.codes`;
     return found !== null;
   } catch (err) {
     console.error('[builder-codes] check', err instanceof Error ? err.name : 'error');
