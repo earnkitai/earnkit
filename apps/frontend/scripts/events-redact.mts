@@ -81,6 +81,8 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['person_wallets', 'funder'],
   // v3.1 Highlights competence: the proven wallet that created a contract (discovery.ts, alchemy.ts).
   ['wallet_contracts', 'wallet'],
+  // v3.1 Used by: the wallet Base's Builder Codes registry pays for a builder's code (used-by.ts verifyCodes).
+  ['builder_code_claims', 'payout'],
   // v2.12.1 T10 fix round 1: the wallet a coin line showed (the row is deleted with the page data).
   ['coin_moments', 'wallet'],
   // v3 Stage 2: a wallet that received a coin (backers.ts), and a creator wallet's claimed fees (earned.ts).

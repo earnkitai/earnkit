@@ -8158,20 +8158,33 @@ related, no row without data, every row links to proof).
   `base.transaction_attributions` joined to `base.transactions` (EOA senders) and `base.decoded_user_operations` (ARRAY
   JOIN builder_codes, success only), action = 1, the last 30 days, per code distinct lowercase senders and those in 2+
   distinct `toMonday` weeks, less `(code, wallet)` pairs of the owner's proven wallets. Only `builder-code.ts
-  BUILDER_CODE` (`^[a-z0-9_]{1,64}$`) codes and 0x wallets go in; nothing is escaped. Whose code (`codeOwners`):
-  `repo_builder_codes.codes` of a found repo some builder proved through the App; a code two builders' repos claim
-  counts for neither; only Bench-confirmed builders keep one. A builder with several codes keeps the largest.
+  BUILDER_CODE` (`^[a-z0-9_]{1,64}$`) codes and 0x wallets go in; nothing is escaped. Only owned codes are asked
+  (`ownedCodes`, Bench-confirmed builders); a builder with several codes keeps the largest. Its link is the repo file
+  when one of the builder's App-proven repos carries the code, else none.
+- **Whose code** (security review 2026-10-27, binding: repo text is not proof, and the earlier "two builders claim it,
+  neither counts" rule let an attacker cancel the real owner): `used-by.ts verifyCodes`, first in the daily step (needs
+  Alchemy), reads Base's Builder Codes registry (`BUILDER_CODES_REGISTRY` 0x000000bc7e...8e80, `payoutOf`:
+  `payoutAddress(string)` by eth_call, viem encode/decode). A code is owned only when the payout address (lowercase)
+  is one of that builder's `person_wallets`. A revert (`alchemy.ts AlchemyReverted`, "execution reverted", the
+  registry's Unregistered) is not owned; any other failure stores nothing (the previous verdict stands, never granted
+  on a failure; retried next run). Candidates: every code in an App-proven repo's scan, and `tell builder_code`
+  (`tools.ts`, `tellBuilderCode`; replies `BUILDER_CODE_SAVED` / `BUILDER_CODE_INVALID`; shared clients get
+  `SHARED_PROFILE_NOTE`). Store `builder_code_claims(code, builder_id, told, payout, owned, verified_at)`, PK (code,
+  builder_id); Bench-confirmed builders' candidates re-read when not verified within `CODE_VERIFY_MS` (a day), never
+  verified first, at most `CODES_VERIFIED_PER_RUN` = 100 a run. `events-redact.mts` lists `builder_code_claims.payout`.
+  Two builders can name one code; a wallet belongs to one builder, so at most one owns it.
 - **Code strings** (`builder-codes-check.ts checkBuilderCodes`, the existing daily scan): `builder-code.ts
   codesFromText` reads each hex data-suffix literal (decoded with `codesIn`) and each `codes: ['...']` / `codes:
   ["..."]` array, keeps `BUILDER_CODE` strings, stored in `repo_builder_codes.codes`. When the first file carrying
   Builder Codes names none, the scan reads on to the next carrying Builder Codes that does (its path is then stored);
-  a stop after the first find keeps what it has. A code from an env var cannot be seen (documented limit).
+  a stop after the first find keeps what it has. A code from an env var cannot be seen in the repo (the builder can
+  name it through tell).
 - **Store** `app_usage(builder_id, source CHECK contracts|builder_code, day, users, "returning", capped, href,
   chains, PK (builder_id, source, day))` (`returning` is a reserved word: always quoted). `chains` is an addition to
   the design's columns (the sub's "On Base" / "On 2 chains" label). A row is stored under `USED_MIN` too (the row
   hides it).
 - **Schedule** (`cron.ts`, `used_by` in the answer, `CronDeps.usedBy`): `runUsedBy` after the Builder Codes step, in
-  its own slice (`builderCodesSliceEnd`): the one Builder Code query, then `contractsDue` (Bench-confirmed builders
+  its own slice (`builderCodesSliceEnd`): `verifyCodes` (Alchemy on), the one Builder Code query, then `contractsDue` (Bench-confirmed builders
   with a contract and no contracts row today, never read first, at most `USED_PER_RUN` = 20) one at a time, each
   claimed for its UTC day (`hit('usedByContracts:<id>:<day>')`) before its reads, so a failing builder waits a day.
   Contracts are off without `ALCHEMY_API_KEY`. Alchemy cost per builder a day: at most 10 x 5 transfer pages, one

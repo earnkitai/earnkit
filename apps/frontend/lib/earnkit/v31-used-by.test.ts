@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { person } from './fixtures/find';
-import { AlchemyNetworkOff, contractSends, type AlchemyCall } from './alchemy';
+import { AlchemyNetworkOff, AlchemyReverted, alchemyCall, contractSends, type AlchemyCall } from './alchemy';
 import { BUILDER_CODES_SUFFIX, codesFromText } from './builder-code';
 import { Attribution } from 'ox/erc8021';
-import { CDP_SQL_URL, USED_CONTRACTS, USED_PAGES, codeOwners, codesUsage, contractsDue, contractsUsage, runUsedBy, usageSql } from './used-by';
+import { BUILDER_CODES_REGISTRY, CDP_SQL_URL, USED_CONTRACTS, USED_PAGES, codesUsage, contractsDue, contractsUsage, ownedCodes, runUsedBy, tellBuilderCode, usageSql, verifyCodes } from './used-by';
+import { decodeFunctionData, encodeFunctionResult, getAddress, parseAbi } from 'viem';
+import { BUILDER_CODE_INVALID, BUILDER_CODE_SAVED, tools, type ToolContext } from './tools';
 import { USED_MIN, githubFileHref, usedByOf, type UsageRow } from './site-data';
 import { runCron } from './cron';
 
@@ -106,21 +108,117 @@ const codesRow = (repo: string, codes: string[], path = 'src/onchain/tx.ts') => 
 const usage = async (id: number, source: string) => [...await sql()<{ day: string; users: number; returning: number; capped: boolean; href: string | null; chains: string[] }[]>`
   SELECT day::text, users, "returning" AS returning, capped, href, chains FROM app_usage WHERE builder_id = ${id} AND source = ${source} ORDER BY day`];
 
-test('codesUsage: no key is off (nothing asked); one query a day for all codes, the builders\' proven wallets excluded; a code in two builders\' repos counts for neither', db, async () => {
+/**
+ * A fake Builder Codes registry on Base: payoutAddress(code) answers `payouts[code]`; 'revert' reverts (Unregistered),
+ * 'fail' fails the read. Records the codes asked.
+ */
+function registry(payouts: Record<string, string>) {
+  const asked: string[] = [];
+  const call = (async (method: string, params: unknown[]) => {
+    const q = params[0] as { to: string; data: `0x${string}` };
+    assert.equal(method, 'eth_call');
+    assert.equal(q.to, BUILDER_CODES_REGISTRY);
+    const { args } = decodeFunctionData({ abi: PAYOUT_ABI, data: q.data });
+    const code = String(args[0]);
+    asked.push(code);
+    const p = payouts[code];
+    if (p === undefined || p === 'revert') throw new AlchemyReverted('eth_call');
+    if (p === 'fail') throw new Error('Alchemy eth_call returned 500');
+    return encodeFunctionResult({ abi: PAYOUT_ABI, functionName: 'payoutAddress', result: p as `0x${string}` });
+  }) as AlchemyCall;
+  return { call, asked };
+}
+const PAYOUT_ABI = parseAbi(['function payoutAddress(string code) view returns (address)']);
+const claims = async (id: number) => [...await sql()<{ code: string; told: boolean; payout: string | null; owned: boolean }[]>`
+  SELECT code, told, payout, owned FROM builder_code_claims WHERE builder_id = ${id} ORDER BY code`];
+
+test('verifyCodes: a code counts only when Base\'s registry pays a wallet the builder proved; someone else\'s, unregistered or a failed read never; two candidates, one owner', db, async () => {
+  const a = await builder({ wallets: 2 });
+  const copycat = await builder();
+  const told = await builder();
+  const unconfirmed = await builder({ confirmed: false });
+  await codesRow(a.key, ['maya', 'maya_old', 'nobody']);
+  // A popular app's code pasted into another builder's repo is only a candidate.
+  await codesRow(copycat.key, ['maya', 'flaky']);
+  await codesRow(unconfirmed.key, ['ghost']);
+  assert.equal(await tellBuilderCode(told.id, 'told_code'), true);
+  assert.equal(await tellBuilderCode(told.id, 'Bad-Code'), false);
+  const only = [a.id, copycat.id, told.id, unconfirmed.id];
+  const stranger = addr();
+  const reg = registry({ maya: getAddress(a.wallets[0]), maya_old: a.wallets[1], nobody: stranger, flaky: 'fail', told_code: told.wallets[0], ghost: unconfirmed.wallets[0] });
+  const now = new Date('2026-10-20T08:00:00Z');
+  assert.deepEqual(await verifyCodes(now, reg.call, { deadline: Date.now() + 5000, only }), { due: 6, verified: 5, owned: 3, failed: 1 });
+  assert.ok(!reg.asked.includes('ghost'), 'only Bench-confirmed builders are verified');
+  assert.deepEqual(await claims(a.id), [
+    { code: 'maya', told: false, payout: a.wallets[0], owned: true },
+    { code: 'maya_old', told: false, payout: a.wallets[1], owned: true },
+    { code: 'nobody', told: false, payout: stranger, owned: false },
+  ]);
+  assert.deepEqual(await claims(copycat.id), [
+    { code: 'flaky', told: false, payout: null, owned: false },
+    { code: 'maya', told: false, payout: a.wallets[0], owned: false },
+  ], 'the copy never counts, and the real owner keeps it (no "neither" rule)');
+  assert.deepEqual(await claims(told.id), [{ code: 'told_code', told: true, payout: told.wallets[0], owned: true }]);
+  assert.deepEqual([...(await ownedCodes({ only })).entries()].map(([c, v]) => [c, v.builder_id, v.path]), [
+    ['maya', a.id, 'src/onchain/tx.ts'], ['maya_old', a.id, 'src/onchain/tx.ts'], ['told_code', told.id, null],
+  ]);
+  // Verified at most daily: the same day only the failed read is asked again.
+  reg.asked.length = 0;
+  await verifyCodes(new Date(now.getTime() + 3_600_000), reg.call, { deadline: Date.now() + 5000, only });
+  assert.deepEqual(reg.asked, ['flaky']);
+  // A day later the payout moved away from a proven wallet: no longer owned. A failed read keeps the verdict it had
+  // (never grants one), and an unregistered code (a revert) is not owned.
+  const later = new Date(now.getTime() + 25 * 3_600_000);
+  const moved = registry({ maya: stranger, maya_old: 'fail', nobody: 'revert', flaky: a.wallets[0], told_code: 'revert' });
+  await verifyCodes(later, moved.call, { deadline: Date.now() + 5000, only });
+  assert.deepEqual((await claims(a.id)).map((r) => [r.code, r.payout, r.owned]), [['maya', stranger, false], ['maya_old', a.wallets[1], true], ['nobody', null, false]]);
+  assert.deepEqual((await claims(copycat.id)).map((r) => [r.code, r.owned]), [['flaky', false], ['maya', false]], 'paid to another builder\'s wallet: not owned');
+  assert.deepEqual((await claims(told.id)).map((r) => [r.code, r.payout, r.owned]), [['told_code', null, false]]);
+  // A failed read of a code never verified grants nothing.
+  const fresh = await builder();
+  await tellBuilderCode(fresh.id, 'fresh_code');
+  await verifyCodes(later, registry({ fresh_code: 'fail' }).call, { deadline: Date.now() + 5000, only: [fresh.id] });
+  assert.deepEqual(await claims(fresh.id), [{ code: 'fresh_code', told: true, payout: null, owned: false }]);
+  assert.equal((await ownedCodes({ only: [fresh.id] })).size, 0);
+});
+
+test('alchemyCall: an eth_call the contract reverted is AlchemyReverted (a verdict), any other error is not', async () => {
+  const real = globalThis.fetch;
+  let body: object = { jsonrpc: '2.0', id: 1, error: { code: 3, message: 'execution reverted', data: '0x' } };
+  globalThis.fetch = (async () => new Response(JSON.stringify(body), { status: 200 })) as typeof fetch;
+  process.env.ALCHEMY_API_KEY = 'k';
+  try {
+    await assert.rejects(alchemyCall(Date.now() + 5000)('eth_call', []), AlchemyReverted);
+    body = { jsonrpc: '2.0', id: 1, error: { message: 'rate limited' } };
+    await assert.rejects(alchemyCall(Date.now() + 5000)('eth_call', []), (e: unknown) => !(e instanceof AlchemyReverted));
+  } finally {
+    globalThis.fetch = real;
+    delete process.env.ALCHEMY_API_KEY;
+  }
+});
+
+test('tell builder_code: stored as a candidate with one short sentence; anything else is refused and nothing is stored', db, async () => {
+  const b = await builder();
+  const ctx = { installationId: b.id, sharedClient: false } as ToolContext;
+  const ok = (await tools.tell({ builder_code: ' my_app ' }, ctx)) as { show_to_builder?: string };
+  assert.equal(ok.show_to_builder, BUILDER_CODE_SAVED);
+  assert.deepEqual(await claims(b.id), [{ code: 'my_app', told: true, payout: null, owned: false }]);
+  const bad = (await tools.tell({ builder_code: "x'); DROP TABLE app_usage; --" }, ctx)) as { show_to_builder?: string };
+  assert.equal(bad.show_to_builder, BUILDER_CODE_INVALID);
+  assert.equal((await claims(b.id)).length, 1);
+  for (const line of [BUILDER_CODE_SAVED, BUILDER_CODE_INVALID]) assert.doesNotMatch(line, /—|\?.*\?/);
+});
+
+test('codesUsage: no key is off (nothing asked); one query a day for every owned code, the builders\' proven wallets excluded', db, async () => {
   const a = await builder({ wallets: 2 });
   const b = await builder();
-  const c = await builder();
-  const shared = await builder();
-  const unconfirmed = await builder({ confirmed: false });
+  const copycat = await builder();
   await codesRow(a.key, ['maya', 'maya_old']);
   await codesRow(b.key, ['lena']);
-  await codesRow(c.key, ['twice']);
-  await codesRow(shared.key, ['twice']);
-  await codesRow(unconfirmed.key, ['ghost']);
-  const only = [a.id, b.id, c.id, shared.id, unconfirmed.id];
-  const owners = await codeOwners({ only });
-  assert.deepEqual([...owners.keys()].sort(), ['lena', 'maya', 'maya_old'], 'twice is claimed twice; ghost\'s builder is not Bench-confirmed');
+  await codesRow(copycat.key, ['maya']);
+  const only = [a.id, b.id, copycat.id];
   const now = new Date('2026-10-20T08:00:00Z');
+  await verifyCodes(now, registry({ maya: a.wallets[0], maya_old: a.wallets[1], lena: b.wallets[0] }).call, { deadline: Date.now() + 5000, only });
   const off = cdp([]);
   assert.deepEqual(await codesUsage(now, { fetch: off.f, deadline: Date.now() + 5000, only }), { step: 'off' });
   assert.equal(off.calls.length, 0);
@@ -128,7 +226,6 @@ test('codesUsage: no key is off (nothing asked); one query a day for all codes, 
     { code: 'maya', users: '120', returning_users: '30' },
     { code: 'maya_old', users: 40, returning_users: 40 },
     { code: 'lena', users: 9, returning_users: 0 },
-    { code: 'twice', users: 999, returning_users: 1 },
   ]);
   await withCdpKey(async () => {
     assert.deepEqual(await codesUsage(now, { fetch: fake.f, deadline: Date.now() + 5000, only }), { codes: 3, builders: 2 });
@@ -138,9 +235,9 @@ test('codesUsage: no key is off (nothing asked); one query a day for all codes, 
     assert.equal(call.headers.get('authorization'), 'Bearer cdp-test-key');
     assert.equal(call.headers.get('content-type'), 'application/json');
     assert.match(call.body.sql, /IN \('lena', 'maya', 'maya_old'\)/);
-    assert.doesNotMatch(call.body.sql, /twice|ghost/);
     for (const w of a.wallets) assert.ok(call.body.sql.includes(`('maya', '${w}')`) && call.body.sql.includes(`('maya_old', '${w}')`), 'its builder\'s proven wallets');
     assert.ok(call.body.sql.includes(`('lena', '${b.wallets[0]}')`));
+    assert.ok(!call.body.sql.includes(copycat.wallets[0]), 'the copycat owns nothing');
     assert.match(call.body.sql, /toDateTime\('2026-09-20 08:00:00', 'UTC'\)/, 'the last 30 days');
     // Once a day: the second run the same day asks nothing.
     assert.deepEqual(await codesUsage(new Date('2026-10-20T20:00:00Z'), { fetch: fake.f, deadline: Date.now() + 5000, only }), { step: 'done_today' });
@@ -149,8 +246,7 @@ test('codesUsage: no key is off (nothing asked); one query a day for all codes, 
   // The larger code's numbers (never summed), linked to the file the code is in.
   assert.deepEqual(await usage(a.id, 'builder_code'), [{ day: '2026-10-20', users: 120, returning: 30, capped: false, href: githubFileHref(a.key, null, 'src/onchain/tx.ts'), chains: ['base'] }]);
   assert.deepEqual((await usage(b.id, 'builder_code')).map((r) => r.users), [9], 'stored under USED_MIN too (the row hides it)');
-  assert.deepEqual(await usage(c.id, 'builder_code'), []);
-  assert.deepEqual(await usage(shared.id, 'builder_code'), []);
+  assert.deepEqual(await usage(copycat.id, 'builder_code'), []);
 });
 
 test('codesUsage: no owned code asks nothing and spends no day; a CDP error stores nothing', db, async () => {
@@ -160,6 +256,7 @@ test('codesUsage: no owned code asks nothing and spends no day; a CDP error stor
     assert.deepEqual(await codesUsage(new Date('2026-10-10T08:00:00Z'), { fetch: fake.f, deadline: Date.now() + 5000, only: [lone.id] }), { step: 'none' });
     assert.equal(fake.calls.length, 0);
     await codesRow(lone.key, ['lone']);
+    await verifyCodes(new Date('2026-10-11T07:00:00Z'), registry({ lone: lone.wallets[0] }).call, { deadline: Date.now() + 5000, only: [lone.id] });
     await assert.rejects(codesUsage(new Date('2026-10-11T08:00:00Z'), { fetch: fake.f, deadline: Date.now() + 5000, only: [lone.id] }), /CDP SQL returned 500/);
   });
   assert.deepEqual(await usage(lone.id, 'builder_code'), []);
@@ -279,14 +376,14 @@ test('runUsedBy: off without Alchemy; each due builder read once a UTC day; only
   assert.deepEqual(await contractsDue(NOW, { only }), [b.id]);
   assert.deepEqual((await runUsedBy(NOW, { deadline: Date.now() + 5000, only })).contracts, { step: 'off' });
   const first = await runUsedBy(NOW, { deadline: Date.now() + 5000, only, callFor: fake.callFor });
-  assert.deepEqual(first, { builder_code: { step: 'off' }, contracts: { due: 1, read: 1 } });
+  assert.deepEqual(first, { registry: { due: 0, verified: 0, owned: 0, failed: 0 }, builder_code: { step: 'off' }, contracts: { due: 1, read: 1 } });
   const reads = fake.calls.length;
   assert.deepEqual((await usage(b.id, 'contracts')).map((r) => [r.day, r.users]), [['2026-10-27', 12]]);
   assert.deepEqual((await runUsedBy(new Date(NOW.getTime() + 3_600_000), { deadline: Date.now() + 5000, only, callFor: fake.callFor })).contracts, { due: 0, read: 0 });
   assert.equal(fake.calls.length, reads, 'nothing read again the same day');
   // The cron's step (scoped by `only`), the next day.
   const r = await runCron({ now: new Date(NOW.getTime() + DAY), only: ['none'], deps: { usedBy: { callFor: fake.callFor, only } } });
-  assert.deepEqual(r.used_by, { builder_code: { step: 'off' }, contracts: { due: 1, read: 1 } });
+  assert.deepEqual(r.used_by, { registry: { due: 0, verified: 0, owned: 0, failed: 0 }, builder_code: { step: 'off' }, contracts: { due: 1, read: 1 } });
   assert.deepEqual((await usage(b.id, 'contracts')).map((x) => x.day), ['2026-10-27', '2026-10-28']);
 });
 

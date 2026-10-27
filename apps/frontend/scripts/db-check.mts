@@ -881,6 +881,12 @@ await db.unsafe(now);
 const [ubc] = await db<{ codes: string[] | null }[]>`SELECT codes FROM repo_builder_codes WHERE repo_key = 'hl-check/new'`;
 const [ubu] = await db<{ users: number; r: number }[]>`SELECT users, "returning" AS r FROM app_usage WHERE builder_id = -137`;
 ok(ubc?.codes?.[0] === 'maya' && ubu?.users === 40 && ubu.r === 4, 'v3.1 Used by: codes and an app_usage row survive the schema running again');
+// Security review: the Builder Codes registry verdicts (a code counts only when it pays a proven wallet).
+ok((await cols('builder_code_claims')).includes('payout'), 'v3.1 Used by: builder_code_claims');
+await db`INSERT INTO builder_code_claims (code, builder_id, told, payout, owned, verified_at) VALUES ('maya', -137, true, ${'0x' + 'c'.repeat(40)}, true, now())`;
+await db.unsafe(now);
+const [ubo] = await db<{ owned: boolean }[]>`SELECT owned FROM builder_code_claims WHERE builder_id = -137`;
+ok(ubo?.owned === true, 'v3.1 Used by: a registry verdict survives the schema running again');
 
 await db.end();
 console.log(`db check: ${checks} checks passed`);

@@ -141,17 +141,18 @@ export const CONFIRM_BACKING_DESCRIPTION =
 /**
  * v2.10 item 4 (R16), v2.13: tell's description: also this week's line (or a week to hide), v2.14 spec 3:
  * a private repo's titles on or off, and coin { raising } (T9); launch ready L2: main_project, the repo to rank
- * instead; under 800 characters (mcp.test.ts 5.11).
+ * instead; v3.1 Used by: builder_code, the Base Builder Code they named; under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
   "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program site; a shared agent adds project_id. " +
   'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
-  'updates: { titles }: true shows commit titles on a private repo\'s log, false hides them. ' +
+  'updates: { titles }: show or hide a private repo\'s commit titles. ' +
   'main_project: owner/repo to rank instead. ' +
   "wallet: 'change' to add or change a wallet. " +
   'coin: their coin answer, or { raising } to open or close backing. ' +
-  "token: 'ask' only when they ask about a token. " +
-  'move_up: their answer to the question, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
+  "token: 'ask' when they ask about a token. " +
+  'builder_code: their Base Builder Code. ' +
+  'move_up: their answer, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
   'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
 
 /** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
@@ -440,6 +441,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
           // v3.1 wallet proof: a fresh signing link for a new reward wallet.
           wallet: z.string().max(100).optional().describe("'change' (or the address they named) when they want to add a wallet or send their rewards to a different one"),
+          builder_code: z.string().max(100).optional().describe('The Base Builder Code they named (lowercase letters, digits, underscores)'),
           move_up: z
             .object({
               kind: z.string().max(20).optional().describe("find's or score's move_up.kind"),

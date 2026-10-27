@@ -1070,8 +1070,10 @@ apps/frontend/
     builder-code.ts(+test)     EARNKIT_BUILDER_CODE (default "earnkit"), codesIn (ERC-8021 suffix); v3.1 Used by:
                                BUILDER_CODE (^[a-z0-9_]{1,64}$), codesFromText (suffix literals, codes arrays)
     used-by.ts                 v3.1 Used by: contractsUsage (Alchemy, anti-farming exclusions), usageSql + codesUsage
-                               (one CDP SQL query a day, CDP_CLIENT_API_KEY), codeOwners, contractsDue, runUsedBy (the
-                               cron's daily step); app_usage rows. Tests: v31-used-by.test.ts
+                               (one CDP SQL query a day, CDP_CLIENT_API_KEY), verifyCodes/payoutOf (Base's Builder
+                               Codes registry: owned only when the payout is a proven wallet; builder_code_claims),
+                               ownedCodes, tellBuilderCode (tell builder_code), contractsDue, runUsedBy (the cron's
+                               daily step); app_usage rows. Tests: v31-used-by.test.ts
     entry-proof.ts(+test)      entryMessage ("EarnKit entry: <program> <repo key> <wallet> <contracts>"),
                                signToEnter, entrySigner (EIP-191)
     winners.ts(+test)          rankEntries, pickWinners (one prize per wallet and installation,
@@ -2425,8 +2427,10 @@ from the consistency sub and drops the commits tile (`card-response.tsx`). Tests
 `v31-site-profile.test.ts`, `gtm-w2-replies.test.ts`, `v3-apply.test.ts`.
 
 v3.1 Used by (2026-10-27, design v3.1-used-by.md): new `used-by.ts` (`contractsUsage`, `usageSql`, `codesUsage`,
-`codeOwners`, `contractsDue`, `runUsedBy`, `USED_CONTRACTS`, `USED_PAGES`, `USED_PER_RUN`, `CDP_SQL_URL`, `cdpOn`);
-`alchemy.ts` (`isToken` split out of `contractCounts`, `contractSends`, `fundedBy`, `logNetworkOff`); `wallet-chains.ts`
+`verifyCodes`, `payoutOf`, `ownedCodes`, `tellBuilderCode`, `BUILDER_CODES_REGISTRY`, `contractsDue`, `runUsedBy`, `USED_CONTRACTS`, `USED_PAGES`, `USED_PER_RUN`, `CDP_SQL_URL`, `cdpOn`);
+`alchemy.ts` (`isToken` split out of `contractCounts`, `contractSends`, `fundedBy`, `logNetworkOff`, `AlchemyReverted`);
+`mcp.ts` + `tools.ts` (tell `builder_code`, `BUILDER_CODE_SAVED`/`BUILDER_CODE_INVALID`; TELL_DESCRIPTION_BENCH shortened
+to fit); schema `builder_code_claims`; `events-redact.mts` lists `builder_code_claims.payout`; `wallet-chains.ts`
 (`explorerHref` moved here); `builder-code.ts` (`BUILDER_CODE`, `codesFromText`); `builder-codes-check.ts` (stores
 `codes`, reads on to the file naming the code); `cron.ts` (`CronDeps.usedBy`, `used_by`); `site-data.ts` (`usedByOf`,
 `USED_MIN`, `USED_STALE_DAYS`, `UsageRow`, `githubFileHref` back, `users` icon type); `HighlightsCard.tsx` (`users`

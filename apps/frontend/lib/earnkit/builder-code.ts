@@ -47,7 +47,8 @@ const QUOTED = /(['"`])([^'"`\n]{1,200})\1/g;
  * v3.1 Used by: the Builder Code strings written in source text, in first-seen order without repeats: each hex
  * data-suffix literal decoded (codesIn), and each string in a `codes: ['...']` or `codes: ["..."]` array
  * (Attribution.toDataSuffix's input). Only BUILDER_CODE strings are kept; a code read from an env var or built at
- * runtime is invisible here (documented limit: that builder gets no Builder Code number). Pure.
+ * runtime is invisible here (the builder can name it through tell). A code found here is only a candidate: it counts
+ * once Base's registry pays a wallet the builder proved (used-by.ts verifyCodes). Pure.
  */
 export function codesFromText(text: string): string[] {
   const out: string[] = [];

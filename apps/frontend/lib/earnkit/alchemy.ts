@@ -24,6 +24,17 @@ export class AlchemyNetworkOff extends Error {
   }
 }
 const NOT_ENABLED = /is not enabled for this app/i;
+/**
+ * v3.1 Used by (security review 2026-10-27): an eth_call the contract reverted (Alchemy's error body says "execution
+ * reverted"), told apart from a failed read: the Builder Codes registry reverts for an unregistered code (a verdict),
+ * while a timeout or an HTTP error decides nothing.
+ */
+export class AlchemyReverted extends Error {
+  constructor(readonly method: string) {
+    super(`Alchemy ${method} reverted`);
+    this.name = 'AlchemyReverted';
+  }
+}
 
 /**
  * One JSON-RPC call to Alchemy's endpoint for `network` (Base by default, so the wallet reads that predate the other
@@ -47,6 +58,7 @@ export const alchemyCall = (deadline: number, network = 'base-mainnet'): Alchemy
   }
   const body = (await res.json()) as { result?: T; error?: { message?: string } };
   if (body.error && NOT_ENABLED.test(body.error.message ?? '')) throw new AlchemyNetworkOff(network);
+  if (body.error && /revert/i.test(body.error.message ?? '')) throw new AlchemyReverted(method);
   if (body.error || body.result === undefined) throw new Error(`Alchemy ${method} failed`);
   return body.result;
 };

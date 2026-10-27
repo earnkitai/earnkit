@@ -1,5 +1,6 @@
 import { sql } from './db';
-import { AlchemyNetworkOff, alchemyCall, alchemyOn, contractSends, fundedBy, isToken, logNetworkOff, type AlchemyCall } from './alchemy';
+import { decodeFunctionResult, encodeFunctionData, parseAbi } from 'viem';
+import { AlchemyNetworkOff, AlchemyReverted, alchemyCall, alchemyOn, contractSends, fundedBy, isToken, logNetworkOff, type AlchemyCall } from './alchemy';
 import { BUILDER_CODE } from './builder-code';
 import { ScoreDeadline } from './campaigns';
 import { benchConfirmedSql } from './main-project';
@@ -15,8 +16,9 @@ import { isoWeekOf } from './weeks';
  * - contracts: the distinct outside senders to the builder's own counted contracts on every WALLET_CHAINS chain
  *   (Alchemy's free key), never counting the builder's proven wallets, a contract's deployer, or a wallet a proven
  *   wallet sent ETH to (anti-farming).
- * - builder_code: the distinct senders of Base transactions carrying a Builder Code written in a repo the builder proved
- *   through the App (the CDP SQL API: one query a day for every builder together, within its 1,000-a-month free tier).
+ * - builder_code: the distinct senders of Base transactions carrying a Builder Code Base's registry pays to a wallet the
+ *   builder proved by signature (candidates: the codes in their App-proven repos and one they name through tell; the
+ *   CDP SQL API: one query a day for every builder together, within its 1,000-a-month free tier).
  * Never a wallet address on the page; a read that fails stores nothing and is asked again the next day.
  */
 export const USED_DAYS = 30;
@@ -233,34 +235,114 @@ async function cdpQuery(query: string, f: typeof fetch, deadline: number): Promi
 }
 
 /**
- * Who owns which code: every code in an App-proven repo's stored scan (repo_builder_codes.codes, found), with the
- * builders who proved that repo through the App, the repo and the file. A code claimed by two builders (in their repos)
- * counts for neither. Only Bench-confirmed builders are kept (`only` limits them).
+ * v3.1 Used by, security review (2026-10-27, binding): Base's Builder Codes registry on Base mainnet (ERC-721,
+ * github.com/base/builder-codes). ownerOf is Base's custodian, so a code's owner is its payout address:
+ * payoutAddress(string code) view returns (address), reverting Unregistered for an unknown code.
  */
-export async function codeOwners(o: { only?: number[] } = {}): Promise<Map<string, { builder_id: number; repo: string; path: string | null }>> {
+export const BUILDER_CODES_REGISTRY = '0x000000bc7e6457e610fe52dcc0ca5b3ce59c8e80';
+const PAYOUT_ABI = parseAbi(['function payoutAddress(string code) view returns (address)']);
+/** A verdict is read again after a day (the payout address can change). */
+export const CODE_VERIFY_MS = DAY_MS;
+/** Candidates verified per cron run (one eth_call each). */
+export const CODES_VERIFIED_PER_RUN = 100;
+
+/** The registry's payout address for `code` (lowercase), null when it reverts (unregistered); any other failure throws. */
+export async function payoutOf(code: string, call: AlchemyCall): Promise<string | null> {
+  const data = encodeFunctionData({ abi: PAYOUT_ABI, functionName: 'payoutAddress', args: [code] });
+  try {
+    const out = await call<string>('eth_call', [{ to: BUILDER_CODES_REGISTRY, data }, 'latest']);
+    const a = decodeFunctionResult({ abi: PAYOUT_ABI, functionName: 'payoutAddress', data: out as `0x${string}` }).toLowerCase();
+    if (!WALLET.test(a)) throw new Error('registry answer is not an address');
+    return a === `0x${'0'.repeat(40)}` ? null : a;
+  } catch (err) {
+    if (err instanceof AlchemyReverted) return null;
+    throw err;
+  }
+}
+
+/**
+ * Stores a code the builder named (tell builder_code) as a candidate, verified like the repo's at the next daily step.
+ * False for anything but BUILDER_CODE (nothing stored).
+ */
+export async function tellBuilderCode(builderId: number, code: string): Promise<boolean> {
+  if (!BUILDER_CODE.test(code)) return false;
+  await sql()`
+    INSERT INTO builder_code_claims (code, builder_id, told) VALUES (${code}, ${builderId}, true)
+    ON CONFLICT (code, builder_id) DO UPDATE SET told = true`;
+  return true;
+}
+
+/**
+ * The daily registry check (before the usage query): every repo-scan code (repo_builder_codes.codes of a repo the
+ * builder proved through the App) becomes a candidate, then the Bench-confirmed builders' candidates not verified
+ * within CODE_VERIFY_MS (never verified first, at most CODES_VERIFIED_PER_RUN) are read one at a time: owned when the
+ * payout address is one of that builder's signature-proven wallets (person_wallets). Unregistered (a revert) is not
+ * owned. A failed read stores nothing: the previous verdict stands and none is ever granted on a failure. Two
+ * builders can name one code; only the one whose proven wallet the registry pays can own it (a wallet belongs to one
+ * builder). The deadline propagates.
+ */
+export async function verifyCodes(now: Date, call: AlchemyCall, o: { deadline: number; only?: number[]; limit?: number }): Promise<{ due: number; verified: number; owned: number; failed: number }> {
   const db = sql();
-  const rows = await db<{ code: string; builder_id: number; repo: string; path: string | null; confirmed: boolean }[]>`
-    SELECT DISTINCT x.code, s.builder_id, c.repo_key AS repo, c.path, s.builder_id IN (${confirmedSql(o.only)}) AS confirmed
+  await db`
+    INSERT INTO builder_code_claims (code, builder_id)
+    SELECT DISTINCT x.code, s.builder_id
     FROM repo_builder_codes c CROSS JOIN LATERAL unnest(c.codes) AS x(code)
     JOIN builder_sources s ON s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app'
       AND regexp_replace(regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', ''), '([.]git)?/*$', '') = c.repo_key
-    WHERE c.found
-    ORDER BY x.code, s.builder_id, c.repo_key`;
-  const builders = new Map<string, Set<number>>();
-  for (const r of rows) builders.set(r.code, (builders.get(r.code) ?? new Set()).add(r.builder_id));
-  const out = new Map<string, { builder_id: number; repo: string; path: string | null }>();
-  for (const r of rows) {
-    if (!BUILDER_CODE.test(r.code) || builders.get(r.code)!.size !== 1 || !r.confirmed || out.has(r.code)) continue;
-    out.set(r.code, { builder_id: r.builder_id, repo: r.repo, path: r.path });
+    WHERE c.found AND x.code ~ '^[a-z0-9_]{1,64}$' ${o.only ? db`AND s.builder_id IN ${db(o.only)}` : db``}
+    ON CONFLICT (code, builder_id) DO NOTHING`;
+  const due = await db<{ code: string; builder_id: number }[]>`
+    SELECT c.code, c.builder_id FROM builder_code_claims c
+    WHERE c.builder_id IN (${confirmedSql(o.only)}) AND (c.verified_at IS NULL OR c.verified_at <= ${new Date(now.getTime() - CODE_VERIFY_MS)})
+    ORDER BY c.verified_at NULLS FIRST, c.code, c.builder_id LIMIT ${o.limit ?? CODES_VERIFIED_PER_RUN}`;
+  let verified = 0;
+  let owned = 0;
+  let failed = 0;
+  for (const d of due) {
+    if (Date.now() >= o.deadline) break;
+    let payout: string | null;
+    try {
+      payout = await payoutOf(d.code, call);
+    } catch (err) {
+      if (err instanceof ScoreDeadline) throw err;
+      console.error('[used-by] registry', err instanceof Error ? err.name : 'error');
+      failed++;
+      continue;
+    }
+    const [{ mine }] = await db<{ mine: boolean }[]>`
+      SELECT EXISTS (SELECT 1 FROM person_wallets WHERE builder_id = ${d.builder_id} AND lower(wallet) = ${payout ?? ''}) AS mine`;
+    await db`UPDATE builder_code_claims SET payout = ${payout}, owned = ${mine}, verified_at = ${now} WHERE code = ${d.code} AND builder_id = ${d.builder_id}`;
+    verified++;
+    if (mine) owned++;
   }
-  return out;
+  return { due: due.length, verified, owned, failed };
+}
+
+/**
+ * The codes that count: owned (verifyCodes' verdict) by a Bench-confirmed builder (`only` limits them), each with the
+ * file it is in when one of the builder's App-proven repos carries it (the link), else none. Should two rows ever be
+ * owned (a payout that moved while a read failed), the newest verdict wins.
+ */
+export async function ownedCodes(o: { only?: number[] } = {}): Promise<Map<string, { builder_id: number; repo: string | null; path: string | null }>> {
+  const db = sql();
+  const rows = await db<{ code: string; builder_id: number; repo: string | null; path: string | null }[]>`
+    SELECT DISTINCT ON (c.code) c.code, c.builder_id, f.repo, f.path FROM builder_code_claims c
+    LEFT JOIN LATERAL (
+      SELECT r.repo_key AS repo, r.path FROM repo_builder_codes r
+      JOIN builder_sources s ON s.builder_id = c.builder_id AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app'
+        AND regexp_replace(regexp_replace(lower(trim(s.ref)), '^(https?://)?(www[.])?github[.]com/', ''), '([.]git)?/*$', '') = r.repo_key
+      WHERE r.found AND c.code = ANY(r.codes) ORDER BY r.repo_key LIMIT 1) f ON true
+    WHERE c.owned AND c.builder_id IN (${confirmedSql(o.only)})
+    ORDER BY c.code, c.verified_at DESC NULLS LAST, c.builder_id`;
+  return new Map(rows.filter((r) => BUILDER_CODE.test(r.code)).map((r) => [r.code, { builder_id: r.builder_id, repo: r.repo, path: r.path }]));
 }
 
 /**
  * The Builder Code source, at most once a UTC day for everyone (the rate window marks the day, as people-signals.ts
- * does): one usageSql query over every owned code (codeOwners), each code's builder's proven wallets excluded. A
+ * does): one usageSql query over every owned code (ownedCodes), each code's builder's proven wallets excluded. A
  * builder with several codes keeps the largest one's numbers (codes overlap; never summed). `href`: the repo file the
- * code is in (site-data.ts shows it only while that repo is the public main one). Off without CDP_CLIENT_API_KEY, and
+ * code is in, if a proven repo carries it (site-data.ts shows it only while that repo is the public main one). Off
+ * without CDP_CLIENT_API_KEY, and
  * with no code nothing is asked (the day is not spent).
  */
 export async function codesUsage(
@@ -268,7 +350,7 @@ export async function codesUsage(
   o: { fetch?: typeof fetch; deadline: number; only?: number[] },
 ): Promise<{ step: 'off' | 'none' | 'done_today' } | { codes: number; builders: number }> {
   if (!cdpOn()) return { step: 'off' };
-  const owners = await codeOwners(o);
+  const owners = await ownedCodes(o);
   if (owners.size === 0) return { step: 'none' };
   if (!(await hit(`usedByCodes:${now.toISOString().slice(0, 10)}`, 1, 86_400, now)).allowed) return { step: 'done_today' };
   const ids = [...new Set([...owners.values()].map((v) => v.builder_id))];
@@ -287,7 +369,7 @@ export async function codesUsage(
     if (!owner || !Number.isInteger(users) || users < 0 || !Number.isInteger(returning) || returning < 0) continue;
     const had = best.get(owner.builder_id);
     if (had && had.users >= users) continue;
-    const href = owner.path ? githubFileHref(owner.repo, null, owner.path) : null;
+    const href = owner.repo && owner.path ? githubFileHref(owner.repo, null, owner.path) : null;
     best.set(owner.builder_id, { users, returning, capped: false, href, chains: ['base'] });
   }
   for (const [id, u] of best) await store(id, 'builder_code', now, u);
@@ -295,7 +377,8 @@ export async function codesUsage(
 }
 
 /**
- * v3.1 Used by: the cron's daily step, inside its slice (`deadline`). First the one Builder Code query (codesUsage),
+ * v3.1 Used by: the cron's daily step, inside its slice (`deadline`). First the registry check of Builder Code
+ * candidates (verifyCodes, Alchemy on Base), then the one Builder Code query (codesUsage),
  * then the contracts source for the due builders (contractsDue), one at a time, each claimed for the UTC day before its
  * reads (so a failing one waits a day and never holds a slot), none started past the deadline. Off without
  * ALCHEMY_API_KEY unless `callFor` is given (tests). Each source fails on its own (logged, the other still runs).
@@ -303,7 +386,22 @@ export async function codesUsage(
 export async function runUsedBy(
   now: Date,
   o: { deadline: number; callFor?: (network: string) => AlchemyCall; fetch?: typeof fetch; only?: number[]; limit?: number },
-): Promise<{ builder_code: Awaited<ReturnType<typeof codesUsage>> | { step: 'error' }; contracts: { due: number; read: number } | { step: 'off' } }> {
+): Promise<{
+  registry: Awaited<ReturnType<typeof verifyCodes>> | { step: 'off' | 'error' };
+  builder_code: Awaited<ReturnType<typeof codesUsage>> | { step: 'error' };
+  contracts: { due: number; read: number } | { step: 'off' };
+}> {
+  const alchemy = Boolean(o.callFor) || alchemyOn();
+  const callFor = o.callFor ?? ((network: string) => alchemyCall(o.deadline, network));
+  // The registry check first (Base, Alchemy), so the usage query counts only codes a proven wallet is paid for.
+  let registry: Awaited<ReturnType<typeof verifyCodes>> | { step: 'off' | 'error' } = { step: 'off' };
+  if (alchemy)
+    try {
+      registry = await verifyCodes(now, callFor('base-mainnet'), o);
+    } catch (err) {
+      console.error('[used-by] registry', err instanceof Error ? err.name : 'error');
+      registry = { step: 'error' };
+    }
   let builder_code: Awaited<ReturnType<typeof codesUsage>> | { step: 'error' };
   try {
     builder_code = await codesUsage(now, o);
@@ -311,8 +409,7 @@ export async function runUsedBy(
     console.error('[used-by] builder code', err instanceof Error ? err.name : 'error');
     builder_code = { step: 'error' };
   }
-  if (!o.callFor && !alchemyOn()) return { builder_code, contracts: { step: 'off' } };
-  const callFor = o.callFor ?? ((network: string) => alchemyCall(o.deadline, network));
+  if (!alchemy) return { registry, builder_code, contracts: { step: 'off' } };
   const due = await contractsDue(now, o);
   let read = 0;
   for (const id of due) {
@@ -327,5 +424,5 @@ export async function runUsedBy(
       console.error('[used-by] contracts', err instanceof Error ? err.name : 'error');
     }
   }
-  return { builder_code, contracts: { due: due.length, read } };
+  return { registry, builder_code, contracts: { due: due.length, read } };
 }
