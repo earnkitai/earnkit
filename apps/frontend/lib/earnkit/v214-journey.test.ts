@@ -11,7 +11,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { csrfCookieName } from './github-verify';
 import { appSetup } from './github-app';
 import { weeklyFactsStep } from './week-facts';
-import { weekOfMonday } from './weeks';
+import { mondayOf, weekOfMonday } from './weeks';
 import { profileData } from './bench-data';
 import { resolveHandle } from './profiles';
 import { signinGet, SIGN_IN_NOTES } from './x-link';
@@ -61,16 +61,18 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const noLimit = { limit: async () => {} };
 const fakeX = (user: XUser): XOAuthDeps => ({ exchange: async () => 'x-token', me: async () => user });
 
-// The week the Monday run writes: 2026-10-26 15:30 UTC writes the week of 2026-10-19.
-const MONDAY_RUN = new Date('2026-10-26T15:30:00Z');
-const WEEK = '2026-10-19';
+// The week the Monday run writes is this week (still in progress at the App setup, so the setup's backfill of
+// finished weeks never writes it first); the run is the next Monday, 15:30 UTC.
+const WEEK = mondayOf(new Date());
+const at = (days: number, time: string) => new Date(Date.parse(`${WEEK}T${time}Z`) + days * 86_400_000);
+const MONDAY_RUN = at(7, '15:30:00');
 const gh = fakeGitHub({
   [KEY]: {
     id: REPO_ID, owner: ORG, ownerType: 'Organization', installation: GH_INSTALL, admins: [LOGIN],
     commits: [
-      { sha: '1', message: 'feat: sign in with X at install', date: '2026-10-20T10:00:00Z', login: LOGIN },
-      { sha: '2', message: 'Fix the reply copy', date: '2026-10-21T10:00:00Z', login: LOGIN },
-      { sha: '3', message: 'chore(deps): bump next', date: '2026-10-22T10:00:00Z', login: 'dependabot[bot]', type: 'Bot' },
+      { sha: '1', message: 'feat: sign in with X at install', date: at(1, '10:00:00').toISOString(), login: LOGIN },
+      { sha: '2', message: 'Fix the reply copy', date: at(2, '10:00:00').toISOString(), login: LOGIN },
+      { sha: '3', message: 'chore(deps): bump next', date: at(3, '10:00:00').toISOString(), login: 'dependabot[bot]', type: 'Bot' },
     ],
     pulls: [],
   },
@@ -183,8 +185,8 @@ test('12.5 acceptance 4: the next Monday the profile shows the week from its tit
   assert.deepEqual(step, { people: 1, rows: 1 });
   const r = await resolveHandle(ME.username);
   assert.ok(r && !('redirect' in r), 'the handle is the page');
-  const data = await profileData(r.builderId, new Date('2026-10-26T16:00:00Z'));
-  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: data!, site: await profileSite(r.builderId, data!, new Date('2026-10-26T16:00:00Z')), page: 1 }));
+  const data = await profileData(r.builderId, at(7, '16:00:00'));
+  const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: data!, site: await profileSite(r.builderId, data!, at(7, '16:00:00')), page: 1 }));
   // Weekly updates: one summary of the week's titles, never the raw titles.
   // Weekly updates: one summary of the week's titles (the free rule summary: no ANTHROPIC_API_KEY in tests).
   assert.deepEqual(data!.log.map((c) => c.summary), ['Fixed the reply copy. Shipped sign in with X at install.']);
