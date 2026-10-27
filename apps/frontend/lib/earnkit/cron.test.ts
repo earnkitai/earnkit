@@ -614,7 +614,7 @@ test('11.5 runCron: the usage step reports its counts; a failed read never break
     assert.deepEqual(body.needs_owner, []);
     assert.equal(reads, 1, 'one read a run, no retry loop');
     // The next try comes 20 hours later at the earliest (the cron is hourly; review I1).
-    const ok = await runCron({ now: new Date(now.getTime() + 20 * 3_600_000), deps: { refreshFees: async () => 0, usage: { ...usage, getCode: async () => '0x6080', blockscout: async () => ({ transactions_count: '4' }) } }, only: [tag] });
+    const ok = await runCron({ now: new Date(now.getTime() + 20 * 3_600_000), deps: { refreshFees: async () => 0, usage: { ...usage, getCode: async () => '0x6080', txCounter: async () => 4 } }, only: [tag] });
     assert.deepEqual((ok as { usage_checks?: unknown }).usage_checks, { checked: 1, failed: 0 });
     // Without its deps, a run limited to other programs (tests, the e2e) skips the step.
     const skipped = await runCron({ now, deps: { refreshFees: async () => 0 }, only: [tag] });

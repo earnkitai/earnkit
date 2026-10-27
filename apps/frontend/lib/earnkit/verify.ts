@@ -1,4 +1,5 @@
 import { createPublicClient, http, isAddress } from 'viem';
+import { alchemyCall, alchemyTxCount } from './alchemy';
 import type { Chain } from './chains';
 import { sql } from './db';
 import { mainnetExplorerHosts } from './match';
@@ -119,8 +120,8 @@ export type CheckCache = {
 export type CheckDeps = {
   probe?: (url: string) => Promise<void>;
   getCode?: (rpc: string, address: string) => Promise<string>;
-  /** v2.10 item 6: a Blockscout counters read (GET <url>); throws on any failure. */
-  blockscout?: (url: string) => Promise<{ transactions_count?: string }>;
+  /** v2.10 item 6: how many transactions went to `address` on Base (capped at TX_COUNT_CAP); throws on any failure. */
+  txCounter?: (address: string) => Promise<number>;
   now?: Date;
   budget?: CheckBudget;
   cache?: CheckCache;
@@ -292,20 +293,17 @@ export async function markDeployed(chain: Chain, address: string, now = new Date
 }
 
 /**
- * v2.10 item 6: Blockscout's free API, per chain. Only Base has a known free instance
- * (https://base.blockscout.com, checked 2026-10-09); elsewhere the count is unknown.
+ * v2.10 item 6: counts are read on Base only, through Alchemy (never Blockscout, owner ruling: it challenges
+ * servers). Every use of a count stops at 50 (match.ts REAL_USE_TX and the odds band), so a read stops at
+ * TX_COUNT_CAP: one Alchemy page, never a full history.
  */
-const BLOCKSCOUT: Partial<Record<Chain, string>> = { base: 'https://base.blockscout.com' };
-
-const blockscoutFetch = async (url: string): Promise<{ transactions_count?: string }> => {
-  const res = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(5_000) });
-  if (!res.ok) throw new Error(`blockscout ${res.status}`);
-  return (await res.json()) as { transactions_count?: string };
-};
+const TX_COUNT_CHAINS: ReadonlySet<Chain> = new Set<Chain>(['base']);
+export const TX_COUNT_CAP = 100;
+const alchemyCounter = (address: string) => alchemyTxCount(address, alchemyCall(Date.now() + 5_000), TX_COUNT_CAP);
 
 /** v2.10 Ruling H5 (I3): a fresh cached transaction count for `address` on `chain`, else null (never a read, never a slot). */
 export async function peekTxCount(chain: Chain, address: string, deps: CheckDeps = {}): Promise<number | null> {
-  if (!BLOCKSCOUT[chain] || !isAddress(address, { strict: false })) return null;
+  if (!TX_COUNT_CHAINS.has(chain) || !isAddress(address, { strict: false })) return null;
   const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
   const row = await cache.get(`txcount:${chain}:${address.toLowerCase()}`).catch((err: unknown) => {
     console.error(`[verify] txcount cache read ${errorClass(err)}`);
@@ -315,14 +313,13 @@ export async function peekTxCount(chain: Chain, address: string, deps: CheckDeps
 }
 
 /**
- * v2.10 item 6 (R4): how many transactions an address has on `chain` (Blockscout's
- * `/api/v2/addresses/<addr>/counters`). Base only. A read is cached 24 h in url_checks (key
+ * v2.10 item 6 (R4): how many transactions went to an address on `chain` (Alchemy, at most TX_COUNT_CAP).
+ * Base only. A read is cached 24 h in url_checks (key
  * `txcount:<chain>:<lowercase addr>`, the count in `n`); a failed read is not cached. Null on
  * another chain, on any error, or with no budget left. Never throws.
  */
 export async function txCount(chain: Chain, address: string, deps: CheckDeps = {}): Promise<number | null> {
-  const host = BLOCKSCOUT[chain];
-  if (!host || !isAddress(address, { strict: false })) return null;
+  if (!TX_COUNT_CHAINS.has(chain) || !isAddress(address, { strict: false })) return null;
   const addr = address.toLowerCase();
   const key = `txcount:${chain}:${addr}`;
   const cache = deps.cache ?? checkDefaults.cache ?? dbCache;
@@ -330,11 +327,10 @@ export async function txCount(chain: Chain, address: string, deps: CheckDeps = {
   const cached = await peekTxCount(chain, addr, deps);
   if (cached !== null) return cached;
   if (deps.budget && !deps.budget.takeTxCount()) return null;
-  const read = deps.blockscout ?? checkDefaults.blockscout ?? blockscoutFetch;
+  const read = deps.txCounter ?? checkDefaults.txCounter ?? alchemyCounter;
   let n: number;
   try {
-    const counters = await read(`${host}/api/v2/addresses/${addr}/counters`);
-    n = Number(counters?.transactions_count);
+    n = await read(addr);
     if (!Number.isSafeInteger(n) || n < 0) throw new Error('no count');
   } catch (err) {
     console.error(`[verify] txcount ${errorClass(err)}`);

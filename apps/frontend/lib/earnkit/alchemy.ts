@@ -107,6 +107,47 @@ export async function alchemyCreations(wallet: string, call: AlchemyCall, o: { p
   return out;
 }
 
+/** How many transactions went to `address` (the external transfers to it, zero-value calls included), at most `cap`. */
+export async function alchemyTxCount(address: string, call: AlchemyCall, cap: number): Promise<number> {
+  const page = await transfers(call, { toAddress: address, order: 'asc', maxCount: `0x${cap.toString(16)}` });
+  if (!Array.isArray(page.transfers)) throw new Error('Alchemy: no transfers');
+  return Math.min(page.transfers.length, cap);
+}
+
+const hex = (n: number) => `0x${n.toString(16)}`;
+const hasCode = (call: AlchemyCall, address: string, block: string) => call<string>('eth_getCode', [address, block]).then((c) => typeof c === 'string' && c !== '0x');
+
+/**
+ * No Blockscout (owner ruling): the transaction that created `address` on Base, its sender and time, or null when
+ * the address holds no code. The creation block is the first with code (a binary search of archive reads); a direct
+ * deploy is that block's receipt naming the address, else the block's traces find the create inside another
+ * contract's call (a factory or the CREATE2 deployer) and the deployer is that transaction's sender, never the factory.
+ */
+export async function alchemyCreationOf(address: string, call: AlchemyCall): Promise<{ hash: string; deployer: string; created_at: string } | null> {
+  const a = address.toLowerCase();
+  if (!(await hasCode(call, a, 'latest'))) return null;
+  let lo = 0;
+  let hi = Number(await call<string>('eth_blockNumber', []));
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (await hasCode(call, a, hex(mid))) hi = mid;
+    else lo = mid + 1;
+  }
+  const [block, receipts] = await Promise.all([
+    call<{ timestamp?: string } | null>('eth_getBlockByNumber', [hex(lo), false]),
+    call<{ transactionHash?: string; from?: string; contractAddress?: string | null }[] | null>('eth_getBlockReceipts', [hex(lo)]),
+  ]);
+  const created_at = block?.timestamp ? new Date(Number(block.timestamp) * 1000).toISOString() : null;
+  let hash = (receipts ?? []).find((r) => r.contractAddress?.toLowerCase() === a)?.transactionHash;
+  if (!hash) {
+    const traces = await call<{ type?: string; transactionHash?: string; result?: { address?: string } | null }[] | null>('trace_block', [hex(lo)]);
+    hash = (traces ?? []).find((t) => t.type === 'create' && t.result?.address?.toLowerCase() === a)?.transactionHash;
+  }
+  const from = hash ? (receipts ?? []).find((r) => r.transactionHash === hash)?.from?.toLowerCase() : undefined;
+  if (!hash || !from || !created_at) throw new Error('Alchemy: creation transaction not found');
+  return { hash, deployer: from, created_at };
+}
+
 /** ERC-20's decimals() and totalSupply() selectors: a contract answering both is a token (never a Highlights contract). */
 const DECIMALS = '0x313ce567';
 const TOTAL_SUPPLY = '0x18160ddd';

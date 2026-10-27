@@ -485,7 +485,7 @@ apps/frontend/
                                importing it from here would cycle back through match-projects.ts),
                                ownershipProblem (pure),
                                deployerOf (creation tx sender), checkOwnership (fork refusal via
-                               GitHub repoFacts, fetcher and Blockscout DeployerLookup injectable;
+                               GitHub repoFacts, fetcher and Alchemy DeployerLookup (alchemyDeployer) injectable;
                                recordSubmission passes deps through for the e2e)
     sanctions.ts(+test)        Chainalysis isSanctioned oracle on Base mainnet only (skipped with a
                                note elsewhere; injectable): screenWallet (entry, create),
@@ -519,8 +519,8 @@ apps/frontend/
                                Verified.liveError; url_checks.n holds a count; a getCode
                                error is null and never cached, G15), bounded by
                                CheckBudget (ENTRY_BUDGET, LIST_BUDGET; v2.10 item 6: txCounts 1 / 2);
-                               v2.10 item 6: txCount (Blockscout counters, Base only, txcount:base:<a>,
-                               CheckDeps.blockscout; peekTxCount, H5); addressesFrom, entryVerified,
+                               v2.10 item 6: txCount (Alchemy alchemyTxCount, capped TX_COUNT_CAP 100, Base only, txcount:base:<a>,
+                               CheckDeps.txCounter; peekTxCount, H5); addressesFrom, entryVerified,
                                checkDefaults (tests: fixtures/no-network-checks.ts)
     chains.ts                  CHAINS, Chain, CHAIN_NAMES (import-free; match.ts re-exports them)
     token-logo.ts(+test)       v2.10 item 12: iconCandidates/pickIconHref (touch icon, raster icon
@@ -766,7 +766,7 @@ apps/frontend/
                                deploySite/approveSite (hosted), projects.ts recordSubmission/startEntry (entered),
                                recordSubmission also (submitted), outcomes.ts sync/self-report (won, lost)
                                v2.11 Task 11: usageChecks (30/90-day usage_check per deployed event, <= USAGE_LIMIT 20
-                               a run, oldest first; getCode everywhere, Blockscout txCount on Base, the starter's logs on
+                               a run, oldest first; getCode everywhere, Alchemy txCount on Base, the starter's logs on
                                Arc: the starter's view (view_total: one eth_call, totals { tips, total, tippers },
                                viewTotals) else its logs over the recent window only: recentChunks, 50 x ARC_LOG_CHUNK 10,000 blocks ending at
                                the head, newest first -> recent { blocks, tips, unique }; Base tx_scope 'lifetime'; one try per
@@ -832,7 +832,7 @@ apps/frontend/
                                CANT_SEE_LINE. gh/repoByName/repoCodeFacts take a token (an App token reads a private
                                repo, never refused); with a token, files come from the contents API (P10) and the
                                cache row is via_app.
-                               v2.10 item 6: runChecks reads Blockscout counts (budget passed in, P27),
+                               v2.10 item 6: runChecks reads Alchemy counts (budget passed in, P27),
                                checkRepo/checkLocal score traction and odds (R3 for local), starterRepo
                                (MatchDeps.starters), fits sorted by good odds then traction.
                                v2.9 A3: MatchProjectsInput.said applied before the checks (P15); not_mine skipped.
@@ -2437,3 +2437,10 @@ to fit); schema `builder_code_claims`; `events-redact.mts` lists `builder_code_c
 icon); schema `repo_builder_codes.codes`, `app_usage`; `test-guard.ts` clears `CDP_CLIENT_API_KEY`; `db-check.mts`.
 Tests: `v31-used-by.test.ts`, `v31-builder-codes.test.ts (c6)`, `v31-site-data.test.ts (c3b)`, `v31-highlights.test.ts`,
 `schema-rerun.test.ts`.
+
+
+No Blockscout (owner ruling, 2026-10-27): `alchemy.ts` `alchemyCreationOf` (a contract's creating transaction and its
+sender: archive `eth_getCode` binary search, the block's receipts, else `trace_block`; null without code) feeds
+`source-readers.ts` `contractOrigin` and `ownership.ts` `alchemyDeployer`; `alchemyTxCount` (capped at `verify.ts`
+`TX_COUNT_CAP` = 100, seam `CheckDeps.txCounter`) replaces the Blockscout counters; wallet reads and people signals are
+Alchemy only. Still on Blockscout, dormant: `campaigns.ts` sponsor scoring and `traction.ts` coin holders.

@@ -151,7 +151,7 @@ const deps = (o: Partial<MatchDeps> = {}): MatchDeps => {
     checks: {
       probe: async () => {},
       getCode: async () => '0x6080',
-      blockscout: async () => ({ transactions_count: '3' }),
+      txCounter: async () => 3,
       cache: { get: async (k) => store.get(k) ?? null, set: async (k, ok, now, extra) => void store.set(k, { ok, checked_at: now, n: extra?.n ?? null }) },
     },
     ...o,

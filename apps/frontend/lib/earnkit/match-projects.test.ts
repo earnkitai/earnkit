@@ -196,7 +196,7 @@ function checkDeps(o: { probeOk?: boolean } = {}) {
       },
       cache: { get: async (k) => store.get(k) ?? null, set: async (k, ok, now) => void store.set(k, { ok, checked_at: now }) },
       // v2.10 item 6: no Blockscout read leaves the test (a test about counts sets its own).
-      blockscout: async () => ({ transactions_count: '0' }),
+      txCounter: async () => 0,
     },
     programs: [baseProgram],
   };
@@ -912,13 +912,13 @@ test('3.5 five Base repos with code: at most 2 Blockscout reads (LIST_BUDGET.txC
   // app5 (the oldest) has no code; the others do.
   deps.checks!.getCode = async (_rpc, a) => (a === addr(5) ? '0x' : '0x6080');
   const read: string[] = [];
-  deps.checks!.blockscout = async (url) => (read.push(url), { transactions_count: '75' });
+  deps.checks!.txCounter = async (address) => (read.push(address), 75);
   const r = await withFetch(
     (u) => (u.pathname === '/users/alice/repos' ? body(own) : u.pathname === '/search/commits' ? body({ items: [] }) : (ownConfig(u) ?? repoFiles(u))),
     async () => matchProjects(MatchProjectsInput.parse({ github_user: 'alice' }), deps),
   );
   assert.equal(read.length, 2);
-  assert.deepEqual(read, [0, 1].map((i) => `https://base.blockscout.com/api/v2/addresses/${addr(i)}/counters`));
+  assert.deepEqual(read, [0, 1].map((i) => addr(i).toLowerCase()));
   const fit = (k: string) => r.fits.find((f) => f.key === `alice/${k}`)!;
   assert.equal(fit('app0').product.traction, 3 * 2 + 1, 'tx 75 (band 2) and commits 1 (band 1), no live link');
   assert.equal(fit('app2').product.traction, 1, 'no slot left: tx unknown, scored 0');
@@ -928,7 +928,7 @@ test('3.5 five Base repos with code: at most 2 Blockscout reads (LIST_BUDGET.txC
 test('3.5b a live Base product: its contract is checked for code though the link loads, and its count lifts it to good odds', async () => {
   const { n, deps } = checkDeps({ probeOk: true });
   deps.checks!.getCode = async () => (n.getCodes++, '0x6080');
-  deps.checks!.blockscout = async () => ({ transactions_count: '120' });
+  deps.checks!.txCounter = async () => 120;
   const r = await withFetch(
     (u) =>
       u.pathname === '/users/bob/repos'
@@ -1099,7 +1099,7 @@ test('H5 I3: live repos get one Base getCode each only while a count slot remain
   const { n, deps } = checkDeps({ probeOk: true });
   const asked: string[] = [];
   deps.checks!.getCode = async (rpc, a) => (n.getCodes++, asked.push(`${rpc} ${a}`), '0x6080');
-  deps.checks!.blockscout = async () => ({ transactions_count: '7' });
+  deps.checks!.txCounter = async () => 7;
   deps.programs = [baseProgram, { ...baseProgram, id: 'arc-x', title: 'Arc X', chains: ['arc'] }];
   // live0's count is cached: no getCode for it, and its count is used.
   const store = new Map<string, { ok: boolean; checked_at: Date; n?: number | null }>([[`txcount:base:${addr(0, 1)}`, { ok: true, checked_at: T_NOW, n: 99 }]]);
@@ -1120,7 +1120,7 @@ test('H5 I4: one Base pair stays inside the 2-pair cap, with Base listed third',
   const { n, deps } = checkDeps();
   const asked: string[] = [];
   deps.checks!.getCode = async (rpc) => (n.getCodes++, asked.push(rpc), '0x6080');
-  deps.checks!.blockscout = async () => ({ transactions_count: '3' });
+  deps.checks!.txCounter = async () => 3;
   await matchProjects(MatchProjectsInput.parse({ local_repos: [{ name: 'relay', chains: ['arc', 'avalanche', 'base'], contracts: [ADDR], last_commit_at: daysAgo(1) }] }), deps);
   assert.ok(asked.includes('https://mainnet.base.org'), asked.join(', '));
   assert.ok(asked.includes('https://rpc.mainnet.arc.io'), 'the first claimed pair is kept');

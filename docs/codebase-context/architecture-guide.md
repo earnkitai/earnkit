@@ -406,9 +406,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
   GitHub repo whose `earnkit.txt` (root, default branch, fetched from
   `https://raw.githubusercontent.com/<owner>/<repo>/HEAD/earnkit.txt`, 5 s, 4 KB, no redirects) says
   `payout_wallet: <the entry's wallet>`; each entered contract counts only if the transaction that
-  created it was sent by that wallet, or (v2.4) by the wallet that signed the entry (Base
-  Blockscout: `creation_transaction_hash`, then that tx's `from.hash`; direct and factory/CREATE2
-  deploys alike), else "Contract <0x…> was deployed by <wallet>, not by the wallet that signed the
+  created it was sent by that wallet, or (v2.4) by the wallet that signed the entry (Base,
+  Alchemy `alchemyCreationOf`: the first block with code by archive `eth_getCode`, then that block's
+  receipt or `trace_block` create, and the transaction's sender; direct and factory/CREATE2 deploys alike), else "Contract <0x…> was deployed by <wallet>, not by the wallet that signed the
   entry (…) or the payout wallet." A `contracts:` line in the
   file is accepted but ignored (listing proves nothing). Errors name the exact file and line to
   add. This makes the first-entry-wins repo and contract dedupe owner-wins: only someone who can
@@ -2597,8 +2597,8 @@ strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`, and in prod
   days". Ranking still uses the raw score, so measured users rank first. `rowOdds(product, verdict,
   chains)` adds "not deployed yet" for a row waiting on a mainnet only mentioned (`onlyMentioned`);
   a product without `odds` (unscored, pre-v2.10) reads as low (P26). `checkRepo`/`checkLocal` set
-  `Product.traction`, `odds`, `low_reason`. `tx_count` comes from `verify.ts txCount` (Blockscout
-  `base.blockscout.com/api/v2/addresses/<a>/counters`, Base only, `txcount:base:<a>` in
+  `Product.traction`, `odds`, `low_reason`. `tx_count` comes from `verify.ts txCount` (Alchemy
+  `alchemyTxCount`, transactions to the address capped at `TX_COUNT_CAP` = 100, Base only, `txcount:base:<a>` in
   `url_checks.n` for 24 h, failures not cached): `runChecks` reads it, after the getCode phase, for
   contracts with code on Base, newest repos first, within `LIST_BUDGET.txCounts` = 2
   (`checkEligibility`: `ENTRY_BUDGET`, 1; P27). Ruling H5 (I3): a repo whose live link loads gets
@@ -3493,7 +3493,7 @@ the map; the detail lives in the sections it names.
 - **The deadline line (item 15):** "Arc Microgrants closes in 2 days; your entry isn't submitted.",
   once per entry per UTC day, never on a shared client without the builder's code.
 - **Traction and odds (item 6):** `traction = 3·band(tx) + 2·live + band(commits_90d)`; good odds per
-  Ruling H5; rank = good odds, traction, difficulty, prize. Blockscout counters (Base only) at most 2
+  Ruling H5; rank = good odds, traction, difficulty, prize. Alchemy tx counts (Base only, capped at 100) at most 2
   per `find` and 1 per entry step, cached 24 h in `url_checks.n`. See "Owned repos and the
   real-product score".
 - **Chain basis (item 9):** only `deployed` or `deploy_config` credit a chain; a mention is at most
@@ -4259,8 +4259,8 @@ give. Events: `built`, `deployed`, `hosted`, `entered`, `submitted`, once each.
 - **What is due.** A `deployed` event on arc or base (an address, not `code_differs`) at least 30 days
   old with no `usage:<id>:<window>` row; 90 once 90 days old. Oldest first, at most 20 checks a run,
   none started after the cron's deadline.
-- **What it reads, free sources only.** `eth_getCode` everywhere; Base: Blockscout's lifetime counters
-  (`tx_scope: 'lifetime'`); Arc with a `view_total` starter: one `eth_call` of its view
+- **What it reads, free sources only.** `eth_getCode` everywhere; Base: Alchemy's lifetime count capped at 100
+  (`tx_scope: 'lifetime'`, `source: 'alchemy'`); Arc with a `view_total` starter: one `eth_call` of its view
   (`totals: { tips, total, tippers }`, `source: 'rpc_view'`; a revert or empty answer falls back to
   logs); Arc `recent_logs`: the last 50 ranges of 10,000 blocks (about 2.9 days), newest first,
   labelled `recent` (never a 30 or 90 day total; never sum `recent.tips`).
@@ -4454,7 +4454,7 @@ reads each verified source at most once per UTC day through `ReaderDeps` (`sourc
 repos (outside stargazers from the newest 3 pages, forkers, issue authors, contributors, account
 ages up to 80 lookups, commit weeks), sites (`probe`: up is a 2xx, at most 3 same-site redirects),
 npm and PyPI downloads (a package verifies only when its metadata names a verified repo), Base
-contracts from Blockscout transactions (D7, R9), Arc contracts from recent log chunks (newest 200
+contracts from Alchemy transfers and receipts (D7, R9), Arc contracts from recent log chunks (newest 200
 senders), merged PRs (never into a repo the person or one of their GitHub orgs owns; final review
 I2). One `defaultReaderDeps` per run shares the GitHub budget: it stops at `GH_RATE_FLOOR` = 1000
 core requests left or after `GH_RUN_CAP` = 1,500 GitHub calls in the run, whichever comes first

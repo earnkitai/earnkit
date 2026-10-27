@@ -205,7 +205,7 @@ function github(u: URL): Response {
 const probed: string[] = [];
 checkDefaults.probe = async (url: string) => void probed.push(url);
 checkDefaults.getCode = async () => '0x6080';
-checkDefaults.blockscout = async () => ({ transactions_count: '0' });
+checkDefaults.txCounter = async () => 0;
 // The real url_checks table (this journey's own database), not the suites' in-memory cache.
 delete checkDefaults.cache;
 
