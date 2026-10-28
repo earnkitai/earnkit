@@ -8211,3 +8211,25 @@ related, no row without data, every row links to proof).
 - `stand-view.ts takeNews` now keeps every `standing_seen` key except the ones it owns (`NEWS_KEYS`: rank, at, people);
   the old allow-list dropped v4 keys such as `token_offered`, `setup_asked`, `setup_done`.
 
+## v4.0 Task 11: the per-project coin offers are retired
+
+- Builder tokens (`builder-token.ts`, one per builder, at setup step 3) replaced the per-project coin offers. Deleted:
+  `coin-moments.ts`, `token-offers.ts`, `raising.ts`, `app/components/ui/RaisingPill.tsx` and their tests. The tables
+  (`coin_moments`, `token_offers`, `token_declines`, `projects.raising_at`) stay (append-only schema); nothing reads them.
+- MCP: `confirm` is never registered and `tools.confirm` is gone (with `confirmByProjectId`, `launch_token`,
+  `coinAnswer`, `tokenPitch`, `ConfirmInput`). An older agent's `tell coin { answer }` and `tell token: 'ask'` are still
+  accepted by the tell schema (undocumented) and answered as `tell move_up { kind: 'token' }`: a no is the builder
+  token's no (kept forever), a yes or an ask is "launch my token". `coin { raising }` changes nothing.
+- Entries never mint: `prepare_submission` offers no token (a ready draft ends "Ready to submit?"),
+  `confirm_entry`'s decision is always record-only, `record_submission` reports a skipped token (an entry made before
+  keeps reporting its own). The token-launch.ts launch functions remain but nothing in tools.ts calls them.
+- Backing is gone from every surface: the Backed filter and tag (`BenchFilter` is `{ chain, weekly }`; an old
+  `?backed=1` is ignored), the /terms Backing section, the landing and docs Backing lines, llms.txt's confirm line, the
+  profile/Bench/card `backing`/`coin`/`raising` fields, the builder JSON's `backing`, reply facts' `coin`, the coin
+  intro post moment and the backing, coin_publish, coin_wallet and backers_post asks (old stored asks are OLD_ASKS).
+  `EARNKIT_RAISING` is read nowhere (`raisingEnabled` removed). `/api/stats` keeps `backing_open`, `backers` and
+  `backers_after_post` at 0 (jenil.ai reads the keys).
+- The Monday email's new-backers line (`backers.ts newBackers`) counts the launched builder token's coin.
+- `v4-retire.test.ts`: no human string under lib/earnkit or app says "coin" (SQL and log tags aside); tell coin no is
+  the builder token's no; the tools expose no confirm.
+

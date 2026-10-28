@@ -95,7 +95,7 @@ test('(i) copy constants are exact', () => {
   assert.deepEqual(copy.STEPS, [
     { title: 'Connect', text: 'Add EarnKit to your agent. Connect your GitHub.' },
     { title: 'Ship', text: 'We score how steadily you ship, every day.' },
-    { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.', backing: 'Fans can back you with your coin.' },
+    { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.' },
   ]);
   assert.equal(copy.SCORE_UNIT, 'Shipping');
   assert.equal(copy.ROLLING, 'Rolling, apply anytime');
@@ -129,8 +129,7 @@ test('(i) copy constants are exact', () => {
   assert.equal(copy.BACKERS, 'holders');
   assert.equal(copy.leaderboardLine(1), '1 builder, ranked by how often they ship');
   assert.equal(copy.leaderboardLine(1234), '1,234 builders, ranked by how often they ship');
-  assert.deepEqual(copy.FILTERS, { all: 'All', base: 'Base', backed: 'Backed' });
-  assert.equal(copy.BACKED_TAG, 'Backed');
+  assert.deepEqual(copy.FILTERS, { all: 'All', base: 'Base' });
   assert.deepEqual(copy.FEED_STATS, { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' });
   assert.equal(copy.NOT_FOUND_BIG, '404');
   assert.equal(copy.NOT_FOUND_TEXT, 'Nothing shipped here.');

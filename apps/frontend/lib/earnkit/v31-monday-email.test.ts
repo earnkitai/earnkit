@@ -197,50 +197,53 @@ test('(c) applied (builder_program_status) or declined: no money line', db, asyn
   assert.equal(await bestFitFor(2_000_000_000, new Date()), null);
 });
 
-test('(d) 2 backers first seen in the last 7 days: "2 new backers this week."; flag off: none; pre-migration rows never count', db, async () => {
+test('(d) 2 backers first seen in the last 7 days on the builder token: "2 new backers this week."; v4.0 Task 11: never a project coin; pre-migration rows never count', db, async () => {
   const b = await builder('d', []);
   // The rolling program is told applied, so only the backers line is money here.
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${b.id}, '', ${ROLLING}, 'applied', now())`;
   const coin = addr();
+  const now = new Date();
+  const since = new Date(now.getTime() - 7 * DAY);
+  const backers = async (c: string) => sql()`INSERT INTO coin_backers (coin, wallet, first_block, first_seen_at) VALUES
+    (${c}, ${addr()}, 6000, ${new Date(now.getTime() - DAY)}), (${c}, ${addr()}, 6001, ${new Date(now.getTime() - 2 * DAY)}),
+    (${c}, ${addr()}, 5000, ${new Date(now.getTime() - 10 * DAY)}), (${c}, ${addr()}, 4000, 'epoch')`;
+  // An old project coin with backing open never counts (Task 9 moved the backers line to the builder token).
+  const old = addr();
   await sql()`
     INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at,
       coin_launched_at, coin_address, coin_tx, coin_chain_id, creator_wallet)
     VALUES ('earnkit-coin', 'Kit', ${`https://github.com/${b.key}`}, ${`github.com/${b.key.toLowerCase()}`}, ${b.id},
-      'KITD', 'launched', ${`https://tokens.fun/coin/${coin}`}, now(), now(), ${coin}, ${`0x${'a'.repeat(64)}`}, 8453, ${addr()})`;
-  const now = new Date();
-  await sql()`INSERT INTO coin_backers (coin, wallet, first_block, first_seen_at) VALUES
-    (${coin}, ${addr()}, 6000, ${new Date(now.getTime() - DAY)}), (${coin}, ${addr()}, 6001, ${new Date(now.getTime() - 2 * DAY)}),
-    (${coin}, ${addr()}, 5000, ${new Date(now.getTime() - 10 * DAY)}), (${coin}, ${addr()}, 4000, 'epoch')`;
-  const since = new Date(now.getTime() - 7 * DAY);
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
-    assert.equal(await newBackers(b.id, since), 2);
-    const f = await digestFacts(sub(b, 'd@example.com'), now);
-    assert.deepEqual(f.money, ['2 new backers this week.']);
-    assert.equal(digestBody({ ...NO_FACTS, money: f.money })!.text, '2 new backers this week.\n\nAsk your agent "What can I earn?" to start.');
-    // One reads "backer".
-    await sql()`UPDATE coin_backers SET first_seen_at = 'epoch' WHERE coin = ${coin} AND first_block = 6001`;
-    assert.deepEqual((await digestFacts(sub(b, 'd@example.com'), now)).money, ['1 new backer this week.']);
-    // Backing closed: none.
-    await sql()`UPDATE projects SET raising_at = NULL WHERE coin_address = ${coin}`;
-    assert.equal(await newBackers(b.id, since), 0);
-    await sql()`UPDATE projects SET raising_at = now() WHERE coin_address = ${coin}`;
-  });
-  await withEnv({ EARNKIT_RAISING: undefined }, async () => {
-    assert.equal(await newBackers(b.id, since), 0);
-    assert.deepEqual((await digestFacts(sub(b, 'd@example.com'), now)).money, []);
-  });
+      'KITD', 'launched', ${`https://tokens.fun/coin/${old}`}, now(), now(), ${old}, ${`0x${'a'.repeat(64)}`}, 8453, ${addr()})`;
+  await backers(old);
+  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(await newBackers(b.id, since), 0, 'a project coin: none'));
+  // The builder token, launched.
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address)
+    SELECT builder_id, x_user_id, 'launched', 'KITD', ${coin} FROM builder_profiles WHERE builder_id = ${b.id}`;
+  await backers(coin);
+  assert.equal(await newBackers(b.id, since), 2);
+  const f = await digestFacts(sub(b, 'd@example.com'), now);
+  assert.deepEqual(f.money, ['2 new backers this week.']);
+  assert.equal(digestBody({ ...NO_FACTS, money: f.money })!.text, '2 new backers this week.\n\nAsk your agent "What can I earn?" to start.');
+  // One reads "backer".
+  await sql()`UPDATE coin_backers SET first_seen_at = 'epoch' WHERE coin = ${coin} AND first_block = 6001`;
+  assert.deepEqual((await digestFacts(sub(b, 'd@example.com'), now)).money, ['1 new backer this week.']);
+  // A token not launched (on its way): none.
+  await sql()`UPDATE builder_tokens SET status = 'launching' WHERE builder_id = ${b.id}`;
+  assert.equal(await newBackers(b.id, since), 0);
+  assert.deepEqual((await digestFacts(sub(b, 'd@example.com'), now)).money, []);
+  await sql()`UPDATE builder_tokens SET status = 'launched' WHERE builder_id = ${b.id}`;
   // A row written before v3.1 (no first_seen_at) becomes 'epoch' at migration: never new.
   await sql()`ALTER TABLE coin_backers DROP COLUMN first_seen_at`;
-  const old = addr();
-  await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${old}, 7000)`;
+  const pre = addr();
+  await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${pre}, 7000)`;
   await sql().unsafe(SCHEMA);
-  const [row] = await sql()<{ at: Date }[]>`SELECT first_seen_at AS at FROM coin_backers WHERE coin = ${coin} AND wallet = ${old}`;
+  const [row] = await sql()<{ at: Date }[]>`SELECT first_seen_at AS at FROM coin_backers WHERE coin = ${coin} AND wallet = ${pre}`;
   assert.equal(row!.at.getTime(), 0);
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(await newBackers(b.id, since), 0, 'every row is pre-migration now'));
+  assert.equal(await newBackers(b.id, since), 0, 'every row is pre-migration now');
   // A row written after the migration without a value is seen now.
   const fresh = addr();
   await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${fresh}, 7001)`;
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(await newBackers(b.id, since), 1));
+  assert.equal(await newBackers(b.id, since), 1);
 });
 
 test('(f) fix round 1: the Best fit opened since the last send is the money line only, never also a "New:" line', db, async () => {

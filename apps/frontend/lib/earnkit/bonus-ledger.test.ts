@@ -321,7 +321,7 @@ test('index: books every deposit to the Safe (v2.14: no builder bonus); idempote
       [t4, 1, COIN_A, null, 'safe', '40'],
     ]);
     assert.equal(lines.length, 5, 'every Safe booking is logged');
-    assert.match(lines.join('\n'), /not an EarnKit coin/);
+    assert.match(lines.join('\n'), /not an EarnKit token/);
     assert.match(lines.join('\n'), /no ClaimedRewards/);
     assert.match(lines.join('\n'), /builder bonus off/);
     assert.equal((await sql()`SELECT 1 FROM bonus_rounds WHERE round_key = ${ROUND}`).length, 0, 'no round is made');

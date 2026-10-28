@@ -1,14 +1,12 @@
 /**
  * v3.1 one-tap posts (design 2, Task 2): the post for X that EarnKit drafts for a moment. Deterministic and pure: no
  * model call, only the moment's own facts (the week's summary, the builder's note, the streak, the project's name, an
- * announced win and award, the coin's ticker once). Plain, past tense, the builder's voice; their note goes in verbatim
+ * announced win and award). Plain, past tense, the builder's voice; their note goes in verbatim
  * and wins over our wording. Shapes rotate so a builder's posts never read like a template: never one of their last 2
  * shapes and never the last post's opening word, relaxed to "not the last shape" when nothing else fits. A weekly with
- * nothing that fits is no post; an event (went live, a verified win, the coin intro, the builder's news) always gets
+ * nothing that fits is no post; an event (went live, a verified win, the builder's news) always gets
  * its first wording that passes the copy rules.
- *
- * Owner ruling 1 (2026-10-22): the coin gets one intro post that may name the ticker once ($SYM); no other shape ever
- * names it.
+ * v4.0 Task 11: the per-project coin intro is retired (its stored shape name stays in POST_SHAPES for old drafts).
  */
 
 export const POST_SHAPES = [
@@ -31,8 +29,7 @@ export type PostInput =
   | { moment: 'went_live'; name: string; weeks: number }
   /** `award`: written already ("$5,000"), or null. */
   | { moment: 'won' | 'accepted' | 'funded'; name: string; program: string; award: string | null }
-  | { moment: 'news'; note: string }
-  | { moment: 'coin_intro'; name: string; symbol: string; weeks: number };
+  | { moment: 'news'; note: string };
 export type Post = { shape: PostShape; text: string };
 /** The person's recent drafts, newest first. */
 export type PostHistory = { shape: string; text: string }[];
@@ -181,31 +178,23 @@ function candidates(i: PostInput): Post[] {
     case 'news':
       if (i.note.trim() && noteProblems(i.note).length === 0) add('note', i.note.trim());
       break;
-    case 'coin_intro': {
-      const sym = i.symbol.trim().toUpperCase();
-      if (!i.name || !/^[A-Z0-9]{1,12}$/.test(sym)) break;
-      add('coin_intro', i.weeks >= 2 ? `${i.name} has a coin now, $${sym}. ${i.weeks} weeks shipping so far.` : `${i.name} has a coin now, $${sym}.`);
-      break;
-    }
   }
   return out;
 }
 
-/** The note shape and the coin intro carry the builder's words or the ticker; the rest are checked as ours. */
+/** The note shape carries the builder's words; the rest are checked as ours. */
 function passes(p: Post, i: PostInput, prev: string | undefined): boolean {
   if (p.text.length > POST_MAX) return false;
   if (p.shape === 'note') return !(prev !== undefined && prev.trim().toLowerCase() === p.text.toLowerCase());
-  const ticker = i.moment === 'coin_intro' ? i.symbol.trim().toUpperCase() : undefined;
   const name = 'name' in i ? i.name : null;
-  return postProblems(p.text, { ticker, prev, name }).length === 0;
+  return postProblems(p.text, { prev, name }).length === 0;
 }
 
 /**
  * The post for this moment, given the person's recent drafts (newest first); null when there is nothing worth posting
- * (a weekly with nothing new, or no shape that fits the rotation; a coin already introduced).
+ * (a weekly with nothing new, or no shape that fits the rotation).
  */
 export function writePost(i: PostInput, history: PostHistory): Post | null {
-  if (i.moment === 'coin_intro' && history.some((h) => h.shape === 'coin_intro')) return null;
   const prev = history[0];
   const lastTwo = new Set(history.slice(0, 2).map((h) => h.shape));
   const lastOpen = prev ? openingWord(prev.text) : null;

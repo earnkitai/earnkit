@@ -130,7 +130,7 @@ test('R17, R18 fix 1, R11 (v3.1 Task 8): a leaderboard row shows the Shipping sc
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
-    r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
+    r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
     ranked: true,
   }));
   // Clarity batch: the number carries a visible, quiet "Shipping" caption (was screen-reader only).

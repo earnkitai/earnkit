@@ -129,13 +129,9 @@ test('events: went live, won, accepted, funded, each with a second wording when 
   assert.equal(write({ moment: 'won', name: 'Ledgerline', program: 'Arc Microgrants', award: null }, [w1])!.shape, 'won_alt');
 });
 
-test('coin intro (owner ruling 1): one post that names the ticker once; the ticker appears in no other shape', () => {
-  assert.deepEqual(write({ moment: 'coin_intro', name: 'Tally', symbol: 'tally', weeks: 9 }), { shape: 'coin_intro', text: 'Tally has a coin now, $TALLY. 9 weeks shipping so far.' });
-  assert.deepEqual(write({ moment: 'coin_intro', name: 'Tally', symbol: 'TALLY', weeks: 1 }), { shape: 'coin_intro', text: 'Tally has a coin now, $TALLY.' });
-  assert.deepEqual(write({ moment: 'coin_intro', name: 'Tally', symbol: 'MOON', weeks: 3 })!.text, 'Tally has a coin now, $MOON. 3 weeks shipping so far.', 'the ticker is a name, not a hype word');
-  assert.equal(write({ moment: 'coin_intro', name: 'Tally', symbol: 'T A L', weeks: 3 }), null, 'a ticker that is not plain letters and digits');
-  assert.equal(write({ moment: 'coin_intro', name: 'Tally', symbol: 'TALLY', weeks: 3 }, [{ shape: 'coin_intro', text: 'Tally has a coin now, $TALLY.' }]), null, 'never twice');
-  assert.ok(postProblems('Tally has a coin now, $TALLY. Also $TALLY.', { ticker: 'TALLY' }).includes('cashtag'), 'only once');
+test('v4.0 Task 11: no coin intro post any more; a post names a cashtag at most once, and only the allowed one', () => {
+  assert.ok(postProblems('Tally shipped $TALLY. Also $TALLY.', { ticker: 'TALLY' }).includes('cashtag'), 'only once');
+  assert.ok(postProblems('Tally shipped $TALLY.').includes('cashtag'), 'never without an allowed ticker');
 });
 
 test('openingWord: the first word, lowercase, without punctuation', () => {
@@ -215,7 +211,6 @@ test('final review 2: a private project named by its site host ("earnkit.com") i
   assert.equal(write({ moment: 'won', name, program: 'Base Builder Grant', award: '$5,000' })!.text, 'earnkit.com won the Base Builder Grant ($5,000).');
   assert.equal(write({ moment: 'accepted', name, program: 'Base Builder Grant', award: null })!.text, 'earnkit.com was accepted into the Base Builder Grant.');
   assert.equal(write({ moment: 'funded', name, program: 'Base Builder Grant', award: null })!.text, 'earnkit.com was funded by the Base Builder Grant.');
-  assert.equal(write({ moment: 'coin_intro', name, symbol: 'KIT', weeks: 6 })!.text, 'earnkit.com has a coin now, $KIT. 6 weeks shipping so far.');
   assert.equal(write(weekly({ name, week: 3, summary: 'Added search.' }))!.text, 'earnkit.com, week 3: added search.');
   assert.equal(write(weekly({ name, week: 12, summary: 'Added search.' }))!.text, '12 weeks shipping earnkit.com without missing one. Last week: added search.');
   // A name that is a full link is never trusted.

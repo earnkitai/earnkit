@@ -5,28 +5,24 @@ import Pager from '../components/site/Pager';
 import SegTabs from '../components/site/SegTabs';
 import { CARD_PANEL, H1_SITE, PAGE_COL, PILL_WHITE, phoneRadius } from '../components/site/ui';
 import { filterHref, type BenchFilter, type BenchRow } from '../../lib/earnkit/bench-data';
-import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { CHAIN_LABEL, RANK_MIN_POOL, type BenchChain } from '../../lib/earnkit/rank';
-import { BENCH_EARLY, BENCH_EMPTY_BACKED, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from '../../lib/earnkit/site-copy';
+import { BENCH_EARLY, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, leaderboardLine } from '../../lib/earnkit/site-copy';
 import BenchRowItem from './BenchRowItem';
 import Podium from './Podium';
 
 export const BENCH_TITLE = 'Leaderboard';
 export const BENCH_EMPTY = 'No builder matches this filter yet.';
 export const BENCH_SHOW_ALL = 'Show everyone';
-/** The filter tabs' words (plan W3: All, Base, Backed). */
+/** The filter tabs' words (plan W3: All, Base). */
 export const FILTER_ALL = 'All';
-/** v3 Stage 2: builders with backing open (`?backed=1`), only while EARNKIT_RAISING is on. */
-export const FILTER_BACKED = 'Backed';
 /** v2.13: an old `?weekly=1` link still filters (a streak of WEEKLY_STREAK weeks) but has no tab (plan W3). */
 export const FILTER_WEEKLY = 'Shipping every week';
 /** Rows per page; the podium is rows 1 to 3 of page 1 (plan W3). */
 export const LEADERBOARD_PAGE = 20;
 
-/** Pure. A filter with no rows says what is missing: Base, Backed, else BENCH_EMPTY (an old ?chain= or ?weekly= link). */
+/** Pure. A filter with no rows says what is missing: Base, else BENCH_EMPTY (an old ?chain= or ?weekly= link). */
 export function emptyLine(f: BenchFilter): string {
-  if (f.backed && !f.chain && !f.weekly) return BENCH_EMPTY_BACKED;
-  if (f.chain === 'base' && !f.weekly && !f.backed) return BENCH_EMPTY_BASE;
+  if (f.chain === 'base' && !f.weekly) return BENCH_EMPTY_BASE;
   return BENCH_EMPTY;
 }
 
@@ -37,15 +33,13 @@ export function pageHref(f: BenchFilter, n: number): string {
 }
 
 /**
- * Pure. The tabs: All, Base (with a ranked Base project), Backed (only while EARNKIT_RAISING is on). A tab is marked only
+ * Pure. The tabs: All, Base (with a ranked Base project). A tab is marked only
  * for its exact filter, so an old `?chain=arc` or `?weekly=1` link filters the rows and marks none (plan W3).
  */
-export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: boolean): { label: string; href: string; on: boolean }[] {
+export function filterTabs(filter: BenchFilter, chips: BenchChain[]): { label: string; href: string; on: boolean }[] {
   const { chain, weekly } = filter;
-  const backed = Boolean(filter.backed);
-  const tabs = [{ label: FILTER_ALL, href: filterHref({ chain: null, weekly: false }), on: !chain && !weekly && !backed }];
-  if (chips.includes('base')) tabs.push({ label: CHAIN_LABEL.base, href: filterHref({ chain: 'base', weekly: false }), on: chain === 'base' && !weekly && !backed });
-  if (raising) tabs.push({ label: FILTER_BACKED, href: filterHref({ chain: null, weekly: false, backed: true }), on: backed && !chain && !weekly });
+  const tabs = [{ label: FILTER_ALL, href: filterHref({ chain: null, weekly: false }), on: !chain && !weekly }];
+  if (chips.includes('base')) tabs.push({ label: CHAIN_LABEL.base, href: filterHref({ chain: 'base', weekly: false }), on: chain === 'base' && !weekly });
   return tabs;
 }
 
@@ -58,7 +52,7 @@ export function filterTabs(filter: BenchFilter, chips: BenchChain[], raising: bo
  */
 export function countLine(filter: BenchFilter, rows: number, count: number): string | null {
   if (count === 0) return BENCH_TOP_EMPTY;
-  const filtered = Boolean(filter.chain || filter.weekly || filter.backed);
+  const filtered = Boolean(filter.chain || filter.weekly);
   const n = filtered ? rows : count;
   if (n === 0) return null;
   return `${count >= RANK_MIN_POOL ? leaderboardLine(n) : BENCH_EARLY}. ${BENCH_VERIFIED}`;
@@ -88,7 +82,7 @@ export default function BenchView({ rows, count, chips, filter, page }: { rows: 
             <h1 className={H1_SITE}>{BENCH_TITLE}</h1>
             {line && <p className="text-[15px] text-s-muted">{line}</p>}
           </div>
-          {ranked && <SegTabs label="Filters" items={filterTabs(filter, chips, raisingEnabled())} />}
+          {ranked && <SegTabs label="Filters" items={filterTabs(filter, chips)} />}
         </section>
         {/* Nobody ranked: the header's empty line is the only one; a filtered view with no rows says BENCH_EMPTY. */}
         {count > 0 &&

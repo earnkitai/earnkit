@@ -22,7 +22,6 @@ import { refreshFees, setFeeSource } from './fees';
 import { profileData } from './bench-data';
 import { builderJson } from './builder-json';
 import { readStats } from './stats';
-import { backingLine } from './bench-reply';
 import BenchProfileView from '../../app/[handle]/BenchProfileView';
 import { profileSite } from './site-data';
 import { unsign } from './fixtures/page-words';
@@ -170,8 +169,6 @@ async function builder(tag: string): Promise<B> {
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${c.id}, ${key}, ${lastFinishedMonday(new Date())},
       ${sql().json({ shipped_code: { n: 3 }, checked: true, approved: true } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
-  // The backing offer is another task's moment: answered, so it never takes the step here.
-  await sql()`INSERT INTO coin_moments (builder_id, project_key, moment, answer) VALUES (${c.id}, ${key}, 'first_week', 'no') ON CONFLICT DO NOTHING`.catch(() => {});
   return { ctx, id: c.id, key, handle };
 }
 const find = (b: B) => mcpCall(b.ctx, 'find', {});
@@ -333,29 +330,25 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   const d = (await profileData(b.id, new Date()))!;
   assert.ok(d.rankListed, 'ranked');
   assert.deepEqual(d.earned, { paid_usd: 200, waiting_usd: 500 });
-  assert.deepEqual(d.backing, { symbol: 'KITD', url: `https://tokens.fun/coin/${coin}`, backers: 2, earned_usd: 200 });
+  assert.equal('backing' in d, false, 'v4.0 Task 11: no backing on the profile');
   // v3.1 (plan S15): Earned left the page (the JSON and the reply keep it). v4.0 Task 9: the Token card is the builder
   // token's only, so a project coin draws none.
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
   assert.doesNotMatch(html, /data-ek-earned|>Earned<|waiting/, html);
   assert.doesNotMatch(html, /data-ek-token/, 'a project coin: no Token card');
 
-  // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
-  const intro = show(await find(b));
-  assert.match(intro, /(?:^|\n)Backing is open on your page\.\nYour post for X:\n"[^"]+ has a coin now, \$[A-Z0-9]+\.[^"]*"\nPost it in one tap: https:\/\/earnkit\.com\/[^\s]+\/post\/[a-z2-7]{10}\nWant a different version\?$/, intro);
+  // v4.0 Task 11: no coin intro post and no backing line; the stand line carries Earned.
   const r = show(await find(b));
   assert.match(standLine(r), / · \$200 earned$/, r);
-  // v3.1 cold read: the backing line came with the launch (the intro above); unchanged backers are not said again.
-  assert.ok(!r.includes('Backing: 2 backers'), r);
+  assert.doesNotMatch(r, /Backing|backers|\bcoin/i, r);
   assert.ok(links(r).length <= 1, r);
   assert.ok(questions(r) <= 1, r);
   assert.doesNotMatch(r, /—/);
-  assert.equal(backingLine(1, 0, 'earnkit.com/x'), 'Backing: 1 backer, $0 in fees. Your page: earnkit.com/x');
 
-  // The builder JSON carries Earned and the backing counts.
+  // The builder JSON carries Earned (v4.0 Task 11: no backing).
   const j = (await builderJson(b.handle, new Date()))!;
   assert.deepEqual(j.earned, { paid_usd: 200, waiting_usd: 500 });
-  assert.deepEqual(j.backing, { symbol: 'KITD', url: `https://tokens.fun/coin/${coin}`, backers: 2, earned_usd: 200 });
+  assert.equal('backing' in j, false);
 
   // Ranked with nothing earned: "$0", no waiting line, and no Earned in the reply.
   fees(0n);
@@ -367,7 +360,7 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.doesNotMatch(show(await find(z)), /earned/i);
 }));
 
-test('(e) flag off: backers and backing_open absent, Earned still shows program prizes', db, async () => {
+test('(e) v4.0 Task 11: no backing anywhere, flag on or off (the stats keys stay at 0); Earned still shows program prizes', db, async () => {
   fees(0n);
   const b = await off(() => builder('e'));
   const coin = addr('p1');
@@ -375,12 +368,12 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
   await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${addr('p3')}, 6000)`;
   await outcome(b.id, 'won', 'announcement', 340);
   const onStats = await on(() => readStats(new Date()));
-  assert.ok(onStats.backing_open >= 1, JSON.stringify(onStats));
-  assert.ok(onStats.backers >= 1);
+  assert.equal(onStats.backing_open, 0, JSON.stringify(onStats));
+  assert.equal(onStats.backers, 0);
   assert.ok(onStats.earned_usd >= 340);
   await off(async () => {
     const d = (await profileData(b.id, new Date()))!;
-    assert.equal(d.backing, null);
+    assert.equal('backing' in d, false);
     assert.deepEqual(d.earned, { paid_usd: 340, waiting_usd: 0 });
     const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
     assert.doesNotMatch(html, /data-ek-earned|backers|Backing|data-ek-back|data-ek-token/i);
@@ -388,17 +381,17 @@ test('(e) flag off: backers and backing_open absent, Earned still shows program 
     assert.match(standLine(r), / · \$340 earned$/, r);
     assert.doesNotMatch(r, /backing|backers/i, r);
     const j = (await builderJson(b.handle, new Date()))!;
-    assert.equal(j.backing, null);
+    assert.equal('backing' in j, false);
     assert.deepEqual(j.earned, { paid_usd: 340, waiting_usd: 0 });
     const s = await readStats(new Date());
-    // The keys stay (jenil.ai reads them); 0 with the flag off.
+    // The keys stay (jenil.ai reads them); always 0.
     assert.equal(s.backing_open, 0, JSON.stringify(s));
     assert.equal(s.backers, 0);
     assert.equal(s.earned_usd, onStats.earned_usd);
   });
 });
 
-test('(f) backing_open, backers and earned_usd leave out a test group\'s coin under a child installation', db, async () => {
+test('(f) earned_usd leaves out a test group\'s coin under a child installation (backing_open and backers stay 0)', db, async () => {
   // v3 Stage 2 final review: group-aware, as every other people stat (stats.ts notTest).
   fees(0n);
   const root = await plainInstallation('fr');
@@ -416,8 +409,7 @@ test('(f) backing_open, backers and earned_usd leave out a test group\'s coin un
   // The group's root is a test installation, or another installation in the group is: the child's coin is left out.
   for (const flagged of [root, sibling]) {
     const s = await read(flagged);
-    assert.equal(all.backing_open - s.backing_open, 1, `backing_open (${flagged === root ? 'root' : 'sibling'})`);
-    assert.equal(all.backers - s.backers, 2, 'backers');
+    assert.equal(all.backing_open + s.backing_open + all.backers + s.backers, 0, `retired (${flagged === root ? 'root' : 'sibling'})`);
     assert.equal(all.earned_usd - s.earned_usd, 200, 'earned_usd: 0.1 WETH at $2,000');
   }
 });

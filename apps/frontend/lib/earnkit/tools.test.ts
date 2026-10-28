@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { isDeepStrictEqual } from 'node:util';
-import { BUILD_ENTRY_NO_TOKEN_NOTE, BUILD_NO_LIVE_NOTE, CONFIRM_ENTRY_GONE, BUILD_PENDING_NOTE, CONFIRM_SHARED_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
+import { BUILD_ENTRY_NO_TOKEN_NOTE, BUILD_NO_LIVE_NOTE, BUILD_PENDING_NOTE, NOTED_FOR_NOW, SUBMITTED_SHARED_NOTE, eligibilityLine, freshSwitches, withoutBonusLine, WALLET_IGNORED, canBuild, listProgramsInput, matchRows, tools, handlers } from './tools';
 import { aliasCall } from './aliases';
 import { reportedGithubUser, reportedRepos } from './match-projects';
 import { sql } from './db';
@@ -20,7 +20,6 @@ import { setSanctionsOracle } from './sanctions';
 import type { DeployDeps } from './deploy';
 import { freshLead, presentFirstMessage, type RepoFit } from './present';
 import { launchLimit, type TokenFlowDeps } from './token-launch';
-import { offerKey, saveOffer } from './token-offers';
 import { proposeToken } from './token-proposal';
 import { LaunchError } from './tokens';
 import { wonSource } from './stats';
@@ -287,10 +286,8 @@ async function confirmSetup(tag: string, o: { remembered?: string; check?: (s: s
   } as unknown as TokenFlowDeps;
   const ctx = { installationId: inst, tokenDeps };
   const project = { name: 'Tip Jar', repo_url: repo, live_url: 'https://tipjar.xyz' };
-  // v2.8.1 fix round 1: the Yes line the builder saw (prepare_submission or the offer stores it);
-  // "go" launches exactly this pair.
+  // v4.0 Task 11: no entry gets a token any more (the per-project offers are retired); the pair EarnKit would propose.
   const offered = await proposeToken('Tip Jar', tokenDeps.check, repo);
-  if (!o.noOffer) await saveOffer(inst, p.id, offerKey(repo, 'Tip Jar'), { name: offered.name, symbol: offered.symbol });
   const answers = { description: 'Tips for creators on Arc', builder_profile: 'https://github.com/alice' };
   const input = { program_id: p.id, project, answers };
   const rows = async () =>
@@ -2530,7 +2527,6 @@ test('final fix I2: the site never goes up: 15 minutes on, prepare with build an
   ),
 );
 
-
 // ---- Restored in v2.14 T3 fix round 1: the build path's live safety rules -----------------------
 
 /**
@@ -2832,8 +2828,8 @@ test('10.3/10.4, v3.1 fix round 1: the build path never enters or launches: the 
         assert.match(j.show_to_builder, /dorahacks\.io/);
         assert.doesNotMatch(j.show_to_builder, /Your token|tokens\.fun/);
         assert.deepEqual(t.launched, [], 'no coin launched');
-        // An old agent's yes through confirm is refused; nothing is entered.
-        await assert.rejects(tools.confirm({ program_id: t.p.id, project: {}, answers: {}, yes: true }, t.ctx as never), (e: unknown) => e instanceof EntryError && e.message === CONFIRM_ENTRY_GONE);
+        // v4.0 Task 11: there is no confirm tool; nothing is entered.
+        assert.equal(Object.hasOwn(tools, 'confirm'), false);
         assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${t.inst}`).length, 0, 'nothing entered');
         assert.deepEqual((await buildEventsOf(t.inst)).map((e) => e.type), ['built', 'deployed', 'hosted']);
       }),
@@ -2863,8 +2859,6 @@ test('10.13 R8 (Task 4 fix round 1): the build path\'s live reply never asks a c
     assert.ok(plain.show_to_builder.endsWith("Ready to submit?"));
   }),
 );
-
-
 
 test('9.4 deploys off: "Deploys are off right now.", nothing deployed, no upload URL, no built event; the env without the key says the same', dbTest, (tc) =>
   withEventLog(async () => {
@@ -3044,11 +3038,9 @@ test('9.12 v2.12 under the pitch score nothing launches by project_id or the old
     // The entry, recorded without a token (a held person's yes).
     const rec = (await enter({ program_id: t.p.id, project: t.project, answers: t.answers, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
     assert.equal(typeof rec.project_id, 'number');
-    // The stored offer matches: by project_id the yes would launch it.
-    const again = (await tools.confirm({ project_id: rec.project_id, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
-    assert.doesNotMatch(again.show_to_builder, /launches \$|is live/);
-    const old = (await handlers.launch_token({ project_id: rec.project_id, builder_confirmed: true, creator_wallet: W8 }, t.ctx)) as { status: string };
-    assert.equal(old.status, 'skipped');
+    // v4.0 Task 11: no confirm tool and no launch_token handler: nothing can launch by project_id.
+    assert.equal(Object.hasOwn(tools, 'confirm'), false);
+    assert.equal(Object.hasOwn(handlers, 'launch_token'), false);
     assert.equal(t.calls.deploy, 0);
     assert.equal(t.calls.gate, 0);
     const s = await confirmSetup('t9-skip', { remembered: W8 });
@@ -3098,25 +3090,3 @@ test('4.A7/A8 (Ruling G7) on a shared client list_programs keeps no fit repos an
   }
 });
 
-// v2.14 T3 fix round 1: the shared-client rule for entries (no token on the Bench).
-test('fix round 2 (I-b, G7, G9), v2.14 final fix: on a shared client, confirm by project_id is only noted; no one can change the entry\'s links', dbTest, () =>
-  withTokenEnv(() =>
-    withSignIn(async () => {
-      const t = await confirmSetup('t9ib');
-      const a = (await enter({ ...t.input, yes: true, wallet: W8 }, t.ctx)) as Confirmed;
-      // The Bench: a program entry records with no token (coin-moments.ts coinPitchAllowed).
-      assert.equal(typeof a.project_id, 'number');
-      await sql()`UPDATE installations SET shared_client = true WHERE id = ${t.inst}`;
-      const shared = { ...t.ctx, sharedClient: true };
-      // A pre-v2.14 sign-in row for the entry names no shared caller.
-      await signInAs(t.inst, a.project_id!, t.repo, 'alice');
-      const liveOf = async () => (await sql()<{ live_url: string | null }[]>`SELECT live_url FROM projects WHERE id = ${a.project_id!}`)[0].live_url;
-      const before = await liveOf();
-      for (const ask of [{ check: true }, { yes: true }]) {
-        const r = (await tools.confirm({ project_id: a.project_id, project: { live_url: 'https://evil.example' }, ...ask }, shared)) as Record<string, unknown>;
-        assert.deepEqual(r, { show_to_builder: NOTED_FOR_NOW, agent_note: CONFIRM_SHARED_NOTE }, JSON.stringify(ask));
-      }
-      assert.equal(await liveOf(), before);
-      assert.equal(t.calls.deploy, 0);
-    }),
-  ));

@@ -15,7 +15,6 @@ import { productOdds, productScore, traction, type Detection } from './match';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { scoreFits } from './stand-view';
 import { fitLines, fitWhy } from './bench-find';
-import { COIN_BLOCKED } from './coin-moments';
 import { INTRO_LINE, SHIP_ASK, STATE_COPY, VARIANT_COPY } from './bench-reply';
 import type { RepoFit } from './present';
 import { endsOnRankedStep } from './fixtures/ranked-step';
@@ -146,21 +145,20 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   for (const id of CLOSED) assert.ok(!t.includes(committedProgram(id).title), id);
 });
 
-test('R8: asking about a token (tell token: \'ask\', through the MCP schema) with EARNKIT_RAISING off is not available (v3.1 final fix 1); find and score never offer one', db, async () => {
+test('R8, v4.0 Task 11: an older agent asking about a token (tell token: \'ask\') never gets a project coin; find and score never offer one', db, async () => {
   await syncPrograms();
   const a = await rankedBuilder('tka', 'Tokenkit', 7202);
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${a.id} AND kind = 'repo'`;
-  // Launches off (no tokens.fun key): asking says so, nothing is recorded.
+  // Launches off (no tokens.fun key): no coin offer, nothing is recorded.
   const off = (await mcpCall(a.ctx, 'tell', { token: 'ask' })).reply!;
-  // v3.1 cold read: one honest line why, never a bare "not available".
-  assert.equal(off.show_to_builder, COIN_BLOCKED.off);
+  assert.doesNotMatch(String(off.show_to_builder), /\bcoin/i);
+  assert.equal(off.coin, undefined);
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   try {
     const ctx = { ...a.ctx, tokenDeps: { check: async () => true } };
-    // v3.1 final fix 1: launches on but EARNKIT_RAISING off: confirm isn't registered, so no coin is offered (the
-    // flag-on offer, yes and confirm are v31-mcp-surface (j)).
+    // Launches on: still no project coin (v4.0 Task 11: the builder token answers, v31-mcp-surface (j)).
     const asked = (await mcpCall(ctx, 'tell', { token: 'ask' })).reply!;
-    assert.equal(asked.show_to_builder, COIN_BLOCKED.off, JSON.stringify(asked));
+    assert.doesNotMatch(String(asked.show_to_builder), /\bcoin/i, JSON.stringify(asked));
     assert.equal(asked.coin, undefined);
     assert.doesNotMatch(String(asked.agent_note ?? ''), /tell with coin|confirm/);
     for (const tool of ['find', 'score'] as const) assert.doesNotMatch(String((await mcpCall(a.ctx, tool, {})).reply?.show_to_builder), COIN_WORDS, tool);

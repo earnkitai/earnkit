@@ -6,14 +6,14 @@ import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-dr
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
 import {
-  HOT_HOURS, coinIntroCandidate, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
+  HOT_HOURS, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
 } from './post-moments';
 import { pagePath } from './reserved-routes';
 import { OUTCOME_SHARE_NOTE, acceptedNudge, outcomeNudgeShown } from './nudges';
 
 /**
  * v3.1 one-tap posts, Task 6 (design 6): the drafted posts in the replies. A post is offered in the share slot (the
- * Monday moment's weekly post, or an event: an announced win, going live, the coin's intro); went live and won jump
+ * Monday moment's weekly post, or an event: an announced win, going live); went live and won jump
  * ahead of the apply step for HOT_HOURS. The builder's news (tell update) and an outcome they told with its proof link
  * (tell program_status with proof_url, owner ruling 3) are drafted as they say them. Each reply's one https link is the
  * post's short link (earnkit.com/<handle>/post/<code>); its question asks for a different version, which redrafts
@@ -99,7 +99,7 @@ function markQuiet(id: number, now: Date, stamp: string) {
 }
 
 /**
- * An event's post (an announced win, going live, the coin's intro: offeredMoments without the weekly), drafted and
+ * An event's post (an announced win, going live: offeredMoments without the weekly), drafted and
  * stored as the reply's ask: the first that drafts (final review 3: one that can't be drafted gives way to the next).
  * `hot`: only went live or won under HOT_HOURS (they go before the apply step); else any. Null: none, or a limit holds
  * it; when nothing at all could be drafted (and no read failed), remembered until the day ends or eventStamp changes.
@@ -132,7 +132,7 @@ export async function eventPost(id: number, handle: string, now: Date, o: { hot:
 
 /**
  * A drafted moment's reply and its move_up, the ask stored. Null when it can't be drafted now. GTM W2: `head` replaces
- * the moment's own head line (the coin's launch, a congrats).
+ * the moment's own head line (a congrats).
  */
 async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now: Date, o: { head?: string } = {}): Promise<Record<string, unknown> | null> {
   const handle = await handleOf(id);
@@ -269,21 +269,6 @@ export function outcomeCongrats(status: 'accepted' | 'funded' | 'won', title: st
   if (status === 'accepted') return `Congrats on getting into ${the}.`;
   if (status === 'funded') return `Congrats on the funding from ${the}.`;
   return `Congrats on winning ${the}.`;
-}
-
-/** GTM W2: the launch reply's head: the coin is live and the builder keeps 40% of its trading fees. Pure. */
-export const coinLiveLine = (symbol: string) => `Your coin $${symbol} is live. You keep 40% of its trading fees.`;
-/**
- * GTM W2 (2026-10-23): confirm's reply when the coin launched: the coin is live, the builder's 40%, then its one-tap intro
- * post (the coin_intro moment, once ever) as the reply's one link and question. No post can be drafted (backing not on
- * the page, or the intro already drafted): the coin's own page is the one link. Never throws.
- */
-export async function coinLaunchedReply(id: number, coin: { symbol: string; tokens_fun: string | null }, now: Date): Promise<Record<string, unknown>> {
-  const head = coinLiveLine(coin.symbol);
-  const c = await coinIntroCandidate(id, now).catch(logged('coin intro'));
-  const post = c && typeof c !== 'string' ? await draftedReply(id, c, false, now, { head }) : null;
-  if (post) return post;
-  return { show_to_builder: coin.tokens_fun && /^https:\/\//.test(coin.tokens_fun) ? `${head}\nIts page: ${coin.tokens_fun}` : head };
 }
 
 /**

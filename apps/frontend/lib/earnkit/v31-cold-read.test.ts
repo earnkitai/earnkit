@@ -5,23 +5,19 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub, type FakeCommit } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { lastFinishedMonday } from './weeks';
 import { productOdds, productScore, traction, type Detection, type Verdict } from './match';
 import type { RepoFit } from './present';
-import { BACKING_OFFER, COIN_BLOCKED, approvedCodeWeek, coinBlocked } from './coin-moments';
 import {
-  mainProjectNameFor, BACKERS_POST_ASK, COIN_WALLET_NOTE, NOT_ON_GITHUB_YET, TOKEN_BUILD_FIRST, TOKEN_LOG_PENDING, TOKEN_NO_WEEK, backersLine, tokenConnectFirst, tokenPublishFirst,
+  mainProjectNameFor, NOT_ON_GITHUB_YET,
 } from './bench-find';
 import {
-  COIN_WALLET_REASK, LOVABLE_PROMPT_ASK, MOMENT_ASK, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
-  grantProgramName, liveNoGithub, newBackersLine, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
+  LOVABLE_PROMPT_ASK, MOMENT_ASK, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
+  grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
 import { walletSetupAsk } from './bench-reply';
-import { walletOffered } from './fixtures/wallet-step';
 import { proofAsk } from './post-reply';
 import { factsAck } from './builder-memory';
 import { siteFormLine, youAddLine } from './submit-kit';
@@ -34,9 +30,8 @@ import { SERVER_INSTRUCTIONS } from './mcp';
 
 /**
  * v3.1 cold-read fixes (owner-approved spec, docs/design-docs-and-implementation-plans/v3.1-cold-read-fixes.md): the
- * approved copy word for word, the bugs (no empty connect yes, repo facts acknowledged, one name, "applied"), the coin
- * ask's paths (not connected, proven with no published week, declined earlier, unavailable), the status line, points
- * line and backing line throttles, and the wallet step's gate. Every reply: at most one https link, one question at most
+ * approved copy word for word, the bugs (no empty connect yes, repo facts acknowledged, one name, "applied"), the status
+ * line and points line throttles (v4.0 Task 11: the coin ask's paths and the backing line are retired), and the wallet step's gate. Every reply: at most one https link, one question at most
  * (exactly one where it asks), no emoji, never an em dash.
  */
 appEnv();
@@ -64,8 +59,6 @@ const asks = (s: string) => {
   assert.equal(questions(s), 1, s);
   return s;
 };
-const ON = { EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'v31-cold-key' };
-const on = <T>(fn: () => Promise<T>) => withEnv(ON, fn);
 const LINK = 'https://earnkit.com/github/verify?n=abc';
 const BASE = { org: 'Base', amount: '$5,000', chain: 'Base', name: 'Base Builder Grants' };
 
@@ -100,15 +93,7 @@ test('the approved copy, word for word', () => {
     'Want me to write your Lovable prompt?',
   ].join('\n'));
   assert.equal(LOVABLE_PROMPT_ASK, 'Want me to write your Lovable prompt?');
-  assert.equal(BACKING_OFFER('TipFlow', 'TIPFLOW', '0x12ab000000000000000000000000000000009f3e'),
-    'I can launch $TIPFLOW, a coin for TipFlow on Base. Every trade pays a fee and you keep 40%, sent to 0x12ab…9f3e. Coins can go to zero. Launch it?');
-  assert.equal(BACKING_OFFER('TipFlow', 'TIPFLOW', null), 'I can launch $TIPFLOW, a coin for TipFlow on Base. Every trade pays a fee and you keep 40%. Coins can go to zero. Launch it?');
-  assert.equal(tokenConnectFirst('MealMate', LINK), `Connect your code first and I can launch a coin for MealMate. You'd keep 40% of its trading fees: ${LINK}\nDone?`);
-  assert.equal(tokenPublishFirst('KIT'), 'Your shipping log goes public first, then $KIT launches. You keep 40% of its trading fees. Do both?');
   assert.equal(connectAsk('https://earnkit.com/kit'), 'Make your shipping log public on https://earnkit.com/kit so grant teams can see it?');
-  assert.equal(backersLine(0, 0), 'No backers yet. Backers follow posts about real progress. Want a post about this week?');
-  assert.equal(backersLine(3, 12), '3 backers and $12 in fees to you so far. Want a post about this week?');
-  assert.equal(BACKERS_POST_ASK, 'Want a post about this week?');
   assert.equal(proofAsk('Base Builder Grant Program'), "Congrats on the Base Builder Grant Program. Got the announcement link? I'll turn it into a post.");
   assert.deepEqual([MOMENT_ASK, POST_HEAD], ['Looks right?', 'Your post for X:']);
   assert.equal(qualifySteps(BASE, ['codes']), [
@@ -126,14 +111,13 @@ test('the approved copy, word for word', () => {
   assert.equal(TITLES_ASK, 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.');
   assert.equal(walletOffer('https://earnkit.com/claim/wallet?t=x'), 'Prove your Base wallet so your contracts show on your page. One signature, no fee: https://earnkit.com/claim/wallet?t=x\nDone?');
   assert.equal(WALLET_ASK, 'Done?');
-  assert.equal(newBackersLine(2), '2 new backers since you last looked.');
   assert.equal(APPLIED_OUTSIDE, 'applied');
   assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line from show_to_builder and facts only/);
   assert.match(SERVER_INSTRUCTIONS, /answer it in one short line from facts in the reply, never invented/);
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));
-  for (const s of [pickRepoAsk(LINK, false), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE), BACKING_OFFER('Kit', 'KIT', null), tokenConnectFirst('Kit', LINK),
-    tokenPublishFirst('KIT'), connectAsk('https://earnkit.com/kit'), backersLine(0, 0), proofAsk('X'), TITLES_ASK, walletOffer('https://earnkit.com/claim/wallet?t=x')]) asks(s);
-  for (const s of [youreIn('maya'), grantHook(BASE), NO_GITHUB_HINT, TOKEN_NO_WEEK, TOKEN_LOG_PENDING, NOT_ON_GITHUB_YET, ...Object.values(COIN_BLOCKED)]) clean(s);
+  for (const s of [pickRepoAsk(LINK, false), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE),
+    connectAsk('https://earnkit.com/kit'), proofAsk('X'), TITLES_ASK, walletOffer('https://earnkit.com/claim/wallet?t=x')]) asks(s);
+  for (const s of [youreIn('maya'), grantHook(BASE), NO_GITHUB_HINT, NOT_ON_GITHUB_YET]) clean(s);
 });
 
 test('bug 2: repo facts are acknowledged in one short line, from their own words', () => {
@@ -168,10 +152,6 @@ test('status line and points line: shown only when changed or once a week; a rep
   // Nothing else to say: the standing, never an empty reply (and never the points line alone).
   assert.equal(benchReply(view({ standingShown: false, nagShown: false, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
   assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), `${STAND}\n${shipPointsLine()}`);
-  // Backing: the first time after launch, then only new backers.
-  const page = 'https://earnkit.com/kit';
-  assert.match(benchReply(view({ standingShown: false, nagShown: false, fund: [{ kind: 'backing', backers: 0, earned_usd: 0, page, symbol: 'KIT' }] })), /^Your coin \$KIT is live\. Your page: https:\/\/earnkit\.com\/kit\n/);
-  assert.match(benchReply(view({ standingShown: false, nagShown: false, fund: [{ kind: 'backing', backers: 3, earned_usd: 0, page, news: 2 }] })), /^2 new backers since you last looked\.\n/);
 });
 
 let n = 0;
@@ -206,13 +186,6 @@ async function builder(tag: string, o: { key?: string; wallet?: boolean; base?: 
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
   if (o.wallet !== false) await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${`0x${(c.id + 3000).toString(16).padStart(40, '0')}`}, ${c.id}) ON CONFLICT DO NOTHING`;
   return { ctx, id: c.id, key, handle, gh };
-}
-/** Last week's ship-log row with code (approved: the builder said yes to it). */
-async function week(b: B, approved: boolean) {
-  const f = { shipped_code: { n: 3 }, checked: true, ...(approved && { approved: true }) };
-  await sql()`
-    INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${b.id}, ${b.key}, ${lastFinishedMonday(new Date())}, ${sql().json(f as never)})
-    ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts`;
 }
 const find = (b: B) => mcpCall(b.ctx, 'find', {});
 const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', args);
@@ -259,57 +232,6 @@ test('a live Lovable app and a GitHub no: its GitHub steps with the link, never 
   assert.doesNotMatch(again, /start building on Base/);
   const no2 = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'no' } }));
   assert.match(no2, /^No rush\./, no2);
-});
-
-test('coin ask, no project: build first, the Lovable prompt as the one question (no link); a live app not connected: the connect link', db, () => on(async () => {
-  const p = await newcomer('c');
-  const r = await mcpCall(p.ctx, 'tell', { token: 'ask' });
-  const s = asks(show(r));
-  assert.equal(s, `${TOKEN_BUILD_FIRST}\n${LOVABLE_PROMPT_ASK}`);
-  assert.equal(links(s).length, 0);
-  assert.equal((r.reply?.move_up as { kind: string }).kind, 'base_help');
-  // A live app named, its code not connected: the connect link, what a coin pays, one question.
-  await mcpCall(p.ctx, 'find', { agent_can_build: false, identity: { project: { name: 'MealMate', live_url: 'https://mealmate.lovable.app' } } });
-  const c = asks(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })));
-  assert.match(c, /^Connect your code first and I can launch a coin for MealMate\. You'd keep 40% of its trading fees: https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?$/, c);
-}));
-
-test('coin ask, proven with no published week: "Do both?"; its yes publishes the weeks and shows the offer (nothing launched)', db, () => on(async () => {
-  const b = await builder('p');
-  await week(b, false);
-  const r = await tell(b, { token: 'ask' });
-  const s = asks(show(r));
-  assert.match(s, /^Your shipping log goes public first, then \$KIT launches\. You keep 40% of its trading fees\. Do both\?$/, s);
-  assert.equal((r.reply?.move_up as { kind: string }).kind, 'coin_publish');
-  const y = await tell(b, { move_up: { kind: 'coin_publish', project_key: b.key, answer: 'yes' } });
-  const ys = asks(show(y));
-  assert.match(ys, /^You're live: https:\/\/earnkit\.com\/\S+\nI can launch \$KIT, a coin for Kit on Base\. Every trade pays a fee and you keep 40%, sent to 0x[0-9a-f]{4}…[0-9a-f]{4}\. Coins can go to zero\. Launch it\?/, ys);
-  assert.equal((y.reply?.move_up as { kind: string }).kind, 'backing');
-  assert.equal(await approvedCodeWeek(b.id, b.key), true);
-  // The explicit yes to the offer is still needed: nothing is entered or launched yet.
-  assert.equal((await sql()`SELECT 1 FROM projects WHERE installation_id = ${b.id}`).length, 0);
-}));
-
-test('coin ask after an earlier no: the builder asking is a new yes path (the offer again)', db, () => on(async () => {
-  const b = await builder('d');
-  await week(b, true);
-  const r = await tell(b, { token: 'ask' });
-  asks(show(r));
-  assert.match(show(r), /^I can launch \$KIT, a coin for Kit on Base\./);
-  await tell(b, { coin: { project_key: b.key, answer: 'no' } });
-  assert.equal((await sql()<{ answer: string }[]>`SELECT answer FROM coin_moments WHERE builder_id = ${b.id}`)[0].answer, 'no');
-  const again = await tell(b, { token: 'ask' });
-  assert.match(show(again), /^I can launch \$KIT, a coin for Kit on Base\./, show(again));
-  assert.equal((await sql()<{ answer: string | null }[]>`SELECT answer FROM coin_moments WHERE builder_id = ${b.id}`)[0].answer, null);
-}));
-
-test('coin ask, truly unavailable: one honest line why', db, async () => {
-  const b = await builder('u');
-  await week(b, true);
-  const off = await withEnv({ EARNKIT_RAISING: undefined, TOKENSFUN_DEPLOY_API_KEY: 'v31-cold-key' }, () => tell(b, { token: 'ask' }));
-  assert.equal(show(off), COIN_BLOCKED.off);
-  assert.equal(await on(() => coinBlocked(b.id, 'earnkitai/earnkit')), COIN_BLOCKED.own);
-  assert.equal(await on(() => coinBlocked(b.id, b.key)), null);
 });
 
 test('the status line only when it changed, the points line once a week; score always shows where they stand', db, async () => {
@@ -453,42 +375,3 @@ test('round 2: after the walk-through, its question stands until the Lovable pro
   }
 });
 
-test('round 2: a coin yes waiting for its fee wallet asks for it again, never the wallet proof step (even with Base contracts reported)', db, () => on(async () => {
-  const b = await builder('cw', { wallet: false });
-  // v4.0: setup step 3 answered (this test is about the coin's fee wallet).
-  await walletOffered(b.id);
-  await week(b, true);
-  await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
-    VALUES (${b.id}, '', ${b.key.toLowerCase()}, ${['base']}, ${[]}, null, null, false, now())`;
-  assert.match(show(await tell(b, { token: 'ask' })), /^I can launch \$KIT, a coin for Kit on Base\./);
-  assert.equal(show(await tell(b, { coin: { project_key: b.key, answer: 'yes' } })), COIN_WALLET_REASK);
-  for (let i = 0; i < 2; i++) {
-    const r = await find(b);
-    // The coordinator's wording is a request, not a question mark: the reply's one ask, no other question.
-    const s = clean(show(r));
-    assert.ok(s.endsWith(COIN_WALLET_REASK), s);
-    assert.doesNotMatch(s, /Prove your Base wallet/);
-    assert.deepEqual(r.reply?.move_up, { kind: 'coin_wallet', project_key: b.key, agent_note: COIN_WALLET_NOTE });
-  }
-  // The wallet given: the coin flow goes on (confirm next), and the question is gone.
-  const w = await tell(b, { coin: { project_key: b.key, answer: 'yes', wallet: '0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed' } });
-  assert.equal(typeof w.reply?.project_id, 'number', JSON.stringify(w.reply));
-  assert.doesNotMatch(show(await find(b)), /Send me the wallet/);
-}));
-
-test('round 2: a proven project whose log was never written: the token ask writes it from its commits, then "Do both?" the same day', db, () => on(async () => {
-  // Commits in each of the last finished weeks, read through the App (the connect's own backfill).
-  const monday = new Date(`${lastFinishedMonday(new Date())}T12:00:00Z`).getTime();
-  const commits: FakeCommit[] = [0, 7, 14].map((d, i) => ({ sha: `bf${i}`, message: `feat: ship part ${i}`, date: new Date(monday - d * 86_400_000).toISOString() }));
-  const b = await builder('bf', { commits });
-  await sql()`DELETE FROM project_updates WHERE builder_id = ${b.id}`;
-  const was = globalThis.fetch;
-  globalThis.fetch = b.gh as typeof fetch;
-  try {
-    const s = show(await tell(b, { token: 'ask' }));
-    assert.doesNotMatch(s, /tomorrow/);
-    assert.equal(s, tokenPublishFirst('KIT'));
-  } finally {
-    globalThis.fetch = was;
-  }
-}));

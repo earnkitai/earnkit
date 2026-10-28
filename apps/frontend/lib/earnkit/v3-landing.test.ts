@@ -141,10 +141,10 @@ test('(j) Opportunities: one link per open program to its guide, with its title,
   assert.doesNotMatch(page({ ...full, tiles: [{ ...tile, status: 'upcoming' as const }] }), /href="\/programs\/colosseum-worlds-fair"/);
 });
 
-test('(l) the landing cache key moved with the v3.1 Landing shape and names the raising flag only', async () => {
+test('(l) the landing cache key moved with the v3.1 Landing shape; v4.0 Task 11: it no longer reads EARNKIT_RAISING', async () => {
   const { landingCacheKey } = await import('../../app/lib/landing-cache');
   await withEnv({ EARNKIT_RAISING: undefined }, async () => assert.equal(landingCacheKey(), 'landing-v31-off'));
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(landingCacheKey(), 'landing-v31-raising'));
+  await withEnv({ EARNKIT_RAISING: 'on' }, async () => assert.equal(landingCacheKey(), 'landing-v31-off'));
 });
 
 after(async () => {

@@ -81,13 +81,11 @@ test('9.6 R8: the ranked step is to ship (never an entry, a coin or going live)'
   assert.doesNotMatch(out, /coin|token|community round|prepare an entry|online/i);
 });
 
-test('9.6b v3.1 spec 3.2, GTM W2: the backing offer comes before the apply step; the Best fit shows only when ranked', () => {
+test('9.6b v3.1 spec 3.2, v4.0 Task 11: the apply step (no backing offer); the Best fit shows only when ranked', () => {
   const best = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling', why: 'You deployed on Base.', codes: null };
   const apply = { program_id: best.program_id, title: best.title, amount: '$5,000', when: null };
-  const out = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply, backing: 'Want to open backing for Recipes?' }) });
-  assert.ok(out.endsWith('Want to open backing for Recipes?') && !out.includes(applyAsk(best.title, '$5,000', null)), 'backing before apply: ' + out);
-  oneQuestion(out, false);
-  const next = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply, backing: null }) });
+  // v4.0 Task 11: no backing step; the apply step is the ranked ask.
+  const next = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply }) });
   assert.ok(next.includes(applyAsk(best.title, '$5,000', null)), 'then the apply step: ' + next);
   for (const state of ['signed_out', 'no_project', 'not_counted'] as const) assert.doesNotMatch(benchReply({ ...view({ state }), best }), /Base Builder Grant Program/, state);
 });

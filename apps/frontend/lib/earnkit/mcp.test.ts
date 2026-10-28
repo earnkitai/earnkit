@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { escrowConfig, escrowConfigProblem } from './escrow';
-import { CONFIRM_BACKING_DESCRIPTION, FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH_NO_RAISING, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
+import { FIND_DESCRIPTION_BENCH, TELL_DESCRIPTION_BENCH, SERVER_INSTRUCTIONS, errorSummary, TOOL_DESCRIPTIONS, createMcpServer, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { handlers } from './tools';
 import { OLD_TOOL_NAMES, STALE_TOOLS_NOTE, aliasCall, withOlderNames } from './aliases';
 import { POST } from '../../app/mcp/route';
@@ -120,24 +120,7 @@ async function connected(ctx: Parameters<typeof createMcpServer>[0] = { installa
   return client;
 }
 
-test('confirm is strict: a misnamed key is an error, not silently dropped (v3.1: a program_id too)', () => withEnv({ EARNKIT_RAISING: 'on' }, async () => {
-  const client = await connected();
-  try {
-    // Rejected by the input schema, before the tool runs (so no database is touched).
-    for (const args of [
-      { project_id: 7, yes: true, ticker: 'KITS' },
-      { project_id: 7, program_id: 'p', yes: true },
-    ]) {
-      const r = await client.callTool({ name: 'confirm', arguments: args });
-      assert.equal(r.isError, true);
-      assert.match(JSON.stringify(r.content), /Unrecognized key/);
-    }
-  } finally {
-    await client.close();
-  }
-}));
-
-test('v3.1 (spec 3.4): an old record_submission call, aliased to confirm, never enters: confirm is not listed (flag off) or refuses program_id (flag on)', async () => {
+test('v3.1 (spec 3.4), v4.0 Task 11: an old record_submission call, aliased to confirm, never enters: confirm is never listed', async () => {
   const next = aliasCall('record_submission', { program_id: 'p', project: { name: 'Kit' }, submission_data: {}, builder_confirmed: true })!;
   assert.equal(next.name, 'confirm');
   for (const raising of [undefined, 'on']) {
@@ -150,7 +133,7 @@ test('v3.1 (spec 3.4): an old record_submission call, aliased to confirm, never 
       }
     });
     assert.equal(r.isError, true, String(raising));
-    assert.match(JSON.stringify(r.content), raising ? /Unrecognized keys: \\"program_id\\"/ : /Tool confirm not found/, String(raising));
+    assert.match(JSON.stringify(r.content), /Tool confirm not found/, String(raising));
   }
 });
 
@@ -245,8 +228,8 @@ test('v3.1 (spec 3.4): no tool text depends on an open campaign; prepare names b
   assert.deepEqual(toolDescriptions(true), toolDescriptions(false));
   for (const word of ['EarnKit campaign', 'how_to_submit', 'sign_to_enter', 'EIP-191'])
     for (const [name, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.ok(!d.includes(word), `${name}: ${word}`);
-  // v2.11 T8 review M2: TOOL_DESCRIPTIONS is the longest variant (build listed), confirm kept for the copy scan.
-  assert.deepEqual(TOOL_DESCRIPTIONS, { ...toolDescriptions(true, true), confirm: CONFIRM_BACKING_DESCRIPTION });
+  // v2.11 T8 review M2: TOOL_DESCRIPTIONS is the longest variant (build listed); v4.0 Task 11: no confirm.
+  assert.deepEqual(TOOL_DESCRIPTIONS, toolDescriptions(true, true));
   assert.equal(toolDescriptions(true, false).prepare, toolDescriptions(false).prepare, 'deploys off in the test env');
   assert.match(toolDescriptions(false, true).prepare, / build: a build_offer yes\.$/);
 });
@@ -261,20 +244,13 @@ async function registered(opts?: { campaignOpen?: boolean }) {
   return tools;
 }
 
-test('v3.1 (spec 3.4, D1): confirm is listed only with EARNKIT_RAISING on, strict, for Backing only (project_id required, no entry fields)', async () => {
-  for (const opts of [{ campaignOpen: false }, { campaignOpen: true }, undefined])
-    assert.ok(!(await withEnv({ EARNKIT_RAISING: undefined }, () => registered(opts))).some((t) => t.name === 'confirm'));
-  for (const opts of [{ campaignOpen: false }, { campaignOpen: true }]) {
-    const tools = await withEnv({ EARNKIT_RAISING: 'on' }, () => registered(opts));
-    const confirm = tools.find((t) => t.name === 'confirm')!;
-    assert.equal(confirm.description, CONFIRM_BACKING_DESCRIPTION);
-    assert.deepEqual(confirm.inputSchema.required, ['project_id']);
-    const props = confirm.inputSchema.properties as Record<string, unknown>;
-    assert.deepEqual(Object.keys(props).sort(), ['agent', 'builder_x', 'check', 'image_data', 'image_url', 'project_id', 'signed_in', 'token', 'wallet', 'yes']);
-    // v2.14 final fix: an older agent's sign-in code is still accepted (confirm is strict), and only said to be ignored.
-    assert.deepEqual(props.signed_in, { description: 'Not used any more; ignored.' });
-    assert.equal(tools.find((t) => t.name === 'prepare')!.description, toolDescriptions(false).prepare);
-  }
+test('v3.1 (spec 3.4, D1), v4.0 Task 11: confirm is never listed, whatever EARNKIT_RAISING says', async () => {
+  for (const raising of [undefined, 'on'])
+    for (const opts of [{ campaignOpen: false }, { campaignOpen: true }, undefined]) {
+      const tools = await withEnv({ EARNKIT_RAISING: raising }, () => registered(opts));
+      assert.ok(!tools.some((t) => t.name === 'confirm'));
+      assert.equal(tools.find((t) => t.name === 'prepare')!.description, toolDescriptions(false).prepare);
+    }
   const prep = (await registered()).find((t) => t.name === 'prepare')!.inputSchema.properties as Record<string, unknown>;
   assert.ok('agent' in prep);
   // v2.14 final fix: the shared client's GitHub sign-in code is gone (Ruling T6-2).
@@ -329,12 +305,8 @@ test('final fix wave (M6): the unexpected-error log keeps only name, message and
   assert.deepEqual(errorSummary({ secret: 'x' }), { name: 'object', message: 'non-Error thrown' });
 });
 
-test('11.8 (F25): the confirm description under 800 characters; their rules are in the replies', () => {
-  assert.ok(TOOL_DESCRIPTIONS.confirm.length < 800, `confirm: ${TOOL_DESCRIPTIONS.confirm.length}`);
-  // v3.1 (spec 3.4): confirm keeps when to call it (Backing), its inputs and to follow agent_note; never an entry.
-  for (const k of ['Backing', 'yes: true', 'wallet', 'token', 'check: true', 'project_id', 'agent_note'])
-    assert.ok(TOOL_DESCRIPTIONS.confirm.includes(k), k);
-  assert.doesNotMatch(TOOL_DESCRIPTIONS.confirm, /program_id|skip_token|entry|submit/);
+test('11.8 (F25): no confirm description (v4.0 Task 11); the rules are in the replies', () => {
+  assert.equal('confirm' in TOOL_DESCRIPTIONS, false);
   // The kit rules: the kit reply's agent_note (DoraHacks: copy and paste; the builder clicks submit).
   const dora: KitProgram = { title: 'Arc Microgrants', submission_url: 'https://dorahacks.io/hackathon/arc', submission_requirements: [] };
   const note = kitReplyNote(submitKit(dora, {}, { browser: true }), dora);
@@ -432,15 +404,13 @@ test('2.8 flag on: find asks for identity.project (one, never a list) and stays 
 
 test('5.11 tell lists update and updates and stays under 800 characters', () => {
   try {
-    // Final fix: EARNKIT_RAISING off, coin takes no { raising } (the description names none).
-    assert.equal(toolDescriptions(false).tell, TELL_DESCRIPTION_BENCH_NO_RAISING);
-    assert.ok(!TELL_DESCRIPTION_BENCH_NO_RAISING.includes('raising'));
+    // v4.0 Task 11: one description, naming no coin or raising, whatever EARNKIT_RAISING says.
     process.env.EARNKIT_RAISING = 'on';
     const d = toolDescriptions(false).tell;
     assert.equal(d, TELL_DESCRIPTION_BENCH);
     assert.ok(d.length < 800, `${d.length}`);
-    // F20: coin { raising } is Task 9's, listed only with EARNKIT_RAISING on.
-    for (const w of ['update: { text }', 'hide', 'updates: { titles', 'raising']) assert.ok(d.includes(w), w);
+    for (const w of ['update: { text }', 'hide', 'updates: { titles']) assert.ok(d.includes(w), w);
+    assert.doesNotMatch(d, /raising|\bcoin/);
   } finally {
     delete process.env.EARNKIT_RAISING;
   }
@@ -464,8 +434,8 @@ test('O2.6 the server instructions (under 800), no old entry-and-token flow; fin
 const toolNames = async (env: Record<string, string | undefined>) =>
   (await listed(env)).tools.map((t) => t.name).sort();
 
-// v2.10 item 4, v2.14, v3.1 (spec 3.4): the 4 builder tools (find, prepare, tell, score; confirm only with EARNKIT_RAISING
-// on); the 8 v2.9 names are aliases only.
+// v2.10 item 4, v2.14, v3.1 (spec 3.4): the 4 builder tools (find, prepare, tell, score; v4.0 Task 11: never confirm
+// ); the 8 v2.9 names are aliases only.
 const FOUR = ['find', 'prepare', 'score', 'tell'];
 const oldNameRe = new RegExp(`\\b(${OLD_TOOL_NAMES.join('|')})\\b`);
 /** v2.10.1 B5: a reply object's agent strings in a stale client's words (aliases.ts forOldClient, minus the note). */

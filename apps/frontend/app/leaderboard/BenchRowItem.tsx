@@ -6,23 +6,15 @@ import type { BenchRow } from '../../lib/earnkit/bench-data';
 import { pagePath } from '../../lib/earnkit/reserved-routes';
 import { streakRun } from '../../lib/earnkit/site-copy';
 
-/** The Backed tag (Leaderboard board): navy fill, on-navy text. */
-const BACKED_TAG = 'inline-flex shrink-0 items-center rounded-full bg-s-navy px-[11px] py-[5px] text-xs font-semibold text-s-on-navy';
 
 /**
  * v3.1 site Task 8: one leaderboard row (Leaderboard board), one link to the builder's page: the place ("#N", only while
  * `ranked`: RANK_MIN_POOL ranked builders), the X photo, the name, the X glyph and @handle (text: the row is the link)
- * with the project (its own line on a phone), the Backed tag (only with `r.backing`: benchRows sets it only while EARNKIT_RAISING is on and never
- * for EarnKit's own repo), the streak and the Shipping score in its band colour. On a phone the streak and the tag drop
- * under the handle. Names and projects wrap, never cut.
+ * with the project (its own line on a phone), the streak and the Shipping score in its band colour. On a phone the streak
+ * drops under the handle. Names and projects wrap, never cut.
  */
 export default function BenchRowItem({ r, ranked }: { r: BenchRow; ranked: boolean }) {
   const streak = r.streak > 0 ? streakRun(r.streak) : null;
-  const backed = r.backing ? (
-    <span data-ek-backed="" className={BACKED_TAG}>
-      Backed
-    </span>
-  ) : null;
   return (
     <li data-row={r.handle}>
       <Link
@@ -46,14 +38,12 @@ export default function BenchRowItem({ r, ranked }: { r: BenchRow; ranked: boole
             </span>
             <span className="w-full min-w-0 [overflow-wrap:anywhere] md:w-auto">{r.project}</span>
           </span>
-          {(streak || backed) && (
+          {streak && (
             <span className="mt-1 flex flex-wrap items-center gap-2 md:hidden">
-              {backed}
               {streak && <span className="text-[13px] text-s-rust-light">{streak}</span>}
             </span>
           )}
         </span>
-        {backed && <span className="hidden md:inline-flex">{backed}</span>}
         <span className="hidden w-[120px] shrink-0 text-right text-sm text-s-rust-light md:inline">{streak}</span>
         <span data-points="" className="w-14 shrink-0 text-right">
           <ScoreText score={r.points} size={30} unit="text-s-muted" />

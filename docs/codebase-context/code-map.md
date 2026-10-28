@@ -102,7 +102,7 @@ apps/frontend/
                                on the page; shippedWords and the badge route remain)
   app/components/site/Money.tsx  v3.1 Task 7 fix 1: money text whose currency signs render in Funnel Sans (Kaftan's "$"
                                reads as "S"); used by the Token card, the landing chip and Opportunities' numbers
-  app/components/ui/{ChainLogo,RaisingPill,UpdateCard}.tsx  v2.13: chain logo chips, the Raising pill, the
+  app/components/ui/{ChainLogo,UpdateCard}.tsx (v4.0 Task 11: RaisingPill deleted)  v2.13: chain logo chips, the Raising pill, the
                                long and square update cards (v2.14 T8: card.titles as plain text, one on the square)
   public/images/chains/{base,arc,robinhood}.svg  v2.13: chain logos (arc and robinhood are monograms until
                                the owner supplies the brand SVGs)
@@ -628,8 +628,9 @@ apps/frontend/
                                (MANY_USER_HOSTS), exchangeCode's x + per-X client key, RFC 9207 iss flag;
                                publicOrigin = EARNKIT_URL (production throws without it; no Host
                                fallback)
-    mcp.ts(+test)              v3.1 Task 10: registers find, prepare (draft only), tell, score; confirm only while
-                               EARNKIT_RAISING (CONFIRM_BACKING_DESCRIPTION, project_id required, no entry fields).
+    mcp.ts(+test)              v4.0 Task 11: registers find, prepare, tell, score only (confirm unregistered); tell
+                               still accepts an older agent's coin { project_key, answer, wallet, raising } and token
+                               'ask', undocumented (no description). v3.1 Task 10: confirm was Backing only.
                                v2.12: registers find, prepare, confirm, tell, score (always since v2.14 T3,
                                with the Bench descriptions only; serverInstructions() takes no flag); sponsor_campaign is archived
                                (archive/sponsor-campaigns) and never registered.
@@ -870,7 +871,12 @@ apps/frontend/
                                v2.12 (R23): aliasesOn(now, env) (before ALIASES_UNTIL, or EARNKIT_TOOL_ALIASES=on);
                                yesNo moved to yes-no.ts (re-exported); the move is staged in archive/tool-aliases/.
                                v2.14 T7: pick_up_entries dropped from OLD_TOOL_NAMES (an unknown tool now).
-    tools.ts                   v3.1 Task 10: confirm refuses program_id (CONFIRM_ENTRY_GONE), else confirmByProjectId;
+    tools.ts                   v4.0 Task 11: no `confirm` tool, no launch_token handler, no coinAnswer or tokenPitch;
+                               tell coin { answer } and token 'ask' are benchMoveUp kind 'token' (the builder token);
+                               prepare_submission, confirm_entry and record_submission never offer or launch a token
+                               (READY_TO_SUBMIT; the token step is skipped). token-launch.ts's launch functions are
+                               unreachable from tools now (kept with their tests; deletion is follow-up).
+                               v3.1 Task 10: confirm refuses program_id (CONFIRM_ENTRY_GONE), else confirmByProjectId;
                                find passes fresh: undefined (no build_offer). buildWalletAgain is gone.
                                v2.11 T7: find's build_offer (BUILD_NOTE / PLAN_NOTE), freshSwitches (deploys +
                                RPC + R2; ctx.freshDeps in tests), fresh_offer_at on the first build lead.
@@ -996,11 +1002,7 @@ apps/frontend/
                                Token"; tickers: a fallback name's first, then project, repo, initialsCandidates, ENTRY…; ≤12
                                checks in parallel batches of 4 (v2.8.1), a taken ticker never
                                proposed (C6), else "ticker not checked for duplicates"; titleCase
-    token-offers.ts            v2.8.1 fix round 1 (§A2): the pair the Yes line showed (token_offers:
-                               offerKey, saveOffer, readOffer); confirm_entry's "go" launches exactly it.
-                               v2.9 B10: recordDecline, declines (token_declines, per login and
-                               owner/repo; once per offerIdentity, G12), DECLINES_MAX = 2;
-                               saveOffer(firstReply) and firstReplyShown (first_reply_at, G14)
+    token-offers.ts            DELETED in v4.0 Task 11 (token_offers and token_declines stay in the schema, read by nothing).
     token-gate.ts(+test)       tokenGate (v2.6 §3, v2.14 T6): policy, a GitHub repo with code (codeProblem over
                                match-projects.ts repoCodeFacts; on "not found" GateDeps.appToken reads it through the
                                App, ok: { private: true }), then the App proof (GateDeps.appProven: off a shared client
@@ -1477,8 +1479,8 @@ apps/frontend/
                                DB test file calls at its end so the programs it made (ids carrying its pid)
                                never outlive the run in the shared test DB)
     builder-score-flag.ts      v2.14 T3: archiveFlag(name) for SPONSOR_CAMPAIGNS, STARTER_REGISTRY,
-                               PROGRAM_LEADERBOARDS, TOOL_ALIASES; xSignInEnabled; RAISING_FLAG, raisingEnabled
-                               (EARNKIT_RAISING, the one product switch left); the builder-score and Bench
+                               PROGRAM_LEADERBOARDS, TOOL_ALIASES; xSignInEnabled; (v4.0 Task 11: RAISING_FLAG and raisingEnabled removed)
+                               (EARNKIT_RAISING was the one product switch left); the builder-score and Bench
                                switches are retired (flags-retired.test.ts); import-free
     score-calibration.ts       v2.12 T2: Calibration, CALIBRATIONS ('v1-launch': users 500, money $5,000,
                                13 weeks, 60 days, package_users 100, pr_target_users 2, since 2026-10-12),
@@ -1683,8 +1685,7 @@ apps/frontend/
                                titlesAskDue/takeTitlesAsk) then qualify (base-qualify.ts qualifyOffer, no fit only);
                                benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE);
                                connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
-    raising.ts(+test)          v2.13 T9: raisingCoin, setRaising, pillOf, showRaisingLine (projects.raising_at); all off
-                               unless EARNKIT_RAISING (builder-score-flag.ts raisingEnabled)
+    raising.ts                 DELETED in v4.0 Task 11 (Backing retired; EARNKIT_RAISING is read nowhere).
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
                                launch-ready L3: BenchFilter is { chain, weekly } (v3 Stage 2 adds backed, ?backed=1),
                                profile and project tab data, logCards (v2.13.1 O3: the start is a "Started
@@ -1712,18 +1713,7 @@ apps/frontend/
                                (T12 removed scoreBuilders, percentiles, publicScore, emptyReasonOf)
                                siteShowsUse, scoresAdminKey (v2.12.1 T10: pitchAllowed removed, coin-moments.ts),
                                scoresAdminLink (pnpm campaign scores-link), scoresPost
-    coin-moments.ts(+test)     v2.12.1 T10 (spec 3b), R8: the coin offered only when the builder asks (bench-find
-                               tokenAsk, moment countable); built_live (fix 1: the build path no longer pitches),
-                               first_five, has_people and streak_five stay for old rows. coinPitchAllowed: the coin
-                               program's accepted entry only. COIN_PROGRAM
-                               (policy-constants.ts), coinLine, coinAllowed, coinWallet, offerCoin (records
-                               coin_moments, once per project), openCoinLine (an open offer shown again), coinYes (the coin program's entry + saved offer;
-                               confirm by project_id launches it), coinNo (recordDecline), coinOpen,
-                               coinPitchAllowed (every token pitch/launch path, via tools.ts tokenPitch),
-                               COIN_NOTE, COIN_YES_NOTE, COIN_WALLET_ASK. GTM W2: a private repo is offerable with a public name
-                               (publicName: page-data.ts safeNames, never PRIVATE_NAME); offerCoin/openCoinLine/coinYes name and
-                               propose it from that name only; coinYes's private entry keeps repo_url (gate, one per repo) with
-                               repo_private true; COIN_NO_PUBLIC_NAME
+    coin-moments.ts            DELETED in v4.0 Task 11 (the per-project coin offers; builder-token.ts replaced them).
     profiles.ts(+test)         v2.12 T7, v2.12.1: X_HANDLE, randomSlug (the internal key until the claim),
                                profileOf, ensureProfile (never a shared group), setFallback (login + basis; the
                                slug no longer follows it), releaseLogin, setHidden (HIDDEN_LINE, SHOWN_LINE with

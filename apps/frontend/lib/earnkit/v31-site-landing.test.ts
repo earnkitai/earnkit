@@ -240,17 +240,17 @@ test('(e) Opportunities: 4 cards in tile order linking their guides, big numbers
   assert.deepEqual([...up.matchAll(/href="(\/programs\/[^"]+)"/g)].map((m) => m[1]), ['/programs/base-builder-grants']);
 });
 
-test('(f) the Get funded step ends "Fans can back you with your coin." only with EARNKIT_RAISING=on', () => {
+test('(f) v4.0 Task 11: the Get funded step never adds "Fans can back you with your coin.", whatever EARNKIT_RAISING says', () => {
   const was = process.env.EARNKIT_RAISING;
   try {
-    delete process.env.EARNKIT_RAISING;
-    const off = text(html(LANDING));
-    assert.ok(off.includes(STEPS[2].text));
-    assert.ok(!off.includes('Fans can back you with your coin.'));
-    process.env.EARNKIT_RAISING = 'on';
-    const on = text(html(LANDING));
-    assert.ok(on.includes(`${STEPS[2].text} Fans can back you with your coin.`));
-    for (const s of STEPS) assert.ok(on.includes(s.title) && on.includes(s.text), s.title);
+    for (const v of [undefined, 'on']) {
+      if (v === undefined) delete process.env.EARNKIT_RAISING;
+      else process.env.EARNKIT_RAISING = v;
+      const page = text(html(LANDING));
+      assert.ok(page.includes(STEPS[2].text));
+      assert.ok(!/Fans can back you|\bcoin/i.test(page));
+      for (const s of STEPS) assert.ok(page.includes(s.title) && page.includes(s.text), s.title);
+    }
   } finally {
     if (was === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = was;

@@ -101,7 +101,7 @@ export const STEPS_TITLE = 'From commit to capital';
 export const STEPS = [
   { title: 'Connect', text: 'Add EarnKit to your agent. Connect your GitHub.' },
   { title: 'Ship', text: 'We score how steadily you ship, every day.' },
-  { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.', backing: 'Fans can back you with your coin.' },
+  { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.' },
 ] as const;
 export const ACTIVITY_TITLE = 'Activity';
 export const ACTIVITY_MORE = 'See the leaderboard';
@@ -149,9 +149,7 @@ export const BENCH_EARLY = 'Scored by how often they ship, out of 100';
 export const BENCH_INVITE = 'Be the next builder here.';
 /** A filter with no rows: what is missing, in plain words (the "Show everyone" pill sits beside it). */
 export const BENCH_EMPTY_BASE = 'No builder on Base yet.';
-export const BENCH_EMPTY_BACKED = 'No builder has opened Backing yet.';
-export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
-export const BACKED_TAG = 'Backed';
+export const FILTERS = { all: 'All', base: 'Base' } as const;
 /** Above the feed's pager when a week has more builders than the feed shows (FEED_WEEK_MAX cards a week). */
 export const feedShowingLine = (shown: number, all: number): string => `Showing the top ${shown.toLocaleString('en-US')} of ${all.toLocaleString('en-US')} builders`;
 export const FEED_STATS = { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' } as const;

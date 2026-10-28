@@ -40,7 +40,7 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
  * from show_to_builder and the reply's facts (reply-facts.ts) only, then shows show_to_builder exactly as written.
  */
 export const ANSWER_FIRST_NOTE =
-  "If the builder asked a question (their points, rank, page, wallet, coin, backers, what they shipped, what they earned, " +
+  "If the builder asked a question (their points, rank, page, wallet, token, backers, what they shipped, what they earned, " +
   "their applications, what EarnKit is, how ranking works, a Builder Code), first answer it in one short line from show_to_builder and facts only; " +
   "if that answer needs a link, use the one in facts. A fact that isn't there is unknown: say so, never invent amounts, dates or program facts. " +
   "Then show show_to_builder to the builder exactly as written.";

@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
-import { raisingEnabled } from './builder-score-flag';
 import { surfaceOf, withFormattedReply } from './reply-format';
 import { sql } from './db';
 import { CHAINS } from './match';
@@ -145,13 +144,9 @@ const prepareDescription = (buildOn: boolean) =>
   // v2.11 T8: the build path starts from a build_offer yes; named only with the build field (review M2).
   (buildOn ? ' build: a build_offer yes.' : '');
 
-/** v3.1 (spec 3.4, D1): confirm only opens Backing (the coin launch), registered only while EARNKIT_RAISING is on. */
-export const CONFIRM_BACKING_DESCRIPTION =
-  "The builder's yes to opening Backing. Pass project_id, yes: true, wallet and token exactly as tell coin returned them; check: true reads a launching coin. Then follow agent_note.";
-
 /**
  * v2.10 item 4 (R16), v2.13: tell's description: also this week's line (or a week to hide), v2.14 spec 3:
- * a private repo's titles on or off, and coin { raising } (T9); launch ready L2: main_project, the repo to rank
+ * a private repo's titles on or off; launch ready L2: main_project, the repo to rank
  * instead; v3.1 Used by: builder_code, the Base Builder Code they named; under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
@@ -160,17 +155,9 @@ export const TELL_DESCRIPTION_BENCH =
   'updates: { titles }: show or hide a private repo\'s commit titles. ' +
   'main_project: owner/repo to rank instead. ' +
   "wallet: 'change' to add or change a wallet. " +
-  'coin: their coin answer, or { raising } to open or close backing. ' +
-  "token: 'ask' when they ask about a token. " +
   'builder_code: their Base Builder Code. ' +
   'move_up: their answer, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
   'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
-
-/** Final fix (controller ruling): EARNKIT_RAISING off: coin takes no { raising }. */
-export const TELL_DESCRIPTION_BENCH_NO_RAISING = TELL_DESCRIPTION_BENCH.replace(
-  'coin: their coin answer, or { raising } to open or close backing. ',
-  'coin: their coin answer. ',
-);
 
 /** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
@@ -180,24 +167,22 @@ export const SCORE_DESCRIPTION =
 
 /**
  * v2.10 item 4: every tool description, agent-facing, each under 800 characters. v3.1 (spec 3.4): no text varies by
- * an open campaign any more (the argument is kept for the route); confirm only while EARNKIT_RAISING is on.
+ * an open campaign any more (the argument is kept for the route). v4.0 Task 11: no confirm (the per-project offers are retired).
  * v2.11 T8 review M2: prepare names `build` only while the field is listed (deploys on).
  */
 export function toolDescriptions(_campaignOpen: boolean, buildOn: boolean = deployEnabled() && deployChains().length > 0): {
-  find: string; prepare: string; confirm?: string; tell: string; score: string;
+  find: string; prepare: string; tell: string; score: string;
 } {
   return {
     find: FIND_DESCRIPTION_BENCH,
     prepare: prepareDescription(buildOn),
-    // v3.1 (spec 3.4, D1): confirm is listed only while EARNKIT_RAISING is on, and only for Backing.
-    ...(raisingEnabled() && { confirm: CONFIRM_BACKING_DESCRIPTION }),
-    tell: raisingEnabled() ? TELL_DESCRIPTION_BENCH : TELL_DESCRIPTION_BENCH_NO_RAISING,
+    tell: TELL_DESCRIPTION_BENCH,
     score: SCORE_DESCRIPTION,
   };
 }
 
-/** Every description with its build sentence (the longest), confirm always; exported for the copy-review test. */
-export const TOOL_DESCRIPTIONS = { ...toolDescriptions(true, true), confirm: CONFIRM_BACKING_DESCRIPTION };
+/** Every description with its build sentence (the longest); exported for the copy-review test. */
+export const TOOL_DESCRIPTIONS = toolDescriptions(true, true);
 
 /**
  * v2.7 §4, v2.13.1 O2: the MCP server's instructions, agent-facing: the Bench's flow, not the v2.10
@@ -224,8 +209,6 @@ export const SERVER_INSTRUCTIONS = serverInstructions();
  * handler's input (find and prepare already strip unknown keys).
  */
 const OLD_CODE = z.unknown().optional().describe('Not used any more; ignored.');
-const CHECK =
-  'true only when checking back after "Your token is launching": it reads the result and never starts a launch';
 
 /** v2.10 item 13: prepare's `deploy` (registered only while deployEnabled(), final fix M4, and DEPLOY_CHAINS names a chain, v2.10.3). */
 const DEPLOY_SCHEMA = z
@@ -397,36 +380,6 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
     (input) => run(ctx, 'prepare', input, opts.format ?? true),
   );
 
-  // v3.1 (spec 3.4, D1): confirm only opens Backing (the coin launch by project_id), and only while EARNKIT_RAISING is
-  // on; an entry is never made here (prepare drafts, the builder sends it). Strict, so a misnamed key (say `ticker`) is
-  // an error, not silently dropped.
-  if (descriptions.confirm !== undefined)
-    server.registerTool(
-      'confirm',
-      {
-        description: descriptions.confirm,
-        inputSchema: z
-          .object({
-            project_id: z.number().int().describe("tell coin's project_id"),
-            yes: z.literal(true).optional().describe('The builder said yes to opening Backing: the coin launches'),
-            check: z.boolean().optional().describe(CHECK),
-            token: z
-              .object({ name: z.string().optional(), symbol: z.string().optional() })
-              .strict()
-              .optional()
-              .describe('As tell coin returned it, or as the builder changed it'),
-            wallet: z.string().optional().describe('The wallet tell coin returned, or the one the builder named instead'),
-            image_url: z.string().optional().describe('https URL of the coin image'),
-            image_data: z.string().optional().describe('Or the image you generated, as a data URL (PNG/JPEG/WebP/GIF, up to 1 MB). EarnKit hosts it.'),
-            builder_x: z.string().optional().describe("The builder's X handle or profile URL"),
-            agent: AGENT.optional(),
-            signed_in: OLD_CODE,
-          })
-          .strict(),
-      },
-      (input) => run(ctx, 'confirm', input, opts.format ?? true),
-    );
-
   // v2.10 item 4 (R16): tell_earnkit and record_submission's "I submitted" (v2.14: no pickup). It
   // writes, so it is not read-only; find stays read-only. Statements are read leniently (TellInput).
   server.registerTool(
@@ -463,29 +416,18 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .strict()
             .optional()
             .describe('Their answer to the question'),
-          // v2.13 T9 (F20): with EARNKIT_RAISING on, coin also takes raising; otherwise byte for byte v2.12.2.
-          coin: raisingEnabled()
-            ? z
-                .object({
-                  project_key: z.string().max(300).optional().describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
-                  answer: z.enum(['yes', 'no']).optional(),
-                  wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                  raising: z.boolean().optional().describe('true when they open backing, false when they close it'),
-                })
-                .strict()
-                .optional()
-                .describe('Their answer to a coin or backing offer, or opening or closing backing')
-            : z
-                .object({
-                  project_key: z.string().max(300).describe("The coin offer's project_key (move_up.project_key or coin.project_key)"),
-                  answer: z.enum(['yes', 'no']),
-                  wallet: z.string().max(100).optional().describe('The 0x address they gave for the fees, if they gave one'),
-                })
-                .strict()
-                .optional()
-                .describe('Their answer to a coin offer'),
-          // Scoring and clarity R8: a token only when the builder asks about one (v3 Stage 2: backing has its own moment).
-          token: z.literal('ask').optional().describe("'ask' only when the builder asks about a token or coin; EarnKit never offers one otherwise"),
+          // v4.0 Task 11: an older agent's answer to the retired per-project offer, accepted and undocumented: tools.ts
+          // answers it with the builder token (tell move_up kind 'token'); `token: 'ask'` the same, as a yes.
+          coin: z
+            .object({
+              project_key: z.string().max(300).optional(),
+              answer: z.enum(['yes', 'no']).optional(),
+              wallet: z.string().max(100).optional(),
+              raising: z.boolean().optional(),
+            })
+            .strict()
+            .optional(),
+          token: z.literal('ask').optional(),
           // v2.13: the ship log.
           update: z
             .object({

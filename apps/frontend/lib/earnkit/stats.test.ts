@@ -25,10 +25,8 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
-  // v3 Stage 2: backing_open and backers (0 with EARNKIT_RAISING off, as here) and earned_usd last.
+  // v3 Stage 2: backing_open and backers (v4.0 Task 11: retired, always 0; the keys stay) and earned_usd last.
   assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-  assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 })).slice(-3), [0, 0, 0], 'flag off: 0');
-  assert.deepEqual(Object.values(statsFrom({ ...emptyRow, backing_open: 2, backers: 9 }, new Date(), true)).slice(-3), [2, 9, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -394,20 +392,19 @@ test('11.2 /api/stats: open_money_usd and open_money_text; open_pools_* stay, de
   assert.match(STATS_LABELS.open_pools_plus, /deprecated/);
   const now = new Date('2026-10-08T00:00:00Z');
   const s = statsFrom({ ...emptyRow, open_rows: catalogueRows().map((r) => ({ ...r, starts_at: r.starts_at?.toISOString() ?? null, ends_at: r.ends_at?.toISOString() ?? null })) }, now);
-  // v3 Stage 2: every key with EARNKIT_RAISING off (here) and on (backing_open and backers are 0 while off).
+  // v3 Stage 2: every key (v4.0 Task 11: backing_open, backers and backers_after_post stay, always 0).
   assert.deepEqual(Object.keys(s), [...STATS_KEYS]);
-  assert.deepEqual(Object.keys(statsFrom(emptyRow, now, true)), [...STATS_KEYS]);
   assert.equal(s.open_money_usd, 105000);
   assert.equal(s.open_money_text, '$105K in grants and prizes open');
   assert.equal(statsFrom(emptyRow, now).open_money_text, null);
 });
 
-test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_post (within 7 days of a first tap, backing open, flag on); keys and labels; never a test installation; page opens are never public (final review 4)', db, async () => {
+test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_post (v4.0 Task 11: retired, always 0); keys and labels; never a test installation; page opens are never public (final review 4)', db, async () => {
   const i = STATS_KEYS.indexOf('shared');
   assert.deepEqual(STATS_KEYS.slice(i + 1, i + 4), ['posts_drafted', 'posts_tapped', 'backers_after_post']);
   assert.ok(!(STATS_KEYS as readonly string[]).includes('post_x_visits'), 'page opens from X stay internal');
   for (const k of ['posts_drafted', 'posts_tapped', 'backers_after_post'] as const) assert.ok(STATS_LABELS[k].length > 0, k);
-  assert.equal(statsFrom({ ...emptyRow, backers_after_post: 4 }, new Date(), false).backers_after_post, 0, 'flag off: 0');
+  assert.equal(statsFrom({ ...emptyRow, backers_after_post: 4 }, new Date()).backers_after_post, 0, 'retired: 0');
   const tag = `stats-posts-${process.pid}-${Date.now()}`;
   const DAY = 86_400_000;
   const tap = new Date(Date.now() - 10 * DAY);
@@ -446,8 +443,8 @@ test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_
       return e.result;
     });
     const d = (k: string, a = out.after) => a[k] - out.before[k];
-    assert.deepEqual([d('posts_drafted'), d('posts_tapped'), d('backers_after_post')], [4, 2, 4]);
-    assert.deepEqual([d('posts_drafted', out.withTest), d('posts_tapped', out.withTest), d('backers_after_post', out.withTest)], [2, 1, 2], 'a test installation never counts');
+    assert.deepEqual([d('posts_drafted'), d('posts_tapped'), d('backers_after_post')], [4, 2, 0]);
+    assert.deepEqual([d('posts_drafted', out.withTest), d('posts_tapped', out.withTest), d('backers_after_post', out.withTest)], [2, 1, 0], 'a test installation never counts');
     assert.equal('post_x_visits' in out.after, false);
   } finally {
     if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;

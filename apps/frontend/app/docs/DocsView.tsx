@@ -1,7 +1,6 @@
 import { Fragment } from 'react';
 import { CARD_BLUE, CARD_LIGHT, CARD_NAVY, CARD_PANEL, CARD_RUST, PAGE_COL } from '../components/site/ui';
-import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
-import { DOCS_GITHUB, DOCS_INSTALL_TITLE, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK, docsMoney, docsNav } from '../../lib/earnkit/docs-copy';
+import { DOCS_GITHUB, DOCS_INSTALL_TITLE, DOCS_MONEY, DOCS_NAV, DOCS_SCORE, DOCS_SELECTORS, DOCS_STEPS, DOCS_WEEK } from '../../lib/earnkit/docs-copy';
 import DocsNav from './DocsNav';
 import InstallCard from './InstallCard';
 
@@ -49,14 +48,13 @@ function GitHubHelp() {
  * v3.1 site Task 10 (Docs board): the side nav (a wrapping row above the article on a phone), the light install card
  * (the agent tabs and the chosen command from AGENTS, a copy button, three numbered steps, "No GitHub yet?"), the three cards (how the
  * week works, the Shipping score, programs and, while Backing is on, Backing), then the selectors strip with the
- * builder JSON URL. Server-rendered per request (raisingEnabled is read at run time); the tabs and the side nav's lit item are the client parts.
+ * builder JSON URL. Server-rendered; the tabs and the side nav's lit item are the client parts.
  */
 export default function DocsView() {
-  const raising = raisingEnabled();
-  const money = docsMoney(raising);
+  const money = DOCS_MONEY;
   return (
     <div className={`${PAGE_COL} flex flex-col gap-4 pb-6 pt-2 lg:flex-row lg:items-start`}>
-      <DocsNav items={docsNav(raising)} className={`${r32(CARD_PANEL)} flex flex-wrap gap-1 p-3 text-[15px] lg:w-[260px] lg:shrink-0 lg:flex-col lg:p-[22px]`} />
+      <DocsNav items={DOCS_NAV} className={`${r32(CARD_PANEL)} flex flex-wrap gap-1 p-3 text-[15px] lg:w-[260px] lg:shrink-0 lg:flex-col lg:p-[22px]`} />
 
       <article className="flex min-w-0 flex-1 flex-col gap-4">
         <section id="install" aria-labelledby="install-title" className={`${CARD_LIGHT.replace('rounded-[36px]', 'rounded-[28px] md:rounded-[36px]')} flex scroll-mt-24 flex-col gap-5 p-6 md:p-9`}>

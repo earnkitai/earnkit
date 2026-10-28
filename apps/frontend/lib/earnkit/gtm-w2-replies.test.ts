@@ -18,9 +18,8 @@ import { BASE_GRANTS_ID } from './builder-code';
 import {
   CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK, grantHook, liveNoGithub,
 } from './bench-reply';
-import { CHECKIN_MAX_ASKS, CHECKIN_NOTE, CHECKIN_YES_NOTE, checkinAskDue, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, backersLine, openGrant } from './bench-find';
-import { COIN_NO_PUBLIC_NAME } from './coin-moments';
-import { coinLiveLine, outcomeCongrats } from './post-reply';
+import { CHECKIN_MAX_ASKS, CHECKIN_NOTE, CHECKIN_YES_NOTE, checkinAskDue, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, openGrant } from './bench-find';
+import { outcomeCongrats } from './post-reply';
 import { appliedLine } from './tools';
 import { reachOf } from './agent-reach';
 import { listPrograms } from './programs';
@@ -90,14 +89,11 @@ test('copy: word for word, one question each', () => {
   assert.equal(liveNoGithub(null, 'MealMate', 'https://x.test/l'),
     'Lovable or Bolt put your code on GitHub in two clicks (Lovable: Project settings, Git. Bolt: GitHub icon, top right). Then connect it here: https://x.test/l\nDone?');
   assert.equal(CHECKIN_ASK, 'Want me to check in here every Monday?');
-  assert.equal(coinLiveLine('KIT'), 'Your coin $KIT is live. You keep 40% of its trading fees.');
-  assert.equal(backersLine(0, 0), 'No backers yet. Backers follow posts about real progress. Want a post about this week?');
-  assert.equal(backersLine(3, 12), '3 backers and $12 in fees to you so far. Want a post about this week?');
   assert.equal(outcomeCongrats('accepted', 'Base Builder Grant Program'), 'Congrats on getting into the Base Builder Grant Program.');
   assert.equal(outcomeCongrats('funded', null), 'Congrats.');
   assert.equal(appliedLine('a16z speedrun SR008'), 'Saved: you applied to the a16z speedrun SR008.');
-  for (const s of [liveNoGithub('lovable', 'MealMate', 'https://x.test/l'), CHECKIN_ASK, backersLine(0, 0)]) rule(s);
-  for (const s of [NEXT_STEP_LATER, CHECKIN_ON, coinLiveLine('KIT'), COIN_NO_PUBLIC_NAME]) rule(s, 0);
+  for (const s of [liveNoGithub('lovable', 'MealMate', 'https://x.test/l'), CHECKIN_ASK]) rule(s);
+  for (const s of [NEXT_STEP_LATER, CHECKIN_ON]) rule(s, 0);
   // Hosted agents (no folder) and the agents that can schedule (Grok Bot registers as Cursor).
   assert.deepEqual(reachOf('Grok', false), { hosted: true, schedules: true });
   assert.deepEqual(reachOf('Cursor', false), { hosted: false, schedules: true });
@@ -341,64 +337,26 @@ async function codeWeek(b: B, approved = true) {
       ${sql().json({ shipped_code: { n: 3 }, checked: true, ...(approved && { approved: true }) } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = EXCLUDED.facts`;
 }
-const OFFER = /^I can launch \$([A-Z0-9]+), a coin for (.+) on Base\. Every trade pays a fee and you keep 40%, sent to 0x[0-9a-f]{4}…[0-9a-f]{4}\. Coins can go to zero\. Launch it\?$/;
 
-test('the backing offer ranks above the apply step (connect still first), then the apply step', db, () => withEnv(ON, async () => {
+test('v4.0 Task 11: no backing offer after an approved week with code; the apply step comes (connect still first)', db, () => withEnv(ON, async () => {
   const b = await coinBuilder('r', { programs: [BASE_GRANTS_ID] });
   await codeWeek(b);
   const f = await mcpCall(b.ctx, 'find', {});
   const s = rule(show(f));
-  assert.match(s.split('\n').at(-1)!, OFFER, s);
-  assert.equal(moveUp(f)?.kind, 'backing');
-  await tellMove(b.ctx, 'backing', 'no', b.key);
-  assert.equal(moveUp(await mcpCall(b.ctx, 'find', {}))?.kind, 'apply');
+  assert.doesNotMatch(s, /I can launch|\bcoin|backing/i, s);
+  assert.notEqual(moveUp(f)?.kind, 'backing');
 }));
 
-test('the connect yes (weeks approved: proven) carries the backing offer in the same reply', db, () => withEnv(ON, async () => {
+test('v4.0 Task 11: the connect yes (weeks approved: proven) carries no backing offer', db, () => withEnv(ON, async () => {
   const b = await coinBuilder('c', { connect: true });
   await codeWeek(b, false);
   const f = await mcpCall(b.ctx, 'find', {});
   assert.equal(moveUp(f)?.kind, 'connect', show(f));
   const y = await tellMove(b.ctx, 'connect', 'yes', b.key);
   const s = rule(show(y));
-  assert.match(s, /^You're live: https:\/\/earnkit\.com\/\S+\nI can launch \$/, s);
-  assert.equal(moveUp(y)?.kind, 'backing');
-}));
-
-test('a private repo with a public name is offered and launches under that name, no repo link; the launch reply; backers asked', db, () => withEnv(ON, async () => {
-  // No public name (the builder's name is the repo's): no coin.
-  const hidden = await coinBuilder('p', { private: true });
-  await codeWeek(hidden);
-  assert.doesNotMatch(show(await mcpCall(hidden.ctx, 'find', {})), /I can launch/);
-  // The builder's own name for it: the offer names it, never the repo.
-  const b = await coinBuilder('q', { private: true, name: 'TipJar Pro' });
-  await codeWeek(b);
-  const f = await mcpCall(b.ctx, 'find', {});
-  const s = rule(show(f));
-  const m = s.split('\n').at(-1)!.match(OFFER);
-  assert.ok(m, s);
-  assert.equal(m[2], 'TipJar Pro');
-  assert.doesNotMatch(s, /\bkit\b/i);
-  const yes = await tellMove(b.ctx, 'backing', 'yes', b.key);
-  const pid = yes.reply?.project_id as number;
-  assert.ok(pid, JSON.stringify(yes.reply));
-  const token = yes.reply?.token as { name: string; symbol: string };
-  assert.equal(token.symbol, m[1]);
-  const [row] = await sql()<{ name: string; repo_url: string | null; repo_private: boolean }[]>`SELECT name, repo_url, repo_private FROM projects WHERE id = ${pid}`;
-  assert.deepEqual([row.name, row.repo_private], ['TipJar Pro', true]);
-  // confirm launches it: the coin is live, the builder's 40%, the one-tap intro post as the one link and question.
-  const c = await mcpCall(b.ctx, 'confirm', { project_id: pid, yes: true, token, wallet: yes.reply?.wallet });
-  const cs = rule(show(c));
-  assert.equal(c.reply?.status, 'launched');
-  assert.match(cs, new RegExp(`^Your coin \\$${m[1]} is live\\. You keep 40% of its trading fees\\.\nYour post for X:\n".+"\nPost it in one tap: https://earnkit\\.com/${b.handle}/post/[a-z2-7]{10}\nWant a different version\\?$`), cs);
-  assert.equal(moveUp(c)?.kind, 'post');
-  // "Did anyone back it?": the backers and the fees, then one post question (v3.1 cold read).
-  const t = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  // v3.1 answerable replies (spec 2): "$SYM is live: <tokens.fun>" first, the reply's one link, then one question.
-  const [coinRow] = await sql()<{ u: string }[]>`SELECT token_url AS u FROM projects WHERE id = ${pid}`;
-  assert.equal(rule(show(t)), `$${m[1]} is live: ${coinRow.u}\n${backersLine(0, 0)}`);
-  assert.equal(links(show(t)).length, 1);
-  assert.equal(moveUp(t)?.kind, 'backers_post');
+  assert.match(s, /^You're live: https:\/\/earnkit\.com\/\S+/, s);
+  assert.doesNotMatch(s, /I can launch|\bcoin/i, s);
+  assert.notEqual(moveUp(y)?.kind, 'backing');
 }));
 
 test('the email question is a move_up: a no is saved, never asked again', db, () => withEnv(ON, async () => {

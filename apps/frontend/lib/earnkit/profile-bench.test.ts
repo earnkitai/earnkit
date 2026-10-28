@@ -200,7 +200,7 @@ test('11.9 the streak squares are the grid\'s last 12 weeks, oldest first (a sho
 });
 
 test('11.10 a new profile: no ring without a rank line, no raising, no chain lines; without a project the panel says so', () => {
-  const fresh: ProfileData = { ...DATA, backing: null, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, coin: null, programs: [], funds: [] } };
+  const fresh: ProfileData = { ...DATA, bench: null, chainLines: [], score: null, streak: 0, log: [DATA.log[2]], line: null, why: null, project: { ...DATA.project!, programs: [], funds: [] } };
   const h = view(fresh);
   assert.doesNotMatch(h, /Shipping score \d+ out of 100/);
   assert.doesNotMatch(h, /Raising|Community round|data-ek-token/);

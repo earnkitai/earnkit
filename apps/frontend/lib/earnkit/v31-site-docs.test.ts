@@ -165,7 +165,7 @@ test('(b2) install fixes: "No GitHub yet?" on the install card: Lovable and Bolt
   assert.match(readFileSync(join(import.meta.dirname, 'person-github.ts'), 'utf8'), /defaultBranchRef \{ name target \{ \.\.\. on Commit \{ history\(/);
 });
 
-test('(c) "A live product adds 10." uses LIVE_BONUS; raising off: no Backing, the nav label "Programs"; raising on: the Backing sentence', () => {
+test('(c) "A live product adds 10." uses LIVE_BONUS; v4.0 Task 11: no Backing and the nav label "Programs", whatever EARNKIT_RAISING says', () => {
   assert.equal(LIVE_BONUS, 10);
   assert.match(read('lib/earnkit/docs-copy.ts'), /\$\{LIVE_BONUS\}/);
   // Task 11: the 12 is SHIPPING_WEEKS, not a literal.
@@ -180,10 +180,9 @@ test('(c) "A live product adds 10." uses LIVE_BONUS; raising off: no Backing, th
   assert.match(offNav, /href="#money"[^>]*>Programs<\/a>/);
 
   const onHtml = docs(true);
-  const on = text(onHtml);
-  assert.ok(on.includes('Your agent drafts applications from your Activity. Backing lets people buy your coin; you keep 40% of fees.'));
-  assert.match(onHtml.match(/<nav [^>]*aria-label="Docs"[^>]*>([\s\S]*?)<\/nav>/)![1], /href="#money"[^>]*>Programs and Backing<\/a>/);
-  assert.match(onHtml, /<h2[^>]*>Programs and Backing<\/h2>/);
+  assert.equal(onHtml, docs(false));
+  assert.doesNotMatch(text(onHtml), /Backing|coin/i);
+  assert.match(onHtml, /<h2[^>]*>Programs<\/h2>/);
 });
 
 test('(d) the selectors card shows the JSON URL; no "points", no em dash, under 250 words', () => {

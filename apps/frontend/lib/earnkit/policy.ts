@@ -108,7 +108,7 @@ export const PROFILES_POINTS: readonly string[] = [
   'Your EarnKit page is made when you sign in with X, as you install EarnKit or from the one-time link your agent gives you. It is public from then on. Until you sign in, what EarnKit finds shows only in your own agent.',
   'Every agent you sign in with the same X account uses that same page. It is added with no question, and nothing from another page is merged in.',
   'It shows your X name and picture, your project, your Shipping score, rank and Originality once the project is confirmed, the weeks you shipped code, your ship log, and programs you entered or won.',
-  'A repo counts when you install the read-only EarnKit GitHub App on it. That is the only proof for new repos. A repo EarnKit confirmed before the App still counts on the leaderboard, but needs the App before a coin, a deploy or hosting.',
+  'A repo counts when you install the read-only EarnKit GitHub App on it. That is the only proof for new repos. A repo EarnKit confirmed before the App still counts on the leaderboard, but needs the App before a deploy or hosting.',
   'EarnKit reads the repos you install the App on, private ones too, with short-lived tokens from GitHub. It never stores those tokens. It also reads public data it can check cheaply: GitHub, live sites, package downloads, public transactions and what you did through EarnKit. It never adds anything to your site.',
   'Each week you ship code, EarnKit stores up to three commit and pull request titles from your project on the leaderboard, if you installed the App on it. A private repo shows facts only, and its titles are read only after you turn titles on. If you turn titles off, stored titles stay stored but are hidden.',
   'Originality compares your project\'s readme and description with other projects on EarnKit and with well-known ideas. EarnKit keeps only a fingerprint of that text, never the text, and never shows you another builder\'s project.',
@@ -118,15 +118,3 @@ export const PROFILES_POINTS: readonly string[] = [
   'This data may transfer to a successor in a merger or acquisition. To have it removed, email the address on this page.',
 ];
 
-/**
- * v3 Stage 2 (spec 5.3 Route 2): the terms' Backing section (PolicySection, only while EARNKIT_RAISING is on). The split
- * in words, matching feeTable and EARNKIT_SPLITS_BPS; the coin's risk; backing never moves Shipping or rank.
- */
-export const BACKING_TITLE = 'Backing';
-export const BACKING_POINTS: readonly string[] = [
-  "Of a coin's trading fees, Clanker keeps 20%. Of the rest, 40% goes to the builder's wallet, 10% buys MINI and 50% goes to EarnKit's Safe.",
-  'Backing is offered once, after the first approved week, and only with a yes.',
-  'A coin is a tradable token on Base. It can go to zero. EarnKit never says it will rise.',
-  'Closing backing hides it from the page; the coin stays onchain.',
-  'Backing never changes Shipping or rank.',
-];

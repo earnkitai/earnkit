@@ -28,11 +28,10 @@ test('3.1 no source reads the two retired flags', () => {
   }
 });
 
-test('3.2 the flag module keeps only archiveFlag, xSignInEnabled and raisingEnabled (EARNKIT_RAISING alone)', () => {
-  assert.deepEqual(Object.keys(flags).sort(), ['RAISING_FLAG', 'archiveFlag', 'raisingEnabled', 'xSignInEnabled']);
-  assert.equal(flags.raisingEnabled({}), false);
-  assert.equal(flags.raisingEnabled({ EARNKIT_RAISING: 'on' }), true);
-  assert.equal(flags.raisingEnabled({ EARNKIT_RAISING: 'yes' }), false);
+test('3.2 the flag module keeps only archiveFlag and xSignInEnabled (v4.0 Task 11: EARNKIT_RAISING is read nowhere)', () => {
+  assert.deepEqual(Object.keys(flags).sort(), ['archiveFlag', 'xSignInEnabled']);
+  for (const file of ['lib', 'app', 'scripts'].flatMap((d) => sources(join(FRONTEND, d))))
+    if (!file.endsWith('.test.ts')) assert.doesNotMatch(readFileSync(file, 'utf8'), /raisingEnabled|env\.EARNKIT_RAISING|['"`]EARNKIT_RAISING['"`]/, file);
 });
 
 test('3.3 the hidden code is gone', () => {

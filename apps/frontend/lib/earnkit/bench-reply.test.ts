@@ -134,11 +134,6 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
-  // Backing: the offer is the question, no points line.
-  const offer = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
-  const backing = benchReply(ranked({ ask: { kind: 'backing', project_key: RECIPE.key, line: offer } }));
-  assert.equal(backing, `Recipe planner · #3 of 40 builders · 4 weeks in a row\n${offer}`);
-  oneAsk(backing);
   // A held question takes the step's place; no points line.
   const held = benchReply(ranked({ held: 'Did Apply X come back on Recipe planner? applied / accepted / funded / rejected.' }));
   assert.ok(held.endsWith('applied / accepted / funded / rejected.'), held);
@@ -197,19 +192,17 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   // Fix round: the profile doesn't show an acceptance or funding; the news is on the page as the update.
   for (const moment of ['accepted', 'funded']) assert.equal(eventHead({ moment, input: { name: 'Kit', program: 'X' } }, now), '', 'no head: the reply starts at "Your post for X"');
   assert.equal(eventHead({ moment: 'news', input: { note: 'x' } }, now), 'Added to your page.');
-  assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), 'Backing is open on your page.');
+  assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), '', 'v4.0 Task 11: an old coin intro draft has no head');
 });
 
-test('Task 16, GTM W2: the ranked order is connect, backing, apply, share, ship', () => {
-  const backing = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
+test('Task 16, v4.0 Task 11: the ranked order is connect, apply, share, ship', () => {
   const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
-  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, backing, apply };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, apply };
   assert.equal(stateAsk(all).kind, 'connect');
-  // GTM W2 (owner: no coin launched is the biggest revenue failure): backing right after connect, above the apply step.
-  assert.equal(stateAsk({ ...all, connect: null }).kind, 'backing');
-  assert.equal(stateAsk({ ...all, connect: null, backing: null }).kind, 'apply');
-  assert.equal(stateAsk({ ...all, connect: null, apply: null, backing: null }).kind, 'share');
-  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, backing: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
+  // v4.0 Task 11: no backing step; the apply step follows connect.
+  assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
+  assert.equal(stateAsk({ ...all, connect: null, apply: null }).kind, 'share');
+  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
   assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
 });
 

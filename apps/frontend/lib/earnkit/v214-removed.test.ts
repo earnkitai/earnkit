@@ -183,17 +183,12 @@ test('7.6 a re-authorization refused at the token exchange keeps the old token w
 
 test('7.7 final fix: the terms, llms.txt and every MCP description describe v2.14 (no claim, no earnkit.txt, no GitHub sign-in proof)', async () => {
   const BANNED = [/claim/i, /earnkit\.txt/i, /sign in with github/i, /signing in with github/i, /proof branch/i, /only public data/i, /signed_in/];
-  // confirm and tell still accept an older agent's signed_in (strict schemas), described only as ignored.
+  // tell still accepts an older agent's signed_in (a strict schema), described only as ignored.
   const schemaText = (schema: unknown) =>
     JSON.stringify(schema).replace(/"signed_in":\{"description":"Not used any more; ignored\."\}/g, '"old":{}');
-  // v3.1: confirm (Backing) is listed only with EARNKIT_RAISING on; listed here so its schema is read too.
-  const raising = process.env.EARNKIT_RAISING;
-  process.env.EARNKIT_RAISING = 'on';
-  const tools = await mcpListTools({ installationId: 1 }).finally(() => {
-    if (raising === undefined) delete process.env.EARNKIT_RAISING;
-    else process.env.EARNKIT_RAISING = raising;
-  });
-  assert.equal(tools.length, 5);
+  // v4.0 Task 11: four tools (confirm is retired).
+  const tools = await mcpListTools({ installationId: 1 });
+  assert.equal(tools.length, 4);
   const texts: [string, string][] = [
     ...PROFILES_POINTS.map((p, i): [string, string] => [`PROFILES_POINTS.${i}`, p]),
     ...RECORDS_WITH.map((p, i): [string, string] => [`RECORDS_WITH.${i}`, p]),
@@ -233,7 +228,4 @@ test('7.9 final fix (T6-2): an older agent\'s signed_in is accepted and ignored;
   assert.equal(told.reply?.show_to_builder, 'Noted for now.');
   const [n] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM builder_repo_facts WHERE installation_id = ${c.id}`;
   assert.equal(n.n, 0);
-  // confirm (strict too): the old key is not a validation error (the call fails later, on the unknown program).
-  const conf = await mcpCall(ctx, 'confirm', { signed_in: 'ABCD-EFGH-JK', project_id: 1, check: true });
-  assert.doesNotMatch(conf.text, /signed_in|Unrecognized|validation/i, conf.text);
 });

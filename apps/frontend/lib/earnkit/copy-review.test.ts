@@ -33,14 +33,13 @@ import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { postProblems, writePost, type PostInput } from './post-writer';
 import { APPROVED_LINE, SHARE_NOTE, momentLines, mondayLines, shareText } from './weekly-moment';
-import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
-import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
+import { SHIP_STEP_NOTE } from './bench-find';
 import { ATTRIBUTION_RULE } from './fresh-build';
 import { HIDDEN_LINE, NO_PROFILE_LINE, SHARED_PROFILE_NOTE, SHOWN_LINE } from './profiles';
 import { OWNERSHIP_FOR_TOKEN, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, serverInstructions, toolDescriptions, unexpectedErrorText } from './mcp';
 import { presentFirstMessage, skippedLine, submitStepLine, type Card, type FirstMessage } from './present';
 import { SKIP_REASONS } from './match-projects';
-import { BUILD_ENTRY_NOTE, BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, CONFIRM_ENTRY_GONE, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, NO_TOKEN_FOR_NOW, CONFIRM_SHARED_NOTE, PROJECT_REOFFER_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
+import { BUILD_NO_LIVE_NOTE, BUILD_HOLD_NOTE, BUILD_PENDING_NOTE, pagesLiveLine, BUILD_DEPLOYS_OFF_NOTE, BUILD_NOT_READY, BUILD_PAGES_NOTE, BUILD_UPLOAD_NOTE, buildChainNote, buildOwnerNote, BUILD_NOT_STARTED, BUILD_SHARED_NOTE, WALLET_NEEDED_NOTE, buildRefused, twistNote, BUILD_NOTE, PLAN_NOTE, ASK_OUTCOME_NOTE, COACH_NOTES, NOTED_FOR_NOW, OUTCOME_SAVED_NOTE, SIGN_IN_NOTE, HOST_SIGN_IN_NOTE, TELL_SAVED_NOTE, TELL_SHARED_NOTE, SUBMITTED_SHARED_NOTE, BUILD_ENTRY_NO_TOKEN_NOTE, handlers } from './tools';
 import { outcomeQuestion } from './outcomes';
 import { DEFAULT_GUIDANCE, PLAIN_FIX, PLAIN_LENGTH_FIX, PLAIN_NOTE, coachIntro, draftTable, fixesLine, preSubmitCheck, questionsFor, walletAsk } from './coach';
 import { alsoText } from './also-qualifies';
@@ -772,8 +771,8 @@ const signInTexts: [string, string][] = [
   ['confirmPage', confirmPage({ repo_key: 'alice/tipjar', handle: 'alice' }, 'n', 'c').replace(/<[^>]+>/g, ' ')],
 ];
 
-// v2.10 item 4: confirm's line for a skip of an entry's token (the v2.9 offer path is gone).
-const tokenOfferTexts: [string, string][] = [['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW]];
+// v2.10 item 4, v4.0 Task 11: no entry's token is offered or skipped any more.
+const tokenOfferTexts: [string, string][] = [];
 
 // v2.9 Task 12 (Part 1 copy sweep): every new builder string Part 1 ships. The link and contract
 // check lines (T1); the matched row notes as matchRepo writes them (T2 product signals, T3 claims,
@@ -928,28 +927,9 @@ export const v2121Texts: [string, string][] = [
   // Launch ready L5, L6: the weekly target, the weekly moment, its share ask and the yes.
   ...weeklyCopy(),
   ['qualifyLine', qualifyLine({ title: 'Recipe Grants', amount: '$5,000', when: 'closes Oct 30' })],
-  ['TOKEN_NOT_YET', TOKEN_NOT_YET],
-  ['tokenUnavailable', tokenUnavailable('Recipes')],
-  ['tokenHasCoin', tokenHasCoin('Recipes')],
   ['POST_LINE', POST_LINE('lee')],
   ['signInFirstLine', signInFirstLine('https://earnkit.com/signin/abcdefghijklmnopqrstuv')],
 ];
-/** The coin step (spec 3b's words: T10 owns the coin wording rule), checked by the v2.12.1 test only. */
-/**
- * v2.12.1 T10 (spec 3b, owner-approved copy): the coin offer says "coin" ("Want to launch a coin
- * for it? You'd get 40% of its trading fees."), so its lines and notes are checked by the v2.12.1
- * copy rule below, not v2.7's "coin" rule.
- */
-const v2121CoinTexts: [string, string][] = [
-  ...(['built_live', 'countable', 'first_five', 'has_people'] as const).flatMap((m): [string, string][] => [
-    [`coinLine ${m}`, coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })],
-    [`coinLine ${m} no wallet`, coinLine(m, 'TipJar', null, { name: 'Tip Jar', symbol: 'TIP' })],
-  ]),
-  ['COIN_WALLET_ASK', COIN_WALLET_ASK],
-  ['COIN_LIVE', COIN_LIVE],
-  ['COIN_LAUNCHING', COIN_LAUNCHING],
-];
-
 const builderFacing: [string, string][] = [
   ...v29Part1Texts,
   // v2.11 T5 (5.3): a starter's "what" is builder copy (the fresh lead line).
@@ -965,7 +945,6 @@ const builderFacing: [string, string][] = [
   ['pagesLiveLine', pagesLiveLine('PodTips', 'https://jenil04.github.io/podtips/')],
   ['applied outside EarnKit', appliedOutsideText],
   ...tokenOfferTexts,
-  ['NO_TOKEN_FOR_NOW', NO_TOKEN_FOR_NOW],
   ...signInTexts,
   ['NOTED_FOR_NOW', NOTED_FOR_NOW],
   ...coachTexts,
@@ -1059,7 +1038,6 @@ const agentFacing: [string, string][] = [
   ['POST_NOTE', POST_NOTE],
   ['PROOF_NOTE', PROOF_NOTE],
   ['NEWS_REWORD_NOTE', NEWS_REWORD_NOTE],
-  ['RAISE_NOTE', RAISE_NOTE],
   // v2.11 T8: the build path's notes and every build fix.
   ['twistNote(true)', twistNote(true)],
   ['twistNote(false)', twistNote(false)],
@@ -1077,7 +1055,6 @@ const agentFacing: [string, string][] = [
   ['BUILD_PAGES_NOTE', BUILD_PAGES_NOTE],
   // v2.11 T10: the held deployed line, the fresh-push refusal, the joined reply and the build wallet rule.
   ['BUILD_HOLD_NOTE', BUILD_HOLD_NOTE],
-  ['BUILD_ENTRY_NOTE', BUILD_ENTRY_NOTE],
   ['BUILD_PENDING_NOTE', BUILD_PENDING_NOTE],
   ['BUILD_NO_LIVE_NOTE', BUILD_NO_LIVE_NOTE],
   ...buildKit(STARTERS['arc-tipjar'], {
@@ -1116,8 +1093,6 @@ const agentFacing: [string, string][] = [
   ['TELL_SAVED_NOTE', TELL_SAVED_NOTE],
   ['TELL_SHARED_NOTE', TELL_SHARED_NOTE],
   // v2.10 item 4 (Task 9 fix rounds): the confirm and tell notes for shared clients, re-offers and a dropped submitted mark.
-  ['CONFIRM_SHARED_NOTE', CONFIRM_SHARED_NOTE],
-  ['PROJECT_REOFFER_NOTE', PROJECT_REOFFER_NOTE],
   ['SUBMITTED_SHARED_NOTE', SUBMITTED_SHARED_NOTE],
   ['SIGN_IN_NOTE', SIGN_IN_NOTE],
   // The shared-client note and the score tool's description.
@@ -1381,7 +1356,7 @@ test('final fix I3: the Pages note publishes site_dir as the root of a gh-pages 
 test('v2.12.1 T8 copy rule: plain sentences, sentence case, no jargon, no period after a link, one question at most', () => {
   const names = ['Arc Microgrants', 'TipJar', 'Keep', 'Recipes'];
   const banned = /\b(outcome|percentile|verified source|contract|wallet address|builder code|repo|commit|onchain|base|arc|monad|tempo|ethereum|robinhood chain)\b/i;
-  for (const [label, text] of [...v2121Texts, ...v2121CoinTexts]) {
+  for (const [label, text] of v2121Texts) {
     assert.ok(text.length > 0, label);
     const unnamed = names.reduce((t, n) => t.split(n).join('Name'), text);
     assert.doesNotMatch(unnamed, banned, label);
@@ -1459,7 +1434,6 @@ function v31Texts(): [string, string][] {
     ['draft prefilled', prefilled.show_to_builder],
     ['draft copy and paste', paste.show_to_builder],
     ['SENT_ASK', SENT_ASK],
-    ['CONFIRM_ENTRY_GONE', CONFIRM_ENTRY_GONE],
     ...moneyTexts({ title: 'Base Builder Grant Program', ends_at: new Date('2026-11-18T00:00:00Z') }, 1, now).map((x, i): [string, string] => ['email money dated ' + (i === 0 ? 'best fit' : 'backers'), x]),
     ['email money 1 day', moneyTexts({ title: 'Recipe Grants', ends_at: new Date('2026-10-23T12:00:00Z') }, 0, now)[0]],
     ['email money rolling', moneyTexts({ title: 'Base Builder Grant Program', ends_at: null }, 0, now)[0]],
@@ -1529,9 +1503,6 @@ test('12.1 v2.12.1 builder and public text never uses a banned word', () => {
   const texts = [
     standingNews(PREV, NOW_STANDING, AT, true)!.line,
     ...Object.values(SIGNIN_TEXT).map((v) => (typeof v === 'function' ? (v as (h: string) => string)('lee') : v)),
-    ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', null)),
-    // With a real coin: its $TICKER and name are names (exempt below), the wallet shown short.
-    ...(['built_live', 'countable', 'first_five', 'has_people'] as const).map((m) => coinLine(m, 'TipJar', '0x12ab000000000000000000000000000000009f3e', { name: 'Tip Jar', symbol: 'TIP' })),
     // The share card's own literal words (card-response.tsx), as the scanner reads them.
     ...humanStrings('apps/frontend/app/[handle]/card-response.tsx', readFileSync(join(import.meta.dirname, '../../app/[handle]/card-response.tsx'), 'utf8'))
       .map((x) => x.text).filter((x) => /[a-z]{3,} [a-z]/i.test(x) && !/[{}();=]|https?:|\/\/|^[\w-]+:/.test(x)),
@@ -1669,7 +1640,6 @@ test('v3.1 one-tap posts: every EarnKit-written post shape is plain copy (senten
     { moment: 'won', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
     { moment: 'accepted', name: 'Ledgerline', program: 'Arc Microgrants', award: null },
     { moment: 'funded', name: 'Ledgerline', program: 'Base Builder Grant', award: '$5,000' },
-    { moment: 'coin_intro', name: 'Tally', symbol: 'TALLY', weeks: 9 },
   ];
   const seen = new Set<string>();
   for (const i of inputs) {
@@ -1680,7 +1650,7 @@ test('v3.1 one-tap posts: every EarnKit-written post shape is plain copy (senten
       seen.add(p.shape);
       assert.match(p.text, /^[A-Z0-9]/, p.text);
       assert.doesNotMatch(p.text, /\u2014|\p{Extended_Pictographic}|!/u, p.text);
-      assert.deepEqual(postProblems(p.text, { ticker: i.moment === 'coin_intro' ? 'TALLY' : undefined }), [], p.text);
+      assert.deepEqual(postProblems(p.text), [], p.text);
     }
   }
   assert.ok(seen.size >= 10, `shapes swept: ${[...seen]}`);

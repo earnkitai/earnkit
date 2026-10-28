@@ -11,7 +11,7 @@ import {
   type BonusChain,
   type BonusRpc,
 } from './bonus-ledger';
-import { pillCoin } from './raising';
+import { builderToken } from './builder-token';
 import { SHARED_BASE_CONTRACTS, tradeVenue } from './shared-contracts';
 import { CLANKER_ADDRESSES } from './traction';
 
@@ -21,7 +21,7 @@ import { CLANKER_ADDRESSES } from './traction';
  * block, from the `coin_tx` receipt), in ranges of at most INDEX_CHUNK blocks, within INDEXER_MS a run, oldest cursor
  * first; one coin's failure never stops the rest. A backer received the coin from the pool side (the Transfer's `from`
  * is a trade venue: the PoolManager, a router or aggregator, or the coin's hook) and is no contract in BACKER_EXCLUDED
- * and not the coin's creator wallet; a transfer between two wallets, an airdrop or a dev buy never adds one. Backers never touch Shipping or rank; they show only while EARNKIT_RAISING is on (bench-data, stats).
+ * and not the coin's creator wallet; a transfer between two wallets, an airdrop or a dev buy never adds one. Backers never touch Shipping or rank; v4.0: they show as a builder token's holders (the Token card, the post card).
  */
 
 /** Each indexer's time slice per run (the cron's runBonusLedger), ms. */
@@ -185,22 +185,22 @@ export async function backersOf(coins: string[]): Promise<Map<string, number>> {
   return new Map(rows.map((r) => [r.coin, r.n]));
 }
 
-/** The backers of one coin (lowercase address; 0 for null or none), e.g. raising.ts pillCoin's `coin`. */
+/** The backers of one coin (lowercase address; 0 for null or none), e.g. a builder token's coin_address. */
 export async function backersOfCoin(coin: string | null): Promise<number> {
   return coin ? ((await backersOf([coin])).get(lower(coin)) ?? 0) : 0;
 }
 
 /**
  * v3.1 (spec 3.3): the backers EarnKit first saw after `since` (coin_backers.first_seen_at; a row from before v3.1 is
- * 'epoch', never new) on the builder's coin whose backing is open (raising.ts pillCoin: EARNKIT_RAISING on, launched,
- * opened, the one project confirmed). 0 with the flag off, no such coin, or on a read error. Never throws.
+ * 'epoch', never new) on the builder's launched builder token (v4.0 Task 11: builder_tokens, never a project's coin).
+ * 0 with no launched token, or on a read error. Never throws.
  */
 export async function newBackers(builderId: number, since: Date): Promise<number> {
   try {
-    const c = await pillCoin(builderId);
-    if (!c?.coin) return 0;
+    const t = await builderToken(builderId);
+    if (t?.status !== 'launched' || !t.coin_address) return 0;
     const [r] = await sql()<{ n: number }[]>`
-      SELECT count(DISTINCT wallet)::int AS n FROM coin_backers WHERE coin = ${lower(c.coin)} AND first_seen_at > ${since}`;
+      SELECT count(DISTINCT wallet)::int AS n FROM coin_backers WHERE coin = ${lower(t.coin_address)} AND first_seen_at > ${since}`;
     return r?.n ?? 0;
   } catch (err) {
     console.error('[backers] new', err instanceof Error ? err.name : 'error');

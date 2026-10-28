@@ -13,7 +13,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { person } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
-import { attachToX, bindX } from './x-install';
+import { attachToX } from './x-install';
 import { productOdds, productScore, traction } from './match';
 import type { RepoFit } from './present';
 import {
@@ -25,7 +25,6 @@ import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletOfferDue, walletSetupDue, wall
 import { WALLET_TEXT, provenWallet, upgradeOf, walletContractsLine, walletDoneLine, walletMessage, walletPost } from './wallet-proof';
 import { titlesAskDue } from './updates';
 import { walletXSignIn } from './fixtures/wallet-step';
-import { COIN_WALLET_ASK, coinWallet, coinYes, offerCoin } from './coin-moments';
 import { discoverPerson } from './discovery';
 import { walletFirstTxFrom, walletFirstTxRpc, type NonceRpc, type ReaderDeps } from './source-readers';
 import { blockscoutUrl } from './campaigns';
@@ -38,7 +37,7 @@ import { PRIVATE_NAME } from './page-data';
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional wallet step right after setup, once, never with another
  * question; "done" checks the signature, "skip" is remembered; "change my reward wallet" sends a fresh link; the newest
- * proven wallet is the reward recipient (coin fees, program payouts); a proof queues discovery, whose contracts (every
+ * proven wallet is the reward recipient (program payouts); a proof queues discovery, whose contracts (every
  * chain, v3.1 Highlights competence) show in Highlights; the hero's GitHub button falls back to the builder's GitHub profile.
  */
 appEnv();
@@ -97,7 +96,7 @@ test('the copy, word for word: the offer, the change links, done, contracts only
   assert.equal(
     walletChangeX('0x12ab…abcd', L, [WALLET_BUILDER_CODE, WALLET_COIN_FEES]),
     `Your rewards go to 0x12ab…abcd. To change that, sign in with X and sign with the new wallet (one signature, no fee): ${L}\n` +
-      "Your Base Builder Code stays on your first wallet.\nYour coin's fees keep going to the wallet it launched with.\nDone?",
+      "Your Base Builder Code stays on your first wallet.\nYour token's fees keep going to the wallet it launched with.\nDone?",
   );
   assert.equal(walletNotYet(L), `I don't see a signature yet. Here's a fresh link (one signature, no fee): ${L}\nDone?`);
   assert.equal(walletDone('0x12ab…abcd'), 'Done. Your rewards now go to 0x12ab…abcd. Your contracts on Base will show on your page soon.');
@@ -107,12 +106,11 @@ test('the copy, word for word: the offer, the change links, done, contracts only
   for (const s of [walletOffer(L), walletChange(L), walletNotYet(L), walletChangeX('0x12ab…abcd', L, [WALLET_BUILDER_CODE, WALLET_COIN_FEES])]) rule(s);
 });
 
-test('the wallet step never shares a reply with another question: after connect, a post, apply, backing and the weekly moment; before titles, Base steps and ship', () => {
+test('the wallet step never shares a reply with another question: after connect, a post, apply and the weekly moment; before titles, Base steps and ship', () => {
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const v = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit', wallet: 'https://earnkit.com/claim/wallet?t=x' };
   assert.equal(stateAsk({ ...v, connect: { weeks: 3, points: 40 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
-  assert.equal(stateAsk({ ...v, backing: 'Want backing?' }).kind, 'backing');
   assert.equal(stateAsk({ ...v, share: true }).line, MOMENT_ASK);
   const w = stateAsk({ ...v, titles: true });
   assert.equal(w.kind, 'wallet');
@@ -210,7 +208,7 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
 
   // With the page's X sign-in: the new wallet is the recipient, and the next reply says so once.
   mock.timers.tick(60_000);
-  // Fix rounds 2 and 7: only when true, the Builder Code and a launched coin's fees stay where they are.
+  // Fix rounds 2 and 7: only when true, the Builder Code and a launched token's fees stay where they are.
   await sql()`UPDATE builder_profiles SET base_builder_code = 'bc_test' WHERE builder_id = ${c.id}`;
   await sql()`INSERT INTO projects (program_id, name, installation_id, token_url) VALUES ('earnkit-coin', 'Kit', ${c.id}, 'https://tokens.fun/kit')`;
   const change2 = await mcpCall(ctx, 'tell', { wallet: 'change' });
@@ -223,7 +221,6 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   await sql()`UPDATE discovery_queue SET done_at = now() WHERE builder_id = ${c.id}`;
   assert.equal(moved.recipient, true);
   assert.equal(await provenWallet(c.id), moved.wallet);
-  assert.equal(await coinWallet(c.id), moved.wallet);
   const next = show(await mcpCall(ctx, 'find', {}));
   assert.equal(next.split('\n')[0], walletNotice(short(moved.wallet)));
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /Your reward wallet changed/, 'once');
@@ -298,37 +295,6 @@ test('"skip" is remembered and never asked again; a builder who already proved a
   // A shared agent (many builders) is never given a wallet link.
   const shared = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: true }, 'tell', { wallet: 'change' });
   assert.doesNotMatch(show(shared), /https:/);
-});
-
-test('the proven wallet is the reward recipient: coin fees use it without asking; with none, the wallet is asked', db, async () => {
-  const claimedPerson = async (tag: string) => {
-    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v31wp-${tag}-${randomBytes(8).toString('hex')}`}) RETURNING id`;
-    await sql()`INSERT INTO builder_profiles (builder_id, slug) VALUES (${id}, ${`v31wp-${id}`})`;
-    assert.ok((await bindX(id, { id: `v31wp${randomBytes(6).toString('hex')}`, username: `${tag}${randomBytes(3).toString('hex')}`, name: tag, avatar: null }, new Date())).ok);
-    const key = `lee/${tag}${randomBytes(3).toString('hex')}`;
-    await sql()`INSERT INTO builder_projects (builder_id, project_key, name, kind, confirmed, shipped, people, last_active_at) VALUES (${id}, ${key}, 'Tip Jar', 'app', true, true, 9, now())`;
-    await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at, public_at) VALUES (${id}, 'repo', ${key}, ${key}, 'repo_owner', 'verified', 'server', now(), now())`;
-    return { id, key };
-  };
-  const noCheck = { check: async () => true };
-  // No wallet anywhere: the yes asks for one (COIN_WALLET_ASK).
-  const a = await claimedPerson('wpa');
-  assert.ok(await offerCoin(a.id, a.key, 'has_people', noCheck));
-  assert.deepEqual(await coinYes(a.id, a.key, null, noCheck), { show_to_builder: COIN_WALLET_ASK });
-  // Proven after the offer (the offer named no wallet): the yes uses it, never asks.
-  const W1 = `0x${randomBytes(20).toString('hex')}`;
-  const W2 = `0x${randomBytes(20).toString('hex')}`;
-  await sql()`INSERT INTO person_wallets (wallet, builder_id, proven_at, recipient_at) VALUES (${W1}, ${a.id}, now() - interval '1 day', now() - interval '1 day'), (${W2}, ${a.id}, now(), now())`;
-  assert.equal(await coinWallet(a.id), W2, 'the reward recipient (the newest made recipient)');
-  const yes = await coinYes(a.id, a.key, null, noCheck);
-  assert.ok('project_id' in yes, JSON.stringify(yes));
-  assert.equal((yes as { wallet: string }).wallet, W2);
-  // An offer made after the proof names it before the yes.
-  const b = await claimedPerson('wpb');
-  const W3 = `0x${randomBytes(20).toString('hex')}`;
-  await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${W3}, ${b.id}, now())`;
-  const offer = await offerCoin(b.id, b.key, 'has_people', noCheck);
-  assert.equal(offer?.wallet, W3);
 });
 
 test('discovery: a proven wallet\'s own contracts on every chain show in Highlights (never the address); a token or an unused one never does', db, async () => {

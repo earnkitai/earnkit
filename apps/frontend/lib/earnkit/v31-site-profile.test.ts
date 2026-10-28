@@ -188,7 +188,7 @@ test('(f) first week, no project, confirming: every card has text; nothing reads
 });
 
 test('(g) a hidden repo: Private project, no github.com link, no about line', () => {
-  const data: ProfileData = { ...MAYA, backing: null, project: { ...MAYA.project!, name: PRIVATE_NAME, what: null, live: null, repo: null, coin: null } };
+  const data: ProfileData = { ...MAYA, project: { ...MAYA.project!, name: PRIVATE_NAME, what: null, live: null, repo: null } };
   const site: ProfileSite = {
     ...MAYA_SITE, token: null, standing: null,
     project: { name: PRIVATE_NAME, about: null, link: null, repo: null, onBase: true, earnkit: false, letter: 'P', color: MAYA_SITE.project!.color },

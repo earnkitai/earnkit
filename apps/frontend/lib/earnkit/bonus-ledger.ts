@@ -314,7 +314,7 @@ export async function bookDeposit(
     if (dep.coin) {
       const [p] = await tx<{ id: string }[]>`
         SELECT g.id FROM projects p JOIN programs g ON g.id = p.program_id WHERE p.coin_address = ${dep.coin}`;
-      reason = p ? `${p.id}: builder bonus off` : `${dep.coin} is not an EarnKit coin`;
+      reason = p ? `${p.id}: builder bonus off` : `${dep.coin} is not an EarnKit token`;
     }
     const inserted = await tx`
       INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_number, block_time)

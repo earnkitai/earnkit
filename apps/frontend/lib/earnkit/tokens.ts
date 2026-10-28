@@ -541,7 +541,7 @@ export async function deployToken(
     SELECT installation_id FROM projects WHERE id = ${a.projectId}`;
   if (!mine || mine.installation_id !== a.installationId)
     throw new LaunchError(
-      `No project ${a.projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`,
+      `No project ${a.projectId} recorded by you. Pass the entry's project_id; a sent application is recorded with tell program_status applied.`,
     );
   const repoKey = a.repoUrl ? normalizeRepoUrl(a.repoUrl) : null;
   if (repoKey) {
@@ -603,7 +603,7 @@ export async function deployToken(
       SELECT token_url, installation_id, repo_url, live_url FROM projects WHERE id = ${a.projectId}`;
     if (!existing || existing.installation_id !== a.installationId) {
       throw new LaunchError(
-        `No project ${a.projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`,
+        `No project ${a.projectId} recorded by you. Pass the entry's project_id; a sent application is recorded with tell program_status applied.`,
       );
     }
     if (!existing.token_url && repoKey) {
@@ -721,7 +721,7 @@ export async function deployToken(
       // Only a duplicate coin address (the unique index) is tolerated: logged, and the launch is
       // still recorded without it. Any other error is the launch write failing: thrown.
       if (coin === null || (err as { code?: string }).code !== '23505') throw err;
-      console.error(`[launch] project ${a.projectId}: coin ${coin} not recorded for the builder bonus (already on another entry)`);
+      console.error(`[launch] project ${a.projectId}: token ${coin} not recorded for the builder bonus (already on another entry)`);
       await launched(false);
     }
   } else {

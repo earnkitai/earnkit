@@ -221,12 +221,12 @@ test('step 3 copy, word for word: with the token sentence, and without it', () =
     assert.doesNotMatch(s, /coin|—|\p{Extended_Pictographic}/u, s);
     assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length - (s.includes('Rather skip the token?') ? 1 : 0), 1, s);
   }
-  // Before every ranked ask (connect, backing, apply...), and after the GitHub no's walk-through offer.
+  // Before every ranked ask (connect, apply...), and after the GitHub no's walk-through offer.
   const project: BenchProject = { key: 'maya/mealmate', name: 'MealMate', confirmed: true, live: false, weeks: 1 };
   const setup = { link: L, project: 'MealMate', token: true };
   const ranked = { state: 'ranked' as const, variant: null, project, link: null, handle: 'maya', walletSetup: setup };
   assert.equal(stateAsk({ ...ranked, connect: { weeks: 3, points: 40 } }).kind, 'wallet_setup');
-  assert.equal(stateAsk({ ...ranked, backing: 'Want backing?', apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L, true));
+  assert.equal(stateAsk({ ...ranked, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L, true));
   assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3, points: 40 } }).kind, 'connect');
   const no = { state: 'no_project' as const, variant: null, project: null, link: null, githubNo: true, walletSetup: { ...setup, project: null } };
   assert.equal(stateAsk({ ...no, baseAsk: true }).kind, 'base_start');

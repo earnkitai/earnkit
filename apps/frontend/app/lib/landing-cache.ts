@@ -1,18 +1,16 @@
 import { unstable_cache } from 'next/cache';
 import { connection } from 'next/server';
 import { cache } from 'react';
-import { raisingEnabled } from '../../lib/earnkit/builder-score-flag';
 import { PROFILE_TAG } from '../../lib/earnkit/profile-cache';
 import { gatedGuidePage, readGuideIds, readGuidePage, readLanding, type GuidePage, type Landing } from '../../lib/earnkit/landing';
 
 /**
  * One DB read per 10 minutes at most (no new service); the value is plain JSON (Ruling 21 (plan)).
  * v2.8: the key moved with the Tile shape (days_left), so a kept cache never serves old tiles. v2.13:
- * the key moved with `bench`. Final fix M4: it names EARNKIT_RAISING, so a flag flip never serves the
- * other variant (landingCacheKey). v2.14: the Tile lost its bonus fields, so the key moved again. R18 fix 1:
+ * the key moved with `bench`. v2.14: the Tile lost its bonus fields, so the key moved again. R18 fix 1:
  * `bench` gained `count`, so it moved again. v3.1 site: the Landing lost `bench` and `featured` and gained `open_chip`, `activity` and the Tile's kind, big and when, so it moved again.
  */
-export const landingCacheKey = () => `landing-v31-${raisingEnabled() ? 'raising' : 'off'}`;
+export const landingCacheKey = () => 'landing-v31-off';
 const byKey = new Map<string, () => Promise<Landing>>();
 const cached = () => {
   const key = landingCacheKey();

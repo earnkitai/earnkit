@@ -9,9 +9,6 @@ import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
 import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
 import { leaderboardLine } from './site-copy';
-import { raiseLine } from './coin-moments';
-import { RAISE_LINES, showRaisingLine } from './raising';
-import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
   INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat,
   qualifyLine, shipPointsLine, standingLine, youreIn,
@@ -45,9 +42,6 @@ export const TEXTS: string[] = ([
   fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false }),
   STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x', false), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x', false),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
-  // T9: the raise lines and the pill's words.
-  raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
-  pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),
 ] as (string | null)[]).filter((x): x is string => x !== null);
 
 test('7.5 every v2.13 string passes the v2.13 copy rule', () => {
@@ -65,12 +59,6 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
     'Base pays up to $5K for the builder bonus.', 'Arc pays up to $5K for Base apps.', 'Desktop 5% on Base', 'Stop 1% on Base'])
     assert.notDeepEqual(bannedInBench(bad, []), [], bad);
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
-});
-
-test('9.9 the pill says "Backing · $RECIPE" (v3 Stage 2) and links to the coin\'s tokens.fun page, nothing else', () => {
-  const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
-  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Backing · $RECIPE');
-  assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
 });
 
 test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (copy rules)', () => {
