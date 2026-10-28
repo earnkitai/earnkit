@@ -210,10 +210,13 @@ export const TOKEN_NO_LINE = 'Got it.';
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
 /**
- * v4.0 Task 5: how setup step 3 settled. 'launched': a wallet signed and a token row launched, launching or unknown;
- * 'set': a wallet signed with no token to claim (the neutral lead); 'declined': the token said no; 'skipped': no wallet.
+ * v4.0 Task 5: how setup step 3 settled. 'launched': a wallet signed and the token launched; 'on_its_way' (final review
+ * 1): a wallet signed and the token still launching or unknown (never told as live); 'set': a wallet signed with no
+ * token to claim (the neutral lead); 'declined': the token said no; 'skipped': no wallet.
  */
-export type SetupOutcome = 'launched' | 'set' | 'declined' | 'skipped';
+export type SetupOutcome = 'launched' | 'on_its_way' | 'set' | 'declined' | 'skipped';
+/** v4.0: a token row launching or unknown, said to the builder. */
+export const TOKEN_ON_ITS_WAY = "Your token is on its way. I'll confirm it here soon.";
 /** v4.0 approved copy 4: the line above the open programs table. */
 export const SETUP_OPEN = "Here's what's open for you right now:";
 /**
@@ -224,6 +227,7 @@ export function setupDoneLead(first: string, outcome: SetupOutcome, open = true)
   const tail = open ? SETUP_OPEN : null;
   switch (outcome) {
     case 'launched': return [`You're all set, ${first}. Your community can now back what you're building.`, tail].filter(Boolean).join('\n\n');
+    case 'on_its_way': return [`You're all set, ${first}. ${TOKEN_ON_ITS_WAY}`, tail].filter(Boolean).join('\n\n');
     case 'set': return [`You're all set, ${first}.`, tail].filter(Boolean).join('\n\n');
     case 'declined': return ['No problem, no token.', tail].filter(Boolean).join(' ');
     case 'skipped': return [WALLET_SETUP_SKIPPED, tail].filter(Boolean).join(' ');

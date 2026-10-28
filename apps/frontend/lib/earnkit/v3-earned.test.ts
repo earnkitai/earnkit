@@ -317,6 +317,21 @@ test('(c) earnedUsd sums claims at the WETH price plus announced prizes; waiting
   assert.deepEqual(await earnedUsd(await plainInstallation('c0'), new Date()), { paid_usd: 0, waiting_usd: 0, fees_usd: 0 });
 });
 
+test('v4.0 final review 9: earnedUsd includes the creator fees claimed to the builder token\'s wallet (the Token card\'s number), never twice', db, async () => {
+  const inst = await plainInstallation('bt');
+  const wallet = addr('bt1');
+  fees(0n);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, wallet, coin_address) VALUES (${inst}, ${`x-earned-${inst}`}, 'launched', ${wallet}, ${addr('bt2')})`;
+  const tx1 = `0x${randomBytes(32).toString('hex')}`;
+  await sql()`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei) VALUES (${tx1}, ${wallet}, 'creator', ${(E18 / 10n).toString()}, 0)`;
+  assert.deepEqual(await earnedUsd(inst, new Date()), { paid_usd: 200, waiting_usd: 0, fees_usd: 200 });
+  // A claim already credited to a project coin (creator_fees) is never counted again.
+  const tx2 = `0x${randomBytes(32).toString('hex')}`;
+  await sql()`INSERT INTO creator_fees (tx_hash, log_index, coin, wallet, amount_wei, block_number, block_time) VALUES (${tx2}, 0, ${addr('bt3')}, ${wallet}, ${(E18 / 10n).toString()}, 1, now())`;
+  await sql()`INSERT INTO fee_claims (tx_hash, owner, role, weth, gas_wei) VALUES (${tx2}, ${wallet}, 'creator', ${(E18 / 10n).toString()}, 0)`;
+  assert.deepEqual(await earnedUsd(inst, new Date()), { paid_usd: 200, waiting_usd: 0, fees_usd: 200 });
+});
+
 test('(d) the profile shows Earned as the third number and the waiting line; the reply stand line carries Earned when paid', db, () => on(async () => {
   const b = await builder('d');
   const coin = addr('k1');

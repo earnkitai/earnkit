@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { committedProgram } from './fixtures/program-file';
 import { SITE } from './site-theme';
 import * as copy from './site-copy';
+import { firstName as replyFirstName } from './bench-reply';
 import {
   agoWords, compactCount, compactUsd, firstName, heroChipText, logoColor, monthDay, monthYear, nextUpdateLine,
   programKind, scoreBand, standingTier, streakNote, weekLine,
@@ -42,6 +43,11 @@ test('(d) firstName, standingTier, logoColor', () => {
   assert.equal(firstName('  Ari ', 'ari'), 'Ari');
   assert.equal(firstName('@mayac', 'mayac'), 'mayac');
   assert.equal(firstName('', 'mayac'), 'mayac');
+  // v4.0 final review 8: the reply side's rule (the first word with a letter, else the handle): never an emoji name.
+  assert.equal(firstName('🚀', 'mayac'), 'mayac');
+  assert.equal(firstName('🚀 Maya Chen', 'mayac'), 'Maya');
+  assert.equal(firstName('2026 Maya', 'mayac'), 'Maya');
+  for (const n of ['Maya Chen', '🚀', '🚀 Maya', '@mayac', '', '  Ari ', '42 🚀']) assert.equal(firstName(n, 'mayac'), replyFirstName(n, 'mayac'), n);
   assert.deepEqual([1, 5, 5.1, 10, 10.1, 25, 25.1].map(standingTier), ['gold', 'gold', 'silver', 'silver', 'bronze', 'bronze', null]);
   const palette = ['#FF6A1F', '#7C3AED', '#16A34A', '#2D6BE0', '#DB2777', '#0891B2', '#CA8A04'];
   assert.deepEqual([SITE.logoOrange, SITE.logoViolet, SITE.logoGreen, SITE.logoBlue, SITE.logoPink, SITE.logoCyan, SITE.logoAmber], palette);

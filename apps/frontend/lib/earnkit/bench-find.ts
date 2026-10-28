@@ -35,7 +35,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -1478,7 +1478,7 @@ async function walletStep(id: number, now: Date): Promise<Record<string, unknown
 /** v4.0 "launch my token": each launch result in plain words (never "coin"). */
 export const TOKEN_LIVE = 'Done. Your token is live.';
 export const TOKEN_ALREADY_LIVE = 'Your token is already live.';
-export const TOKEN_ON_ITS_WAY = "Your token is on its way. I'll confirm it here soon.";
+export { TOKEN_ON_ITS_WAY };
 export const TOKEN_STAYS_OFF = 'Your token stays off, like you asked.';
 export const TOKEN_TRY_LATER = "That didn't go through this time. Ask me again in a few minutes.";
 export const TOKEN_CANT = "I can't set up a token for this account. Reach out at j@earnkit.com.";
@@ -1499,8 +1499,8 @@ export const setupRows = (fits: Pick<Fit, 'title' | 'amount' | 'when'>[]): Progr
   fits.slice(0, 3).map((f) => ({ program: f.title, upTo: f.amount ?? 'Varies', closes: f.when.startsWith('closes ') ? f.when.slice('closes '.length) : 'Rolling' }));
 /**
  * v4.0 Task 5: how setup step 3 settled, when it was shown (standing_seen.setup_asked) and its setup-done reply not said
- * yet: a no to the token (builder_tokens declined); a wallet signed (a token row launched, launching or unknown:
- * 'launched', else the neutral 'set'); no wallet, no token row and the step ended (skipped). Null: not settled, or a read
+ * yet: a no to the token (builder_tokens declined); a wallet signed (a token row launched: 'launched'; launching or
+ * unknown: 'on_its_way' (final review 1: never told as live); else the neutral 'set'); no wallet, no token row and the step ended (skipped). Null: not settled, or a read
  * error. Never throws.
  */
 async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first: string } | null> {
@@ -1515,25 +1515,25 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
   });
   if (!p?.asked || p.done) return null;
   const outcome: SetupOutcome | null = p.token === 'declined' ? 'declined'
-    : p.wallet ? (p.token === 'launched' || p.token === 'launching' || p.token === 'unknown' ? 'launched' : 'set')
+    : p.wallet ? (p.token === 'launched' ? 'launched' : p.token === 'launching' || p.token === 'unknown' ? 'on_its_way' : 'set')
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
 type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply'; project_key: string | null; agent_note: string }; program_id?: string };
 /**
  * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
- * (takeOnce 'setup_done'). The rows: the one project's real fits not told about (find's or score's fit lines; without
+ * (takeOnce 'setup_done'; final review 6: after the reply is built, so a failure never loses it). Exported for tests. The rows: the one project's real fits not told about (find's or score's fit lines; without
  * `given`, score's: scoreApplies), the Best fit first (bestApplies' first, as the ranked reply's), at most 3. Its question
  * is the apply ask for the Best fit (stored, so a yes drafts it); no open fit: the no-fit line, no question. Null
  * otherwise. Never throws.
  */
-async function setupDoneFor(
+export async function setupDoneFor(
   id: number, now: Date,
   given: { fits: Fit[]; skip: Set<string>; seen: Seen; key: string | null; name: string | null } | null,
 ): Promise<SetupDone | null> {
   try {
     const settled = await setupOutcome(id);
-    if (!settled || !(await takeOnce(id, 'setup_done', now))) return null;
+    if (!settled) return null;
     let g = given;
     if (!g) {
       const [p] = await sql()<{ seen: Seen | null; key: string | null }[]>`
@@ -1545,6 +1545,8 @@ async function setupDoneFor(
     const best = applyCandidates(fits, g.seen, g.skip, now)[0] ?? fits[0];
     const rows = best ? [best, ...fits.filter((f) => f !== best)] : [];
     const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name));
+    // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
+    if (!(await takeOnce(id, 'setup_done', now))) return null;
     if (!best) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
       return { show_to_builder: show };

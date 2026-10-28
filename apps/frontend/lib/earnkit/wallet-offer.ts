@@ -182,14 +182,17 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
 /**
  * tell wallet: 'change': the builder wants their rewards sent to another wallet (or to add one). A fresh signing link
  * (the state starts now). With a reward wallet already: its short form, that the page asks for X first, and, only when
- * true, that the Base Builder Code stays on the first wallet and a launched coin's fees stay with its launch wallet.
+ * true, that the Base Builder Code stays on the first wallet and a launched project coin's or builder token's fees stay
+ * with its launch wallet.
  * Before the X sign-in there is no page to sign for.
  */
 export async function walletChangeReply(builderId: number, now: Date): Promise<Reply> {
   const [p] = await sql()<{ claimed: boolean; key: string | null; code: boolean; coin: boolean }[]>`
     SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, main_project_key AS key, base_builder_code IS NOT NULL AS code,
       EXISTS (SELECT 1 FROM projects j JOIN installations i ON i.id = j.installation_id
-        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND j.token_url IS NOT NULL AND j.token_url <> 'pending') AS coin
+        WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND j.token_url IS NOT NULL AND j.token_url <> 'pending')
+      -- v4.0 final review 4: the builder's own token, once launched, keeps its launch wallet too.
+      OR EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId} AND t.status = 'launched') AS coin
     FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
     logged('change')(err);
     return [];

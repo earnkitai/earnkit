@@ -21,7 +21,7 @@ import {
   walletContractsOnly, walletDone, walletNotYet, walletNotice, walletOffer, type BenchProject,
 } from './bench-reply';
 import { WALLET_SETUP_SKIPPED, walletSetupAsk } from './bench-reply';
-import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletOfferDue, walletSetupDue, walletSetupNote } from './wallet-offer';
+import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote } from './wallet-offer';
 import { WALLET_TEXT, provenWallet, upgradeOf, walletContractsLine, walletDoneLine, walletMessage, walletPost } from './wallet-proof';
 import { titlesAskDue } from './updates';
 import { walletXSignIn } from './fixtures/wallet-step';
@@ -392,4 +392,19 @@ test('profileData carries the GitHub profile from the stored login', db, async (
   assert.equal((await profileData(id, new Date()))?.github, null);
   await sql()`UPDATE builder_profiles SET github_login = ${`wpg-${id}`} WHERE builder_id = ${id}`;
   assert.equal((await profileData(id, new Date()))?.github, `https://github.com/wpg-${id}`);
+});
+
+test('v4.0 final review 4: a launched builder token also gets "Your token\'s fees keep going to the wallet it launched with."', db, async () => {
+  const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v40-chg-${randomBytes(6).toString('hex')}`}) RETURNING id`;
+  const handle = `chg${id}`;
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name) VALUES (${id}, ${`chg-${id}`}, ${`x-chg-${id}`}, ${handle}, 'Maya')`;
+  const wallet = `0x${randomBytes(20).toString('hex')}`;
+  await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${wallet}, ${id}, now())`;
+  const line = async () => String((await walletChangeReply(id, new Date())).show_to_builder);
+  // Launching (not live yet): no fee line.
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, wallet) VALUES (${id}, ${`x-chg-${id}`}, 'launching', ${wallet})`;
+  assert.ok(!(await line()).includes(WALLET_COIN_FEES));
+  await sql()`UPDATE builder_tokens SET status = 'launched', coin_address = ${`0x${randomBytes(20).toString('hex')}`} WHERE builder_id = ${id}`;
+  const s = await line();
+  assert.ok(s.endsWith(`\n${WALLET_COIN_FEES}\nDone?`), s);
 });

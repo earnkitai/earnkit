@@ -3,7 +3,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { builderTicker, builderToken, declineBuilderToken, launchBuilderToken, stuckBuilderTokens } from './builder-token';
+import { BUILDER_TOKEN_RETRIES_PER_RUN, blockedBuilderTokens, builderTicker, builderToken, declineBuilderToken, launchBuilderToken, retryDroppedBuilderTokens, stuckBuilderTokens } from './builder-token';
 
 /**
  * v4 builder tokens: one per builder and per X account, launched at the wallet proof unless declined, never twice,
@@ -166,4 +166,82 @@ test('stuckBuilderTokens: unknown rows and launches older than 10 minutes wait o
   const stuck = await stuckBuilderTokens(new Date());
   assert.ok(stuck.includes(unknown) && stuck.includes(old));
   for (const id of [fresh, launched, declined]) assert.ok(!stuck.includes(id), `row ${id} is not stuck`);
+});
+
+// v4.0 final review 1: an opted-in builder's launch dropped at the proof (busy, the ticker check down, a 4xx, no API key)
+// is retried by the hourly cron, at most BUILDER_TOKEN_RETRIES_PER_RUN a run, oldest offer first.
+const freshCoins = () => {
+  const calls: Record<string, unknown>[] = [];
+  const f = (async (_url: string, init?: RequestInit) => {
+    calls.push(JSON.parse(String(init?.body)));
+    return new Response(JSON.stringify({ success: true, tokenAddress: coin() }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  return { f, calls };
+};
+async function offered(at: string, o: { wallet?: boolean } = {}) {
+  const b = await builder(o);
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('token_offered', ${at}::text) WHERE builder_id = ${b.id}`;
+  return b;
+}
+
+test('retryDroppedBuilderTokens: launches an offered, proven builder with no token row; never a declined one, one never offered, or one with no wallet', dbTest, async () => {
+  const due = await offered('2026-10-01T00:00:00.000Z');
+  const declined = await offered('2026-10-01T00:00:00.000Z');
+  await declineBuilderToken(declined.id);
+  const unoffered = await builder();
+  const noWallet = await offered('2026-10-01T00:00:00.000Z', { wallet: false });
+  const t = fakeTokensFun(200, { success: true, tokenAddress: coin() });
+  const out = await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [due.id, declined.id, unoffered.id, noWallet.id] });
+  assert.deepEqual(out, { tried: 1, launched: 1, blocked: [] });
+  assert.equal(t.calls.length, 1);
+  assert.equal(t.calls[0].creatorWallet, due.wallet);
+  assert.equal((await builderToken(due.id))?.status, 'launched');
+  assert.equal((await builderToken(declined.id))?.status, 'declined');
+  assert.equal(await builderToken(unoffered.id), null);
+  assert.equal(await builderToken(noWallet.id), null);
+  // Off: nothing is tried.
+  process.env.EARNKIT_BUILDER_TOKENS = 'off';
+  const later = await offered('2026-10-01T00:00:00.000Z');
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [later.id] }), { tried: 0, launched: 0, blocked: [] });
+});
+
+test(`retryDroppedBuilderTokens: at most ${BUILDER_TOKEN_RETRIES_PER_RUN} a run, oldest offer first; busy and the ticker check down simply retry next run`, dbTest, async () => {
+  const bs = [];
+  for (let i = 6; i >= 1; i--) bs.push(await offered(`2026-10-0${i}T00:00:00.000Z`));
+  const only = bs.map((b) => b.id);
+  const busy = fakeTokensFun(503, { error: 'Pending transactions detected. Try again in a few minutes.', minted: false });
+  const first = await retryDroppedBuilderTokens(new Date(), { fetch: busy.f, check: free, only });
+  assert.deepEqual(first, { tried: BUILDER_TOKEN_RETRIES_PER_RUN, launched: 0, blocked: [] });
+  // Oldest offer first: the newest (Oct 6, bs[0]) waits.
+  assert.deepEqual(busy.calls.map((c) => c.creatorWallet), [...bs].reverse().slice(0, 5).map((b) => b.wallet));
+  for (const b of bs) assert.equal(await builderToken(b.id), null);
+  assert.deepEqual(await blockedBuilderTokens(only), []);
+  // The ticker check down is not a block either.
+  const extra = await offered('2026-10-01T00:00:00.000Z');
+  const down = await retryDroppedBuilderTokens(new Date(), { fetch: busy.f, check: async () => null, only: [extra.id] });
+  assert.deepEqual(down, { tried: 1, launched: 0, blocked: [] });
+  assert.equal(await builderToken(extra.id), null);
+  // The next run starts with the one not tried yet.
+  const ok = freshCoins();
+  const second = await retryDroppedBuilderTokens(new Date(), { fetch: ok.f, check: free, only });
+  assert.equal(ok.calls[0].creatorWallet, bs[0].wallet, 'never tried goes first');
+  assert.equal(second.launched, 5);
+});
+
+test('retryDroppedBuilderTokens: no API key or a 4xx refusal waits on the owner (blocked) until a later launch goes through', dbTest, async () => {
+  const keyless = await offered('2026-10-01T00:00:00.000Z');
+  const refused = await offered('2026-10-01T00:00:00.000Z');
+  const t = freshCoins();
+  delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [keyless.id] }), { tried: 1, launched: 0, blocked: [keyless.id] });
+  assert.equal(t.calls.length, 0);
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const no = fakeTokensFun(400, { error: 'Invalid name' });
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), { fetch: no.f, check: free, only: [refused.id] }), { tried: 1, launched: 0, blocked: [refused.id] });
+  assert.equal(await builderToken(refused.id), null);
+  assert.deepEqual(await blockedBuilderTokens([keyless.id, refused.id]), [keyless.id, refused.id].sort((a, b) => a - b));
+  // Fixed: the next run launches both and the block clears.
+  const both = await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [keyless.id, refused.id] });
+  assert.equal(both.launched, 2);
+  assert.deepEqual(await blockedBuilderTokens([keyless.id, refused.id]), []);
 });

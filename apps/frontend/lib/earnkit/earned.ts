@@ -180,22 +180,27 @@ const cents = (usd: number) => Math.round(usd * 100) / 100;
 
 /**
  * The builder's Earned (a builder: the installation group, COALESCE(builder_id, id)): the WETH claimed to the creator
- * wallet of each of their launched coins (creator_fees), at the WETH price (fees.ts cachedWethUsd), plus the prizes of
+ * wallet of each of their launched coins (creator_fees) and to their builder token's wallet (fee_claims), at the WETH price (fees.ts cachedWethUsd), plus the prizes of
  * their entries' announced won or placed outcomes (stats.ts wonUsdSql's rule); waiting, the FeeLocker's cached read
  * for those wallets (fees.ts cachedFeesUsd: never waits on a chain read; refreshed in the background).
  */
 export async function earnedUsd(builderId: number, now: Date = new Date()): Promise<Earned> {
   const db = sql();
-  const [r] = await db<{ wei: string | null; prizes: string | null; wallets: string[] | null }[]>`
+  const [r] = await db<{ wei: string | null; token_wei: string | null; prizes: string | null; wallets: string[] | null }[]>`
     SELECT
       (SELECT sum(f.amount_wei) FROM creator_fees f JOIN projects p ON lower(p.coin_address) = f.coin JOIN installations i ON i.id = p.installation_id
         WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND f.wallet = ${creatorWalletSql(db)})::text AS wei,
+      -- v4.0 final review 9: the creator fees claimed to the builder token's wallet (community.ts allTimeCommunityUsd,
+      -- the Token card's number), less any claim already counted above as a project coin's (never twice).
+      (SELECT sum(c.weth) FROM fee_claims c JOIN builder_tokens t ON lower(c.owner) = lower(t.wallet)
+        WHERE t.builder_id = ${builderId} AND c.role = 'creator'
+          AND NOT EXISTS (SELECT 1 FROM creator_fees f WHERE lower(f.tx_hash) = lower(c.tx_hash)))::text AS token_wei,
       (SELECT sum(eo.prize_usd) FROM entry_outcomes eo JOIN projects p ON p.id = eo.project_id JOIN installations i ON i.id = p.installation_id
         WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND eo.basis = 'announcement' AND eo.result IN ('won', 'placed') AND eo.prize_usd > 0)::text AS prizes,
       (SELECT array_agg(DISTINCT ${creatorWalletSql(db)}) FROM projects p JOIN installations i ON i.id = p.installation_id
         WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND p.coin_address IS NOT NULL AND p.token_status = 'launched'
           AND COALESCE(p.fee_recipients->>'creator', p.creator_wallet, p.payout_wallet) IS NOT NULL) AS wallets`;
-  const wei = BigInt(r?.wei ?? '0');
+  const wei = BigInt(r?.wei?.split('.')[0] ?? '0') + BigInt(r?.token_wei?.split('.')[0] ?? '0');
   const price = wei > 0n ? await cachedWethUsd(now.getTime()) : null;
   if (wei > 0n && price === null) console.error('[earned] no WETH price; claimed fees left out this time');
   const fees = price === null ? 0 : wethToUsd(wei, price);

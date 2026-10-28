@@ -417,7 +417,8 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             .optional()
             .describe('Their answer to the question'),
           // v4.0 Task 11: an older agent's answer to the retired per-project offer, accepted and undocumented: tools.ts
-          // answers it with the builder token (tell move_up kind 'token'); `token: 'ask'` the same, as a yes.
+          // answers it with the builder token (tell move_up kind 'token') only when the stored ask is its offer; `token: 'ask'`
+          // never launches: it answers the token's status, or offers it (bench-find.ts tokenAsk).
           coin: z
             .object({
               project_key: z.string().max(300).optional(),

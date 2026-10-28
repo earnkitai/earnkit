@@ -76,3 +76,22 @@ test('(c) ?ref=tokensfun sets the cookie once; an install after it records ref_s
   const [o] = await sql()<{ ref_source: string | null }[]>`SELECT ref_source FROM installations WHERE id = ${other}`;
   assert.equal(o.ref_source, null);
 });
+
+test('v4.0 final review 10: a test installation\'s token (EARNKIT_TEST_INSTALLATIONS, the public stats\' rule) never lists', db, async () => {
+  const own = await builder('launched', 'TST');
+  const grouped = await builder('launched', 'TSU');
+  const real = await builder('launched', 'TSV');
+  // A second installation of `grouped`'s builder is the test one.
+  const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`t10-grp-${RUN}`}, ${grouped.id}) RETURNING id`;
+  const prev = process.env.EARNKIT_TEST_INSTALLATIONS;
+  process.env.EARNKIT_TEST_INSTALLATIONS = `${own.id},${other}`;
+  try {
+    const handles = (await builderTokensJson(NOW)).map((r) => r.handle);
+    assert.ok(!handles.includes(own.handle), 'the test installation itself');
+    assert.ok(!handles.includes(grouped.handle), 'a builder with a test installation in its group');
+    assert.ok(handles.includes(real.handle));
+  } finally {
+    if (prev === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prev;
+  }
+});

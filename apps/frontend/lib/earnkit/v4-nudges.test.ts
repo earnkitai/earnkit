@@ -114,6 +114,7 @@ test('(b) a milestone crossed this week: the line with the Best fit, else ending
   assert.equal(await nudgeFor(me.id, at(FRIDAY + 7 * DAY), { best: 'Base' }), null);
   // No Best fit: the line ends after "That's real traction."; the highest milestone crossed (10 and 100 at once: 100).
   const b = await builder('v4nn', { name: 'Tally' });
+  await usage(b.id, MONDAY - 3 * DAY, 4);
   await usage(b.id, FRIDAY - DAY, 140);
   assert.equal(await nudgeFor(b.id, at(FRIDAY)), "Tally just passed 100 users. That's real traction.");
   // Passed before this week: no milestone.
@@ -121,6 +122,15 @@ test('(b) a milestone crossed this week: the line with the Best fit, else ending
   await usage(c.id, MONDAY - DAY, 110);
   await usage(c.id, FRIDAY - DAY, 130);
   assert.equal(await nudgeFor(c.id, at(FRIDAY)), null);
+});
+
+test('final review 5: no reading before this week is no baseline: a first reading of 500 is never "just passed"', db, async () => {
+  const me = await builder('v4zz');
+  await usage(me.id, FRIDAY - DAY, 500);
+  assert.equal(await nudgeFor(me.id, at(FRIDAY), { best: 'Base' }), null);
+  // Once a reading before Monday exists, the next week can cross a milestone.
+  await usage(me.id, FRIDAY + 6 * DAY, 1200);
+  assert.equal(await nudgeFor(me.id, at(FRIDAY + 7 * DAY)), "MealMate just passed 1,000 users. That's real traction.");
 });
 
 test('(c) a program closing within 3 days with a draft ready: the weekday, or today', db, async () => {
@@ -152,6 +162,7 @@ test('(d) nothing shipped by Friday: the streak line', db, async () => {
 
 test('(e) two nudges due in one week: only one shows that week', db, async () => {
   const me = await builder('v4nw', { streak: 4 });
+  await usage(me.id, MONDAY - 3 * DAY, 2);
   await usage(me.id, FRIDAY - DAY, 12);
   assert.equal(await nudgeFor(me.id, at(FRIDAY)), "MealMate just passed 10 users. That's real traction.", 'the milestone comes first');
   assert.equal(await nudgeFor(me.id, at(FRIDAY)), null, 'the Friday line waits');

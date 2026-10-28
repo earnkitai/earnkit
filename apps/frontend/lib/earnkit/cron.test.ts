@@ -735,3 +735,41 @@ test('v4: a builder token unknown, or launching for over 10 minutes, waits on th
     if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
   }
 });
+
+test('v4.0 final review 1: runCron retries a dropped builder token launch; a 4xx refusal waits on the owner as builder-token-blocked (alerting)', db, async () => {
+  const prev = { flag: process.env.EARNKIT_BUILDER_TOKENS, key: process.env.TOKENSFUN_DEPLOY_API_KEY };
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const ids: number[] = [];
+  const offered = async () => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-retry-cron-${Math.random()}`}) RETURNING id`;
+    ids.push(id);
+    await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name, standing_seen)
+      VALUES (${id}, ${`retry-cron-${id}`}, ${`x-retry-${id}`}, ${`maya_${id}`}, 'Maya Patel', jsonb_build_object('token_offered', '2026-10-01T00:00:00.000Z'))`;
+    await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${id.toString(16).padStart(40, '0')}`}, ${id}, now())`;
+    return id;
+  };
+  try {
+    const id = await offered();
+    const refuse = (async () => new Response(JSON.stringify({ error: 'Invalid name' }), { status: 400 })) as unknown as typeof fetch;
+    const run = await runCron({ only: ['none'], deps: { refreshFees: async () => 0, builderTokenRetry: { only: [id], fetch: refuse, check: async () => true } } });
+    assert.deepEqual(run.builder_token_retry, { tried: 1, launched: 0, blocked: [id] });
+    assert.ok(run.needs_owner.includes(`builder-token-blocked:${id}`), String(run.needs_owner));
+    // Listed on every run until it clears, even when this run did not try it.
+    const again = await runCron({ only: ['none'], deps: { refreshFees: async () => 0, builderTokenRetry: { only: [id], fetch: refuse, check: async () => true } } });
+    assert.ok(again.needs_owner.includes(`builder-token-blocked:${id}`));
+    const ok = (async () => new Response(JSON.stringify({ success: true, tokenAddress: `0x${'b'.repeat(28)}${id.toString(16).padStart(12, '0')}` }), { status: 200 })) as unknown as typeof fetch;
+    const fixed = await runCron({ only: ['none'], deps: { refreshFees: async () => 0, builderTokenRetry: { only: [id], fetch: ok, check: async () => true } } });
+    assert.deepEqual(fixed.builder_token_retry, { tried: 1, launched: 1, blocked: [] });
+    assert.ok(!fixed.needs_owner.some((k: string) => k.startsWith('builder-token-blocked:')));
+    // Scoped runs without the dep skip the step.
+    const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
+    assert.equal(off.builder_token_retry, undefined);
+  } finally {
+    if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
+    process.env.EARNKIT_BUILDER_TOKENS = prev.flag;
+    process.env.TOKENSFUN_DEPLOY_API_KEY = prev.key;
+    if (prev.flag === undefined) delete process.env.EARNKIT_BUILDER_TOKENS;
+    if (prev.key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
+  }
+});

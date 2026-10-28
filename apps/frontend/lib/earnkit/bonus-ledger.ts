@@ -501,7 +501,10 @@ export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: Bonus
       const found = [...byTx].flatMap(([hash, t]) => bonusDeposits(t.logs, safe, d.chain).map((x) => ({ hash, block: t.block, ...x })));
       const coins = [...new Set(found.map((x) => x.coin).filter((c): c is string => c !== null))];
       const ours = coins.length
-        ? new Set((await sql()<{ coin: string }[]>`SELECT lower(coin_address) AS coin FROM projects WHERE lower(coin_address) IN ${sql()(coins)}`).map((r) => r.coin))
+        // v4.0 final review 3: a launched builder token's Safe share (60%) is EarnKit's too.
+        ? new Set((await sql()<{ coin: string }[]>`
+            SELECT lower(coin_address) AS coin FROM projects WHERE lower(coin_address) IN ${sql()(coins)}
+            UNION SELECT lower(coin_address) FROM builder_tokens WHERE status = 'launched' AND lower(coin_address) IN ${sql()(coins)}`).map((r) => r.coin))
         : new Set<string>();
       for (const x of found) {
         if (!x.coin || !ours.has(x.coin)) continue;
@@ -755,7 +758,8 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
  * most OTHERS_CLAIM_MS (`othersMs`) of the run, so it never takes time from EarnKit's own payouts.
  * The FeeLocker always pays the owner, so EarnKit never holds a creator's money; each
  * claim needs 10× its gas. Recipients: cached, else read (feeRecipients, at most
- * RECIPIENT_READS_PER_RUN), newest tokens first; the creators are claimed newest first. MINI is never claimed since v4.
+ * RECIPIENT_READS_PER_RUN), newest tokens first; the builder token wallets are claimed first (final review 2), then the
+ * creators newest first. MINI is never claimed since v4.
  * What the slice doesn't reach is 'next run'. An owner that is also the bonus wallet or the Safe is
  * claimed by claimFees (claimOwners: the first role wins).
  */
@@ -764,7 +768,13 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
   const tokens = await sql()<{ coin: Hex; fee_recipients: FeeRecipients | null }[]>`
     SELECT coin_address AS coin, fee_recipients FROM projects
     WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id DESC`;
-  const known: FeeRecipients[] = [];
+  // v4 fix round 1: each launched builder token's creator is its builder's proven wallet (the creatorWallet it was
+  // launched with), so it is known without a locker read. v4.0 final review 2: claimed first (newest first), then the
+  // project tokens' creators, so builders' 40% never starves behind every project coin in the slice.
+  const builders = await sql()<{ wallet: Hex }[]>`
+    SELECT wallet FROM builder_tokens
+    WHERE status = 'launched' AND coin_address IS NOT NULL AND wallet IS NOT NULL ORDER BY created_at DESC, builder_id DESC`;
+  const known: FeeRecipients[] = builders.map((b) => ({ creator: b.wallet, mini: null }));
   const unread: Hex[] = [];
   let reads = 0;
   for (const t of tokens) {
@@ -774,12 +784,6 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
       known.push(await feeRecipients(t.coin, { ...d, unread }));
     }
   }
-  // v4 fix round 1: each launched builder token's creator is its builder's proven wallet (the creatorWallet it was
-  // launched with), so it is known without a locker read; newest first, after the project tokens' creators.
-  const builders = await sql()<{ wallet: Hex }[]>`
-    SELECT wallet FROM builder_tokens
-    WHERE status = 'launched' AND coin_address IS NOT NULL AND wallet IS NOT NULL ORDER BY created_at DESC, builder_id DESC`;
-  for (const b of builders) known.push({ creator: b.wallet, mini: null });
   if (unread.length > 0)
     (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them`);
   // v4 (2026-10-28): MINI's 10% ended; EarnKit no longer claims for MINI (the creators only).

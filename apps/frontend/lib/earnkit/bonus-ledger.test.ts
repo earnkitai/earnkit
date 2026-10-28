@@ -1129,3 +1129,28 @@ test('v4 claimForOthers: a launched builder token\'s creator (its wallet) is cla
     await t9cleanup();
   }
 });
+
+test('v4.0 final review 2: builder token wallets are claimed first, then the project coins\' creators (none starve at scale)', db, async () => {
+  const BT = '0x5555555555555555555555555555555555555556';
+  const BT_COIN = '0xb700000000000000000000000000000000000003';
+  const ids: number[] = [];
+  try {
+    await t9cleanup();
+    await launched(COIN_A, { creator: CREATOR, mini: MINI });
+    await launched(COIN_B, { creator: CREATOR_2, mini: MINI });
+    await sql()`DELETE FROM builder_tokens WHERE coin_address = ${BT_COIN} OR wallet = ${BT}`;
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-bt-first-${randomUUID()}`}) RETURNING id`;
+    ids.push(id);
+    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, wallet, coin_address) VALUES (${id}, ${`x-first-${randomUUID()}`}, 'launched', ${BT}, ${BT_COIN})`;
+    const f = fakeChain({ available: { [CREATOR]: 10n ** 18n, [CREATOR_2]: 10n ** 18n, [BT]: 10n ** 18n } });
+    const out = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
+    const order = out.filter((o) => o.role === 'creator').map((o) => o.owner);
+    assert.equal(order[0], BT, `the builder wallet goes first: ${order.join(', ')}`);
+    assert.deepEqual([...order].sort(), [BT, CREATOR, CREATOR_2].sort());
+  } finally {
+    await sql()`DELETE FROM fee_claims WHERE owner = ${BT}`;
+    if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
+    await sql()`DELETE FROM projects WHERE program_id = ${PROG}`;
+    await t9cleanup();
+  }
+});

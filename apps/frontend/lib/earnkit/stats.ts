@@ -276,9 +276,13 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
             WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
           AND NOT EXISTS (SELECT 1 FROM safe_fees f WHERE f.tx_hash = l.tx_hash AND f.coin = l.coin))::text AS bonus_unmatched_wei,
       -- v2.13.2 (2): the Safe's own deposits from EarnKit coins, both splits, never a test installation's coin.
+      -- v4.0 final review 3: and from launched builder tokens (the Safe's 60%), never a test installation's.
       (SELECT sum(f.amount_wei) FROM safe_fees f
         WHERE f.coin IN (SELECT coin_address FROM projects
-          WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false)))::text AS safe_fees_wei,
+          WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
+          OR f.coin IN (SELECT lower(coin_address) FROM builder_tokens
+            WHERE status = 'launched' AND coin_address IS NOT NULL AND NOT (builder_id = ANY(${ids}::int[]))
+              AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = builder_tokens.builder_id AND i.id = ANY(${ids}::int[]))))::text AS safe_fees_wei,
       -- Final review M2: never a test installation's coin (synthetic round-rest rows have no coin).
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe'
         AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects

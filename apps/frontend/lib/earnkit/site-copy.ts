@@ -48,10 +48,12 @@ export function agoWords(at: Date, now: Date): string {
   return `on ${monthDay(at)}`;
 }
 
-/** The first word of the X name; the handle when the name is empty or is the `@handle` placeholder. */
+/**
+ * The first word of the X name that has a letter (v4.0 final review 8: the reply side's rule, bench-reply.ts firstName,
+ * so an emoji display name never shows); the handle when there is none or the name is the `@handle` placeholder.
+ */
 export function firstName(name: string, handle: string): string {
-  const first = name.trim().split(/\s+/)[0] ?? '';
-  return first === '' || first.startsWith('@') ? handle : first;
+  return name.trim().split(/\s+/).find((w) => /\p{L}/u.test(w) && !w.startsWith('@')) || handle;
 }
 
 /** The metal of a "Top N%" standing pill: gold up to 5, silver up to 10, bronze up to 25. */

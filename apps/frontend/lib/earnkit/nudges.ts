@@ -59,8 +59,12 @@ type NudgeSeen = { nudge_week?: string; nudge_users?: number; nudge_outcomes?: R
 /** "today" when `end` is on `now`'s UTC day, else its UTC weekday ("Friday"). Pure. */
 export const closesOn = (end: Date, now: Date) =>
   end.toISOString().slice(0, 10) === now.toISOString().slice(0, 10) ? 'today' : WEEKDAYS[end.getUTCDay()];
-/** The highest milestone `users` reached above both `before` (the count before this week) and the last one said. Pure. */
-export function milestoneCrossed(users: number, before: number, said: number): number | null {
+/**
+ * The highest milestone `users` reached above both `before` (the count before this week) and the last one said. Final
+ * review 5: no reading before this week (`before` null) is no baseline, so nothing was crossed. Pure.
+ */
+export function milestoneCrossed(users: number, before: number | null, said: number): number | null {
+  if (before === null) return null;
   const floor = Math.max(before, said);
   return [...NUDGE_MILESTONES].reverse().find((n) => users >= n && n > floor) ?? null;
 }
@@ -99,7 +103,7 @@ async function milestonePick(id: number, now: Date, monday: string, seen: NudgeS
         WHERE builder_id = ${id} AND day <= ${today}::date AND day >= ${today}::date - ${USED_STALE_DAYS}::int ORDER BY source, day DESC) x)::int AS users,
       (SELECT max(users) FROM (SELECT DISTINCT ON (source) users FROM app_usage
         WHERE builder_id = ${id} AND day < ${monday}::date ORDER BY source, day DESC) y)::int AS before`;
-  const n = milestoneCrossed(u?.users ?? 0, u?.before ?? 0, seen.nudge_users ?? 0);
+  const n = milestoneCrossed(u?.users ?? 0, u?.before ?? null, seen.nudge_users ?? 0);
   if (n === null) return null;
   const project = o.project ?? (await mainName(id));
   if (!project) return null;

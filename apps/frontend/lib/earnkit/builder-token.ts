@@ -12,6 +12,7 @@ import { siteUrl } from './entry-text';
  * Never a second token: the row is the claim (one per builder and per X account, both unique). It is deleted again
  * only when tokens.fun said it stopped before minting (outcomeOf release); any unclear answer leaves it 'unknown' for
  * the owner to settle (runCron lists it in needs_owner, as it does a launch stuck 'launching'), and nothing retries it.
+ * A launch that left no row (released, busy, not ready) is retried by the cron (retryDroppedBuilderTokens).
  */
 export type BuilderTokenStatus = 'declined' | 'launching' | 'launched' | 'unknown';
 export type BuilderToken = {
@@ -79,7 +80,7 @@ export type LaunchResult =
   | { result: 'off' | 'not_ready' | 'no_ticker' | 'ticker_check_down' | 'busy' | 'x_taken' }
   | { result: 'exists'; status: BuilderTokenStatus }
   | { result: 'launched'; symbol: string; coin_address: string }
-  | { result: 'released'; note: string }
+  | { result: 'released'; note: string; retry?: true }
   | { result: 'unknown' };
 
 /**
@@ -155,9 +156,79 @@ export async function launchBuilderToken(
   if (out.release) {
     // tokens.fun stopped before minting: the claim goes, so the next wallet proof or "launch my token" tries again.
     await sql()`DELETE FROM builder_tokens WHERE builder_id = ${builderId} AND status = 'launching'`;
-    return out.busy ? { result: 'busy' } : { result: 'released', note: out.note ?? '' };
+    // v4.0 final review 1: a refusal worth trying again (pre-mint 503, a 429 limit) is marked `retry`; any other 4xx
+    // waits on the owner when the cron's retry meets it (retryDroppedBuilderTokens).
+    if (out.busy) return { result: 'busy' };
+    return { result: 'released', note: out.note ?? '', ...((out.retry || res?.status === 429) && { retry: true as const }) };
   }
   await sql()`UPDATE builder_tokens SET status = 'unknown', updated_at = now() WHERE builder_id = ${builderId}`;
   console.error('[builder token] launch outcome unknown for builder', builderId, '- never retried; owner settles it');
   return { result: 'unknown' };
+}
+
+/** v4.0 final review 1: the cron retries at most this many dropped launches a run. */
+export const BUILDER_TOKEN_RETRIES_PER_RUN = 5;
+/** A retry result that waits on the owner: no API key (config), a 4xx refusal, no free ticker, or an X account held. Pure. */
+const blocks = (r: LaunchResult) =>
+  (r.result === 'not_ready' && !process.env.TOKENSFUN_DEPLOY_API_KEY)
+  || (r.result === 'released' && !r.retry) || r.result === 'no_ticker' || r.result === 'x_taken';
+const onlySql = (only?: number[]) => (only ? sql()`AND p.builder_id IN ${sql()(only.length ? only : [-1])}` : sql()``);
+
+/**
+ * v4.0 final review 1: the proof launches once, never awaited, so a launch it dropped (tokens.fun busy, the ticker
+ * check down, a refusal, no TOKENSFUN_DEPLOY_API_KEY) leaves no row and the next proof is not the first. The hourly
+ * cron retries it here (no new cron): builders who saw the token sentence (standing_seen.token_offered), with an X
+ * account and a proven reward wallet, no builder_tokens row (a no, a launch and an unclear answer all have one), flag
+ * on; at most BUILDER_TOKEN_RETRIES_PER_RUN a run, those not tried yet first, then the oldest offer (each try is kept as
+ * standing_seen.token_retry_at, so one that keeps failing never starves the rest). launchBuilderToken's claim makes a
+ * retry racing the proof's own launch safe. A result that needs the owner (`blocks`) is kept as
+ * standing_seen.token_blocked (runCron lists it, blockedBuilderTokens) until a later try is not blocked; busy and the
+ * ticker check down simply try again next run. No try starts past `deadline`. `only`: tests scope the builders.
+ */
+export async function retryDroppedBuilderTokens(
+  now: Date, deps: { fetch?: typeof fetch; check?: TickerCheck; only?: number[]; deadline?: number } = {},
+): Promise<{ tried: number; launched: number; blocked: number[] }> {
+  const out = { tried: 0, launched: 0, blocked: [] as number[] };
+  if (!builderTokensOn()) return out;
+  const rows = await sql()<{ builder_id: number }[]>`
+    SELECT p.builder_id FROM builder_profiles p
+    WHERE p.standing_seen ? 'token_offered' AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
+      AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = p.builder_id AND w.recipient_at IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = p.builder_id)
+      ${onlySql(deps.only)}
+    ORDER BY p.standing_seen->>'token_retry_at' NULLS FIRST, p.standing_seen->>'token_offered', p.builder_id
+    LIMIT ${BUILDER_TOKEN_RETRIES_PER_RUN}`;
+  for (const { builder_id: id } of rows) {
+    if (deps.deadline !== undefined && Date.now() >= deps.deadline) break;
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_retry_at', ${now.toISOString()}::text)
+      WHERE builder_id = ${id}`;
+    out.tried++;
+    const r = await launchBuilderToken(id, { fetch: deps.fetch, check: deps.check, now }).catch((err: unknown) => {
+      console.error('[builder token] retry', err instanceof Error ? err.name : 'error');
+      return null;
+    });
+    if (!r) continue;
+    if (r.result === 'launched') out.launched++;
+    if (blocks(r)) {
+      out.blocked.push(id);
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_blocked', ${now.toISOString()}::text)
+        WHERE builder_id = ${id}`;
+    } else {
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'token_blocked' WHERE builder_id = ${id}`;
+    }
+  }
+  return out;
+}
+
+/**
+ * v4.0 final review 1: the builders whose dropped launch waits on the owner (standing_seen.token_blocked and still no
+ * token row), by id. runCron lists each as `builder-token-blocked:<id>` (alerting) on every run until it clears.
+ */
+export async function blockedBuilderTokens(only?: number[]): Promise<number[]> {
+  const rows = await sql()<{ builder_id: number }[]>`
+    SELECT p.builder_id FROM builder_profiles p
+    WHERE p.standing_seen ? 'token_blocked' AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = p.builder_id)
+      ${onlySql(only)}
+    ORDER BY p.builder_id`;
+  return rows.map((r) => r.builder_id);
 }

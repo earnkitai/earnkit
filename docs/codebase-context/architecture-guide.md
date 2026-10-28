@@ -356,7 +356,9 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     v4: a builder token (`builder-token.ts`) whose launch answer was unclear (`status = 'unknown'`) or that is
     still `'launching'` after 10 minutes (`stuckBuilderTokens`) is listed the same way, as
     `builder-token:<builder id>` (alerting). Launched builder tokens' creators (`builder_tokens.wallet`) join
-    `claimForOthers`' creator claims with no locker read.
+    `claimForOthers`' creator claims with no locker read, claimed first (v4.0 final review 2). A launch the proof
+    dropped (no row) is retried by the same cron (`retryDroppedBuilderTokens`); one blocked on the owner is
+    `builder-token-blocked:<builder id>` (alerting).
   - Ticker checks for a proposal run in parallel batches of 4 (3 s each), so a proposal costs at
     most about 9 s.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
@@ -8269,15 +8271,25 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
 - **Stuck or unknown.** The row is deleted again only when tokens.fun said it stopped before minting (`tokens.ts
   outcomeOf` release). Any unclear answer stays `unknown` and is never retried. `stuckBuilderTokens` (unknown, or
   `launching` over `STUCK_LAUNCH_MS`) puts `builder-token:<builder id>` in `needs_owner` (cron answers 503; not quiet).
-- **Sponsored creator claims.** `bonus-ledger.ts claimForOthers` claims `claim(owner, WETH)` for each launched project
-  token's creator and each launched `builder_tokens.wallet` (newest first, 10x gas, bounded slice). The FeeLocker pays the
+- **Dropped launch retry (final review 1).** The proof launches once, never awaited, so busy, the ticker check down, a
+  refusal or no `TOKENSFUN_DEPLOY_API_KEY` leave no row. `runCron` runs `builder-token.ts retryDroppedBuilderTokens` (no
+  new cron): builders with `standing_seen.token_offered`, an X account, a proven recipient wallet and no `builder_tokens`
+  row, flag on, at most `BUILDER_TOKEN_RETRIES_PER_RUN` (5) a run, never tried first then oldest offer
+  (`standing_seen.token_retry_at` rotates the rest). No API key, a 4xx refusal (not 429), `no_ticker` or `x_taken` sets
+  `standing_seen.token_blocked`; `blockedBuilderTokens` lists each as `builder-token-blocked:<builder id>` (alerting,
+  not quiet) on every run until a later try clears it. Busy and the ticker check down retry next run.
+- **Sponsored creator claims.** `bonus-ledger.ts claimForOthers` claims `claim(owner, WETH)` for each launched
+  `builder_tokens.wallet` first (final review 2: never starved behind project coins), then each launched project
+  token's creator (newest first, 10x gas, bounded slice). The FeeLocker pays the
   owner, so EarnKit never holds the money; builders never claim and hear the amount in plain words.
 - **Setup steps 1-3.** Signed out: "1. Sign in with X, 2. Connect your code, 3. Add your wallet". Step 2 (`pickRepoAsk`) adds
   the Lovable/Bolt line only without GitHub (`BenchView.noGithub`). Step 3 (`wallet-offer.ts walletSetupDue`: X claimed, step
   2 done or `github_no`, no wallet, not asked) asks everyone for the wallet and, while `walletSetupToken`, tells them
   signing launches their token; it is asked before every other ranked offer (`bench-find.ts benchView`).
-- **Setup-done reply.** `bench-find.ts setupDoneFor` (claimed once, `standing_seen.setup_done`) after the wallet answer
-  (`afterStep3`): launched / set / declined / skipped lead (`SetupOutcome`), then "Here's what's open for you right now:"
+- **Setup-done reply.** `bench-find.ts setupDoneFor` (claimed once, `standing_seen.setup_done`, after the reply is built
+  so a failure never loses it) after the wallet answer (`afterStep3`): launched / on_its_way (a token row launching or
+  unknown: "Your token is on its way. I'll confirm it here soon." in place of the community line) / set / declined /
+  skipped lead (`SetupOutcome`), then "Here's what's open for you right now:"
   and a `| Program | Up to | Closes |` table (at most 3, Best fit first), ending with the Best fit apply ask ("Want me to
   draft it?"); no fit gives `noFitLine` and no ask.
 - **Per-surface rendering.** `reply-format.ts surfaceOf(client_name)` reads the caller's own installation client:
@@ -8297,6 +8309,11 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   handle (coin, symbol, handle, name, photo, shipping, streak, page), cached 60 s, CORS for tokens.fun.
   `?ref=tokensfun` on any page (`RefSourceMark`, `ref-cookie.ts REF_SOURCES`) stores `installations.ref_source`, never a
   referring builder.
+- **Builder tokens in revenue and Earned (final review 3, 4, 9).** `indexSafeFees` books the Safe's deposits from launched
+  `builder_tokens.coin_address` too, and `stats.ts` `safe_fees_wei` counts them (never a test installation's), so
+  `fees_to_safe_eth` sees the Safe's 60%. `wallet-offer.ts walletChangeReply` adds `WALLET_COIN_FEES` for a launched
+  builder token as for a project coin. `earned.ts earnedUsd` adds the creator `fee_claims` paid to the builder token's
+  wallet (less any claim already in `creator_fees`), so Earned matches the Token card.
 - **Owner emails.** `owner-mail.ts` and `safe-watch.ts` (Task 12): `safe_watch` cron step, `owner_alerts` table.
 - **Retired in v4.0** (older sections above describe them as history): coin moments (`coin-moments.ts`), token offers
   (`token-offers.ts`, the pitch at confirm, `launch_token`), raising / Backing (`raising.ts`, `EARNKIT_RAISING`, the Backed

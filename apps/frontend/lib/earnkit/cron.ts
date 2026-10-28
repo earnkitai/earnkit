@@ -30,7 +30,7 @@ import {
 import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
-import { stuckBuilderTokens } from './builder-token';
+import { blockedBuilderTokens, retryDroppedBuilderTokens, stuckBuilderTokens } from './builder-token';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { githubAppEnabled } from './github-app';
@@ -97,6 +97,8 @@ export type CronDeps = {
   stuckLaunches?: (now: Date) => Promise<number[]>;
   /** v4 fix round 1: builder tokens 'unknown' or 'launching' over 10 minutes (default builder-token.ts stuckBuilderTokens). */
   stuckBuilderTokens?: (now: Date) => Promise<number[]>;
+  /** v4.0 final review 1: the dropped builder token launches' retry (tokens.fun fetch, ticker check, builders); with `only`, the step runs only when given. */
+  builderTokenRetry?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null>; only?: number[] };
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
   /** `only`: tests limit the hosting steps to their own slugs. */
   hosting?: { r2?: R2; only?: string[] };
@@ -491,6 +493,20 @@ export async function runCron(
     }
   }
   for (const id of stuck) needs_owner.push(`token-pending:${id}`);
+  // v4.0 final review 1: an opted-in builder's launch the proof dropped (no row: busy, the ticker check down, a refusal,
+  // no API key) is retried, at most BUILDER_TOKEN_RETRIES_PER_RUN a run (builder-token.ts retryDroppedBuilderTokens);
+  // one that needs the owner (no API key, a 4xx refusal) is listed as builder-token-blocked:<id> on every run until it
+  // clears (alerting). A failed read never stops the run.
+  let builderTokenRetry: Awaited<ReturnType<typeof retryDroppedBuilderTokens>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.builderTokenRetry) {
+    try {
+      builderTokenRetry = await retryDroppedBuilderTokens(now, { ...deps.builderTokenRetry, deadline });
+      for (const id of await blockedBuilderTokens(deps.builderTokenRetry?.only)) needs_owner.push(`builder-token-blocked:${id}`);
+    } catch (err) {
+      console.error('[cron] builder token retry', err instanceof Error ? err.name : 'error');
+      builderTokenRetry = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v4 fix round 1: a builder token whose launch answer was unclear ('unknown'), or still 'launching' after 10
   // minutes (the process stopped mid-launch; the row blocks a later launch), waits on the owner the same way.
   if (!opts.only || deps.stuckBuilderTokens) {
@@ -551,6 +567,7 @@ export async function runCron(
     ...(origins && { contract_origins: origins }),
     ...(usedBy && { used_by: usedBy }),
     ...(people && { people_signals: people }),
+    ...(builderTokenRetry && { builder_token_retry: builderTokenRetry }),
     needs_owner,
   };
 }

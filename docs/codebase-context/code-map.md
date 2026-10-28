@@ -1019,12 +1019,17 @@ apps/frontend/
                                launching > STUCK_LAUNCH_MS: runCron lists builder-token:<builder id> in needs_owner, never quiet), tradeUrl
                                (Uniswap on Base). Launched by wallet-proof.ts launchOnProof when the proof made the builder's first reward
                                wallet (ProveResult.first), unless declined. Creator fees: bonus-ledger.ts claimForOthers claims for each
-                               launched row's wallet (sponsored claims). Tests builder-token.test.ts, v4-setup.test.ts
+                               launched row's wallet (sponsored claims, first). Final review 1: retryDroppedBuilderTokens (runCron: offered,
+                               proven recipient wallet, no row, flag on; BUILDER_TOKEN_RETRIES_PER_RUN 5 a run, never tried first then oldest
+                               offer, standing_seen.token_retry_at; no API key / 4xx / no_ticker / x_taken set standing_seen.token_blocked),
+                               blockedBuilderTokens (runCron lists builder-token-blocked:<builder id>, alerting); LaunchResult released
+                               carries retry for a pre-mint 503 or 429. Tests builder-token.test.ts, v4-setup.test.ts, cron.test.ts
     community.ts               v4.0 Task 7/9: weekCommunityUsd(builderId, weekStart, now, price) = this week's and last week's creator
                                fee_claims paid to the builder token's wallet, priced with cachedWethUsd ({0,0} with no token, wallet or
                                price); allTimeCommunityUsd (the Token card's "fees earned"). Tests v4-weekly.test.ts, v4-token-card.test.ts
     builder-tokens-json.ts     v4.0 Task 10: GET /api/builder-tokens body: launched tokens of claimed, visible builders with a handle
-                               (coin, symbol, handle, name, photo, shipping, streak, page), shipping desc; builderTokensResponse (60 s
+                               (coin, symbol, handle, name, photo, shipping, streak, page), shipping desc, never a test installation's
+                               (EARNKIT_TEST_INSTALLATIONS: the builder or any installation in its group); builderTokensResponse (60 s
                                cache, PROFILE_TAG, CORS https://tokens.fun). Test v4-public-read.test.ts
     token-gate.ts(+test)       tokenGate (v2.6 §3, v2.14 T6): policy, a GitHub repo with code (codeProblem over
                                match-projects.ts repoCodeFacts; on "not found" GateDeps.appToken reads it through the
@@ -1323,7 +1328,9 @@ apps/frontend/
                                PAY_FAILED/PAY_FAILED_RUNS/STEP_FAILED,
                                termsOf/fromTerms/sameTerms, MANUAL_CHECK, TOP_UP, NO_PAYOUT_KEY, NOT_MAINNET,
                                needsOwner (the 503 notes); the page balance is funds.ts
-    cron.ts(+test)             v4.0: runCron also runs stuckBuilderTokens (after token-pending) and the gas mail (owner-mail.ts; the
+    cron.ts(+test)             v4.0 final review 1: runCron runs retryDroppedBuilderTokens (CronDeps.builderTokenRetry; `builder_token_retry`
+                               in the result) before stuckBuilderTokens and lists builder-token-blocked:<builder id> (blockedBuilderTokens).
+                               v4.0: runCron also runs stuckBuilderTokens (after token-pending) and the gas mail (owner-mail.ts; the
                                deployer address read inside a try) and safe_watch (safe-watch.ts) after the weekly email, all in the
                                same hourly run. nextStep (the state machine), scoreMaxAge, runCron (one step per
                                v2.10 item 13: deployerGas (v2.10.3: only the chains in DEPLOY_CHAINS; deployer-gas:<chain> TOP_UP, deployer-price:<chain>, deploy-owner:<id>, deploy-unknown:<id>; H11: :quiet after 24 h, QUIET_OWNER, no 503 in cronPost); CronDeps.deployer.
@@ -1349,8 +1356,9 @@ apps/frontend/
                                v3.1 Used by: used-by.ts runUsedBy after the Builder Codes step, its own slice
                                (CronDeps.usedBy; `used_by` in the result)
     bonus-rounds.ts            deleted in v2.14 T3 (with bonus-payout.ts and bonus-board.ts): every deposit books to the Safe
-    bonus-ledger.ts(+test,     v4.0: claimForOthers claims only for creators (each launched project token's creator and each launched
-                               builder_tokens wallet, newest first, 10x gas, within othersMs): sponsored claims, so builders never
+    bonus-ledger.ts(+test,     v4.0: claimForOthers claims only for creators (each launched builder_tokens wallet first, final review 2,
+                               then each launched project token's creator, newest first, 10x gas, within othersMs); final review 3:
+                               indexSafeFees also books launched builder_tokens coins: sponsored claims, so builders never
                                claim; MINI is never claimed (its 10% ended; claimOwners' mini is null); feeRecipients reads a 2-slot
                                split (Safe 60 / creator 40). v2.5 builder bonus ledger: BASE_BONUS (FeeLocker, lockers, WETH, Safe),
       +anvil.test)             STORE_TOKENS/CLAIMED_REWARDS, bonusDeposits (attribution: next
@@ -1425,7 +1433,8 @@ apps/frontend/
                                only, accrued: 1.5x real indexed bonus deposits of EarnKit coins (M5),
                                never round-rest: rows, + bonus money routed to the Safe; v2.13.2 under
                                the Bench: safe_fees_wei + 1.5x bonus_unmatched_wei + bonus money to the
-                               Safe, so 3-slot coins count and nothing twice),
+                               Safe, so 3-slot coins count and nothing twice; v4.0 final review 3: safe_fees_wei also counts
+                               launched builder_tokens coins, never a test installation's),
                                bonus_paid_eth, installs; STATS_LABELS for jenil.ai; v2.6 Ruling 6/16
                                (plan): installs, coins_launched, the bonus_deposits_wei coin
                                subquery and (final review M2) bonus_to_safe_wei's coin rows all
@@ -1469,7 +1478,8 @@ apps/frontend/
                                v4.0 Task 9: indexBackers also indexes launched builder_tokens coins (start block from tx_hash's receipt,
                                else from builder_tokens.created_at, set when the claim starts and never after the mint; the token's
                                wallet counts as the creator, never a holder); a coin in both tables is read once
-    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd
+    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd (v4.0 final review 9:
+                               plus the creator fee_claims paid to the builder token's wallet, not already in creator_fees)
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
                                (approveWeek via 'email', un-hiding; or an UPDATE setting hidden on the week's row); v3-monday-email.test.ts
@@ -1930,7 +1940,8 @@ apps/frontend/
                                v4.0 Task 4: ProveResult.first (a fresh proof that made the first reward wallet); walletPost then runs
                                launchOnProof (builder-token.ts, not awaited, errors logged) so the token launches at the proof
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
-                               state: wallet_link_at), walletChangeReply, takeWalletNotice, WALLET_NOTE.
+                               state: wallet_link_at), walletChangeReply (v4.0 final review 4: WALLET_COIN_FEES also for a launched
+                               builder token), takeWalletNotice, WALLET_NOTE.
                                v4.0 Task 4: setup step 3 asks everyone for the wallet: walletSetupDue (X claimed, step 2 done or
                                github_no, no person_wallets row, wallet_asked unset), walletSetupToken (builderTokensOn, an x_user_id,
                                no builder_tokens row), walletSetupNote, takeWalletAsk(…, setup) stamps standing_seen.wallet_setup;

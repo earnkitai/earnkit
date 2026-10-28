@@ -12,7 +12,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { fakeGitHub } from './fixtures/fake-github';
 import { installApp } from './fixtures/app-install';
 import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, programsTable, setupDoneLead, stateAsk, walletSetupAsk, type BenchProject, type BenchView } from './bench-reply';
-import { setupRows } from './bench-find';
+import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { walletSetupDue, walletSetupToken } from './wallet-offer';
@@ -551,6 +551,33 @@ test('(e) no open fit: the no-fit line in place of the table and question, never
   assert.equal(show(r), "No worries, add it whenever you're ready.\n\nKit doesn't fit an open program yet.");
   assert.doesNotMatch(show(r), /\|/);
   assert.equal(kindOf(r), undefined);
+});
+
+test('final review 1: a token still launching or unknown is never told as live: "Your token is on its way" in place of the community line', db, async () => {
+  assert.equal(setupDoneLead('Maya', 'on_its_way'), `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}`);
+  assert.doesNotMatch(setupDoneLead('Maya', 'on_its_way'), /coin|—|\p{Extended_Pictographic}/u);
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const b = await fitted('w', [ROLLING]);
+  const unclear = (async () => new Response(JSON.stringify({ error: 'Deployment status unknown' }), { status: 502 })) as unknown as typeof fetch;
+  const tf = { f: unclear, calls: [], deps: { fetch: unclear, check: async () => true } };
+  assert.equal((await signOn(b.handle, b.step, tf)).status, 200);
+  assert.equal(await settled(b.id), 'unknown');
+  const s = show(await mcpCall(b.ctx, 'find', {}));
+  assert.equal(s, `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+});
+
+test('final review 6: the setup-done reply is claimed only once it is built: a failure leaves it for the next reply', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('f', [ROLLING]);
+  // Skipped: no wallet, no token row, the wallet step closed.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'wallet_link_at' WHERE builder_id = ${b.id}`;
+  const boom = { filter: () => { throw new Error('boom'); } } as never;
+  assert.equal(await setupDoneFor(b.id, new Date(), { fits: boom, skip: new Set(), seen: {}, key: b.key, name: 'Kit' }), null);
+  const [p] = await sql()<{ done: boolean }[]>`SELECT COALESCE(standing_seen ? 'setup_done', false) AS done FROM builder_profiles WHERE builder_id = ${b.id}`;
+  assert.equal(p.done, false, 'not claimed by a failed build');
+  const s = show(await mcpCall(b.ctx, 'find', {}));
+  assert.ok(s.startsWith("No worries, add it whenever you're ready."), s);
 });
 
 // ---- v4.0 Task 6 fix round 1: the programs table end to end, per surface (a real reply with a table, formatted as the route does).
