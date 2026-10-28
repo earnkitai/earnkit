@@ -2516,14 +2516,17 @@ async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submi
   if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
   if (s.project_id === undefined && s.project) {
-    // v4.2 Task 4 (F7): an old call carries a project, maybe without the repo the confirmed entry has: the entry of that
-    // name in this program is the one (newest first), so it is updated and no second row is made.
+    // v4.2 Task 4 (F7): an old call carries a project, maybe without the repo the confirmed entry has. Only a call with no
+    // repo falls back to the name, and only when exactly one entry of that name exists in this program (a call with a repo
+    // is matched by that repo in ownEntry; two same-named entries are ambiguous), so no second row is made and no other
+    // project's entry is marked.
     const nm = typeof s.project.name === 'string' ? s.project.name : '';
-    const [named] = await sql()<{ id: number }[]>`
-      SELECT id FROM projects WHERE installation_id = ${ctx.installationId} AND program_id = ${s.program_id}
-        AND payout_wallet IS NULL AND lower(name) = lower(${nm})
-      ORDER BY submitted_at DESC, id DESC LIMIT 1`;
-    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, named ? { ...ctx, entryId: named.id } : ctx);
+    const named = s.project.repo_url
+      ? []
+      : await sql()<{ id: number }[]>`
+          SELECT id FROM projects WHERE installation_id = ${ctx.installationId} AND program_id = ${s.program_id}
+            AND payout_wallet IS NULL AND lower(name) = lower(${nm}) LIMIT 2`;
+    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, named.length === 1 ? { ...ctx, entryId: named[0].id } : ctx);
   }
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
   if (!entry && s.project_id === undefined) return appliedOutside(s.program_id, ctx);

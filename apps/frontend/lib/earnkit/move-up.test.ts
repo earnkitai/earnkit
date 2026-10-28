@@ -1,6 +1,8 @@
 import { after, test } from 'node:test';
 import { walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
@@ -114,9 +116,11 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const extra = await avalanche(); // a fourth open program that fits: only 3 are named
   // v4.2 Task 4: score's real matcher reads every active program in the database; a program added to programs/ later
   // (arc-microgrants-studio closes Nov 1) would become the closing-soonest Best fit there while find's fixture holds
-  // only these. Close the rest for this test (restored after), so the test never depends on today's real list.
-  const here = [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19'];
-  parked.push(...(await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' AND id <> ALL(${here}::text[]) RETURNING id`).map((r) => r.id));
+  // only these. Park the other committed (seeded) programs for this test and restore exactly those after, so it never
+  // depends on today's real list and never touches temporary programs other test files create.
+  const here = [...CLOSED, ...OPEN, 'a16z-speedrun', 'alliance-all19'];
+  const real = readdirSync(join(import.meta.dirname, '../../../../programs')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).filter((id) => !here.includes(id));
+  parked.push(...(await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' AND id = ANY(${real}::text[]) RETURNING id`).map((r) => r.id));
   const a = await rankedBuilder('mvu', 'Kit', 7201);
   // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
   // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product

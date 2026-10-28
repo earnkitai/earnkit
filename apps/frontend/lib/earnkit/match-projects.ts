@@ -1163,7 +1163,10 @@ function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim:
   // G3) is enough, so the yes never relies on an optional field the agent may not send.
   const recent = (t.commits_90d ?? 0) > 0 || (hidden.ownerHidden === true && !p.missing.includes('active'));
   const used = withRealUse(p, usedTx, usersClaim && t.live_ok && recent);
-  return { ...used, traction: score, ...productOdds(used, t, score, hidden) };
+  // v4.2 Task 4 (F5): the builder said the product has users, and nothing measured contradicts it (0 transactions only
+  // means none were counted): odds read the count as unmeasured, as for any chain without a read, never "no users yet".
+  const told = hidden.saidUsers === true && hidden.saidNoUsers !== true && t.live_ok && t.tx_count === 0;
+  return { ...used, traction: score, ...productOdds(used, told ? { ...t, tx_count: null } : t, score, hidden) };
 }
 
 /**

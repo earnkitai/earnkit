@@ -424,8 +424,6 @@ export const MISSING_REASON: Record<Missing, string> = {
 };
 /** v2.11 8a (S3): the reason on an unknown repo's row ("tokens.fun, users unknown"), never "low odds". */
 export const USERS_UNKNOWN = 'users unknown';
-/** v4.2 Task 4 (F5): the builder said it has users; the matcher has not measured them. */
-export const USERS_UNCONFIRMED = 'users unconfirmed';
 /** v2.10.2 fix round 1 (I2): a missing deploy when the repo is on a testnet ("not deployed yet" otherwise). */
 export const NOT_ON_MAINNET = 'not on mainnet yet';
 /** v2.10.2 fix round 1 (M3): a repo whose owner GitHub didn't answer for (a rate limit), never "not enough signs". */
@@ -462,12 +460,11 @@ export function productOdds(
   p: Pick<Product, 'tier' | 'missing' | 'unchecked'> & { score?: number },
   t: TractionFacts,
   score: number,
-  opts: { ownerHidden?: boolean; saidNoUsers?: boolean; saidUsers?: boolean } = {},
+  opts: { ownerHidden?: boolean; saidNoUsers?: boolean } = {},
 ): { odds: Odds; low_reason: string | null } {
   // v2.11 8a (S4): a hidden repo that may be a product is asked about, never scored low; measured
   // transactions of 0, or the builder's "no" to the users question, still mean no users yet.
   if (unreadProduct(p, opts.ownerHidden === true) && t.live_ok) {
-    if (opts.saidUsers && !opts.saidNoUsers) return { odds: 'unknown', low_reason: null };
     if (t.tx_count === 0 || opts.saidNoUsers) return { odds: 'low', low_reason: NO_USERS_YET };
     return { odds: 'unknown', low_reason: null };
   }
@@ -476,8 +473,6 @@ export function productOdds(
   if (p.missing.includes('original')) return { odds: 'low', low_reason: SIGNAL_WORDS.original };
   if (t.tx_count !== null) {
     if (score >= GOOD_ODDS_TRACTION) return { odds: 'good', low_reason: null };
-    // v4.2 Task 4 (F5): the builder said the product has users and nothing measured says otherwise: unconfirmed, never "no users yet".
-    if (opts.saidUsers && !opts.saidNoUsers && t.tx_count === 0 && t.live_ok) return { odds: 'unknown', low_reason: USERS_UNCONFIRMED };
     return { odds: 'low', low_reason: t.tx_count === 0 ? 'no users yet' : 'live link not loading' };
   }
   if (!t.live_ok) return { odds: 'low', low_reason: 'live link not loading' };

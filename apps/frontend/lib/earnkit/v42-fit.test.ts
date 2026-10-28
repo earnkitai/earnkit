@@ -1,8 +1,10 @@
 import './fixtures/no-network-checks';
 import { test } from 'node:test';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { MatchProjectsInput, matchProjects, type MatchDeps } from './match-projects';
-import { NO_USERS_YET, NEEDS_USERS, productOdds, productScore, traction, type ProgramFacts } from './match';
+import { NO_USERS_YET, NEEDS_USERS, type ProgramFacts } from './match';
 
 /**
  * v4.2 Task 4 (F5, F6, F7): odds use what the builder told EarnKit; one lead (the money line's program); a
@@ -28,19 +30,7 @@ const said = (has_users: boolean | null) => ({ 'name:tipjar': { mainnet: [], tes
 const ADDR = '0x1111111111111111111111111111111111111111';
 const local = { name: 'tipjar', chains: ['base'], contracts: [ADDR], live_url: 'https://tipjar.xyz', last_commit_at: '2026-10-01T00:00:00Z' };
 
-test('F5: productOdds with a told "has users" never says no users yet when the measured count is 0', () => {
-  const p = { ...productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true }, []), score: 0 };
-  const t = { tx_count: 0, live_ok: true, commits_90d: 3 };
-  const score = traction(t);
-  assert.equal(productOdds(p, t, score).low_reason, NO_USERS_YET, 'nothing told: still no users yet');
-  const told = productOdds(p, t, score, { saidUsers: true });
-  assert.notEqual(told.odds, 'low');
-  assert.notEqual(told.low_reason, NO_USERS_YET);
-  // A told "no" still reads no users yet.
-  assert.equal(productOdds(p, t, score, { saidNoUsers: true }).low_reason, NO_USERS_YET);
-});
-
-test('F5: a repo the builder said has users is not low for "no users yet" or "needs real users" (local and told-in-matcher)', async () => {
+test('F5: a repo the builder said has users is not low for "no users yet" or "needs real users" (local repo through the matcher)', async () => {
   const r = await matchProjects(MatchProjectsInput.parse({ local_repos: [local], said: said(true) }), deps());
   const f = r.fits[0];
   assert.notEqual(f.product.low_reason, NO_USERS_YET, JSON.stringify(f.product));
@@ -71,6 +61,7 @@ import { productOdds as odds2, productScore as score2, traction as traction2, ty
 import type { RepoFit } from './present';
 import { openEntries, submittedEntry } from './projects';
 import { tools } from './tools';
+import { normalizeRepoUrl } from './campaigns';
 
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -80,6 +71,11 @@ process.env.EARNKIT_AUTH_SECRET ??= 'v42-fit-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const RUN = String(process.pid % 100000);
 const made: string[] = [];
+/** Closes the committed (seeded) programs except `keep` that are active; returns exactly the ids it closed. */
+async function parkRealPrograms(keep: string[]): Promise<string[]> {
+  const real = readdirSync(join(import.meta.dirname, '../../../../programs')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).filter((id) => !keep.includes(id));
+  return (await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' AND id = ANY(${real}::text[]) RETURNING id`).map((r) => r.id);
+}
 const parked: string[] = [];
 after(async () => {
   if (!process.env.DATABASE_URL) return;
@@ -106,10 +102,11 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
   await upsertProgram(ProgramFile.parse(committedProgram('base-builder-grants')));
   const closing = `v42fit-${randomBytes(4).toString('hex')}-${process.pid}`;
   made.push(closing);
-  await sql()`INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, ends_at, status, existing_work)
-    VALUES (${closing}, 'Org', 'Soon Fund', 'x', 'https://example.com', 'https://example.com/apply', '$1,000', 'x', now() + interval '6 days', 'active', 'allowed')`;
-  // Only these two are open, so the test never depends on today's real program list (restored after).
-  parked.push(...(await sql()<{ id: string }[]>`UPDATE programs SET status = 'closed' WHERE status = 'active' AND id NOT IN (${closing}, 'base-builder-grants') RETURNING id`).map((r) => r.id));
+  await sql()`INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, ends_at, status, existing_work, chains, opened_at)
+    VALUES (${closing}, 'Org', 'Soon Fund', 'x', 'https://example.com', 'https://example.com/apply', '$1,000', 'x', now() + interval '6 days', 'active', 'allowed', ARRAY['base'], now() - interval '60 days')`;
+  // Only the real seeded programs (the committed programs/ files) besides these are parked, and only those found active
+  // are restored; temporary programs other test files create are never touched.
+  parked.push(...(await parkRealPrograms(['base-builder-grants'])));
   const t = `ek_f6_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const own = (await connectInstallation(t))!.own;
@@ -128,10 +125,9 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
   assert.ok(money.includes('Soon Fund'), `the money line names the closing program: ${r.show_to_builder}`);
   assert.equal(lead, closing, 'lead follows the money line');
   const sc = (await mcpCall({ ...ctx }, 'score', {})).reply!;
-  // Score's own matcher reads the database (the fixture program has no chains there): its lead is still its own money line's.
-  const scLead = (sc.lead as { program_id: string } | undefined)?.program_id;
-  const [scTitle] = await sql()<{ title: string }[]>`SELECT title FROM programs WHERE id = ${scLead ?? ''}`;
-  assert.ok(scTitle && String(sc.show_to_builder).split('\n')[1].includes(scTitle.title.replace(/^the\s+/i, '')), `${scLead}: ${sc.show_to_builder}`);
+  // Score's own matcher reads the same two programs (the fixture has chains base): its lead is its own money line's program.
+  assert.equal(String(sc.show_to_builder).split('\n')[1], money, 'score names the same program');
+  assert.equal((sc.lead as { program_id: string } | undefined)?.program_id, closing, 'score lead is its money line program');
 });
 
 // ---- F7: a submitted entry stays submitted
@@ -145,13 +141,13 @@ test('F7: tell submitted marks the confirmed row (ownEntry reads it by id, by re
   const repo = `https://github.com/f7${RUN}/kit`;
   const draft = async (name: string, repoUrl: string | null) => (await sql()<{ id: number }[]>`
     INSERT INTO projects (program_id, name, repo_url, bonus_repo_key, installation_id, confirmed_at)
-    VALUES (${program}, ${name}, ${repoUrl}, ${repoUrl}, ${inst}, now()) RETURNING id`)[0].id;
+    VALUES (${program}, ${name}, ${repoUrl}, ${repoUrl && normalizeRepoUrl(repoUrl)}, ${inst}, now()) RETURNING id`)[0].id;
   const rows = async () => (await sql()<{ id: number; submitted: boolean }[]>`SELECT id, submission_confirmed_at IS NOT NULL AS submitted FROM projects WHERE program_id = ${program} ORDER BY id`).map((r) => ({ id: r.id, submitted: r.submitted }));
   const ctx = { installationId: inst };
 
   // The SQL ownEntry runs for a repo call: the one draft row, matched on bonus_repo_key, payout_wallet IS NULL.
   const id1 = await draft('Kit', repo);
-  const own = await sql()<{ id: number }[]>`SELECT id FROM projects WHERE program_id = ${program} AND installation_id = ${inst} AND payout_wallet IS NULL AND bonus_repo_key = ${repo}`;
+  const own = await sql()<{ id: number }[]>`SELECT id FROM projects WHERE program_id = ${program} AND installation_id = ${inst} AND payout_wallet IS NULL AND bonus_repo_key = ${normalizeRepoUrl(repo)}`;
   assert.deepEqual(own.map((x) => x.id), [id1]);
   assert.equal((await openEntries(inst)).find((e) => e.id === id1)?.submitted, false, 'asked "Did you submit it?" until told');
 
@@ -167,7 +163,19 @@ test('F7: tell submitted marks the confirmed row (ownEntry reads it by id, by re
   assert.equal((await rows()).length, 2);
   assert.equal((await submittedEntry(inst, program, id2))?.id, id2);
 
+  // Two same-named entries with different repos: a call naming one repo marks that one only; a call with no repo is
+  // ambiguous and marks neither (never the other project's entry).
+  const A = await draft('Twin', `${repo}-a`);
+  const B = await draft('Twin', `${repo}-b`);
+  await tools.tell({ submitted: { program_id: program, project: { name: 'Twin', repo_url: `${repo}-b` } } }, ctx);
+  const state = async () => Object.fromEntries((await rows()).map((r) => [r.id, r.submitted]));
+  assert.equal((await state())[A], false, 'the other repo\'s entry stays unsubmitted');
+  assert.equal((await state())[B], true);
+  await tools.tell({ submitted: { program_id: program, project: { name: 'Twin' } } }, ctx);
+  assert.equal((await state())[A], false, 'an ambiguous repo-less call never marks a guessed entry');
+
   // Repeating it changes nothing.
+  const total = (await rows()).length;
   await tools.tell({ submitted: { program_id: program, project_id: id2 } }, ctx);
-  assert.equal((await rows()).length, 2);
+  assert.equal((await rows()).length, total);
 });
