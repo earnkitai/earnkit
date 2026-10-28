@@ -1757,6 +1757,11 @@ apps/frontend/
                                ("closes Friday" / "today"), nothing shipped Friday to Sunday UTC with a streak of 2+ (streaksFor).
                                bench-find.ts benchView leads a ranked reply with it (BenchView.nudge), never with a held question,
                                setup step 3, the Monday block, a post offer or connect; the closing nudge drops that reply's deadline line.
+                               Fix round 1: pickNudge / claimNudge split; a nudge with a question (closing: apply ask for its
+                               program; accepted: 'outcome_share' ask, its yes outcomeShareLine) owns the reply's one question
+                               (no other ask made or stored); the closing nudge for the submit step's own program stands in for
+                               that held question (benchFind); only its own deadline line is dropped. outcomeNudgeShown: the
+                               tell's accepted/funded reply (post-reply.ts acceptedReply) is the approved line and the week's nudge.
                                Test: v4-nudges.test.ts.
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,

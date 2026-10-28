@@ -9,6 +9,7 @@ import {
   HOT_HOURS, coinIntroCandidate, draftMoment, eventStamp, newsCandidate, offeredMoments, verifiedOutcomeCandidate, weeklyCandidate, type MomentCandidate,
 } from './post-moments';
 import { pagePath } from './reserved-routes';
+import { OUTCOME_SHARE_NOTE, acceptedNudge, outcomeNudgeShown } from './nudges';
 
 /**
  * v3.1 one-tap posts, Task 6 (design 6): the drafted posts in the replies. A post is offered in the share slot (the
@@ -213,7 +214,29 @@ export async function outcomePost(
   // Final review 1: the program lists no proof hosts or X accounts, so no link could prove it: a plain acknowledgement.
   if (c === 'no_proof_source') return { show_to_builder: OUTCOME_NOTED };
   if (!c || typeof c === 'string') return { show_to_builder: congrats };
+  // v4.0 Task 8 fix round 1 (ruling 3): a newly told acceptance or funding is the accepted nudge's approved line with the
+  // post's link (its question the share ask), and it counts as that week's nudge (nudges.ts outcomeNudgeShown).
+  if (s.status === 'accepted' || s.status === 'funded') return (await acceptedReply(id, c, s.program_id, now)) ?? { show_to_builder: congrats };
   return (await draftedReply(id, c, false, now, { head: [congrats, eventHead(c, now)].filter(Boolean).join(' ') })) ?? { show_to_builder: congrats };
+}
+
+/**
+ * v4.0 Task 8 fix round 1: the accepted or funded outcome drafted as a post, said as the accepted nudge ("You got into
+ * Arc Builders. Huge, well earned. Want to share it? {link}"); its yes gives the link again (bench-find.ts kind
+ * 'outcome_share'). Null when it can't be drafted now. Never throws.
+ */
+async function acceptedReply(id: number, c: MomentCandidate, programId: string, now: Date): Promise<Record<string, unknown> | null> {
+  const handle = await handleOf(id);
+  const program = (c.input as { program?: string }).program;
+  if (!handle || !program) return null;
+  const d = await draftMoment(id, c, { asked: false }, now).catch(logged('outcome draft'));
+  if (!d?.ok) return null;
+  const link = shortLink(handle, d.draft.code);
+  const ask = { kind: 'outcome_share', key: c.projectKey, link };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('outcome ask'));
+  await outcomeNudgeShown(id, programId, now);
+  return { show_to_builder: acceptedNudge(program, link), move_up: { kind: 'outcome_share', project_key: c.projectKey, agent_note: OUTCOME_SHARE_NOTE } };
 }
 
 /**

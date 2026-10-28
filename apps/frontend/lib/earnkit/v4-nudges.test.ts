@@ -185,3 +185,84 @@ test('the nudge leads a ranked find reply, once that week', db, async () => {
   const again = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   assert.doesNotMatch(again, /Quiet week/, again);
 });
+
+// ---- Fix round 1 ----
+
+const findCtx = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never });
+const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
+/** A ranked builder scored "just now" on the mocked clock, so find never rescores it (without GitHub here). */
+async function fresh(tag: string, o: { streak?: number } = {}) {
+  await sql()`UPDATE builder_profiles SET hidden = true`;
+  const me = await builder(tag, o);
+  await sql()`UPDATE builder_live SET computed_at = ${at(FRIDAY)}, read_at = ${at(FRIDAY)} WHERE builder_id = ${me.id}`;
+  return me;
+}
+
+test('fix round 1 (1): a news line keeps every standing_seen key but the ones it owns', db, async () => {
+  const { takeNews } = await import('./stand-view');
+  const me = await builder('v4nk');
+  const kept = {
+    token_offered: '2026-10-20T00:00:00.000Z', setup_asked: '2026-10-20T00:00:00.000Z', setup_done: '2026-10-21T00:00:00.000Z',
+    wallet_setup: { at: 'x' }, checkin_asks: 2, nudge_week: '2026-10-26', some_future_key: { a: 1 },
+  };
+  await sql()`UPDATE builder_profiles SET standing_seen = ${sql().json({ ...kept, people: { x: 1 } } as never)} WHERE builder_id = ${me.id}`;
+  const base = { standing: { ranked: true, rank: 3, total: 9 }, claimed: true, handle: me.handle, signInLink: null };
+  // The first look records where the person stands (the rewrite), saying nothing.
+  assert.equal(await takeNews(me.id, {}, base, at(FRIDAY), false), null);
+  const [{ seen }] = await sql()<{ seen: Record<string, unknown> }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${me.id}`;
+  for (const [k, v] of Object.entries(kept)) assert.deepEqual(seen[k], v, k);
+  assert.equal(seen.rank, 3);
+  assert.equal(seen.at, at(FRIDAY).toISOString());
+  assert.equal(seen.people, undefined, 'the retired news key it owns is replaced');
+});
+
+test('fix round 1 (2, 4): the closing nudge owns the reply\'s one question; its yes drafts that program; only its own deadline line goes', db, async () => {
+  const me = await fresh('v4nz');
+  // Another entry closes sooner (Saturday), told as applied: the deadline line names it, the nudge skips it.
+  const soon = await program('Soon Grant', FRIDAY + DAY);
+  await draftEntry(me.id, soon);
+  await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${me.id}, ${soon}, 'applied')`;
+  const arc = await program('Arc Builders', FRIDAY + 2 * DAY);
+  await draftEntry(me.id, arc);
+  const r = await mcpCall(findCtx(me.id), 'find', {});
+  const s = String(r.reply?.show_to_builder ?? '');
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday. Your draft is ready. Want to send it?'), s);
+  assert.equal(questions(s), 1, s);
+  assert.match(s, /Soon Grant closes tomorrow; your entry isn.t submitted\./, 'another program\'s deadline line stays');
+  assert.doesNotMatch(s, /Arc Builders closes in/, 'its own deadline line goes');
+  const mv = r.reply?.move_up as { kind: string; project_key: string } | undefined;
+  assert.deepEqual([mv?.kind, mv?.project_key], ['apply', me.key]);
+  const yes = await mcpCall(findCtx(me.id), 'tell', { move_up: { kind: 'apply', project_key: me.key, answer: 'yes' } });
+  assert.match(String(yes.reply?.agent_note ?? ''), new RegExp(`program_id "${arc}"`));
+});
+
+test('fix round 1 (2): the accepted nudge owns the reply\'s one question; its yes gives the post\'s link', db, async () => {
+  const me = await fresh('v4nj', { streak: 3 });
+  const code = await outcomeDraft(me.id, await program('Arc Builders', null), FRIDAY - 8 * DAY);
+  const link = `https://earnkit.com/${me.handle}/post/${code}`;
+  const r = await mcpCall(findCtx(me.id), 'find', {});
+  const s = String(r.reply?.show_to_builder ?? '');
+  assert.ok(s.startsWith(`You got into Arc Builders. Huge, well earned. Want to share it? ${link}`), s);
+  assert.equal(questions(s), 1, s);
+  assert.equal((s.match(/https?:\/\/\S+/g) ?? []).length, 1, s);
+  const mv = r.reply?.move_up as { kind: string; project_key: string } | undefined;
+  assert.equal(mv?.kind, 'outcome_share');
+  const yes = await mcpCall(findCtx(me.id), 'tell', { move_up: { kind: 'outcome_share', project_key: me.key, answer: 'yes' } });
+  assert.equal(String(yes.reply?.show_to_builder ?? ''), `Your post is ready to share: ${link}`);
+});
+
+test('fix round 1 (2): the Friday line is rhetorical: it leads beside the ranked ask', db, async () => {
+  const me = await fresh('v4ni', { streak: 3 });
+  const r = await mcpCall(findCtx(me.id), 'find', {});
+  const s = String(r.reply?.show_to_builder ?? '');
+  assert.ok(s.startsWith('Quiet week? No stress.'), s);
+  assert.ok(r.reply?.move_up, 'the ranked ask stays');
+});
+
+test('fix round 1 (4): the closing nudge drops its own program\'s deadline line', db, async () => {
+  const me = await fresh('v4nl');
+  await draftEntry(me.id, await program('Arc Builders', FRIDAY + 2 * DAY));
+  const s = String((await mcpCall(findCtx(me.id), 'find', {})).reply?.show_to_builder ?? '');
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday.'), s);
+  assert.doesNotMatch(s, /closes in 2 days|isn't submitted/, s);
+});

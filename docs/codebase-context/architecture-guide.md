@@ -8203,5 +8203,11 @@ related, no row without data, every row links to proof).
   (Friday to Sunday UTC, streak 2 or more).
 - Only a ranked reply leads with it (`bench-find.ts benchView`, `bench-reply.ts benchReply`); the Monday block, post
   offers, connect, setup step 3, the setup-done reply and held questions lead instead and the nudge waits unclaimed.
-- `stand-view.ts takeNews` keeps `nudge_week`, `nudge_users`, `nudge_outcomes` when it rewrites `standing_seen`.
+- Fix round 1: a question-bearing nudge (closing, accepted or funded) owns the reply's one question: closing stores the
+  apply ask for its program (yes: prepare shows the draft), accepted stores `outcome_share` (yes: the post's link); no
+  other ask is made, claimed or stored. The Friday line ("Quiet week?" is rhetorical) and the milestone line sit beside
+  the ranked ask. A closing nudge for the submit step's own program replaces that held question. A newly told
+  acceptance or funding replies with the approved accepted line and counts as that week's nudge.
+- `stand-view.ts takeNews` now keeps every `standing_seen` key except the ones it owns (`NEWS_KEYS`: rank, at, people);
+  the old allow-list dropped v4 keys such as `token_offered`, `setup_asked`, `setup_done`.
 

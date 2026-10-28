@@ -5,7 +5,7 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
 import { BASE_GRANTS_ID } from './builder-code';
-import { isoWeekOf } from './weeks';
+import { isoWeekOf, mondayOf } from './weeks';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { draftByCode } from './post-drafts';
@@ -188,7 +188,6 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const proof = 'https://docs.base.org/get-started/grant-recipients-october';
   // v3.1 cold read round 2 (owner): an outcome post needs verification (the proof checks), not an earlier application.
   // GTM W2: a short congrats, never nothing.
-  const congrats = `Congrats on getting into the ${title}.`;
   // v3.1 cold read (owner-approved rewrite 8): no proof link yet: one line asks for the announcement.
   const askProof = `Congrats on the ${title}. Got the announcement link? I'll turn it into a post.`;
   const none = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted' }] });
@@ -205,13 +204,12 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof, prize_usd: 50000 }] });
   const s = rule(show(r));
   const tap = links(s)[0]!;
-  assert.equal(s, [
-    congrats,
-    'Your post for X:',
-    `"Kit was accepted into the ${title}."`,
-    `Post it in one tap: ${tap}`,
-    'Want a different version?',
-  ].join('\n'));
+  // v4.0 Task 8 fix round 1 (ruling 3): the accepted nudge's approved line, with the post's link; the week's nudge.
+  assert.equal(s, `You got into ${title}. Huge, well earned. Want to share it? ${tap}`);
+  assert.equal(moveUp(r)?.kind, 'outcome_share');
+  const [{ week }] = await sql()<{ week: string | null }[]>`SELECT standing_seen->>'nudge_week' AS week FROM builder_profiles WHERE builder_id = ${k.id}`;
+  assert.equal(week, mondayOf(new Date()));
+  assert.equal(show(await mcpCall(k.ctx, 'tell', { move_up: { kind: 'outcome_share', project_key: k.key, answer: 'yes' } })), `Your post is ready to share: ${tap}`);
   assert.doesNotMatch(String(r.reply?.agent_note), /nothing to show the builder/);
   const d = (await draftByCode(tap.split('/').pop()!))!;
   assert.equal(d.proof_url, proof);

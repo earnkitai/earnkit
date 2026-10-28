@@ -280,7 +280,8 @@ test('an acceptance told: a short congrats, the outcome post with a checked proo
     assert.equal(rule(show(none)), `Congrats on the ${title}. Got the announcement link? I'll turn it into a post.`);
     const r = await mcpCall(ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: 'https://docs.base.org/get-started/grant-recipients-october' }] });
     const s = rule(show(r));
-    assert.match(s, new RegExp(`^${outcomeCongrats('accepted', title).replace(/[.]/g, '\\.')}\nYour post for X:\n"Kit was accepted into the ${title}\\."\nPost it in one tap: https://earnkit\\.com/${b.username}/post/[a-z2-7]{10}\nWant a different version\\?$`));
+    // v4.0 Task 8 fix round 1 (ruling 3): the accepted nudge's approved line with the post's link.
+    assert.match(s, new RegExp(`^You got into ${title.replace(/[.]/g, '\\.')}\\. Huge, well earned\\. Want to share it\\? https://earnkit\\.com/${b.username}/post/[a-z2-7]{10}$`));
     const d2 = (await profileData(b.id, new Date())) as ProfileData;
     const items = (await highlights(b.id, d2, new Date())).map((h) => h.title);
     assert.ok(items.includes(`Accepted into ${title}`), items.join(' | '));

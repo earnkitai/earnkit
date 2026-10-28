@@ -48,7 +48,7 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
-import { takeNudge } from './nudges';
+import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
   type ConnectBest,
@@ -171,6 +171,8 @@ export type Seen = StandSeen & {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
+    /** v4.0 Task 8 fix round 1 (kind 'outcome_share'): the outcome post's short link. */
+    link?: string;
     /** v3.1 wallet proof (kind 'wallet'): when the step was asked (ISO); its yes checks for a wallet proven since. */
     at?: string;
   };
@@ -536,6 +538,11 @@ export const fitLines = <F extends Pick<Fit, 'card'>>(applies: F[]): F[] => [...
 const isoOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
+  /**
+   * v4.0 Task 8 fix round 1: the closing nudge for the submit step's own program, picked by benchFind: it says the same
+   * thing in the approved words, so it stands in for that held question (the reply's one question).
+   */
+  nudge?: NudgePick | null;
   /** D14: the caller's own installation, the one an X sign-in link is minted for (never the group root). */
   own: number;
   /** Fix round 1: signedOutNow (state 1: the sign-in question always wins). */
@@ -713,13 +720,22 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const coinWallet = Boolean(rankedFree && project && !held && !connect && !backing && (await coinWalletWaiting(id)) !== null);
   const hot = rankedFree && project && handle && !held && !connect && !backing && !coinWallet ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
-  const apply = !walletSetup && !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
+  // v4.0 Task 8: this week's nudge (at most one), peeked here and claimed only when this reply shows it. It leads a
+  // ranked reply only: never setup, the setup-done reply (returned above), a held question, connect, backing, the coin's
+  // wallet, an event post or the Monday block (those lead, and the nudge waits unclaimed).
+  // Fix round 1 (ruling 2): a nudge that asks (closing, accepted or funded) owns the reply's one question: no other
+  // ask is made, claimed or stored; the Monday block, when it shows, still leads and the nudge waits.
+  const nudgeOk = Boolean(rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !hot);
+  const peek = !nudgeOk ? null : o.nudge ? o.nudge : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
+  const askMoment = peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
+  const owns = Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
+  const apply = !owns && !askMoment && !walletSetup && !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = rankedFree && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
+  const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
-  const event = hot ?? (rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
+  const event = hot ?? (!owns && rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = rankedFree && project !== null && !held && !connect && !backing && !coinWallet && !apply && !moment && !event;
+  const quiet = !owns && rankedFree && project !== null && !held && !connect && !backing && !coinWallet && !apply && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
@@ -775,7 +791,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
   const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
-  let finalAsk = stateAsk({ ...asks, wallet });
+  const nudgeAsk = owns && peek?.ask ? peek.ask : null;
+  let finalAsk: BenchView['ask'] = nudgeAsk
+    ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
+    : stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
@@ -789,6 +808,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const stored = held || finalAsk.kind === 'post' || finalAsk.kind === 'none' ? null : {
     kind: finalAsk.kind, key: finalAsk.project_key,
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
+    ...(nudgeAsk?.kind === 'apply' && { program_id: nudgeAsk.program_id }),
+    ...(nudgeAsk?.kind === 'outcome_share' && { link: nudgeAsk.link }),
     ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
     ...((finalAsk.kind === 'wallet' || finalAsk.kind === 'wallet_setup') && { at: now.toISOString() }),
   };
@@ -799,15 +820,19 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
 
   // 2026-10-23 (owner): a program that isn't open is never a reply line (nothing to do with it); it shows once it opens.
 
-  // v4.0 Task 8: at most one nudge a week, leading a ranked reply only (never setup, the setup-done reply, the Monday
-  // block or a post offer: those lead, and the nudge waits unclaimed). The closing nudge says the deadline line's news.
-  const nudge = state === 'ranked' && project && !held && !walletSetup && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind)
-    ? await takeNudge(id, now, { project: project.name, best: best && realFit(best) ? best.title : null })
+  // v4.0 Task 8: a nudge with no question of its own (the milestone, the Friday line) leads a ranked reply beside its
+  // ask, claimed now; never over the Monday block, a post offer or connect. Fix round 1 (ruling 4): the closing nudge
+  // drops only its own program's deadline line.
+  const nudge = owns ? peek
+    : nudgeOk && peek && !peek.ask && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind) && (await claimNudge(id, now, peek.keep)) ? peek
     : null;
+  // A congratulation this week (no line) counts as the week's nudge: claimed whenever it comes up.
+  if (peek && !peek.line && nudgeOk) await claimNudge(id, now, peek.keep);
+  const due = nudge?.kind === 'closing' && nudge.title ? o.due.filter((l) => !l.startsWith(`${nudge.title} closes `)) : o.due;
 
   const view: BenchView = {
-    state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: nudge?.kind === 'closing' ? [] : o.due,
-    nudge: nudge?.line ?? null,
+    state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due,
+    nudge: nudge?.line ?? null, nudgeOwns: owns,
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
     noGithub, ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
   };
@@ -846,7 +871,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote(walletSetup?.token === true)
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
-    : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE : finalAsk.kind === 'coin_wallet' ? COIN_WALLET_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE : finalAsk.kind === 'coin_wallet' ? COIN_WALLET_NOTE
+    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
     ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
     rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
@@ -1187,7 +1213,10 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
   const submit = a.ask || signedOut ? undefined : submitStep(m);
   // A17: a results question, else a submission step, is the one question (never a money line).
-  const held = signedOut ? null : a.ask ? outcomeLine(a.ask) : submit ? submitStepLine(submit) : null;
+  // v4.0 Task 8 fix round 1: this week's nudge closing the submit step's own program stands in for its question.
+  const closing = !signedOut && !a.ask && submit ? await pickNudge(id, now) : null;
+  const nudge = closing?.ask?.kind === 'apply' && closing.ask.program_id === submit?.card.id ? closing : null;
+  const held = signedOut ? null : a.ask ? outcomeLine(a.ask) : submit && !nudge ? submitStepLine(submit) : null;
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
@@ -1204,7 +1233,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       }
     : undefined;
   const { view, fields } = await benchView({
-    id, now, read, own, signedOut, name, fits, applies, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
+    id, now, read, own, signedOut, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live, check: ctx.tokenDeps?.check,
     deadline: (a.start ?? Date.now()) + REPLY_WAIT_MS, codesFetch: ctx.codesFetch, known,
   });
   const taken = view.variant === 'taken';
@@ -1328,7 +1357,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', 'new_repo', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', 'new_repo', 'outcome_share', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
 const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup'];
 
@@ -1556,6 +1585,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'post':
       // v3.1 one-tap posts: a different version of the post (the next shape; the builder asked, so the asked limit holds).
       return (await redraftAnswer(id, asked as Parameters<typeof redraftAnswer>[1], now)) ?? okay;
+    case 'outcome_share':
+      // v4.0 Task 8 fix round 1: the yes to the accepted nudge's "Want to share it?": its post's one-tap link.
+      return typeof asked.link === 'string' && /^https:\/\//.test(asked.link) ? { show_to_builder: outcomeShareLine(asked.link) } : okay;
     case 'apply':
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
       return asked.program_id

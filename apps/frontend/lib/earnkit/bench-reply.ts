@@ -30,6 +30,8 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   | 'base_start' | 'next_step' | 'new_repo'
   /** GTM W2 (2026-10-23): `base_help`, the walk-through's step 1 help; `checkin`, the Monday check-in (once, clients that schedule); `none`, no question. */
   | 'base_help' | 'checkin' | 'none'
+  /** v4.0 Task 8 fix round 1: the accepted nudge's share ask (its yes: the post's link). */
+  | 'outcome_share'
   /** v3.1 cold read: `coin_publish`, the coin ask's publish-first question; `backers_post`, the backers answer's post question. */
   | 'coin_publish' | 'backers_post'
   /** v3.1 cold read round 2: `coin_wallet`, a coin yes waiting for its fee wallet (asked again, never the wallet step). */
@@ -542,6 +544,8 @@ export type BenchView = {
   pitched?: boolean;
   /** v4.0 Task 8: this week's nudge (nudges.ts takeNudge), its own paragraph leading a ranked reply. */
   nudge?: string | null;
+  /** Fix round 1 (ruling 2): the nudge asks the reply's one question (its ask is `ask`); no other ask line is shown. */
+  nudgeOwns?: boolean;
   /** v4.0 Task 5: the setup-done reply (setupDoneReply), said once in place of the state's reply. */
   setupDone?: string;
 };
@@ -705,6 +709,9 @@ export function benchReply(v: BenchView): string {
   }
   // v4.0 Task 8: the week's nudge leads the ranked reply.
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
+  // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
+  if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
+    return paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
@@ -712,8 +719,9 @@ export function benchReply(v: BenchView): string {
  * v3.1 GTM W3: whether a ranked reply carries the money line with the upcoming program in it (rankedReply's last
  * branch, no qualify steps), so the upcoming line is claimed only when it is really said. Pure.
  */
-export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'moment' | 'handle' | 'post' | 'qualify'>): boolean {
+export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'moment' | 'handle' | 'post' | 'qualify' | 'nudgeOwns'>): boolean {
   if (v.held) return true;
+  if (v.nudgeOwns) return false;
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
