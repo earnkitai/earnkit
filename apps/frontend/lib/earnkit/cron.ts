@@ -4,6 +4,8 @@ import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } 
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { digestEnabled, sendDigests, type Mailer } from './digest';
+import { gasAlerts, ownerGasMail } from './owner-mail';
+import { safeWatch, type SafeWatchDeps } from './safe-watch';
 import { usageChecks, type UsageDeps } from './events';
 import { cleanDeploys, expireSites, sitesInReview } from './hosting';
 import { bearerMatches, json } from './http';
@@ -18,6 +20,7 @@ import {
   TERMS_CHANGED,
   fromTerms,
   needsOwner,
+  payoutAccount,
   payCampaign,
   sameTerms,
   termsOf,
@@ -116,6 +119,10 @@ export type CronDeps = {
   contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
   /** v3.1 Used by: the step's Alchemy calls, CDP fetch and builders (tests); with `only`, the step runs only when given. */
   usedBy?: { callFor?: (network: string) => AlchemyCall; fetch?: typeof fetch; only?: number[]; limit?: number };
+  /** v4 Task 12: the Safe watch's reads, price and mailer (tests); with `only`, the step runs only when given. */
+  safeWatch?: SafeWatchDeps;
+  /** v4 Task 12: the gas-low email's mailer (tests); with `only`, the gas emails go only when given. */
+  ownerMail?: Mailer;
 };
 
 /** v3.1 Highlights fix round 1: the Builder Codes step's time, at most a minute and never past the run's deadline. */
@@ -392,6 +399,16 @@ export async function runCron(
       digest = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v4 Task 12: one email to the owner when the Safe holds $5,000 or more (safe-watch.ts; two free reads and the cached price).
+  let safe: Awaited<ReturnType<typeof safeWatch>> | 'error' | undefined;
+  if (!opts.only || deps.safeWatch) {
+    try {
+      safe = await safeWatch(now, deps.safeWatch);
+    } catch (err) {
+      console.error('[cron] safe watch', err instanceof Error ? err.name : 'error');
+      safe = 'error';
+    }
+  }
   // v3.1 Highlights: the Builder Codes check for App-proven Base repos that are due (each at most one attempt a day,
   // at most BUILDER_CODES_PER_RUN a run), so the profile's item does not wait on the builder calling find or prepare.
   // After the weekly email (fix round 1: Monday's send is never squeezed) and within its own slice
@@ -495,6 +512,22 @@ export async function runCron(
   needs_owner.push(...needs_owner_extra);
   // v2.14 final fix 9: X sign-in and the GitHub App are hard prerequisites (full runs only; a scoped test run skips it).
   if (!opts.only) needs_owner.push(...missingPrerequisites());
+  // v4 Task 12: a gas line (the payout wallet's or the deployer's) also emails the owner, once a UTC day per line.
+  if (!opts.only || deps.ownerMail) {
+    let payout: string | null = null;
+    try {
+      payout = deps.bonus?.account?.address ?? payoutAccount(deps.bonus?.env)?.address ?? null;
+    } catch {
+      payout = null;
+    }
+    for (const a of gasAlerts(needs_owner, bonusGasLow(bonus), payout, deployEnabled() ? deployerAddress() : null)) {
+      try {
+        await ownerGasMail(a, now, deps.ownerMail);
+      } catch (err) {
+        console.error('[cron] gas mail', err instanceof Error ? err.name : 'error');
+      }
+    }
+  }
   return {
     now: now.toISOString(),
     campaigns,
@@ -503,6 +536,7 @@ export async function runCron(
     fee_wallets: fees,
     ...(hosting && { hosting }),
     ...(digest && { digest }),
+    ...(safe && { safe_watch: safe }),
     ...(cleanup && { cleanup }),
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),
     ...(usage && { usage_checks: usage }),
@@ -583,17 +617,20 @@ export async function deployerGas(now: Date, deps: Pick<DeployDeps, 'chain' | 'u
  * (v2.14: the near-end collect is gone). Pure.
  */
 export function bonusWaitsOnOwner(bonus: Record<string, unknown> | undefined) {
-  const gasOut = (results: unknown) =>
-    Array.isArray(results) && results.some((r) => String((r as { result?: unknown } | null)?.result ?? '').includes(NEEDS_GAS));
   return (
     needsOwner((bonus?.sweep as { result?: string } | undefined)?.result) ||
     Number(bonus?.index_failures ?? 0) >= INDEX_FAILED_RUNS ||
     // v2.13.2 review M3: the Safe index failing as many runs in a row.
     Number(bonus?.safe_index_failures ?? 0) >= INDEX_FAILED_RUNS ||
-    (bonus?.gas as { low?: boolean } | undefined)?.low === true ||
-    gasOut(bonus?.claim) ||
-    gasOut(bonus?.claim_others)
+    bonusGasLow(bonus)
   );
+}
+
+/** v4 Task 12: the gas part of bonusWaitsOnOwner (the payout wallet low on ETH, or a claim it couldn't pay gas for). Pure. */
+export function bonusGasLow(bonus: Record<string, unknown> | undefined) {
+  const gasOut = (results: unknown) =>
+    Array.isArray(results) && results.some((r) => String((r as { result?: unknown } | null)?.result ?? '').includes(NEEDS_GAS));
+  return (bonus?.gas as { low?: boolean } | undefined)?.low === true || gasOut(bonus?.claim) || gasOut(bonus?.claim_others);
 }
 
 /**

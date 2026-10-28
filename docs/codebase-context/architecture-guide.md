@@ -8233,3 +8233,13 @@ related, no row without data, every row links to proof).
 - `v4-retire.test.ts`: no human string under lib/earnkit or app says "coin" (SQL and log tags aside); tell coin no is
   the builder token's no; the tools expose no confirm.
 
+
+## v4 Task 12: the owner's Safe and gas emails
+
+- `safe-watch.ts safeWatch` runs in `runCron` after the weekly email (step `safe_watch`; no new cron). The Safe's WETH
+  and ETH on Base (bonusRpc, BASE_RPC_URL) priced with `cachedWethUsd`; at $5,000 or more one email to CONTACT_EMAIL
+  ("Your Safe holds $5,240", the Safe swap link, "send the USDC to your Coinbase account"), idempotency key
+  `safe_5k:<date>`. `owner_alerts` (kind, state, at): 'safe_5k' is 'sent' until a run sees it below ('below' re-arms).
+  No price, a failed read, no RESEND_API_KEY or a failed send leave the state unchanged ('skipped').
+- The gas lines of needs_owner ('bonus-ledger' when `bonusGasLow`, each 'deployer-gas:<chain>') also email the owner,
+  at most once a UTC day per line (`owner_alerts` 'gas:<line>', state = the date); the needs_owner lines stay.

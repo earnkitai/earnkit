@@ -2079,3 +2079,11 @@ CREATE TABLE IF NOT EXISTS builder_tokens (
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- v4 Task 12 (2026-10-28): the owner's emails (owner-mail.ts). 'safe_5k': 'sent' once the Safe crossed $5,000 (mailed),
+-- 'below' re-arms it; 'gas:<needs_owner line>': the UTC date (YYYY-MM-DD) that line last mailed (at most once a day).
+CREATE TABLE IF NOT EXISTS owner_alerts (
+  kind  text PRIMARY KEY,
+  state text,
+  at    timestamptz
+);

@@ -1412,6 +1412,13 @@ apps/frontend/
                                excluded; wonUsdSql shared with readWonUsd), wonLine (re-exported from
                                pool.ts), readWonUsd (10-minute in-process cache, 0 on error), wonSource
                                (list_programs' seam; fixtures/no-network-checks pins it to 0)
+    owner-mail.ts              v4 Task 12: the owner's emails over digest.ts resendMailer, to CONTACT_EMAIL from
+                               DIGEST_FROM_DEFAULT: ownerMail (no-op without RESEND_API_KEY), gasAlerts (the
+                               needs_owner gas lines with their wallets), ownerGasMail (once a UTC day per line,
+                               owner_alerts 'gas:<line>')
+    safe-watch.ts              v4 Task 12: safeWatch (cron step safe_watch): the Safe's WETH + ETH on Base at
+                               cachedWethUsd; >= $5,000 mails once per crossing (owner_alerts 'safe_5k' sent/below)
+                               with SAFE_SWAP_URL; no price, a failed read or send: skipped (v4-safe-watch.test.ts)
     digest.ts(+test)           v2.9 E19 (Task 10): the weekly email. digestEnabled (RESEND_API_KEY),
                                DIGEST_FROM_DEFAULT/DIGEST_FROM, EMAIL_QUESTION/EMAIL_NOTE/EMAIL_REASK_DAYS,
                                DIGEST_HOUR_UTC 16, weekStart (Monday 16:00 UTC), digestDue (P17), digestBody
