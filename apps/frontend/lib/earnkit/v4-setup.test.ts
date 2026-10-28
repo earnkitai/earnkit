@@ -288,10 +288,12 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
-  // A declined builder never sees the token sentence again, and "launch my token" keeps the no.
+  // A declined builder never sees the token sentence again; only their own "launch my token" (v4.2) reverses the no.
   assert.equal(await walletSetupToken(p.id), false);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Your token stays off, like you asked.');
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), 'Your token is off. Want it on? Say launch my token.');
   assert.equal(p.tf.calls.length, 0);
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
+  assert.equal(p.tf.calls.length, 1);
 });
 
 test('(e) a wallet change after the launch deploys nothing; a declined builder\'s later proof deploys nothing', db, async () => {
@@ -344,9 +346,9 @@ test('(g) "launch my token" with a proven wallet and no row launches; asked agai
   // A wallet proven before tokens were on (no launch then).
   await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${hex(20)}`}, ${p.id}, now())`;
   const yes = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
-  assert.equal(yes, 'Done. Your token is live.');
+  assert.match(yes, /^Done\. Your token is live: https:\/\/app\.uniswap\.org\//);
   assert.equal(await tokenRow(p.id), 'launched');
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Your token is already live.');
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Your token is live: https:/);
   assert.equal(p.tf.calls.length, 1);
   for (const s of [yes]) assert.doesNotMatch(s, /coin/i);
   // Without a wallet: the wallet link.

@@ -6,6 +6,7 @@ import {
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
 import { COIN_PROGRAM } from './policy-constants';
 import { builderToken, builderTokensOn } from './builder-token';
+import { tokenAnswerFor } from './token-answers';
 
 /** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
 export const FEE_WALLET_QUIET_DAYS = 7;
@@ -145,6 +146,21 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
 }
 
 /**
+ * v4.2: after a reward wallet signed, the token's state in the same reply: live (with the trade link and the page),
+ * or on its way. Null when the builder has no token row (declined or never offered). Never throws.
+ */
+async function signedTokenLine(builderId: number, now: Date): Promise<string | null> {
+  try {
+    const t = await builderToken(builderId);
+    if (!t || t.status === 'declined') return null;
+    return await tokenAnswerFor(builderId, now, { justLaunched: t.status === 'launched' });
+  } catch (err) {
+    logged('signed token')(err);
+    return null;
+  }
+}
+
+/**
  * The builder's answer to the wallet step or the change link (bench-find.ts benchMoveUp: move_up kind 'wallet', or
  * the stored ask). Answered by the state, not the stored ask: no link given (or answered already): "Okay.". A yes with a
  * wallet proven since the link: done (the recipient's short wallet, or contracts only); a yes before the signature: a
@@ -170,7 +186,8 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
   const got = await provenSince(builderId, new Date(p.at)).catch(logged('proven'));
   if (got) {
     if (!(await end()).length) return okay;
-    if (got.recipient) return { show_to_builder: walletDone(shortWallet(got.wallet)) };
+    const token = got.recipient ? await signedTokenLine(builderId, now) : null;
+    if (got.recipient) return { show_to_builder: [walletDone(shortWallet(got.wallet)), token].filter(Boolean).join('\n\n') };
     const current = await provenWallet(builderId);
     return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet)) };
   }

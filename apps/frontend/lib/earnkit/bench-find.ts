@@ -54,7 +54,8 @@ import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken } from './wallet-offer';
-import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
+import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
+import { TOKEN_OFF, tokenAnswerFor } from './token-answers';
 import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
@@ -1476,17 +1477,15 @@ async function walletStep(id: number, now: Date): Promise<Record<string, unknown
 }
 
 /** v4.0 "launch my token": each launch result in plain words (never "coin"). */
-export const TOKEN_LIVE = 'Done. Your token is live.';
-export const TOKEN_ALREADY_LIVE = 'Your token is already live.';
 export { TOKEN_ON_ITS_WAY };
-export const TOKEN_STAYS_OFF = 'Your token stays off, like you asked.';
+export const TOKEN_STAYS_OFF = TOKEN_OFF;
 export const TOKEN_TRY_LATER = "That didn't go through this time. Ask me again in a few minutes.";
 export const TOKEN_CANT = "I can't set up a token for this account. Reach out at j@earnkit.com.";
-/** v4.0: a launch result's reply line (null: not ready, the caller decides). Pure. */
-export function tokenLine(r: LaunchResult): string | null {
+/** v4.0: a launch result's reply line (null: not ready, the caller decides). v4.2: a launch names the trade link, and the page when known. Pure. */
+export function tokenLine(r: LaunchResult, page: string | null = null): string | null {
   switch (r.result) {
-    case 'launched': return TOKEN_LIVE;
-    case 'exists': return r.status === 'launched' ? TOKEN_ALREADY_LIVE : r.status === 'declined' ? TOKEN_STAYS_OFF : TOKEN_ON_ITS_WAY;
+    case 'launched': return `Done. Your token is live: ${tradeUrl(r.coin_address)}${page ? `\nIt's on your page too: ${page}` : ''}`;
+    case 'exists': return r.status === 'declined' ? TOKEN_STAYS_OFF : r.status === 'launched' ? null : TOKEN_ON_ITS_WAY;
     case 'unknown': return TOKEN_ON_ITS_WAY;
     case 'busy': case 'ticker_check_down': case 'released': return TOKEN_TRY_LATER;
     case 'x_taken': case 'no_ticker': return TOKEN_CANT;
@@ -1577,27 +1576,24 @@ async function setupAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
   const token = (await tokenOffered(id)) && (await builderToken(id).catch(() => null)) === null;
   return token ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
 }
-/** v4.0 Task 11 fix round 1: an old agent's token 'ask' with no token yet: the offer (its yes launches it). */
-export const TOKEN_NOT_YET = "You don't have a token yet. Want me to launch it?";
+/** v4.0 Task 11 fix round 1: the stored ask that a builder's yes to the token launches (kind 'token'). */
 export const TOKEN_ASK_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'token', project_key: null, answer }. Don't show this note.";
 /**
- * v4.0 Task 11 fix round 1: an old agent's tell token 'ask' answers the builder token's status and never launches one:
- * live, kept off, or on its way; no token and setup step 3 due: step 3's reply; no token otherwise: the offer, stored as
- * the Bench's ask (kind 'token', so the next yes launches it). Tokens off with no row: "Okay.". Never throws.
+ * v4.2 Task 1: tell token 'ask' ANSWERS the builder's token question and never launches one (only the builder's own
+ * yes, tell move_up kind 'token', does): live (the trade link and what it earns), kept off, on its way, or no token yet
+ * (what it is, and how it goes live). Setup step 3 due and not yet shown: step 3's reply. It stores no ask and adds no
+ * question of its own, so an open step 3 keeps its one question. Tokens off with no row: "Okay.". Never throws.
  */
 export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   try {
-    const t = await builderToken(id);
-    if (t) return { show_to_builder: t.status === 'launched' ? TOKEN_ALREADY_LIVE : t.status === 'declined' ? TOKEN_STAYS_OFF : TOKEN_ON_ITS_WAY };
-    if (await walletSetupDue(id, now)) {
+    if (!(await builderToken(id)) && (await walletSetupDue(id, now))) {
       const step = await walletStep(id, now);
       if (step) return step as Reply;
     }
-    if (!builderTokensOn()) return { show_to_builder: NOTED_LINE };
-    await storeAsk(id, { kind: 'token', key: null, at: now.toISOString() });
-    return { show_to_builder: TOKEN_NOT_YET, move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
+    if (!builderTokensOn() && !(await builderToken(id))) return { show_to_builder: NOTED_LINE };
+    return { show_to_builder: await tokenAnswerFor(id, now) };
   } catch (err) {
     logged('token ask')(err);
     return { show_to_builder: NOTED_LINE };
@@ -1623,9 +1619,15 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
   try {
     if (answer === 'no') {
       const r = await declineBuilderToken(id);
-      return { show_to_builder: r === 'launched' ? TOKEN_ALREADY_LIVE : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
+      return { show_to_builder: r === 'launched' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
     }
+    // v4.2: the builder's own yes after a no reopens it (the automatic paths never reach here with a declined row).
+    if (builderTokensOn()) await reopenDeclinedToken(id);
     const r = await launchBuilderToken(id, ctx.builderTokenDeps ?? {});
+    if (r.result === 'launched' || r.result === 'exists') {
+      const t = await builderToken(id);
+      if (t) return { show_to_builder: await tokenAnswerFor(id, now, { justLaunched: r.result === 'launched' }) };
+    }
     const line = tokenLine(r);
     if (line) return { show_to_builder: line };
     if (!(await provenWallet(id))) return walletChangeReply(id, now);

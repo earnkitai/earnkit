@@ -9,7 +9,8 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { humanStrings, humanTextFiles } from './human-text';
 import { COACH_NOTES, tools } from './tools';
-import { TOKEN_ALREADY_LIVE, TOKEN_LIVE, TOKEN_NOT_YET, TOKEN_ON_ITS_WAY, TOKEN_STAYS_OFF } from './bench-find';
+import { TOKEN_ON_ITS_WAY } from './bench-find';
+import { TOKEN_EXPLAINER, TOKEN_OFF } from './token-answers';
 import { NOTED_LINE } from './stand-text';
 import { randomBytes } from 'node:crypto';
 
@@ -89,9 +90,13 @@ async function withWallet(tag: string) {
 }
 const setRow = (id: number, status: string) =>
   sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${id}, x_user_id, ${status} FROM builder_profiles WHERE builder_id = ${id}`;
+/** The Bench's stored token offer (what the v4.0 'ask' used to store; Task 6 stores it again). */
+const storeTokenAsk = (id: number) =>
+  sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"token","key":null}}'::jsonb WHERE builder_id = ${id}`;
+const LIVE = /^Done\. Your token is live: https:\/\/app\.uniswap\.org\/swap\?chain=base&outputCurrency=0x[0-9a-f]{40}/;
 const storedAsk = async (id: number) => (await sql()<{ k: string | null }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${id}`)[0]?.k ?? null;
 
-test('(b) an old agent\'s tell coin no is the builder token\'s no only after the token offer; a declined builder is never sent the wallet link', db, () => launchesOn(async () => {
+test('(b) an old agent\'s tell coin no is the builder token\'s no only after the token offer; a later "launch my token" reopens it', db, () => launchesOn(async () => {
   // No stored token offer: an old coin no changes nothing ("Okay.").
   const a = await signedIn('a');
   const bare = await mcpCall(a.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
@@ -100,18 +105,19 @@ test('(b) an old agent\'s tell coin no is the builder token\'s no only after the
   assert.equal(await tokenRow(a.id), null);
   // After the builder token offer (tell token 'ask' stores it), an old coin no is the builder token's no.
   const p = await signedIn('n');
-  await mcpCall(p.ctx, 'tell', { token: 'ask' });
+  await storeTokenAsk(p.id);
   assert.equal(await storedAsk(p.id), 'token');
   const no = await mcpCall(p.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
   assert.equal(no.isError, false, no.text);
   assert.equal(await tokenRow(p.id), 'declined');
   assert.doesNotMatch(show(no), COIN);
-  // Fix round 1 (I1): declined, no wallet, "launch my token": the no stands, never the wallet link.
-  const launch = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
-  assert.equal(launch, TOKEN_STAYS_OFF);
-  assert.doesNotMatch(launch, /claim\/wallet|https:\/\//);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), TOKEN_STAYS_OFF);
+  // v4.2: declined, a question about it gets the off line; the builder's own "launch my token" reopens it (no wallet
+  // yet: the wallet link, and the first sign launches it).
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), TOKEN_OFF);
   assert.equal(await tokenRow(p.id), 'declined');
+  const launch = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
+  assert.match(launch, /claim\/wallet/);
+  assert.equal(await tokenRow(p.id), null);
   // An old backing switch changes nothing and says nothing about a coin.
   const raising = await mcpCall(p.ctx, 'tell', { coin: { raising: true } });
   assert.equal(raising.isError, false, raising.text);
@@ -126,27 +132,29 @@ test('(b) an old agent\'s tell coin no is the builder token\'s no only after the
 
 test('(d) fix round 1: tell token \'ask\' only answers the token\'s status; it never launches one, in any state', db, () => launchesOn(async () => {
   // Each existing row: its status, no call to tokens.fun, the row unchanged.
-  for (const [status, line] of [['launched', TOKEN_ALREADY_LIVE], ['declined', TOKEN_STAYS_OFF], ['launching', TOKEN_ON_ITS_WAY], ['unknown', TOKEN_ON_ITS_WAY]] as const) {
+  for (const [status, line] of [['launched', /^Your token is live: https:/], ['declined', new RegExp(`^${TOKEN_OFF}$`)], ['launching', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)], ['unknown', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)]] as const) {
     const b = await withWallet(`d${status.slice(0, 3)}`);
     await setRow(b.id, status);
+    if (status === 'launched') await sql()`UPDATE builder_tokens SET coin_address = ${`0x${'ab'.repeat(20)}`}, symbol = 'ABC', wallet = ${`0x${'cd'.repeat(20)}`} WHERE builder_id = ${b.id}`;
     const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
     assert.equal(r.isError, false, r.text);
-    assert.equal(show(r), line, status);
+    assert.match(show(r), line, status);
     assert.equal(b.tf.calls.length, 0, status);
     assert.equal(await tokenRow(b.id), status);
   }
-  // No token, a wallet proven (step 3 not due): the offer, stored as the ask; nothing launched until the yes.
+  // No token, a wallet proven (step 3 not due): the explainer; nothing asked or launched until the builder's yes.
   const b = await withWallet('dnone');
   const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(r), TOKEN_NOT_YET);
-  assert.equal(r.reply?.move_up && (r.reply.move_up as { kind: string }).kind, 'token');
+  assert.equal(show(r), TOKEN_EXPLAINER);
+  assert.equal(r.reply?.move_up, undefined);
   assert.equal(b.tf.calls.length, 0);
   assert.equal(await tokenRow(b.id), null);
-  assert.equal(await storedAsk(b.id), 'token');
+  assert.equal(await storedAsk(b.id), null);
   assert.doesNotMatch(show(r), COIN);
-  // The following yes (move_up, or kindless) launches it.
+  // The builder's own yes (move_up kind token, or kindless after a stored offer) launches it.
+  await storeTokenAsk(b.id);
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } });
-  assert.equal(show(yes), TOKEN_LIVE, yes.text);
+  assert.match(show(yes), LIVE, yes.text);
   assert.equal(b.tf.calls.length, 1);
   assert.equal(await tokenRow(b.id), 'launched');
   // No token and setup step 3 due (GitHub no, no wallet yet): step 3's reply, no launch.
@@ -174,15 +182,15 @@ test('(e) fix round 1: an old coin yes (tell coin, or move_up kind coin) launche
   assert.equal(a.tf.calls.length, 0);
   // The token offer stored (tell token 'ask'): the old coin yes launches it.
   const b = await withWallet('eb');
-  await mcpCall(b.ctx, 'tell', { token: 'ask' });
+  await storeTokenAsk(b.id);
   assert.equal(b.tf.calls.length, 0);
-  assert.equal(show(await mcpCall(b.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'yes' } })), TOKEN_LIVE);
+  assert.match(show(await mcpCall(b.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'yes' } })), LIVE);
   assert.equal(b.tf.calls.length, 1);
   assert.equal(await tokenRow(b.id), 'launched');
   // move_up kind coin after the offer: the same.
   const c = await withWallet('ec');
-  await mcpCall(c.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(await mcpCall(c.ctx, 'tell', { move_up: { kind: 'coin', project_key: null, answer: 'yes' } })), TOKEN_LIVE);
+  await storeTokenAsk(c.id);
+  assert.match(show(await mcpCall(c.ctx, 'tell', { move_up: { kind: 'coin', project_key: null, answer: 'yes' } })), LIVE);
   assert.equal(c.tf.calls.length, 1);
   // Setup step 3 with the token sentence (wallet_setup and token_offered): an old coin no is the token's no.
   const d = await withWallet('ed');
