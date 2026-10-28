@@ -8194,3 +8194,14 @@ related, no row without data, every row links to proof).
   Contracts are off without `ALCHEMY_API_KEY`. Alchemy cost per builder a day: at most 10 x 5 transfer pages, one
   funding page per proven wallet and chain, two eth_calls per uncounted source.
 
+## v4.0 Task 8: weekly nudges (nudges.ts)
+
+- At most one nudge per ISO week, claimed in `standing_seen.nudge_week` (the week's Monday) with one guarded UPDATE.
+  Preference: accepted or funded (the verified outcome post's link, once a program; a congratulation drafted this week
+  counts as the week's nudge and is not repeated), a users milestone crossed this week (10, 100, 1000 from `app_usage`,
+  once ever), a program closing within 3 days with a confirmed unsubmitted entry (the draft), nothing shipped by Friday
+  (Friday to Sunday UTC, streak 2 or more).
+- Only a ranked reply leads with it (`bench-find.ts benchView`, `bench-reply.ts benchReply`); the Monday block, post
+  offers, connect, setup step 3, the setup-done reply and held questions lead instead and the nudge waits unclaimed.
+- `stand-view.ts takeNews` keeps `nudge_week`, `nudge_users`, `nudge_outcomes` when it rewrites `standing_seen`.
+

@@ -97,7 +97,9 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
             -- v3.1 cold read: the welcome said, the standing line, the weekly points line and the backers last shown, a live app's GitHub no.
             'welcomed', 'status_seen', 'nag_week', 'backers_seen', 'github_no_app', 'lovable_prompt', 'coin_wallet_wait', 'qualify_known',
             -- v3.1 answerable replies: the day the connect step's full pitch was shown.
-            'pitch_day']) k WHERE standing_seen ? k),
+            'pitch_day',
+            -- v4.0 Task 8: the week's nudge and what nudges remember (once-ever milestones and outcomes).
+            'nudge_week', 'nudge_users', 'nudge_outcomes']) k WHERE standing_seen ? k),
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

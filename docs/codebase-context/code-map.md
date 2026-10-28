@@ -1749,6 +1749,15 @@ apps/frontend/
                                done this week; L10: voice 'page' for the profile, v3.1 F4: the rank only, never points: "Ship code this week to pass #2.",
                                page voice "Code this week passes #2."; shortOf stays exported, unused by copy), weekStartLine ("This week starts at Shipping S: ...") (the moment's "This week starts empty: ..." line), poolPlace
                                (benchPool: rank, and the score and rank just above), targetIn / targetFor (never throw)
+    nudges.ts                  v4.0 Task 8 (approved copy 6): takeNudge / nudgeFor(builderId, now, { project, best }): at most one
+                               nudge an ISO week (standing_seen.nudge_week = its Monday, one guarded UPDATE). Order: accepted or
+                               funded (an unexpired, untapped verified post_drafts outcome, once a program in nudge_outcomes; one
+                               drafted this week is the week's nudge, no line), a users milestone 10/100/1000 crossed this week
+                               (app_usage, once ever: nudge_users), a confirmed unsubmitted entry closing within DEADLINE_DAYS
+                               ("closes Friday" / "today"), nothing shipped Friday to Sunday UTC with a streak of 2+ (streaksFor).
+                               bench-find.ts benchView leads a ranked reply with it (BenchView.nudge), never with a held question,
+                               setup step 3, the Monday block, a post offer or connect; the closing nudge drops that reply's deadline line.
+                               Test: v4-nudges.test.ts.
     weekly-moment.ts(+test)    launch ready L6: momentLines ("Last week you finished at Shipping 72 (+6), #3 (up 2)." + up to 2
                                titles + weekStartLine), momentReady (row checked or Monday 15:00 UTC passed), titleHasLink,
                                shareText, shareLink (page-data shareIntentText), lastWeekOf (builder_scores' last ranked day

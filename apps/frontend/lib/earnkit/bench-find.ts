@@ -48,6 +48,7 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
+import { takeNudge } from './nudges';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
   type ConnectBest,
@@ -798,8 +799,15 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
 
   // 2026-10-23 (owner): a program that isn't open is never a reply line (nothing to do with it); it shows once it opens.
 
+  // v4.0 Task 8: at most one nudge a week, leading a ranked reply only (never setup, the setup-done reply, the Monday
+  // block or a post offer: those lead, and the nudge waits unclaimed). The closing nudge says the deadline line's news.
+  const nudge = state === 'ranked' && project && !held && !walletSetup && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind)
+    ? await takeNudge(id, now, { project: project.name, best: best && realFit(best) ? best.title : null })
+    : null;
+
   const view: BenchView = {
-    state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
+    state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: nudge?.kind === 'closing' ? [] : o.due,
+    nudge: nudge?.line ?? null,
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
     noGithub, ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
   };

@@ -540,6 +540,8 @@ export type BenchView = {
   liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
   /** v3.1 answerable replies (spec 6): the connect step's full pitch was shown today: this one is short (pickRepoAgain). */
   pitched?: boolean;
+  /** v4.0 Task 8: this week's nudge (nudges.ts takeNudge), its own paragraph leading a ranked reply. */
+  nudge?: string | null;
   /** v4.0 Task 5: the setup-done reply (setupDoneReply), said once in place of the state's reply. */
   setupDone?: string;
 };
@@ -701,7 +703,9 @@ export function benchReply(v: BenchView): string {
     // GTM W2: a link-only project's step 2 (Lovable, Bolt) names the account too.
     return paras(hi, [v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due, ask]);
   }
-  return notice ? paras([notice]) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
+  // v4.0 Task 8: the week's nudge leads the ranked reply.
+  const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
+  return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
 /**
