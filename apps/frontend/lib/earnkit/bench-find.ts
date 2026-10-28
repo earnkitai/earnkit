@@ -1002,6 +1002,10 @@ export function localReportOf(local: unknown, main: string): { onBase: boolean; 
   return { onBase, live: typeof e.live_url === 'string' && /^https:\/\//i.test(e.live_url) };
 }
 
+/** v4.2 Task 4 (F6): the lead for a program id; the repo rides only when it is the first fit's own program. Pure. */
+const leadOf = (program_id: string, first: Fit): { program_id: string; repo?: string } =>
+  program_id === first.program_id ? { program_id, repo: first.repo } : { program_id };
+
 /**
  * find: the three parts in one of the four states (R16a), the one project's proof in the same turn
  * (plan B3) and news since the last look (a statement line above, no link and no question). A results
@@ -1095,7 +1099,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     // O5 (P8): the earn note names lead.program_id, so only with a lead.
     note: [ANSWER_FIRST_NOTE, lead ? EARN_NOTE : null].filter(Boolean).join(' '),
     ...fields,
-    ...(leadFit && !submit && !taken && { lead: { program_id: leadFit.program_id, repo: leadFit.repo } }),
+    // v4.2 Task 4 (F6): the lead is the money line's program (view.best, the applyCandidates pick), never a second rule.
+    ...(leadFit && !submit && !taken && { lead: leadOf(view.best?.program_id ?? leadFit.program_id, leadFit) }),
     ...(submit && { lead: { program_id: submit.card.id, step: 'submit', ...(submit.entry.id !== undefined && { project_id: submit.entry.id }) } }),
   };
 }
@@ -1139,7 +1144,7 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
     show_to_builder: [signedIn, walletNews, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,
     note: [ANSWER_FIRST_NOTE, leadFit && view.variant !== 'taken' ? EARN_NOTE : null].filter(Boolean).join(' '),
-    ...(leadFit && view.variant !== 'taken' && { lead: { program_id: leadFit.program_id } }),
+    ...(leadFit && view.variant !== 'taken' && { lead: { program_id: view.best?.program_id ?? leadFit.program_id } }),
   };
 }
 

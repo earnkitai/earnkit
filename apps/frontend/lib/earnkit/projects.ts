@@ -390,9 +390,19 @@ type OwnEntry = {
  */
 async function ownEntry(
   q: postgres.Sql | postgres.TransactionSql,
-  k: { programId: string; installationId: number; repoUrl: string | null; name: string },
+  k: { programId: string; installationId: number; repoUrl: string | null; name: string; entryId?: number },
 ): Promise<OwnEntry | null> {
   const key = k.repoUrl ? normalizeRepoUrl(k.repoUrl) : null;
+  // v4.2 Task 4 (F7): the entry the caller already named (tell submitted found it) is this one, whatever repo or name
+  // the call carried; else a call missing the repo would miss the confirmed row and insert a second, "submitted" one.
+  const [byId] = k.entryId === undefined ? [] : await q<OwnEntry[]>`
+    SELECT id, token_url,
+      (coin_address IS NOT NULL OR token_status IN ('launched', 'pending')) AS earnkit_coin,
+      submission_proof_url, submission_proof_ok_at, submission_basis, submission_confirmed_at, confirm_choice,
+      creator_wallet
+    FROM projects
+    WHERE id = ${k.entryId} AND program_id = ${k.programId} AND installation_id = ${k.installationId} AND payout_wallet IS NULL`;
+  if (byId) return byId;
   const [row] = await q<OwnEntry[]>`
     SELECT id, token_url,
       (coin_address IS NOT NULL OR token_status IN ('launched', 'pending')) AS earnkit_coin,
@@ -567,6 +577,8 @@ export async function recordSubmission(
     verified?: KnownInfo['verified'];
     /** The program row, when the caller already read it (record_submission); else read here. */
     program?: ProgramRow;
+    /** v4.2 Task 4 (F7): the existing entry this call is about (tell submitted found it); ownEntry reads it first. */
+    entryId?: number;
     /**
      * v2.9 B9 (fix round 2): false on a shared client: the wallet given is not kept on the entry
      * here (the entry may be another builder's); the token flow keeps it once its gate passed.
@@ -618,7 +630,7 @@ export async function recordSubmission(
   // Fix round 1 (Ruling 23, I1): outside campaigns, the same installation recording the same
   // project again in this program (same normalized repo, or the same name without a repo) updates
   // its entry instead of adding a second one, so a late confirmation lands on the row with the coin.
-  const sameEntryKey = { programId: program.id, installationId, repoUrl: repo_url ?? null, name };
+  const sameEntryKey = { programId: program.id, installationId, repoUrl: repo_url ?? null, name, ...(deps.entryId !== undefined && { entryId: deps.entryId }) };
 
   // v2.14: there is no builder bonus, so an entry's submission basis is never judged here (an existing
   // entry keeps what it has). The repo key old entries were matched on (kept for the stored rows).

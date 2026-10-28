@@ -173,6 +173,8 @@ export type ToolContext = {
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
+  /** v4.2 Task 4 (F7): set by tell submitted: the existing entry record_submission updates (never a second row). */
+  entryId?: number;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -1609,6 +1611,7 @@ export const handlers = {
       // v2.9 B9 (fix round 2): a shared client keeps a wallet on an entry only once the gate passed.
       keepWallet: !ctx.sharedClient,
       ...ctx.entryDeps,
+      ...(ctx.entryId !== undefined && { entryId: ctx.entryId }),
       charge: () =>
         enforce(
           'recordSubmission',
@@ -2512,12 +2515,20 @@ async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submi
   // Rulings G7, G9 (fix round 1, I2): on a shared client nothing is written or read (no verified caller).
   if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
-  if (s.project_id === undefined && s.project)
-    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
+  if (s.project_id === undefined && s.project) {
+    // v4.2 Task 4 (F7): an old call carries a project, maybe without the repo the confirmed entry has: the entry of that
+    // name in this program is the one (newest first), so it is updated and no second row is made.
+    const nm = typeof s.project.name === 'string' ? s.project.name : '';
+    const [named] = await sql()<{ id: number }[]>`
+      SELECT id FROM projects WHERE installation_id = ${ctx.installationId} AND program_id = ${s.program_id}
+        AND payout_wallet IS NULL AND lower(name) = lower(${nm})
+      ORDER BY submitted_at DESC, id DESC LIMIT 1`;
+    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, named ? { ...ctx, entryId: named.id } : ctx);
+  }
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
   if (!entry && s.project_id === undefined) return appliedOutside(s.program_id, ctx);
   if (!entry) throw new NotFoundError(`No entry ${s.project_id} in ${s.program_id} for this agent.`);
-  return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
+  return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, { ...ctx, entryId: entry.id });
 }
 
 /** GTM W2: "I sent it" for a drafted application (no entry here): saved as applied, the program's outcome asked later. */

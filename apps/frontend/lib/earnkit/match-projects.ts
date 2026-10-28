@@ -1144,7 +1144,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     claimed,
     reported: ctx.local?.contracts ?? [],
     finish: async ({ live, deployed, unchecked, withCode, tx_count, used_tx }) => {
-      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) }, used_tx, base.claims.includes('users'));
+      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) }, used_tx, base.claims.includes('users'), { saidNoUsers: ctx.said?.has_users === false, saidUsers: ctx.said?.has_users === true });
       await save({ traction: product.traction, odds: product.odds });
       const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
@@ -1156,7 +1156,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  * v2.10 item 6: a product score with its traction and odds (productOdds). v2.10.1 B2: measured real
  * use makes it a product first (withRealUse), so polish never outweighs use. Pure.
  */
-function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean, hidden: { ownerHidden?: boolean; saidNoUsers?: boolean } = {}): Product {
+function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean, hidden: { ownerHidden?: boolean; saidNoUsers?: boolean; saidUsers?: boolean } = {}): Product {
   const score = traction(t);
   // v2.10.1 (C1 b): the builder's users claim is real use once the live link loads and there is a commit in 90 days.
   // v2.11 8a: on a repo GitHub hides, an active repo (last commit in 90 days, or no date sent, Ruling
@@ -1198,7 +1198,7 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
         { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) },
         used_tx,
         facts.claims.includes('users'),
-        { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false },
+        { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false, saidUsers: ctx.said?.has_users === true },
       );
       const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo, verdicts: matchRepo(repo, programs) };
