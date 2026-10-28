@@ -142,14 +142,15 @@ test('(d) fix round 1: tell token \'ask\' only answers the token\'s status; it n
     assert.equal(b.tf.calls.length, 0, status);
     assert.equal(await tokenRow(b.id), status);
   }
-  // No token, a wallet proven (step 3 not due): the explainer; nothing asked or launched until the builder's yes.
+  // No token, a wallet proven (step 3 not due; v4.2 Task 6: an earlier builder, never offered): the explainer and the
+  // one-time offer question, stored as the ask; nothing launched until the builder's yes.
   const b = await withWallet('dnone');
   const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(r), TOKEN_EXPLAINER);
-  assert.equal(r.reply?.move_up, undefined);
+  assert.equal(show(r), `${TOKEN_EXPLAINER}\n\nWant it live? Rather skip it? Just say no.`);
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'token');
   assert.equal(b.tf.calls.length, 0);
   assert.equal(await tokenRow(b.id), null);
-  assert.equal(await storedAsk(b.id), null);
+  assert.equal(await storedAsk(b.id), 'token');
   assert.doesNotMatch(show(r), COIN);
   // The builder's own yes (move_up kind token, or kindless after a stored offer) launches it.
   await storeTokenAsk(b.id);

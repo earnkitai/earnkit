@@ -31,7 +31,9 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   /** v4.0 Task 8 fix round 1: the accepted nudge's share ask (its yes: the post's link). */
   | 'outcome_share'
   /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */
-  | 'wallet_setup';
+  | 'wallet_setup'
+  /** v4.2 Task 6: `token`, the one-time token offer for a builder who set up before v4 (a wallet, no token row, never offered). */
+  | 'token';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -205,6 +207,13 @@ export const TOKEN_SENTENCE =
   "Once you sign, your token goes live so people who believe in your work can back it, and 40% of every trade's fee goes straight to you. Rather skip the token? Just say no.";
 /** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
 export const TOKEN_NO_LINE = 'Got it.';
+/**
+ * v4.2 Task 6 (F11): the one-time token offer for an earlier builder with a proven wallet and no token row. The lead is a
+ * statement; the question ends the reply (and follows the explainer when the builder asked about their token).
+ */
+export const TOKEN_OFFER_LEAD = "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you.";
+export const TOKEN_OFFER_QUESTION = 'Want it live? Rather skip it? Just say no.';
+export const TOKEN_OFFER = `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`;
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
 /**
@@ -573,6 +582,8 @@ export function stateAsk(
     noGithub?: boolean;
     /** v4.0: setup step 3 is due (wallet-offer.ts walletSetupDue): its link, the project it names, the token sentence. */
     walletSetup?: { link: string; project: string | null; token: boolean } | null;
+    /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
+    tokenOffer?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -616,6 +627,8 @@ export function stateAsk(
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
   if (v.state === 'ranked' && v.wallet) return { kind: 'wallet', project_key: key, line: walletOffer(v.wallet) };
+  // v4.2 Task 6: the one-time token offer for an earlier builder (a wallet, no token row), before the lighter nudges.
+  if (v.state === 'ranked' && v.tokenOffer) return { kind: 'token', project_key: null, line: TOKEN_OFFER };
   // 2026-10-23: a main project quiet for STALE_WEEKS: one light nudge to connect the new one.
   if (v.state === 'ranked' && v.newRepo) return { kind: 'new_repo', project_key: key, line: NEW_REPO_ASK };
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
@@ -699,7 +712,7 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
-  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'new_repo') return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'token' || v.ask.kind === 'new_repo') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
 
@@ -729,7 +742,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipLine(null) : null]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
-  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
+  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'token' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
   // Owner test 2026-10-23: no grant hook above the question ("...pay up to $5,000..." then "...Base's $5,000 grant?"

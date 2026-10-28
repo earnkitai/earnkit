@@ -7,6 +7,7 @@ import { provenSince, provenWallet, walletLink } from './wallet-proof';
 import { COIN_PROGRAM } from './policy-constants';
 import { builderToken, builderTokensOn } from './builder-token';
 import { tokenAnswerFor } from './token-answers';
+import { testInstallationIds } from './installations';
 
 /** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
 export const FEE_WALLET_QUIET_DAYS = 7;
@@ -131,6 +132,41 @@ export async function walletSetupToken(builderId: number): Promise<boolean> {
     logged('setup token')(err);
     return false;
   }
+}
+
+/**
+ * v4.2 Task 6 (F11): the one-time token offer for a builder who set up before v4: tokens on, a claimed X account, a proven
+ * wallet, no builder_tokens row (a no is kept forever) and never offered (standing_seen.token_offered). Never for an owner
+ * test installation (EARNKIT_TEST_INSTALLATIONS, as the stats). Nothing is claimed here (takeTokenOffer). Never throws.
+ */
+export async function tokenOfferDue(builderId: number): Promise<boolean> {
+  if (!builderTokensOn()) return false;
+  try {
+    const ids = testInstallationIds();
+    const [p] = await sql()<{ due: boolean }[]>`
+      SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL
+        AND NOT COALESCE(standing_seen ? 'token_offered', false)
+        AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId})
+        AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId})
+        AND NOT (${builderId} = ANY(${ids}::int[]))
+        AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND i.id = ANY(${ids}::int[])) AS due
+      FROM builder_profiles WHERE builder_id = ${builderId}`;
+    return p?.due === true;
+  } catch (err) {
+    logged('token offer due')(err);
+    return false;
+  }
+}
+/** v4.2 Task 6: claims the token offer, once (one guarded UPDATE: token_offered, token_offer_legacy), when its reply carries it. Never throws. */
+export async function takeTokenOffer(builderId: number, now: Date): Promise<boolean> {
+  const [taken] = await sql()`
+    UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('token_offered', ${now.toISOString()}::text, 'token_offer_legacy', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'token_offered', false) RETURNING 1`.catch((err: unknown) => {
+    logged('take token offer')(err);
+    return [];
+  });
+  return Boolean(taken);
 }
 
 /**

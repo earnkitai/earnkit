@@ -116,10 +116,14 @@ test('no wallet and no step open: the explainer and a signing link; wallet prove
   assert.match(r, new RegExp(`^${TOKEN_EXPLAINER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n\\nSign with your wallet and it goes live: https://\\S+/claim/wallet\\S+$`));
   assert.equal(a.calls.length, 0);
   const w = await builder('wal', true);
+  // v4.2 Task 6: a wallet and never offered is the earlier builder: the explainer then the one-time offer question (stored as the ask).
   const q = await mcpCall(w.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(q), TOKEN_EXPLAINER);
-  assert.equal(q.reply?.move_up, undefined);
+  assert.equal(show(q), `${TOKEN_EXPLAINER}\n\nWant it live? Rather skip it? Just say no.`);
+  assert.equal((q.reply?.move_up as { kind: string }).kind, 'token');
+  assert.equal(await storedAsk(w.id), 'token');
   assert.equal(w.calls.length, 0);
+  // Already offered: the explainer alone, no second question.
+  assert.equal(show(await mcpCall(w.ctx, 'tell', { token: 'ask' })), TOKEN_EXPLAINER);
   assert.equal(await row(w.id), null);
 }));
 
