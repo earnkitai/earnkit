@@ -345,10 +345,11 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.ok(questions(r) <= 1, r);
   assert.doesNotMatch(r, /—/);
 
-  // The builder JSON carries Earned (v4.0 Task 11: no backing).
+  // The builder JSON carries Earned (v4.0 Task 11 fix round 1: `backing` stays, always null, so a parser doesn't break).
   const j = (await builderJson(b.handle, new Date()))!;
   assert.deepEqual(j.earned, { paid_usd: 200, waiting_usd: 500 });
-  assert.equal('backing' in j, false);
+  assert.equal('backing' in j, true);
+  assert.equal(j.backing, null);
 
   // Ranked with nothing earned: "$0", no waiting line, and no Earned in the reply.
   fees(0n);
@@ -381,7 +382,8 @@ test('(e) v4.0 Task 11: no backing anywhere, flag on or off (the stats keys stay
     assert.match(standLine(r), / · \$340 earned$/, r);
     assert.doesNotMatch(r, /backing|backers/i, r);
     const j = (await builderJson(b.handle, new Date()))!;
-    assert.equal('backing' in j, false);
+    assert.equal('backing' in j, true);
+    assert.equal(j.backing, null);
     assert.deepEqual(j.earned, { paid_usd: 340, waiting_usd: 0 });
     const s = await readStats(new Date());
     // The keys stay (jenil.ai reads them); always 0.

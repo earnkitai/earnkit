@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, legacyCoinAnswer, tokenAsk, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -564,13 +564,8 @@ export function plainRefusal(fixes: Fix[]): { ready: false; agent_fixes: Fix[]; 
   return { ready: false, agent_fixes: fixes.filter((f) => f.for === 'agent'), agent_note: PLAIN_NOTE };
 }
 
-/** v2.8.1 §C11: what the agent does with the wallet answer from the coach's round. */
-const WALLET_ANSWER_NOTE =
-  `Put the wallet the builder gives under answers.${WALLET_KEY} (a 0x address); if they have none yet, leave it out. ` +
-  'When they say yes to the offer, pass shown_wallet as wallet.';
-
 /** Every coach note for the agent (the copy review scans them). */
-export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES_NOTE, FIXES_NOTE, WALLET_ANSWER_NOTE };
+export const COACH_NOTES = { COACH_NOTE, QUESTIONS_NOTE, DRAFT_NOTE, AGENT_FIXES_NOTE, FIXES_NOTE };
 
 const ListProgramsInput = z
   .object({
@@ -1331,7 +1326,7 @@ export const handlers = {
           how_to_submit:
             'This is an EarnKit campaign: confirm is the entry; there is no other site. ' +
             `Commit ${OWNERSHIP_FILE} at the repo root (default branch) with the line "payout_wallet: <the payout wallet>" ` +
-            "in one commit, together with the token line if the builder keeps the token. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
+            "in one commit. Contracts count when they were deployed from the payout wallet, or from your own wallet if you pass deployer_signature: that wallet's EIP-191 signature (personal_sign) of sign_to_enter, which names this program, the repo, the payout wallet and the contracts (it appears once all are known; a changed contract list needs a new signature).",
           ...(sign_to_enter && { sign_to_enter }),
         }),
         ...(hosting && { host: hosting }),
@@ -2731,10 +2726,11 @@ export const tools = {
       // wallet they proved (used-by.ts verifyCodes, daily).
       if (builder_code !== undefined)
         replies.push({ show_to_builder: (await tellBuilderCode(ctx.installationId, builder_code.trim())) ? BUILDER_CODE_SAVED : BUILDER_CODE_INVALID });
-      // v4.0 Task 11: an older agent's token 'ask' ("launch my token") and coin { answer } (the retired per-project
-      // offer) are answered with the builder token, as tell move_up kind 'token'; coin { raising } changes nothing.
-      if (token === 'ask') replies.push(await benchMoveUp(ctx, { kind: 'token', project_key: null, answer: 'yes' }));
-      if (coin) replies.push(coin.answer ? await benchMoveUp(ctx, { kind: 'token', project_key: null, answer: coin.answer }) : { show_to_builder: NOTED_LINE });
+      // v4.0 Task 11 fix round 1: an older agent's token 'ask' answers the builder token's status, never launches
+      // (tokenAsk); coin { answer } (the retired per-project offer) launches or declines only when the stored ask is
+      // the builder token's offer (legacyCoinAnswer), else "Okay."; coin { raising } changes nothing.
+      if (token === 'ask') replies.push(await tokenAsk(ctx));
+      if (coin) replies.push((coin.answer && (await legacyCoinAnswer(ctx, coin.answer))) || { show_to_builder: NOTED_LINE });
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {
         const now = new Date();

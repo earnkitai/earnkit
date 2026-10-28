@@ -54,7 +54,7 @@ import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken } from './wallet-offer';
-import { builderToken, declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
+import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
 import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
@@ -1190,7 +1190,7 @@ const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', '
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
 const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'titles', 'qualify', 'post', 'new_repo', 'outcome_share', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
-const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup'];
+const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup', 'token'];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
@@ -1313,7 +1313,16 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // (no token sentence shown) a skip of the wallet.
   if (m.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now);
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
-  if (m.kind === 'token') return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now), now);
+  if (m.kind === 'token') {
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
+    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now), now);
+  }
+  // v4.0 Task 11 fix round 1: an old agent's coin answer is the builder token's only after its offer (legacyCoinAnswer);
+  // otherwise the stored-ask path below (an old 'coin' ask is cleared, nothing launched).
+  if (m.kind === 'coin') {
+    const r = await legacyCoinAnswer(ctx, m.answer);
+    if (r) return r;
+  }
   // 2026-10-23 Base onboarding: step 2's no is remembered (never repeated) and its yes after a no is the builder asking
   // for the link again; the walk-through is answered by its kind, so the builder can ask for it any time.
   if (m.kind === 'pick_repo') {
@@ -1565,6 +1574,43 @@ async function setupAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
   if (answer === 'yes') return answerWallet(id, 'yes', now);
   const token = (await tokenOffered(id)) && (await builderToken(id).catch(() => null)) === null;
   return token ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
+}
+/** v4.0 Task 11 fix round 1: an old agent's token 'ask' with no token yet: the offer (its yes launches it). */
+export const TOKEN_NOT_YET = "You don't have a token yet. Want me to launch it?";
+export const TOKEN_ASK_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'token', project_key: null, answer }. Don't show this note.";
+/**
+ * v4.0 Task 11 fix round 1: an old agent's tell token 'ask' answers the builder token's status and never launches one:
+ * live, kept off, or on its way; no token and setup step 3 due: step 3's reply; no token otherwise: the offer, stored as
+ * the Bench's ask (kind 'token', so the next yes launches it). Tokens off with no row: "Okay.". Never throws.
+ */
+export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = new Date();
+  try {
+    const t = await builderToken(id);
+    if (t) return { show_to_builder: t.status === 'launched' ? TOKEN_ALREADY_LIVE : t.status === 'declined' ? TOKEN_STAYS_OFF : TOKEN_ON_ITS_WAY };
+    if (await walletSetupDue(id, now)) {
+      const step = await walletStep(id, now);
+      if (step) return step as Reply;
+    }
+    if (!builderTokensOn()) return { show_to_builder: NOTED_LINE };
+    await storeAsk(id, { kind: 'token', key: null, at: now.toISOString() });
+    return { show_to_builder: TOKEN_NOT_YET, move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
+  } catch (err) {
+    logged('token ask')(err);
+    return { show_to_builder: NOTED_LINE };
+  }
+}
+/**
+ * v4.0 Task 11 fix round 1: an old agent's coin answer (tell coin { answer }, move_up kind 'coin') launches or declines
+ * the builder token only when the stored ask is its offer: setup step 3 with the token sentence (wallet_setup and
+ * token_offered) or the token offer (kind 'token'). Null otherwise: nothing changes. Never throws.
+ */
+export async function legacyCoinAnswer(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, answer: 'yes' | 'no'): Promise<Reply | null> {
+  const asked = await benchAsked(ctx.installationId, {});
+  if (asked?.kind === 'token' || (asked?.kind === 'wallet_setup' && (await tokenOffered(ctx.installationId))))
+    return benchMoveUp(ctx, { kind: 'token', project_key: null, answer });
+  return null;
 }
 /**
  * v4.0: tell move_up kind 'token'. A no is kept forever (declineBuilderToken; a token already on its way or live is

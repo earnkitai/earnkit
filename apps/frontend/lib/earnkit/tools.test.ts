@@ -237,6 +237,8 @@ test('v2.8 Ruling 23 (plan): how_to_submit and sign_to_enter only for an open ca
   const c = await prep(closed.id);
   assert.ok(!('how_to_submit' in c) && !('sign_to_enter' in c));
   assert.match(String((await prep(open.id)).how_to_submit), /This is an EarnKit campaign/);
+  // v4.0 Task 11 fix round 1: no token line to commit (the per-project offer is retired).
+  assert.doesNotMatch(String((await prep(open.id)).how_to_submit), /token/);
 });
 
 // ---- v2.8 Task 8: the confirmation step (Part C, Rulings 1, 3, 4, 5, 7 (plan)). The kit comes only

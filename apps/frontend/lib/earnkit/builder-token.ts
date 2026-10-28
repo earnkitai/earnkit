@@ -84,7 +84,8 @@ export type LaunchResult =
 
 /**
  * Launch the builder's token now: needs EARNKIT_BUILDER_TOKENS on, a claimed X account, and a proven reward wallet.
- * Idempotent: an existing row (declined, launching, launched, unknown) is returned untouched. 'x_taken': the X account
+ * Idempotent: an existing row (declined, launching, launched, unknown) is returned untouched, before the readiness
+ * checks (a declined builder with no wallet is still 'exists' declined). 'x_taken': the X account
  * is held by another builder's row (nothing written for this builder).
  */
 export async function launchBuilderToken(
@@ -95,10 +96,11 @@ export async function launchBuilderToken(
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
   const [p] = await sql()<{ x_user_id: string | null; x_handle: string | null; x_name: string | null; x_avatar_url: string | null }[]>`
     SELECT x_user_id, x_handle, x_name, x_avatar_url FROM builder_profiles WHERE builder_id = ${builderId}`;
-  const wallet = await provenWallet(builderId);
-  if (!key || !p?.x_user_id || !p.x_handle || !wallet) return { result: 'not_ready' };
+  // v4.0 Task 11 fix round 1: an existing row first, so a no stays a no without a wallet too.
   const existing = await builderToken(builderId);
   if (existing) return { result: 'exists', status: existing.status };
+  const wallet = await provenWallet(builderId);
+  if (!key || !p?.x_user_id || !p.x_handle || !wallet) return { result: 'not_ready' };
 
   const pick = await builderTicker(p.x_handle, deps.check);
   if (!('symbol' in pick)) return pick;

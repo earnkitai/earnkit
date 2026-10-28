@@ -8,8 +8,10 @@ import { mcpCall, mcpListTools } from './fixtures/mcp-call';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { humanStrings, humanTextFiles } from './human-text';
-import { tools } from './tools';
-import { TOKEN_ON_ITS_WAY } from './bench-find';
+import { COACH_NOTES, tools } from './tools';
+import { TOKEN_ALREADY_LIVE, TOKEN_LIVE, TOKEN_NOT_YET, TOKEN_ON_ITS_WAY, TOKEN_STAYS_OFF } from './bench-find';
+import { NOTED_LINE } from './stand-text';
+import { randomBytes } from 'node:crypto';
 
 /**
  * v4.0 Task 11 (docs/design-docs-and-implementation-plans/v4-builder-tokens.md, Build E2): the per-project coin offers
@@ -17,6 +19,8 @@ import { TOKEN_ON_ITS_WAY } from './bench-find';
  * "coin"; (b) an old agent's `tell coin` is answered with the builder token (a no is the builder token's no); (c) the
  * tools expose no `confirm` (the project coin launch).
  */
+/** The wallet link (setup step 3) is signed. */
+process.env.EARNKIT_AUTH_SECRET ??= 'v4-retire-test-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = String(process.pid % 100000);
@@ -55,35 +59,143 @@ async function signedIn(tag: string) {
 }
 const tokenRow = async (id: number) => (await sql()<{ status: string }[]>`SELECT status FROM builder_tokens WHERE builder_id = ${id}`)[0]?.status ?? null;
 
-test('(b) an old agent\'s tell coin { answer: "no" } is the builder token\'s no; token "ask" and coin raising never mention a coin', db, async () => {
-  const prev = process.env.EARNKIT_BUILDER_TOKENS;
+/** tokens.fun faked: every deploy call counted, a launched answer; tickers always free. */
+const fakeTokensFun = () => {
+  const calls: unknown[] = [];
+  const f = (async (_url: string, init?: RequestInit) => {
+    calls.push(init?.body);
+    return new Response(JSON.stringify({ success: true, tokenAddress: `0x${randomBytes(20).toString('hex')}`, txHash: '0xabc', chainId: 8453 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  return { calls, deps: { fetch: f, check: async () => true } };
+};
+/** Tokens on and a tokens.fun key, so any launch that runs reaches the (faked) deploy call. */
+async function launchesOn(fn: () => Promise<void>) {
+  const prev = { on: process.env.EARNKIT_BUILDER_TOKENS, key: process.env.TOKENSFUN_DEPLOY_API_KEY };
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'v4-retire-key';
   try {
-    const p = await signedIn('n');
-    const no = await mcpCall(p.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
-    assert.equal(no.isError, false, no.text);
-    assert.equal(await tokenRow(p.id), 'declined');
-    assert.doesNotMatch(show(no), COIN);
-    // "launch my token" (token: 'ask', an old agent's) and an old coin yes answer as tell move_up kind 'token' yes does,
-    // and the no is kept.
-    const asTokenYes = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
-    assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), asTokenYes);
-    assert.equal(show(await mcpCall(p.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'yes' } })), asTokenYes);
-    assert.doesNotMatch(asTokenYes, COIN);
-    assert.equal(await tokenRow(p.id), 'declined');
-    // An old backing switch changes nothing and says nothing about a coin.
-    const raising = await mcpCall(p.ctx, 'tell', { coin: { raising: true } });
-    assert.equal(raising.isError, false, raising.text);
-    assert.doesNotMatch(show(raising), COIN);
-    // A token already on its way is unchanged by an old coin no.
-    const q = await signedIn('q');
-    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${q.id}, x_user_id, 'launching' FROM builder_profiles WHERE builder_id = ${q.id}`;
-    assert.equal(show(await mcpCall(q.ctx, 'tell', { coin: { project_key: 'x/y', answer: 'no' } })), TOKEN_ON_ITS_WAY);
-    assert.equal(await tokenRow(q.id), 'launching');
+    await fn();
   } finally {
-    process.env.EARNKIT_BUILDER_TOKENS = prev;
+    if (prev.on === undefined) delete process.env.EARNKIT_BUILDER_TOKENS; else process.env.EARNKIT_BUILDER_TOKENS = prev.on;
+    if (prev.key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY; else process.env.TOKENSFUN_DEPLOY_API_KEY = prev.key;
   }
-});
+}
+/** A signed-in builder with a proven reward wallet (a launch would reach tokens.fun), tokens.fun faked. */
+async function withWallet(tag: string) {
+  const p = await signedIn(tag);
+  const tf = fakeTokensFun();
+  await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${p.id}, now())`;
+  return { ...p, tf, ctx: { ...(p.ctx as object), builderTokenDeps: tf.deps } as never as Parameters<typeof mcpCall>[0] };
+}
+const setRow = (id: number, status: string) =>
+  sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${id}, x_user_id, ${status} FROM builder_profiles WHERE builder_id = ${id}`;
+const storedAsk = async (id: number) => (await sql()<{ k: string | null }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${id}`)[0]?.k ?? null;
+
+test('(b) an old agent\'s tell coin no is the builder token\'s no only after the token offer; a declined builder is never sent the wallet link', db, () => launchesOn(async () => {
+  // No stored token offer: an old coin no changes nothing ("Okay.").
+  const a = await signedIn('a');
+  const bare = await mcpCall(a.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
+  assert.equal(bare.isError, false, bare.text);
+  assert.equal(show(bare), NOTED_LINE);
+  assert.equal(await tokenRow(a.id), null);
+  // After the builder token offer (tell token 'ask' stores it), an old coin no is the builder token's no.
+  const p = await signedIn('n');
+  await mcpCall(p.ctx, 'tell', { token: 'ask' });
+  assert.equal(await storedAsk(p.id), 'token');
+  const no = await mcpCall(p.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
+  assert.equal(no.isError, false, no.text);
+  assert.equal(await tokenRow(p.id), 'declined');
+  assert.doesNotMatch(show(no), COIN);
+  // Fix round 1 (I1): declined, no wallet, "launch my token": the no stands, never the wallet link.
+  const launch = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
+  assert.equal(launch, TOKEN_STAYS_OFF);
+  assert.doesNotMatch(launch, /claim\/wallet|https:\/\//);
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), TOKEN_STAYS_OFF);
+  assert.equal(await tokenRow(p.id), 'declined');
+  // An old backing switch changes nothing and says nothing about a coin.
+  const raising = await mcpCall(p.ctx, 'tell', { coin: { raising: true } });
+  assert.equal(raising.isError, false, raising.text);
+  assert.doesNotMatch(show(raising), COIN);
+  // A token already on its way is unchanged by an old coin no after the offer.
+  const q = await signedIn('q');
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"token","key":null}}'::jsonb WHERE builder_id = ${q.id}`;
+  await setRow(q.id, 'launching');
+  assert.equal(show(await mcpCall(q.ctx, 'tell', { coin: { project_key: 'x/y', answer: 'no' } })), TOKEN_ON_ITS_WAY);
+  assert.equal(await tokenRow(q.id), 'launching');
+}));
+
+test('(d) fix round 1: tell token \'ask\' only answers the token\'s status; it never launches one, in any state', db, () => launchesOn(async () => {
+  // Each existing row: its status, no call to tokens.fun, the row unchanged.
+  for (const [status, line] of [['launched', TOKEN_ALREADY_LIVE], ['declined', TOKEN_STAYS_OFF], ['launching', TOKEN_ON_ITS_WAY], ['unknown', TOKEN_ON_ITS_WAY]] as const) {
+    const b = await withWallet(`d${status.slice(0, 3)}`);
+    await setRow(b.id, status);
+    const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+    assert.equal(r.isError, false, r.text);
+    assert.equal(show(r), line, status);
+    assert.equal(b.tf.calls.length, 0, status);
+    assert.equal(await tokenRow(b.id), status);
+  }
+  // No token, a wallet proven (step 3 not due): the offer, stored as the ask; nothing launched until the yes.
+  const b = await withWallet('dnone');
+  const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+  assert.equal(show(r), TOKEN_NOT_YET);
+  assert.equal(r.reply?.move_up && (r.reply.move_up as { kind: string }).kind, 'token');
+  assert.equal(b.tf.calls.length, 0);
+  assert.equal(await tokenRow(b.id), null);
+  assert.equal(await storedAsk(b.id), 'token');
+  assert.doesNotMatch(show(r), COIN);
+  // The following yes (move_up, or kindless) launches it.
+  const yes = await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } });
+  assert.equal(show(yes), TOKEN_LIVE, yes.text);
+  assert.equal(b.tf.calls.length, 1);
+  assert.equal(await tokenRow(b.id), 'launched');
+  // No token and setup step 3 due (GitHub no, no wallet yet): step 3's reply, no launch.
+  const s = await signedIn('dstep');
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"github_no":"2026-10-01T00:00:00Z"}'::jsonb WHERE builder_id = ${s.id}`;
+  const step = await mcpCall(s.ctx, 'tell', { token: 'ask' });
+  assert.match(show(step), /\*\*Step 3 of 3:\*\*/, step.text);
+  assert.equal(await storedAsk(s.id), 'wallet_setup');
+  assert.equal(await tokenRow(s.id), null);
+}));
+
+test('(e) fix round 1: an old coin yes (tell coin, or move_up kind coin) launches only after the builder token offer', db, () => launchesOn(async () => {
+  // No stored ask: "Okay.", no call, no row.
+  const a = await withWallet('ea');
+  for (const input of [{ coin: { project_key: 'someone/app', answer: 'yes' } }, { move_up: { kind: 'coin', project_key: null, answer: 'yes' } }]) {
+    const r = await mcpCall(a.ctx, 'tell', input);
+    assert.equal(r.isError, false, r.text);
+    assert.equal(show(r), NOTED_LINE, JSON.stringify(input));
+  }
+  assert.equal(a.tf.calls.length, 0);
+  assert.equal(await tokenRow(a.id), null);
+  // Another stored ask (not the token's): still nothing.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"next_step","key":null}}'::jsonb WHERE builder_id = ${a.id}`;
+  assert.equal(show(await mcpCall(a.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'yes' } })), NOTED_LINE);
+  assert.equal(a.tf.calls.length, 0);
+  // The token offer stored (tell token 'ask'): the old coin yes launches it.
+  const b = await withWallet('eb');
+  await mcpCall(b.ctx, 'tell', { token: 'ask' });
+  assert.equal(b.tf.calls.length, 0);
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'yes' } })), TOKEN_LIVE);
+  assert.equal(b.tf.calls.length, 1);
+  assert.equal(await tokenRow(b.id), 'launched');
+  // move_up kind coin after the offer: the same.
+  const c = await withWallet('ec');
+  await mcpCall(c.ctx, 'tell', { token: 'ask' });
+  assert.equal(show(await mcpCall(c.ctx, 'tell', { move_up: { kind: 'coin', project_key: null, answer: 'yes' } })), TOKEN_LIVE);
+  assert.equal(c.tf.calls.length, 1);
+  // Setup step 3 with the token sentence (wallet_setup and token_offered): an old coin no is the token's no.
+  const d = await withWallet('ed');
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"wallet_setup","key":null},"token_offered":"2026-10-01T00:00:00Z"}'::jsonb WHERE builder_id = ${d.id}`;
+  await mcpCall(d.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } });
+  assert.equal(await tokenRow(d.id), 'declined');
+  assert.equal(d.tf.calls.length, 0);
+  // Step 3 without the token sentence: an old coin no is nothing.
+  const e = await withWallet('ee');
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"wallet_setup","key":null}}'::jsonb WHERE builder_id = ${e.id}`;
+  assert.equal(show(await mcpCall(e.ctx, 'tell', { coin: { project_key: 'someone/app', answer: 'no' } })), NOTED_LINE);
+  assert.equal(await tokenRow(e.id), null);
+}));
 
 test('(c) the tools expose no confirm (the project coin launch), with or without the old EARNKIT_RAISING', db, async () => {
   assert.equal(Object.hasOwn(tools, 'confirm'), false);
@@ -110,4 +222,11 @@ test('(c) the tools expose no confirm (the project coin launch), with or without
     if (prev === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = prev;
   }
+});
+
+test('(f) fix round 1: no agent note asks about the retired offer (no token line in how_to_submit, no wallet-answer coach note)', () => {
+  assert.equal(Object.hasOwn(COACH_NOTES, 'WALLET_ANSWER_NOTE'), false);
+  const src = readFileSync(join(import.meta.dirname, 'tools.ts'), 'utf8');
+  assert.doesNotMatch(src, /together with the token line/);
+  assert.doesNotMatch(src, /When they say yes to the offer, pass shown_wallet/);
 });
