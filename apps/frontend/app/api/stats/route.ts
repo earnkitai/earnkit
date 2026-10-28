@@ -9,7 +9,7 @@ import { readStats } from '@/lib/earnkit/stats';
  * A failed read answers 503 and is never cached (Next treats a build-time 503 as dynamic).
  * `fees_to_safe_eth`: the Safe's fees from EarnKit coins, accrued (stats.ts statsFrom): (v2.13.2) both
  * splits, from the Safe's indexed deposits. `bonus_programs_open`: 0 (v2.14: no builder bonus; the key stays). Owner
- * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs` or `coins_launched`.
+ * test installations (EARNKIT_TEST_INSTALLATIONS) never show in `installs`, `coins_launched` or `tokens_declined`.
  * Pre-launch 2026-10-19: `installs_used` (called find at least once) and `builders` (distinct
  * builder groups) sit beside `installs`, which counts every new OAuth client's first token.
  * Launch-ready L9, the funnel (counts only, no per-user data), from the weekly moment's approvals (L6): `activated`

@@ -18,6 +18,7 @@ export const STATS_KEYS = [
   'programs_open',
   'bonus_programs_open',
   'coins_launched',
+  'tokens_declined',
   'fees_to_safe_eth',
   'bonus_paid_eth',
   'bonus_pools_eth',
@@ -75,6 +76,8 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
+  // v4.2 F18: builder tokens (builder_tokens) count in coins_launched; a no is shown, not hidden.
+  tokens_declined: 'builders who said no to their token',
   // v2.13.2 fix 1: the stat covers both fee splits (statsFrom).
   fees_to_safe_eth: 'fees to the EarnKit Safe (ETH)',
   bonus_paid_eth: 'builder bonus paid (ETH)',
@@ -126,6 +129,7 @@ type Row = {
   programs_open: number;
   bonus_programs_open: number;
   coins_launched: number;
+  tokens_declined: number;
   bonus_deposits_wei: string | null;
   /** v2.13.2 (2): of bonus_deposits_wei, the deposits whose transaction has no indexed Safe deposit of the same coin (safe_fees). */
   bonus_unmatched_wei?: string | null;
@@ -197,6 +201,7 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     // v2.14: there is no builder bonus; the key stays for jenil.ai.
     bonus_programs_open: 0,
     coins_launched: Number(r.coins_launched),
+    tokens_declined: Number(r.tokens_declined),
     fees_to_safe_eth: weiToEth(safeWei),
     bonus_paid_eth: weiToEth(big(r.bonus_paid_wei)),
     bonus_pools_eth: weiToEth(big(r.bonus_pools_wei)),
@@ -258,8 +263,15 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
         WHERE status = 'active' AND campaign IS NULL AND (ends_at IS NULL OR ${now} < ends_at)) AS pool_rows,
       (SELECT count(*) FROM open)::int AS programs_open,
       (SELECT count(*) FROM open WHERE builder_bonus AND campaign IS NULL)::int AS bonus_programs_open,
-      (SELECT count(*) FROM projects
-        WHERE token_status = 'launched' AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))::int AS coins_launched,
+      -- v4.2 F18: launched project tokens plus launched builder tokens (never a test installation's builder).
+      ((SELECT count(*) FROM projects
+        WHERE token_status = 'launched' AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
+       + (SELECT count(*) FROM builder_tokens bt
+        WHERE bt.status = 'launched' AND NOT (bt.builder_id = ANY(${ids}::int[]))
+          AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = bt.builder_id AND i.id = ANY(${ids}::int[]))))::int AS coins_launched,
+      (SELECT count(*) FROM builder_tokens bt
+        WHERE bt.status = 'declined' AND NOT (bt.builder_id = ANY(${ids}::int[]))
+          AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = bt.builder_id AND i.id = ANY(${ids}::int[])))::int AS tokens_declined,
       -- Real FeeLocker deposits only (an onchain tx hash): never a synthetic row such as a paid
       -- round's 'round-rest:<round>' remainder, which is already inside the round's deposits.
       -- M5: and only from EarnKit coins (launched with the v2.5 split, so their Safe slot is 1.5x
