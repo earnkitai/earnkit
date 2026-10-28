@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ZodError, z } from 'zod';
 import { raisingEnabled } from './builder-score-flag';
-import { withFormattedReply } from './reply-format';
+import { surfaceOf, withFormattedReply } from './reply-format';
+import { sql } from './db';
 import { CHAINS } from './match';
 import { GitHubError } from './match-projects';
 import { NotFoundError } from './programs';
@@ -58,11 +59,21 @@ const withoutOldCode = (input: unknown): unknown => {
   return rest;
 };
 
+/** v4.0 Task 6: the installation's free-text client name (its own token's row), or null when unknown. */
+async function clientNameOf(ctx: ToolContext): Promise<string | null> {
+  try {
+    const rows = await sql()<{ client_name: string | null }[]>`SELECT client_name FROM installations WHERE id = ${ctx.ownInstallationId ?? ctx.installationId}`;
+    return rows[0]?.client_name ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function run(ctx: ToolContext, tool: ToolName, input: unknown = {}, format = true) {
   try {
     // v3.1 reply format: show_to_builder reads well in Grok Bot's markdown and in plain chat apps (reply-format.ts).
     const raw = await tools[tool](withoutOldCode(input), ctx);
-    const result = format ? withFormattedReply(raw) : raw;
+    const result = format ? withFormattedReply(raw, surfaceOf(await clientNameOf(ctx))) : raw;
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
