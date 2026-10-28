@@ -17,7 +17,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-21",
+  "verified_at": "2026-10-28",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": true,
@@ -277,7 +277,7 @@
       "credits": "entry.1350986773"
     },
     "sign_in": "email_only",
-    "read_at": "2026-10-21"
+    "read_at": "2026-10-28"
   },
   "pitch": {
     "who": "Base",

@@ -907,7 +907,7 @@ test('9.1 agent_completable: false only for a go-to-market plan or a full-time t
   // today's files (owner ruling D2): only Colosseum derives false.
   const byId = Object.fromEntries(realPrograms().map((f) => [f.id, deriveAgentCompletable(f)]));
   assert.deepEqual(byId, {
-    'a16z-speedrun': true, 'alliance-all19': true, 'arc-microgrants': true, 'avalanche-team1-mini-grants': true, 'base-batches-005': true,
+    'a16z-speedrun': true, 'alliance-all19': true, 'arc-microgrants': true, 'arc-microgrants-studio': true, 'avalanche-team1-mini-grants': true, 'base-batches-005': true,
     'base-builder-grants': true, 'circle-developer-grants': true, 'colosseum-worlds-fair': false, 'earnkit-campaign-1-base': true,
     'ethglobal-mumbai': true, 'monad-metropolis': true, 'monad-nitro': true,
   });

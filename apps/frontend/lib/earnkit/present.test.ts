@@ -711,9 +711,9 @@ test('v2.8.1 §B: with the committed programs, the four first messages', async (
   // v3.1 cold read round 2: the matched row is only a long shot (an investment), so the open grants come first (by
   // difficulty, investments last: Alliance goes to "more open") and the long shot after; upcoming programs never show.
   assert.ok(ethOnly.indexOf('| Arc Microgrants |') < ethOnly.indexOf('| a16z speedrun SR008 |'), ethOnly);
-  assert.match(ethOnly, /^9 programs are open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|\n/);
+  assert.match(ethOnly, /^10 programs are open\.\n\n\| Program \| Amount \| Difficulty \| Ends \|\n/);
   assert.doesNotMatch(ethOnly, /\| Alliance ALL19 \|/);
-  assert.match(ethOnly, /3 more open: ask me for the full list\./);
+  assert.match(ethOnly, /4 more open: ask me for the full list\./);
   assert.doesNotMatch(ethOnly, /Monad Nitro|Base Batches 005/);
   for (const t of [noRepo, oneRepo, ethOnly]) {
     noEmoji(t);
