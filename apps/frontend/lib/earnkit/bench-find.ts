@@ -1250,12 +1250,14 @@ async function connectTitles(id: number, key: string | null, now: Date): Promise
  * The builder's yes or no to the Bench's question (tools.ts moveUpAnswer routes it here). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin' }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
   // 2026-10-23 fix round: a tell with no kind answers the stored question when it is an onboarding one (so a kindless
   // no to step 2 is remembered and a kindless yes to the walk-through gives the steps).
+  // v4.2: only the builder's own move_up {kind:'token', answer:'yes'} reverses a no; a kindless yes riding a stored ask or an old coin yes does not.
+  const ownTokenYes = m.kind === 'token' && m.via !== 'coin';
   if (m.kind === undefined) {
     const stored = await benchAsked(id, { project_key: m.project_key });
     if (stored && KINDLESS_ROUTED.includes(stored.kind)) m = { ...m, kind: stored.kind };
@@ -1316,7 +1318,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
   if (m.kind === 'token') {
     await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
-    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now), now);
+    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now, ownTokenYes), now);
   }
   // v4.0 Task 11 fix round 1: an old agent's coin answer is the builder token's only after its offer (legacyCoinAnswer);
   // otherwise the stored-ask path below (an old 'coin' ask is cleared, nothing launched).
@@ -1481,10 +1483,10 @@ export { TOKEN_ON_ITS_WAY };
 export const TOKEN_STAYS_OFF = TOKEN_OFF;
 export const TOKEN_TRY_LATER = "That didn't go through this time. Ask me again in a few minutes.";
 export const TOKEN_CANT = "I can't set up a token for this account. Reach out at j@earnkit.com.";
-/** v4.0: a launch result's reply line (null: not ready, the caller decides). v4.2: a launch names the trade link, and the page when known. Pure. */
-export function tokenLine(r: LaunchResult, page: string | null = null): string | null {
+/** v4.0: a launch result's reply line (null: not ready, the caller decides). v4.2: a launch names the trade link. Pure. */
+export function tokenLine(r: LaunchResult): string | null {
   switch (r.result) {
-    case 'launched': return `Done. Your token is live: ${tradeUrl(r.coin_address)}${page ? `\nIt's on your page too: ${page}` : ''}`;
+    case 'launched': return `Done. Your token is live: ${tradeUrl(r.coin_address)}`;
     case 'exists': return r.status === 'declined' ? TOKEN_STAYS_OFF : r.status === 'launched' ? null : TOKEN_ON_ITS_WAY;
     case 'unknown': return TOKEN_ON_ITS_WAY;
     case 'busy': case 'ticker_check_down': case 'released': return TOKEN_TRY_LATER;
@@ -1607,7 +1609,7 @@ export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>): Promis
 export async function legacyCoinAnswer(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, answer: 'yes' | 'no'): Promise<Reply | null> {
   const asked = await benchAsked(ctx.installationId, {});
   if (asked?.kind === 'token' || (asked?.kind === 'wallet_setup' && (await tokenOffered(ctx.installationId))))
-    return benchMoveUp(ctx, { kind: 'token', project_key: null, answer });
+    return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
   return null;
 }
 /**
@@ -1615,15 +1617,19 @@ export async function legacyCoinAnswer(ctx: Pick<ToolContext, 'installationId' |
  * unchanged, and said so). A yes launches it now (launchBuilderToken, idempotent); without a reward wallet yet, the
  * wallet link (walletChangeReply). Never throws.
  */
-async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: number, answer: 'yes' | 'no', now: Date, ownYes = false): Promise<Reply> {
   try {
     if (answer === 'no') {
       const r = await declineBuilderToken(id);
+      // A stale token ask must not carry a later bare yes back over this no.
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
       return { show_to_builder: r === 'launched' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
     }
-    // v4.2: the builder's own yes after a no reopens it (the automatic paths never reach here with a declined row).
-    if (builderTokensOn()) await reopenDeclinedToken(id);
+    // v4.2: the builder's own yes after a no reopens it (only the builder's own yes; see ownYes).
+    const reopened = ownYes && builderTokensOn() && (await reopenDeclinedToken(id));
     const r = await launchBuilderToken(id, ctx.builderTokenDeps ?? {});
+    // The relaunch cannot go on (lasting): the no is put back rather than left as no row.
+    if (reopened && (r.result === 'x_taken' || r.result === 'no_ticker')) await declineBuilderToken(id);
     if (r.result === 'launched' || r.result === 'exists') {
       const t = await builderToken(id);
       if (t) return { show_to_builder: await tokenAnswerFor(id, now, { justLaunched: r.result === 'launched' }) };

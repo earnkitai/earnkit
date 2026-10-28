@@ -146,14 +146,16 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
 }
 
 /**
- * v4.2: after a reward wallet signed, the token's state in the same reply: live (with the trade link and the page),
- * or on its way. Null when the builder has no token row (declined or never offered). Never throws.
+ * v4.2: after a reward wallet signed, the token's state in the same reply: just launched by this sign (the trade link and
+ * the page), already live (the Live copy), or on its way. Null when the builder has no token row (declined or never offered). Never throws.
  */
-async function signedTokenLine(builderId: number, now: Date): Promise<string | null> {
+async function signedTokenLine(builderId: number, now: Date, linkAt: Date): Promise<string | null> {
   try {
-    const t = await builderToken(builderId);
+    const [t] = await sql()<{ status: string; fresh: boolean }[]>`
+      SELECT status, created_at >= ${linkAt} AS fresh FROM builder_tokens WHERE builder_id = ${builderId}`;
     if (!t || t.status === 'declined') return null;
-    return await tokenAnswerFor(builderId, now, { justLaunched: t.status === 'launched' });
+    // "Done." only when this sign made the token (its row began after the link was given); a wallet change on a live token is the Live copy.
+    return await tokenAnswerFor(builderId, now, { justLaunched: t.status === 'launched' && t.fresh });
   } catch (err) {
     logged('signed token')(err);
     return null;
@@ -186,7 +188,7 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
   const got = await provenSince(builderId, new Date(p.at)).catch(logged('proven'));
   if (got) {
     if (!(await end()).length) return okay;
-    const token = got.recipient ? await signedTokenLine(builderId, now) : null;
+    const token = got.recipient ? await signedTokenLine(builderId, now, new Date(p.at)) : null;
     if (got.recipient) return { show_to_builder: [walletDone(shortWallet(got.wallet)), token].filter(Boolean).join('\n\n') };
     const current = await provenWallet(builderId);
     return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet)) };

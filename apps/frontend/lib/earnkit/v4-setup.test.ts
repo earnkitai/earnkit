@@ -389,7 +389,7 @@ test('fix 2: a first proof launches only after the token sentence was seen; else
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(await tokenRow(p.id), null);
   assert.equal(p.tf.calls.length, 0);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Done. Your token is live.');
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })).split('\n')[0].replace(/https:.*/, 'LINK'), 'Done. Your token is live: LINK');
   assert.equal(p.tf.calls.length, 1);
 });
 

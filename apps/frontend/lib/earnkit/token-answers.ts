@@ -52,7 +52,7 @@ export function tokenAnswerText(s: TokenAnswerState, opts: TokenAnswerOpts = {})
     if (opts.justLaunched) return [`Done. Your token is live: ${trade}`, s.handle ? `It's on your page too: ${siteUrl()}/${s.handle}` : null].filter(Boolean).join('\n');
     return [
       `Your token is live: ${trade}`,
-      `40% of every trade's fee goes to ${shortWallet(t.wallet ?? '0x0000000000000000')}, claimed for you.`,
+      t.wallet ? `40% of every trade's fee goes to ${shortWallet(t.wallet)}, claimed for you.` : `40% of every trade's fee goes to your wallet, claimed for you.`,
       s.communityUsd > 0 ? `So far: ${usd(s.communityUsd)}.` : null,
     ].filter(Boolean).join('\n');
   }

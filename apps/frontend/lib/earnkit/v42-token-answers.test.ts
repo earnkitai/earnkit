@@ -132,11 +132,47 @@ test('declined with no wallet: the builder\'s own yes gives the wallet link; no 
 
 test('F4: a wallet signed while the token launched: the "Done" reply names the token with its trade link and page', db, () => on(async () => {
   const b = await builder('sign', true);
+  const coin = `0x${randomBytes(20).toString('hex')}`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_link_at', (now() - interval '1 minute')::text) WHERE builder_id = ${b.id}`;
   await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address, wallet)
-    SELECT ${b.id}, x_user_id, 'launched', 'V42', ${COIN}, ${WALLET} FROM builder_profiles WHERE builder_id = ${b.id}`;
+    SELECT ${b.id}, x_user_id, 'launched', 'V42', ${coin}, ${WALLET} FROM builder_profiles WHERE builder_id = ${b.id}`;
   const s = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'yes' } }));
   assert.match(s, /^Done\. Your rewards now go to 0x/);
-  assert.ok(s.includes(`\n\nDone. Your token is live: ${tradeUrl(COIN)}\nIt's on your page too: `), s);
+  assert.ok(s.includes(`\n\nDone. Your token is live: ${tradeUrl(coin)}\nIt's on your page too: `), s);
   assert.ok(s.endsWith(`/${b.handle}`), s);
+}));
+
+test('review 3: a wallet change on an already-live token gets the Live copy, not "Done."', db, () => on(async () => {
+  const b = await builder('chg', true);
+  const coin = `0x${randomBytes(20).toString('hex')}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('wallet_link_at', (now() - interval '1 minute')::text) WHERE builder_id = ${b.id}`;
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address, wallet, created_at)
+    SELECT ${b.id}, x_user_id, 'launched', 'V42', ${coin}, ${WALLET}, now() - interval '2 days' FROM builder_profiles WHERE builder_id = ${b.id}`;
+  const s = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'yes' } }));
+  assert.match(s, /^Done\. Your rewards now go to 0x/);
+  assert.ok(s.includes(`\n\nYour token is live: ${tradeUrl(coin)}\n40% of every trade's fee goes to ${shortWallet(WALLET)}`), s);
+  assert.doesNotMatch(s, /Done\. Your token is live/);
+}));
+
+test('review 4: a stale token ask or an old coin yes never reverses a no; only the explicit yes does; a lasting failure restores the no', db, () => on(async () => {
+  const b = await builder('stale', true);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${b.id}, x_user_id, 'declined' FROM builder_profiles WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"token","key":null}}'::jsonb WHERE builder_id = ${b.id}`;
+  for (const input of [{ move_up: { project_key: null, answer: 'yes' } }, { coin: { project_key: 'a/b', answer: 'yes' } }, { move_up: { kind: 'coin', project_key: null, answer: 'yes' } }]) {
+    const r = show(await mcpCall(b.ctx, 'tell', input));
+    assert.ok(r === TOKEN_OFF || r === 'Okay.' || /off/.test(r), r);
+    assert.equal(await row(b.id), 'declined');
+    assert.equal(b.calls.length, 0);
+  }
+  // A lasting failure on the builder's own yes puts the no back.
+  const f = await builder('nore', true);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${f.id}, x_user_id, 'declined' FROM builder_profiles WHERE builder_id = ${f.id}`;
+  const ctx = { ...(f.ctx as object), builderTokenDeps: { fetch: (async () => { throw new Error('no'); }) as unknown as typeof fetch, check: async () => false } } as never as Parameters<typeof mcpCall>[0];
+  await mcpCall(ctx, 'tell', yes);
+  assert.equal(await row(f.id), 'declined');
+  // A no clears a stale token ask.
+  const c = await builder('clr', true);
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"token","key":null}}'::jsonb WHERE builder_id = ${c.id}`;
+  await mcpCall(c.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } });
+  assert.equal(await storedAsk(c.id), null);
 }));
