@@ -2927,6 +2927,8 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 
 ## The token offer right after the match; only the token is skippable (v2.9 B10, B11, Task 6)
 
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
+
 _Superseded by v2.10 item 5: there is no first-reply offer; the token is pitched once, in the confirm line (see "One bonus line, the token at confirm, the deadline line"). The text below is kept as history._
 
 - **The offer (`present.ts tokenOffer`, pure).** The first reply ends with "TipJar fits Arc
@@ -6761,6 +6763,8 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
 
 ### Part 3: Backing (spec 5.3 Route 2)
 
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
+
 - **The word.** Builder text says Backing / backers / "Back <project>", never "community round", "raise" or
   "raising" (`fixtures/banned-words.ts BENCH_EXTRA` now bans "community round"). Internal names stay (`raising_at`,
   `RaisingPill`, `raisingEnabled`, `tell coin { raising }`).
@@ -7149,6 +7153,8 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   line. Task 6's Best fit joins that rule.
 
 ## v3.1 P0 Task 10 (spec 3.4, D1): the agent drafts, never submits; confirm only opens Backing
+
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
 
 - The agent's tools are find, prepare (draft only, `draft-application.ts`), tell and score. `mcp.ts` registers
   `confirm` only while `raisingEnabled()` (EARNKIT_RAISING), with `CONFIRM_BACKING_DESCRIPTION` and a strict schema
@@ -8243,3 +8249,56 @@ related, no row without data, every row links to proof).
   No price, a failed read, no RESEND_API_KEY or a failed send leave the state unchanged ('skipped').
 - The gas lines of needs_owner ('bonus-ledger' when `bonusGasLow`, each 'deployer-gas:<chain>') also email the owner,
   at most once a UTC day per line (`owner_alerts` 'gas:<line>', state = the date); the needs_owner lines stay.
+
+## v4.0 overview: builder tokens, setup, surfaces, the Monday reply (2026-10-28, design: v4-builder-tokens.md)
+
+Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12 (Safe and gas emails).
+
+- **Builder tokens (`builder-token.ts`, table `builder_tokens`).** One token per builder and per X account (`builder_id`
+  primary key, `x_user_id` unique; a row is the claim). Status `declined` | `launching` | `launched` | `unknown`. The
+  ticker comes from the X handle (`builderTicker`, tokens.fun checked: `ticker_check_down` is transient, `no_ticker`
+  lasting). Launch: Base only, Clanker v4 through tokens.fun, WETH pair, fees after Clanker's 20% split Safe 60 / builder
+  40 (`policy-constants.ts EARNKIT_SPLITS_BPS [6000, 4000]`; MINI's 10% ended, nothing claims for MINI). The whole feature
+  is behind `EARNKIT_BUILDER_TOKENS=on` (`builderTokensOn`), which stays off until tokens.fun v4.1 is live.
+- **Launch at the wallet proof.** `wallet-proof.ts walletPost` runs `launchOnProof` (not awaited, errors logged) when the
+  proof made the builder's first reward wallet (`ProveResult.first`), unless the builder said no. The token's creator
+  wallet is the proven wallet. A "launch my token" ask later (`tell move_up { kind: 'token' }`) launches the same way.
+- **Opt-out.** A no (to setup step 3, or an older agent's `tell coin { answer: 'no' }`) is `declineBuilderToken`: kept
+  forever, never asked again. Skipping the wallet skips the token. An older agent's `tell coin` / `tell token: 'ask'` is
+  mapped to `move_up { kind: 'token' }` (Task 11).
+- **Stuck or unknown.** The row is deleted again only when tokens.fun said it stopped before minting (`tokens.ts
+  outcomeOf` release). Any unclear answer stays `unknown` and is never retried. `stuckBuilderTokens` (unknown, or
+  `launching` over `STUCK_LAUNCH_MS`) puts `builder-token:<builder id>` in `needs_owner` (cron answers 503; not quiet).
+- **Sponsored creator claims.** `bonus-ledger.ts claimForOthers` claims `claim(owner, WETH)` for each launched project
+  token's creator and each launched `builder_tokens.wallet` (newest first, 10x gas, bounded slice). The FeeLocker pays the
+  owner, so EarnKit never holds the money; builders never claim and hear the amount in plain words.
+- **Setup steps 1-3.** Signed out: "1. Sign in with X, 2. Connect your code, 3. Add your wallet". Step 2 (`pickRepoAsk`) adds
+  the Lovable/Bolt line only without GitHub (`BenchView.noGithub`). Step 3 (`wallet-offer.ts walletSetupDue`: X claimed, step
+  2 done or `github_no`, no wallet, not asked) asks everyone for the wallet and, while `walletSetupToken`, tells them
+  signing launches their token; it is asked before every other ranked offer (`bench-find.ts benchView`).
+- **Setup-done reply.** `bench-find.ts setupDoneFor` (claimed once, `standing_seen.setup_done`) after the wallet answer
+  (`afterStep3`): launched / set / declined / skipped lead (`SetupOutcome`), then "Here's what's open for you right now:"
+  and a `| Program | Up to | Closes |` table (at most 3, Best fit first), ending with the Best fit apply ask ("Want me to
+  draft it?"); no fit gives `noFitLine` and no ask.
+- **Per-surface rendering.** `reply-format.ts surfaceOf(client_name)` reads the caller's own installation client:
+  Grok Bot (and any unknown client) gets rich markdown (tables, bold); WhatsApp-style agents get plain "Label: value"
+  lines (`formatReply(text, 'plain')`). `mcp.ts run` applies it to every `show_to_builder`.
+- **The Monday reply and email.** `community.ts weekCommunityUsd` (creator `fee_claims` paid to the builder token's wallet,
+  this week and last, priced with `cachedWethUsd`) feeds `weekly-moment.ts mondayRows`: Shipping score ("82, up 4"),
+  Streak, "From your community" (hidden under $1; a cheer line at $100 or twice last week). `bench-reply.ts mondayReply`
+  renders it; `digest.ts digestWeek` sends the same lines as `mondayLines`. The week's post is one link; `SHARE_NOTE`
+  tells the agent to show `show_to_builder` exactly as given and never rewrite it.
+- **Nudges** (`nudges.ts`, Task 8): at most one per ISO week (`standing_seen.nudge_week`).
+- **Token card and post card.** `site-data.ts tokenCard` reads `builder_tokens` (launched only): symbol, Uniswap `tradeUrl`,
+  holders (`backers.ts`, which indexes launched builder tokens too, starting at the tx receipt's block, else at
+  `builder_tokens.created_at`), fees earned (`community.ts allTimeCommunityUsd`), 12 weeks of new holders, the X photo.
+  The post card pill reads "$SYMBOL · N holders" (from 5 holders). Words: "token", "holders", "Trade"; never "coin".
+- **`/api/builder-tokens` and `ref_source`.** `builder-tokens-json.ts`: launched tokens of claimed, visible builders with a
+  handle (coin, symbol, handle, name, photo, shipping, streak, page), cached 60 s, CORS for tokens.fun.
+  `?ref=tokensfun` on any page (`RefSourceMark`, `ref-cookie.ts REF_SOURCES`) stores `installations.ref_source`, never a
+  referring builder.
+- **Owner emails.** `owner-mail.ts` and `safe-watch.ts` (Task 12): `safe_watch` cron step, `owner_alerts` table.
+- **Retired in v4.0** (older sections above describe them as history): coin moments (`coin-moments.ts`), token offers
+  (`token-offers.ts`, the pitch at confirm, `launch_token`), raising / Backing (`raising.ts`, `EARNKIT_RAISING`, the Backed
+  filter, the terms section), the `confirm` tool, project coin launches (entries never mint), MINI's claims, launches on
+  Arc. The tables stay (append-only schema) and are read by nothing.
