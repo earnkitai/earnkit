@@ -3,7 +3,8 @@ import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
 import { ensureProfile } from './profiles';
 import { getProgramRow, listPrograms } from './programs';
-import { submitKit } from './submit-kit';
+import { SENT_ASK, submitKit } from './submit-kit';
+import { isRealAnswer } from './submission';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
@@ -1157,9 +1158,12 @@ async function readyDraft(id: number, programId: string): Promise<{ show_to_buil
   const entry = (await openEntries(id)).find((e) => e.program_id === programId && !e.submitted);
   if (!entry) return null;
   const [row] = await sql()<{ application: { answers?: Record<string, string> } | null }[]>`SELECT application FROM projects WHERE id = ${entry.id}`;
+  const answers = row?.application?.answers ?? {};
+  // No real stored answer: the draft isn't ready, so the yes drafts it (the apply hand-off).
+  if (!Object.values(answers).some(isRealAnswer)) return null;
   const program = await getProgramRow(programId);
-  const kit = submitKit(program, row?.application?.answers ?? {}, { browser: false });
-  return { show_to_builder: kit.show_to_builder, agent_note: "Show show_to_builder as written. Never submit the form for the builder. When they say they sent it, call tell with submitted: { program_id }. Don't show this note." };
+  const kit = submitKit(program, answers, { browser: false });
+  return { show_to_builder: `${kit.show_to_builder}\n\n${SENT_ASK}`, agent_note: "Show show_to_builder as written. Never submit the form for the builder. When they say they sent it, call tell with submitted: { program_id }. Don't show this note." };
 }
 
 /**

@@ -72,7 +72,7 @@ function problemWith(req: SubmissionRequirement, value: string): string | null {
  */
 export function isRealAnswer(text: string | undefined | null): text is string {
   const t = text?.trim();
-  return !!t && !/^\(.*answer for .*\)$/i.test(t) && !/^<[^<>]*>$/.test(t) && !/^tbd\.?$/i.test(t);
+  return !!t && !/^\([^:)]*: answer for \w+\)$/i.test(t) && !/^<[^<>]*>$/.test(t) && !/^tbd\.?$/i.test(t);
 }
 
 /**

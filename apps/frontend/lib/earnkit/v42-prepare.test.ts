@@ -5,7 +5,7 @@ import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { committedProgram } from './fixtures/program-file';
+import { committedProgram, completeAnswers } from './fixtures/program-file';
 import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -86,8 +86,8 @@ const baseAnswers = (): Record<string, string> => ({
 });
 
 test('isRealAnswer: blank, the stand-in and template markers are not answers', () => {
-  for (const t of ['', '   ', undefined, '(StudySplit: answer for x_handle)', '(answer for  email)', '<your email>', 'TBD', 'tbd.']) assert.equal(isRealAnswer(t), false, String(t));
-  for (const t of ['@maya', 'Kit: fans tip creators', 'https://kit.app', 'To be determined by the market']) assert.equal(isRealAnswer(t), true, t);
+  for (const t of ['', '   ', undefined, '(StudySplit: answer for x_handle)', '<your email>', 'TBD', 'tbd.']) assert.equal(isRealAnswer(t), false, String(t));
+  for (const t of ['@maya', 'Kit: fans tip creators', 'https://kit.app', 'To be determined by the market', '(see answer for details)']) assert.equal(isRealAnswer(t), true, t);
 });
 
 test('F8: a stand-in answer is never prefilled or shown as an answer; it is listed under "You add"; x_handle comes from the X handle', db, async () => {
@@ -113,12 +113,13 @@ test('F8: a stand-in answer is never prefilled or shown as an answer; it is list
   assert.equal(fieldsOf(own).find((x) => x.key === 'x_handle')?.answer, '@someoneelse');
 });
 
+const equalsReady = (t: string) => /application is ready|Sent it\?/.test(t);
 test('F14: the yes to the closing-soon nudge opens the existing draft with its link, never an empty reply', db, async () => {
   const b = await builder('f14');
   const id = `v42p-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   await upsertProgram(ProgramFile.parse({ ...BASE, id, status: 'active', ends_at: new Date(Date.now() + 2 * 86_400_000).toISOString() }));
   const [{ pid }] = await sql()<{ pid: number }[]>`INSERT INTO projects (program_id, name, installation_id, confirmed_at, application)
-    VALUES (${id}, 'Kit', ${b.id}, now() - interval '5 days', ${sql().json({ answers: { ...baseAnswers(), x_handle: b.handle }, kinds: {}, fixes: [], at: new Date().toISOString() } as never)}) RETURNING id AS pid`;
+    VALUES (${id}, 'Kit', ${b.id}, now() - interval '5 days', ${sql().json({ answers: { ...completeAnswers(BASE_REQS), ...baseAnswers(), x_handle: b.handle }, kinds: {}, fixes: [], at: new Date().toISOString() } as never)}) RETURNING id AS pid`;
   assert.ok(pid);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'apply', 'key', ${b.key}::text, 'program_id', ${id}::text)) WHERE builder_id = ${b.id}`;
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
@@ -128,6 +129,14 @@ test('F14: the yes to the closing-soon nudge opens the existing draft with its l
   assert.match(s, /Open the form|https:\/\//);
   assert.ok(firstLink(s).startsWith(`${BASE.form.url}`), s);
   assert.doesNotMatch(s, /answer for/i);
+  assert.equal(links(s).length, 1, s);
+  assert.equal(questions(s), 1, s);
+  // Only stand-ins stored: the draft is not ready, so the yes is the draft hand-off, never an all-blank "ready".
+  await sql()`UPDATE projects SET application = ${sql().json({ answers: { full_name: '(Kit: answer for full_name)', email: '  ' }, kinds: {}, fixes: [], at: new Date().toISOString() } as never)} WHERE id = ${pid}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'apply', 'key', ${b.key}::text, 'program_id', ${id}::text)) WHERE builder_id = ${b.id}`;
+  const blank = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
+  assert.match(String(blank.reply?.agent_note ?? ''), /Call prepare/);
+  assert.equal(equalsReady(show(blank)), false);
   assert.equal(closingNudge('X', 'today').includes('Want to send it?'), true);
   await sql()`DELETE FROM projects WHERE id = ${pid}`;
 });
