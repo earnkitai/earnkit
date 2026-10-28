@@ -30,16 +30,22 @@ test('Task 16 step 1: signed out, the first reply after install', () => {
     ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000', chain: 'Base' },
   };
   const out = benchReply(v);
+  // v4.0 approved copy 1.
   assert.equal(out, [
-    'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
+    '**EarnKit gets you paid for building.**',
     '',
-    `Step 1 of 2: sign in with X (one click): ${link}`,
-    'Done?',
+    'Every week I read what you ship, rank you against other builders, and find grants and programs you qualify for. Up to $5,000 is open from Base right now.',
+    '',
+    'Setup takes about a minute:',
+    `1. Sign in with X: ${link}`,
+    '2. Connect your code',
+    '3. Add your wallet',
+    '',
+    'Done with step 1?',
   ].join('\n'));
   oneAsk(out);
   // With no open grant to name, the sentence is dropped.
-  assert.match(benchReply({ ...v, open: null }), /grants you qualify for\.\n\n/);
+  assert.match(benchReply({ ...v, open: null }), /programs you qualify for\.\n\n/);
   // The link couldn't be made: the retry question, no points line.
   const retry = benchReply({ ...v, link: null, ask: stateAsk({ state: 'signed_out', variant: null, project: null, link: null }) });
   assert.ok(retry.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), retry);
@@ -52,10 +58,12 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
     state: 'no_project', variant: null, project: null, rank: null, streak: 0, target: null, handle: 'maya', link, fund: [], due: [], held: null,
     ask: stateAsk({ state: 'no_project', variant: null, project: null, link }), welcome: true,
   };
+  // v4.0 approved copy 2 (GitHub unknown: no Lovable or Bolt hint).
   const want = [
-    "You're in, @maya. I find grants your app qualifies for and write the applications.",
-    `Connect your app's code on GitHub so I can match it (read-only, one click): ${link}`,
-    'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).',
+    "You're in, @maya. Really glad you're here.",
+    '',
+    `**Step 2 of 3:** connect your app's code on GitHub so I can match you to the right programs. Read-only, one click: ${link}`,
+    '',
     'Done?',
   ].join('\n');
   assert.doesNotMatch(want, /points/, '2026-10-22: no points in the first two replies');
@@ -71,7 +79,7 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
   assert.ok(!namesAccount({ ...named, held: 'Did it win?' }));
   // v3.1 cold read: "You're in" only on the first reply after sign-in; later the same step without it.
   const later = { ...pick, welcome: false };
-  assert.equal(benchReply(later), want.split('\n').slice(1).join('\n'));
+  assert.equal(benchReply(later), want.split('\n').slice(2).join('\n'));
   assert.ok(!namesAccount(later));
 });
 

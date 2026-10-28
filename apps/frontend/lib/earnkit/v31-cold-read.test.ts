@@ -68,13 +68,20 @@ const LINK = 'https://earnkit.com/github/verify?n=abc';
 const BASE = { org: 'Base', amount: '$5,000', chain: 'Base', name: 'Base Builder Grants' };
 
 test('the approved copy, word for word', () => {
-  assert.equal(youreIn('maya'), "You're in, @maya. I find grants your app qualifies for and write the applications.");
+  assert.equal(youreIn('maya'), "You're in, @maya. Really glad you're here.");
   assert.equal(grantHook(BASE), 'Base Builder Grants pay up to $5,000 for apps on Base.');
   assert.equal(grantProgramName('Base Builder Grant Program'), 'Base Builder Grants');
   assert.equal(grantProgramName('Circle Developer Grants'), 'Circle Developer Grants');
-  assert.equal(pickRepoAsk(LINK), [
-    `Connect your app's code on GitHub so I can match it (read-only, one click): ${LINK}`,
-    'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).',
+  assert.equal(pickRepoAsk(LINK, false), [
+    `**Step 2 of 3:** connect your app's code on GitHub so I can match you to the right programs. Read-only, one click: ${LINK}`,
+    '',
+    'Done?',
+  ].join('\n'));
+  assert.equal(pickRepoAsk(LINK, true), [
+    `**Step 2 of 3:** connect your app's code on GitHub so I can match you to the right programs. Read-only, one click: ${LINK}`,
+    '',
+    'Built it in Lovable or Bolt? Connect GitHub there first (Lovable: Project settings, then Git. Bolt: the GitHub icon, top right).',
+    '',
     'Done?',
   ].join('\n'));
   assert.equal(liveNoGithub('lovable', 'MealMate', LINK),
@@ -122,7 +129,7 @@ test('the approved copy, word for word', () => {
   assert.match(ANSWER_FIRST_NOTE, /first answer it in one short line from show_to_builder and facts only/);
   assert.match(SERVER_INSTRUCTIONS, /answer it in one short line from facts in the reply, never invented/);
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));
-  for (const s of [pickRepoAsk(LINK), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE), BACKING_OFFER('Kit', 'KIT', null), tokenConnectFirst('Kit', LINK),
+  for (const s of [pickRepoAsk(LINK, false), liveNoGithub('lovable', 'MealMate', LINK), baseStartSteps(BASE), BACKING_OFFER('Kit', 'KIT', null), tokenConnectFirst('Kit', LINK),
     tokenPublishFirst('KIT'), connectAsk('https://earnkit.com/kit'), backersLine(0, 0), proofAsk('X'), TITLES_ASK, walletOffer('https://earnkit.com/claim/wallet?t=x')]) asks(s);
   for (const s of [youreIn('maya'), grantHook(BASE), NO_GITHUB_HINT, TOKEN_NO_WEEK, TOKEN_LOG_PENDING, NOT_ON_GITHUB_YET, ...Object.values(COIN_BLOCKED)]) clean(s);
 });
@@ -226,7 +233,7 @@ test('"You\'re in" only on the first reply; bug 1: a connect yes with nothing co
   const p = await newcomer('w');
   const first = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   asks(first);
-  assert.ok(first.startsWith(`You're in, @${p.handle}. I find grants your app qualifies for and write the applications.\n`), first);
+  assert.ok(first.startsWith(`You're in, @${p.handle}. Really glad you're here.\n\n`), first);
   assert.doesNotMatch(first, /Step 2 of 2|isn't counted yet/);
   const second = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   assert.doesNotMatch(second, /You're in/, second);

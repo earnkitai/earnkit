@@ -112,24 +112,30 @@ test('copy: word for word, one question each', () => {
 test('value before the ask: the first reply names the open grant before the GitHub step, one link, one question', db, async () => {
   const p = await signedIn('v');
   const s = rule(show(await mcpCall(p.ctx, 'find', {})));
+  // v4.0 approved copy 2: the welcome reply is the welcome and step 2 alone (the intro, step 1, named the grant).
   const lines = s.split('\n');
-  assert.equal(lines[0], `You're in, @${p.username}. I find grants your app qualifies for and write the applications.`);
-  assert.equal(lines[1], await grantLine());
-  assert.match(lines[2], /^Connect your app's code on GitHub so I can match it \(read-only, one click\): /);
+  assert.equal(lines[0], `You're in, @${p.username}. Really glad you're here.`);
+  assert.equal(lines[1], '');
+  assert.match(lines[2], /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: /);
+  assert.ok(!s.includes(await grantLine()), s);
   // v3.1 cold read: "You're in" only on the first reply after sign-in.
   assert.doesNotMatch(show(await mcpCall(p.ctx, 'find', {})), /You're in/);
-  assert.ok(s.indexOf('pays up to $') < s.indexOf('github/verify'), 'money before the GitHub step');
+  // A later day's full pitch (not the welcome) still names the open grant before the GitHub step.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || '{"pitch_day":"2000-01-01"}'::jsonb WHERE builder_id = ${p.id}`;
+  const later = rule(show(await mcpCall(p.ctx, 'find', {})));
+  assert.equal(later.split('\n')[0], await grantLine());
+  assert.ok(later.indexOf('pays up to $') < later.indexOf('github/verify'), 'money before the GitHub step');
 });
 
 test('Lovable app, no GitHub: the live link routes into the connect step, then Lovable\'s own GitHub steps (never the Base walk-through); never "Okay.", the host or "Where does it live"', db, async () => {
   const p = await signedIn('l', 'Grok');
   const identity = { project: { name: 'MealMate', what: 'a meal planner', live_url: 'https://mealmate.lovable.app' } };
   const r1 = await mcpCall(p.ctx, 'find', { agent_can_build: false, identity });
-  const s1 = rule(show(r1));
-  assert.match(s1, new RegExp(`^You're in, @${p.username}\\. I find grants your app qualifies for and write the applications\\.\n`));
+  // v4.0 approved copy 2: a link-only project has no GitHub: the Lovable or Bolt hint (its own question) under step 2.
+  const s1 = rule(show(r1), 2);
+  assert.match(s1, new RegExp(`^You're in, @${p.username}\\. Really glad you're here\\.\n\n`));
   assert.doesNotMatch(s1, /isn't counted yet|Step 2 of 2/);
-  assert.ok(s1.includes(await grantLine()), s1);
-  assert.match(s1, /Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt/);
+  assert.match(s1, /\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nBuilt it in Lovable or Bolt\?/);
   assert.doesNotMatch(s1, /Where does|lovable\.app|coding agent/i);
   assert.equal(moveUp(r1)?.kind, 'pick_repo');
   // The next find never says "You're in" again, nor the host.
@@ -422,7 +428,7 @@ test('v3.1 reply format: the MCP route sends show_to_builder with a blank line b
   const p = await signedIn('f', 'Cursor');
   const r = await mcpCall(p.ctx, 'find', {}, { format: true });
   const s = String(r.reply?.show_to_builder);
-  assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n\n/);
+  assert.match(s, /^You're in, @\S+\. Really glad you're here\.\n\n/);
   assert.doesNotMatch(s.replace(/\n\n/g, ''), /\n(?!\d+\. )/, 'no single newline outside a list');
 });
 

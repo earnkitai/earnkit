@@ -42,7 +42,7 @@ export const TEXTS: string[] = ([
     { chains: { robinhood: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
   ] as const).map((repo) => fitWhy({ chains: ['base', 'arc', 'monad', 'robinhood'], any_chain: false, tag: 'needs a live product' }, repo)),
   fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false }),
-  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x'), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
+  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x', false), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x', false),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
   // T9: the raise lines and the pill's words.
   raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,

@@ -175,9 +175,9 @@ test('R16a: the steps\' copy before the account has a page, one table (signed_ou
   assert.equal(STATE_COPY.not_counted.stand('Kit'), null);
   assert.equal(SHIP_ASK, 'Want me to suggest one small thing to ship?');
   // The other states keep their next steps: sign in, name a repo, install the App.
-  assert.match(STATE_COPY.signed_out.ask('https://x'), /^Step 1 of 2: sign in with X/);
+  assert.match(STATE_COPY.signed_out.ask('https://x'), /^Setup takes about a minute:\n1\. Sign in with X: https:\/\/x\n/);
   assert.equal(STATE_COPY.no_project.noApp(), "What's your GitHub, or a link to something you've made?");
-  assert.match(STATE_COPY.not_counted.ask('https://x'), /^Connect your app's code on GitHub so I can match it/);
+  assert.match(STATE_COPY.not_counted.ask('https://x', false), /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you/);
   for (const l of [...Object.values(STATE_COPY).flatMap((c) => Object.values(c).map((f) => (f as (...a: unknown[]) => string)('Kit'))),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Kit'), v.ask('Kit')]), SHIP_ASK])
     if (l !== null) assert.doesNotMatch(l, COIN_WORDS, l);
@@ -186,14 +186,16 @@ test('R16a: the steps\' copy before the account has a page, one table (signed_ou
 test('R16a through mcpCall: signed out, no project and not counted keep their own step; only ranked asks to ship', db, async () => {
   const out = await agent();
   const s1 = String((await mcpCall(out.ctx, 'find', {})).reply?.show_to_builder);
-  assert.match(s1, new RegExp(`^${INTRO_LINE}[\\s\\S]*\\nStep 1 of 2: sign in with X`));
+  assert.ok(s1.startsWith(INTRO_LINE), s1);
+  assert.match(s1, /\n1\. Sign in with X: https:\/\/\S+\n/);
   const none = await agent('nop');
   const s2 = String((await mcpCall(none.ctx, 'find', {})).reply?.show_to_builder);
   // Launch ready L2: the repo picker's install link, never a GitHub URL asked for.
-  assert.match(s2, /\nConnect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/, s2);
+  // v4.0: GitHub unknown, so no Lovable or Bolt hint.
+  assert.match(s2, /\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nDone\?$/, s2);
   const unc = await agent('unc');
   const s3 = String((await mcpCall(unc.ctx, 'find', { identity: { project: { name: 'Unc', repo: `https://github.com/unc${RUN}/unc` } } })).reply?.show_to_builder);
-  assert.match(s3, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it/);
+  assert.match(s3, /^You're in, @\S+\. Really glad you're here\.\n\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you/);
   for (const s of [s1, s2, s3]) {
     assert.ok(!s.includes(SHIP_ASK), s);
     assert.doesNotMatch(s, COIN_WORDS, s);

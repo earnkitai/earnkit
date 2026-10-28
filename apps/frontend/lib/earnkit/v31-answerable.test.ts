@@ -192,15 +192,18 @@ test('facts: signed in, no repo: the page, points and what they are for, Earned 
 test('the connect pitch: in full once a day, then its link and question alone', db, async () => {
   const p = await signedIn('p');
   const first = rule(show(await mcpCall(p.ctx, 'find', {})));
-  assert.match(first, /pays? up to \$/);
-  assert.match(first, /Lovable or Bolt/);
+  // v4.0 approved copy 2: the full pitch (the welcome reply: no money line; GitHub unknown: no Lovable or Bolt hint).
+  assert.match(first, /\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\./);
+  assert.doesNotMatch(first, /Lovable or Bolt/);
   for (const tool of ['find', 'score'] as const) {
     const again = rule(show(await mcpCall(p.ctx, tool, {})));
     assert.equal(again, pickRepoAgain(links(again)[0]!), tool);
   }
   // The next day: the full pitch again.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || '{"pitch_day": "2020-01-01"}'::jsonb WHERE builder_id = ${p.id}`;
-  assert.match(show(await mcpCall(p.ctx, 'find', {})), /Lovable or Bolt/);
+  const next = show(await mcpCall(p.ctx, 'find', {}));
+  assert.match(next, /pays? up to \$/);
+  assert.match(next, /\*\*Step 2 of 3:\*\*/);
 });
 
 test('weekly email yes without an address: asks which email unless one is on file; with one, done', db, () => withEnv(ON, async () => {

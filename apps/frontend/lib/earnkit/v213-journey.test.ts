@@ -588,7 +588,7 @@ test('16.2 acceptance 2, without a project: the repo picker and no build offer (
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're in, @maya2_builds\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it /, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\. Really glad you're here\.\n\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you /, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');

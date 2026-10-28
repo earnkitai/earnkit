@@ -740,7 +740,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const appDone = state === 'not_counted' && install !== null && (await appConnected(id));
   // v3.1 cold read: a live app (Lovable, Bolt) whose builder said no to GitHub once hears its tool's GitHub steps.
   const liveTool = liveOnly && !held && (read.seen.github_no_app || read.seen.github_no) ? { tool: builtWith(project!.key) ?? builtWith(read.liveUrl) } : null;
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
+  // v4.0 (approved copy 2): the Lovable or Bolt hint only without GitHub: said so, a link-only project, or a Lovable or
+  // Bolt live link; never assumed (GitHub unknown: no hint).
+  const linkOnly = project !== null && LINK_KEY.test(project.key);
+  const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
+  const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
   let finalAsk = stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
@@ -766,7 +771,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due: o.due,
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
-    ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
+    noGithub, ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));
@@ -1579,7 +1584,8 @@ async function connectAfterAll(id: number, now: Date): Promise<Reply> {
   if (!link) return { show_to_builder: NOTED_LINE };
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'github_no' WHERE builder_id = ${id}`.catch(logged('github yes'));
   await storeAsk(id, { kind: 'pick_repo', key: null });
-  return { show_to_builder: STATE_COPY.no_project.ask(link), move_up: { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE } };
+  // v4.0: the builder said no to GitHub before this yes, so step 2 carries the Lovable or Bolt hint.
+  return { show_to_builder: STATE_COPY.no_project.ask(link, true), move_up: { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE } };
 }
 
 /**
@@ -1644,7 +1650,7 @@ async function connectNotYet(id: number, now: Date): Promise<Reply | null> {
   await storeAsk(id, { kind: 'pick_repo', key: null });
   const line = p.main !== null && LINK_KEY.test(p.main)
     ? `${NOT_ON_GITHUB_YET} ${liveNoGithub(builtWith(p.main), await liveName(id, p.main), link)}`
-    : `${NOT_ON_GITHUB_YET} Once it's there, connect it here: ${link}\n${NO_GITHUB_HINT}\nDone?`;
+    : `${NOT_ON_GITHUB_YET} Once it's there, connect it here: ${link}\n${p.no ? `${NO_GITHUB_HINT}\n` : ''}Done?`;
   return { show_to_builder: line, move_up: { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE } };
 }
 

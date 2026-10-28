@@ -23,6 +23,7 @@ import { profileSite } from './site-data';
 import type { ToolContext } from './tools';
 import type { XOAuthDeps, XUser } from './x-oauth';
 import { padPool } from './fixtures/rank-pool';
+import { INTRO_LINE } from './bench-reply';
 
 /**
  * v2.14 T12: the spec's acceptance 1 to 5 as one brand-new builder lives them, through the real routes
@@ -133,7 +134,7 @@ test('12.1 acceptance 1: the install signs in with X; the first reply names the 
   first = await addEarnKit('http://127.0.0.1:41234/callback', 'Claude Code', ME);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16 step 2: the reply names the account itself; the picker's install link, no GitHub URL asked for.
-  assert.equal(s.split('\n')[0], `You're in, @${ME.username}. I find grants your app qualifies for and write the applications.`, s);
+  assert.equal(s.split('\n')[0], `You're in, @${ME.username}. Really glad you're here.`, s);
   assert.doesNotMatch(s, /Signed in as/);
   assert.match(links(s)[0]!, /^https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.ok(s.endsWith("Done?"), s);
@@ -218,7 +219,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   await saveInstallation(token, undefined, false, 'Cursor');
   const ctx = ctxOf((await connectInstallation(token))!);
   const out = rule(await mcpCall(ctx, 'find', {}));
-  assert.ok(out.startsWith('EarnKit gets you paid for building.\n'), out);
+  assert.ok(out.startsWith(`${INTRO_LINE}\n\n`), out);
   const link = links(out)[0]!;
   assert.match(link, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
@@ -227,7 +228,7 @@ test('12.6 the fallback client: signed out, the link page, the paste code throug
   const bound = await mcpCall(ctx, 'find', { sign_in_code: code });
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const s = rule(bound);
-  assert.ok(s.startsWith(`You're in, @${kim.username}. I find grants your app qualifies for and write the applications.\n`), s);
+  assert.ok(s.startsWith(`You're in, @${kim.username}. Really glad you're here.\n\n`), s);
   assert.ok(s.endsWith("Done?"), s);
 });
 

@@ -49,16 +49,18 @@ type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-const rule = (s: string) => {
+const rule = (s: string, asks = 1) => {
   assert.ok(links(s).length <= 1, s);
-  assert.equal(questions(s), 1, s);
+  assert.equal(questions(s), asks, s);
   assert.doesNotMatch(s, /—|\p{Extended_Pictographic}/u, s);
   return s;
 };
 const GUIDE = 'https://docs.base.org/base-chain/builder-codes/builder-codes';
-const STEP2 = /^Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/;
+const STEP2 = /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nDone\?$/;
+/** v4.0 approved copy 2: step 2 for a builder with no GitHub (said so): the Lovable or Bolt hint, its own question. */
+const STEP2_HINT = /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nBuilt it in Lovable or Bolt\? Connect GitHub there first \(Lovable: Project settings, then Git\. Bolt: the GitHub icon, top right\)\.\n\nDone\?$/;
 /** v3.1 cold read: the first reply's welcome (once). */
-const WELCOME = (u: string) => `You're in, @${u}. I find grants your app qualifies for and write the applications.`;
+const WELCOME = (u: string) => `You're in, @${u}. Really glad you're here.`;
 /** v3.1 cold read: the walk-through for Base Builder Grants as listed ($5,000, on Base). */
 const STEPS = baseStartSteps({ org: 'Base', amount: '$5,000', chain: 'Base', name: 'Base Builder Grants' });
 const seen = async (id: number) => ((await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`)[0]?.s ?? {});
@@ -141,7 +143,7 @@ test('the order: step 2 until a no; then the walk-through, the wallet step, the 
   const view: BenchView = { ...v, link: null, rank: null, streak: 0, target: null, fund: [], due: [], held: null, ask: rest, notice: TEMPLATE_NOTICE };
   // v3.1 cold read: "You're in" only when this reply is the first after sign-in (welcome).
   assert.equal(rule(benchReply(view)), `${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
-  assert.equal(rule(benchReply({ ...view, welcome: true })), `${WELCOME('maya')}\n${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
+  assert.equal(rule(benchReply({ ...view, welcome: true })), `${WELCOME('maya')}\n\n${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
 
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const r = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit' };
@@ -167,8 +169,8 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   const first = await find(p.ctx);
   const s1 = rule(show(first));
   assert.equal(s1.split('\n')[0], WELCOME(p.username));
-  // GTM W2 (value before the ask): the open grant's line, then step 2.
-  assert.match(s1.split('\n')[1], / pays? up to \$[\d,]+ for apps/);
+  // v4.0 approved copy 2: the welcome, then step 2 alone (the intro named the open grant).
+  assert.equal(s1.split('\n')[1], '');
   assert.match(s1.split('\n').slice(2).join('\n'), STEP2);
   assert.deepEqual(first.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.match(PICK_REPO_NOTE, /no GitHub yet, or not connecting it now, is a no/);
@@ -212,7 +214,7 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   }
   // Its yes ("done") with nothing connected: the no is cleared and the connect step given again.
   const again = await tell(p.ctx, 'pick_repo', 'yes');
-  assert.match(rule(show(again)), STEP2);
+  assert.match(rule(show(again), 2), STEP2_HINT);
   assert.deepEqual(again.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.equal((await seen(p.id)).github_no, undefined);
   assert.equal(((await seen(p.id)).bench_ask as { kind: string }).kind, 'pick_repo');
@@ -235,7 +237,7 @@ test('GitHub no, then no to Base: "No rush." (no wallet step without contracts),
   }
   // The builder asks to connect after all (the notes' path): step 2's link again.
   const again = await tell(p.ctx, 'pick_repo', 'yes');
-  assert.match(rule(show(again)), STEP2);
+  assert.match(rule(show(again), 2), STEP2_HINT);
   assert.equal((await seen(p.id)).github_no, undefined);
   await tell(p.ctx, 'pick_repo', 'no');
   const pg = await pageText(p.id);

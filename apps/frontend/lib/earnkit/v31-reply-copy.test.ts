@@ -63,11 +63,16 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const signIn = links(s1)[0]!;
   assert.match(signIn, /^https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}$/);
   assert.equal(s1, [
-    'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base Builder Grants pay up to $5,000 for apps on Base.',
+    '**EarnKit gets you paid for building.**',
     '',
-    `Step 1 of 2: sign in with X (one click): ${signIn}`,
-    'Done?',
+    'Every week I read what you ship, rank you against other builders, and find grants and programs you qualify for. Up to $5,000 is open from Base right now.',
+    '',
+    'Setup takes about a minute:',
+    `1. Sign in with X: ${signIn}`,
+    '2. Connect your code',
+    '3. Add your wallet',
+    '',
+    'Done with step 1?',
   ].join('\n'));
 
   // Step 2: signed in, no repo (the picker), then a named repo the App can't count yet (its install link).
@@ -87,12 +92,12 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   }];
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   // v3.1 cold read: "You're in" only on the first reply after sign-in.
+  // v4.0 approved copy 2: the welcome and step 2 alone (GitHub unknown: no Lovable or Bolt hint); a later day's full
+  // pitch keeps the open grant's line before the GitHub step (GTM W2).
   const step2 = (link: string, first = false) => [
-    ...(first ? [`You're in, @${handle}. I find grants your app qualifies for and write the applications.`] : []),
-    // GTM W2 (value before the ask): the open grant's line before the GitHub step.
-    'Base Builder Grants pay up to $5,000 for apps on Base.',
-    `Connect your app's code on GitHub so I can match it (read-only, one click): ${link}`,
-    'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).',
+    ...(first ? [`You're in, @${handle}. Really glad you're here.`, ''] : ['Base Builder Grants pay up to $5,000 for apps on Base.']),
+    `**Step 2 of 3:** connect your app's code on GitHub so I can match you to the right programs. Read-only, one click: ${link}`,
+    '',
     'Done?',
   ].join('\n');
   const s2 = rule(show(await mcpCall({ ...ctx, matchProjects: none }, 'find', {})));

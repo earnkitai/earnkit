@@ -110,11 +110,11 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
   }
   assert.deepEqual(found, []);
   const copy = [
-    INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
+    INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L', false), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L', false),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
   for (const c of copy) if (c !== null) assert.doesNotMatch(c, /bench/i, c);
-  assert.match(STATE_COPY.signed_out.ask('L'), /^Step 1 of 2: sign in with X \(one click\): L\nDone\?$/);
+  assert.match(STATE_COPY.signed_out.ask('L'), /^Setup takes about a minute:\n1\. Sign in with X: L\n2\. Connect your code\n3\. Add your wallet\n\nDone with step 1\?$/);
   const llms = readFileSync(join(FRONTEND, 'lib/earnkit/llms/v213.txt'), 'utf8');
   assert.match(llms, /^## The leaderboard$/m);
   assert.match(llms, /https:\/\/earnkit\.com\/leaderboard/);

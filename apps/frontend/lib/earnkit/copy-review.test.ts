@@ -1422,7 +1422,7 @@ function v31Texts(): [string, string][] {
     ['introWhat', introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['introWhat no grant', introWhat(null)],
     ['youreIn', youreIn('maya')],
-    ['pickRepoAsk', pickRepoAsk('https://earnkit.com/github/verify?n=x')],
+    ['pickRepoAsk', pickRepoAsk('https://earnkit.com/github/verify?n=x', false)],
     // 2026-10-22: the no-fit path to Base's grant, and a private repo's titles question.
     ['grantHook', grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['grantHook any chain', grantHook({ org: 'Arc House', amount: '$10,000', chain: null })],
@@ -1511,7 +1511,8 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
     // A coin's ticker ($TIP) is its name; USDC is the one allowed all-caps word.
     assert.doesNotMatch(unnamed.replace(/\$[A-Z0-9]+\b/g, '$X'), /\b[A-Z]{3,}\b(?<!USDC)/, label);
     // Task 16: a points line starts "+30 points" and the post for X is quoted (the owner's copy).
-    for (const line of text.split('\n').filter(Boolean)) assert.match(line, /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
+    // v4.0 approved copy: a bold lead ("**EarnKit gets you paid for building.**", "**Step 2 of 3:** connect ...") counts as its words.
+    for (const line of text.split('\n').filter(Boolean)) assert.match(line.replace(/^\*\*/, ''), /^([A-Z0-9#$+"]|Name)/, `${label}: ${line}`);
     assert.doesNotMatch(text, /\u2014|\p{Extended_Pictographic}/u, label);
     assert.doesNotMatch(text, /(earnkit\.com|https:)\S*\.(\s|$)/, label);
     assert.ok((text.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length <= 1, label);
