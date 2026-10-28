@@ -11,7 +11,10 @@ import { verifyMessage } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { fakeGitHub } from './fixtures/fake-github';
 import { installApp } from './fixtures/app-install';
-import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, stateAsk, walletSetupAsk, type BenchProject, type BenchView } from './bench-reply';
+import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, programsTable, setupDoneLead, stateAsk, walletSetupAsk, type BenchProject, type BenchView } from './bench-reply';
+import { setupRows } from './bench-find';
+import { productOdds, productScore, traction, type Detection } from './match';
+import type { RepoFit } from './present';
 import { walletSetupDue, walletSetupToken } from './wallet-offer';
 import { provenWallet, upgradeToken, walletMessage, walletPost } from './wallet-proof';
 import { declineBuilderToken } from './builder-token';
@@ -275,12 +278,13 @@ test('(c) the proof on the wallet page launches the token, no tell call needed',
   assert.equal(p.tf.calls[0].creatorWallet, await provenWallet(p.id));
 });
 
-test('(d) a no to the token before the proof: "Got it.", then the proof deploys nothing; declined', db, async () => {
+test('(d) a no to the token before the proof: the setup-done reply, then the proof deploys nothing; declined', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('n');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } })), TOKEN_NO_LINE);
+  // v4.0 Task 5: the no is the setup-done reply now (MealMate fits nothing open here).
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } })), "No problem, no token.\n\nMealMate doesn't fit an open program yet.");
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
@@ -360,7 +364,7 @@ test('fix 1: a kindless no to step 3 with the token sentence shown declines the 
   const p = await connected('k1');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   assert.ok(s.includes('Rather skip the token? Just say no.'), s);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { project_key: p.key, answer: 'no' } })), TOKEN_NO_LINE);
+  assert.ok(show(await mcpCall(p.ctx, 'tell', { move_up: { project_key: p.key, answer: 'no' } })).startsWith('No problem, no token.'));
   assert.equal(await tokenRow(p.id), 'declined');
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   await new Promise((r) => setTimeout(r, 100));
@@ -405,4 +409,146 @@ test('fix 4: a throwing side effect after the proof still launches the token', d
   await assert.rejects(signOn(p.handle, s, p.tf, undefined, async () => { throw new Error('side effect down'); }));
   assert.equal(await settled(p.id), 'launched');
   assert.equal(p.tf.calls.length, 1);
+});
+
+// ---- v4.0 Task 5: setup done (approved copy 4): the first reply after step 3 settles, with the open programs table.
+
+const ROLLING = 'base-builder-grants';
+const ROLLING_TITLE = 'Base Builder Grant Program';
+const OPEN = "Here's what's open for you right now:";
+const TABLE = `| Program | Up to | Closes |\n|---|---|---|\n| ${ROLLING_TITLE} | $5,000 | Rolling |`;
+const BEST_ASK = `${ROLLING_TITLE} looks like your best fit. Want me to draft it?`;
+type Ctx = Parameters<typeof mcpCall>[0];
+const kindOf = (r: R) => (r.reply?.move_up as { kind?: string } | undefined)?.kind;
+function repoFits(key: string, programs: string[]): RepoFit[] {
+  const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
+  const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
+  const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
+  const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
+  const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
+  return [{
+    repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true,
+    verdicts: programs.map((id) => ({ program_id: id, program: id, status: 'likely' as const, missing: [], effort: 'none' as const, note: null })),
+  }];
+}
+/** A ranked builder named "Maya Lin" on X (the Kit repo proven by the App, the matcher fitting `programs`), shown step 3. */
+async function fitted(tag: string, programs: string[]) {
+  n++;
+  const t = `ek_v4s5_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const own = (await connectInstallation(t))!.own;
+  const handle = `v5${tag}${RUN}`.slice(0, 15);
+  assert.ok((await attachToX(own, { id: `93${RUN}${n}${tag.length}`, username: handle, name: 'Maya Lin', avatar: null }, new Date())).ok);
+  const c = (await connectInstallation(t))!;
+  const key = `${handle}/kit`;
+  const tf = fakeTokensFun();
+  const fits = repoFits(key, programs);
+  const ctx = {
+    installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never,
+    tokenDeps: { check: async () => true }, builderTokenDeps: tf.deps,
+  } as Ctx;
+  await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
+  const gid = 50_000 + Math.floor(Math.random() * 40_000);
+  const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
+  await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
+  (ctx as { codesFetch?: typeof fetch }).codesFetch = gh as typeof fetch;
+  // The connect weeks are another task's moment: answered, so they never take the step here.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
+  await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
+  const r = await mcpCall(ctx, 'find', {});
+  const step = show(r);
+  assert.match(step, /\*\*Step 3 of 3:\*\*/, step);
+  assert.equal(kindOf(r), 'wallet_setup', step);
+  return { ctx, id: c.id, key, handle, tf, step };
+}
+
+test('setup done copy, word for word: the three leads, the neutral one, and the table', () => {
+  assert.equal(setupDoneLead('Maya', 'launched'), `You're all set, Maya. Your community can now back what you're building.\n\n${OPEN}`);
+  assert.equal(setupDoneLead('Maya', 'declined'), `No problem, no token. ${OPEN}`);
+  assert.equal(setupDoneLead('Maya', 'skipped'), `No worries, add it whenever you're ready. ${OPEN}`);
+  assert.equal(setupDoneLead('Maya', 'set'), `You're all set, Maya.\n\n${OPEN}`);
+  assert.equal(
+    programsTable([{ program: 'Base Builder Grant Program', upTo: '$5,000', closes: 'Rolling' }, { program: 'Arc Builders', upTo: '$10,000', closes: 'Nov 15' }]),
+    '| Program | Up to | Closes |\n|---|---|---|\n| Base Builder Grant Program | $5,000 | Rolling |\n| Arc Builders | $10,000 | Nov 15 |',
+  );
+  // A cell never breaks the table.
+  assert.equal(programsTable([{ program: 'A | B', upTo: '$1', closes: 'Rolling' }]).split('\n')[2], '| A / B | $1 | Rolling |');
+  for (const o of ['launched', 'declined', 'skipped', 'set'] as const) assert.doesNotMatch(setupDoneLead('Maya', o), /coin|—|\p{Extended_Pictographic}/u);
+  // Rows: at most 3, the Best fit first; rolling is "Rolling", a deadline its day.
+  const f = (id: string, when: string) => ({ program_id: id, title: id.toUpperCase(), amount: '$5,000', when }) as never;
+  assert.deepEqual(setupRows([f('b', 'closes Nov 15'), f('a', 'rolling'), f('c', 'rolling'), f('d', 'rolling')]), [
+    { program: 'B', upTo: '$5,000', closes: 'Nov 15' }, { program: 'A', upTo: '$5,000', closes: 'Rolling' }, { program: 'C', upTo: '$5,000', closes: 'Rolling' },
+  ]);
+});
+
+test('(a) signed on the page, token launched: the next find leads with "You\'re all set", the table and the draft question', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const b = await fitted('a', [ROLLING]);
+  assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
+  assert.equal(await settled(b.id), 'launched');
+  const r = await mcpCall(b.ctx, 'find', {});
+  const s = show(r);
+  assert.equal(s, `You're all set, Maya. Your community can now back what you're building.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(kindOf(r), 'apply');
+  // The yes drafts it (the apply flow).
+  const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: (r.reply?.move_up as { project_key: string }).project_key, answer: 'yes' } });
+  assert.equal((yes.reply?.lead as { program_id?: string } | undefined)?.program_id, ROLLING, JSON.stringify(yes.reply));
+});
+
+test('(a) signed with tokens off: the neutral "You\'re all set", no token claim', db, async () => {
+  const b = await (async () => {
+    try {
+      process.env.EARNKIT_BUILDER_TOKENS = 'off';
+      return await fitted('n', [ROLLING]);
+    } finally {
+      process.env.EARNKIT_BUILDER_TOKENS = 'on';
+    }
+  })();
+  assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await tokenRow(b.id), null);
+  const s = show(await mcpCall(b.ctx, 'find', {}));
+  assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+});
+
+test('(b) a no to the token: "No problem, no token." with the table, right away', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('b', [ROLLING]);
+  const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: b.key, answer: 'no' } });
+  assert.equal(show(r), `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(kindOf(r), 'apply');
+  assert.equal(await tokenRow(b.id), 'declined');
+});
+
+test('(c) skipped the wallet: "No worries, add it whenever you\'re ready." with the table, right away', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('c', [ROLLING]);
+  const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
+  assert.equal(show(r), `No worries, add it whenever you're ready. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(kindOf(r), 'apply');
+});
+
+test('(d) said once: the next reply is the normal ranked reply; a later no to the token is "Got it."', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('d', [ROLLING]);
+  assert.ok(show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } })).includes(OPEN));
+  const next = show(await mcpCall(b.ctx, 'find', {}));
+  assert.doesNotMatch(next, /what's open for you right now|You're all set|No worries|\| Program \|/, next);
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } })), TOKEN_NO_LINE);
+  // Signed on the page after the browser: still once.
+  const s = await mcpCall(b.ctx, 'find', {});
+  assert.doesNotMatch(show(s), /You're all set|what's open for you right now/, show(s));
+});
+
+test('(e) no open fit: the no-fit line in place of the table and question, never an empty table', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('e', []);
+  // Every program the stored repo facts could win, told about already (so none is open for it).
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label)
+    SELECT ${b.id}, '', id, 'rejected', 'an older round' FROM programs ON CONFLICT DO NOTHING`;
+  const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
+  assert.equal(show(r), "No worries, add it whenever you're ready.\n\nKit doesn't fit an open program yet.");
+  assert.doesNotMatch(show(r), /\|/);
+  assert.equal(kindOf(r), undefined);
 });

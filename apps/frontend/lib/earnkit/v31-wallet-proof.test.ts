@@ -264,8 +264,8 @@ test('"skip" is remembered and never asked again; a builder who already proved a
   rule(show(r));
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup');
   const no = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'no' } });
-  // v4.0: step 3's skip (approved copy 4's first sentence; Task 5 adds what's open).
-  assert.equal(show(no), WALLET_SETUP_SKIPPED);
+  // v4.0 Task 5: step 3's skip is the setup-done reply (approved copy 4), its first sentence the skip line.
+  assert.ok(show(no).startsWith(WALLET_SETUP_SKIPPED), show(no));
   assert.equal(await walletSetupDue(c.id, new Date()), null, 'step 3 never asked again');
   const s = await seen(c.id);
   assert.equal(typeof s.wallet_asked, 'string');

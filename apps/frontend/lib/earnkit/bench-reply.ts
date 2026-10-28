@@ -220,6 +220,42 @@ export const TOKEN_SENTENCE =
 export const TOKEN_NO_LINE = 'Got it.';
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
+/**
+ * v4.0 Task 5: how setup step 3 settled. 'launched': a wallet signed and a token row launched, launching or unknown;
+ * 'set': a wallet signed with no token to claim (the neutral lead); 'declined': the token said no; 'skipped': no wallet.
+ */
+export type SetupOutcome = 'launched' | 'set' | 'declined' | 'skipped';
+/** v4.0 approved copy 4: the line above the open programs table. */
+export const SETUP_OPEN = "Here's what's open for you right now:";
+/**
+ * v4.0 approved copy 4 ("Setup done"): the lead, word for word, ending with SETUP_OPEN (`open` false: no open fit, so
+ * the lead alone). `first`: the builder's first name (X display name's first word, else the handle). Pure.
+ */
+export function setupDoneLead(first: string, outcome: SetupOutcome, open = true): string {
+  const tail = open ? SETUP_OPEN : null;
+  switch (outcome) {
+    case 'launched': return [`You're all set, ${first}. Your community can now back what you're building.`, tail].filter(Boolean).join('\n\n');
+    case 'set': return [`You're all set, ${first}.`, tail].filter(Boolean).join('\n\n');
+    case 'declined': return ['No problem, no token.', tail].filter(Boolean).join(' ');
+    case 'skipped': return [WALLET_SETUP_SKIPPED, tail].filter(Boolean).join(' ');
+  }
+}
+export type ProgramRow = { program: string; upTo: string; closes: string };
+/** A table cell: one line, never a `|` (it would break the row). Pure. */
+const cell = (s: string) => s.replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+/** v4.0 approved copy 4: the open programs table (Program | Up to | Closes), its rows as given. Pure. */
+export const programsTable = (rows: ProgramRow[]) =>
+  ['| Program | Up to | Closes |', '|---|---|---|', ...rows.map((r) => `| ${cell(r.program)} | ${cell(r.upTo)} | ${cell(r.closes)} |`)].join('\n');
+/** v4.0 approved copy 4: the one question, the first row's program (the apply ask: a yes drafts it). Pure. */
+export const bestFitAsk = (program: string) => `${program} looks like your best fit. Want me to draft it?`;
+/**
+ * v4.0 Task 5: the setup-done reply: the lead, the table and the draft question; with no open fit, the lead alone and
+ * `noFit` (never an empty table). Pure.
+ */
+export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string) =>
+  rows.length === 0
+    ? `${setupDoneLead(first, outcome, false)}\n\n${noFit}`
+    : `${setupDoneLead(first, outcome)}\n\n${programsTable(rows)}\n\n${bestFitAsk(rows[0].program)}`;
 /** Only when true: the Base Builder Code stays on the first wallet; a launched coin's fees stay with its launch wallet. */
 export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
 export const WALLET_COIN_FEES = "Your coin's fees keep going to the wallet it launched with.";
@@ -485,6 +521,8 @@ export type BenchView = {
   liveTool?: { tool: 'lovable' | 'bolt' | null } | null;
   /** v3.1 answerable replies (spec 6): the connect step's full pitch was shown today: this one is short (pickRepoAgain). */
   pitched?: boolean;
+  /** v4.0 Task 5: the setup-done reply (setupDoneReply), said once in place of the state's reply. */
+  setupDone?: string;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -622,6 +660,8 @@ export function benchReply(v: BenchView): string {
   // 2026-10-22 (owner): no points lines in the first two replies.
   // v4.0 approved copy 1: the head line, what EarnKit does (with the open grant), then the three steps.
   if (v.state === 'signed_out') return paras([INTRO_LINE], [introWhat(v.open ?? null)], [v.ask.line]);
+  // v4.0 Task 5: the first reply after setup step 3 settled (benchView claims it once).
+  if (v.setupDone) return v.setupDone;
   const step2 = !v.held && isStep2(v.ask);
   // v3.1 answerable replies (spec 6): after today's full pitch, the step is the link and its question alone.
   const again = step2 && v.pitched === true && v.link !== null;

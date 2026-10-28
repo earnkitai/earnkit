@@ -28,7 +28,7 @@ import {
   FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byDeadline, byRelevance, canApply, enteredIds, layout, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byRelevance, canApply, enteredIds, layout, noFitLine, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import type { TickerCheck } from './token-proposal';
 import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
@@ -42,7 +42,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { displayName, isStep2 } from './bench-reply';
+import { WALLET_SETUP_SKIPPED, displayName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -196,6 +196,9 @@ export type Seen = StandSeen & {
   no_folder?: boolean;
   /** v3.1 cold read: "You're in, @maya." was said (the first reply after sign-in only). */
   welcomed?: string;
+  /** v4.0: setup step 3 was shown (wallet-offer.ts takeWalletAsk, setup), kept; Task 5: its setup-done reply was said (once). */
+  setup_asked?: string;
+  setup_done?: string;
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -659,6 +662,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
+  // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
+  // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
+  if (!held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
+    const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null });
+    if (done) {
+      const ask: BenchView['ask'] = done.move_up
+        ? { kind: 'apply', project_key: done.move_up.project_key, line: '', program_id: done.program_id }
+        : { kind: 'none', project_key: null, line: '' };
+      const view: BenchView = { state, variant, project, rank: null, streak, target: null, handle, link: null, fund: [], due: [], ask, held: null, setupDone: done.show_to_builder };
+      return { view, fields: { ...(done.move_up && { move_up: done.move_up }), rank_lines: [], streak } };
+    }
+  }
   // v4.0 setup step 3 (the wallet, and the token unless they say no): once step 2 is done or answered no, in any signed-in
   // state; before every ranked ask, and on the no-GitHub path after the walk-through offer. While it is due, no other
   // ranked offer is opened (each one is claimed when made). Fix round 1: a project not counted yet is "Your code" (the
@@ -868,7 +883,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -1421,12 +1436,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
-  if (m.kind === 'wallet') return answerWallet(id, m.answer, now);
+  if (m.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now);
   // v4.0 setup step 3: "done" is the wallet's yes; a plain no is a no to the token (the copy's "Just say no"), else
   // (no token sentence shown) a skip of the wallet.
-  if (m.kind === 'wallet_setup') return setupAnswer(ctx, id, m.answer, now);
+  if (m.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now);
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
-  if (m.kind === 'token') return tokenAnswer(ctx, id, m.answer, now);
+  if (m.kind === 'token') return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now), now);
   // 2026-10-23 Base onboarding: step 2's no is remembered (never repeated) and its yes after a no is the builder asking
   // for the link again; the walk-through is answered by its kind, so the builder can ask for it any time.
   if (m.kind === 'pick_repo') {
@@ -1455,8 +1470,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
-  if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
-  if (asked.kind === 'wallet_setup') return setupAnswer(ctx, id, m.answer, now);
+  if (asked.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now);
+  if (asked.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now);
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
   // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
   if (asked.kind === 'backing') {
@@ -1616,6 +1631,79 @@ export function tokenLine(r: LaunchResult): string | null {
     case 'off': return NOTED_LINE;
     case 'not_ready': return null;
   }
+}
+/** v4.0 Task 5: the setup-done table's rows: at most 3, as given (the Best fit first); "Up to" the award, "Closes" its day or "Rolling". Pure. */
+export const setupRows = (fits: Pick<Fit, 'title' | 'amount' | 'when'>[]): ProgramRow[] =>
+  fits.slice(0, 3).map((f) => ({ program: f.title, upTo: f.amount ?? 'Varies', closes: f.when.startsWith('closes ') ? f.when.slice('closes '.length) : 'Rolling' }));
+/** "Maya Lin" is "Maya"; no display name: the handle. Pure. */
+const firstName = (name: string | null, handle: string | null) => name?.trim().split(/\s+/)[0] || handle || 'there';
+/**
+ * v4.0 Task 5: how setup step 3 settled, when it was shown (standing_seen.setup_asked) and its setup-done reply not said
+ * yet: a no to the token (builder_tokens declined); a wallet signed (a token row launched, launching or unknown:
+ * 'launched', else the neutral 'set'); no wallet, no token row and the step ended (skipped). Null: not settled, or a read
+ * error. Never throws.
+ */
+async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first: string } | null> {
+  const [p] = await sql()<{ asked: boolean; done: boolean; open: boolean; wallet: boolean; token: string | null; name: string | null; handle: string | null }[]>`
+    SELECT COALESCE(standing_seen ? 'setup_asked', false) AS asked, COALESCE(standing_seen ? 'setup_done', false) AS done,
+      COALESCE(standing_seen ? 'wallet_link_at', false) AS open,
+      EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${id}) AS wallet,
+      (SELECT t.status FROM builder_tokens t WHERE t.builder_id = ${id}) AS token, x_name AS name, x_handle AS handle
+    FROM builder_profiles WHERE builder_id = ${id}`.catch((err: unknown) => {
+    logged('setup outcome')(err);
+    return [];
+  });
+  if (!p?.asked || p.done) return null;
+  const outcome: SetupOutcome | null = p.token === 'declined' ? 'declined'
+    : p.wallet ? (p.token === 'launched' || p.token === 'launching' || p.token === 'unknown' ? 'launched' : 'set')
+    : !p.open && p.token === null ? 'skipped' : null;
+  return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
+}
+type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply'; project_key: string | null; agent_note: string }; program_id?: string };
+/**
+ * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
+ * (takeOnce 'setup_done'). The rows: the one project's real fits not told about (find's or score's fit lines; without
+ * `given`, score's: scoreApplies), the Best fit first (bestApplies' first, as the ranked reply's), at most 3. Its question
+ * is the apply ask for the Best fit (stored, so a yes drafts it); no open fit: the no-fit line, no question. Null
+ * otherwise. Never throws.
+ */
+async function setupDoneFor(
+  id: number, now: Date,
+  given: { fits: Fit[]; skip: Set<string>; seen: Seen; key: string | null; name: string | null } | null,
+): Promise<SetupDone | null> {
+  try {
+    const settled = await setupOutcome(id);
+    if (!settled || !(await takeOnce(id, 'setup_done', now))) return null;
+    let g = given;
+    if (!g) {
+      const [p] = await sql()<{ seen: Seen | null; key: string | null }[]>`
+        SELECT standing_seen AS seen, main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
+      const { applies, skip } = await scoreApplies(id, p?.key ?? null, now);
+      g = { fits: fitLines(applies), skip, seen: p?.seen ?? {}, key: p?.key ?? null, name: p?.key ? await reportedName(id, p.key).catch(() => null) : null };
+    }
+    const fits = (await openCandidates(id, g.fits.filter(realFit))) ?? [];
+    const best = applyCandidates(fits, g.seen, g.skip, now)[0] ?? fits[0];
+    const rows = best ? [best, ...fits.filter((f) => f !== best)] : [];
+    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name));
+    if (!best) {
+      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
+      return { show_to_builder: show };
+    }
+    await takeApplyAsk(id, best.program_id, now);
+    await storeAsk(id, { kind: 'apply', key: g.key, program_id: best.program_id, ...(best.repo && { repo: best.repo }) });
+    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: best.program_id };
+  } catch (err) {
+    logged('setup done')(err);
+    return null;
+  }
+}
+/**
+ * v4.0 Task 5: a step 3 answer whose reply is the skip line or the token no's: the setup-done reply in its place, once
+ * (setupDoneFor); any other reply as it is. Never throws.
+ */
+async function afterStep3(id: number, r: Reply, now: Date): Promise<Reply> {
+  if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE) return r;
+  return (await setupDoneFor(id, now, null)) ?? r;
 }
 /**
  * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. Fix round 1:
