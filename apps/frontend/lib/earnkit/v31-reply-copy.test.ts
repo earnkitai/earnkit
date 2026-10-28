@@ -146,7 +146,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const answers = { project_name_description: 'Kit: fans tip creators onchain in one tap', live_product_url: 'https://kit.app', usage_numbers: '120 transactions in 90 days' };
   const s6 = rule(show(await mcpCall(ctx, 'prepare', { program_id: BASE_GRANTS_ID, project: { name: 'Kit', repo_url: `https://github.com/${key}`, live_url: 'https://kit.app' }, answers })));
   const lines6 = s6.split('\n');
-  assert.equal(lines6[0], 'Your Base Builder Grant Program application is ready. I filled 3 of 16 answers from your work.');
+  assert.equal(lines6[0], 'Your Base Builder Grant Program application is ready. I filled 4 of 16 answers from your work.');
   assert.match(lines6[1], /^You add \d+ more in the form: your full name, your email and \d+ short answers\.$/);
   assert.ok(s6.endsWith(`\n\nOpen the form, your answers are already in it: ${links(s6)[0]}\nSent it?`), s6);
   assert.doesNotMatch(s6, /points/);

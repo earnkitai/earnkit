@@ -1,9 +1,10 @@
+import { sql } from './db';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, refreshBuilderCodes } from './builder-codes-check';
 import { EntryError, githubRepo } from './campaigns';
 import { NotFoundError, type ProgramRow } from './programs';
 import { shipLogFacts, type ShipLogFacts } from './ship-log-facts';
-import { prepareSubmission, type ProjectInfo } from './submission';
+import { isRealAnswer, prepareSubmission, type ProjectInfo } from './submission';
 import { draftKit, schemeless } from './submit-kit';
 import type { SubmissionRequirement } from './program-file';
 import type { ToolContext } from './tools';
@@ -28,6 +29,12 @@ export const BUILDER_CODES_WAIT_MS = 8_000;
 
 type Reply = Record<string, unknown>;
 type DraftInput = { program_id: string; project?: ProjectInfo; answers?: Record<string, string> };
+
+/** The builder's claimed X handle (builder_profiles), or null; a failed read is none. */
+async function claimedXHandle(builderId: number): Promise<string | null> {
+  const [row] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${builderId}`.catch(() => []);
+  return row?.x_handle?.trim() || null;
+}
 
 /** The ship log facts off a shared client (its installation serves many builders); a failed read is none. */
 async function shipLog(ctx: ToolContext): Promise<ShipLogFacts | null> {
@@ -112,7 +119,13 @@ export async function draftApplication(input: DraftInput, ctx: ToolContext, prog
       agent_note: DRAFT_FIRST_NOTE,
     };
 
-  const prep = prepareSubmission(reqs, { project, answers: input.answers ?? {} });
+  // v4.2 Task 5: the builder's claimed X handle fills the form's X handle unless the agent supplied a real one.
+  const answers = { ...(input.answers ?? {}) };
+  if (reqs.some((r) => r.key === 'x_handle') && !isRealAnswer(answers.x_handle) && !ctx.sharedClient) {
+    const handle = await claimedXHandle(ctx.installationId);
+    if (handle) answers.x_handle = handle;
+  }
+  const prep = prepareSubmission(reqs, { project, answers });
   const filled = Object.fromEntries(prep.complete.map((c) => [c.key, c.value]));
   const values = log ? withPageLink(reqs, filled, `https://${schemeless(log.page)}`) : filled;
   const problems = prep.missing.filter((m) => m.problem).map((m) => m.key);

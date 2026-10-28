@@ -244,7 +244,9 @@ test('fix round 1 (2, 4): the closing nudge owns the reply\'s one question; its 
   const mv = r.reply?.move_up as { kind: string; project_key: string } | undefined;
   assert.deepEqual([mv?.kind, mv?.project_key], ['apply', me.key]);
   const yes = await mcpCall(findCtx(me.id), 'tell', { move_up: { kind: 'apply', project_key: me.key, answer: 'yes' } });
-  assert.match(String(yes.reply?.agent_note ?? ''), new RegExp(`program_id "${arc}"`));
+  // v4.2 Task 5 (F14): the entry exists, so the yes opens its draft (never an empty reply or a call to draft again).
+  assert.match(String(yes.reply?.show_to_builder ?? ''), /https:\/\/example\.com\/apply/);
+  assert.doesNotMatch(String(yes.reply?.agent_note ?? ''), /Call prepare/);
 });
 
 test('fix round 1 (2): the accepted nudge owns the reply\'s one question; its yes gives the post\'s link', db, async () => {

@@ -2,7 +2,8 @@ import { sql } from './db';
 import { noteEvent } from './events';
 import { enqueueDiscovery } from './discovery';
 import { ensureProfile } from './profiles';
-import { listPrograms } from './programs';
+import { getProgramRow, listPrograms } from './programs';
+import { submitKit } from './submit-kit';
 import { openEntries } from './projects';
 import { hiddenIds, hiddenPrograms, readMemory } from './builder-memory';
 import { recordShown } from './match-loop';
@@ -1149,6 +1150,19 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
 }
 
 /**
+ * v4.2 Task 5: the ready reply for an entry in this program not submitted yet: its stored answers as the program's submit kit
+ * (the form link, answers that are real only). Null without such an entry, so the apply hand-off still drafts one.
+ */
+async function readyDraft(id: number, programId: string): Promise<{ show_to_builder: string; agent_note: string } | null> {
+  const entry = (await openEntries(id)).find((e) => e.program_id === programId && !e.submitted);
+  if (!entry) return null;
+  const [row] = await sql()<{ application: { answers?: Record<string, string> } | null }[]>`SELECT application FROM projects WHERE id = ${entry.id}`;
+  const program = await getProgramRow(programId);
+  const kit = submitKit(program, row?.application?.answers ?? {}, { browser: false });
+  return { show_to_builder: kit.show_to_builder, agent_note: "Show show_to_builder as written. Never submit the form for the builder. When they say they sent it, call tell with submitted: { program_id }. Don't show this note." };
+}
+
+/**
  * score's money without a matcher (v3.1 Task 12: the Monday email's Best fit reads the same): the open, listed cards
  * (programs.ts listPrograms; never unlisted) not hidden (builder memory), the upcoming ones, what to skip (entered or
  * hidden) and the one project's apply candidates (stand-view.ts scoreFits; investments included, R12). A failed read is
@@ -1413,11 +1427,15 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'outcome_share':
       // v4.0 Task 8 fix round 1: the yes to the accepted nudge's "Want to share it?": its post's one-tap link.
       return typeof asked.link === 'string' && /^https:\/\//.test(asked.link) ? { show_to_builder: outcomeShareLine(asked.link) } : okay;
-    case 'apply':
+    case 'apply': {
+      // v4.2 Task 5: the closing-soon nudge's yes ("Your draft is ready. Want to send it?"): the entry's ready kit with its link.
+      const ready = asked.program_id ? await readyDraft(id, asked.program_id).catch(() => null) : null;
+      if (ready) return ready;
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
+    }
     default:
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;

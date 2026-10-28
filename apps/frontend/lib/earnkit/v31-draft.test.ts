@@ -121,9 +121,9 @@ test('(b) Task 16 step 6, Base: how many answers are filled, what the builder ad
   assert.deepEqual(new URL(link).searchParams.getAll('entry.475374687'), ['User acquisition', 'Go-to-market strategy']);
   // The owner-approved copy, word for word (no points line: no points for applying).
   assert.equal(s, [
-    'Your Base Builder Grant Program application is ready. I filled 6 of 16 answers from your work.',
+    'Your Base Builder Grant Program application is ready. I filled 7 of 16 answers from your work.',
     // v3.1 cold read round 2: one short line, the form's own first two items and a count, never the whole list.
-    'You add 10 more in the form: your full name, your email and 8 short answers.',
+    'You add 9 more in the form: your full name, your email and 7 short answers.',
     BUILDER_CODES_FIRST,
     '',
     `Open the form, your answers are already in it: ${link}`,
@@ -159,7 +159,7 @@ test('(c) Base answers with https links: exactly one https link in show_to_build
   assert.equal(links(s).length, 1, s);
   assert.ok(firstLink(s).startsWith('https://docs.google.com/forms/'), s);
   // Prefilled: the answers are in the form, not repeated in the reply.
-  assert.ok(s.startsWith(`${draftReadyLine(BASE.title, 7, 16)}\n`), s);
+  assert.ok(s.startsWith(`${draftReadyLine(BASE.title, 8, 16)}\n`), s);
   assert.ok(s.includes(`\n\n${OPEN_PREFILLED} ${firstLink(s)}\n`), s);
   assert.doesNotMatch(s.replace(/https?:\/\/\S+/g, ''), /lee\.dev|kit-demo/);
   const fields = fieldsOf(r);

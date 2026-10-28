@@ -67,6 +67,15 @@ function problemWith(req: SubmissionRequirement, value: string): string | null {
 }
 
 /**
+ * v4.2 Task 5: whether text is a real answer. Empty or blank text, a stand-in such as
+ * "(StudySplit: answer for x_handle)", and a bare "<...>" or "TBD" are not; the builder adds those. Pure.
+ */
+export function isRealAnswer(text: string | undefined | null): text is string {
+  const t = text?.trim();
+  return !!t && !/^\(.*answer for .*\)$/i.test(t) && !/^<[^<>]*>$/.test(t) && !/^tbd\.?$/i.test(t);
+}
+
+/**
  * Compares what the agent knows against the program's real submission
  * requirements. Pure: never invents values, only reports what is filled,
  * what is missing, and who should supply each missing piece.
@@ -96,9 +105,9 @@ export function prepareSubmission(
   }[] = [];
 
   for (const req of requirements) {
-    const fromAnswer = answers[req.key]?.trim();
-    const fromProject = req.project_field
-      ? project[req.project_field]?.trim()
+    const fromAnswer = isRealAnswer(answers[req.key]) ? answers[req.key].trim() : undefined;
+    const fromProject = req.project_field && isRealAnswer(project[req.project_field])
+      ? project[req.project_field]!.trim()
       : undefined;
     const value = fromAnswer || fromProject;
     const problem = value ? (problemWith(req, value) ?? unverifiedProblem(req, known.verified)) : null;
