@@ -288,7 +288,8 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   // v4.2 (F3): programs are open, so the table, never "doesn't fit"; MealMate was matched and fits none of them, so no question (never a program picked for a reason EarnKit does not have).
   assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
   assert.doesNotMatch(none, /doesn't fit/, none);
-  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |'), none);
+  // Matched, nothing fits: the Monday check-in (this client can schedule and was never asked), stored so a yes routes right.
+  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |\n\nWant me to check in here every Monday?'), none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);

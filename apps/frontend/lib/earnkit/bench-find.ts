@@ -33,7 +33,7 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
   TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
@@ -113,9 +113,9 @@ export const BENCH_OUTCOME_NOTE =
 export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'apply', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
-/** 2026-10-22: Base's grant steps question's note; a yes returns the steps. */
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
 export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
+/** 2026-10-22: Base's grant steps question's note; a yes returns the steps. */
 export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'qualify', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: the steps reply's question; a yes is help with the first step, here. */
 export const QUALIFY_STEPS_NOTE =
@@ -516,7 +516,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
   // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
   if (!held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
-    const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null });
+    const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null }, o.own);
     if (done) {
       const ask: BenchView['ask'] = done.move_up
         ? { kind: 'apply', project_key: done.move_up.project_key, line: '', program_id: done.program_id }
@@ -1339,14 +1339,14 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
-  if (m.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now);
+  if (m.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now, ctx.ownInstallationId ?? id);
   // v4.0 setup step 3: "done" is the wallet's yes; a plain no is a no to the token (the copy's "Just say no"), else
   // (no token sentence shown) a skip of the wallet.
-  if (m.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now);
+  if (m.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now, ctx.ownInstallationId ?? id);
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
   if (m.kind === 'token') {
     await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
-    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now, ownTokenYes), now);
+    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now, ownTokenYes), now, ctx.ownInstallationId ?? id);
   }
   // v4.0 Task 11 fix round 1: an old agent's coin answer is the builder token's only after its offer (legacyCoinAnswer);
   // otherwise the stored-ask path below (an old 'coin' ask is cleared, nothing launched).
@@ -1372,8 +1372,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
-  if (asked.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now);
-  if (asked.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now);
+  if (asked.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now, ctx.ownInstallationId ?? id);
+  if (asked.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now, ctx.ownInstallationId ?? id);
   if (m.answer === 'no') {
     await sql()`
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
@@ -1566,7 +1566,7 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
-type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'qualify'; project_key: string | null; agent_note: string }; program_id?: string };
+type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'qualify' | 'checkin'; project_key: string | null; agent_note: string }; program_id?: string };
 /**
  * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
  * (takeOnce 'setup_done'; final review 6: after the reply is built, so a failure never loses it). Exported for tests. The rows: the one project's real fits not told about (find's or score's fit lines; without
@@ -1577,6 +1577,7 @@ type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'qualify
 export async function setupDoneFor(
   id: number, now: Date,
   given: { fits: Fit[]; skip: Set<string>; seen: Seen; key: string | null; name: string | null } | null,
+  own: number = id,
 ): Promise<SetupDone | null> {
   try {
     const settled = await setupOutcome(id);
@@ -1610,7 +1611,11 @@ export async function setupDoneFor(
       const investments = others.filter((c) => notToldIds.has(c.id) && c.investment === true).sort(byRelevance);
       const alreadyTold = others.filter((c) => !notToldIds.has(c.id)).sort(byRelevance);
       const extra = [...grants, ...investments, ...alreadyTold];
-      rows = [...longShots, ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c) }))];
+      // Grants first, then investments and company programs (each group keeps its order).
+      const companyIds = new Set(g.fits.filter((f) => f.bar === 'company' || f.investment).map((f) => f.program_id));
+      const listedRows = [...longShots.map((f) => ({ title: f.title, amount: f.amount, when: f.when, later: companyIds.has(f.program_id) })),
+        ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c), later: c.investment === true }))];
+      rows = [...listedRows.filter((r) => !r.later), ...listedRows.filter((r) => r.later)];
       // Task 10 (G1): the closest is a grant the fit check itself called a long shot, never an investment or a company-only
       // program, and never a guess: with no fits computed at all (nothing matched yet) the question is the fit check.
       const shot = (await openCandidates(id, g.fits.filter((f) => f.bar === 'long_shot' && !f.investment))) ?? [];
@@ -1631,6 +1636,11 @@ export async function setupDoneFor(
     }
     if (!best && !closest) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
+      // Matched and nothing fits: the Monday check-in when it is due and the agent can schedule, else no question.
+      if (rows.length > 0 && (await agentReach(own, id)).schedules && g.seen.checkin === undefined && checkinAskDue(g.seen, now) && (await takeCheckinAsk(id, now))) {
+        await storeAsk(id, { kind: 'checkin', key: g.key });
+        return { show_to_builder: `${show}\n\n${CHECKIN_ASK}`, move_up: { kind: 'checkin', project_key: g.key, agent_note: CHECKIN_NOTE } };
+      }
       return { show_to_builder: show };
     }
     if (!best && closest && closestId) {
@@ -1670,11 +1680,11 @@ async function tokenTradeUrl(id: number): Promise<string | null> {
  * v4.0 Task 5: a step 3 answer whose reply is the skip line or the token no's: the setup-done reply in its place, once
  * (setupDoneFor); any other reply as it is. Never throws.
  */
-async function afterStep3(id: number, r: Reply, now: Date): Promise<Reply> {
+async function afterStep3(id: number, r: Reply, now: Date, own: number = id): Promise<Reply> {
   // v4.2 (F4): a wallet signed while step 3 is open is the setup-done reply too (one message, not two).
   const signed = typeof r.show_to_builder === 'string' && r.show_to_builder.startsWith(WALLET_DONE_HEAD);
   if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE && !signed) return r;
-  return (await setupDoneFor(id, now, null)) ?? r;
+  return (await setupDoneFor(id, now, null, own)) ?? r;
 }
 /**
  * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. Fix round 1:
