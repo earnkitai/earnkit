@@ -2060,3 +2060,20 @@ CREATE TABLE IF NOT EXISTS builder_code_claims (
   created_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (code, builder_id)
 );
+
+-- v4 (2026-10-28): one token per builder and per X account (builder-token.ts). The row is the launch claim:
+-- 'declined' is the builder's no (kept forever), 'launching' the claim while tokens.fun mints, 'launched' the token,
+-- 'unknown' an answer that might have minted (never retried; the owner settles it).
+CREATE TABLE IF NOT EXISTS builder_tokens (
+  builder_id   integer PRIMARY KEY,
+  x_user_id    text NOT NULL UNIQUE,
+  status       text NOT NULL CHECK (status IN ('declined', 'launching', 'launched', 'unknown')),
+  name         text,
+  symbol       text,
+  wallet       text CHECK (wallet IS NULL OR wallet ~ '^0x[0-9a-f]{40}$'),
+  coin_address text UNIQUE CHECK (coin_address IS NULL OR coin_address ~ '^0x[0-9a-f]{40}$'),
+  tx_hash      text,
+  told_at      timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
