@@ -57,6 +57,55 @@ export function momentLines(w: Omit<LastWeek, 'approved' | 'facts' | 'summary'>,
   return [head, ...(titles.length > 0 ? [titles.join(' · '), NOTE_LINE] : []), ...(weekStart ? [weekStart] : [])];
 }
 
+/** Owner batch fix wave: the summary the weekly moment may quote: no question mark and no link (one of each per reply). Pure. */
+export const momentSummary = (s: string | null): string | null => (s && !/[?]|https?:\/\//i.test(s) ? s : null);
+
+/**
+ * v4.0 Task 7 (approved copy 5, "Every Monday"): the week's facts the reply and the email both say. `summary`: the
+ * week's summary as the moment shows it (momentSummary), else null; `change`: the score against the week before (null:
+ * no week before); `streak`: weeks with code in a row up to last week (weekNumber); `usd`, `lastWeekUsd`: what the
+ * community sent (community.ts weekCommunityUsd). The token is never named.
+ */
+export type MondayFacts = { first: string; summary: string | null; score: number; change: number | null; streak: number; usd: number; lastWeekUsd: number };
+export const CHEER_LINE = "People really believe in what you're shipping.";
+const usdWhole = (usd: number) => `$${Math.round(usd).toLocaleString('en-US')}`;
+/**
+ * The community cell: none under $1 (counts as $0); whole dollars; `cheer` at $100 or more, or at least double a last
+ * week of $1 or more. Pure.
+ */
+export function communityRow(usd: number, lastWeekUsd: number): { cell: string; cheer: boolean } | null {
+  if (!(usd >= 1)) return null;
+  const last = lastWeekUsd >= 1 ? lastWeekUsd : 0;
+  return { cell: `${usdWhole(usd)}, already in your wallet`, cheer: usd >= 100 || (last > 0 && usd >= 2 * last) };
+}
+/** The table's rows: "Shipping score" ("82, up 4"), "Streak" ("5 weeks", none at 0), "From your community" (communityRow). Pure. */
+export function mondayRows(f: Pick<MondayFacts, 'score' | 'change' | 'streak' | 'usd' | 'lastWeekUsd'>): [string, string][] {
+  const move = f.change === null || f.change === 0 ? '' : f.change > 0 ? `, up ${f.change}` : `, down ${-f.change}`;
+  const rows: [string, string][] = [['Shipping score', `${f.score}${move}`]];
+  if (f.streak > 0) rows.push(['Streak', `${f.streak} ${f.streak === 1 ? 'week' : 'weeks'}`]);
+  const c = communityRow(f.usd, f.lastWeekUsd);
+  if (c) rows.push(['From your community', c.cell]);
+  return rows;
+}
+/**
+ * "Your week is ready, Maya. You shipped the new meal planner. Nice work." A summary led by "Shipped" reads "You
+ * shipped ..."; any other summary is said as it is (the words the builder approves); none: "You shipped this week.". Pure.
+ */
+export function mondayOpener(first: string, summary: string | null): string {
+  const s = summary?.trim().replace(/[.!]+$/, '') ?? '';
+  const shipped = s.match(/^shipped\s+(.+)$/i)?.[1];
+  const middle = !s ? 'You shipped this week.' : shipped ? `You shipped ${shipped}.` : `${s}.`;
+  return `Your week is ready, ${first}. ${middle} Nice work.`;
+}
+/** The email's week: the opener, then the rows as plain "Label: value" lines, then the cheer when it holds. Pure. */
+export function mondayLines(f: MondayFacts): string[] {
+  return [
+    mondayOpener(f.first, f.summary), '',
+    ...mondayRows(f).map(([label, value]) => `${label}: ${value}`),
+    ...(communityRow(f.usd, f.lastWeekUsd)?.cheer ? [CHEER_LINE] : []),
+  ];
+}
+
 /**
  * Fix round 1: the moment shows once last week's ship log can be in it: the weekly job wrote its row (facts.checked),
  * or this week's Monday WEEKLY_HOUR_UTC (the job's hour) has passed. Before that, no moment and the week stays

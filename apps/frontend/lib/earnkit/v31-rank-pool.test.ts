@@ -70,7 +70,7 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
   // post to offer (v3.1 one-tap posts): the page is the one link.
-  assert.equal(s, `Last week done:\nYour page: https://earnkit.com/${me.handle}\nLook right?`);
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nLooks right\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');
@@ -86,8 +86,8 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const me = await pool('rpb', 10);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  // v3.1 cold read: "Week N done:" (no place); the rank stays on the standing line.
-  assert.equal(s.split('\n')[0], 'Last week done:', s);
+  // v4.0 Task 7: the Monday block (no rank); the rank stays on the standing line.
+  assert.match(s.split('\n')[0], /^Your week is ready, /, s);
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
   assert.match(t, /^App · #3 of 10 builders/, t);
   assert.ok(t.endsWith('\nShip code this week to move toward #1: up to +100 points'), t);

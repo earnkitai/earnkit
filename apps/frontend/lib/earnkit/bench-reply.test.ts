@@ -147,26 +147,32 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
 });
 
-test('Task 16 step 7, v3.1 one-tap posts: the weekly moment with last week\'s post and its one-tap link; with none, the page; no points', () => {
+test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points', () => {
   const link = 'https://earnkit.com/maya/post/abcdefghij';
-  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link } } });
+  const facts = { first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
+  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts } });
   v.ask = stateAsk({ ...v, share: true });
   assert.deepEqual(v.ask, { kind: 'share', project_key: RECIPE.key, line: MOMENT_ASK });
   const out = benchReply(v);
   assert.equal(out, [
-    "Week 6 done:",
-    'Your post for X:',
-    '"Recipe planner, week 6: added offline mode and fixed several sync bugs."',
-    `Post it in one tap: ${link}`,
-    'Look right?',
+    'Your week is ready, Maya. You shipped this week. Nice work.',
+    '',
+    '| | This week |',
+    '|---|---|',
+    '| Shipping score | 82, up 4 |',
+    '| Streak | 6 weeks |',
+    '',
+    `Your post is ready to share: ${link}`,
+    '',
+    'Looks right?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
-  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null } });
-  assert.equal(none, "Week 4 done:\nYour page: https://earnkit.com/maya\nLook right?");
+  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLooks right\?$/);
   oneAsk(none);
-  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null } }), /^Last week done:\n/);
+  assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
 });
 
 test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {

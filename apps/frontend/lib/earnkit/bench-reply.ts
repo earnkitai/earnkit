@@ -1,5 +1,6 @@
 import { pageUrl } from './reserved-routes';
 import { MAX_WEEK_POINTS } from './points';
+import { CHEER_LINE, communityRow, mondayOpener, mondayRows } from './weekly-moment';
 
 /**
  * v3.1 Task 16 (owner-approved copy, 2026-10-21): every reply written for a busy builder. Plain text, no headers,
@@ -129,6 +130,10 @@ export type MomentView = {
   summary?: string | null;
   /** v3.1 one-tap posts (design 6): last week's drafted post, else null (the reply gives the page). */
   post: PostOffer | null;
+  /** v4.0 Task 7: the builder's first name (firstName), last week's Shipping and its change (null: no week before). */
+  first: string; score: number; change: number | null;
+  /** v4.0 Task 7: what the community sent last week and the week before (community.ts weekCommunityUsd). */
+  community: { usd: number; lastWeekUsd: number };
 };
 /** v3.1 one-tap posts: a drafted post: its exact text and the short link that opens X's composer with it. */
 export type PostOffer = { text: string; link: string };
@@ -361,13 +366,27 @@ export const TEMPLATE_NOTICE = 'If you made your app from a template, make a cop
 export const STALE_WEEKS = 8;
 export const NEW_REPO_ASK = 'Working on something new? Connect that repo instead.';
 
-/** Task 16, step 7: the weekly moment's question. */
-export const MOMENT_ASK = 'Look right?';
+/** Task 16, step 7; v4.0 Task 7 (approved copy 5): the weekly moment's question. */
+export const MOMENT_ASK = 'Looks right?';
 /**
- * Task 16, step 7; v3.1 cold read (owner-approved): "Week 4 done:" ("Last week done:" with no week counted yet), then
- * the summary. v3.1 one-tap posts (owner ruling 5): no points in post replies. Pure.
+ * v4.0 Task 7 (approved copy 5, "Every Monday"): the opener, the week's table (a blank first header: plain surfaces read
+ * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
+ * (no post: the page), then `ask`. Never names the token. Pure.
  */
-export const momentHead = (m: Pick<MomentView, 'week'>) => (m.week > 0 ? `Week ${m.week} done:` : 'Last week done:');
+export function mondayReply(m: MomentView, page: string, ask: string): string {
+  const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
+  const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
+  return paras(
+    [mondayOpener(m.first, m.summary ?? null)],
+    table,
+    [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
+    [m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
+    [ask],
+  );
+}
+/** v4.0: "Maya Lin" is "Maya": the X display name's first word holding a letter; else the handle. Pure. */
+export const firstName = (name: string | null, handle: string | null) =>
+  name?.trim().split(/\s+/).find((w) => /\p{L}/u.test(w) && !w.startsWith('@')) || handle || 'there';
 /** "4 weeks in a row" (none: null). Pure. */
 const streakWords = (n: number) => (n > 0 ? `${n} ${n === 1 ? 'week' : 'weeks'} in a row` : null);
 /**
@@ -706,8 +725,8 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
       [ask, v.connect.points > 0 ? `+${v.connect.points} points` : null],
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
-    // v3.1 one-tap posts (design 6): last week's post and its one-tap link, else the page (the reply's one https link).
-    return paras([momentHead(v.moment), ...(v.moment.summary ? [`"${v.moment.summary}"`] : []), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
+    // v4.0 Task 7: the Monday block; last week's post link, else the page (the reply's one https link).
+    return mondayReply(v.moment, `https://${pageUrl(v.handle)}`, ask);
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
   // v4.0 approved copy 3: setup step 3 is its own reply, word for word.
   if (!v.held && v.ask.kind === 'wallet_setup') return ask;

@@ -159,9 +159,12 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     const m = sent[0]!;
     // v3.1 F3: one ranked builder (under RANK_MIN_POOL): no rank in the subject or the moment.
     assert.equal(m.subject, 'Your week on EarnKit: Shipping 40');
-    assert.ok(m.text.startsWith('Last week you finished at Shipping 40.\n'), m.text);
+    // v4.0 Task 7: the Monday block as plain lines.
+    assert.ok(m.text.startsWith('Your week is ready, '), m.text);
+    assert.match(m.text, /\nShipping score: 40\n/);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
-    assert.ok(!m.text.includes(me.key.split('/')[0]!), 'no link names the repo');
+    // v4.0 Task 7: the greeting may use the builder's own handle (no X name), which this fixture shares with the repo owner.
+    assert.ok(!(m.text.match(/https:\/\/\S+/g) ?? []).some((u) => u.includes(me.key.split('/')[0]!)), 'no link names the repo');
     assert.match(m.text, /Unsubscribe: https:\/\/earnkit\.com\/api\/digest\/unsubscribe\?t=/);
     const approve = m.text.match(/Looks right: (\S+)/)![1]!;
     const t = new URL(approve).searchParams.get('t')!;
@@ -278,7 +281,7 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
     await sql()`UPDATE project_updates SET facts = facts || '{"checked": true}'::jsonb WHERE builder_id = ${me.id} AND week = ${LAST}`;
     const later = await sendDigests(new Date(MONDAY + 3_600_000), { mail, only: [me.id] });
     assert.equal(later.sent, 1);
-    assert.match(sent[0]!.text, /^Last week you finished/);
+    assert.match(sent[0]!.text, /^Your week is ready, /);
   }),
 );
 
@@ -402,7 +405,7 @@ test('v3.2: confirming last week offers its one-tap post (one draft, reused); th
     await subscribe(me.id, `mepost${me.id}@example.com`);
     const { sent, mail } = recorder();
     assert.equal((await sendDigests(new Date(MONDAY + 3_600_000), { mail, only: [me.id] })).sent, 1);
-    assert.match(sent[0]!.text, new RegExp(`Post it on X: \\S+/post/${c1}\\n`));
+    assert.match(sent[0]!.text, new RegExp(`Your post is ready to share: \\S+/post/${c1}\\n`));
     assert.doesNotMatch(sent[0]!.text, /Looks right/, 'approved: no approve link');
   }),
 );

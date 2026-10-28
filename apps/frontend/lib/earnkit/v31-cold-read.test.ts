@@ -17,7 +17,7 @@ import {
 } from './bench-find';
 import {
   COIN_WALLET_REASK, LOVABLE_PROMPT_ASK, MOMENT_ASK, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
-  grantProgramName, liveNoGithub, momentHead, newBackersLine, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
+  grantProgramName, liveNoGithub, newBackersLine, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
 import { walletSetupAsk } from './bench-reply';
@@ -110,7 +110,7 @@ test('the approved copy, word for word', () => {
   assert.equal(backersLine(3, 12), '3 backers and $12 in fees to you so far. Want a post about this week?');
   assert.equal(BACKERS_POST_ASK, 'Want a post about this week?');
   assert.equal(proofAsk('Base Builder Grant Program'), "Congrats on the Base Builder Grant Program. Got the announcement link? I'll turn it into a post.");
-  assert.deepEqual([momentHead({ week: 5 }), momentHead({ week: 0 }), MOMENT_ASK, POST_HEAD], ['Week 5 done:', 'Last week done:', 'Look right?', 'Your post for X:']);
+  assert.deepEqual([MOMENT_ASK, POST_HEAD], ['Looks right?', 'Your post for X:']);
   assert.equal(qualifySteps(BASE, ['codes']), [
     "Your next step toward Base's $5,000 grant:",
     "1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://docs.base.org/base-chain/builder-codes/builder-codes",

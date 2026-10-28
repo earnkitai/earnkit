@@ -26,13 +26,13 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, momentHead, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
 import { connectApplyAsk, pointsAddedLine } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
 import { postProblems, writePost, type PostInput } from './post-writer';
-import { APPROVED_LINE, SHARE_NOTE, momentLines, shareText } from './weekly-moment';
+import { APPROVED_LINE, SHARE_NOTE, momentLines, mondayLines, shareText } from './weekly-moment';
 import { RAISE_NOTE, SHIP_STEP_NOTE, TOKEN_NOT_YET, tokenHasCoin, tokenUnavailable } from './bench-find';
 import { COIN_LAUNCHING, COIN_LIVE, COIN_WALLET_ASK, coinLine } from './coin-moments';
 import { ATTRIBUTION_RULE } from './fresh-build';
@@ -893,8 +893,8 @@ function weeklyCopy(): [string, string][] {
     ['moment first week', momentLines({ monday: '2026-10-12', now: w, before: null, titles: [], checked: true }, weekStartLine({ gains: g, score: 50, rank: 1, above: null })).join('\n')],
     ['shareText', shareText(w)],
     // v3.1 Task 16 step 7: the moment, the post to paste and its question.
-    ['momentHead', momentHead({ week: 4 })],
-    ['momentHead first', momentHead({ week: 0 })],
+    // v4.0 Task 7: the Monday block.
+    ['mondayLines', mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0 }).filter(Boolean).join('\n')],
     ['postReply went live', postReply({ head: eventHead({ moment: 'went_live', input: { name: 'Tally' }, card: { live_at: new Date().toISOString() } }), text: 'Tally is live.', link: 'https://earnkit.com/sam/post/abcdefghij' }, POST_ASK)],
     ['postReply won', postReply({ head: eventHead({ moment: 'won', input: { name: 'Ledgerline', program: 'Spring Builder Grant' } }), text: 'Ledgerline won the Spring Builder Grant ($5,000).', link: 'https://earnkit.com/lee/post/abcdefghij' }, POST_ASK)],
     ['pageLine', pageLine('https://earnkit.com/lee')],
@@ -1453,9 +1453,7 @@ function v31Texts(): [string, string][] {
     ['week start behind', ws({ above: { rank: 1, score: 90 } })],
     ['week start hold', ws({ rank: 1 })],
     ['week start unranked', ws({ rank: null })],
-    ['momentHead still', momentHead({ week: 4 })],
-    ['momentHead now', momentHead({ week: 5 })],
-    ['momentHead on EarnKit', momentHead({ week: 0 })],
+    ['mondayLines', mondayLines({ first: 'Maya', summary: 'Shipped the new meal planner.', score: 82, change: 4, streak: 5, usd: 340, lastWeekUsd: 0 }).filter(Boolean).join('\n')],
     ['POST_HEAD', POST_HEAD],
     ['MOMENT_ASK', MOMENT_ASK],
     ['draft prefilled', prefilled.show_to_builder],

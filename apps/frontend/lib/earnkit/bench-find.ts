@@ -42,10 +42,11 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { WALLET_SETUP_SKIPPED, displayName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
-import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
+import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
+import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
@@ -1015,8 +1016,7 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
   return { weeks: weeks.length, points };
 }
 
-/** Owner batch fix wave: the summary the weekly moment may quote: no question mark and no link (one of each per reply). Pure. */
-export const momentSummary = (s: string | null): string | null => (s && !/[?]|https?:\/\//i.test(s) ? s : null);
+export { momentSummary };
 
 /**
  * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
@@ -1043,8 +1043,17 @@ async function weeklyMoment(own: number, id: number, key: string, handle: string
   await openShare(id, { key, week: last.monday, shown_week: isoWeekOf(now), summary: shown });
   if (!shown && last.stored) await markOffered(id, key, last.monday, last.stored);
   const week = weekNumber(commitWeeks, last.monday);
-  const post = await weeklyPost(id, handle, week, now);
-  return { week, place: momentPlace(last), rank: last.now.rank, summary: shown, post };
+  // v4.0 Task 7: the Monday block's first name and what the community sent (none on a failed read, logged).
+  const [post, who, community] = await Promise.all([
+    weeklyPost(id, handle, week, now),
+    sql()<{ name: string | null }[]>`SELECT x_name AS name FROM builder_profiles WHERE builder_id = ${id}`.catch(logged('moment name')),
+    weekCommunityUsd(id, new Date(`${last.monday}T00:00:00Z`), now).catch(logged('community')),
+  ]);
+  return {
+    week, place: momentPlace(last), rank: last.now.rank, summary: shown, post,
+    first: firstName(who?.[0]?.name ?? null, handle), score: last.now.score, change: last.before ? last.now.score - last.before.score : null,
+    community: community ?? { usd: 0, lastWeekUsd: 0 },
+  };
 }
 
 /**
@@ -1635,8 +1644,6 @@ export function tokenLine(r: LaunchResult): string | null {
 /** v4.0 Task 5: the setup-done table's rows: at most 3, as given (the Best fit first); "Up to" the award, "Closes" its day or "Rolling". Pure. */
 export const setupRows = (fits: Pick<Fit, 'title' | 'amount' | 'when'>[]): ProgramRow[] =>
   fits.slice(0, 3).map((f) => ({ program: f.title, upTo: f.amount ?? 'Varies', closes: f.when.startsWith('closes ') ? f.when.slice('closes '.length) : 'Rolling' }));
-/** "Maya Lin" is "Maya"; no display name: the handle. Pure. */
-const firstName = (name: string | null, handle: string | null) => name?.trim().split(/\s+/)[0] || handle || 'there';
 /**
  * v4.0 Task 5: how setup step 3 settled, when it was shown (standing_seen.setup_asked) and its setup-done reply not said
  * yet: a no to the token (builder_tokens declined); a wallet signed (a token row launched, launching or unknown:

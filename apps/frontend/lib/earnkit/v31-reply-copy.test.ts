@@ -183,15 +183,19 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   // link); no points (owner ruling 5).
   const tap = links(s7)[0]!;
   assert.match(tap, new RegExp(`^https://earnkit\\.com/${handle}/post/[a-z2-7]{10}$`));
-  assert.equal(s7, [
-    "Week 4 done:",
-    // Owner batch fix wave: the summary the yes binds to, quoted under the head.
-    '"Added tipping in one tap."',
-    'Your post for X:',
-    '"4 weeks shipping Kit without missing one. Last week: added tipping in one tap."',
-    `Post it in one tap: ${tap}`,
-    'Look right?',
-  ].join('\n'));
+  // v4.0 Task 7 (approved copy 5): the Monday block; the summary the yes binds to, word for word, in the opener.
+  assert.match(s7, new RegExp([
+    '^Your week is ready, Kit\\. Added tipping in one tap\\. Nice work\\.',
+    '',
+    '\\| \\| This week \\|',
+    '\\|---\\|---\\|',
+    '\\| Shipping score \\| \\d+(, (up|down) \\d+)? \\|',
+    '\\| Streak \\| 4 weeks \\|',
+    '',
+    `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,
+    '',
+    'Looks right\\?$',
+  ].join('\n')), s7);
   assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
   assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show the post text exactly as given\. Never rewrite it\./);
 });
