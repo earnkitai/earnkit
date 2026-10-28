@@ -1024,6 +1024,15 @@ apps/frontend/
                                offer, standing_seen.token_retry_at; no API key / 4xx / no_ticker / x_taken set standing_seen.token_blocked),
                                blockedBuilderTokens (runCron lists builder-token-blocked:<builder id>, alerting); LaunchResult released
                                carries retry for a pre-mint 503 or 429. Tests builder-token.test.ts, v4-setup.test.ts, cron.test.ts
+                               v4.2: reopenDeclinedToken (the builder's own "launch my token" after a no: the declined row deleted,
+                               token_offered set). v4.2 final review 1/9: the retry (and launchOnProof) launch only on
+                               standing_seen.token_offered, which only step 3's shown token sentence or the builder's yes
+                               (bench-find.ts markTokenYes) sets; the legacy offer's show writes token_offer_legacy, and a wallet
+                               skip with no row removes token_offered (token_skipped). Tests v42-legacy-offer.test.ts, v4-setup.test.ts
+    token-answers.ts           v4.2 Task 1: the token answer in each state. tokenAnswerState (row, handle, communityUsd, walletStepOpen,
+                               signLink, hasWallet), tokenAnswerText (pure; TokenAnswerOpts justLaunched, offerQuestion), tokenAnswerFor.
+                               Copy: TOKEN_EXPLAINER, TOKEN_GOES_LIVE_ON_SIGN, TOKEN_OFF (final review 2: a statement, no question),
+                               tokenSignLine, tokenPageLine. Tests v42-token-answers.test.ts
     community.ts               v4.0 Task 7/9: weekCommunityUsd(builderId, weekStart, now, price) = this week's and last week's creator
                                fee_claims paid to the builder token's wallet, priced with cachedWethUsd ({0,0} with no token, wallet or
                                price); allTimeCommunityUsd (the Token card's "fees earned"). Tests v4-weekly.test.ts, v4-token-card.test.ts
@@ -1443,6 +1452,9 @@ apps/frontend/
                                bonus_pools_eth (open rounds' `destination = 'round'` bookings, test installations' coins
                                excluded, final review M7), STATS_LABELS.coins_launched
                                = "tokens launched" (key kept); docs.earnkit.com's LiveNumbers reads /api/stats;
+                               v4.2 F18: coins_launched adds launched builder_tokens, tokens_declined (declined builder_tokens), both
+                               without test installations (final review 6: installations.ts testBuilderSql, the one SQL fragment,
+                               also used by wallet-offer.ts tokenOfferDue);
                                v2.8 Ruling 30: labelled_entries (never 'unknown', C22) and entries_won
                                (announcement rows of entry_outcomes only, test installations excluded), WIN_RATE_MIN_LABELLED = 30
                                (documentation only, no win-rate claim); v2.9 E20 (Task 10):
@@ -1653,7 +1665,12 @@ apps/frontend/
                                launched|set|declined|skipped, setupDoneLead, programsTable "| Program | Up to | Closes |", bestFitAsk,
                                setupDoneReply; BenchView.setupDone), mondayReply (opener, table with a blank header, cheer line, "Your
                                post is ready to share: {link}", MOMENT_ASK 'Looks right?'), firstName, BenchView.nudge (nudges.ts).
-                               Tests v4-setup.test.ts, v4-weekly.test.ts. Older notes: v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
+                               Tests v4-setup.test.ts, v4-weekly.test.ts. v4.2: shipLine (no points; shipPointsLine removed),
+                               TITLES_NO_LINE, closestAsk / checkFitsAsk in setupDoneReply, TOKEN_OFFER (LEAD + QUESTION) and ask kind
+                               token (stateAsk tokenOffer); final review 3: ask kinds closest and check_fits (setup done's own, so their
+                               no never writes declined qualify:<key>); final review 4: ConnectOffer is { weeks } (no points);
+                               final review 5: WALLET_DONE_HEAD removed. Tests v42-setup-done.test.ts, v42-legacy-offer.test.ts.
+                               Older notes: v3.1 Task 16: the reply in the owner-approved copy (2026-10-21), pure; no headers. ReplyState
                                (signed_out, no_project, not_counted, ranked), Variant (taken, copy, no_repo, app_off),
                                replyState, rankedState; stateAsk (kinds sign_in, start, pick_repo, install_app,
                                other_project, repo_behind, connect, apply, backing, share, titles, qualify, ship, suggest);
@@ -1946,6 +1963,11 @@ apps/frontend/
                                github_no, no person_wallets row, wallet_asked unset), walletSetupToken (builderTokensOn, an x_user_id,
                                no builder_tokens row), walletSetupNote, takeWalletAsk(…, setup) stamps standing_seen.wallet_setup;
                                a no after step 3 is the token's no (declineBuilderToken) and the wallet is skipped (WALLET_SETUP_SKIPPED)
+                               v4.2: contractsOnBase (the only time "Your contracts on Base will show" is said); tokenOfferDue /
+                               takeTokenOffer (the legacy offer, Task 6; final review 1: the show writes token_offer_legacy only, never
+                               token_offered); answerWallet returns WalletAnswer (final review 5: a typed signed flag for afterStep3;
+                               signedToken's typed launched for the one "Done." line); final review 9: a wallet no with no token row
+                               removes token_offered (keeps token_skipped). Tests v42-legacy-offer.test.ts, v42-setup-done.test.ts, v4-setup.test.ts
     gtm-w2-replies.test.ts     GTM W2 (2026-10-23), through mcpCall: value before the ask, the Lovable live-link path and the
                                walk-through (no "Okay.", no host as the name), hosted notes and the weekly ship question, the
                                check-in, an App already installed, tell submitted, an acceptance's congrats + post + Highlight,
@@ -1955,6 +1977,14 @@ apps/frontend/
                                (BASE_START_ASK / BASE_START_STEPS, base_walk), the wallet step after the GitHub no, the
                                resting reply (next_step), the profile's "Getting started on Base", the picker's template
                                notice (template_refused), the old-repo nudge (new_repo, staleRepo)
+    v42-token-answers.test.ts  v4.2 Task 1: each token state's copy; "launch my token" after a no; final review 2 (no question, stale ask cleared)
+    v42-legacy-offer.test.ts   v4.2 Task 6: the legacy offer once, yes/no/silence, never in setup or for a test installation; final review
+                               1 (a shown, unanswered offer + the cron: zero deploys; the yes: one) and 7 (move_up + token ask: one question)
+    v42-setup-done.test.ts     v4.2: setup-done copy and endings (closest, check, check-in), the one "Done." on a sign; final review 3
+                               (a no to closest is never Base's qualify no)
+    v42-journey-fixes.test.ts  v4.2 Task 10: the fit-check question (check_fits yes and no), told facts over stored ones in scoreFits
+    v42-fit.test.ts            v4.2 Task 4 (F5-F7): odds from told facts, one lead, a submitted entry stays submitted (markSubmitted entryId)
+    v42-prepare.test.ts        v4.2 Task 5 (F8, F14): drafts show only real answers, x_handle from X, the nudge yes opens the draft (readyDraft)
     v31-wallet-proof.test.ts   v3.1 wallet proof: offer timing, one link one question, skip, change, recipient,
                                discovery and On Base since, the hero's GitHub button
     fixtures/wallet-step.ts    v3.1: walletOffered (a ranked-step test past the wallet step), walletXSignIn (the page's X

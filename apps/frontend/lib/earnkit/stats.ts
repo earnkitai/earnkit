@@ -1,5 +1,5 @@
 import { sql, type Db } from './db';
-import { testInstallationIds } from './installations';
+import { testBuilderSql, testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
 import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
 import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fees';
@@ -267,11 +267,9 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       ((SELECT count(*) FROM projects
         WHERE token_status = 'launched' AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
        + (SELECT count(*) FROM builder_tokens bt
-        WHERE bt.status = 'launched' AND NOT (bt.builder_id = ANY(${ids}::int[]))
-          AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = bt.builder_id AND i.id = ANY(${ids}::int[]))))::int AS coins_launched,
+        WHERE bt.status = 'launched' AND NOT ${testBuilderSql(db, 'bt.builder_id', ids)}))::int AS coins_launched,
       (SELECT count(*) FROM builder_tokens bt
-        WHERE bt.status = 'declined' AND NOT (bt.builder_id = ANY(${ids}::int[]))
-          AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = bt.builder_id AND i.id = ANY(${ids}::int[])))::int AS tokens_declined,
+        WHERE bt.status = 'declined' AND NOT ${testBuilderSql(db, 'bt.builder_id', ids)})::int AS tokens_declined,
       -- Real FeeLocker deposits only (an onchain tx hash): never a synthetic row such as a paid
       -- round's 'round-rest:<round>' remainder, which is already inside the round's deposits.
       -- M5: and only from EarnKit coins (launched with the v2.5 split, so their Safe slot is 1.5x

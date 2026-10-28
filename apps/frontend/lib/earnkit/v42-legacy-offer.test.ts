@@ -15,6 +15,7 @@ import { TOKEN_OFFER, TOKEN_OFFER_LEAD, TOKEN_OFFER_QUESTION, stateAsk, type Ben
 import { TOKEN_ASK_NOTE } from './bench-find';
 import { TOKEN_EXPLAINER } from './token-answers';
 import { tokenOfferDue } from './wallet-offer';
+import { retryDroppedBuilderTokens } from './builder-token';
 
 /**
  * v4.2 Task 6 (F11): a builder who set up before v4 (a proven wallet, no token row, never offered) hears the token offer
@@ -58,7 +59,7 @@ test('the offer yields to every other ranked question and to setup step 3, and c
   const v = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit', tokenOffer: true };
   assert.equal(stateAsk(v).kind, 'token');
   assert.equal(stateAsk(v).project_key, null);
-  assert.equal(stateAsk({ ...v, connect: { weeks: 3, points: 40 } }).kind, 'connect');
+  assert.equal(stateAsk({ ...v, connect: { weeks: 3 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
   assert.equal(stateAsk({ ...v, share: true }).kind, 'share');
   assert.equal(stateAsk({ ...v, walletSetup: { link: 'https://x/w', project: 'Kit', token: true } }).kind, 'wallet_setup');
@@ -121,7 +122,8 @@ test('a find shows the offer once, as the one question; a kindless yes launches 
   assert.ok(show(r!).endsWith(TOKEN_OFFER), show(r!));
   assert.deepEqual(r!.reply?.move_up, { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE });
   const s = await seen(b.c.id);
-  assert.equal(typeof s.token_offered, 'string');
+  // Final review 1: showing the offer is not a yes: only token_offer_legacy is kept (token_offered waits for the yes).
+  assert.equal(s.token_offered, undefined);
   assert.equal(typeof s.token_offer_legacy, 'string');
   assert.equal((s.bench_ask as { kind: string }).kind, 'token');
   assert.equal(await row(b.c.id), null, 'showing the offer launches nothing');
@@ -131,6 +133,7 @@ test('a find shows the offer once, as the one question; a kindless yes launches 
   assert.match(yes, /^Done\. Your token is live: https:\/\/app\.uniswap\.org\/swap\?chain=base&outputCurrency=0x[0-9a-f]{40}\nIt's on your page too: .+\/lo/);
   assert.equal(b.calls.length, 1);
   assert.equal(await row(b.c.id), 'launched');
+  assert.equal(typeof (await seen(b.c.id)).token_offered, 'string', 'the yes marks token_offered');
   // A second yes is the Live copy; no second deploy; later finds never offer again.
   assert.match(show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Your token is live: /);
   assert.equal(b.calls.length, 1);
@@ -190,7 +193,11 @@ test('asking about the token: the explainer then the offer, once, as the stored 
   assert.equal(((await seen(b.c.id)).bench_ask as { kind: string }).kind, 'token');
   assert.equal(b.calls.length, 0);
   assert.equal(show(await mcpCall(b.ctx, 'tell', { token: 'ask' })), TOKEN_EXPLAINER, 'not re-offered');
-  assert.match(show(await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } })), /^Done\. Your token is live: /);
+  // Final review 2: the explainer alone asks nothing, so the stored ask is cleared: a kindless yes after it launches nothing.
+  assert.equal((await seen(b.c.id)).bench_ask, undefined);
+  await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } });
+  assert.equal(b.calls.length, 0);
+  assert.match(show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: /);
   assert.equal(b.calls.length, 1);
   // A test installation asking: the explainer alone, nothing stored.
   const t = await legacy('u');
@@ -199,4 +206,36 @@ test('asking about the token: the explainer then the offer, once, as the stored 
   assert.equal(show(r), TOKEN_EXPLAINER);
   assert.equal(r.reply?.move_up, undefined);
   assert.equal((await seen(t.c.id)).token_offered, undefined);
+}));
+
+test('final review 1: a shown, unanswered legacy offer never launches from the hourly retry; the yes launches once', db, () => on(async () => {
+  await start();
+  const b = await legacy('c');
+  assert.ok(await findOffer(b));
+  const deps = { fetch: (b.ctx as unknown as { builderTokenDeps: { fetch: typeof fetch } }).builderTokenDeps.fetch, check: async () => true, only: [b.c.id] };
+  for (let i = 0; i < 2; i++) {
+    assert.deepEqual(await retryDroppedBuilderTokens(new Date(), deps), { tried: 0, launched: 0, blocked: [] });
+    mock.timers.tick(DAY);
+    await mcpCall(b.ctx, 'find', {});
+  }
+  assert.equal(b.calls.length, 0, 'zero deploy calls while the offer is unanswered');
+  assert.equal(await row(b.c.id), null);
+  assert.equal(await tokenOfferDue(b.c.id), false, 'shown once');
+  assert.match(show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: /);
+  assert.equal(b.calls.length, 1);
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), deps), { tried: 0, launched: 0, blocked: [] });
+  assert.equal(b.calls.length, 1);
+}));
+
+test('final review 7: a tell with a move_up answer and token ask never carries two questions: the token is a statement, the offer not claimed', db, () => on(async () => {
+  await start();
+  const b = await legacy('m');
+  assert.equal(await tokenOfferDue(b.c.id), true);
+  const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'checkin', project_key: null, answer: 'yes' }, token: 'ask' });
+  assert.ok(show(r).includes(TOKEN_EXPLAINER), show(r));
+  assert.ok(!show(r).includes(TOKEN_OFFER_QUESTION), show(r));
+  assert.notEqual((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'token');
+  assert.notEqual(((await seen(b.c.id)).bench_ask as { kind?: string } | undefined)?.kind, 'token');
+  assert.equal(await tokenOfferDue(b.c.id), true, 'still due: shown later on its own');
+  assert.equal(b.calls.length, 0);
 }));

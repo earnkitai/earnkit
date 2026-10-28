@@ -10,8 +10,8 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { fakeGitHub } from './fixtures/fake-github';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { NO_GITHUB_HINT, benchReply, closestAsk, pickRepoAgain, setupDoneLead, setupDoneReply, stateAsk, walletDone, WALLET_DONE_HEAD, type BenchProject, type BenchView } from './bench-reply';
-import { closestStep } from './bench-find';
+import { NO_GITHUB_HINT, benchReply, closestAsk, pickRepoAgain, setupDoneLead, setupDoneReply, stateAsk, walletDone, type BenchProject, type BenchView } from './bench-reply';
+import { CLOSEST_NOTE, closestStep } from './bench-find';
 import { formatReply } from './reply-format';
 import { reportedNameIn } from './project-name';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -47,7 +47,6 @@ test('F4: the sign-launch lead names the live token and its trade link; the cont
   assert.equal(setupDoneLead('Maya', 'launched'), `You're all set, Maya. Your community can now back what you're building.\n\n${OPEN}`);
   assert.equal(walletDone('0xab…cd'), 'Done. Your rewards now go to 0xab…cd.');
   assert.equal(walletDone('0xab…cd', true), 'Done. Your rewards now go to 0xab…cd. Your contracts on Base will show on your page soon.');
-  assert.ok(walletDone('0xab…cd').startsWith(WALLET_DONE_HEAD));
 });
 
 test('F3: the closest program line; the table is never replaced by "doesn\'t fit" when rows exist', () => {
@@ -92,10 +91,10 @@ test('F9: no builder-facing reply says points', () => {
     stateAsk(base),
     { kind: 'none', project_key: 'maya/kit', line: '' },
     stateAsk({ ...base, apply: { program_id: 'p', title: 'Base Builder Grant Program', amount: '$5,000', when: null } }),
-    stateAsk({ ...base, connect: { weeks: 3, points: 90 } }),
+    stateAsk({ ...base, connect: { weeks: 3 } }),
   ];
   for (const a of asks) {
-    const s = benchReply(view(a, a.kind === 'connect' ? { connect: { weeks: 3, points: 90 } } : {}));
+    const s = benchReply(view(a, a.kind === 'connect' ? { connect: { weeks: 3 } } : {}));
     assert.doesNotMatch(s, /points?\b/i, s);
   }
 });
@@ -131,10 +130,36 @@ test('F3: a builder with no GitHub and no repo skips the wallet and sees the ope
   assert.match(s, /Want help with it\?$/, s);
   // A closest-program yes is the step it needs, never a draft of an application.
   {
-    assert.equal((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
-    const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: null, answer: 'yes' } });
+    assert.equal((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'closest');
+    const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'closest', project_key: null, answer: 'yes' } });
     assert.match(show(yes), /^Your next step toward .+: .+\.\n\nWant help with it now\?$/, show(yes));
     assert.equal(yes.reply?.lead, undefined);
+  }
+});
+
+test('final review 3: a no to the closest-program question is its own (never a no to Base\'s grant steps); a kindless yes routes it', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  for (const kindless of [false, true]) {
+    const { c } = await signedIn(kindless ? 'cy' : 'cn');
+    const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }) } as never as Ctx;
+    await mcpCall(ctx, 'find', { agent_can_build: false });
+    await mcpCall(ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'no' } });
+    await mcpCall(ctx, 'find', { agent_can_build: false });
+    const r = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'no' } });
+    assert.deepEqual(r.reply?.move_up, { kind: 'closest', project_key: null, agent_note: CLOSEST_NOTE });
+    const [{ k }] = await sql()<{ k: string }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${c.id}`;
+    assert.equal(k, 'closest');
+    if (kindless) {
+      assert.match(show(await mcpCall(ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } })), /^Your next step toward /);
+      continue;
+    }
+    await mcpCall(ctx, 'tell', { move_up: { kind: 'closest', project_key: null, answer: 'no' } });
+    const [{ d }] = await sql()<{ d: Record<string, string> | null }[]>`SELECT standing_seen->'declined' AS d FROM builder_profiles WHERE builder_id = ${c.id}`;
+    // base-qualify.ts qualifyOffer reads declined['qualify:<key>']: untouched, so Base's grant steps are still offered.
+    assert.ok(d && Object.keys(d).some((x) => x.startsWith('closest:')), JSON.stringify(d));
+    assert.ok(!Object.keys(d ?? {}).some((x) => x.startsWith('qualify:')), JSON.stringify(d));
+    const [{ k: after_ }] = await sql()<{ k: string | null }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${c.id}`;
+    assert.equal(after_, null);
   }
 });
 

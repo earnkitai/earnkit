@@ -132,7 +132,7 @@ test('(b) an old agent\'s tell coin no is the builder token\'s no only after the
 
 test('(d) fix round 1: tell token \'ask\' only answers the token\'s status; it never launches one, in any state', db, () => launchesOn(async () => {
   // Each existing row: its status, no call to tokens.fun, the row unchanged.
-  for (const [status, line] of [['launched', /^Your token is live: https:/], ['declined', /^Your token is off\. Want it on\? Say launch my token\.$/], ['launching', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)], ['unknown', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)]] as const) {
+  for (const [status, line] of [['launched', /^Your token is live: https:/], ['declined', /^Your token is off\. Say launch my token anytime to turn it on\.$/], ['launching', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)], ['unknown', new RegExp(`^${TOKEN_ON_ITS_WAY}$`)]] as const) {
     const b = await withWallet(`d${status.slice(0, 3)}`);
     await setRow(b.id, status);
     if (status === 'launched') await sql()`UPDATE builder_tokens SET coin_address = ${`0x${'ab'.repeat(20)}`}, symbol = 'ABC', wallet = ${`0x${'cd'.repeat(20)}`} WHERE builder_id = ${b.id}`;

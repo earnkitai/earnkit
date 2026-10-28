@@ -17,8 +17,11 @@ const logged = (where: string) => (err: unknown) => {
 export const TOKEN_EXPLAINER =
   "Your token is how people who believe in your work can back it. Anyone can trade it, and 40% of every trade's fee goes to your wallet, claimed for you. It lives on Base, whatever chain you build on.";
 export const TOKEN_GOES_LIVE_ON_SIGN = 'It goes live when you sign. Rather skip it? Just say no.';
-export const TOKEN_OFF = 'Your token is off. Want it on? Say launch my token.';
+/** Final review 2: a statement, no question (a yes to it would answer nothing). */
+export const TOKEN_OFF = 'Your token is off. Say launch my token anytime to turn it on.';
 export const tokenSignLine = (link: string) => `Sign with your wallet and it goes live: ${link}`;
+/** The just-launched reply's page line. Pure. */
+export const tokenPageLine = (handle: string) => `It's on your page too: ${siteUrl()}/${handle}`;
 
 export type TokenAnswerState = {
   token: Pick<BuilderToken, 'status' | 'symbol' | 'coin_address' | 'wallet'> | null;
@@ -49,7 +52,7 @@ export function tokenAnswerText(s: TokenAnswerState, opts: TokenAnswerOpts = {})
   if (t?.status === 'declined') return TOKEN_OFF;
   if (t?.status === 'launched' && t.coin_address) {
     const trade = tradeUrl(t.coin_address);
-    if (opts.justLaunched) return [`Done. Your token is live: ${trade}`, s.handle ? `It's on your page too: ${siteUrl()}/${s.handle}` : null].filter(Boolean).join('\n');
+    if (opts.justLaunched) return [`Done. Your token is live: ${trade}`, s.handle ? tokenPageLine(s.handle) : null].filter(Boolean).join('\n');
     return [
       `Your token is live: ${trade}`,
       t.wallet ? `40% of every trade's fee goes to ${shortWallet(t.wallet)}, claimed for you.` : `40% of every trade's fee goes to your wallet, claimed for you.`,

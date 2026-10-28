@@ -38,7 +38,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_DONE_HEAD, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -49,16 +49,16 @@ import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
   type ConnectBest,
 } from './connect-moment';
-import { connectOfferPoints, pointsTotal } from './points';
+import { pointsTotal } from './points';
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
-import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken, takeTokenOffer, tokenOfferDue } from './wallet-offer';
+import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken, takeTokenOffer, tokenOfferDue } from './wallet-offer';
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
-import { TOKEN_OFF, tokenAnswerFor } from './token-answers';
+import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
 import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
@@ -115,6 +115,12 @@ export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: 
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
 export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
+/**
+ * Final review 3: the setup-done reply's own questions have their own kinds (closest: the closest program's one step;
+ * check_fits: check which programs fit), so their no is never a no to Base's grant steps (declined['qualify:<key>']).
+ */
+export const CLOSEST_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'closest', project_key, answer } (project_key as given here). Don't show this note.";
+export const CHECK_FITS_ASK_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'check_fits', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: Base's grant steps question's note; a yes returns the steps. */
 export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'qualify', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: the steps reply's question; a yes is help with the first step, here. */
@@ -164,8 +170,8 @@ export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
   bench_ask?: {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
-    /** v4.2 (kind 'qualify' from setup done): the closest program's title and the one step it needs. */
-    program?: string; step?: string; check?: boolean;
+    /** v4.2 (kind 'closest', from setup done; final review 3): the closest program's title and the one step it needs. */
+    program?: string; step?: string;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
     /** v4.0 Task 8 fix round 1 (kind 'outcome_share'): the outcome post's short link. */
@@ -851,8 +857,8 @@ async function takeApplyAsk(id: number, programId: string, now: Date): Promise<b
 }
 
 /**
- * v3 Stage 1 (spec 5.1), Task 16 step 3: the backfilled weeks to confirm and the points their yes adds
- * (points.ts connectOfferPoints), when this person hasn't been offered them (connectDue). Shown: the offer opens
+ * v3 Stage 1 (spec 5.1), Task 16 step 3: the backfilled weeks to confirm, when this person hasn't been offered them
+ * (connectDue). v4.2 final review 4: no points are read (the copy never shows them), so no points read can hide the offer. Shown: the offer opens
  * (openConnect) with the Best fit it names (`best`, offered as a draft on the yes). None to confirm once the backfill
  * is complete (backfillComplete): connect_done, never asked; before that, asked again on a later reply. A failed read
  * is no offer, asked again on a later reply. Never throws.
@@ -873,13 +879,11 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
     return null;
   }
   const mondays = weeks.map((w) => w.monday);
-  const points = await connectOfferPoints(id, mondays).catch(logged('connect points'));
-  if (points === null) return null;
   const pick: ConnectBest | undefined = best
     ? { program_id: best.program_id, title: best.title, amount: best.amount, when: best.ends_at ? best.when.replace(/^closes /, '') : null, ...(best.repo && { repo: best.repo }) }
     : undefined;
   await openConnect(id, { key, weeks: mondays, ...(pick && { best: pick }) });
-  return { weeks: weeks.length, points };
+  return { weeks: weeks.length };
 }
 
 export { momentSummary };
@@ -1222,7 +1226,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live', 'backing', 'coin_publish', 'coin_wallet', 'backers_post'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'titles', 'qualify', 'post', 'new_repo', 'outcome_share', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'titles', 'qualify', 'closest', 'check_fits', 'post', 'new_repo', 'outcome_share', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
 const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup', 'token'];
 
@@ -1416,20 +1420,22 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'qualify':
       // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
       // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.
-      // v4.2: the closest program (setup done): its one step, never a draft.
-      if (asked.check) return { show_to_builder: '', agent_note: CHECK_FITS_NOTE };
-      if (asked.program && asked.step) {
-        return {
-          show_to_builder: `Your next step toward ${asked.program}: ${asked.step}.\n\n${QUALIFY_HELP_ASK_ONE}`,
-          agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
-        };
-      }
       if (!asked.qualify?.steps?.length || !asked.key) return okay;
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
       return {
         show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]),
+        agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
+      };
+    case 'check_fits':
+      // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit.
+      return { show_to_builder: '', agent_note: CHECK_FITS_NOTE };
+    case 'closest':
+      // v4.2 (setup done, final review 3's own kind): the closest program's one step, never a draft.
+      if (!asked.program || !asked.step) return okay;
+      return {
+        show_to_builder: `Your next step toward ${asked.program}: ${asked.step}.\n\n${QUALIFY_HELP_ASK_ONE}`,
         agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
       };
     case 'new_repo':
@@ -1566,7 +1572,7 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
-type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'qualify' | 'checkin'; project_key: string | null; agent_note: string }; program_id?: string };
+type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'closest' | 'check_fits' | 'checkin'; project_key: string | null; agent_note: string }; program_id?: string };
 /**
  * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
  * (takeOnce 'setup_done'; final review 6: after the reply is built, so a failure never loses it). Exported for tests. The rows: the one project's real fits not told about (find's or score's fit lines; without
@@ -1631,8 +1637,8 @@ export async function setupDoneFor(
     // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
     if (!(await takeOnce(id, 'setup_done', now))) return null;
     if (!best && check) {
-      await storeAsk(id, { kind: 'qualify', key: g.key, check: true });
-      return { show_to_builder: show, move_up: { kind: 'qualify', project_key: g.key, agent_note: QUALIFY_NOTE } };
+      await storeAsk(id, { kind: 'check_fits', key: g.key });
+      return { show_to_builder: show, move_up: { kind: 'check_fits', project_key: g.key, agent_note: CHECK_FITS_ASK_NOTE } };
     }
     if (!best && !closest) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
@@ -1645,8 +1651,8 @@ export async function setupDoneFor(
     }
     if (!best && closest && closestId) {
       // The closest program is a long shot: a yes gives the step it needs (the qualify flow), never a draft.
-      await storeAsk(id, { kind: 'qualify', key: g.key, program_id: closestId, program: closest.program, step: closest.step });
-      return { show_to_builder: show, move_up: { kind: 'qualify', project_key: g.key, agent_note: QUALIFY_NOTE }, program_id: closestId };
+      await storeAsk(id, { kind: 'closest', key: g.key, program_id: closestId, program: closest.program, step: closest.step });
+      return { show_to_builder: show, move_up: { kind: 'closest', project_key: g.key, agent_note: CLOSEST_NOTE }, program_id: closestId };
     }
     await takeApplyAsk(id, best!.program_id, now);
     await storeAsk(id, { kind: 'apply', key: g.key, program_id: best!.program_id, ...(best!.repo && { repo: best!.repo }) });
@@ -1680,9 +1686,10 @@ async function tokenTradeUrl(id: number): Promise<string | null> {
  * v4.0 Task 5: a step 3 answer whose reply is the skip line or the token no's: the setup-done reply in its place, once
  * (setupDoneFor); any other reply as it is. Never throws.
  */
-async function afterStep3(id: number, r: Reply, now: Date, own: number = id): Promise<Reply> {
-  // v4.2 (F4): a wallet signed while step 3 is open is the setup-done reply too (one message, not two).
-  const signed = typeof r.show_to_builder === 'string' && r.show_to_builder.startsWith(WALLET_DONE_HEAD);
+async function afterStep3(id: number, answer: WalletAnswer, now: Date, own: number = id): Promise<Reply> {
+  // v4.2 (F4): a wallet signed while step 3 is open is the setup-done reply too (one message, not two). Final review 5:
+  // answerWallet's typed `signed`, never its copy; the flag is internal and never reaches the reply.
+  const { signed, ...r } = answer;
   if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE && !signed) return r;
   return (await setupDoneFor(id, now, null, own)) ?? r;
 }
@@ -1701,22 +1708,38 @@ export const TOKEN_ASK_NOTE = "A yes or no to the question: call tell with move_
 /**
  * v4.2 Task 1: tell token 'ask' ANSWERS the builder's token question and never launches one (only the builder's own
  * yes, tell move_up kind 'token', does): live (the trade link and what it earns), kept off, on its way, or no token yet
- * (what it is, and how it goes live). Setup step 3 due and not yet shown: step 3's reply. It stores no ask and adds no
- * question of its own, so an open step 3 keeps its one question. Tokens off with no row: "Okay.". Never throws.
+ * (what it is, and how it goes live). Setup step 3 due and not yet shown: step 3's reply. Task 6: an earlier builder
+ * due the legacy offer hears the explainer and the offer question, stored as the ask. Otherwise it adds no question of
+ * its own and (final review 2) clears the stored ask, except an open step 3's, which keeps its one question. Tokens off
+ * with no row: "Okay.". Never throws.
  */
-export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>): Promise<Reply> {
+export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>, o: { statement?: boolean } = {}): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   try {
+    // Final review 7: beside a move_up answer (the same tell), that reply owns the one question: the token is answered as
+    // a statement, nothing claimed, stored or cleared (an open step 3's "Rather skip it?" left out).
+    if (o.statement) {
+      if (!builderTokensOn() && !(await builderToken(id))) return { show_to_builder: NOTED_LINE };
+      const state = await tokenAnswerState(id, now);
+      return { show_to_builder: state.walletStepOpen ? TOKEN_EXPLAINER : tokenAnswerText(state) };
+    }
     if (!(await builderToken(id)) && (await walletSetupDue(id, now))) {
       const step = await walletStep(id, now);
       if (step) return step as Reply;
     }
     if (!builderTokensOn() && !(await builderToken(id))) return { show_to_builder: NOTED_LINE };
     // v4.2 Task 6: an earlier builder (a wallet, no token row, never offered) hears the explainer and the offer, once; the offer is the
-    // stored ask, so a following yes or no answers it. Otherwise the explainer alone (it stores no ask).
+    // stored ask, so a following yes or no answers it. Otherwise the state's text alone.
     const offer = (await tokenOfferDue(id)) && (await takeTokenOffer(id, now));
-    if (!offer) return { show_to_builder: await tokenAnswerFor(id, now) };
+    if (!offer) {
+      const state = await tokenAnswerState(id, now);
+      // Final review 2: this answer asks nothing, so only the ask it shows is answerable: none. The stored ask is
+      // cleared (a later kindless yes can't answer an older question), except an open step 3's, whose question this
+      // answer repeats ("Rather skip it? Just say no.").
+      if (!state.walletStepOpen) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('token ask clear'));
+      return { show_to_builder: tokenAnswerText(state) };
+    }
     await storeAsk(id, { kind: 'token', key: null, at: now.toISOString() });
     return { show_to_builder: await tokenAnswerFor(id, now, { offerQuestion: TOKEN_OFFER_QUESTION }), move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
   } catch (err) {
@@ -1748,6 +1771,9 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
       return { show_to_builder: r === 'launched' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
     }
+    // Final review 1: the yes is what token_offered records (the legacy offer's show never sets it), so a launch this
+    // yes starts and drops is retried by the hourly cron, and a wallet proven later launches it.
+    if (builderTokensOn()) await markTokenYes(id, now);
     // v4.2: the builder's own yes after a no reopens it (only the builder's own yes; see ownYes).
     const reopened = ownYes && builderTokensOn() && (await reopenDeclinedToken(id));
     const r = await launchBuilderToken(id, ctx.builderTokenDeps ?? {});
@@ -1765,6 +1791,16 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
     logged('token answer')(err);
     return { show_to_builder: TOKEN_TRY_LATER };
   }
+}
+
+/**
+ * Final review 1: the builder's yes to their token (standing_seen.token_offered; token_skipped, a wallet skip's mark,
+ * cleared). Never throws.
+ */
+async function markTokenYes(id: number, now: Date): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'token_skipped')
+      || jsonb_build_object('token_offered', COALESCE(standing_seen->>'token_offered', ${now.toISOString()}::text))
+    WHERE builder_id = ${id}`.catch(logged('token yes'));
 }
 
 /** GTM W2: a one project with a repo key (a link-only project, a Lovable or Bolt app, has none). Pure. */

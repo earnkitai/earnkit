@@ -60,10 +60,16 @@ async function person(tag: string) {
 test('G1: the yes to the fit-check question is the instruction to run find', db, async () => {
   const { c, handle } = await person('ck');
   const key = `${handle}/kit`;
-  await sql()`UPDATE builder_profiles SET main_project_key = ${key}, standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'qualify', 'key', ${key}::text, 'check', true)) WHERE builder_id = ${c.id}`;
-  const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false } as never, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  await sql()`UPDATE builder_profiles SET main_project_key = ${key}, standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'check_fits', 'key', ${key}::text)) WHERE builder_id = ${c.id}`;
+  const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false } as never, 'tell', { move_up: { kind: 'check_fits', project_key: key, answer: 'yes' } });
   assert.equal(r.reply?.agent_note, CHECK_FITS_NOTE);
   assert.equal(String(r.reply?.show_to_builder ?? ''), '');
+  // Final review 3: its no is its own, never a no to Base's grant steps (declined['qualify:<key>']).
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'check_fits', 'key', ${key}::text)) WHERE builder_id = ${c.id}`;
+  await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false } as never, 'tell', { move_up: { kind: 'check_fits', project_key: key, answer: 'no' } });
+  const [{ d }] = await sql()<{ d: Record<string, string> | null }[]>`SELECT standing_seen->'declined' AS d FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(d?.[`qualify:${key}`], undefined);
+  assert.equal(typeof d?.[`check_fits:${key}`], 'string');
 });
 
 test('G1: the told-facts overlay in scoreFits affects only the told repo', db, async () => {

@@ -5,9 +5,9 @@ import {
 } from './bench-reply';
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
 import { COIN_PROGRAM } from './policy-constants';
-import { builderToken, builderTokensOn } from './builder-token';
-import { tokenAnswerFor } from './token-answers';
-import { testInstallationIds } from './installations';
+import { builderToken, builderTokensOn, tradeUrl } from './builder-token';
+import { tokenAnswerState, tokenAnswerText, tokenPageLine } from './token-answers';
+import { testBuilderSql } from './installations';
 
 /** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
 export const FEE_WALLET_QUIET_DAYS = 7;
@@ -136,20 +136,19 @@ export async function walletSetupToken(builderId: number): Promise<boolean> {
 
 /**
  * v4.2 Task 6 (F11): the one-time token offer for a builder who set up before v4: tokens on, a claimed X account, a proven
- * wallet, no builder_tokens row (a no is kept forever) and never offered (standing_seen.token_offered). Never for an owner
+ * wallet, no builder_tokens row (a no is kept forever) and never offered (standing_seen.token_offered, token_offer_legacy,
+ * or token_skipped: final review 9's wallet skip after step 3's token sentence). Never for an owner
  * test installation (EARNKIT_TEST_INSTALLATIONS, as the stats). Nothing is claimed here (takeTokenOffer). Never throws.
  */
 export async function tokenOfferDue(builderId: number): Promise<boolean> {
   if (!builderTokensOn()) return false;
   try {
-    const ids = testInstallationIds();
     const [p] = await sql()<{ due: boolean }[]>`
       SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL
-        AND NOT COALESCE(standing_seen ? 'token_offered', false)
+        AND NOT COALESCE(standing_seen ?| array['token_offered', 'token_offer_legacy', 'token_skipped'], false)
         AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId})
         AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId})
-        AND NOT (${builderId} = ANY(${ids}::int[]))
-        AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND i.id = ANY(${ids}::int[])) AS due
+        AND NOT ${testBuilderSql(sql(), builderId)} AS due
       FROM builder_profiles WHERE builder_id = ${builderId}`;
     return p?.due === true;
   } catch (err) {
@@ -157,12 +156,16 @@ export async function tokenOfferDue(builderId: number): Promise<boolean> {
     return false;
   }
 }
-/** v4.2 Task 6: claims the token offer, once (one guarded UPDATE: token_offered, token_offer_legacy), when its reply carries it. Never throws. */
+/**
+ * v4.2 Task 6: claims the token offer, once (one guarded UPDATE: token_offer_legacy), when its reply carries it. Final
+ * review 1: showing it is not a yes, so token_offered (what the proof and the hourly retry launch on) is never set here;
+ * only the builder's yes sets it (bench-find.ts tokenAnswer). Never throws.
+ */
 export async function takeTokenOffer(builderId: number, now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-      || jsonb_build_object('token_offered', ${now.toISOString()}::text, 'token_offer_legacy', ${now.toISOString()}::text)
-    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'token_offered', false) RETURNING 1`.catch((err: unknown) => {
+      || jsonb_build_object('token_offer_legacy', ${now.toISOString()}::text)
+    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ?| array['token_offered', 'token_offer_legacy', 'token_skipped'], false) RETURNING 1`.catch((err: unknown) => {
     logged('take token offer')(err);
     return [];
   });
@@ -202,24 +205,31 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
     WHERE builder_id = ${builderId}`.catch(logged('link given'));
 }
 
-/** token-answers.ts: the lead of the reply to a sign that launched the token. */
-const TOKEN_LIVE_HEAD = 'Done. Your token is live: ';
 /**
- * v4.2: after a reward wallet signed, the token's state in the same reply: just launched by this sign (the trade link and
- * the page), already live (the Live copy), or on its way. Null when the builder has no token row (declined or never offered). Never throws.
+ * v4.2: after a reward wallet signed, the token's state in the same reply: `launched` when this sign made it (its row
+ * began after the link was given: the trade link and the page line, for the one "Done." line), else the state's copy
+ * (`line`: already live, or on its way). Null when the builder has no token row (declined or never offered). Never throws.
  */
-async function signedTokenLine(builderId: number, now: Date, linkAt: Date): Promise<string | null> {
+async function signedToken(builderId: number, now: Date, linkAt: Date): Promise<{ line: string; launched: { trade: string; page: string | null } | null } | null> {
   try {
     const [t] = await sql()<{ status: string; fresh: boolean }[]>`
       SELECT status, created_at >= ${linkAt} AS fresh FROM builder_tokens WHERE builder_id = ${builderId}`;
     if (!t || t.status === 'declined') return null;
-    // "Done." only when this sign made the token (its row began after the link was given); a wallet change on a live token is the Live copy.
-    return await tokenAnswerFor(builderId, now, { justLaunched: t.status === 'launched' && t.fresh });
+    const state = await tokenAnswerState(builderId, now);
+    // "Done." only when this sign made the token; a wallet change on a live token is the Live copy.
+    const addr = t.status === 'launched' && t.fresh ? state.token?.coin_address ?? null : null;
+    return {
+      line: tokenAnswerText(state, { justLaunched: addr !== null }),
+      launched: addr ? { trade: tradeUrl(addr), page: state.handle ? tokenPageLine(state.handle) : null } : null,
+    };
   } catch (err) {
     logged('signed token')(err);
     return null;
   }
 }
+
+/** Final review 5: answerWallet's reply, typed: `signed` when a reward wallet was proven (bench-find.ts afterStep3 reads it, never the copy). */
+export type WalletAnswer = Reply & { signed?: true };
 
 /**
  * The builder's answer to the wallet step or the change link (bench-find.ts benchMoveUp: move_up kind 'wallet', or
@@ -227,7 +237,7 @@ async function signedTokenLine(builderId: number, now: Date, linkAt: Date): Prom
  * wallet proven since the link: done (the recipient's short wallet, or contracts only); a yes before the signature: a
  * fresh link and the same question; a no: WALLET_SKIPPED. The stored wallet ask is cleared.
  */
-export async function answerWallet(builderId: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+export async function answerWallet(builderId: number, answer: 'yes' | 'no', now: Date): Promise<WalletAnswer> {
   const [p] = await sql()<{ at: string | null; key: string | null; setup: boolean }[]>`
     SELECT standing_seen->>'wallet_link_at' AS at, main_project_key AS key, COALESCE(standing_seen ? 'wallet_setup', false) AS setup
     FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
@@ -235,9 +245,17 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
     return [];
   });
   if (!p?.at || Number.isNaN(Date.parse(p.at))) return okay;
+  // Final review 9 (owner rule: skipping the wallet skips the token): a no with no wallet proven and no token row also
+  // takes back token_offered (kept as token_skipped), so a wallet proven later some other way, or the hourly retry,
+  // launches nothing; only the builder's own "launch my token" (tokenAnswer's yes) sets it again. A no to changing a
+  // wallet already proven is not a skip (a yes whose launch dropped stays retried).
+  const skip = sql()`${answer === 'no'} AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId})
+    AND NOT EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId})`;
   const end = () =>
-    sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'wallet_link_at') - 'wallet_notice' - 'wallet_setup'
+    sql()`UPDATE builder_profiles SET standing_seen = ((standing_seen - 'wallet_link_at') - 'wallet_notice' - 'wallet_setup'
         - (CASE WHEN standing_seen->'bench_ask'->>'kind' IN ('wallet', 'wallet_setup') THEN 'bench_ask' ELSE '' END)
+        - (CASE WHEN ${skip} THEN 'token_offered' ELSE '' END))
+        || (CASE WHEN ${skip} AND standing_seen ? 'token_offered' THEN jsonb_build_object('token_skipped', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
       WHERE builder_id = ${builderId} AND standing_seen->>'wallet_link_at' = ${p.at}::text RETURNING 1`.catch((err: unknown) => {
       logged('end')(err);
       return [];
@@ -247,19 +265,18 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
   const got = await provenSince(builderId, new Date(p.at)).catch(logged('proven'));
   if (got) {
     if (!(await end()).length) return okay;
-    const token = got.recipient ? await signedTokenLine(builderId, now, new Date(p.at)) : null;
+    const token = got.recipient ? await signedToken(builderId, now, new Date(p.at)) : null;
     const contracts = await contractsOnBase(builderId);
     if (got.recipient) {
       // v4.2 Task 10 (G4): a sign that launched the token is one "Done.": the wallet and the token in the first line.
-      const launched = token?.startsWith(TOKEN_LIVE_HEAD) ? token.slice(TOKEN_LIVE_HEAD.length) : null;
-      if (launched !== null) {
-        const [trade, ...page] = launched.split('\n');
-        return { show_to_builder: [`Done. Your rewards now go to ${shortWallet(got.wallet)}, and your token is live: ${trade}`, ...page, contracts ? 'Your contracts on Base will show on your page soon.' : null].filter(Boolean).join('\n') };
+      if (token?.launched) {
+        const { trade, page } = token.launched;
+        return { signed: true, show_to_builder: [`Done. Your rewards now go to ${shortWallet(got.wallet)}, and your token is live: ${trade}`, page, contracts ? 'Your contracts on Base will show on your page soon.' : null].filter(Boolean).join('\n') };
       }
-      return { show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token].filter(Boolean).join('\n\n') };
+      return { signed: true, show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token?.line].filter(Boolean).join('\n\n') };
     }
     const current = await provenWallet(builderId);
-    return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet), contracts) };
+    return current ? { show_to_builder: walletContractsOnly(shortWallet(current)) } : { signed: true, show_to_builder: walletDone(shortWallet(got.wallet), contracts) };
   }
   const link = walletLink(builderId, now);
   if (!link) return { show_to_builder: 'I can\'t make a wallet link right now. Try again later.' };

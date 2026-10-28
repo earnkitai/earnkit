@@ -32,6 +32,8 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   | 'outcome_share'
   /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */
   | 'wallet_setup'
+  /** v4.2 final review 3: the setup-done reply's `closest` (the closest program's one step) and `check_fits` (check which programs fit). */
+  | 'closest' | 'check_fits'
   /** v4.2 Task 6: `token`, the one-time token offer for a builder who set up before v4 (a wallet, no token row, never offered). */
   | 'token';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
@@ -102,8 +104,8 @@ export const grantHook = (g: OpenGrant) => {
   const who = g.name ?? g.org;
   return `${who} ${/s$/i.test(who) ? 'pay' : 'pays'} up to ${g.amount} for apps${g.chain ? ` on ${g.chain}` : ''}.`;
 };
-/** Task 16: the connect offer: the weeks it posts and the points that yes adds (ledger rules: points.ts connectOfferPoints). */
-export type ConnectOffer = { weeks: number; points: number };
+/** Task 16: the connect offer: the weeks it posts (v4.2 final review 4: no points; the copy never shows them). */
+export type ConnectOffer = { weeks: number };
 /**
  * Task 16: the weekly moment (step 7): the week's number (the project's weeks shipping), where the builder stands
  * (`place`: 'still' or 'now' beside the rank, null under RANK_MIN_POOL: "on EarnKit"), last week's rank, and the points
@@ -277,8 +279,6 @@ export const walletNotYet = (link: string) => `I don't see a signature yet. Here
 /** Done: the wallet is the reward recipient (short). Pure. */
 export const walletDone = (wallet: string, contracts = false) =>
   `Done. Your rewards now go to ${wallet}.${contracts ? ' Your contracts on Base will show on your page soon.' : ''}`;
-/** The wallet-signed reply's first words (afterStep3 reads them to swap in the setup-done reply). */
-export const WALLET_DONE_HEAD = 'Done. Your rewards now go to ';
 /** Done for contracts only: no X sign-in, so the rewards stay with the current wallet (short). Pure. */
 export const walletContractsOnly = (current: string) =>
   `Done. That wallet counts for your contracts. Your rewards still go to ${current} until you sign in with X on the wallet page.`;

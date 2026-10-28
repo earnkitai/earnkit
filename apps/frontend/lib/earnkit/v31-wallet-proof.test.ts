@@ -109,7 +109,7 @@ test('the copy, word for word: the offer, the change links, done, contracts only
 test('the wallet step never shares a reply with another question: after connect, a post, apply and the weekly moment; before titles, Base steps and ship', () => {
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const v = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit', wallet: 'https://earnkit.com/claim/wallet?t=x' };
-  assert.equal(stateAsk({ ...v, connect: { weeks: 3, points: 40 } }).kind, 'connect');
+  assert.equal(stateAsk({ ...v, connect: { weeks: 3 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
   assert.equal(stateAsk({ ...v, share: true }).line, MOMENT_ASK);
   const w = stateAsk({ ...v, titles: true });

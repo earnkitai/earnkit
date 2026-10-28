@@ -40,8 +40,8 @@ test('the text of each state is exact', () => {
     tokenAnswerText({ ...base, token: live, communityUsd: 1234 }),
     `Your token is live: ${tradeUrl(COIN)}\n40% of every trade's fee goes to ${shortWallet(WALLET)}, claimed for you.\nSo far: $1,234.`,
   );
-  assert.equal(tokenAnswerText({ ...base, token: { ...live, status: 'declined' } }), 'Your token is off. Want it on? Say launch my token.');
-  assert.equal(TOKEN_OFF, 'Your token is off. Want it on? Say launch my token.');
+  assert.equal(tokenAnswerText({ ...base, token: { ...live, status: 'declined' } }), 'Your token is off. Say launch my token anytime to turn it on.');
+  assert.equal(TOKEN_OFF, 'Your token is off. Say launch my token anytime to turn it on.');
   assert.equal(tokenAnswerText({ ...base, token: { ...live, status: 'launching' } }), TOKEN_ON_ITS_WAY);
   assert.equal(tokenAnswerText({ ...base, token: live }, { justLaunched: true }), `Done. Your token is live: ${tradeUrl(COIN)}\nIt's on your page too: https://earnkit.com/ada`);
   for (const s of ['', 'x'].map((_, i) => tokenAnswerText({ ...base, hasWallet: i === 0 }))) assert.doesNotMatch(s, /—|coin/i);
@@ -181,4 +181,17 @@ test('review 4: a stale token ask or an old coin yes never reverses a no; only t
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"bench_ask":{"kind":"token","key":null}}'::jsonb WHERE builder_id = ${c.id}`;
   await mcpCall(c.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } });
   assert.equal(await storedAsk(c.id), null);
+}));
+
+test('final review 2: the off copy asks nothing, and a token answer with no question clears an old stored ask, so a later kindless yes launches nothing', db, () => on(async () => {
+  assert.doesNotMatch(TOKEN_OFF, /\?/);
+  const b = await builder('clr', true);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${b.id}, x_user_id, 'declined' FROM builder_profiles WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', jsonb_build_object('kind', 'token', 'key', null))
+    WHERE builder_id = ${b.id}`;
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { token: 'ask' })), TOKEN_OFF);
+  assert.equal(await storedAsk(b.id), null);
+  await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } });
+  assert.equal(b.calls.length, 0);
+  assert.equal(await row(b.id), 'declined');
 }));

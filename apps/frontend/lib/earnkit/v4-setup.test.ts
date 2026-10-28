@@ -15,9 +15,9 @@ import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, 
 import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { walletSetupDue, walletSetupToken } from './wallet-offer';
-import { provenWallet, upgradeToken, walletMessage, walletPost } from './wallet-proof';
-import { declineBuilderToken } from './builder-token';
+import { tokenOfferDue, walletSetupDue, walletSetupToken } from './wallet-offer';
+import { provenWallet, upgradeToken, walletLink, walletMessage, walletPost } from './wallet-proof';
+import { declineBuilderToken, retryDroppedBuilderTokens } from './builder-token';
 
 /**
  * v4.0 Task 3 (docs/design-docs-and-implementation-plans/v4-builder-tokens.md, "Approved copy" 1 and 2): setup steps 1
@@ -225,9 +225,9 @@ test('step 3 copy, word for word: with the token sentence, and without it', () =
   const project: BenchProject = { key: 'maya/mealmate', name: 'MealMate', confirmed: true, live: false, weeks: 1 };
   const setup = { link: L, project: 'MealMate', token: true };
   const ranked = { state: 'ranked' as const, variant: null, project, link: null, handle: 'maya', walletSetup: setup };
-  assert.equal(stateAsk({ ...ranked, connect: { weeks: 3, points: 40 } }).kind, 'wallet_setup');
+  assert.equal(stateAsk({ ...ranked, connect: { weeks: 3 } }).kind, 'wallet_setup');
   assert.equal(stateAsk({ ...ranked, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L, true));
-  assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3, points: 40 } }).kind, 'connect');
+  assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3 } }).kind, 'connect');
   const no = { state: 'no_project' as const, variant: null, project: null, link: null, githubNo: true, walletSetup: { ...setup, project: null } };
   assert.equal(stateAsk({ ...no, baseAsk: true }).kind, 'base_start');
   assert.equal(stateAsk(no).kind, 'wallet_setup');
@@ -265,6 +265,30 @@ test('(b) a no to the wallet step: skipped, remembered, never asked again; no to
   assert.equal(p.tf.calls.length, 0);
 });
 
+test('final review 9: skipping the wallet skips the token: a wallet proven later (the change link) and the hourly retry deploy nothing; only "launch my token" launches', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const p = await connected('k9');
+  const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  assert.ok(s.includes('Rather skip the token? Just say no.'), s);
+  assert.ok(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'wallet', project_key: p.key, answer: 'no' } })).startsWith("No worries, add it whenever you're ready."));
+  assert.equal(await tokenRow(p.id), null);
+  // A wallet added later another way: the change link.
+  const change = walletLink(p.id, new Date());
+  assert.ok(change);
+  assert.equal((await signOn(p.handle, change!, p.tf)).status, 200);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.ok(await provenWallet(p.id));
+  assert.equal(await tokenRow(p.id), null);
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), { ...p.tf.deps, only: [p.id] }), { tried: 0, launched: 0, blocked: [] });
+  // Never re-pitched by the legacy offer either.
+  assert.equal(await tokenOfferDue(p.id), false);
+  assert.equal(p.tf.calls.length, 0);
+  // The builder's own "launch my token" launches, once.
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
+  assert.equal(p.tf.calls.length, 1);
+});
+
 test('(c) the proof on the wallet page launches the token, no tell call needed', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
@@ -295,7 +319,7 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.equal(p.tf.calls.length, 0);
   // A declined builder never sees the token sentence again; only their own "launch my token" (v4.2) reverses the no.
   assert.equal(await walletSetupToken(p.id), false);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), 'Your token is off. Want it on? Say launch my token.');
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), 'Your token is off. Say launch my token anytime to turn it on.');
   assert.equal(p.tf.calls.length, 0);
   assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
   assert.equal(p.tf.calls.length, 1);

@@ -2746,7 +2746,8 @@ export const tools = {
       // v4.0 Task 11 fix round 1: an older agent's token 'ask' answers the builder token's status, never launches
       // (tokenAsk); coin { answer } (the retired per-project offer) launches or declines only when the stored ask is
       // the builder token's offer (legacyCoinAnswer), else "Okay."; coin { raising } changes nothing.
-      if (token === 'ask') replies.push(await tokenAsk(ctx));
+      // v4.2 final review 7: beside a move_up answer, the token is answered as a statement (one question per reply).
+      if (token === 'ask') replies.push(await tokenAsk(ctx, { statement: Boolean(move_up) }));
       if (coin) replies.push((coin.answer && (await legacyCoinAnswer(ctx, coin.answer))) || { show_to_builder: NOTED_LINE });
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {

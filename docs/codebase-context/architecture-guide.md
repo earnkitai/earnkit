@@ -6664,7 +6664,7 @@ say yes, earn points, get the Monday email.
   when a week with facts is approved; a week approved before its facts arrive is awarded by `upsertWeekFacts` when they
   do (via its `approved_via`). The profile
   showed `POINTS_PAGE_LINE` until the v3.1 site (the profile shows no points; owner 2026-10-21: points in agent replies
-  only), replies carry points through v3.1 T16's lines (`bench-reply.ts POINTS_ON_*` and `shipPointsLine`, `connect-moment.ts pointsAddedLine`),
+  only), replies carry points through v3.1 T16's lines (`bench-reply.ts POINTS_ON_*`, `connect-moment.ts pointsAddedLine`; v4.2 removed the ship step's `shipPointsLine` for `shipLine`),
   and `/api/stats` returns `points_total`.
 - **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
   ranked reply after connect shows every unconfirmed, unhidden week with facts, newest first, at most 12
@@ -7199,8 +7199,8 @@ _Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and
 - **Step 5 and the other ranked steps:** `standingLine` (name · rank · streak · "$X earned"), then the money (the apply
   ask's own line `applyAsk(title, amount, when)`; else `moneyLine`: the Best fit, the first fit, the backing statement or
   the upcoming program), the question (`SHIP_ASK` for ship, the backing offer, a held question), and for apply and ship
-  `shipPointsLine` ("Ship code this week: up to +100 points"; the ship step leads with the weekly target when it says to
-  ship). `MAX_WEEK_POINTS = pointsForRank(1, 1)`.
+  `shipLine` (v4.2: no points; "Ship code this week." or the weekly target when it says to ship; it replaced
+  `shipPointsLine`). `MAX_WEEK_POINTS = pointsForRank(1, 1)`.
 - **Step 6 (the draft):** `submit-kit.ts draftKit`: `draftReadyLine` (filled of shown fields), "You add: <missing>.", the
   caller's note (Base: the Builder Codes words), the continues line; copy-and-paste drafts keep the answers block and the
   https:// paste line; a prefilled draft shows only answers that didn't fit the link (`PASTE_LEFT`) and `OPEN_PREFILLED`;
@@ -8049,8 +8049,9 @@ Five journeys read cold; every reply now answers the builder, says one name and 
 - **One name.** `rememberProjectName` (prepare's project, when it names the one project) stores the builder's name on the
   identity; `mainProjectName` names replies; `coin-moments.ts coinName` uses it for the coin (a private repo: only when it
   isn't the repo's name or is its site's name).
-- **Coin.** `BACKING_OFFER` is rewrite 4 ("I can launch $X, a coin for Y on Base. ... Launch it?"). `tokenAsk` always
-  gives a path: not connected `tokenConnectFirst` (picker or install link, stored as that step); launched coin
+- **Coin (history: retired in v4.0 Task 11; v4.2's `tokenAsk` answers the builder token, see "v4.2 journey fixes").**
+  `BACKING_OFFER` is rewrite 4 ("I can launch $X, a coin for Y on Base. ... Launch it?"). `tokenAsk` always
+  gave a path: not connected `tokenConnectFirst` (picker or install link, stored as that step); launched coin
   `backersLine` + `backers_post` (yes: `post-reply.ts weekPostReply`, else `BACKERS_NEWS_NOTE`); blocked `coinBlocked`
   (`COIN_BLOCKED` off, own, shared, held); proven with no published week `tokenPublishFirst` (`coin_publish`: openConnect
   then a yes runs `answerConnect` and shows the offer via `askedCoinOffer`; nothing launches before the offer's own yes);
@@ -8319,3 +8320,60 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   (`token-offers.ts`, the pitch at confirm, `launch_token`), raising / Backing (`raising.ts`, `EARNKIT_RAISING`, the Backed
   filter, the terms section), the `confirm` tool, project coin launches (entries never mint), MINI's claims, launches on
   Arc. The tables stay (append-only schema) and are read by nothing.
+
+## v4.2 journey fixes (2026-10-28, from the persona journeys; final review fixes 2026-10-29)
+
+- **Token answers (`token-answers.ts`).** `tokenAnswerState` reads the state (row, handle, `communityUsd`, step 3 open,
+  a fresh sign link, a proven wallet); `tokenAnswerText` is pure. Each state, approved copy: launched
+  "Your token is live: <trade>" + "40% of every trade's fee goes to <wallet>, claimed for you." (+ "So far: $X." when the
+  community sent any); just launched (`justLaunched`) "Done. Your token is live: <trade>" + `tokenPageLine` ("It's on
+  your page too: <page>"); declined `TOKEN_OFF` "Your token is off. Say launch my token anytime to turn it on." (final
+  review 2: a statement, no question); launching or unknown `TOKEN_ON_ITS_WAY`; no row with step 3 open
+  `TOKEN_EXPLAINER` + `TOKEN_GOES_LIVE_ON_SIGN`; no row and no wallet: the explainer + `tokenSignLine(link)`; no row with
+  a wallet: the explainer, plus `offerQuestion` when the caller passes one (the legacy offer's `TOKEN_OFFER_QUESTION`).
+  Never "coin", never a pitch when live.
+- **`tell token: 'ask'` (`bench-find.ts tokenAsk`).** Never launches. Step 3 due and not shown: step 3's reply. The
+  legacy offer due: the explainer + the offer question, stored as ask kind `token`. Otherwise the state's text, and
+  (final review 2) the stored `bench_ask` is cleared unless step 3 is open (its question is the one repeated), so a later
+  kindless yes cannot answer an older question. Final review 7: in the same tell as a `move_up` answer
+  (`tokenAsk(ctx, { statement: true })`, tools.ts), that reply owns the one question: the token is a statement (step 3
+  open: the explainer alone), nothing claimed, stored or cleared.
+- **The builder's yes (`tokenAnswer`).** Only `move_up { kind: 'token', answer: 'yes' }` from the agent is `ownTokenYes`;
+  a kindless yes riding a stored `token` ask and an old `tell coin` yes (`legacyCoinAnswer`, `via: 'coin'`) launch only
+  when no no is kept. `builder-token.ts reopenDeclinedToken` (own yes only) deletes a declined row so the launch claims a
+  fresh one (an `x_taken` or `no_ticker` result puts the no back). Final review 1: every yes (flag on) sets
+  `standing_seen.token_offered` (`markTokenYes`, clearing `token_skipped`), so a launch it drops is retried by the cron
+  and a wallet proven later launches it.
+- **The legacy offer (Task 6, F11).** For a builder who set up before v4: `wallet-offer.ts tokenOfferDue` (flag on, X
+  claimed, a proven wallet, no `builder_tokens` row, none of `token_offered`, `token_offer_legacy`, `token_skipped`, not a
+  test installation via `installations.ts testBuilderSql`). Shown once in a quiet ranked reply (`stateAsk` kind `token`,
+  `TOKEN_OFFER`) or in `tokenAsk`, claimed by `takeTokenOffer`, stored as ask kind `token` (`TOKEN_ASK_NOTE`). Final
+  review 1 (money safety): showing it writes only `token_offer_legacy`; `token_offered` is the yes, and
+  `retryDroppedBuilderTokens` and `launchOnProof` launch only on `token_offered`, so a shown, unanswered offer never
+  launches. A no is `declineBuilderToken`; silence is never re-asked.
+- **Skipping the wallet skips the token (final review 9).** `answerWallet`'s no with no token row removes
+  `token_offered` and keeps `token_skipped`: a wallet proven later (the change link) and the hourly retry launch nothing,
+  the legacy offer is never shown; only "launch my token" launches. Step 3's own no (the token sentence shown) is still
+  the token's no (`setupAnswer`).
+- **Setup step 3 and setup done.** `afterStep3` swaps in `setupDoneFor` after the skip, the token no, or a reward wallet
+  signed while step 3 is open (final review 5: `answerWallet` returns `WalletAnswer` with a typed `signed`, stripped
+  before the reply; no copy sniffing). A sign that launched the token is one "Done." line ("Done. Your rewards now go to
+  <wallet>, and your token is live: <trade>", the page line) from `signedToken`'s typed `launched`. `contractsOnBase`
+  (a Base project, a Base contract source or Base mainnet repo facts) is the only time "Your contracts on Base will show
+  on your page soon." is said. `setupDoneFor` endings: the Best fit's apply ask (kind `apply`); no real fit: the closest
+  long-shot grant (kind `closest`, `CLOSEST_NOTE`; its yes "Your next step toward <program>: <step>." +
+  `QUALIFY_HELP_ASK_ONE`, never a draft); a project never matched with grants open: "check which of these fits" (kind
+  `check_fits`, `CHECK_FITS_ASK_NOTE`; its yes is `CHECK_FITS_NOTE`, run find again); matched with nothing to ask: the
+  Monday check-in (kind `checkin`) when due and the client schedules, else no question. Final review 3: `closest` and
+  `check_fits` are their own kinds, so their no is `declined['closest:<key>']` / `['check_fits:<key>']`, never
+  `qualify:<key>` (which `base-qualify.ts qualifyOffer` reads).
+- **Copy.** The ship step's points line is gone (`shipLine`); the connect offer reads no points (final review 4:
+  `ConnectOffer` is `{ weeks }`, `points.ts connectOfferPoints` removed, so no points read can hide it).
+  `TITLES_NO_LINE` "Got it, your commit titles stay private." answers the titles no. The closing-soon apply yes is
+  `readyDraft` (the entry's stored answers as the submit kit) before a fresh draft.
+- **Submitted and eligibility.** `tools.ts markSubmitted` passes `entryId` to `record_submission` (F7): an old call with a
+  project and no repo marks the one entry of that name in the program (two are ambiguous: none), never a second row.
+  `match-projects.ts checkEligibility(ref, program, deps, told)` takes what the builder told about the repo
+  (`get_program`, from the builder memory), as the lists do.
+- **Stats.** `tokens_declined` (declined builder tokens) and `coins_launched` (launched project tokens plus launched
+  builder tokens), both without test installations (`testBuilderSql`, final review 6).
