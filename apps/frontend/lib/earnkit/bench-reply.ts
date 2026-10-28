@@ -32,7 +32,9 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   /** v3.1 cold read: `coin_publish`, the coin ask's publish-first question; `backers_post`, the backers answer's post question. */
   | 'coin_publish' | 'backers_post'
   /** v3.1 cold read round 2: `coin_wallet`, a coin yes waiting for its fee wallet (asked again, never the wallet step). */
-  | 'coin_wallet';
+  | 'coin_wallet'
+  /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */
+  | 'wallet_setup';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -202,6 +204,22 @@ export const WALLET_ASK = 'Done?';
 /** v3.1 cold read: only for a builder with contracts on Base known or reported (wallet-offer.ts walletOfferDue). */
 export const walletOffer = (link: string) =>
   `Prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
+/**
+ * v4.0 approved copy 3 ("Wallet and token"): setup step 3, for every builder once step 2 is done or answered no
+ * (wallet-offer.ts walletSetupDue). `project`: the main project's name ("MealMate is connected."); null on the no-GitHub
+ * path (nothing is connected, so only "One last step."). `tokenLine`: tokens on, an X account, no token row yet (a
+ * declined builder never hears it again). Pure.
+ */
+export const walletSetupAsk = (project: string | null, link: string, tokenLine: boolean) =>
+  `${project ? `${project} is connected. ` : ''}One last step.\n\n**Step 3 of 3:** sign with your wallet. It's where your grants and community support get paid. One signature, no fee: ${link}\n\n` +
+  `${tokenLine ? `${TOKEN_SENTENCE}\n\n` : ''}Done?`;
+/** v4.0 approved copy 3: the token sentence of step 3. */
+export const TOKEN_SENTENCE =
+  "Once you sign, your token goes live so people who believe in your work can back it, and 40% of every trade's fee goes straight to you. Rather skip the token? Just say no.";
+/** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
+export const TOKEN_NO_LINE = 'Got it.';
+/** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
+export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
 /** Only when true: the Base Builder Code stays on the first wallet; a launched coin's fees stay with its launch wallet. */
 export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
 export const WALLET_COIN_FEES = "Your coin's fees keep going to the wallet it launched with.";
@@ -506,6 +524,8 @@ export function stateAsk(
     coinWallet?: boolean;
     /** v4.0: the builder has no GitHub (BenchView.noGithub): step 2 carries the Lovable or Bolt hint. */
     noGithub?: boolean;
+    /** v4.0: setup step 3 is due (wallet-offer.ts walletSetupDue): its link, the project it names, the token sentence. */
+    walletSetup?: { link: string; project: string | null; token: boolean } | null;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -519,6 +539,8 @@ export function stateAsk(
     if (v.baseAsk) return { kind: 'base_start', project_key: null, line: BASE_START_ASK };
     // v3.1 cold read round 2: after the walk-through, its question stands until the Lovable prompt is written; then the
     // next step is building it and connecting GitHub (never "Is your app's code on GitHub yet?" again).
+    // v4.0: setup step 3 right after the walk-through offer (the no's own reply), before its follow-ups.
+    if (v.walletSetup) return { kind: 'wallet_setup', project_key: null, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
     if (v.walk === 'help') return { kind: 'base_help', project_key: null, line: LOVABLE_PROMPT_ASK };
     if (v.walk === 'built' && v.link) return { kind: 'pick_repo', project_key: null, line: nextBuild(v.link) };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
@@ -530,6 +552,9 @@ export function stateAsk(
   if (noCode && v.link && v.liveTool) return { kind: 'pick_repo', project_key: null, line: liveNoGithub(v.liveTool.tool, name, v.link) };
   // GTM W2: a live link with no repo: step 2's repo picker (its no starts the Base walk-through), never "Where does it live?".
   if (noCode && v.link) return { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link, v.noGithub === true) };
+  // v4.0: setup step 3 comes before every ranked ask (it ends setup).
+  if (v.state === 'ranked' && v.walletSetup)
+    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
   // Fix round 1 ruling: the page is the connect reply's one https link.
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(`https://${pageUrl(v.handle)}`) };
   // GTM W2 (owner: no coin launched is the biggest revenue failure): the backing offer comes in the first reply after the
@@ -624,7 +649,7 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
-  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet') return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'new_repo' || v.ask.kind === 'coin_wallet') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
 
@@ -639,6 +664,8 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
     // v3.1 one-tap posts (design 6): last week's post and its one-tap link, else the page (the reply's one https link).
     return paras([momentHead(v.moment), ...(v.moment.summary ? [`"${v.moment.summary}"`] : []), ...(v.moment.post ? postLines(v.moment.post) : [pageLine(`https://${pageUrl(v.handle)}`)]), ask]);
   if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
+  // v4.0 approved copy 3: setup step 3 is its own reply, word for word.
+  if (!v.held && v.ask.kind === 'wallet_setup') return ask;
   const full = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   // v3.1 cold read: the standing only when it changed since the builder last saw it, the points line at most once a week.
   const standing = v.standingShown === false ? null : full;

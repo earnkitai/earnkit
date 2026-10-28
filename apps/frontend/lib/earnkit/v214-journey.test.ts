@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { registerClient } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { xSignInCallback } from './x-install';
@@ -171,6 +172,8 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
   const res = await appSetup(new Request(`https://earnkit.com/github/verify/app?installation_id=${GH_INSTALL}&state=${nonce}`, {
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(first.id);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16: ranked, with a rank on the standing line (no backfilled weeks here, so no connect offer).
   assert.match(s, /^EarnKit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);

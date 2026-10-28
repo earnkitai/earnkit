@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { GITHUB_INSTALLATIONS_URL, PICK_ADMIN_CHECKS, PICK_PAGE, appSetup } from './github-app';
 import { APP_CONFIRM_ONLY_YOURS, PICK_REPOS, createVerifyLink, csrfCookieName, verifyStart } from './github-verify';
 import { connectInstallation, saveInstallation } from './installations';
@@ -46,6 +47,8 @@ async function signedIn(handle: string) {
   const no = async () => { throw new Error('offline'); };
   const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH, readerDeps } as never;
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(c.id);
   return { id: c.id, ctx, username, login: username.toLowerCase() };
 }
 

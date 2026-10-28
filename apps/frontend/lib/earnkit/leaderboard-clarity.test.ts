@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -72,6 +73,8 @@ async function rankedBuilder(x: string, name: string, repo: string, gh: number) 
   const key = `${x}${RUN}/${repo}`.toLowerCase();
   await mcpCall(a.ctx, 'find', { identity: { project: { name, repo: `https://github.com/${key}` } } });
   await installApp({ builderId: a.id, repoKey: key, login: `${x}${RUN}`, gh: fakeGitHub({ [key]: { id: gh, owner: `${x}${RUN}`, installation: gh } }) });
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(a.id);
   return { ...a, key };
 }
 

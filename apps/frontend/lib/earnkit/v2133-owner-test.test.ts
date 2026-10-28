@@ -3,6 +3,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { tools, listProgramsInput } from './tools';
 import { bindX } from './x-install';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -321,6 +322,8 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       assert.deepEqual(gh.minted[0], { repositories: ['earnkit'], permissions: { contents: 'read', metadata: 'read' } });
       const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key}`;
       assert.deepEqual({ ...s }, { state: 'verified', proof: 'github_app' });
+      // v4.0: setup step 3 answered (this test is about another reply).
+      await walletOffered(id);
       const r3 = await find(id, {}, NO_MATCH);
       assert.match(r3.show_to_builder, /^Earnkit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, r3.show_to_builder);
       const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;

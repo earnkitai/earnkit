@@ -140,7 +140,8 @@ async function signedByKey(wallet: string, message: string, signature: string): 
   return recoverMessageAddress({ message, signature: signature as `0x${string}` }).then((a) => a.toLowerCase() === wallet, () => false);
 }
 
-export type ProveResult = { ok: true; recipient: boolean; line: string } | { ok: false; line: string };
+/** `first`: v4.0, this proof made the person's first reward wallet (none before it): their token launches on it. */
+export type ProveResult = { ok: true; recipient: boolean; first: boolean; line: string } | { ok: false; line: string };
 /** `xSecret`: the request's __Host-ekwx- cookie (walletPost), the browser's proof that it passed the page's X sign-in. */
 export async function proveWallet(a: { token: string; wallet: string; signature: string; xSecret?: string | null }, now: Date, verify: Verify = baseVerify): Promise<ProveResult> {
   const id = upgradeOf(a.token, now);
@@ -204,13 +205,13 @@ export async function proveWallet(a: { token: string; wallet: string; signature:
   if (out === 'used') return { ok: false, line: WALLET_TEXT.used };
   if (out === 'taken') return { ok: false, line: WALLET_TEXT.taken };
   const now_ = await provenWallet(id);
-  const done = (r: boolean): ProveResult => ({ ok: true, recipient: r, line: r ? walletDoneLine(wallet) : walletContractsLine(now_ ?? wallet) });
+  const done = (r: boolean, first = false): ProveResult => ({ ok: true, recipient: r, first, line: r ? walletDoneLine(wallet) : walletContractsLine(now_ ?? wallet) });
   if (out === 'again') return done(now_ === wallet);
   await noteEvent('wallet_proven', () => ({ type: 'wallet_proven', dedupe_key: `wallet_proven:${id}:${wallet}`, installation_id: id, wallet, detail: { recipient } }));
   await enqueueDiscovery(id, 'wallet');
   await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
   profileChanged();
-  return done(recipient);
+  return done(recipient, recipient && before === null);
 }
 class TakenError extends Error {}
 
@@ -298,7 +299,24 @@ export async function walletXSignedIn(builderId: number, useHash: string, user: 
   return new Response(null, { status: 303, headers });
 }
 
-type RouteDeps = { limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date; discover?: (builderId: number) => Promise<void> };
+type RouteDeps = {
+  limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date; discover?: (builderId: number) => Promise<void>;
+  /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check (builder-token.ts). */
+  builderToken?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null> };
+};
+/**
+ * v4.0: the builder's token launches on their first reward wallet (setup step 3), unless they said no (a declined row is
+ * returned untouched); never awaited by the proof's answer, and never throws (a failure is logged; "launch my token" or
+ * the owner settles it).
+ */
+async function launchOnProof(builderId: number, deps: RouteDeps['builderToken']): Promise<void> {
+  try {
+    const { launchBuilderToken } = await import('./builder-token');
+    await launchBuilderToken(builderId, deps ?? {});
+  } catch (err) {
+    console.error('[wallet proof] token launch', err instanceof Error ? err.name : 'error');
+  }
+}
 /** The new wallet's discovery budget: it runs beside the reply, so the page shows it moments after signing. */
 export const PROOF_DISCOVER_MS = 20_000;
 /** The new wallet's discovery now (its first Base transaction, its contracts), then the page's caches. Never throws. */
@@ -336,6 +354,7 @@ export async function walletPost(request: Request, deps: RouteDeps = {}): Promis
   // A newly proven wallet shows on the page at once, not on the next background run (never waited on).
   const builderId = upgradeOf(b.t, deps.now ?? new Date());
   if (builderId !== null) void (deps.discover ?? discoverNow)(builderId);
+  if (builderId !== null && r.first) void launchOnProof(builderId, deps.builderToken);
   const done = json({ line: r.line, recipient: r.recipient });
   // The X check is used up: its cookie goes too.
   if (xSecret) done.headers.append('Set-Cookie', `${walletXCookie(tokenUseKey(b.t))}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);

@@ -20,6 +20,8 @@ import {
   grantProgramName, liveNoGithub, momentHead, newBackersLine, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
+import { walletSetupAsk } from './bench-reply';
+import { walletOffered } from './fixtures/wallet-step';
 import { proofAsk } from './post-reply';
 import { factsAck } from './builder-memory';
 import { siteFormLine, youAddLine } from './submit-kit';
@@ -334,23 +336,19 @@ test('the status line only when it changed, the points line once a week; score a
   assert.match(score, /^Kit is on EarnKit\./, score);
 });
 
-test('the wallet step: only with Base contracts known or reported, never right after a coin fee wallet', db, async () => {
+test('the wallet step (v4.0 setup step 3): every builder once the App connects, Base contracts or not; the older Base step never shows', db, async () => {
   const none = await builder('n', { wallet: false });
   const a = show(await find(none));
+  assert.equal(a, walletSetupAsk('Kit', links(a)[0] ?? '', false), a);
   assert.doesNotMatch(a, /Prove your Base wallet/, a);
   const based = await builder('b', { wallet: false });
   await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
     VALUES (${based.id}, '', ${based.key.toLowerCase()}, ${['base']}, ${[]}, null, null, false, now())`;
   const b = show(await find(based));
-  assert.match(b, /^Kit is on EarnKit\.\nProve your Base wallet so your contracts show on your page\. One signature, no fee: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+\nDone\?$/, b);
+  assert.equal(b, walletSetupAsk('Kit', links(b)[0] ?? '', false), b);
   asks(b);
-  const fee = await builder('f', { wallet: false });
-  await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
-    VALUES (${fee.id}, '', ${fee.key.toLowerCase()}, ${['base']}, ${[]}, null, null, false, now())`;
-  await sql()`INSERT INTO projects (program_id, name, repo_url, installation_id, creator_wallet, confirmed_at, confirm_choice)
-    VALUES ('earnkit-coin', 'Kit', ${`https://github.com/${fee.key}`}, ${fee.id}, '0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed', now(), 'go')`;
-  const c = show(await find(fee));
-  assert.doesNotMatch(c, /Prove your Base wallet/, c);
+  // Asked once: the next reply never offers the older step either.
+  assert.doesNotMatch(show(await find(based)), /Prove your Base wallet|Step 3 of 3/);
 });
 
 test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in every later reply', db, async () => {
@@ -439,6 +437,8 @@ test('round 2: after the walk-through, its question stands until the Lovable pro
   await mcpCall(p.ctx, 'find', { agent_can_build: false });
   await mcpCall(p.ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'no' } });
   await mcpCall(p.ctx, 'tell', { move_up: { kind: 'base_start', project_key: null, answer: 'yes' } });
+  // v4.0: setup step 3 once (the GitHub no answered step 2), then the walk-through's question.
+  assert.match(show(await mcpCall(p.ctx, 'find', { agent_can_build: false })), /\*\*Step 3 of 3:\*\*/);
   // Before the prompt is written: the walk-through's question again.
   const before = await mcpCall(p.ctx, 'find', { agent_can_build: false });
   assert.equal(asks(show(before)), LOVABLE_PROMPT_ASK);
@@ -455,6 +455,8 @@ test('round 2: after the walk-through, its question stands until the Lovable pro
 
 test('round 2: a coin yes waiting for its fee wallet asks for it again, never the wallet proof step (even with Base contracts reported)', db, () => on(async () => {
   const b = await builder('cw', { wallet: false });
+  // v4.0: setup step 3 answered (this test is about the coin's fee wallet).
+  await walletOffered(b.id);
   await week(b, true);
   await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
     VALUES (${b.id}, '', ${b.key.toLowerCase()}, ${['base']}, ${[]}, null, null, false, now())`;

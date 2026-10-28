@@ -37,7 +37,8 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, COIN_WALLET_REASK, LOVABLE_PROMPT_ASK, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, welcomeFits,
+  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, COIN_WALLET_REASK, LOVABLE_PROMPT_ASK, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  TOKEN_NO_LINE,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -57,7 +58,9 @@ import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
-import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, walletOfferDue } from './wallet-offer';
+import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken } from './wallet-offer';
+import { declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
+import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
 
@@ -656,6 +659,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
+  // v4.0 setup step 3 (the wallet, and the token unless they say no): before every ranked ask, and on the no-GitHub path
+  // after the walk-through offer. While it is due, no other ranked offer is opened (each one is claimed when made).
+  const setupLink = !held && handle !== null && (ranked || githubNo) ? await walletSetupDue(id, now) : null;
+  const walletSetup = setupLink
+    ? { link: setupLink, project: ranked ? (project?.name ?? 'Your code') : null, token: await walletSetupToken(id) }
+    : null;
+  const rankedFree = ranked && !walletSetup;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
   const target = aim ? weeklyTarget(aim) : null;
@@ -674,23 +684,23 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
-  const connect = ranked && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
+  const connect = rankedFree && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer, once a project, after the first approved week with code (EARNKIT_RAISING on).
   // GTM W2 (owner: no coin launched is the biggest revenue failure): right after connect, before the event post and the apply step.
-  const backing = ranked && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
+  const backing = rankedFree && project && handle && !held && !connect ? await boundedBacking(id, project.key, o.check, o.deadline) : null;
   // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
   // v3.1 cold read round 2: a coin yes waiting for its fee wallet asks for it again, before anything else (and never the
   // wallet-proof step meanwhile).
-  const coinWallet = Boolean(ranked && project && !held && !connect && !backing && (await coinWalletWaiting(id)) !== null);
-  const hot = ranked && project && handle && !held && !connect && !backing && !coinWallet ? await eventPost(id, handle, now, { hot: true }) : null;
+  const coinWallet = Boolean(rankedFree && project && !held && !connect && !backing && (await coinWalletWaiting(id)) !== null);
+  const hot = rankedFree && project && handle && !held && !connect && !backing && !coinWallet ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
-  const apply = !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
+  const apply = !walletSetup && !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = ranked && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
+  const moment = rankedFree && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null;
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
-  const event = hot ?? (ranked && project && handle && !held && !connect && !backing && !coinWallet && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
+  const event = hot ?? (rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = ranked && project !== null && !held && !connect && !backing && !coinWallet && !apply && !moment && !event;
+  const quiet = rankedFree && project !== null && !held && !connect && !backing && !coinWallet && !apply && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
@@ -745,10 +755,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const linkOnly = project !== null && LINK_KEY.test(project.key);
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, backing: backing?.line ?? null, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, checkin, shipAsked, appDone, liveTool, walk, coinWallet };
   let finalAsk = stateAsk({ ...asks, wallet });
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
+  // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
+  if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -759,7 +771,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     kind: finalAsk.kind, key: finalAsk.project_key,
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
     ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
-    ...(finalAsk.kind === 'wallet' && { at: now.toISOString() }),
+    ...((finalAsk.kind === 'wallet' || finalAsk.kind === 'wallet_setup') && { at: now.toISOString() }),
   };
   if (finalAsk.kind !== 'post') await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
@@ -805,7 +817,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'backing' ? BACKING_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'base_start' ? BASE_START_NOTE
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote(walletSetup?.token === true)
+    : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE : finalAsk.kind === 'coin_wallet' ? COIN_WALLET_NOTE : BENCH_MOVE_UP_NOTE;
   const fields: Reply = {
@@ -1343,7 +1356,7 @@ async function connectTitles(id: number, key: string | null, now: Date): Promise
  * offer's answer stays there). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
@@ -1407,6 +1420,14 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
   if (m.kind === 'wallet') return answerWallet(id, m.answer, now);
+  // v4.0 setup step 3: "done" is the wallet's yes; a plain no is a no to the token (the copy's "Just say no"), else
+  // (no token sentence shown) a skip of the wallet.
+  if (m.kind === 'wallet_setup') {
+    if (m.answer === 'yes') return answerWallet(id, 'yes', now);
+    return (await walletSetupToken(id)) ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
+  }
+  // v4.0: the builder said no to their token (kept forever), or asked to launch it.
+  if (m.kind === 'token') return tokenAnswer(ctx, id, m.answer, now);
   // 2026-10-23 Base onboarding: step 2's no is remembered (never repeated) and its yes after a no is the builder asking
   // for the link again; the walk-through is answered by its kind, so the builder can ask for it any time.
   if (m.kind === 'pick_repo') {
@@ -1435,7 +1456,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
-  if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
+  if (asked.kind === 'wallet' || asked.kind === 'wallet_setup') return answerWallet(id, m.answer, now);
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
   // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
   if (asked.kind === 'backing') {
@@ -1559,12 +1580,63 @@ async function afterGithubNo(id: number, now: Date): Promise<Reply> {
   }
   return (await walletStep(id, now)) ?? restStep(id);
 }
-/** The optional wallet step in its own reply (once a person, claimed here). Null when not due. Never throws. */
+/**
+ * The wallet step in its own reply (once a person, claimed here). v4.0: setup step 3 (the GitHub no counts as step 2
+ * answered), else the older optional step. Null when neither is due. Never throws.
+ */
 async function walletStep(id: number, now: Date): Promise<Record<string, unknown> | null> {
+  const setup = await walletSetupDue(id, now);
+  if (setup) {
+    const token = await walletSetupToken(id);
+    if (!(await takeWalletAsk(id, now, true))) return null;
+    await storeAsk(id, { kind: 'wallet_setup', key: null, at: now.toISOString() });
+    return { show_to_builder: walletSetupAsk(null, setup, token), move_up: { kind: 'wallet_setup', project_key: null, agent_note: walletSetupNote(token) } };
+  }
   const link = await walletOfferDue(id, now);
   if (!link || !(await takeWalletAsk(id, now))) return null;
   await storeAsk(id, { kind: 'wallet', key: null, at: now.toISOString() });
   return { show_to_builder: walletOffer(link), move_up: { kind: 'wallet', project_key: null, agent_note: WALLET_NOTE } };
+}
+
+/** v4.0 "launch my token": each launch result in plain words (never "coin"). */
+export const TOKEN_LIVE = 'Done. Your token is live.';
+export const TOKEN_ALREADY_LIVE = 'Your token is already live.';
+export const TOKEN_ON_ITS_WAY = "Your token is on its way. I'll confirm it here soon.";
+export const TOKEN_STAYS_OFF = 'Your token stays off, like you asked.';
+export const TOKEN_TRY_LATER = "That didn't go through this time. Ask me again in a few minutes.";
+export const TOKEN_CANT = "I can't set up a token for this account. Reach out at j@earnkit.com.";
+/** v4.0: a launch result's reply line (null: not ready, the caller decides). Pure. */
+export function tokenLine(r: LaunchResult): string | null {
+  switch (r.result) {
+    case 'launched': return TOKEN_LIVE;
+    case 'exists': return r.status === 'launched' ? TOKEN_ALREADY_LIVE : r.status === 'declined' ? TOKEN_STAYS_OFF : TOKEN_ON_ITS_WAY;
+    case 'unknown': return TOKEN_ON_ITS_WAY;
+    case 'busy': case 'ticker_check_down': case 'released': return TOKEN_TRY_LATER;
+    case 'x_taken': case 'no_ticker': return TOKEN_CANT;
+    case 'off': return NOTED_LINE;
+    case 'not_ready': return null;
+  }
+}
+/**
+ * v4.0: tell move_up kind 'token'. A no is kept forever (declineBuilderToken; a token already on its way or live is
+ * unchanged, and said so). A yes launches it now (launchBuilderToken, idempotent); without a reward wallet yet, the
+ * wallet link (walletChangeReply). Never throws.
+ */
+async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  try {
+    if (answer === 'no') {
+      const r = await declineBuilderToken(id);
+      return { show_to_builder: r === 'launched' ? TOKEN_ALREADY_LIVE : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
+    }
+    const r = await launchBuilderToken(id, ctx.builderTokenDeps ?? {});
+    const line = tokenLine(r);
+    if (line) return { show_to_builder: line };
+    if (!(await provenWallet(id))) return walletChangeReply(id, now);
+    return { show_to_builder: TOKEN_TRY_LATER };
+  } catch (err) {
+    logged('token answer')(err);
+    return { show_to_builder: TOKEN_TRY_LATER };
+  }
 }
 
 /** GTM W2: a one project with a repo key (a link-only project, a Lovable or Bolt app, has none). Pure. */

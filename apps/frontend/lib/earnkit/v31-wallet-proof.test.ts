@@ -20,7 +20,8 @@ import {
   MOMENT_ASK, SHIP_ASK, TITLES_ASK, WALLET_ASK, WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, stateAsk, walletChange, walletChangeX,
   walletContractsOnly, walletDone, walletNotYet, walletNotice, walletOffer, type BenchProject,
 } from './bench-reply';
-import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletOfferDue } from './wallet-offer';
+import { WALLET_SETUP_SKIPPED, walletSetupAsk } from './bench-reply';
+import { WALLET_NOTE, WALLET_SIGN_IN_FIRST, walletOfferDue, walletSetupDue, walletSetupNote } from './wallet-offer';
 import { WALLET_TEXT, provenWallet, upgradeOf, walletContractsLine, walletDoneLine, walletMessage, walletPost } from './wallet-proof';
 import { titlesAskDue } from './updates';
 import { walletXSignIn } from './fixtures/wallet-step';
@@ -121,7 +122,10 @@ test('the wallet step never shares a reply with another question: after connect,
   assert.equal(stateAsk({ ...v, state: 'no_project', link: 'https://x' }).kind, 'pick_repo', 'never before setup is done');
 });
 
-/** A signed-in builder whose one project is ranked through the App (pool of 13), the connect offer shown. */
+/**
+ * A signed-in builder whose one project is ranked through the App (pool of 13). v4.0: the next reply is setup step 3
+ * (before the connect offer), so the test's own find shows it.
+ */
 async function rankedBuilder(tag: string, o: { baseContract?: boolean } = {}) {
   const t = `ek_v31wp${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -144,13 +148,6 @@ async function rankedBuilder(tag: string, o: { baseContract?: boolean } = {}) {
   // v3.1 cold read: the wallet step is only for a builder with contracts on Base known or reported.
   if (o.baseContract !== false)
     await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proposed_by) VALUES (${c.id}, 'contract', ${`base:0x${randomBytes(20).toString('hex')}`}, ${key}, 'agent')`;
-  const r3 = await mcpCall(ctx, 'find', {});
-  // The reply after the App connects asks its own question (the connect weeks): never the wallet beside it.
-  assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect', show(r3));
-  assert.doesNotMatch(show(r3), /wallet/i);
-  // The connect yes: its own reply (the page link) never carries the wallet either.
-  const yes = show(await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } }));
-  assert.doesNotMatch(yes, /wallet/i);
   return { c, ctx, key, handle };
 }
 const start = async () => {
@@ -163,17 +160,14 @@ const seen = async (id: number) => (await sql()<{ s: Record<string, unknown> }[]
 test('offered once, claimed only when shown; "done" before signing sends a fresh link; the first proof is the recipient; a change needs X, else contracts only; the change is said once', db, async () => {
   await start();
   const { c, ctx, key, handle } = await rankedBuilder('o');
-  // Due but not claimed until a reply carries it.
-  assert.ok(await walletOfferDue(c.id, new Date()));
+  // Due but not claimed until a reply carries it (v4.0: setup step 3, the first reply after the App connects).
+  assert.ok(await walletSetupDue(c.id, new Date()));
   assert.equal((await seen(c.id)).wallet_asked, undefined);
   const r = await mcpCall(ctx, 'find', {});
   const s = rule(show(r));
-  const lines = s.split('\n');
-  // v3.1 cold read: the standing was just said (the connect reply), so the step stands alone.
-  assert.match(lines[0], /^Prove your Base wallet so your contracts show on your page\. One signature, no fee: https:\/\/earnkit\.com\/claim\/wallet\?t=\S+$/);
-  assert.equal(lines[1], 'Done?');
-  assert.equal(lines.length, 2, 'no money line, no points line');
-  assert.deepEqual(r.reply?.move_up, { kind: 'wallet', project_key: key, agent_note: WALLET_NOTE });
+  // v4.0 approved copy 3, alone: no standing, money or points line (tokens off here: no token sentence).
+  assert.equal(s, walletSetupAsk('Kit', links(s)[0] ?? '', false));
+  assert.deepEqual(r.reply?.move_up, { kind: 'wallet_setup', project_key: key, agent_note: walletSetupNote(false) });
   assert.equal(upgradeOf(tokenOf(s), new Date()), c.id, 'a fresh link for this builder');
   assert.equal(typeof (await seen(c.id)).wallet_asked, 'string', 'claimed with the reply that carries it');
 
@@ -248,9 +242,9 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
 
 test('v3.1 cold read: no wallet step without contracts on Base known or reported, nor within 7 days of a coin\'s fee wallet', db, async () => {
   await start();
+  // v4.0: the older step (walletOfferDue) keeps its rules, for a builder whose setup step 3 was not taken.
   const none = await rankedBuilder('n', { baseContract: false });
   assert.equal(await walletOfferDue(none.c.id, new Date()), null, 'no Base contract known or reported');
-  assert.notEqual((await mcpCall(none.ctx, 'find', {})).reply?.move_up && ((await mcpCall(none.ctx, 'find', {})).reply?.move_up as { kind: string }).kind, 'wallet');
   // Reported by the builder (tell repo_facts: mainnet on Base): offered.
   await mcpCall(none.ctx, 'tell', { repo_facts: [{ repo: none.key, mainnet_chains: ['base'] }] });
   assert.ok(await walletOfferDue(none.c.id, new Date()), 'reported on Base: offered');
@@ -268,9 +262,11 @@ test('"skip" is remembered and never asked again; a builder who already proved a
   const { c, ctx, key } = await rankedBuilder('s');
   const r = await mcpCall(ctx, 'find', {});
   rule(show(r));
-  assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet');
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup');
   const no = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'no' } });
-  assert.equal(show(no), WALLET_SKIPPED);
+  // v4.0: step 3's skip (approved copy 4's first sentence; Task 5 adds what's open).
+  assert.equal(show(no), WALLET_SETUP_SKIPPED);
+  assert.equal(await walletSetupDue(c.id, new Date()), null, 'step 3 never asked again');
   const s = await seen(c.id);
   assert.equal(typeof s.wallet_asked, 'string');
   assert.equal(s.wallet_link_at, undefined, 'the wallet state ended');

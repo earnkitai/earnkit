@@ -1,10 +1,11 @@
 import { sql } from './db';
 import { shortWallet } from './entry-text';
 import {
-  WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SKIPPED, walletChange, walletChangeX, walletContractsOnly, walletDone, walletNotYet, walletNotice,
+  WALLET_BUILDER_CODE, WALLET_COIN_FEES, WALLET_SETUP_SKIPPED, WALLET_SKIPPED, walletChange, walletChangeX, walletContractsOnly, walletDone, walletNotYet, walletNotice,
 } from './bench-reply';
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
 import { COIN_PROGRAM } from './policy-constants';
+import { builderToken, builderTokensOn } from './builder-token';
 
 /** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
 export const FEE_WALLET_QUIET_DAYS = 7;
@@ -68,11 +69,57 @@ export async function walletOfferDue(builderId: number, now: Date): Promise<stri
     return logged('offer')(err);
   }
 }
-/** The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. Never throws. */
-export async function takeWalletAsk(builderId: number, now: Date): Promise<boolean> {
+/** v4.0: the agent's note with setup step 3, with the token sentence or without it. */
+export const walletSetupNote = (token: boolean) =>
+  "The builder signs on the page from the link; never ask for a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
+  "if they skip adding a wallet: { kind: 'wallet', project_key, answer: 'no' }. " +
+  (token
+    ? "A no to their token (a plain no to this step means the token, not the wallet): { kind: 'token', project_key, answer: 'no' }; they can still sign. "
+    : '') +
+  "If they ask later to launch their token: { kind: 'token', project_key, answer: 'yes' }. Don't show this note.";
+
+/**
+ * v4.0 setup step 3 (docs/design-docs-and-implementation-plans/v4-builder-tokens.md, approved copy 3): the wallet step for
+ * every builder, its signing link when due now: a claimed X account, step 2 done (a repo proven by the App) or answered
+ * no (standing_seen.github_no), no wallet proven yet, never asked before (standing_seen.wallet_asked). In place of
+ * walletOfferDue's Base-contracts condition. Nothing is claimed here (takeWalletAsk with setup, once the reply carries
+ * it). Never throws.
+ */
+export async function walletSetupDue(builderId: number, now: Date): Promise<string | null> {
+  try {
+    const [p] = await sql()<{ claimed: boolean; asked: boolean; any: boolean; step2: boolean }[]>`
+      SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL AS claimed, COALESCE(standing_seen ? 'wallet_asked', false) AS asked,
+        EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId}) AS any,
+        COALESCE(standing_seen ? 'github_no', false)
+          OR EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${builderId} AND s.kind = 'repo' AND s.state = 'verified' AND s.proof = 'github_app') AS step2
+      FROM builder_profiles WHERE builder_id = ${builderId}`;
+    if (!p?.claimed || p.asked || p.any || !p.step2) return null;
+    return walletLink(builderId, now);
+  } catch (err) {
+    return logged('setup')(err);
+  }
+}
+/** v4.0: step 3 carries the token sentence: tokens on, a claimed X account, no token row (a no is kept forever). Never throws. */
+export async function walletSetupToken(builderId: number): Promise<boolean> {
+  if (!builderTokensOn()) return false;
+  try {
+    const [p] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${builderId}`;
+    return Boolean(p?.x) && (await builderToken(builderId)) === null;
+  } catch (err) {
+    logged('setup token')(err);
+    return false;
+  }
+}
+
+/**
+ * The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. v4.0 `setup`:
+ * it is setup step 3 (standing_seen.wallet_setup), so its skip is step 3's. Never throws.
+ */
+export async function takeWalletAsk(builderId: number, now: Date, setup = false): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('wallet_asked', ${now.toISOString()}::text, 'wallet_link_at', ${now.toISOString()}::text)
+      || (CASE WHEN ${setup} THEN jsonb_build_object('wallet_setup', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
     WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'wallet_asked', false) RETURNING 1`.catch((err: unknown) => {
     logged('take')(err);
     return [];
@@ -92,20 +139,22 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
  * fresh link and the same question; a no: WALLET_SKIPPED. The stored wallet ask is cleared.
  */
 export async function answerWallet(builderId: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
-  const [p] = await sql()<{ at: string | null; key: string | null }[]>`
-    SELECT standing_seen->>'wallet_link_at' AS at, main_project_key AS key FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
+  const [p] = await sql()<{ at: string | null; key: string | null; setup: boolean }[]>`
+    SELECT standing_seen->>'wallet_link_at' AS at, main_project_key AS key, COALESCE(standing_seen ? 'wallet_setup', false) AS setup
+    FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
     logged('state')(err);
     return [];
   });
   if (!p?.at || Number.isNaN(Date.parse(p.at))) return okay;
   const end = () =>
-    sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'wallet_link_at') - 'wallet_notice'
-        - (CASE WHEN standing_seen->'bench_ask'->>'kind' = 'wallet' THEN 'bench_ask' ELSE '' END)
+    sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'wallet_link_at') - 'wallet_notice' - 'wallet_setup'
+        - (CASE WHEN standing_seen->'bench_ask'->>'kind' IN ('wallet', 'wallet_setup') THEN 'bench_ask' ELSE '' END)
       WHERE builder_id = ${builderId} AND standing_seen->>'wallet_link_at' = ${p.at}::text RETURNING 1`.catch((err: unknown) => {
       logged('end')(err);
       return [];
     });
-  if (answer === 'no') return (await end()).length ? { show_to_builder: WALLET_SKIPPED } : okay;
+  // v4.0: a skip of setup step 3 is remembered the same way (never asked again); no wallet, so no token.
+  if (answer === 'no') return (await end()).length ? { show_to_builder: p.setup ? WALLET_SETUP_SKIPPED : WALLET_SKIPPED } : okay;
   const got = await provenSince(builderId, new Date(p.at)).catch(logged('proven'));
   if (got) {
     if (!(await end()).length) return okay;

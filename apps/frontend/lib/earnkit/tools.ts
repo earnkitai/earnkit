@@ -208,6 +208,8 @@ export type ToolContext = {
   readerDeps?: ReaderDeps;
   /** v3.1 Task 7: test injection only: the fetch the background Builder Codes check reads GitHub with. */
   codesFetch?: typeof fetch;
+  /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check ("launch my token"). */
+  builderTokenDeps?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null> };
 };
 
 /**
