@@ -266,3 +266,51 @@ test('fix round 1 (4): the closing nudge drops its own program\'s deadline line'
   assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday.'), s);
   assert.doesNotMatch(s, /closes in 2 days|isn't submitted/, s);
 });
+
+// ---- Fix round 2 ----
+
+test('fix round 2: not counted yet, an unsubmitted entry closing soon keeps its submit question (the nudge never shows)', db, async () => {
+  await sql()`UPDATE builder_profiles SET hidden = true`;
+  const key = `v4np${RUN}/app`;
+  const id = await person({ main: key, claimed: `v4np${RUN}`.slice(0, 15), seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'MealMate', confirmed: false }] });
+  await sql()`UPDATE builder_live SET computed_at = ${at(FRIDAY)}, read_at = ${at(FRIDAY)} WHERE builder_id = ${id}`;
+  await draftEntry(id, await program('Arc Builders', FRIDAY + 2 * DAY));
+  const s = String((await mcpCall(findCtx(id), 'find', {})).reply?.show_to_builder ?? '');
+  assert.match(s, /Did you submit it\?/, s);
+  assert.doesNotMatch(s, /Heads up/, s);
+  assert.equal(await nudgeWeek(id), null, 'the week stays unclaimed');
+});
+
+test('fix round 2: the Monday block due keeps the submit question (today\'s order); the nudge waits', db, async () => {
+  const MON = Date.parse('2026-11-02T16:15:00Z');
+  const LAST = '2026-10-26';
+  mock.timers.setTime(MON);
+  try {
+    const me = await fresh('v4nb', { streak: 3 });
+    await sql()`UPDATE builder_live SET computed_at = ${at(MON)}, read_at = ${at(MON)} WHERE builder_id = ${me.id}`;
+    for (const [day, score] of [['2026-10-25', 40], ['2026-11-01', 44]] as const)
+      await sql()`INSERT INTO builder_scores (builder_id, day, score, percentile, parts, top_outcome, formula, calibration, held, ranked)
+        VALUES (${me.id}, ${day}, ${score}, 0, '{}'::jsonb, '{}'::jsonb, 'v2', ${(await import('./score-calibration')).LIVE_CALIBRATION_V2}, false, true)`;
+    await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles, summary)
+      VALUES (${me.id}, ${me.key}, ${LAST}, ${sql().json({ checked: true, shipped_code: { n: 4 } } as never)}, ${['Add the planner']}::text[], 'Shipped the planner.')`;
+    await draftEntry(me.id, await program('Arc Builders', MON + 2 * DAY));
+    const s = String((await mcpCall(findCtx(me.id), 'find', {})).reply?.show_to_builder ?? '');
+    assert.match(s, /Did you submit it\?/, s);
+    assert.doesNotMatch(s, /Heads up/, s);
+    assert.equal(await nudgeWeek(me.id), null, 'the nudge waits, unclaimed');
+  } finally {
+    mock.timers.setTime(FRIDAY);
+  }
+});
+
+test('fix round 2: the closing nudge that owns the reply: one question, no submit question, no points line marked shown', db, async () => {
+  const me = await fresh('v4na2');
+  await draftEntry(me.id, await program('Arc Builders', FRIDAY + 2 * DAY));
+  const s = String((await mcpCall(findCtx(me.id), 'find', {})).reply?.show_to_builder ?? '');
+  assert.ok(s.startsWith('Heads up, Arc Builders closes Sunday.'), s);
+  assert.equal(questions(s), 1, s);
+  assert.doesNotMatch(s, /Did you submit|points/, s);
+  const [{ seen }] = await sql()<{ seen: Record<string, unknown> }[]>`SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${me.id}`;
+  assert.equal(seen.nag_week, undefined, 'the points line was not shown, so never marked shown');
+  assert.equal(seen.backers_seen, undefined);
+});

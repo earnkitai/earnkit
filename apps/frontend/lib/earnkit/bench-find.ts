@@ -539,8 +539,10 @@ const isoOf = (d: Date | string | null | undefined) => (d ? new Date(d).toISOStr
 type ViewIn = {
   id: number; now: Date; read: BenchRead;
   /**
-   * v4.0 Task 8 fix round 1: the closing nudge for the submit step's own program, picked by benchFind: it says the same
-   * thing in the approved words, so it stands in for that held question (the reply's one question).
+   * v4.0 Task 8 fix round 1: the closing nudge for the submit step's own program (`held` is that question), picked by
+   * benchFind: it says the same thing in the approved words, so it stands in for that held question (the reply's one
+   * question). Fix round 2: only when benchView shows it (ranked, setup step 3 not due, no Monday block, the week
+   * claimed); otherwise the submit question stays, in today's order.
    */
   nudge?: NudgePick | null;
   /** D14: the caller's own installation, the one an X sign-in link is minted for (never the group root). */
@@ -652,7 +654,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const streak = row?.streak ?? 0;
   const state = replyState({ signedIn: !o.signedOut, project, counted: Boolean(project?.confirmed) });
   // Fix round 1 (ruling 4): signed out, the sign-in question always wins over a held one.
-  const held = state === 'signed_out' ? null : o.held;
+  let held = state === 'signed_out' ? null : o.held;
   let variant: Variant = state !== 'not_counted' ? null : taken ? 'taken' : proof && !proof.ok && proof.why === 'copy' ? 'copy' : !isRepo ? 'no_repo' : null;
   const install = state === 'not_counted' && !variant ? await installLink(id, project!.key, now).catch(logged('install link')) : null;
   if (state === 'not_counted' && !variant && !install) variant = 'app_off';
@@ -725,10 +727,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // wallet, an event post or the Monday block (those lead, and the nudge waits unclaimed).
   // Fix round 1 (ruling 2): a nudge that asks (closing, accepted or funded) owns the reply's one question: no other
   // ask is made, claimed or stored; the Monday block, when it shows, still leads and the nudge waits.
-  const nudgeOk = Boolean(rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !hot);
-  const peek = !nudgeOk ? null : o.nudge ? o.nudge : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
-  const askMoment = peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
-  const owns = Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
+  // Fix round 2: the closing nudge standing in for the submit question keeps that question's place (it held off connect,
+  // backing, the coin's wallet and event posts above); it shows only in a ranked reply with setup step 3 not due and no
+  // Monday block to show, once its week is claimed. Then the submit question goes; else it stays held.
+  const standIn = Boolean(o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
+    && !(await momentWouldShow(o.own, id, project.key, now)) && (await claimNudge(id, now, o.nudge.keep)));
+  if (standIn) held = null;
+  const nudgeOk = standIn || Boolean(rankedFree && project && handle && !held && !connect && !backing && !coinWallet && !hot);
+  const peek = !nudgeOk ? null : standIn ? o.nudge! : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
+  const askMoment = !standIn && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
+  const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   const apply = !owns && !askMoment && !walletSetup && !connect && !hot && !backing && !coinWallet && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
   const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && project && handle && !held && !connect && !hot && !backing && !coinWallet && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
@@ -855,11 +863,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     view.standingShown = o.alwaysStanding === true || read.seen.status_seen !== standKey;
     const week = isoWeekOf(now);
     view.nagShown = read.seen.nag_week !== week;
-    const nags = !held && view.nagShown && ['apply', 'ship', 'qualify', 'none'].includes(finalAsk.kind);
+    // Fix round 2: an owning nudge's reply shows no points line, so the week's line is not marked shown.
+    const nags = !held && !owns && view.nagShown && ['apply', 'ship', 'qualify', 'none'].includes(finalAsk.kind);
     const keep: Record<string, unknown> = {
       ...(carries && { status_seen: standKey }),
       ...(nags && { nag_week: week }),
-      ...(backersShown !== null && { backers_seen: backersShown }),
+      // Fix round 2: nor the backers fund line (not shown beside an owning nudge).
+      ...(backersShown !== null && !owns && { backers_seen: backersShown }),
     };
     if (Object.keys(keep).length > 0)
       await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json(keep as never)}::jsonb
@@ -1053,6 +1063,16 @@ async function connectMoment(id: number, key: string, now: Date, best: Fit | nul
 export { momentSummary };
 
 /**
+ * v4.0 Task 8 fix round 2: whether weeklyMoment would show the Monday block now, without claiming it (its own checks:
+ * due this week, last week ready and not approved yet). Never throws (false on an error).
+ */
+async function momentWouldShow(own: number, id: number, key: string, now: Date): Promise<boolean> {
+  if (!(await momentDue(own, now))) return false;
+  const last = await lastWeekOf(id, key, now).catch(logged('last week'));
+  return Boolean(last && momentReady(last.checked, now) && !last.approved);
+}
+
+/**
  * Launch ready L6, Task 16 step 7: the weekly moment (the week's number, weekNumber; where last week
  * left the builder), when this installation hasn't seen this week's
  * moment, the builder had a ranked day last week, and last week's ship log is ready (momentReady: the weekly job wrote
@@ -1215,8 +1235,9 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   // A17: a results question, else a submission step, is the one question (never a money line).
   // v4.0 Task 8 fix round 1: this week's nudge closing the submit step's own program stands in for its question.
   const closing = !signedOut && !a.ask && submit ? await pickNudge(id, now) : null;
+  // Fix round 2: only a candidate; the submit question stays held unless benchView shows the nudge in its place.
   const nudge = closing?.ask?.kind === 'apply' && closing.ask.program_id === submit?.card.id ? closing : null;
-  const held = signedOut ? null : a.ask ? outcomeLine(a.ask) : submit && !nudge ? submitStepLine(submit) : null;
+  const held = signedOut ? null : a.ask ? outcomeLine(a.ask) : submit ? submitStepLine(submit) : null;
   const due = a.first.deadline ? [a.first.deadline] : [];
   const skip = new Set([...entered, ...a.hide]);
   const name = a.project && projectKeyOf(a.project).toLowerCase() === main ? a.project.name : null;
