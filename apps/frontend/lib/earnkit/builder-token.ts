@@ -21,6 +21,9 @@ export type BuilderToken = {
   wallet: string | null;
 };
 
+/** v4.0 Task 9: where to trade a builder's token (Uniswap on Base). Pure. */
+export const tradeUrl = (coin: string) => `https://app.uniswap.org/swap?chain=base&outputCurrency=${coin.toLowerCase()}`;
+
 export const builderTokensOn = () => process.env.EARNKIT_BUILDER_TOKENS === 'on';
 
 /** The builder's token row, or null (never offered or released). */

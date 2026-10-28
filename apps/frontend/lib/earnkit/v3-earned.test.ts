@@ -334,10 +334,11 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
   assert.ok(d.rankListed, 'ranked');
   assert.deepEqual(d.earned, { paid_usd: 200, waiting_usd: 500 });
   assert.deepEqual(d.backing, { symbol: 'KITD', url: `https://tokens.fun/coin/${coin}`, backers: 2, earned_usd: 200 });
-  // v3.1 (plan S15): Earned left the page (the JSON and the reply keep it); the coin's fees show on the Token card.
+  // v3.1 (plan S15): Earned left the page (the JSON and the reply keep it). v4.0 Task 9: the Token card is the builder
+  // token's only, so a project coin draws none.
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
   assert.doesNotMatch(html, /data-ek-earned|>Earned<|waiting/, html);
-  assert.match(unsign(html), /data-ek-token[\s\S]*?>2<[\s\S]*?>\$200</, 'the Token card: 2 backers, $200 earned by the builder');
+  assert.doesNotMatch(html, /data-ek-token/, 'a project coin: no Token card');
 
   // v3.1 one-tap posts (owner ruling 1): the first reply after backing opens offers the coin's one intro post.
   const intro = show(await find(b));

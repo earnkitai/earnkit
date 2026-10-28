@@ -132,11 +132,12 @@ export const STREAK_TITLE = 'Streak';
 export const PROFILE_ACTIVITY = 'Activity';
 export const shippedAgo = (w: string): string => `Shipped ${w}`;
 export const HIGHLIGHTS_TITLE = 'Highlights';
-export const backOn = (first: string): string => `Back ${first} on Base`;
-export const backLabel = (first: string): string => `Back ${first}`;
+/** v4.0 Task 9 (owner-approved Token card): the builder's own token, traded on Uniswap. */
+export const backOn = (first: string): string => `${first}'s token on Base`;
+export const backLabel = (_first: string): string => 'Trade';
 export const keepsLine = (first: string): string => `${first} keeps 40% of fees`;
 export const feesBy = (first: string): string => `earned by ${first}`;
-export const BACKERS = 'backers';
+export const BACKERS = 'holders';
 export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by how often they ship`;
 /** Clarity batch: after the leaderboard's count line, so a grant lead sees the score is read, not claimed. */
 export const BENCH_VERIFIED = 'From GitHub commits, read daily. Not self-reported.';

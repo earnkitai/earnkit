@@ -31,3 +31,22 @@ export async function weekCommunityUsd(
   }
   return { usd: wethToUsd(week, usd), lastWeekUsd: wethToUsd(before, usd) };
 }
+
+/**
+ * v4.0 Task 9: every creator fee ever claimed to the builder's token wallet (the same rows as weekCommunityUsd, all
+ * time), priced with the cached WETH price: the Token card's "earned by <first>". No token, no wallet or no price: 0
+ * (no price is logged; never a wrong number). Throws on a database error.
+ */
+export async function allTimeCommunityUsd(builderId: number, price: () => Promise<number | null> = () => cachedWethUsd()): Promise<number> {
+  const [r] = await sql()<{ weth: string | null }[]>`
+    SELECT (SELECT sum(c.weth)::text FROM fee_claims c WHERE c.role = 'creator' AND lower(c.owner) = lower(t.wallet)) AS weth
+    FROM builder_tokens t WHERE t.builder_id = ${builderId} AND t.wallet IS NOT NULL`;
+  const weth = BigInt(r?.weth?.split('.')[0] ?? '0');
+  if (weth === 0n) return 0;
+  const usd = await price();
+  if (usd === null || !Number.isFinite(usd) || usd <= 0) {
+    console.error('[community] no WETH price');
+    return 0;
+  }
+  return wethToUsd(weth, usd);
+}

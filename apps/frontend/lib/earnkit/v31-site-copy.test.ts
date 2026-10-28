@@ -121,11 +121,12 @@ test('(i) copy constants are exact', () => {
   assert.equal(copy.PROFILE_ACTIVITY, 'Activity');
   assert.equal(copy.shippedAgo('2h ago'), 'Shipped 2h ago');
   assert.equal(copy.HIGHLIGHTS_TITLE, 'Highlights');
-  assert.equal(copy.backOn('Maya'), 'Back Maya on Base');
-  assert.equal(copy.backLabel('Maya'), 'Back Maya');
+  // v4.0 Task 9: the owner-approved Token card wording.
+  assert.equal(copy.backOn('Maya'), "Maya's token on Base");
+  assert.equal(copy.backLabel('Maya'), 'Trade');
   assert.equal(copy.keepsLine('Maya'), 'Maya keeps 40% of fees');
   assert.equal(copy.feesBy('Maya'), 'earned by Maya');
-  assert.equal(copy.BACKERS, 'backers');
+  assert.equal(copy.BACKERS, 'holders');
   assert.equal(copy.leaderboardLine(1), '1 builder, ranked by how often they ship');
   assert.equal(copy.leaderboardLine(1234), '1,234 builders, ranked by how often they ship');
   assert.deepEqual(copy.FILTERS, { all: 'All', base: 'Base', backed: 'Backed' });

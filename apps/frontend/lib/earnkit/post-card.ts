@@ -4,7 +4,7 @@ import { benchCardFacts, streakWords } from './bench-data';
 import { sql } from './db';
 import { CODE_PATTERN, draftByCode, type DraftRow, type PostMoment } from './post-drafts';
 import { isMilestone } from './post-writer';
-import { pillCoin } from './raising';
+import { builderToken } from './builder-token';
 import { rankSplit } from './rank';
 import { streaksFor } from './streak';
 import { isoWeekOf, mondayOf } from './weeks';
@@ -14,8 +14,9 @@ import { isoWeekOf, mondayOf } from './weeks';
  * ?m=<code> and its og:image is card.png?m=<code>; each post keeps its own card.
  *
  * The moment's facts are frozen when the post is drafted (freezeCard: the week, its summary, the streak, the commits
- * that week, the Shipping number and the rank phrase only from RANK_MIN_POOL, the 12 weeks of code); the Backing pill and
- * the backer count are read live (EARNKIT_RAISING on, pillCoin) and the count only from BACKERS_SHOWN_FROM backers. Never a
+ * that week, the Shipping number and the rank phrase only from RANK_MIN_POOL, the 12 weeks of code); the token pill and
+ * its holders are read live (v4.0 Task 9: the builder's launched token, builder_tokens) and the count only from
+ * BACKERS_SHOWN_FROM holders. Never a
  * price: X keeps the image for days and a stale price is a false number. Never a self-report: an accepted, funded or won
  * card needs the proof link the moment was verified with, else the page's own card is drawn.
  *
@@ -74,11 +75,11 @@ export type PostCardView = {
   stats: CardStat[];
   /** The 12 weeks of code (number and milestone layouts), else null. */
   grid: boolean[] | null;
-  /** The live Backing pill's ticker (EARNKIT_RAISING on), else null. */
+  /** v4.0 Task 9: the live pill's words, "$SYMBOL · N holders" (holders from BACKERS_SHOWN_FROM) or "$SYMBOL", else null. */
   backing: string | null;
 };
-/** What the card reads live: the person and their open backing (pillCoin) with its backers. */
-export type LiveFacts = { backing: { symbol: string; backers: number } | null };
+/** What the card reads live: the builder's launched token (builder_tokens) with its holders. */
+export type LiveFacts = { backing: { symbol: string; holders: number } | null };
 
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -110,9 +111,9 @@ export function postCardView(d: Pick<DraftRow, 'moment' | 'card' | 'proof_url'>,
     const r = rankSplit(rank);
     stats.push({ value: r.lead, label: r.rest ?? '' });
   }
-  const backers = live.backing && live.backing.backers >= BACKERS_SHOWN_FROM ? live.backing.backers : null;
-  add(backers, 'backers');
-  const backing = live.backing?.symbol ?? null;
+  // The pill carries the holders, so no stat repeats them.
+  const holders = live.backing && live.backing.holders >= BACKERS_SHOWN_FROM ? live.backing.holders : null;
+  const backing = live.backing ? (holders !== null ? `$${live.backing.symbol} · ${n(holders)} holders` : `$${live.backing.symbol}`) : null;
   const grid = bools(c.grid);
   const summary = str(c.summary);
   // "Week 6" already says the weeks in a row.
@@ -162,8 +163,10 @@ export async function postCardFacts(builderId: number, code: string): Promise<Po
   const [p] = await sql()<{ x_handle: string | null; x_name: string | null; x_avatar_url: string | null; github_login: string | null }[]>`
     SELECT x_handle, x_name, x_avatar_url, github_login FROM builder_profiles WHERE builder_id = ${builderId}`;
   if (!p?.x_handle) return null;
-  const coin = await pillCoin(builderId);
-  const live: LiveFacts = { backing: coin ? { symbol: coin.symbol, backers: await backersOfCoin(coin.coin) } : null };
+  const t = await builderToken(builderId);
+  const live: LiveFacts = {
+    backing: t?.status === 'launched' && t.coin_address && t.symbol ? { symbol: t.symbol, holders: await backersOfCoin(t.coin_address) } : null,
+  };
   const view = postCardView(d, live);
   return view ? { view, handle: p.x_handle, name: displayName(p.x_name, p.x_handle), avatar: avatarUrl(p.x_avatar_url, p.github_login) } : null;
 }

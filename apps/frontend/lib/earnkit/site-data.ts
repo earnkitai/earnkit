@@ -1,13 +1,14 @@
 import { sql } from './db';
 import type { ProfileData } from './bench-data';
-import { raisingEnabled } from './builder-score-flag';
+import { builderToken, tradeUrl } from './builder-token';
+import { allTimeCommunityUsd } from './community';
+import { backersOfCoin } from './backers';
 import { EARNKIT_ORGS } from './earnkit-orgs';
 import { REPO_KEY, benchConfirmedSql } from './main-project';
 import { PRIVATE_NAME, norm, programLabel, projectProgramsDated, shownProjects } from './page-data';
 import { listedRanked, standingOf, weekCounts } from './person-score';
 import { BACKING_EXCLUDED_REPOS, COIN_PROGRAM } from './policy-constants';
 import { benchPercent, shownRankLine, type Standing } from './rank';
-import { pillCoin } from './raising';
 import { firstName, logoColor, monthDay, monthYear, standingTier } from './site-copy';
 import { WALLET_CHAINS, explorerHref, walletChain } from './wallet-chains';
 import { shipReading } from './week-facts';
@@ -409,7 +410,11 @@ export async function backerWeeks(coin: string, now: Date): Promise<number[]> {
   return out;
 }
 
-export type TokenCard = { symbol: string; url: string; backers: number; fees_usd: number; weeks: number[]; letter: string; color: string };
+/**
+ * The builder's token on the Token card: `backers` is its holders, `url` where to trade it, `photo` the builder's X
+ * photo (https only; else null and the circle shows `letter`, the builder's initial, on `color`).
+ */
+export type TokenCard = { symbol: string; url: string; backers: number; fees_usd: number; weeks: number[]; letter: string; color: string; photo: string | null };
 export type ProjectPanel = {
   name: string; about: string | null; link: { href: string; text: string } | null; repo: string | null; onBase: boolean; earnkit: boolean; letter: string; color: string;
 };
@@ -450,13 +455,27 @@ function projectPanel(d: ProfileData, key: string | null): ProjectPanel | null {
   };
 }
 
-/** The Token card: only while EARNKIT_RAISING is on, backing open (d.backing, pillCoin's coin) and never for EarnKit's own repo. */
-async function tokenCard(builderId: number, d: ProfileData, key: string | null, now: Date): Promise<TokenCard | null> {
-  if (!raisingEnabled() || !d.backing || !tokenAllowed(key)) return null;
-  const coin = (await pillCoin(builderId))?.coin;
-  if (!coin) return null;
-  const { symbol, url, backers, earned_usd } = d.backing;
-  return { symbol, url, backers, fees_usd: earned_usd, weeks: await backerWeeks(coin, now), letter: letterOf(symbol), color: logoColor(symbol) };
+/** An https photo URL, else null (an http or malformed one never shows). Pure. */
+const httpsPhoto = (u: string | null) => (u && /^https:\/\/[^\s"'<>]+$/i.test(u) ? u : null);
+
+/**
+ * v4.0 Task 9: the Token card is the builder's own token (builder_tokens status 'launched' with its coin), never a
+ * project's coin and whatever EARNKIT_RAISING says: $SYMBOL, its holders (coin_backers), every creator fee claimed to
+ * its wallet (community.ts allTimeCommunityUsd), 12 weeks of new holders, Trade on Uniswap, the X photo. Declined,
+ * launching, unknown or no row: null.
+ */
+async function tokenCard(builderId: number, d: ProfileData, now: Date): Promise<TokenCard | null> {
+  const t = await builderToken(builderId);
+  if (t?.status !== 'launched' || !t.coin_address || !t.symbol) return null;
+  const coin = t.coin_address.toLowerCase();
+  const [[p], backers, fees_usd, weeks] = await Promise.all([
+    sql()<{ x_avatar_url: string | null }[]>`SELECT x_avatar_url FROM builder_profiles WHERE builder_id = ${builderId}`,
+    backersOfCoin(coin),
+    allTimeCommunityUsd(builderId),
+    backerWeeks(coin, now),
+  ]);
+  const first = firstName(d.name, d.handle);
+  return { symbol: t.symbol, url: tradeUrl(coin), backers, fees_usd, weeks, letter: letterOf(first), color: logoColor(first), photo: httpsPhoto(p?.x_avatar_url ?? null) };
 }
 
 /**
@@ -466,13 +485,12 @@ async function tokenCard(builderId: number, d: ProfileData, key: string | null, 
  */
 export async function profileSite(builderId: number, d: ProfileData, now: Date, o: { only?: number[] } = {}): Promise<ProfileSite> {
   const [main, reading] = await Promise.all([part('main', () => mainOf(builderId), null), part('reading', () => mainReading(builderId), null)]);
-  // A failed main read leaves the key null: the Token card then fails closed (tokenAllowed).
   const key = main?.key ?? null;
   const thisWeek = commitsFrom(reading, now);
   const [items, standing, token] = await Promise.all([
     main ? part('highlights', () => highlightsOf(builderId, d, now, main, reading), [] as Highlight[]) : Promise.resolve([] as Highlight[]),
     part('standing', () => standingPill(builderId, d, o), null),
-    part('token', () => tokenCard(builderId, d, key, now), null),
+    part('token', () => tokenCard(builderId, d, now), null),
   ]);
   return {
     lastShippedAt: shippedFrom(reading, now)?.toISOString() ?? null,

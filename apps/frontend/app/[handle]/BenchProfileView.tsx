@@ -101,7 +101,7 @@ export default function BenchProfileView({ data, site, page }: { data: ProfileDa
         <section aria-label="Activity and highlights" className={`${ROWS} items-start`}>
           <ActivityCard log={d.log} lastShippedAt={site.lastShippedAt} page={page} path={pagePath(d.handle)} quiet={quiet} now={now} />
           <aside className="flex min-w-0 flex-col gap-4">
-            {site.token ? <TokenCard token={site.token} first={site.first} project={site.project} /> : null}
+            {site.token ? <TokenCard token={site.token} first={site.first} /> : null}
             <HighlightsCard items={site.highlights} />
           </aside>
         </section>

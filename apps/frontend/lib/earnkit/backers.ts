@@ -83,7 +83,8 @@ export async function launchBlock(row: { coin_tx: string | null; launched_at: Da
 }
 
 /**
- * Indexes every launched Base coin's backers (projects.coin_address, token_status 'launched') from its cursor in
+ * Indexes every launched Base coin's backers (projects.coin_address, token_status 'launched', and builder_tokens
+ * status 'launched') from its cursor in
  * coin_backer_cursor up to CONFIRMATIONS behind the head: each Transfer's `to`, unless excluded, is a backer (first
  * block kept). A range is stored completely before the cursor passes it; inserts are idempotent. Bounded by
  * `deadline`, CALLS_PER_COIN and INDEX_CHUNK; coins whose cursor moved longest ago go first. Without a Transfer
@@ -98,12 +99,22 @@ export async function indexBackers(now: Date, o: IndexOpts = {}) {
   const log = o.log ?? console.error;
   if (Date.now() >= deadline) return { coins: 0, added: 0, failed: 0, outOfTime: true as const };
   const db = sql();
+  // v4.0 Task 9: and every launched builder token (builder_tokens: its tx_hash, its wallet the creator), so the
+  // Token card's holders are real. A coin in both lists is read once.
   const rows = await db<{ coin: Hex; coin_tx: string | null; launched_at: Date | null; block: string | null; creator: string | null }[]>`
-    SELECT lower(p.coin_address) AS coin, p.coin_tx, p.coin_launched_at AS launched_at, c.block::text AS block, ${creatorWalletSql(db)} AS creator
-    FROM projects p LEFT JOIN coin_backer_cursor c ON c.coin = lower(p.coin_address)
-    WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND COALESCE(p.coin_chain_id, 8453) = 8453
-      AND (${onlyCoins(o.only)}::text[] IS NULL OR lower(p.coin_address) = ANY(${onlyCoins(o.only)}::text[]))
-    ORDER BY c.updated_at ASC NULLS FIRST, p.id`;
+    SELECT x.coin, x.coin_tx, x.launched_at, c.block::text AS block, x.creator
+    FROM (
+      SELECT DISTINCT ON (coin) * FROM (
+        SELECT lower(p.coin_address) AS coin, p.coin_tx, p.coin_launched_at AS launched_at, ${creatorWalletSql(db)} AS creator, 0 AS src, p.id AS ord
+        FROM projects p
+        WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND COALESCE(p.coin_chain_id, 8453) = 8453
+        UNION ALL
+        SELECT lower(t.coin_address), t.tx_hash, t.updated_at, lower(t.wallet), 1, t.builder_id
+        FROM builder_tokens t WHERE t.status = 'launched' AND t.coin_address IS NOT NULL
+      ) u ORDER BY coin, src, ord
+    ) x LEFT JOIN coin_backer_cursor c ON c.coin = x.coin
+    WHERE ${onlyCoins(o.only)}::text[] IS NULL OR x.coin = ANY(${onlyCoins(o.only)}::text[])
+    ORDER BY c.updated_at ASC NULLS FIRST, x.src, x.ord`;
   if (rows.length === 0) return { coins: 0, added: 0, failed: 0 };
   const head = (await rpc.blockNumber()) - CONFIRMATIONS;
   const fixed = [...BACKER_EXCLUDED, chain.feeLocker, chain.safe, ...chain.lockers].map(lower);

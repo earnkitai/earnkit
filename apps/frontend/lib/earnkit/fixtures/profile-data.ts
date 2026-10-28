@@ -99,7 +99,7 @@ export const MAYA_SITE: ProfileSite = {
     { icon: 'won', title: 'Won Base Builder Grant Program', sub: 'Oct 2026', href: '/programs/base-builder-grants' },
   ],
   standing: { label: 'Top 3% of builders', tier: 'gold', title: 'Top 3% of builders' },
-  token: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar', backers: 23, fees_usd: 412, weeks: [0, 1, 0, 2, 1, 3, 2, 4, 3, 2, 5, 4], letter: 'T', color: SITE.logoOrange },
+  token: { symbol: 'TIPJAR', url: 'https://tokens.fun/c/tipjar', backers: 23, fees_usd: 412, weeks: [0, 1, 0, 2, 1, 3, 2, 4, 3, 2, 5, 4], letter: 'T', color: SITE.logoOrange, photo: null },
   project: {
     name: 'Tipjar', about: 'Tips for creators, paid in USDC on Base.', link: { href: 'https://tipjar.xyz', text: 'tipjar.xyz' },
     repo: 'https://github.com/maya/tipjar', onBase: true, earnkit: false, letter: 'T', color: SITE.logoOrange,

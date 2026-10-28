@@ -60,13 +60,13 @@ test('never a self-report: an accepted, funded or won card without its proof lin
     assert.equal(postCardView({ moment, proof_url: null, card: { ...frozen, program: 'Base Builder Grant', award: '$5,000' } }, OFF), null, moment);
 });
 
-test('Backing: the pill only while open (read live); the backer count only from 5; never a price', () => {
+test('the token pill (read live): holders only from 5, in the pill; never a price', () => {
   assert.equal(postCardView(weekly(), OFF)!.backing, null);
-  const four = postCardView(weekly(), { backing: { symbol: 'RCP', backers: BACKERS_SHOWN_FROM - 1 } })!;
-  assert.equal(four.backing, 'RCP');
-  assert.ok(!four.stats.some((s) => s.label === 'backers'), 'under 5: no count');
-  const five = postCardView(weekly(), { backing: { symbol: 'RCP', backers: 5 } })!;
-  assert.deepEqual(five.stats.at(-1), { value: '5', label: 'backers' });
+  const four = postCardView(weekly(), { backing: { symbol: 'RCP', holders: BACKERS_SHOWN_FROM - 1 } })!;
+  assert.equal(four.backing, '$RCP');
+  const five = postCardView(weekly(), { backing: { symbol: 'RCP', holders: 5 } })!;
+  assert.equal(five.backing, '$RCP · 5 holders');
+  assert.ok(!five.stats.some((s) => /backers|holders/.test(s.label)), 'v4.0 Task 9: the pill carries the count');
   // No price anywhere: the view has no price and the card's code reads none.
   assert.doesNotMatch(JSON.stringify(five), /price|\$\d/i);
   for (const f of ['post-card.ts', '../../app/[handle]/post-card-image.tsx'])
@@ -120,7 +120,7 @@ test('drafting freezes the card: the project, streak, Shipping, the weeks of cod
   assert.equal(card?.name, 'Maya');
 });
 
-test('postCardFacts: only this person\'s code; the pill only with EARNKIT_RAISING on; backers from 5', dbTest, async () => {
+test('postCardFacts: only this person\'s code; the pill only with a launched builder token, not a project coin; holders from 5', dbTest, async () => {
   const before = process.env.EARNKIT_RAISING;
   try {
     const a = await maya();
@@ -129,18 +129,19 @@ test('postCardFacts: only this person\'s code; the pill only with EARNKIT_RAISIN
     assert.ok(d.ok);
     assert.equal(await postCardFacts(b.id, d.draft.code), null, 'another person\'s code');
     assert.equal(await postCardFacts(a.id, 'zzzzzzzzzz'), null);
-    const coin = `0x${randomBytes(20).toString('hex')}`;
+    // v4.0 Task 9: a project's coin with backing open never makes the pill, even with EARNKIT_RAISING on.
+    const old = `0x${randomBytes(20).toString('hex')}`;
     await sql()`INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at, coin_address)
-      VALUES ('earnkit-coin', 'Recipes', ${`https://github.com/${a.key}`}, ${`github.com/${a.key}`}, ${a.id}, 'RCP', 'launched', 'https://tokens.fun/c/1', now(), ${coin})`;
-    delete process.env.EARNKIT_RAISING;
-    assert.equal((await postCardFacts(a.id, d.draft.code))!.view.backing, null, 'EARNKIT_RAISING off: no Backing');
+      VALUES ('earnkit-coin', 'Recipes', ${`https://github.com/${a.key}`}, ${`github.com/${a.key}`}, ${a.id}, 'OLD', 'launched', 'https://tokens.fun/c/1', now(), ${old})`;
     process.env.EARNKIT_RAISING = 'on';
+    assert.equal((await postCardFacts(a.id, d.draft.code))!.view.backing, null, 'no builder token: no pill');
+    delete process.env.EARNKIT_RAISING;
+    const coin = `0x${randomBytes(20).toString('hex')}`;
+    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address) VALUES (${a.id}, ${`pc${a.id}`}, 'launched', 'RCP', ${coin})`;
     for (let i = 0; i < 4; i++) await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${`0x${randomBytes(20).toString('hex')}`}, 1)`;
-    const four = (await postCardFacts(a.id, d.draft.code))!.view;
-    assert.equal(four.backing, 'RCP');
-    assert.ok(!four.stats.some((s) => s.label === 'backers'));
+    assert.equal((await postCardFacts(a.id, d.draft.code))!.view.backing, '$RCP');
     await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${coin}, ${`0x${randomBytes(20).toString('hex')}`}, 1)`;
-    assert.deepEqual((await postCardFacts(a.id, d.draft.code))!.view.stats.at(-1), { value: '5', label: 'backers' });
+    assert.equal((await postCardFacts(a.id, d.draft.code))!.view.backing, '$RCP · 5 holders');
   } finally {
     if (before === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = before;

@@ -654,9 +654,9 @@ test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches 
   assert.equal(launched.length, 1, JSON.stringify(launch));
   const pill = await pillOf(id);
   assert.ok(pill, JSON.stringify(launch));
-  // v3.1 Task 7: the coin is the Token card's ($SYMBOL and the Back pill).
+  // v4.0 Task 9: the Token card is the builder token's only; a project coin draws none.
   const prof = unsign(await renderProfile('maya_makes'));
-  assert.match(prof, new RegExp(`data-ek-token[\\s\\S]*?\\$${pill.symbol}`), prof);
+  assert.doesNotMatch(prof, /data-ek-token/, prof);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
   assert.deepEqual(row?.backing, pill);
   assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');

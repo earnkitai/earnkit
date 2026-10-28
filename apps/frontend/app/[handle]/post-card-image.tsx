@@ -13,7 +13,7 @@ import { CardPhoto, CardWordmark, DISPLAY, SANS } from './card-parts';
  * - `milestone` (4, 8, 12, 26 or 52 weeks in a row): the rust Streak card, the streak number alone at 300px and the 12
  *   weeks of code as squares;
  * - `text` (a verified win, acceptance or funding; the coin): the blue hero, the program as the headline.
- * The Backing pill only while EARNKIT_RAISING is on (post-card.ts reads it live); never a price. Pure.
+ * The token pill only with the builder's launched token (post-card.ts reads it live); never a price. Pure.
  * GTM W4: as the page's card, one of the site's cards on the page's dark ground (24px margin, 36px corners), the words
  * in Funnel Sans (the site's) and no label under 24px, the photo from card-parts.tsx (never GitHub's default picture:
  * the initial instead).
@@ -29,13 +29,13 @@ export const clip = (s: string, max: number) => {
 /** The headline's size: smaller as it gets longer, so a program's name stays two lines. Pure. */
 export const textHeadSize = (s: string) => (s.length <= 18 ? 112 : s.length <= 30 ? 92 : s.length <= 46 ? 74 : 60);
 
-/** The top row: the wordmark and, while backing is open, the pill. */
+/** The top row: the wordmark and, with a launched builder token, its pill ("$SYMBOL · N holders"). */
 function Top({ backing, pill }: { backing: string | null; pill: { bg: string; fg: string } }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <CardWordmark height={24} />
       {backing ? (
-        <div style={{ display: 'flex', padding: '10px 22px', borderRadius: 999, backgroundColor: pill.bg, color: pill.fg, fontSize: 24, fontWeight: 600 }}>Backing · ${backing}</div>
+        <div style={{ display: 'flex', padding: '10px 22px', borderRadius: 999, backgroundColor: pill.bg, color: pill.fg, fontSize: 24, fontWeight: 600 }}>{backing}</div>
       ) : null}
     </div>
   );

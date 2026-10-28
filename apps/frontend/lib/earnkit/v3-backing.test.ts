@@ -230,23 +230,20 @@ test('(d) the page shows Back <project>, the pill reads Backing, the leaderboard
   const url = `https://tokens.fun/coin/0x${b.id}`;
   const d = (await profileData(b.id, new Date()))!;
   assert.deepEqual(d.backing, { symbol: sym, url, backers: 0, earned_usd: 0 });
-  // v3.1 Task 7: the coin is on the Token card (site.token): $SYMBOL, "Back <first>" to the coin's page. The card reads
-  // the coin's backers by its address, which a real launch records.
+  // v4.0 Task 9: the Token card is the builder's own token (builder_tokens), so a project's coin never makes it.
   await sql()`UPDATE projects SET coin_address = ${`0x${String(b.id).padStart(40, 'd')}`} WHERE id = ${yes.reply!.project_id as number}`;
   const site = await profileSite(b.id, d, new Date());
-  assert.ok(site.token, 'the Token card');
+  assert.equal(site.token, null, 'a project coin: no Token card');
   const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site, page: 1 }));
-  const tok = unsign(html.slice(html.indexOf('data-ek-token')));
-  assert.ok(tok.includes(`$${sym}`), tok);
-  assert.match(tok, new RegExp(`<a[^>]*href="${url.replace(/\./g, '\\.')}"[^>]*>Back ${site.first}</a>`), tok);
+  assert.doesNotMatch(html, /data-ek-token/);
   assert.doesNotMatch(html, /Community round/);
   assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'KIT', url })).trim(), 'Backing · $KIT');
   // The card's pill.
   const card = (await benchCardFacts(b.id))!;
   assert.equal(card.raising, sym);
-  // GTM W4: the share card draws the page's own Token card facts (shareCardFacts): Backing open and the coin.
+  // GTM W4: the share card draws the page's own Token card facts (shareCardFacts): no Token card, no token tile.
   const cardHtml = renderToStaticMarkup(benchCard(shareCardFacts(d, site), null));
-  assert.ok(cardHtml.includes('Backing open') && cardHtml.includes(`$${sym}`), cardHtml);
+  assert.ok(!cardHtml.includes(`$${sym}`), cardHtml);
   assert.doesNotMatch(cardHtml, /Community round/);
 
   // The leaderboard: the row's pill, the Backed chip and filter.
