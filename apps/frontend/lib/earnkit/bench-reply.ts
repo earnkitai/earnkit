@@ -703,6 +703,9 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
 
+/** v4.2: the ship step's plain line (no points): the weekly target ("Ship code this week to hold #1."), else "Ship code this week." Pure. */
+export const shipLine = (target: string | null) => (target?.startsWith('Ship code this week') ? target : 'Ship code this week.');
+
 /** The ranked state's reply (benchReply). Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
@@ -719,9 +722,11 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   const full = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   // v3.1 cold read: the standing only when it changed since the builder last saw it, the points line at most once a week.
   const standing = v.standingShown === false ? null : full;
-  // A reply with nothing else to say still says where the builder stands (never an empty reply).
-  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l) ? lines : [full, ...lines.filter((l) => l !== full)]);
-  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask]));
+  const nag = v.nagShown !== false;
+  const ship = shipLine(v.target);
+  // A reply with nothing else to say still says where the builder stands (never an empty reply); the ship line alone is no reply either.
+  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
+  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipLine(null) : null]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
   if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
@@ -730,7 +735,8 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // Owner test 2026-10-23: no grant hook above the question ("...pay up to $5,000..." then "...Base's $5,000 grant?"
   // said the amount twice, every reply); the question names the grant and its amount.
   const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [qualifyMissing(name, v.qualify)] : [];
-  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask]));
+  const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? ship : null;
+  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, target]));
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

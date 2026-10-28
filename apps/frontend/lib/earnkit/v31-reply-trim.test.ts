@@ -52,7 +52,7 @@ test('(a) a ranked reply has no why sentence, no Originality and no points total
   await approveWeek(me.id, me.key, monday, new Date());
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
   assert.match(s, /^App · 1 week in a row$/m, s);
-  assert.ok(s.endsWith(''), s);
+  assert.match(s, /\nShip code this week( to (hold|pass|move toward) #\d+)?\.$/, s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);
   assert.doesNotMatch(s, /Points:/, s);
@@ -75,7 +75,7 @@ test('(a) benchReply: the ranked reply is the standing, the question and the poi
     handle: 'maya', link: null, target: null, fund: [], due: [], ask: { kind: 'ship', project_key: 'maya/recipes', line: SHIP_ASK }, held: null,
   };
   const s = benchReply(v);
-  assert.equal(s, `Recipes is on EarnKit.\n${SHIP_ASK}`);
+  assert.equal(s, `Recipes is on EarnKit.\n${SHIP_ASK}\nShip code this week.`);
   assert.ok(!s.includes(POINTS_LINE(100)), s);
 });
 

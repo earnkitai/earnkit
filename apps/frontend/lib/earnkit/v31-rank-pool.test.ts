@@ -77,7 +77,7 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   assert.deepEqual((f.reply as { rank_lines?: string[] }).rank_lines ?? [], []);
   const sc = await mcpCall(ctx(me.id), 'score', {});
   const t = show(sc);
-  assert.doesNotMatch(t, /points|Ship code this week/, t);
+  assert.ok(t.endsWith('\nShip code this week.'), t);
   assert.doesNotMatch(JSON.stringify(sc.reply), /#\d/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 1, total: 9 }), null);
 });
@@ -90,7 +90,7 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   assert.match(s.split('\n')[0], /^Your week is ready, /, s);
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
   assert.match(t, /^App · #3 of 10 builders/, t);
-  assert.doesNotMatch(t, /points|Ship code this week/, t);
+  assert.ok(t.endsWith('\nShip code this week to move toward #1.'), t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

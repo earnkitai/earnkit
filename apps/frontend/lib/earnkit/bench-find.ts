@@ -31,7 +31,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
-  TOKEN_NO_LINE,
+  TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -159,6 +159,8 @@ export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
   bench_ask?: {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
+    /** v4.2 (kind 'qualify' from setup done): the closest program's title and the one step it needs. */
+    program?: string; step?: string;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
     /** v4.0 Task 8 fix round 1 (kind 'outcome_share'): the outcome post's short link. */
@@ -465,7 +467,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const title = o.live?.ok ? o.live.title : null;
   // v3.1 GTM W3 (one name per project): the name the builder gave (this call's, else the stored identity's) wins over
   // the row's (written at the last rescore) and over the key's last part (never "Mealmate.lovable.app" for MealMate).
-  const given = o.name ?? (row || read.main ? await reportedName(id, row?.key ?? read.main!) : null);
+  const given = o.name ?? (row || read.main ? await reportedName(id, row?.key ?? read.main!, true) : null);
   const project: BenchProject | null = row
     ? { key: row.key, name: LINK_KEY.test(row.key) ? linkName(given ?? read.reportedName ?? row.name) : displayName(given ?? row.name, row.key, title), confirmed: row.confirmed, live: (row.shipped && row.kind === 'app') || row.site || siteLive, weeks: row.weeks }
     : read.main
@@ -1383,6 +1385,13 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'qualify':
       // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
       // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.
+      // v4.2: the closest program (setup done): its one step, never a draft.
+      if (asked.program && asked.step) {
+        return {
+          show_to_builder: `Your next step toward ${asked.program}: ${asked.step}.\n\n${QUALIFY_HELP_ASK_ONE}`,
+          agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
+        };
+      }
       if (!asked.qualify?.steps?.length || !asked.key) return okay;
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
@@ -1515,7 +1524,7 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
-type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply'; project_key: string | null; agent_note: string }; program_id?: string };
+type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'qualify'; project_key: string | null; agent_note: string }; program_id?: string };
 /**
  * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
  * (takeOnce 'setup_done'; final review 6: after the reply is built, so a failure never loses it). Exported for tests. The rows: the one project's real fits not told about (find's or score's fit lines; without
@@ -1536,59 +1545,67 @@ export async function setupDoneFor(
       const [p] = await sql()<{ seen: Seen | null; key: string | null }[]>`
         SELECT standing_seen AS seen, main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
       open = await scoreApplies(id, p?.key ?? null, now);
-      g = { fits: fitLines(open.applies), skip: open.skip, seen: p?.seen ?? {}, key: p?.key ?? null, name: p?.key ? await reportedName(id, p.key).catch(() => null) : null };
+      g = { fits: fitLines(open.applies), skip: open.skip, seen: p?.seen ?? {}, key: p?.key ?? null, name: p?.key ? await reportedName(id, p.key, true).catch(() => null) : null };
     }
     const real = (await openCandidates(id, g.fits.filter(realFit))) ?? [];
     const best = applyCandidates(real, g.seen, g.skip, now)[0] ?? real[0];
-    // v4.2 (F3): the real fits (best first) as before; with none, the long shots, then the open programs the builder was
-    // told nothing about, so "doesn't fit" is said only when nothing is open.
-    const longShots = (await openCandidates(id, g.fits.filter((f) => !realFit(f)).sort((a, b) => BAR_ORDER[a.bar ?? 'long_shot'] - BAR_ORDER[b.bar ?? 'long_shot']))) ?? [];
+    // v4.2 (F3): the real fits (best first) as before; with none, the long shots (the fit's own bar, nearest first), then
+    // every other open program: the ones not told about, then investments, then those already told, so "doesn't fit" is
+    // said only when nothing is open.
+    const longShots = (await openCandidates(id, g.fits.filter((f) => !realFit(f)).sort((a, b) => Number(a.bar === 'company') - Number(b.bar === 'company')))) ?? [];
     let rows: Pick<Fit, 'title' | 'amount' | 'when'>[] = best ? [best, ...real.filter((f) => f !== best)] : longShots;
     let closest: { program: string; step: string } | null = null;
     let closestId: string | null = null;
     if (!best) {
       open ??= await scoreApplies(id, g.key, now);
       const listed = new Set(longShots.map((f) => f.program_id));
-      const cards = open.cards.filter((c) => !open!.skip.has(c.id) && !g.skip.has(c.id) && !listed.has(c.id) && c.investment !== true).sort(byRelevance);
-      const told = new Set(((await openCandidates(id, cards.map((c) => ({ program_id: c.id })))) ?? []).map((c) => c.program_id));
-      const extra = cards.filter((c) => told.has(c.id));
+      const others = open.cards.filter((c) => !open!.skip.has(c.id) && !g.skip.has(c.id) && !listed.has(c.id));
+      const notToldIds = new Set(((await openCandidates(id, others.map((c) => ({ program_id: c.id })))) ?? []).map((c) => c.program_id));
+      const grants = others.filter((c) => notToldIds.has(c.id) && c.investment !== true).sort(byRelevance);
+      const investments = others.filter((c) => notToldIds.has(c.id) && c.investment === true).sort(byRelevance);
+      const alreadyTold = others.filter((c) => !notToldIds.has(c.id)).sort(byRelevance);
+      const extra = [...grants, ...investments, ...alreadyTold];
       rows = [...longShots, ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c) }))];
-      const first = longShots[0];
-      if (first) { closest = { program: first.title, step: closestStep(first.bar, g.key) }; closestId = first.program_id; }
+      if (longShots[0]) { closest = { program: longShots[0].title, step: closestStep(longShots[0].bar, g.key) }; closestId = longShots[0].program_id; }
       else if (extra[0]) { closest = { program: extra[0].title, step: closestStep(undefined, g.key) }; closestId = extra[0].id; }
     }
     const trade = settled.outcome === 'launched' ? await tokenTradeUrl(id) : null;
     const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest });
     // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
     if (!(await takeOnce(id, 'setup_done', now))) return null;
-    const pick = best ?? (closestId ? [...longShots].find((f) => f.program_id === closestId) ?? null : null);
-    const programId = best?.program_id ?? closestId;
-    if (!programId) {
+    if (!best && !closest) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
       return { show_to_builder: show };
     }
-    await takeApplyAsk(id, programId, now);
-    await storeAsk(id, { kind: 'apply', key: g.key, program_id: programId, ...(pick?.repo && { repo: pick.repo }) });
-    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: programId };
+    if (!best && closest && closestId) {
+      // The closest program is a long shot: a yes gives the step it needs (the qualify flow), never a draft.
+      await storeAsk(id, { kind: 'qualify', key: g.key, program_id: closestId, program: closest.program, step: closest.step });
+      return { show_to_builder: show, move_up: { kind: 'qualify', project_key: g.key, agent_note: QUALIFY_NOTE }, program_id: closestId };
+    }
+    await takeApplyAsk(id, best!.program_id, now);
+    await storeAsk(id, { kind: 'apply', key: g.key, program_id: best!.program_id, ...(best!.repo && { repo: best!.repo }) });
+    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: best!.program_id };
   } catch (err) {
     logged('setup done')(err);
     return null;
   }
 }
-/** v4.2: the order of the long shots in the setup-done table: the nearest first. */
-const BAR_ORDER: Record<FitBar, number> = { qualify: 0, needs_live: 1, needs_users: 2, long_shot: 3, company: 4 };
-/** v4.2 (F3): the one step a closest program needs, from the fit's bar. Pure. */
+/** v4.2 (F3): the one step a closest program needs, from the fit's bar (a company program, a long shot) or, without one, the project. Pure. */
 export const closestStep = (bar: FitBar | undefined, key: string | null): string =>
-  bar === 'needs_live' ? 'a live link'
-    : bar === 'needs_users' ? 'real users'
-    : bar === 'company' ? 'a full-time team'
-    : bar === 'long_shot' ? 'more shipped work first'
-    : key ? 'more shipped work first' : 'your code connected';
-/** The trade link of the builder's launched token, null when there is none yet. Never throws. */
+  bar === 'company' ? 'a full-time team'
+    : bar === 'long_shot' || key ? 'more shipped work first'
+    : 'your code connected';
+/**
+ * The trade link of the token this setup's sign launched (Task 1's justLaunched: its row began after step 3 was asked),
+ * null otherwise (an older token gets the approved lead). Never throws.
+ */
 async function tokenTradeUrl(id: number): Promise<string | null> {
   try {
-    const t = await builderToken(id);
-    return t?.status === 'launched' && t.coin_address ? tradeUrl(t.coin_address) : null;
+    const [t] = await sql()<{ addr: string | null; fresh: boolean }[]>`
+      SELECT t.coin_address AS addr, t.created_at >= (p.standing_seen->>'setup_asked')::timestamptz AS fresh
+      FROM builder_tokens t JOIN builder_profiles p ON p.builder_id = t.builder_id
+      WHERE t.builder_id = ${id} AND t.status = 'launched'`;
+    return t?.addr && t.fresh ? tradeUrl(t.addr) : null;
   } catch {
     return null;
   }
@@ -1937,7 +1954,7 @@ export async function mainProjectName(id: number): Promise<string | null> {
     LEFT JOIN builder_projects r ON r.builder_id = b.builder_id AND lower(r.project_key) = lower(b.main_project_key)
     WHERE b.builder_id = ${id}`.catch(() => []);
   if (!p?.main) return null;
-  const given = await reportedName(id, p.main);
+  const given = await reportedName(id, p.main, true);
   if (LINK_KEY.test(p.main)) {
     const n = linkName(given);
     return n === YOUR_APP ? null : n;

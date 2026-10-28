@@ -113,7 +113,7 @@ const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', arg
 /** Task 16: the money line a ranked reply names its Best fit with (after the apply step was asked). */
 const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when: 'rolling' });
 /** Task 16 step 5: the apply step and its points line, the reply's end. */
-const applyEnd = (title: string, when: string | null) => `\n${applyAsk(title, '$5,000', when)}`;
+const applyEnd = (title: string, when: string | null) => `\n${applyAsk(title, '$5,000', when)}\nShip code this week.`;
 
 test('(a) a rolling fit only: the rolling ask, once; then the Best fit is the money line', db, async () => {
   assert.equal(ROLLING_BEST, `You qualify for the ${ROLLING_TITLE}, up to $5,000.`);

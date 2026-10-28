@@ -549,16 +549,18 @@ test('(d) said once: the next reply is the normal ranked reply; a later no to th
   assert.doesNotMatch(show(s), /You're all set|what's open for you right now/, show(s));
 });
 
-test('(e) no open fit: the no-fit line in place of the table and question, never an empty table', db, async () => {
+test('(e) every program already told: the table still shows (v4.2: "doesn\'t fit" only when nothing is open), asked as the closest, never an empty table', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('e', []);
   // Every program the stored repo facts could win, told about already (so none is open for it).
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label)
     SELECT ${b.id}, '', id, 'rejected', 'an older round' FROM programs ON CONFLICT DO NOTHING`;
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), "No worries, add it whenever you're ready.\n\nKit doesn't fit an open program yet.");
-  assert.doesNotMatch(show(r), /\|/);
-  assert.equal(kindOf(r), undefined);
+  const s = show(r);
+  assert.ok(s.startsWith(`No worries, add it whenever you're ready. ${OPEN}\n\n| Program | Up to | Closes |`), s);
+  assert.doesNotMatch(s, /doesn't fit/, s);
+  assert.match(s, /is the closest\. It needs [^\n.]+\. Want help with it\?$/, s);
+  assert.equal(kindOf(r), 'qualify');
 });
 
 test('final review 1: a token still launching or unknown is never told as live: "Your token is on its way" in place of the community line', db, async () => {

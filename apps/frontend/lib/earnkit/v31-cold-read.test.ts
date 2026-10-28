@@ -145,13 +145,13 @@ const view = (o: Partial<BenchView> = {}): BenchView => ({
   ...o,
 });
 
-test('status line: shown only when changed; no points line ever; a reply is never empty', () => {
+test('status line and ship line: shown only when changed or once a week; a reply is never empty', () => {
   const STAND = 'Kit · #1 of 13 builders · 3 weeks in a row';
-  assert.equal(benchReply(view()), `${STAND}\nWant me to suggest one small thing to ship?`);
+  assert.equal(benchReply(view()), `${STAND}\nWant me to suggest one small thing to ship?\nShip code this week.`);
   assert.equal(benchReply(view({ standingShown: false, nagShown: false })), 'Want me to suggest one small thing to ship?');
-  // Nothing else to say: the standing, never an empty reply (and never the points line alone).
+  // Nothing else to say: the standing, never an empty reply (and never the ship line alone).
   assert.equal(benchReply(view({ standingShown: false, nagShown: false, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
-  assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
+  assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), `${STAND}\nShip code this week.`);
 });
 
 let n = 0;
@@ -239,7 +239,7 @@ test('the status line only when it changed, the points line once a week; score a
   const one = show(await find(b));
   clean(one);
   assert.match(one, /^Kit is on EarnKit\./, one);
-  assert.doesNotMatch(one, /points/, one);
+  assert.match(one, /Ship code this week( to (hold|pass|move toward) #\d+)?\.$/, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
   // (no points line again this week).
   let r2 = await find(b);

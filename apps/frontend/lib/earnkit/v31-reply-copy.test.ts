@@ -157,7 +157,9 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   assert.equal(s8, [
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     'Want me to suggest one small thing to ship?',
+    s8.split('\n')[2],
   ].join('\n'));
+  assert.match(s8.split('\n')[2], /^Ship code this week( to hold #1)?\.$/);
 
   // Step 7: Monday. Last week (Oct 12) ranked #1 of 13 and is week 4 in a row (code Sep 21 to Oct 17).
   mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));

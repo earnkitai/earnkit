@@ -26,16 +26,19 @@ export function reportedProject<P extends Reported>(projects: P[], key: string):
 }
 
 /** The builder-given name of `key`'s project (at most 60 characters, whole words), else null. Pure. */
-export function reportedNameIn(projects: unknown, key: string): string | null {
-  const p = reportedProject(Array.isArray(projects) ? (projects as Reported[]) : [], key);
+export function reportedNameIn(projects: unknown, key: string, sole = false): string | null {
+  const list = Array.isArray(projects) ? (projects as Reported[]) : [];
+  // v4.2 (F15): `sole` (the builder's one main project): with a single reported project that matches nothing, the name
+  // the builder gave still wins over a title-cased repo slug.
+  const p = reportedProject(list, key) ?? (sole && list.length === 1 ? list[0] : undefined);
   return typeof p?.name === 'string' && p.name.trim() ? wholeWords(p.name, 60) : null;
 }
 
 /** reportedNameIn over the builder's stored identity; null on none or a read error. Never throws. */
-export async function reportedName(builderId: number, key: string): Promise<string | null> {
+export async function reportedName(builderId: number, key: string, sole = false): Promise<string | null> {
   try {
     const [p] = await sql()<{ projects: unknown }[]>`SELECT identity->'projects' AS projects FROM builder_profiles WHERE builder_id = ${builderId}`;
-    return reportedNameIn(p?.projects, key);
+    return reportedNameIn(p?.projects, key, sole);
   } catch {
     return null;
   }

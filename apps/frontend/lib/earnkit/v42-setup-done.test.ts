@@ -12,6 +12,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { NO_GITHUB_HINT, benchReply, closestAsk, pickRepoAgain, setupDoneLead, setupDoneReply, stateAsk, walletDone, WALLET_DONE_HEAD, type BenchProject, type BenchView } from './bench-reply';
 import { closestStep } from './bench-find';
+import { formatReply } from './reply-format';
 import { reportedNameIn } from './project-name';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -56,8 +57,13 @@ test('F3: the closest program line; the table is never replaced by "doesn\'t fit
   assert.doesNotMatch(s, /doesn't fit/);
   assert.ok(s.includes('| Arc Builders | $10,000 | Nov 15 |'), s);
   assert.ok(s.endsWith('Arc Builders is the closest. It needs more shipped work first. Want help with it?'), s);
-  assert.equal(closestStep('needs_live', null), 'a live link');
+  assert.equal(closestStep('company', null), 'a full-time team');
   assert.equal(closestStep(undefined, null), 'your code connected');
+  // The plain surface (WhatsApp-style agents): rows as "Label: value" lines, the closest question last.
+  const plain = formatReply(s, 'plain');
+  assert.doesNotMatch(plain, /\||\*\*/, plain);
+  assert.ok(plain.includes('Arc Builders: $10,000, Nov 15'), plain);
+  assert.ok(plain.endsWith('Arc Builders is the closest. It needs more shipped work first. Want help with it?'), plain);
   assert.match(setupDoneReply('Maya', 'skipped', [], "MealMate doesn't fit an open program yet."), /doesn't fit an open program yet\.$/);
 });
 
@@ -66,6 +72,9 @@ test('F15: the name the builder gave wins when the repo differs only by case or 
   assert.equal(reportedNameIn(projects, 'maya/mealmate'), 'MealMate');
   assert.equal(reportedNameIn(projects, 'maya/meal-mate'), 'MealMate');
   assert.equal(reportedNameIn(projects, 'maya/other'), null);
+  // The builder's one main project: the name they gave wins even when the repo cannot be matched to it.
+  assert.equal(reportedNameIn(projects, 'maya/kit-v2', true), 'MealMate');
+  assert.equal(reportedNameIn([...projects, { name: 'Other' }], 'maya/kit-v2', true), null);
   assert.equal(reportedNameIn(projects, 'https://mealmate.lovable.app/'), 'MealMate');
 });
 
@@ -119,7 +128,14 @@ test('F3: a builder with no GitHub and no repo skips the wallet and sees the ope
   assert.ok(s.startsWith("No worries, add it whenever you're ready."), s);
   assert.doesNotMatch(s, /doesn't fit an open program yet/, s);
   assert.match(s, /\| Program \| Up to \| Closes \|/, s);
-  assert.match(s, /Want me to draft it\?$|Want help with it\?$/, s);
+  assert.match(s, /Want help with it\?$/, s);
+  // A closest-program yes is the step it needs, never a draft of an application.
+  {
+    assert.equal((r.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
+    const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: null, answer: 'yes' } });
+    assert.match(show(yes), /^Your next step toward .+: .+\.\n\nWant help with it now\?$/, show(yes));
+    assert.equal(yes.reply?.lead, undefined);
+  }
 });
 
 const repoFacts = (key: string): RepoFit[] => {

@@ -123,7 +123,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.ok(text.endsWith('\nShow what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'), text);
   // L5: this week has code ("Done this week"): the plain points line.
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.doesNotMatch(next, /points/, next);
+  assert.ok(next.endsWith('\nShip code this week.'), next);
   assert.doesNotMatch(next, /Your code stays private/);
 });
 

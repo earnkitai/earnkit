@@ -110,6 +110,7 @@ test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
     'Recipe planner · #1 of 13 builders · 4 weeks in a row',
     'Base Builder Grant Program is still open, up to $5,000. I can draft it in a minute.',
     'Want me to?',
+    'Ship code this week.',
   ].join('\n'));
   oneAsk(out);
   // A dated program says when it closes; under RANK_MIN_POOL the standing has no rank.
@@ -123,11 +124,12 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
     'Recipe planner · #3 of 40 builders · 4 weeks in a row',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     SHIP_ASK,
+    'Ship code this week to pass #2.',
   ].join('\n'));
   oneAsk(ship);
   // Done this week: the plain points line; no fit: the upcoming program, else no money line.
   const done = benchReply(ranked({ target: 'Done this week.', fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }] }));
-  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n${SHIP_ASK}`);
+  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n${SHIP_ASK}\nShip code this week.`);
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
