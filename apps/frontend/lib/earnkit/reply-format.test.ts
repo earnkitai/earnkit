@@ -78,3 +78,8 @@ test('mcpCall: a Muse installation gets no | and no ** in its setup reply; Grok 
     else assert.match(text, /\*\*/, text);
   }
 });
+
+test('plain: a URL with __ survives; an empty rest cell is just the first cell', () => {
+  assert.equal(formatReply('Open https://earnkit.com/r/foo__bar__baz now', 'plain'), 'Open https://earnkit.com/r/foo__bar__baz now');
+  assert.equal(formatReply('| Program | Up to |\n|---|---|\n| Solo | |', 'plain'), 'Solo');
+});

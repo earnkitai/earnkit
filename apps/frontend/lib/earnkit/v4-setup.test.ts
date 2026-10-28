@@ -432,10 +432,10 @@ function repoFits(key: string, programs: string[]): RepoFit[] {
   }];
 }
 /** A ranked builder named "Maya Lin" on X (the Kit repo proven by the App, the matcher fitting `programs`), shown step 3. */
-async function fitted(tag: string, programs: string[]) {
+async function fitted(tag: string, programs: string[], clientName = 'Claude Code') {
   n++;
   const t = `ek_v4s5_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
-  await saveInstallation(t, undefined, false, 'Claude Code');
+  await saveInstallation(t, undefined, false, clientName);
   const own = (await connectInstallation(t))!.own;
   const handle = `v5${tag}${RUN}`.slice(0, 15);
   assert.ok((await attachToX(own, { id: `93${RUN}${n}${tag.length}`, username: handle, name: 'Maya Lin', avatar: null }, new Date())).ok);
@@ -551,4 +551,19 @@ test('(e) no open fit: the no-fit line in place of the table and question, never
   assert.equal(show(r), "No worries, add it whenever you're ready.\n\nKit doesn't fit an open program yet.");
   assert.doesNotMatch(show(r), /\|/);
   assert.equal(kindOf(r), undefined);
+});
+
+// ---- v4.0 Task 6 fix round 1: the programs table end to end, per surface (a real reply with a table, formatted as the route does).
+test('(T6) the setup-done programs table: a Muse install gets "Program: $X, Closes" lines and no |; Grok Bot gets the table', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const mk = async (tag: string, name: string) => {
+    const b = await fitted(tag, [ROLLING], name);
+    return show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } }, { format: true }));
+  };
+  const muse = await mk('t6m', 'Muse');
+  assert.doesNotMatch(muse, /[|]|\*\*/, muse);
+  assert.ok(muse.includes(`${ROLLING_TITLE}: $5,000, Rolling`), muse);
+  assert.ok(!muse.includes('Program: Up to'), muse);
+  const grok = await mk('t6g', 'Grok Bot');
+  assert.ok(grok.includes(TABLE), grok);
 });

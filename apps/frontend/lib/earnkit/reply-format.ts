@@ -26,20 +26,23 @@ function plainTable(rows: string[]): string[] {
   return data
     .slice(1)
     .map(cellsOf)
-    .map(([first, ...rest]) => `${first}: ${rest.join(', ')}`);
+    .map(([first, ...rest]) => {
+      const others = rest.filter((c) => c !== '').join(', ');
+      return others ? `${first}: ${others}` : first;
+    });
 }
 
 function plainLines(lines: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     if (!TABLE_ROW.test(lines[i])) {
-      out.push(lines[i].replace(/\*\*|__/g, ''));
+      out.push(lines[i].replace(/\*\*/g, ''));
       continue;
     }
     const rows: string[] = [];
     while (i < lines.length && TABLE_ROW.test(lines[i])) rows.push(lines[i++]);
     i--;
-    out.push(...plainTable(rows).map((l) => l.replace(/\*\*|__/g, '')));
+    out.push(...plainTable(rows).map((l) => l.replace(/\*\*/g, '')));
   }
   return out.filter((l) => l.trim() !== '');
 }
