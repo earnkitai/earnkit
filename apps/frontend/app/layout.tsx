@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import './globals.css';
 import SchemaOrg from '@/app/components/ui/SchemaOrg';
 import Header from '@/app/components/common/Header';
+import RefSourceMark from '@/app/components/common/RefSourceMark';
 import { SITE } from '@/lib/earnkit/site-theme';
 
 // v2.14 spec 6: self-hosted (SIL OFL 1.1, app/fonts/OFL.txt), so a Google Fonts outage can't fail a build.
@@ -111,6 +112,7 @@ export default function RootLayout({
         className={`${funnelDisplay.variable} ${funnellsans.variable} ${kaftan.variable} antialiased relative`}
         suppressHydrationWarning
       >
+        <RefSourceMark />
         <Header />
         <main>{children}</main>
       </body>

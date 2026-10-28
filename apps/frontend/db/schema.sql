@@ -1872,6 +1872,8 @@ ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS signals_checked_at timestamp
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_builder_id integer;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_at timestamptz;
 CREATE INDEX IF NOT EXISTS installations_ref_builder ON installations (ref_builder_id) WHERE ref_builder_id IS NOT NULL;
+-- v4.0 Task 10: installs that came from a named source (tokens.fun: ?ref=tokensfun), never a builder; first one stays.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_source text;
 -- One row per profile. The wallet is the reward recipient (newest recipient_at), else the newest proven one;
 -- funded_by_slug is another profile that proved the wallet's funder. Runs with the owner's rights, so earnkit_ro sees
 -- only these columns (no emails, tokens or IPs). installation_ids: test installs live in an env var SQL can't read.

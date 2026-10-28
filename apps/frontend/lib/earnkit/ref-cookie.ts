@@ -11,7 +11,13 @@ export const REF_MAX_AGE_S = 30 * 86_400;
 /** An X handle as page URLs carry it (profiles.ts X_HANDLE), stored lowercase. */
 const HANDLE = /^[A-Za-z0-9_]{1,15}$/;
 
-/** The handle, lowercase, when it is a valid X handle; else null. Pure. */
+/** v4.0 Task 10: sources a `?ref=` may carry on any page (not a builder; installations.ref_source). A fixed allow-list. */
+export const REF_SOURCES = ['tokensfun'] as const;
+export const isRefSource = (v: string | null | undefined): boolean => !!v && (REF_SOURCES as readonly string[]).includes(v);
+/** A `?ref=` query value that names a source, else null (a handle in a query is never trusted). Pure. */
+export const refSourceOfQuery = (v: unknown): string | null => (typeof v === 'string' && isRefSource(v.toLowerCase()) ? v.toLowerCase() : null);
+
+/** The handle, lowercase, when it is a valid X handle, or a source from REF_SOURCES; else null. Pure. */
 export function cleanRef(v: unknown): string | null {
   return typeof v === 'string' && HANDLE.test(v) ? v.toLowerCase() : null;
 }
