@@ -740,32 +740,6 @@ test('task-10-review M7: only a revert means "this locker does not hold the coin
   assert.equal(isRevert(new Error('fetch failed')), false);
 });
 
-test('Ruling 24 / M9: a non-Base launch records no coin address (no builder bonus slot); the launch is recorded', db, async () => {
-  const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
-  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test-key';
-  try {
-    await setup();
-    const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES ('t4-rh') RETURNING id`;
-    const [p] = await sql()<{ id: number }[]>`
-      INSERT INTO projects (program_id, name, installation_id, repo_url) VALUES (${PROG}, 't4 rh', ${inst.id}, 'https://github.com/x/t4rh')
-      RETURNING id`;
-    const coin = '0x5555000000000000000000000000000000005555';
-    const out = await deployToken(
-      { projectId: p.id, installationId: inst.id, name: 'T4', symbol: 'TRH', creatorWallet: CREATOR, image: null, repoUrl: 'https://github.com/x/t4rh', liveUrl: null, chain: 'robinhood' },
-      { fetch: (async () => Response.json({ success: true, tokenAddress: coin, txHash: '0x1' })) as typeof fetch },
-    );
-    assert.equal(out.status, 'launched');
-    const [row] = await sql()<{ token_status: string; coin_address: string | null }[]>`SELECT token_status, coin_address FROM projects WHERE id = ${p.id}`;
-    assert.equal(row.token_status, 'launched');
-    assert.equal(row.coin_address, null);
-  } finally {
-    if (key === undefined) delete process.env.TOKENSFUN_DEPLOY_API_KEY;
-    else process.env.TOKENSFUN_DEPLOY_API_KEY = key;
-    await cleanup();
-    await sql()`DELETE FROM installations WHERE token_hash = 't4-rh'`;
-  }
-});
-
 // ---- v2.9 Task 9 (D16 to D18): claims for creators and MINI, the gas-out alert, the claims log ----
 
 const CREATOR_2 = '0x4444444444444444444444444444444444444444';
@@ -808,7 +782,7 @@ async function t9cleanup() {
   await cleanup();
 }
 
-test('9.2 / 9.6 claimForOthers: creator and MINI claimed only at 10x gas, each paying its owner; every sent claim is logged in fee_claims', db, async () => {
+test('9.2 / 9.6 claimForOthers: creators claimed only at 10x gas, each paying its owner (never MINI, v4); every sent claim is logged in fee_claims', db, async () => {
   try {
     await t9cleanup();
     await launched(COIN_A, { creator: CREATOR, mini: MINI });
@@ -819,8 +793,7 @@ test('9.2 / 9.6 claimForOthers: creator and MINI claimed only at 10x gas, each p
     const by = Object.fromEntries(out.map((o) => [o.owner, o]));
     assert.match(by[CREATOR].result, /under 10x gas/, 'the creator at 9x gas is skipped');
     assert.match(by[CREATOR_2].result, /^claim success/);
-    assert.match(by[MINI].result, /^claim success/);
-    assert.equal(by[MINI].role, 'mini');
+    assert.equal(by[MINI], undefined, 'v4: MINI is never claimed');
     // claim(owner, WETH): the FeeLocker pays the owner, never the payout wallet.
     const owners = f.state.sent.map((raw) => {
       const tx = parseTransaction(raw);
@@ -830,12 +803,12 @@ test('9.2 / 9.6 claimForOthers: creator and MINI claimed only at 10x gas, each p
       assert.equal(String(d.args![1]).toLowerCase(), C.weth);
       return String(d.args![0]).toLowerCase();
     });
-    assert.deepEqual(owners, [MINI, CREATOR_2], 'MINI first, then the creators newest first');
+    assert.deepEqual(owners, [CREATOR_2], 'the creators, newest first');
     // D18: one fee_claims row per successful claim, with its role; gas_wei = estimate x maxFeePerGas.
     const logged = (await feeClaims()).sort((a, b) => a.role.localeCompare(b.role));
     assert.deepEqual(
       logged.map((r) => [r.owner, r.role, r.weth, r.gas_wei]),
-      [[CREATOR_2, 'creator', String(10n * cost), String(cost)], [MINI, 'mini', String(10n * cost), String(cost)]],
+      [[CREATOR_2, 'creator', String(10n * cost), String(cost)]],
     );
     assert.deepEqual(new Set(logged.map((r) => r.tx_hash)), new Set(f.state.sent.map((r) => keccak256(r))));
     assert.ok(!f.state.rewardReadCoins.some((c) => c === COIN_A || c === COIN_B), 'cached recipients: no locker read');
@@ -864,7 +837,7 @@ test('9.3 feeRecipients: read once per token and cached; a failed read falls bac
     f.state.rewardReadCoins = [];
     const out = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
     assert.ok(!f.state.rewardReadCoins.includes(COIN_A));
-    assert.deepEqual(out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner), [MINI, CREATOR]);
+    assert.deepEqual(out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner), [CREATOR], 'v4: never MINI');
 
     // A token whose read fails: MINI falls back to the constant, no creator, nothing cached.
     await sql()`UPDATE projects SET fee_recipients = NULL WHERE coin_address = ${COIN_A}`;
@@ -879,19 +852,19 @@ test('9.3 feeRecipients: read once per token and cached; a failed read falls bac
       assert.equal(lines.length, 1, 'one line per run');
       assert.ok(lines[0].includes(COIN_A));
       assert.ok(!failed.some((o) => o.role === 'creator'), 'no creator claim');
-      assert.deepEqual(failed.filter((o) => o.role === 'mini').map((o) => o.owner), [MINI_FEE_RECIPIENT.toLowerCase()]);
+      assert.deepEqual(failed.filter((o) => o.role === 'mini'), [], 'v4: never MINI');
       assert.equal(f.state.sent.length, sentBefore, 'nothing available for the fallback here, so nothing sent');
     } finally {
       console.error = err;
     }
     const [after] = await sql()<{ fee_recipients: unknown }[]>`SELECT fee_recipients FROM projects WHERE coin_address = ${COIN_A}`;
     assert.equal(after.fee_recipients, null, 'a failed read is never cached');
-    // One token's read fails while another's recipients are cached: the read MINI wins over the fallback.
+    // One token's read fails while another's recipients are cached: still no MINI claim (v4).
     await launched(COIN_B, { creator: CREATOR, mini: MINI });
     console.error = () => {};
     try {
       const mixed = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
-      assert.deepEqual(mixed.filter((o) => o.role === 'mini').map((o) => o.owner), [MINI]);
+      assert.deepEqual(mixed.filter((o) => o.role === 'mini'), [], 'v4: never MINI');
     } finally {
       console.error = err;
     }
@@ -1031,8 +1004,8 @@ test('9.8 (fix round 1) the creator and MINI step runs after the sweep, in its o
     assert.deepEqual(r.claim.map((c) => c.role), ['bonus', 'safe']);
     assert.ok(r.claim.every((c) => c.result.startsWith('claim success')));
     assert.deepEqual(r.sweep, { result: 'nothing to sweep' });
-    // The slow step stopped at its slice: MINI first, the rest carried over to the next run.
-    assert.equal(r.claim_others[0].role, 'mini');
+    // The slow step stopped at its slice (creators only, v4), the rest carried over to the next run.
+    assert.equal(r.claim_others[0].role, 'creator');
     const next = r.claim_others.filter((c) => c.result === 'next run');
     assert.ok(next.length > 0 && next.length < creators.length, `${next.length} carried over`);
     assert.ok(Date.now() - started < 5_000, 'bounded');
@@ -1095,22 +1068,22 @@ test('13.6 fee recipients are read from both EarnKit splits: v2.5 (4 slots) and 
   }
 });
 
-test('13.6b a v2.13 coin (3 slots) is cached and claimed like a v2.5 one: creator and MINI each paid their own fees', db, async () => {
+test('13.6b a v2.13 coin (3 slots) and a v4 coin (2 slots) are cached and their creators claimed; MINI never is (v4)', db, async () => {
   try {
     await t9cleanup();
     await launched(COIN_A);
     await launched(COIN_B);
     const f = fakeChain({ available: { [CREATOR]: 10n ** 18n, [CREATOR_2]: 10n ** 18n, [MINI]: 10n ** 18n } });
     f.state.rewards[`${NEW_LOCKER}:${COIN_A}`] = split(CREATOR);
-    f.state.rewards[`${NEW_LOCKER}:${COIN_B}`] = { recipients: [SAFE, CREATOR_2, MINI], bps: [5000, 4000, 1000] };
+    f.state.rewards[`${NEW_LOCKER}:${COIN_B}`] = { recipients: [SAFE, CREATOR_2], bps: [6000, 4000] };
     const out = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
     assert.deepEqual(
       out.filter((o) => o.role === 'creator' || o.role === 'mini').map((o) => o.owner).sort(),
-      [CREATOR, CREATOR_2, MINI].sort(),
+      [CREATOR, CREATOR_2].sort(),
     );
     const cached = await sql()<{ coin_address: string; fee_recipients: unknown }[]>`
       SELECT coin_address, fee_recipients FROM projects WHERE coin_address IN (${COIN_A}, ${COIN_B}) ORDER BY coin_address`;
-    assert.deepEqual(cached.map((r) => r.fee_recipients), [{ creator: CREATOR, mini: MINI }, { creator: CREATOR_2, mini: MINI }]);
+    assert.deepEqual(cached.map((r) => r.fee_recipients), [{ creator: CREATOR, mini: MINI }, { creator: CREATOR_2, mini: null }]);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${PROG}`;
     await t9cleanup();

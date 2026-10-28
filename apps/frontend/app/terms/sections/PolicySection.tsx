@@ -8,7 +8,6 @@ import {
   BACKING_TITLE,
   CLANKER_CUT_PCT,
   CONTACT_EMAIL,
-  MINI_LINE,
   RECORD_STEPS,
   RECORDS_HISTORY,
   RECORDS_IP,
@@ -114,11 +113,10 @@ export default function PolicySection() {
 
         <Section title="Where token fees go">
           <p>
-            A project launches its token through EarnKit. The launch protocol keeps {CLANKER_CUT_PCT}% of trading fees.
-            The rest is split, paid in WETH on Base:
+            Your token launches on Base through EarnKit. The launch protocol keeps {CLANKER_CUT_PCT}% of trading fees.
+            The rest is split, paid in WETH:
           </p>
           <Table head={['Recipient', 'Share']} rows={feeTable()} />
-          <p>{MINI_LINE}.</p>
           <p>
             EarnKit&apos;s share goes to its Safe on Base:{' '}
             <a

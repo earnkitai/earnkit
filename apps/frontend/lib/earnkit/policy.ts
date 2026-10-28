@@ -7,6 +7,8 @@
 export const FEE_SPLIT_BPS = { project: 4000, buyback: 1000, bonus: 2000, earnkit: 3000 } as const;
 /** v2.13: coins launched from then on (tokens.fun's split change): no builder bonus slot, its share to EarnKit's Safe. */
 export const FEE_SPLIT_BPS_V213 = { project: 4000, buyback: 1000, earnkit: 5000 } as const;
+/** v4 (2026-10-28): builder tokens: the builder 40, EarnKit's Safe 60; MINI's 10% ended. */
+export const FEE_SPLIT_BPS_V4 = { builder: 4000, earnkit: 6000 } as const;
 
 /**
  * v2.9 D16, D17 (Ruling 17): the MINI fallback fee recipient and the payout wallet's gas floor. They
@@ -24,23 +26,16 @@ export const CONTACT_EMAIL = 'j@earnkit.com';
 
 const pct = (bps: number) => `${bps / 100}%`;
 
-/** The terms' fee table: v2.13's three rows (no builder bonus). */
+/** The terms' fee table (v4): the builder and EarnKit. */
 export function feeTable(): [string, string][] {
   return [
-    ['Your project', pct(FEE_SPLIT_BPS_V213.project)],
-    ['MINI buyback', pct(FEE_SPLIT_BPS_V213.buyback)],
-    ['EarnKit', pct(FEE_SPLIT_BPS_V213.earnkit)],
+    ['You', pct(FEE_SPLIT_BPS_V4.builder)],
+    ['EarnKit', pct(FEE_SPLIT_BPS_V4.earnkit)],
   ];
 }
 
-/** v2.13: the line after the fee table (coins keep the split they launched with). */
-export const SPLIT_KEPT_V213 = 'Coins launched before this change keep the split they launched with.';
-
-/**
- * v2.9 F24: the one plain MINI line, right after the fee split wherever it is shown (FEE_SPLIT_BPS.buyback
- * is the 10%; the split itself is unchanged).
- */
-export const MINI_LINE = "10% buys MINI, EarnKit's token";
+/** The line after the fee table (a token keeps the split it launched with). */
+export const SPLIT_KEPT_V213 = 'Tokens launched before this change keep the split they launched with.';
 
 /**
  * v2.11 T12 (spec 9): /terms "What EarnKit records". Every line is checked against what the code

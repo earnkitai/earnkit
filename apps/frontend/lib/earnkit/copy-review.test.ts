@@ -118,7 +118,7 @@ import { LIVE_FAILED_LINE, PLACEHOLDER_LINE, contractMissingLine, contractUnchec
 import PolicySection from '../../app/terms/sections/PolicySection';
 import TermsPage from '../../app/terms/page';
 import { ENDED_PAGE, TAKEN_DOWN_PAGE } from '../../../../infra/host-worker/src/route';
-import { MINI_LINE, PROFILES_POINTS } from './policy';
+import { PROFILES_POINTS } from './policy';
 import { bannedIn } from './fixtures/banned-words';
 import { humanStrings, humanTextFiles } from './human-text';
 import { SIGNIN_TEXT } from './x-install';
@@ -1036,7 +1036,6 @@ const builderFacing: [string, string][] = [
   // Worker's pages), the MINI line, the footer's company line and the /terms page above its footer.
   ['Worker ENDED_PAGE', ENDED_PAGE.replace(/<[^>]+>/g, ' ')],
   ['Worker TAKEN_DOWN_PAGE', TAKEN_DOWN_PAGE.replace(/<[^>]+>/g, ' ')],
-  ['MINI_LINE', MINI_LINE],
   ['footer company line', 'EarnKit is a product of Tokenfi Inc.'],
   ['/terms (above the footer)', pageText(React.createElement(TermsPage))],
   // The score tool's line on a shared client; v2.12.1 T12: hide and show; the terms' builder-profiles points.

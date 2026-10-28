@@ -676,7 +676,8 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
         console.error('[bonus] fee recipients of', coin, 'not read: its split is', bps.join('/'), 'not EarnKit\'s');
         break;
       }
-      const r: FeeRecipients = { creator: recipients[1] as Hex, mini: recipients[2] as Hex };
+      // v4 tokens (Safe 60 / creator 40) have no MINI slot.
+      const r: FeeRecipients = { creator: recipients[1] as Hex, mini: (recipients[2] as Hex | undefined) ?? null };
       // A failed cache write keeps the good read (it is read again next run).
       await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`.catch((err: unknown) =>
         console.error('[bonus] fee recipients cache of', coin, err),
@@ -774,10 +775,8 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
   }
   if (unread.length > 0)
     (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them, MINI falls back to policy.ts`);
-  // A read MINI recipient wins over the policy.ts fallback a failed read gives.
-  const fallback = lower(MINI_FEE_RECIPIENT);
-  const mini = known.find((r) => r.mini && r.mini !== fallback)?.mini ?? known.find((r) => r.mini)?.mini ?? null;
-  const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini });
+  // v4 (2026-10-28): MINI's 10% ended; EarnKit no longer claims for MINI (the creators only).
+  const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini: null });
   const others = [...all.filter((o) => o.role === 'mini'), ...all.filter((o) => o.role === 'creator')];
   const out: { owner: string; role: ClaimRole; result: string }[] = [];
   for (const { owner, role } of others) {

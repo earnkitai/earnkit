@@ -24,6 +24,8 @@ export const TOKEN_TERMS = {
 
 /** tokens.fun chain ids (person-score.ts reads them back to name a launched coin's chain). */
 export const CHAIN_IDS = { base: 8453, robinhood: 4663, arbitrum: 42161 } as const;
+/** v4 (2026-10-28): tokens launch on Base only (tokens.fun refuses any other chain). Other chains stay in CHAIN_IDS for scoring. */
+export type LaunchChain = 'base';
 
 export class LaunchError extends Error {}
 
@@ -259,7 +261,7 @@ export function knownPreMint503(error: unknown): boolean {
 export function outcomeOf(
   res: { ok: boolean; status: number } | null,
   data: DeployResponse | null,
-  chain: 'base' | 'robinhood' | 'arbitrum',
+  chain: LaunchChain,
   retryAt: Date | null = null,
 ): TokenOutcome & { release: boolean; retry?: true; busy?: true; chain_id?: number } {
   if (!res) {
@@ -501,7 +503,7 @@ export async function deployToken(
     image: { bytes: Buffer; type: string } | null;
     imageUrl?: string;
     builderX?: string;
-    chain?: 'base' | 'robinhood' | 'arbitrum';
+    chain?: LaunchChain;
     /**
      * The repo and live links the gate checked. The claim only matches while the row still holds
      * exactly these, token_repo_key comes from the repo here (never a re-read), and tokens.fun's
