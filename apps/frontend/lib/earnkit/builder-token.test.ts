@@ -3,7 +3,7 @@ import { after, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { builderTicker, builderToken, declineBuilderToken, launchBuilderToken } from './builder-token';
+import { builderTicker, builderToken, declineBuilderToken, launchBuilderToken, stuckBuilderTokens } from './builder-token';
 
 /**
  * v4 builder tokens: one per builder and per X account, launched at the wallet proof unless declined, never twice,
@@ -120,10 +120,50 @@ test('an unclear answer (502, no answer) is kept as unknown and never retried', 
   assert.deepEqual(await launchBuilderToken(b2.id, { fetch: down, check: free }), { result: 'unknown' });
 });
 
-test('builderTicker: the handle, skipping reserved and taken tickers; null when tokens.fun cannot be asked', async () => {
-  assert.equal(await builderTicker('maya_builds', free), 'MAYA');
+test('builderTicker: the handle, skipping reserved and taken tickers; tokens.fun down is told apart from no free ticker', async () => {
+  assert.deepEqual(await builderTicker('maya_builds', free), { symbol: 'MAYA' });
   const taken = new Set(['MAYA']);
-  assert.equal(await builderTicker('maya', async (s) => !taken.has(s)), 'MAYA2');
-  assert.notEqual(await builderTicker('usdc', free), 'USDC');
-  assert.equal(await builderTicker('maya', async () => null), null);
+  assert.deepEqual(await builderTicker('maya', async (s) => !taken.has(s)), { symbol: 'MAYA2' });
+  assert.notDeepEqual(await builderTicker('usdc', free), { symbol: 'USDC' });
+  assert.deepEqual(await builderTicker('maya', async () => null), { result: 'ticker_check_down' });
+  assert.deepEqual(await builderTicker('maya', async () => false), { result: 'no_ticker' });
+});
+
+test('the ticker check down (try again) and no free ticker (lasting) are two results; neither writes a row', dbTest, async () => {
+  const t = fakeTokensFun(200, { success: true, tokenAddress: coin() });
+  const down = await builder();
+  assert.deepEqual(await launchBuilderToken(down.id, { fetch: t.f, check: async () => null }), { result: 'ticker_check_down' });
+  assert.equal(await builderToken(down.id), null);
+  const none = await builder();
+  assert.deepEqual(await launchBuilderToken(none.id, { fetch: t.f, check: async () => false }), { result: 'no_ticker' });
+  assert.equal(await builderToken(none.id), null);
+  assert.equal(t.calls.length, 0);
+});
+
+test('an X account held by another builder\'s row: x_taken from launch and from a no, nothing written for this builder', dbTest, async () => {
+  const b = await builder();
+  const [{ id: other }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-bt-${hex(8)}`}) RETURNING id`;
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) VALUES (${other}, ${b.xId}, 'launching')`;
+  const t = fakeTokensFun(200, { success: true, tokenAddress: coin() });
+  assert.deepEqual(await launchBuilderToken(b.id, { fetch: t.f, check: free }), { result: 'x_taken' });
+  assert.equal(await declineBuilderToken(b.id), 'x_taken');
+  assert.equal(await builderToken(b.id), null);
+  assert.equal(t.calls.length, 0);
+});
+
+test('stuckBuilderTokens: unknown rows and launches older than 10 minutes wait on the owner; a fresh launch does not', dbTest, async () => {
+  const row = async (status: string, minutesAgo: number) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-bt-${hex(8)}`}) RETURNING id`;
+    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, updated_at)
+      VALUES (${id}, ${`x${hex(6)}`}, ${status}, now() - make_interval(mins => ${minutesAgo}))`;
+    return id;
+  };
+  const unknown = await row('unknown', 0);
+  const old = await row('launching', 11);
+  const fresh = await row('launching', 2);
+  const launched = await row('launched', 60);
+  const declined = await row('declined', 60);
+  const stuck = await stuckBuilderTokens(new Date());
+  assert.ok(stuck.includes(unknown) && stuck.includes(old));
+  for (const id of [fresh, launched, declined]) assert.ok(!stuck.includes(id), `row ${id} is not stuck`);
 });

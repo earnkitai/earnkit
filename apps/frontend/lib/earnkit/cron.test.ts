@@ -6,6 +6,7 @@ import { decodeFunctionData, encodeFunctionData, erc20Abi, keccak256, parseTrans
 import { privateKeyToAccount } from 'viem/accounts';
 import { PAY_FAILED_RUNS, TERMS_CHANGED, bonusWaitsOnOwner, cronPost, missingPrerequisites, nextStep, runCron, scoreMaxAge } from './cron';
 import { sql } from './db';
+import { stuckBuilderTokens } from './builder-token';
 import { MANUAL_CHECK, NOT_MAINNET, NO_PAYOUT_KEY, TOP_UP, dbPayoutStore, needsOwner, type PayoutRpc } from './payout';
 import { RateLimitError } from './rate-limit';
 import type { ReaderDeps } from './source-readers';
@@ -693,4 +694,29 @@ test('final fix 9: X sign-in and the GitHub App are hard prerequisites: each mis
   // The cron lists them (alerting: no quiet suffix) on a full run; the source reads them from process.env.
   const src = readFileSync(join(import.meta.dirname, 'cron.ts'), 'utf8');
   assert.match(src, /if \(!opts\.only\) needs_owner\.push\(\.\.\.missingPrerequisites\(\)\);/);
+});
+
+test('v4: a builder token unknown, or launching for over 10 minutes, waits on the owner (alerting, never quiet); a fresh launch does not', db, async () => {
+  const ids: number[] = [];
+  const row = async (status: string, minutesAgo: number) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-bt-cron-${Math.random()}`}) RETURNING id`;
+    ids.push(id);
+    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, updated_at)
+      VALUES (${id}, ${`x-cron-${id}`}, ${status}, now() - make_interval(mins => ${minutesAgo}))`;
+    return id;
+  };
+  try {
+    const unknown = await row('unknown', 0);
+    const old = await row('launching', 11);
+    const fresh = await row('launching', 2);
+    const on = await runCron({ only: ['none'], deps: { refreshFees: async () => 0, stuckBuilderTokens } });
+    assert.ok(on.needs_owner.includes(`builder-token:${unknown}`), String(on.needs_owner));
+    assert.ok(on.needs_owner.includes(`builder-token:${old}`), String(on.needs_owner));
+    assert.ok(!on.needs_owner.includes(`builder-token:${fresh}`));
+    // Scoped runs without the dep skip the step.
+    const off = await runCron({ only: ['none'], deps: { refreshFees: async () => 0 } });
+    assert.ok(!off.needs_owner.some((k: string) => k.startsWith('builder-token:')));
+  } finally {
+    if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
+  }
 });

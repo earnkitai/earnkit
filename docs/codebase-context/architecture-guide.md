@@ -353,6 +353,10 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     503 and GitHub emails the owner within the hour. Claims from before v2.8.1 got the migration's
     time (schema.sql backfill), so they alert at the first cron run 10+ minutes after the deploy.
     **Go-live step:** settle every existing `token_url = 'pending'` row with the runbook below.
+    v4: a builder token (`builder-token.ts`) whose launch answer was unclear (`status = 'unknown'`) or that is
+    still `'launching'` after 10 minutes (`stuckBuilderTokens`) is listed the same way, as
+    `builder-token:<builder id>` (alerting). Launched builder tokens' creators (`builder_tokens.wallet`) join
+    `claimForOthers`' creator claims with no locker read.
   - Ticker checks for a proposal run in parallel batches of 4 (3 s each), so a proposal costs at
     most about 9 s.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a

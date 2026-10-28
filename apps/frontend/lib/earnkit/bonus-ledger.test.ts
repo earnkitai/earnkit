@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { CallExecutionError, ExecutionRevertedError, HttpRequestError, decodeFunctionData, encodeAbiParameters, encodeEventTopics, erc20Abi, keccak256, parseTransaction, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import {
@@ -1086,6 +1087,45 @@ test('13.6b a v2.13 coin (3 slots) and a v4 coin (2 slots) are cached and their 
     assert.deepEqual(cached.map((r) => r.fee_recipients), [{ creator: CREATOR, mini: MINI }, { creator: CREATOR_2, mini: null }]);
   } finally {
     await sql()`DELETE FROM projects WHERE program_id = ${PROG}`;
+    await t9cleanup();
+  }
+});
+
+test('v4 claimForOthers: a launched builder token\'s creator (its wallet) is claimed at 10x gas, no locker read; a declined or unknown one never', db, async () => {
+  const BT = '0x5555555555555555555555555555555555555555';
+  const BT_2 = '0x6666666666666666666666666666666666666666';
+  const BT_UNKNOWN = '0x7777777777777777777777777777777777777777';
+  const BT_COIN = '0xb700000000000000000000000000000000000001';
+  const BT_COIN_2 = '0xb700000000000000000000000000000000000002';
+  const ids: number[] = [];
+  const row = async (status: string, wallet: string | null, coin: string | null) => {
+    const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-bt-claim-${randomUUID()}`}) RETURNING id`;
+    ids.push(id);
+    await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, wallet, coin_address)
+      VALUES (${id}, ${`x-claim-${randomUUID()}`}, ${status}, ${wallet}, ${coin})`;
+  };
+  const owners = [BT, BT_2, BT_UNKNOWN];
+  try {
+    await t9cleanup();
+    await sql()`DELETE FROM builder_tokens WHERE coin_address IN (${BT_COIN}, ${BT_COIN_2}) OR wallet IN ${sql()(owners)}`;
+    await row('launched', BT, BT_COIN);
+    await row('launched', BT_2, BT_COIN_2);
+    await row('unknown', BT_UNKNOWN, null);
+    await row('declined', null, null);
+    const cost = 50_000n * 1_000_000n;
+    const f = fakeChain({ available: { [BT]: 10n * cost, [BT_2]: 9n * cost, [BT_UNKNOWN]: 10n ** 18n } });
+    const out = await claimForOthers(ACCOUNT, { rpc: f.rpc, chain: C, log: quiet });
+    const by = Object.fromEntries(out.map((o) => [o.owner, o]));
+    assert.equal(by[BT]?.role, 'creator');
+    assert.match(by[BT].result, /^claim success/);
+    assert.match(by[BT_2]?.result ?? '', /under 10x gas/, 'the builder at 9x gas is skipped');
+    assert.equal(by[BT_UNKNOWN], undefined, 'an unknown launch is never claimed');
+    const sentTo = f.state.sent.map((raw) => String(decodeFunctionData({ abi: FEE_LOCKER_ABI, data: parseTransaction(raw).data! }).args![0]).toLowerCase());
+    assert.deepEqual(sentTo, [BT], 'claim(builder wallet, WETH): the FeeLocker pays the builder');
+    assert.ok(!f.state.rewardReadCoins.some((c) => c === BT_COIN || c === BT_COIN_2), 'the recipient is known: no locker read');
+  } finally {
+    await sql()`DELETE FROM fee_claims WHERE owner IN ${sql()(owners)}`;
+    if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
     await t9cleanup();
   }
 });

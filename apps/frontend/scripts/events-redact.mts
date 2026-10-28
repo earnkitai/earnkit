@@ -89,6 +89,8 @@ const WALLET_COLUMNS: [table: string, column: string][] = [
   ['coin_backers', 'wallet'],
   ['creator_fees', 'wallet'],
   ['creator_deposits', 'wallet'],
+  // v4: the proven wallet a builder token was launched for (builder-token.ts; it is the token's creator).
+  ['builder_tokens', 'wallet'],
 ];
 /** text[] columns that can hold the wallet. */
 const WALLET_ARRAYS: [string, string][] = [

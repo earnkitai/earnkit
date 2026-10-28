@@ -1311,7 +1311,9 @@ apps/frontend/
                                v2.14 final fix: missingPrerequisites / PREREQ_VARS (env-missing:<VAR>, env-invalid:GITHUB_APP_PRIVATE_KEY
                                on a full run: X sign-in and the GitHub App are hard prerequisites),
                                Rulings 19-20; an ended round's scoring failure once, Ruling 23; v2.8.1
-                               token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches), cronPost
+                               token-pending:<id> for a launch claim pending > 10 min, CronDeps.stuckLaunches; v4
+                               builder-token:<builder id> for a builder token unknown or launching > 10 min,
+                               CronDeps.stuckBuilderTokens), cronPost
                                v2.11 Task 11: the usage step after deployerGas (CronDeps.usage; `usage_checks` in the
                                result; never needs_owner)
                                v2.12 T6: last (always since v2.14 T3), builder-score.ts runScoreSteps

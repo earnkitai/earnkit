@@ -27,6 +27,7 @@ import {
 import { r2Enabled, type R2 } from './r2';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { stuckLaunches } from './tokens';
+import { stuckBuilderTokens } from './builder-token';
 import { sweepVerifyNonces } from './github-verify';
 import { DEPLOY_CAPS, deployChains, deployEnabled, deployerAddress, nativeUsd, viemDeployChain, weiToMicroUsd, type DeployDeps } from './deploy';
 import { githubAppEnabled } from './github-app';
@@ -91,6 +92,8 @@ export type CronDeps = {
   ledger?: (deps: BonusDeps) => Promise<Record<string, unknown>>;
   /** v2.8.1 §A1: the projects whose launch claim is older than 10 minutes (default tokens.ts stuckLaunches). */
   stuckLaunches?: (now: Date) => Promise<number[]>;
+  /** v4 fix round 1: builder tokens 'unknown' or 'launching' over 10 minutes (default builder-token.ts stuckBuilderTokens). */
+  stuckBuilderTokens?: (now: Date) => Promise<number[]>;
   /** v2.9 C13: the hosted sites' R2 (default: r2.ts r2Client); with `only`, the step runs only when given. */
   /** `only`: tests limit the hosting steps to their own slugs. */
   hosting?: { r2?: R2; only?: string[] };
@@ -471,6 +474,15 @@ export async function runCron(
     }
   }
   for (const id of stuck) needs_owner.push(`token-pending:${id}`);
+  // v4 fix round 1: a builder token whose launch answer was unclear ('unknown'), or still 'launching' after 10
+  // minutes (the process stopped mid-launch; the row blocks a later launch), waits on the owner the same way.
+  if (!opts.only || deps.stuckBuilderTokens) {
+    try {
+      for (const id of await (deps.stuckBuilderTokens ?? stuckBuilderTokens)(now)) needs_owner.push(`builder-token:${id}`);
+    } catch (err) {
+      console.error('[cron] stuck builder tokens', err instanceof Error ? err.name : 'error');
+    }
+  }
   // v2.9 C14, P46: a flagged upload waits on the owner's review (the takedown route kills or approves it).
   if (hostingOn) {
     const review = await sitesInReview().catch((err: unknown) => {

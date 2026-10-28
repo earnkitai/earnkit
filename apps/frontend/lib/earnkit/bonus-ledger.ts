@@ -750,7 +750,7 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
 
 /**
  * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for MINI and each launched EarnKit token's
- * creator (test installations' too: their fees are real), after the rounds and the sweep, within at
+ * creator (test installations' too: their fees are real; v4: and each launched builder token's wallet), after the rounds and the sweep, within at
  * most OTHERS_CLAIM_MS (`othersMs`) of the run, so it never takes time from EarnKit's own payouts.
  * The FeeLocker always pays the owner, so EarnKit never holds the creator's or MINI's money; each
  * claim needs 10× its gas. Recipients: cached, else read (feeRecipients, at most
@@ -773,6 +773,12 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
       known.push(await feeRecipients(t.coin, { ...d, unread }));
     }
   }
+  // v4 fix round 1: each launched builder token's creator is its builder's proven wallet (the creatorWallet it was
+  // launched with), so it is known without a locker read; newest first, after the project tokens' creators.
+  const builders = await sql()<{ wallet: Hex }[]>`
+    SELECT wallet FROM builder_tokens
+    WHERE status = 'launched' AND coin_address IS NOT NULL AND wallet IS NOT NULL ORDER BY created_at DESC, builder_id DESC`;
+  for (const b of builders) known.push({ creator: b.wallet, mini: null });
   if (unread.length > 0)
     (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them, MINI falls back to policy.ts`);
   // v4 (2026-10-28): MINI's 10% ended; EarnKit no longer claims for MINI (the creators only).
