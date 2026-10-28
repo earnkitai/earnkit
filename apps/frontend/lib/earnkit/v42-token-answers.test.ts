@@ -141,8 +141,10 @@ test('F4: a wallet signed while the token launched: the "Done" reply names the t
   await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address, wallet)
     SELECT ${b.id}, x_user_id, 'launched', 'V42', ${coin}, ${WALLET} FROM builder_profiles WHERE builder_id = ${b.id}`;
   const s = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'yes' } }));
-  assert.match(s, /^Done\. Your rewards now go to 0x/);
-  assert.ok(s.includes(`\n\nDone. Your token is live: ${tradeUrl(coin)}\nIt's on your page too: `), s);
+  // v4.2 Task 10 (G4): one "Done.", the wallet and the token in the first line.
+  assert.match(s, /^Done\. Your rewards now go to 0x[^\n]+, and your token is live: /);
+  assert.equal(s.match(/Done\./g)?.length, 1, s);
+  assert.ok(s.includes(`, and your token is live: ${tradeUrl(coin)}\nIt's on your page too: `), s);
   assert.ok(s.endsWith(`/${b.handle}`), s);
 }));
 

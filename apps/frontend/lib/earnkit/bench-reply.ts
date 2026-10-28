@@ -253,10 +253,14 @@ export const bestFitAsk = (program: string) => `${program} looks like your best 
  * v4.0 Task 5: the setup-done reply: the lead, the table and the draft question; with no open fit, the lead alone and
  * `noFit` (never an empty table). Pure.
  */
-export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null } = {}) =>
+export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean } = {}) =>
   rows.length === 0
     ? `${setupDoneLead(first, outcome, false, opts.trade)}\n\n${noFit}`
-    : `${setupDoneLead(first, outcome, true, opts.trade)}\n\n${programsTable(rows)}\n\n${opts.closest ? closestAsk(opts.closest.program, opts.closest.step) : bestFitAsk(rows[0].program)}`;
+    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows),
+        opts.noAsk ? null : opts.closest ? closestAsk(opts.closest.program, opts.closest.step) : opts.check ? checkFitsAsk(opts.check) : bestFitAsk(rows[0].program)]
+        .filter((x) => x !== null).join('\n\n');
+/** v4.2 Task 10: fits not known yet: the question (a yes runs the fit check, find). Pure. */
+export const checkFitsAsk = (project: string) => `Want me to check which of these fits ${project}?`;
 /** v4.2: nothing fits now: the closest program, the one step it needs, and the offer to help. Pure. */
 export const closestAsk = (program: string, step: string) => `${program} is the closest. It needs ${step}. Want help with it?`;
 /** Only when true: the Base Builder Code stays on the first wallet; a launched token's fees stay with its launch wallet. */
@@ -282,6 +286,8 @@ export const walletContractsOnly = (current: string) =>
 export const walletNotice = (wallet: string) => `Your reward wallet changed to ${wallet}.`;
 export const WALLET_SKIPPED = 'Skipped. Ask me anytime to add your reward wallet.';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
+/** v4.2 Task 10: a no to the titles question. */
+export const TITLES_NO_LINE = 'Got it, your commit titles stay private.';
 export const TITLES_ASK = 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.';
 
 /**
@@ -739,7 +745,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   const ship = shipLine(v.target);
   // A reply with nothing else to say still says where the builder stands (never an empty reply); the ship line alone is no reply either.
   const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
-  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipLine(null) : null]));
+  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, nag ? shipLine(null) : null, ask]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
   if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'token' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
@@ -749,7 +755,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // said the amount twice, every reply); the question names the grant and its amount.
   const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [qualifyMissing(name, v.qualify)] : [];
   const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? ship : null;
-  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, target]));
+  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, target, ask]));
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

@@ -320,7 +320,10 @@ export function fitGate(p: NewProgram, r: FitRepo, o: { apply?: boolean } = {}):
   if (!r.product || r.product.tier === 'noise') return 'tier';
   // v2.10 item 6: a low-odds repo is never alerted (nor offered in Also qualifies). v2.11 8a (S3):
   // nor an unknown one (asked about users first).
-  if (r.product.odds === 'low' || r.product.odds === 'unknown') return 'odds';
+  // v4.2 Task 10 (G1): "no users yet" is a count of zero, which a told "has users" on a loading live link overrides (as match-projects'
+  // scored does for a fresh match), so a repo matched before the builder answered still fits.
+  const toldUsers = r.said?.has_users === true && r.live_verified && r.product.low_reason === 'no users yet' && !r.product.missing.includes('active');
+  if (!toldUsers && (r.product.odds === 'low' || r.product.odds === 'unknown')) return 'odds';
   if ((p.any_chain || p.investment) && !fitsWideProgram(r.product)) return 'wide';
   const f = applyBuilderFacts(repoFacts(r), r.said ?? undefined);
   if (!f) return 'facts';

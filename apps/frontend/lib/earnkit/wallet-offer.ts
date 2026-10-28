@@ -202,6 +202,8 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
     WHERE builder_id = ${builderId}`.catch(logged('link given'));
 }
 
+/** token-answers.ts: the lead of the reply to a sign that launched the token. */
+const TOKEN_LIVE_HEAD = 'Done. Your token is live: ';
 /**
  * v4.2: after a reward wallet signed, the token's state in the same reply: just launched by this sign (the trade link and
  * the page), already live (the Live copy), or on its way. Null when the builder has no token row (declined or never offered). Never throws.
@@ -247,7 +249,15 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
     if (!(await end()).length) return okay;
     const token = got.recipient ? await signedTokenLine(builderId, now, new Date(p.at)) : null;
     const contracts = await contractsOnBase(builderId);
-    if (got.recipient) return { show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token].filter(Boolean).join('\n\n') };
+    if (got.recipient) {
+      // v4.2 Task 10 (G4): a sign that launched the token is one "Done.": the wallet and the token in the first line.
+      const launched = token?.startsWith(TOKEN_LIVE_HEAD) ? token.slice(TOKEN_LIVE_HEAD.length) : null;
+      if (launched !== null) {
+        const [trade, ...page] = launched.split('\n');
+        return { show_to_builder: [`Done. Your rewards now go to ${shortWallet(got.wallet)}, and your token is live: ${trade}`, ...page, contracts ? 'Your contracts on Base will show on your page soon.' : null].filter(Boolean).join('\n') };
+      }
+      return { show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token].filter(Boolean).join('\n\n') };
+    }
     const current = await provenWallet(builderId);
     return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet), contracts) };
   }

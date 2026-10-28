@@ -387,7 +387,7 @@ test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     // v3.1 spec 3.2: the rolling fit is first offered as a draft (once a program); then the step is to ship.
-    assert.ok(r.show_to_builder.endsWith(`${applyAsk(prog.title, '$10,000', null)}\nShip code this week.`), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith(`\nShip code this week.\n${applyAsk(prog.title, '$10,000', null)}`), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'apply');
     const next = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     // v3.1 cold read: the unchanged standing isn't repeated and the points line was this week's already.

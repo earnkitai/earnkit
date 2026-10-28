@@ -285,10 +285,10 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   // v4.0 Task 5: the no is the setup-done reply now (MealMate fits nothing open here).
   const none = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } }));
-  // v4.2 (F3): programs are open, so the table, never "doesn't fit"; MealMate fits none of them, so the closest one with its step.
+  // v4.2 (F3): programs are open, so the table, never "doesn't fit"; MealMate was matched and fits none of them, so no question (never a program picked for a reason EarnKit does not have).
   assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
   assert.doesNotMatch(none, /doesn't fit/, none);
-  assert.match(none, /\n\n[^\n|]+ is the closest\. It needs [^\n.]+\. Want help with it\?$/, none);
+  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |'), none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
@@ -549,7 +549,7 @@ test('(d) said once: the next reply is the normal ranked reply; a later no to th
   assert.doesNotMatch(show(s), /You're all set|what's open for you right now/, show(s));
 });
 
-test('(e) every program already told: the table still shows (v4.2: "doesn\'t fit" only when nothing is open), asked as the closest, never an empty table', db, async () => {
+test('(e) every program already told: the table still shows (v4.2: "doesn\'t fit" only when nothing is open), no question, never an empty table', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('e', []);
   // Every program the stored repo facts could win, told about already (so none is open for it).
@@ -559,8 +559,8 @@ test('(e) every program already told: the table still shows (v4.2: "doesn\'t fit
   const s = show(r);
   assert.ok(s.startsWith(`No worries, add it whenever you're ready. ${OPEN}\n\n| Program | Up to | Closes |`), s);
   assert.doesNotMatch(s, /doesn't fit/, s);
-  assert.match(s, /is the closest\. It needs [^\n.]+\. Want help with it\?$/, s);
-  assert.equal(kindOf(r), 'qualify');
+  assert.doesNotMatch(s, /\?$/, s);
+  assert.notEqual(kindOf(r), 'qualify');
 });
 
 test('final review 1: a token still launching or unknown is never told as live: "Your token is on its way" in place of the community line', db, async () => {

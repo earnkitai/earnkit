@@ -107,7 +107,7 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   const f = await find(b);
   const s = show(f);
   // Task 16 step 5: the dated fit within 30 days (never the 45-day one), its question, the points line.
-  assert.equal(s, `Kit is on EarnKit.\n${applyAsk(p.title, '$5,000', p.when)}\nShip code this week.`);
+  assert.equal(s, `Kit is on EarnKit.\nShip code this week.\n${applyAsk(p.title, '$5,000', p.when)}`);
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);
@@ -124,7 +124,7 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
 test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 16 step 6)', db, async () => {
   const p = await dated('b', 20);
   const b = await builder('b', [p.id]);
-  assert.match(show(await find(b)), /I can draft it in a minute\.\nWant me to\?\n/);
+  assert.match(show(await find(b)), /I can draft it in a minute\.\nWant me to\?$/);
   const yes = await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
   assert.equal(show(yes), '');
   assert.equal(yes.reply?.agent_note, APPLY_YES_NOTE(p.id));

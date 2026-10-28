@@ -12,6 +12,7 @@ import { REPO_KEY, benchConfirmedSql, rankRepo } from './main-project';
 import { installLink, pickLink, proveCovered, repoProof } from './repo-proof';
 import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
+import { readFitRepos } from './installations';
 import { UPDATE_LINES, setShipTitles, takeTitlesAsk, titlesAskDue } from './updates';
 import { grantOf, qualifyOffer } from './base-qualify';
 import { earnedUsd } from './earned';
@@ -32,7 +33,7 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
   TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
@@ -113,6 +114,8 @@ export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: 
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: Base's grant steps question's note; a yes returns the steps. */
+/** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
+export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
 export const QUALIFY_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'qualify', project_key, answer } (project_key as given here). Don't show this note.";
 /** 2026-10-22: the steps reply's question; a yes is help with the first step, here. */
 export const QUALIFY_STEPS_NOTE =
@@ -162,7 +165,7 @@ export type Seen = StandSeen & {
   bench_ask?: {
     kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
     /** v4.2 (kind 'qualify' from setup done): the closest program's title and the one step it needs. */
-    program?: string; step?: string;
+    program?: string; step?: string; check?: boolean;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
     code?: string; head?: string; moment?: unknown;
     /** v4.0 Task 8 fix round 1 (kind 'outcome_share'): the outcome post's short link. */
@@ -1376,7 +1379,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
         COALESCE(standing_seen->'declined', '{}'::jsonb) || jsonb_build_object(${benchStepKey(asked.kind, asked.kind === 'apply' ? (asked.program_id ?? null) : asked.key)}::text, ${now.toISOString()}::text)) - 'bench_ask'
       WHERE builder_id = ${id}`.catch(logged('decline'));
-    return okay;
+    return asked.kind === 'titles' ? { show_to_builder: TITLES_NO_LINE } : okay;
   }
   // Fix round 1: answered once. The ask is cleared before the yes runs, so a retried yes is "Okay.".
   if (TAKEN_ONCE.includes(asked.kind)) {
@@ -1414,6 +1417,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
       // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.
       // v4.2: the closest program (setup done): its one step, never a draft.
+      if (asked.check) return { show_to_builder: '', agent_note: CHECK_FITS_NOTE };
       if (asked.program && asked.step) {
         return {
           show_to_builder: `Your next step toward ${asked.program}: ${asked.step}.\n\n${QUALIFY_HELP_ASK_ONE}`,
@@ -1594,6 +1598,9 @@ export async function setupDoneFor(
     let rows: Pick<Fit, 'title' | 'amount' | 'when'>[] = best ? [best, ...real.filter((f) => f !== best)] : longShots;
     let closest: { program: string; step: string } | null = null;
     let closestId: string | null = null;
+    let check = false;
+    // Fits are known once the project was matched (find stores its repo); a long-shot or no-fit answer is then true, not a gap.
+    const known = given !== null || (g.key !== null && ((await keptBenchMatch(id, g.key, now)) !== null || (await readFitRepos(id).catch(() => [])).some((f) => f.key.toLowerCase() === g!.key!.toLowerCase())));
     if (!best) {
       open ??= await scoreApplies(id, g.key, now);
       const listed = new Set(longShots.map((f) => f.program_id));
@@ -1604,13 +1611,24 @@ export async function setupDoneFor(
       const alreadyTold = others.filter((c) => !notToldIds.has(c.id)).sort(byRelevance);
       const extra = [...grants, ...investments, ...alreadyTold];
       rows = [...longShots, ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c) }))];
-      if (longShots[0]) { closest = { program: longShots[0].title, step: closestStep(longShots[0].bar, g.key) }; closestId = longShots[0].program_id; }
-      else if (extra[0]) { closest = { program: extra[0].title, step: closestStep(undefined, g.key) }; closestId = extra[0].id; }
+      // Task 10 (G1): the closest is a grant the fit check itself called a long shot, never an investment or a company-only
+      // program, and never a guess: with no fits computed at all (nothing matched yet) the question is the fit check.
+      const shot = (await openCandidates(id, g.fits.filter((f) => f.bar === 'long_shot' && !f.investment))) ?? [];
+      if (shot[0]) { closest = { program: shot[0].title, step: closestStep(shot[0].bar, g.key) }; closestId = shot[0].program_id; }
+      else if (!g.key) {
+        // No project yet: the first grant (a told one too), whose one step is the code connected.
+        const grant = [...grants, ...alreadyTold.filter((c) => c.investment !== true)][0];
+        if (grant) { closest = { program: grant.title, step: closestStep(undefined, null) }; closestId = grant.id; }
+      } else if (!known && grants.length > 0) check = true;
     }
     const trade = settled.outcome === 'launched' ? await tokenTradeUrl(id) : null;
-    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest });
+    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest, check: check ? (g.name ?? 'your project') : null, noAsk: !best && !closest && !check });
     // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
     if (!(await takeOnce(id, 'setup_done', now))) return null;
+    if (!best && check) {
+      await storeAsk(id, { kind: 'qualify', key: g.key, check: true });
+      return { show_to_builder: show, move_up: { kind: 'qualify', project_key: g.key, agent_note: QUALIFY_NOTE } };
+    }
     if (!best && !closest) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
       return { show_to_builder: show };

@@ -1207,9 +1207,12 @@ export const handlers = {
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
       await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
+      // v4.2 Task 10 (G3): what the builder told about this repo (has users, a live link) counts, as in the lists (none on a shared client).
+      const full = githubRepo(repo.includes('://') ? repo : `https://github.com/${repo}`);
+      const told = full ? (await memoryOf(memoryKey(ctx), 'get_program').catch(() => null))?.repos.get(saidKeyOf({ url: `https://github.com/${full.owner}/${full.repo}`, name: full.repo })) : undefined;
       return withAlerts(ctx, {
         ...program,
-        eligibility: await checkEligibility(repo, program_id),
+        eligibility: await checkEligibility(repo, program_id, {}, told),
       });
     } catch (err) {
       if (!(err instanceof GitHubError || err instanceof RateLimitError))
@@ -2498,7 +2501,7 @@ export function eligibilityLine(repo: string, e: unknown, o: { org?: string | nu
   // v3.1 cold read: never "no arc code found in this repo".
   const chainLine = status === 'no' ? chainFitLine(note, o.org, o.name ?? name) : null;
   if (chainLine) return chainLine;
-  const said = note ? note.replace(/\.$/, '') : null;
+  const said = note ? note.replace(/\.$/, '').replace(/^confirm: /, 'confirm ') : null;
   if (status === 'likely') return said ? `${name} fits: ${said}.` : `${name} fits.`;
   if (status === 'after_step') return `${name} fits after one step${said ? `: ${said}` : ''}.`;
   if (status === 'no') return `${name} doesn't fit yet${said ? `: ${said}` : ''}.`;

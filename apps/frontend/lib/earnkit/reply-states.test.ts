@@ -43,7 +43,7 @@ test('9.2 the four replies (Task 16 copy)', () => {
   assert.equal(unc, `You're in, @maya_makes. Really glad you're here.\n\n${pickRepoAsk(verify, false)}`);
   oneQuestion(unc);
   const ranked = benchReply(view({ state: 'ranked', fund: [{ kind: 'fits', title: 'Base Builder Grants', amount: '$5,000', when: 'rolling' }] }));
-  assert.equal(ranked, ['Recipes · #1 of 10 builders · 2 weeks in a row', 'You qualify for the Base Builder Grants, up to $5,000.', SHIP_ASK, 'Ship code this week.'].join('\n'));
+  assert.equal(ranked, ['Recipes · #1 of 10 builders · 2 weeks in a row', 'You qualify for the Base Builder Grants, up to $5,000.', 'Ship code this week.', SHIP_ASK].join('\n'));
   oneQuestion(ranked, false);
   // Under RANK_MIN_POOL no rank phrase is given.
   assert.ok(benchReply(view({ state: 'ranked', rank: null })).startsWith('Recipes · 2 weeks in a row\n'));
@@ -65,7 +65,7 @@ test('9.3 variants of not counted: taken, copy, a link only, the App off', () =>
 });
 
 test('9.4 a ranked project with no fit has no money line (Task 16: no "Ways to get funded")', () => {
-  assert.equal(benchReply(view({ state: 'ranked', fund: [] })), `Recipes · #1 of 10 builders · 2 weeks in a row\n${SHIP_ASK}\nShip code this week.`);
+  assert.equal(benchReply(view({ state: 'ranked', fund: [] })), `Recipes · #1 of 10 builders · 2 weeks in a row\nShip code this week.\n${SHIP_ASK}`);
   assert.doesNotMatch(benchReply(view({ state: 'no_project', project: null, fund: [] })), /Ways to get funded|No program is open/);
 });
 

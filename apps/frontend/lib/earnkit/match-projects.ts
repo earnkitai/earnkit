@@ -1445,7 +1445,7 @@ const noFitReason = (f: RepoFacts) =>
 const namedKey = (n: string) => repoKey({ url: `https://github.com/${n}`, name: n.split('/')[1] });
 
 /** get_program's eligibility check: one repo against one open program (scored, owned unless EarnKit's). */
-export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}) {
+export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}, told?: SaidRepo) {
   const program = (deps.programs ?? (await openProgramFacts())).find((p) => p.id === programId);
   if (!program) return null;
   const repo = await repoByName(fullName(ref));
@@ -1458,6 +1458,8 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
     now,
     cache: deps.cache ?? DB_CACHE,
     starters: deps.starters,
+    // v4.2 Task 10 (G3): what the builder told about this repo counts here as in the lists.
+    ...(told && { said: told }),
   });
   // v2.10 R4 (Pre-flight P27): one repo, one ENTRY_BUDGET (1 Blockscout read).
   const { repo: facts, verdicts } = await prepared.finish((await runChecks([prepared], checks, ENTRY_BUDGET))[0]);

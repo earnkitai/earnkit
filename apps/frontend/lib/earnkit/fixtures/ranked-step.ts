@@ -11,8 +11,8 @@ export const endsOnQuietStep = (s: string): boolean => {
   const lines = s.trimEnd().split('\n');
   return !s.includes('?') && RANKED_STEP.test(lines.at(-1) ?? '');
 };
-/** The reply ends on the ranked step's question (the ship step, or Base's grant steps with no fit) and its plain line. */
+/** v4.2 Task 10: the reply ends on the ranked step: its plain line, then its question last (the ship step, or Base's grant steps with no fit). */
 export const endsOnRankedStep = (s: string): boolean => {
   const lines = s.trimEnd().split('\n');
-  return (lines.at(-2) === SHIP_ASK || QUALIFY_ASK.test(lines.at(-2) ?? '')) && RANKED_STEP.test(lines.at(-1) ?? '');
+  return (lines.at(-1) === SHIP_ASK || QUALIFY_ASK.test(lines.at(-1) ?? '')) && RANKED_STEP.test(lines.at(-2) ?? '');
 };
