@@ -58,8 +58,8 @@ import { pagePath } from './reserved-routes';
 import { siteUrl } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
-import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken } from './wallet-offer';
-import { declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
+import { WALLET_NOTE, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken } from './wallet-offer';
+import { builderToken, declineBuilderToken, launchBuilderToken, type LaunchResult } from './builder-token';
 import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
@@ -659,11 +659,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // R10: a rank only in the ranked state; never beside "not on the leaderboard" or "isn't counted yet".
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
-  // v4.0 setup step 3 (the wallet, and the token unless they say no): before every ranked ask, and on the no-GitHub path
-  // after the walk-through offer. While it is due, no other ranked offer is opened (each one is claimed when made).
-  const setupLink = !held && handle !== null && (ranked || githubNo) ? await walletSetupDue(id, now) : null;
+  // v4.0 setup step 3 (the wallet, and the token unless they say no): once step 2 is done or answered no, in any signed-in
+  // state; before every ranked ask, and on the no-GitHub path after the walk-through offer. While it is due, no other
+  // ranked offer is opened (each one is claimed when made). Fix round 1: a project not counted yet is "Your code" (the
+  // App connected another repo); the no-GitHub path names none.
+  const setupLink = !held && handle !== null && state !== 'signed_out' ? await walletSetupDue(id, now) : null;
   const walletSetup = setupLink
-    ? { link: setupLink, project: ranked ? (project?.name ?? 'Your code') : null, token: await walletSetupToken(id) }
+    ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code', token: await walletSetupToken(id) }
     : null;
   const rankedFree = ranked && !walletSetup;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
@@ -760,7 +762,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // Fix round: the wallet step is claimed only when this reply carries it (another reply claimed it first: the ship step).
   if (finalAsk.kind === 'wallet' && !(await takeWalletAsk(id, now))) finalAsk = stateAsk({ ...asks, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
-  if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
+  if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true, walletSetup?.token === true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -1296,7 +1298,7 @@ const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', '
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
 const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'backing', 'titles', 'qualify', 'post', 'new_repo', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
-const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin'];
+const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup'];
 
 /** The ask stored with the last Bench reply, when the agent's answer names it (kind, if given, and project_key). */
 export async function benchAsked(id: number, m: { kind?: string; project_key?: string | null }): Promise<NonNullable<Seen['bench_ask']> | null> {
@@ -1422,10 +1424,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'wallet') return answerWallet(id, m.answer, now);
   // v4.0 setup step 3: "done" is the wallet's yes; a plain no is a no to the token (the copy's "Just say no"), else
   // (no token sentence shown) a skip of the wallet.
-  if (m.kind === 'wallet_setup') {
-    if (m.answer === 'yes') return answerWallet(id, 'yes', now);
-    return (await walletSetupToken(id)) ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
-  }
+  if (m.kind === 'wallet_setup') return setupAnswer(ctx, id, m.answer, now);
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
   if (m.kind === 'token') return tokenAnswer(ctx, id, m.answer, now);
   // 2026-10-23 Base onboarding: step 2's no is remembered (never repeated) and its yes after a no is the builder asking
@@ -1456,7 +1455,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
-  if (asked.kind === 'wallet' || asked.kind === 'wallet_setup') return answerWallet(id, m.answer, now);
+  if (asked.kind === 'wallet') return answerWallet(id, m.answer, now);
+  if (asked.kind === 'wallet_setup') return setupAnswer(ctx, id, m.answer, now);
   // v3 Stage 2 (spec 5.3 Route 2): the backing offer is the coin offer's (coinAnswer): a yes is the coin flow's note
   // (confirm { project_id }), a no is remembered on coin_moments and counts toward DECLINES_MAX. Answered once.
   if (asked.kind === 'backing') {
@@ -1588,7 +1588,7 @@ async function walletStep(id: number, now: Date): Promise<Record<string, unknown
   const setup = await walletSetupDue(id, now);
   if (setup) {
     const token = await walletSetupToken(id);
-    if (!(await takeWalletAsk(id, now, true))) return null;
+    if (!(await takeWalletAsk(id, now, true, token))) return null;
     await storeAsk(id, { kind: 'wallet_setup', key: null, at: now.toISOString() });
     return { show_to_builder: walletSetupAsk(null, setup, token), move_up: { kind: 'wallet_setup', project_key: null, agent_note: walletSetupNote(token) } };
   }
@@ -1616,6 +1616,16 @@ export function tokenLine(r: LaunchResult): string | null {
     case 'off': return NOTED_LINE;
     case 'not_ready': return null;
   }
+}
+/**
+ * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. Fix round 1:
+ * a no after the token sentence was shown (standing_seen.token_offered) and before any token row is a no to the token
+ * (the copy's "Just say no"; the wallet step stays open); otherwise a skip of the wallet. Never throws.
+ */
+async function setupAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
+  if (answer === 'yes') return answerWallet(id, 'yes', now);
+  const token = (await tokenOffered(id)) && (await builderToken(id).catch(() => null)) === null;
+  return token ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
 }
 /**
  * v4.0: tell move_up kind 'token'. A no is kept forever (declineBuilderToken; a token already on its way or live is

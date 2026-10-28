@@ -113,18 +113,30 @@ export async function walletSetupToken(builderId: number): Promise<boolean> {
 
 /**
  * The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. v4.0 `setup`:
- * it is setup step 3 (standing_seen.wallet_setup), so its skip is step 3's. Never throws.
+ * it is setup step 3 (standing_seen.wallet_setup), so its skip is step 3's. v4.0 fix round 1 `token`: the reply carries
+ * the token sentence (standing_seen.token_offered, kept): only then does the first wallet proof launch the token, and a
+ * plain no to step 3 decline it. Never throws.
  */
-export async function takeWalletAsk(builderId: number, now: Date, setup = false): Promise<boolean> {
+export async function takeWalletAsk(builderId: number, now: Date, setup = false, token = false): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('wallet_asked', ${now.toISOString()}::text, 'wallet_link_at', ${now.toISOString()}::text)
       || (CASE WHEN ${setup} THEN jsonb_build_object('wallet_setup', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
+      || (CASE WHEN ${setup && token} THEN jsonb_build_object('token_offered', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
     WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'wallet_asked', false) RETURNING 1`.catch((err: unknown) => {
     logged('take')(err);
     return [];
   });
   return Boolean(taken);
+}
+/** v4.0 fix round 1: the builder saw step 3's token sentence (standing_seen.token_offered). A failed read: false. Never throws. */
+export async function tokenOffered(builderId: number): Promise<boolean> {
+  const [p] = await sql()<{ offered: boolean }[]>`
+    SELECT COALESCE(standing_seen ? 'token_offered', false) AS offered FROM builder_profiles WHERE builder_id = ${builderId}`.catch((err: unknown) => {
+    logged('token offered')(err);
+    return [];
+  });
+  return p?.offered === true;
 }
 /** A link was given (the change link): the state starts now. */
 async function linkGiven(builderId: number, now: Date): Promise<void> {

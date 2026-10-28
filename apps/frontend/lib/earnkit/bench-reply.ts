@@ -546,6 +546,9 @@ export function stateAsk(
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
     return { kind: 'next_step', project_key: null, line: NEXT_STEP_ASK };
   }
+  // v4.0 fix round 1: step 3 once step 2 is done, ranked or not (a project not counted yet: the App connected another repo).
+  if (v.walletSetup && v.state !== 'ranked')
+    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link, v.noGithub === true) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   // v3.1 cold read: a live app (Lovable, Bolt) whose builder said no to GitHub once: how its tool puts the code on GitHub.
@@ -631,6 +634,8 @@ export function benchReply(v: BenchView): string {
   const money = step2 && !again && v.open && !named ? grantHook(v.open) : null;
   // v4.0 approved copy 2: the welcome is its own paragraph above the step.
   const hi = [named ? youreIn(v.handle!) : null];
+  // v4.0 approved copy 3: step 3 is its own reply, word for word, in any state.
+  if (!v.held && v.ask.kind === 'wallet_setup' && v.state !== 'ranked') return paras(hi, [notice, ask]);
   if (v.state === 'no_project') return paras(hi, [notice, money, ...v.due, ask]);
   if (v.state === 'not_counted') {
     if (step2 && !v.variant) return paras(hi, [notice, money, ...v.due, ask]);

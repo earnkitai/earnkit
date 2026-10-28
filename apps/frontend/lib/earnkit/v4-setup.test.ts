@@ -183,14 +183,14 @@ async function settled(id: number): Promise<string | null> {
   return tokenRow(id);
 }
 /** Signs the link's message and posts it as the page does (fake verify, no discovery, tokens.fun faked). */
-async function signOn(handle: string, s: string, tf: ReturnType<typeof fakeTokensFun>, acct = privateKeyToAccount(generatePrivateKey())) {
+async function signOn(handle: string, s: string, tf: ReturnType<typeof fakeTokensFun>, acct = privateKeyToAccount(generatePrivateKey()), afterProof?: (id: number) => Promise<void>) {
   const t = walletToken(s);
   const signature = await acct.signMessage({ message: walletMessage(handle, t) });
   const r = await walletPost(
     new Request('https://earnkit.com/claim/wallet', {
       method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://earnkit.com' }, body: JSON.stringify({ t, wallet: acct.address, signature }),
     }),
-    { limit: async () => {}, verify: viemVerify, discover: async () => {}, builderToken: tf.deps },
+    { limit: async () => {}, verify: viemVerify, discover: async () => {}, builderToken: tf.deps, ...(afterProof && { afterProof }) },
   );
   return { status: r.status, body: (await r.json()) as { line: string; recipient?: boolean } };
 }
@@ -231,6 +231,7 @@ test('step 3 copy, word for word: with the token sentence, and without it', () =
 });
 
 test('(a) after GitHub connects, the next reply is step 3 with the project and the wallet link; flag off: no token sentence', db, async () => {
+  try {
   for (const on of [true, false]) {
     process.env.EARNKIT_BUILDER_TOKENS = on ? 'on' : 'off';
     const p = await connected(on ? 'a' : 'o');
@@ -244,7 +245,9 @@ test('(a) after GitHub connects, the next reply is step 3 with the project and t
     // Asked once: the next reply moves on.
     assert.doesNotMatch(show(await mcpCall(p.ctx, 'find', { agent_can_build: false })), /Step 3 of 3/);
   }
-  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  } finally {
+    process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  }
 });
 
 test('(b) a no to the wallet step: skipped, remembered, never asked again; no token', db, async () => {
@@ -347,4 +350,59 @@ test('(g) "launch my token" with a proven wallet and no row launches; asked agai
   const nw = show(await mcpCall(w.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
   assert.match(nw, /https:\/\/earnkit\.com\/claim\/wallet\?t=/, nw);
   assert.equal(w.tf.calls.length, 0);
+});
+
+// ---- Fix round 1.
+
+test('fix 1: a kindless no to step 3 with the token sentence shown declines the token (the wallet step stays open)', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const p = await connected('k1');
+  const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  assert.ok(s.includes('Rather skip the token? Just say no.'), s);
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { project_key: p.key, answer: 'no' } })), TOKEN_NO_LINE);
+  assert.equal(await tokenRow(p.id), 'declined');
+  assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(await tokenRow(p.id), 'declined');
+  assert.equal(p.tf.calls.length, 0);
+});
+
+test('fix 2: a first proof launches only after the token sentence was seen; else only "launch my token" does', db, async () => {
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const p = await connected('t2');
+  let s: string;
+  try {
+    process.env.EARNKIT_BUILDER_TOKENS = 'off';
+    s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+    assert.doesNotMatch(s, /token/i, s);
+  } finally {
+    process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  }
+  assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(await tokenRow(p.id), null);
+  assert.equal(p.tf.calls.length, 0);
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Done. Your token is live.');
+  assert.equal(p.tf.calls.length, 1);
+});
+
+test('fix 3: an App-connected builder whose main project is not counted gets step 3', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const p = await connected('nc');
+  await sql()`UPDATE builder_profiles SET main_project_key = ${`${p.handle}/other`.toLowerCase()} WHERE builder_id = ${p.id}`;
+  const r = await mcpCall(p.ctx, 'find', { agent_can_build: false });
+  const s = show(r);
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup', s);
+  assert.equal(s, step3('Your code', linkOf(s), true));
+});
+
+test('fix 4: a throwing side effect after the proof still launches the token', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const p = await connected('se');
+  const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  await assert.rejects(signOn(p.handle, s, p.tf, undefined, async () => { throw new Error('side effect down'); }));
+  assert.equal(await settled(p.id), 'launched');
+  assert.equal(p.tf.calls.length, 1);
 });

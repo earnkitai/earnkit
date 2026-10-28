@@ -143,7 +143,12 @@ async function signedByKey(wallet: string, message: string, signature: string): 
 /** `first`: v4.0, this proof made the person's first reward wallet (none before it): their token launches on it. */
 export type ProveResult = { ok: true; recipient: boolean; first: boolean; line: string } | { ok: false; line: string };
 /** `xSecret`: the request's __Host-ekwx- cookie (walletPost), the browser's proof that it passed the page's X sign-in. */
-export async function proveWallet(a: { token: string; wallet: string; signature: string; xSecret?: string | null }, now: Date, verify: Verify = baseVerify): Promise<ProveResult> {
+/**
+ * v4.0 fix round 1 `hooks`: `onProven(first)` runs once the proof is written, before its side effects (so a failing one
+ * never stops the token launch); `after` is test injection only (a side effect that may throw).
+ */
+export type ProveHooks = { onProven?: (first: boolean) => void; after?: (builderId: number) => Promise<void> };
+export async function proveWallet(a: { token: string; wallet: string; signature: string; xSecret?: string | null }, now: Date, verify: Verify = baseVerify, hooks: ProveHooks = {}): Promise<ProveResult> {
   const id = upgradeOf(a.token, now);
   if (id === null) return { ok: false, line: WALLET_TEXT.expired };
   const wallet = a.wallet.toLowerCase();
@@ -207,11 +212,14 @@ export async function proveWallet(a: { token: string; wallet: string; signature:
   const now_ = await provenWallet(id);
   const done = (r: boolean, first = false): ProveResult => ({ ok: true, recipient: r, first, line: r ? walletDoneLine(wallet) : walletContractsLine(now_ ?? wallet) });
   if (out === 'again') return done(now_ === wallet);
+  const first = recipient && before === null;
+  hooks.onProven?.(first);
+  await hooks.after?.(id);
   await noteEvent('wallet_proven', () => ({ type: 'wallet_proven', dedupe_key: `wallet_proven:${id}:${wallet}`, installation_id: id, wallet, detail: { recipient } }));
   await enqueueDiscovery(id, 'wallet');
   await sql()`UPDATE builder_live SET read_at = NULL WHERE builder_id = ${id}`;
   profileChanged();
-  return done(recipient, recipient && before === null);
+  return done(recipient, first);
 }
 class TakenError extends Error {}
 
@@ -303,14 +311,20 @@ type RouteDeps = {
   limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date; discover?: (builderId: number) => Promise<void>;
   /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check (builder-token.ts). */
   builderToken?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null> };
+  /** v4.0 fix round 1: test injection only: a side effect after the proof is written (ProveHooks.after). */
+  afterProof?: (builderId: number) => Promise<void>;
 };
 /**
  * v4.0: the builder's token launches on their first reward wallet (setup step 3), unless they said no (a declined row is
  * returned untouched); never awaited by the proof's answer, and never throws (a failure is logged; "launch my token" or
- * the owner settles it).
+ * the owner settles it). Fix round 1: only when the builder saw step 3's token sentence (standing_seen.token_offered);
+ * otherwise only their own "launch my token" launches it.
  */
 async function launchOnProof(builderId: number, deps: RouteDeps['builderToken']): Promise<void> {
   try {
+    const [p] = await sql()<{ offered: boolean }[]>`
+      SELECT COALESCE(standing_seen ? 'token_offered', false) AS offered FROM builder_profiles WHERE builder_id = ${builderId}`;
+    if (!p?.offered) return;
     const { launchBuilderToken } = await import('./builder-token');
     await launchBuilderToken(builderId, deps ?? {});
   } catch (err) {
@@ -349,12 +363,18 @@ export async function walletPost(request: Request, deps: RouteDeps = {}): Promis
   if (typeof b.t !== 'string' || typeof b.wallet !== 'string' || typeof b.signature !== 'string') return json({ line: WALLET_TEXT.expired }, 400);
   const xName = walletXCookie(tokenUseKey(b.t));
   const xSecret = cookieValue(request, xName);
-  const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature, xSecret }, deps.now ?? new Date(), deps.verify);
+  const builderId = upgradeOf(b.t, deps.now ?? new Date());
+  // v4.0: the first reward wallet launches the token, fired as soon as the proof is written (never awaited; fix round 1:
+  // before the proof's side effects, so a failing one never stops it).
+  const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature, xSecret }, deps.now ?? new Date(), deps.verify, {
+    onProven: (first) => {
+      if (first && builderId !== null) void launchOnProof(builderId, deps.builderToken);
+    },
+    after: deps.afterProof,
+  });
   if (!r.ok) return json({ line: r.line }, r.line === WALLET_TEXT.unchecked ? 503 : 400);
   // A newly proven wallet shows on the page at once, not on the next background run (never waited on).
-  const builderId = upgradeOf(b.t, deps.now ?? new Date());
   if (builderId !== null) void (deps.discover ?? discoverNow)(builderId);
-  if (builderId !== null && r.first) void launchOnProof(builderId, deps.builderToken);
   const done = json({ line: r.line, recipient: r.recipient });
   // The X check is used up: its cookie goes too.
   if (xSecret) done.headers.append('Set-Cookie', `${walletXCookie(tokenUseKey(b.t))}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
