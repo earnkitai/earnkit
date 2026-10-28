@@ -14,7 +14,7 @@ import {
 } from './bench-find';
 import {
   LOVABLE_PROMPT_ASK, MOMENT_ASK, nextBuild, NO_GITHUB_HINT, POST_HEAD, TITLES_ASK, WALLET_ASK, baseStartSteps, benchReply, builtWith, connectAsk, grantHook,
-  grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, shipPointsLine, walletOffer, youreIn,
+  grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
 import { walletSetupAsk } from './bench-reply';
@@ -145,13 +145,13 @@ const view = (o: Partial<BenchView> = {}): BenchView => ({
   ...o,
 });
 
-test('status line and points line: shown only when changed or once a week; a reply is never empty', () => {
+test('status line: shown only when changed; no points line ever; a reply is never empty', () => {
   const STAND = 'Kit · #1 of 13 builders · 3 weeks in a row';
-  assert.equal(benchReply(view()), `${STAND}\nWant me to suggest one small thing to ship?\n${shipPointsLine()}`);
+  assert.equal(benchReply(view()), `${STAND}\nWant me to suggest one small thing to ship?`);
   assert.equal(benchReply(view({ standingShown: false, nagShown: false })), 'Want me to suggest one small thing to ship?');
   // Nothing else to say: the standing, never an empty reply (and never the points line alone).
   assert.equal(benchReply(view({ standingShown: false, nagShown: false, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
-  assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), `${STAND}\n${shipPointsLine()}`);
+  assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
 });
 
 let n = 0;
@@ -239,7 +239,7 @@ test('the status line only when it changed, the points line once a week; score a
   const one = show(await find(b));
   clean(one);
   assert.match(one, /^Kit is on EarnKit\./, one);
-  assert.match(one, /up to \+\d+ points$/, one);
+  assert.doesNotMatch(one, /points/, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
   // (no points line again this week).
   let r2 = await find(b);

@@ -99,7 +99,7 @@ test('the copy, word for word: the offer, the change links, done, contracts only
       "Your Base Builder Code stays on your first wallet.\nYour token's fees keep going to the wallet it launched with.\nDone?",
   );
   assert.equal(walletNotYet(L), `I don't see a signature yet. Here's a fresh link (one signature, no fee): ${L}\nDone?`);
-  assert.equal(walletDone('0x12ab…abcd'), 'Done. Your rewards now go to 0x12ab…abcd. Your contracts on Base will show on your page soon.');
+  assert.equal(walletDone('0x12ab…abcd', true), 'Done. Your rewards now go to 0x12ab…abcd. Your contracts on Base will show on your page soon.');
   assert.equal(walletContractsOnly('0x12ab…abcd'), 'Done. That wallet counts for your contracts. Your rewards still go to 0x12ab…abcd until you sign in with X on the wallet page.');
   assert.equal(walletNotice('0x12ab…abcd'), 'Your reward wallet changed to 0x12ab…abcd.');
   assert.equal(WALLET_SKIPPED, 'Skipped. Ask me anytime to add your reward wallet.');
@@ -187,7 +187,7 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   // Fix round 8: a reply in between, then "done": still answered from the wallet's state.
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /wallet/i);
   const done = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } });
-  assert.equal(show(done), walletDone(short(signed.wallet)));
+  assert.equal(show(done), walletDone(short(signed.wallet), true));
   // Answered once; the next replies never offer it again.
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } })), 'Okay.');
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /wallet/i);
@@ -224,7 +224,7 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   const next = show(await mcpCall(ctx, 'find', {}));
   assert.equal(next.split('\n')[0], walletNotice(short(moved.wallet)));
   assert.doesNotMatch(show(await mcpCall(ctx, 'find', {})), /Your reward wallet changed/, 'once');
-  assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } })), walletDone(short(moved.wallet)));
+  assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } })), walletDone(short(moved.wallet), true));
 
   // "Add my wallet": agents send the named address to find's wallet or tell's wallet. Either gets the signing link.
   const named = `0x${randomBytes(20).toString('hex')}`;

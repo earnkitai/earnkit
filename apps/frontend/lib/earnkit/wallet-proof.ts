@@ -54,7 +54,7 @@ export const walletXLead = (handle: string, current: string) =>
   `Your rewards go to ${shortWallet(current)}. To send them to a new wallet, sign in with X as @${handle} first.`;
 /** Done, the wallet is now the reward recipient. Pure. */
 export const walletDoneLine = (wallet: string) =>
-  `Your rewards now go to ${shortWallet(wallet)}. Your contracts on Base will show on your page soon. You can close this page.`;
+  `Your rewards now go to ${shortWallet(wallet)}. You can close this page.`;
 /** Done for contracts only (no X sign-in while another wallet gets the rewards). Pure. */
 export const walletContractsLine = (current: string) =>
   `Added for your contracts. Your rewards still go to ${shortWallet(current)}. To change that, ask your agent for a new link and sign in with X on it.`;

@@ -13,7 +13,7 @@ import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, ope
 
 /** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
 /** v3.1 cold read: Base's steps question (its count leaves out a step the project's facts show met). */
-const RANKED_END = /(?:^|\n)Want the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?\nShip code this week: up to \+100 points$/;
+const RANKED_END = /(?:^|\n)Want the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?$/;
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**
@@ -63,7 +63,7 @@ test('(a) first ranked find after connect offers the last weeks and the points (
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
-  assert.equal(s, `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}\n+90 points`);
+  assert.equal(s, `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week|Share your week|—/);
   assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}`], 'the page is the one link');
@@ -86,7 +86,7 @@ test('(b) yes approves all three with via connect, 30 points each, activation co
   const before = await readStats(new Date());
   const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
   const s = show(yes);
-  assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n+90 points added · 90 total`, 'no email line while the digest is off');
+  assert.equal(s, `You're live: https://earnkit.com/${me.handle}`, 'no email line while the digest is off');
   assert.equal(links(s).length, 1, 'the page link is clickable');
   const rows = await sql()<{ via: string }[]>`SELECT facts->>'approved_via' AS via FROM project_updates WHERE builder_id = ${me.id} AND (facts->>'approved')::boolean`;
   assert.deepEqual(rows.map((r) => r.via), ['connect', 'connect', 'connect']);
@@ -195,7 +195,7 @@ test('(f) with the weekly email on, the Done line carries the email question as 
     await mcpCall(ctx(me.id), 'find', {});
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
-    assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n${EMAIL_QUESTION}\n+90 points added · 90 total`);
+    assert.equal(s, `You're live: https://earnkit.com/${me.handle}\n${EMAIL_QUESTION}`);
     assert.equal(links(s).length, 1);
     assert.equal(questions(s), 1);
     // GTM W2: the email question is a move_up (agents skipped the bare statement).
@@ -212,20 +212,20 @@ test('(g) final review: an older stored week outside the backfill is listed and 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
     VALUES (${me.id}, ${me.key}, '2026-09-14', ${sql().json({ checked: true, shipped_code: { n: 7 } } as never)})`;
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.match(s, /\nMake your shipping log public on .* so grant teams can see it\?\n\+120 points$/, s);
+  assert.match(s, /\nMake your shipping log public on .* so grant teams can see it\?$/, s);
   assert.deepEqual((await connectWeeks(me.id, me.key, new Date())).map((w) => w.line), ['Week of Oct 5: 2 commits', 'Week of Sep 28: 3 commits', 'Week of Sep 21: 4 commits', 'Week of Sep 14: 7 commits']);
-  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: .*\n\+120 points added · 120 total$/);
+  assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: [^\n]*$/);
   const open = await sql()`SELECT 1 FROM project_updates WHERE builder_id = ${me.id} AND NOT COALESCE((facts->>'approved')::boolean, false)`;
   assert.equal(open.length, 0, 'every week confirmed');
   assert.equal(await pointsTotal(me.id), 120);
 });
 
-test('(g2) the connect question names the page (the one https link), one question, the points line last', db, async () => {
+test('(g2) the connect question names the page (the one https link), one question, no points line', db, async () => {
   await freshBoard();
   const me = await ranked('cng2');
   await backfilled(me.id, me.key);
   const s = show(await mcpCall(ctx(me.id), 'find', {}));
-  assert.ok(s.endsWith(`Make your shipping log public on https://earnkit.com/${me.handle} so grant teams can see it?\n+90 points`), s);
+  assert.ok(s.endsWith(`Make your shipping log public on https://earnkit.com/${me.handle} so grant teams can see it?`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
 });

@@ -35,7 +35,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { TOKEN_ON_ITS_WAY, WALLET_DONE_HEAD, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -43,7 +43,7 @@ import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
-  CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect, pointsAddedLine,
+  CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
   type ConnectBest,
 } from './connect-moment';
 import { connectOfferPoints, pointsTotal } from './points';
@@ -1264,7 +1264,6 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   }
   // v3 Stage 1 (spec 5.1): the connect offer is answerable once (standing_seen.connect_open is its guard).
   if (m.kind === 'connect') {
-    const before = await pointsTotal(id).catch(logged('connect points'));
     const r = await answerConnect(id, m.project_key, m.answer, now).catch(logged('answer connect'));
     if (r && r.pending > 0) {
       // An approval threw and the offer reopened: keep the ask so the next yes retries it.
@@ -1283,20 +1282,16 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       logged('connect handle')(err);
       return [];
     });
-    // Task 16 step 4: the points this yes added (the ledger before and after) and the total.
-    const total = await pointsTotal(id).catch(logged('connect points'));
-    const added = total !== null && before !== null ? total - before : 0;
-    const points = added > 0 && total !== null ? pointsAddedLine(added, total) : null;
     const done = p?.handle ? CONNECT_DONE(`${siteUrl()}${pagePath(p.handle)}`) : APPROVED_CONNECT;
     // Task 16 step 4: the Best fit the offer named is offered as a draft (the apply ask, once a program), else the email question.
     const apply = r.best && p?.handle ? await connectApply(id, r.best, m.project_key ?? null, now) : null;
-    if (apply) return { show_to_builder: [done, apply.line, points].filter(Boolean).join('\n'), move_up: apply.move_up };
+    if (apply) return { show_to_builder: [done, apply.line].filter(Boolean).join('\n'), move_up: apply.move_up };
     // 2026-10-22: a private repo with titles off hears the titles question here, once (before the email question).
     const titles = p?.handle ? await connectTitles(id, m.project_key ?? null, now) : null;
-    if (titles) return { show_to_builder: [done, TITLES_ASK, points].filter(Boolean).join('\n'), move_up: titles };
+    if (titles) return { show_to_builder: [done, TITLES_ASK].filter(Boolean).join('\n'), move_up: titles };
     // The You're live line is a statement, so the email question (when it is asked) is the reply's one question.
     const email = digestEnabled() ? await askWeeklyEmail(id, { shared: false, email: null }).catch(logged('connect email')) : null;
-    return { show_to_builder: [done, email?.question, points].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
+    return { show_to_builder: [done, email?.question].filter(Boolean).join('\n'), ...(email && emailMoveUp(m.project_key ?? null)) };
   }
   // Launch ready L6 (fix round 1): the share offer is answerable all week it was shown, once (standing_seen.share_open).
   if (m.kind === 'share') {
@@ -1536,27 +1531,65 @@ export async function setupDoneFor(
     const settled = await setupOutcome(id);
     if (!settled) return null;
     let g = given;
+    let open: Awaited<ReturnType<typeof scoreApplies>> | null = null;
     if (!g) {
       const [p] = await sql()<{ seen: Seen | null; key: string | null }[]>`
         SELECT standing_seen AS seen, main_project_key AS key FROM builder_profiles WHERE builder_id = ${id}`;
-      const { applies, skip } = await scoreApplies(id, p?.key ?? null, now);
-      g = { fits: fitLines(applies), skip, seen: p?.seen ?? {}, key: p?.key ?? null, name: p?.key ? await reportedName(id, p.key).catch(() => null) : null };
+      open = await scoreApplies(id, p?.key ?? null, now);
+      g = { fits: fitLines(open.applies), skip: open.skip, seen: p?.seen ?? {}, key: p?.key ?? null, name: p?.key ? await reportedName(id, p.key).catch(() => null) : null };
     }
-    const fits = (await openCandidates(id, g.fits.filter(realFit))) ?? [];
-    const best = applyCandidates(fits, g.seen, g.skip, now)[0] ?? fits[0];
-    const rows = best ? [best, ...fits.filter((f) => f !== best)] : [];
-    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name));
+    const real = (await openCandidates(id, g.fits.filter(realFit))) ?? [];
+    const best = applyCandidates(real, g.seen, g.skip, now)[0] ?? real[0];
+    // v4.2 (F3): the real fits (best first) as before; with none, the long shots, then the open programs the builder was
+    // told nothing about, so "doesn't fit" is said only when nothing is open.
+    const longShots = (await openCandidates(id, g.fits.filter((f) => !realFit(f)).sort((a, b) => BAR_ORDER[a.bar ?? 'long_shot'] - BAR_ORDER[b.bar ?? 'long_shot']))) ?? [];
+    let rows: Pick<Fit, 'title' | 'amount' | 'when'>[] = best ? [best, ...real.filter((f) => f !== best)] : longShots;
+    let closest: { program: string; step: string } | null = null;
+    let closestId: string | null = null;
+    if (!best) {
+      open ??= await scoreApplies(id, g.key, now);
+      const listed = new Set(longShots.map((f) => f.program_id));
+      const cards = open.cards.filter((c) => !open!.skip.has(c.id) && !g.skip.has(c.id) && !listed.has(c.id) && c.investment !== true).sort(byRelevance);
+      const told = new Set(((await openCandidates(id, cards.map((c) => ({ program_id: c.id })))) ?? []).map((c) => c.program_id));
+      const extra = cards.filter((c) => told.has(c.id));
+      rows = [...longShots, ...extra.map((c) => ({ title: c.title, amount: awardAmount(c), when: fundWhen(c) }))];
+      const first = longShots[0];
+      if (first) { closest = { program: first.title, step: closestStep(first.bar, g.key) }; closestId = first.program_id; }
+      else if (extra[0]) { closest = { program: extra[0].title, step: closestStep(undefined, g.key) }; closestId = extra[0].id; }
+    }
+    const trade = settled.outcome === 'launched' ? await tokenTradeUrl(id) : null;
+    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest });
     // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
     if (!(await takeOnce(id, 'setup_done', now))) return null;
-    if (!best) {
+    const pick = best ?? (closestId ? [...longShots].find((f) => f.program_id === closestId) ?? null : null);
+    const programId = best?.program_id ?? closestId;
+    if (!programId) {
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('setup done ask'));
       return { show_to_builder: show };
     }
-    await takeApplyAsk(id, best.program_id, now);
-    await storeAsk(id, { kind: 'apply', key: g.key, program_id: best.program_id, ...(best.repo && { repo: best.repo }) });
-    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: best.program_id };
+    await takeApplyAsk(id, programId, now);
+    await storeAsk(id, { kind: 'apply', key: g.key, program_id: programId, ...(pick?.repo && { repo: pick.repo }) });
+    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: programId };
   } catch (err) {
     logged('setup done')(err);
+    return null;
+  }
+}
+/** v4.2: the order of the long shots in the setup-done table: the nearest first. */
+const BAR_ORDER: Record<FitBar, number> = { qualify: 0, needs_live: 1, needs_users: 2, long_shot: 3, company: 4 };
+/** v4.2 (F3): the one step a closest program needs, from the fit's bar. Pure. */
+export const closestStep = (bar: FitBar | undefined, key: string | null): string =>
+  bar === 'needs_live' ? 'a live link'
+    : bar === 'needs_users' ? 'real users'
+    : bar === 'company' ? 'a full-time team'
+    : bar === 'long_shot' ? 'more shipped work first'
+    : key ? 'more shipped work first' : 'your code connected';
+/** The trade link of the builder's launched token, null when there is none yet. Never throws. */
+async function tokenTradeUrl(id: number): Promise<string | null> {
+  try {
+    const t = await builderToken(id);
+    return t?.status === 'launched' && t.coin_address ? tradeUrl(t.coin_address) : null;
+  } catch {
     return null;
   }
 }
@@ -1565,7 +1598,9 @@ export async function setupDoneFor(
  * (setupDoneFor); any other reply as it is. Never throws.
  */
 async function afterStep3(id: number, r: Reply, now: Date): Promise<Reply> {
-  if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE) return r;
+  // v4.2 (F4): a wallet signed while step 3 is open is the setup-done reply too (one message, not two).
+  const signed = typeof r.show_to_builder === 'string' && r.show_to_builder.startsWith(WALLET_DONE_HEAD);
+  if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE && !signed) return r;
   return (await setupDoneFor(id, now, null)) ?? r;
 }
 /**

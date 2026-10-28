@@ -135,14 +135,12 @@ test('the no-fit copy, word for word', () => {
     'Kit · #3 of 12 builders · 4 weeks in a row',
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
     "Want the 2 steps toward Base's $5,000 grant?",
-    'Ship code this week: up to +100 points',
   ].join('\n'));
   // Some steps unknown: no missing line, the question counts every step left.
   const unsure: QualifyOffer = { ...q, missing: ['base'], steps: ['base', 'codes', 'use'] };
   assert.equal(rule(benchReply({ ...view, qualify: unsure, ask: stateAsk({ ...v, qualify: unsure }) })), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
     "Want the 3 steps to qualify for Base's $5,000 grant?",
-    'Ship code this week: up to +100 points',
   ].join('\n'));
   // No offer: the ship step as before.
   assert.equal(stateAsk(v).line, 'Want me to suggest one small thing to ship?');
@@ -222,8 +220,7 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
     "Want the 2 steps toward Base's $5,000 grant?",
   ]);
-  assert.match(lines[2], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
-  assert.equal(lines.length, 3);
+  assert.equal(lines.length, 2);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
@@ -267,7 +264,7 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   const r4 = await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
   const s4 = rule(show(r4));
   assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'].join('\n'));
-  assert.match(s4.split('\n')[2], /^\+\d+ points added · \d+ total$/);
+  assert.equal(s4.split('\n').length, 2);
   assert.deepEqual(r4.reply?.move_up, { kind: 'titles', project_key: key, agent_note: TITLES_NOTE });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'titles', project_key: key, answer: 'yes' } });

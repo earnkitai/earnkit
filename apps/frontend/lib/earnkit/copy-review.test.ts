@@ -26,8 +26,8 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
-import { connectApplyAsk, pointsAddedLine } from './connect-moment';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
+import { connectApplyAsk } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
@@ -914,13 +914,11 @@ export const v2121Texts: [string, string][] = [
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   // v3.1 Task 16: the ranked replies' lines (steps 3, 4, 5 and the ship step) and the draft's (step 6).
   ['SHIP_ASK', SHIP_ASK],
-  ['shipPointsLine', shipPointsLine()],
   ['connectAsk', connectAsk('earnkit.com/maya')],
   ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 2)],
   ['standingLine', standingLine('Recipes', '#3 of 12 builders', 2, 340)],
   ['applyAsk', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
   ['connectApplyAsk', connectApplyAsk('Recipe Grants')],
-  ['pointsAddedLine', pointsAddedLine(90, 1240)],
   ['draftReadyLine', draftReadyLine('Recipe Grants', 6, 16)],
   ['OPEN_PREFILLED', OPEN_PREFILLED],
   ['SENT_ASK', SENT_ASK],

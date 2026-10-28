@@ -11,7 +11,7 @@ import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/le
 import { leaderboardLine } from './site-copy';
 import {
   INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat,
-  qualifyLine, shipPointsLine, standingLine, youreIn,
+  qualifyLine, standingLine, youreIn,
 } from './bench-reply';
 import { fitWhy } from './bench-find';
 
@@ -32,7 +32,7 @@ export const TEXTS: string[] = ([
   qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk('earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
-  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), mondayOpener('Maya', null), MOMENT_ASK,
+  SHIP_ASK, mondayOpener('Maya', null), MOMENT_ASK,
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
     { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },

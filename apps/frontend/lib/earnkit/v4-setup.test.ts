@@ -284,7 +284,11 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   const p = await connected('n');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   // v4.0 Task 5: the no is the setup-done reply now (MealMate fits nothing open here).
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } })), "No problem, no token.\n\nMealMate doesn't fit an open program yet.");
+  const none = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } }));
+  // v4.2 (F3): programs are open, so the table, never "doesn't fit"; MealMate fits none of them, so the closest one with its step.
+  assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
+  assert.doesNotMatch(none, /doesn't fit/, none);
+  assert.match(none, /\n\n[^\n|]+ is the closest\. It needs [^\n.]+\. Want help with it\?$/, none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
@@ -491,7 +495,9 @@ test('(a) signed on the page, token launched: the next find leads with "You\'re 
   assert.equal(await settled(b.id), 'launched');
   const r = await mcpCall(b.ctx, 'find', {});
   const s = show(r);
-  assert.equal(s, `You're all set, Maya. Your community can now back what you're building.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  // v4.2: the sign that launched the token says so, with the trade link.
+  assert.match(s, /^You're all set, Maya\. Your token is live, so your community can back what you're building: https:\/\/\S+\n\n/, s);
+  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   // The yes drafts it (the apply flow).
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: (r.reply?.move_up as { project_key: string }).project_key, answer: 'yes' } });

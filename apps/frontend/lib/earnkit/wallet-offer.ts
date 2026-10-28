@@ -70,6 +70,27 @@ export async function walletOfferDue(builderId: number, now: Date): Promise<stri
     return logged('offer')(err);
   }
 }
+/**
+ * v4.2: whether the builder's one project has contracts or mainnet chains on Base on record (a Base project, a contract
+ * source, or repo facts), the only time "Your contracts on Base will show on your page soon." is true. Never throws.
+ */
+export async function contractsOnBase(builderId: number): Promise<boolean> {
+  try {
+    const [p] = await sql()<{ contracts: boolean }[]>`
+      SELECT main_project_key IS NOT NULL AND (
+          EXISTS (SELECT 1 FROM builder_projects b WHERE b.builder_id = ${builderId} AND lower(b.project_key) = lower(p.main_project_key) AND 'base' = ANY(b.chains))
+          OR EXISTS (SELECT 1 FROM builder_sources s WHERE s.builder_id = ${builderId} AND lower(s.project_key) = lower(p.main_project_key)
+            AND s.kind = 'contract' AND s.state <> 'rejected' AND s.ref ILIKE 'base:%')
+          OR EXISTS (SELECT 1 FROM builder_repo_facts f JOIN installations i ON i.id = f.installation_id
+            WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND lower(f.repo_key) = lower(p.main_project_key) AND 'base' = ANY(f.mainnet_chains))
+        ) AS contracts
+      FROM builder_profiles p WHERE builder_id = ${builderId}`;
+    return p?.contracts === true;
+  } catch (err) {
+    logged('contracts')(err);
+    return false;
+  }
+}
 /** v4.0: the agent's note with setup step 3, with the token sentence or without it. */
 export const walletSetupNote = (token: boolean) =>
   "The builder signs on the page from the link; never ask for a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
@@ -189,9 +210,10 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
   if (got) {
     if (!(await end()).length) return okay;
     const token = got.recipient ? await signedTokenLine(builderId, now, new Date(p.at)) : null;
-    if (got.recipient) return { show_to_builder: [walletDone(shortWallet(got.wallet)), token].filter(Boolean).join('\n\n') };
+    const contracts = await contractsOnBase(builderId);
+    if (got.recipient) return { show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token].filter(Boolean).join('\n\n') };
     const current = await provenWallet(builderId);
-    return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet)) };
+    return { show_to_builder: current ? walletContractsOnly(shortWallet(current)) : walletDone(shortWallet(got.wallet), contracts) };
   }
   const link = walletLink(builderId, now);
   if (!link) return { show_to_builder: 'I can\'t make a wallet link right now. Try again later.' };

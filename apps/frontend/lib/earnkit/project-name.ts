@@ -15,8 +15,14 @@ export const refKey = (v: string): string =>
 /** The reported project whose repo, live link, package or a contract is `key`; undefined when none. Pure. */
 export function reportedProject<P extends Reported>(projects: P[], key: string): P | undefined {
   const k = refKey(key);
-  return projects.find((p) =>
+  const byRef = projects.find((p) =>
     [p.repo, p.live_url, p.package, ...(Array.isArray(p.contracts) ? p.contracts : [])].some((v) => typeof v === 'string' && refKey(v) === k));
+  if (byRef) return byRef;
+  // v4.2 (F15): a repo connected later (a Lovable export) is not in the reported refs; the project the builder named the
+  // same as the repo's name (case and punctuation aside) is that project.
+  const squash = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const repoName = squash(k.split('/').pop() ?? k);
+  return repoName ? projects.find((p) => typeof p.name === 'string' && squash(p.name) === repoName) : undefined;
 }
 
 /** The builder-given name of `key`'s project (at most 60 characters, whole words), else null. Pure. */
