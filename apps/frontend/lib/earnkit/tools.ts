@@ -140,7 +140,7 @@ import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { scoreReply } from './score-tool';
-import { replyFacts, type ReplyFacts } from './reply-facts';
+import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
 import { startRefresh } from './stand-view';
@@ -2771,7 +2771,10 @@ export const tools = {
         replies.push(r);
       }
     }
-    return joinReplies(replies);
+    // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the
+    // agent the about facts to answer it (small: about only, never the builder's own data here).
+    const joined = joinReplies(replies);
+    return !ctx.sharedClient && (move_up || token === 'ask') ? withFacts(joined, { about: aboutFacts() }) : joined;
   },
 
   // v2.12 spec 7: the builder's score.

@@ -129,7 +129,14 @@ test('copy: the jargon lines and the answer note', () => {
   assert.match(ANSWER_FIRST_NOTE, /from show_to_builder and facts only; if that answer needs a link, use the one in facts/);
   // about: existing copy only; no deletion policy invented; v4.0 Task 11: no backers line (Backing is retired).
   const about = aboutFacts();
-  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'points', 'builder_code', 'data']);
+  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'points', 'builder_code', 'data', 'earnkit_gets', 'privacy', 'token_earnings', 'token_chain']);
+  assert.equal(about.earnkit_gets, "Builders pay nothing. When a builder's token trades, 40% of the fee goes to the builder and the rest keeps EarnKit running.");
+  assert.match(about.privacy, /read-only access to only the repos you pick/);
+  assert.match(about.privacy, /never the titles or the code/);
+  assert.match(about.privacy, /private repo's name and link stay off/);
+  assert.match(about.privacy, /hide my page/);
+  assert.equal(about.token_earnings, "It depends on how much people trade. There's no promise; 40% of every trade's fee goes to you, claimed for you.");
+  assert.equal(about.token_chain, 'Tokens are on Base. Grants can be on any chain.');
   assert.equal(about.data, 'You can hide your page anytime (say hide my page).');
   assert.equal(about.points, POINTS_PAGE_LINE);
   assert.match(about.builder_code, /^A Builder Code is a one-line tag Base uses to see your traffic\./);
@@ -229,3 +236,15 @@ test('"Your entries" says what the builder last told: accepted after applied, ne
   const { entryStatusWord } = await import('./present');
   assert.deepEqual(['applied', 'accepted', 'funded', 'won', 'rejected', undefined].map(entryStatusWord), ['applied', 'accepted', 'funded', 'won', 'not selected', 'applied']);
 });
+
+test('v4.2 Task 3: tell token ask and move_up replies carry the about facts; a plain tell does not', db, () => withEnv(ON, async () => {
+  const p = await signedIn('f');
+  const ask = await mcpCall(p.ctx, 'tell', { token: 'ask' });
+  const f = (ask.reply as { facts?: { about?: Record<string, string> } }).facts;
+  assert.equal(f?.about?.token_chain, 'Tokens are on Base. Grants can be on any chain.');
+  assert.deepEqual(Object.keys(f ?? {}), ['about']);
+  const mu = await mcpCall(p.ctx, 'tell', { move_up: { kind: 'checkin', project_key: null, answer: 'no' } });
+  assert.ok((mu.reply as { facts?: unknown }).facts);
+  const plain = await mcpCall(p.ctx, 'tell', { weekly_email: { answer: 'yes' } });
+  assert.equal((plain.reply as { facts?: unknown }).facts, undefined);
+}));
