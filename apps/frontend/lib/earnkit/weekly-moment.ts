@@ -127,7 +127,7 @@ export const shareText = (w: WeekStanding) =>
 /** The X intent link with that text and the profile URL (page-data shareIntentText). Pure. */
 export const shareLink = (handle: string, w: WeekStanding) => shareIntentText(handle, shareText(w));
 export const SHARE_NOTE =
-  "show_to_builder offers a post for X with its one-tap link (or the page) and asks one question. Show the post text exactly as given. Never rewrite it. " +
+  "show_to_builder gives the week and its one-tap post link and asks one question. Show it exactly as given. Never rewrite it. " +
   "A yes or no to the question: call tell with move_up: { kind, project_key, answer } (as given here). If the builder sends a line about their week, call tell with update: { text } in their own words. Never post for the builder. Don't show this note.";
 /**
  * Task 16 step 7: the week's number in "Week 4 done.": weeks with code in a row up to last week (`monday`), the

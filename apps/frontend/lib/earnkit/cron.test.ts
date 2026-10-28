@@ -583,6 +583,21 @@ test('10.12 deployerGas: with the deployer on, each balance is read once a run a
   }
 });
 
+test('v4 T13: a malformed deployer key never breaks runCron (the gas mail step reads the address inside a try)', db, async () => {
+  const old = process.env.DEPLOYER_PRIVATE_KEY;
+  const tag = `t13-badkey-${process.pid}`;
+  try {
+    for (const bad of ['0x1234', 'not-a-key', '0'.repeat(64)]) {
+      process.env.DEPLOYER_PRIVATE_KEY = bad;
+      const out = await runCron({ deps: { refreshFees: async () => 0 }, only: [tag], ownerMail: undefined } as never);
+      assert.ok(out.now, bad);
+    }
+  } finally {
+    if (old === undefined) delete process.env.DEPLOYER_PRIVATE_KEY;
+    else process.env.DEPLOYER_PRIVATE_KEY = old;
+  }
+});
+
 // ---- v2.11 T11: the usage checks run inside this cron
 
 test('11.5 runCron: the usage step reports its counts; a failed read never breaks the run (200, no needs_owner)', db, async () => {

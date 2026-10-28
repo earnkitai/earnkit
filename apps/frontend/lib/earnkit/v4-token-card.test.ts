@@ -116,6 +116,31 @@ test('(a2) indexBackers indexes a launched builder token, its creator wallet nev
   assert.equal((await backersOf([coin])).get(coin), 2);
 });
 
+test('(a3) indexBackers with no tx_hash starts at the claim (created_at), not at the last update', db, async () => {
+  const b = await builder();
+  const t = await token(b.id, 'launched');
+  const coin = t.coin_address as Hex;
+  const DAY = 86_400_000;
+  // Claimed two days ago, the row touched just now (updated_at): a buyer 36 hours ago must still count.
+  await sql()`UPDATE builder_tokens SET created_at = ${new Date(NOW.getTime() - 2 * DAY)}, updated_at = ${NOW}, tx_hash = NULL WHERE builder_id = ${b.id}`;
+  const TRANSFER = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
+  const head = 50_000_000n;
+  const at = head - CONFIRMATIONS - BigInt((36 * 3600) / 2);
+  const log: TxLog = {
+    address: coin, topics: encodeEventTopics({ abi: [TRANSFER], eventName: 'Transfer', args: { from: POOL_MANAGER as Hex, to: addr() as Hex } }) as Hex[],
+    data: encodeAbiParameters([{ type: 'uint256' }], [1000n]), logIndex: 1, txHash: `0x${randomBytes(32).toString('hex')}` as Hex, blockNumber: at,
+  };
+  const rpc = {
+    blockNumber: async () => head,
+    receiptLogs: async () => { throw new Error('no tx_hash: no receipt read'); },
+    transferLogs: async (c: Hex, lo: bigint, hi: bigint) => (c === coin && log.blockNumber >= lo && log.blockNumber <= hi ? [log] : []),
+    poolHooks: async () => null,
+  } as unknown as BonusRpc;
+  const r = await indexBackers(NOW, { rpc, deadline: Date.now() + 25_000, only: [coin] });
+  assert.equal((r as { coins: number }).coins, 1, JSON.stringify(r));
+  assert.equal((await backersOf([coin])).get(coin), 1);
+});
+
 test('(b) declined, unknown, launching or no row: no Token card and no post card pill', db, async () => {
   const none = await builder();
   assert.equal((await profileSite(none.id, await page(none.id), NOW)).token, null);

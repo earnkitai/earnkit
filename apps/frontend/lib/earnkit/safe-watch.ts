@@ -61,7 +61,13 @@ export async function safeWatch(now: Date, deps: SafeWatchDeps = {}): Promise<'s
     log('[safe-watch] balance read', err instanceof Error ? err.name : 'error');
     return 'skipped';
   }
-  const price = await (deps.price ?? (() => cachedWethUsd()))();
+  let price: number | null;
+  try {
+    price = await (deps.price ?? (() => cachedWethUsd()))();
+  } catch (err) {
+    log('[safe-watch] price read', err instanceof Error ? err.name : 'error');
+    return 'skipped';
+  }
   if (price === null || !Number.isFinite(price) || price <= 0) {
     log('[safe-watch] no WETH price; skipped');
     return 'skipped';

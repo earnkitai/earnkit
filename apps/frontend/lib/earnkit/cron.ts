@@ -520,7 +520,13 @@ export async function runCron(
     } catch {
       payout = null;
     }
-    for (const a of gasAlerts(needs_owner, bonusGasLow(bonus), payout, deployEnabled() ? deployerAddress() : null)) {
+    let deployerAddr: string | null = null;
+    try {
+      deployerAddr = deployEnabled() ? deployerAddress() : null;
+    } catch {
+      deployerAddr = null;
+    }
+    for (const a of gasAlerts(needs_owner, bonusGasLow(bonus), payout, deployerAddr)) {
       try {
         await ownerGasMail(a, now, deps.ownerMail);
       } catch (err) {

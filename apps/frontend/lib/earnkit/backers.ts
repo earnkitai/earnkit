@@ -109,7 +109,7 @@ export async function indexBackers(now: Date, o: IndexOpts = {}) {
         FROM projects p
         WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND COALESCE(p.coin_chain_id, 8453) = 8453
         UNION ALL
-        SELECT lower(t.coin_address), t.tx_hash, t.updated_at, lower(t.wallet), 1, t.builder_id
+        SELECT lower(t.coin_address), t.tx_hash, t.created_at, lower(t.wallet), 1, t.builder_id
         FROM builder_tokens t WHERE t.status = 'launched' AND t.coin_address IS NOT NULL
       ) u ORDER BY coin, src, ord
     ) x LEFT JOIN coin_backer_cursor c ON c.coin = x.coin

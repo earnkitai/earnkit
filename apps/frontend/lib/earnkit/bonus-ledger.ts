@@ -49,7 +49,8 @@ import { withScoringLock } from './scoring-lock';
  * 3. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
  *    worth ≥ 10× its gas (the v2.4 idempotent payout: signed and stored before it is broadcast).
  * 4. claim_others (v2.9 D16): after the sweep, in at most OTHERS_CLAIM_MS, `claim(owner, WETH)` for
- *    MINI and each EarnKit token's creator when worth ≥ 10× its gas; the FeeLocker always pays the owner.
+ *    each EarnKit token's creator (and builder token's wallet) when worth ≥ 10× its gas; the FeeLocker always
+ *    pays the owner. MINI is not claimed since v4 (its 10% ended).
  * 5. the Safe index (v2.13.2): the Safe's own deposits from EarnKit coins, for /api/stats.
  * v2.13: coins launched after tokens.fun's split change have no bonus slot (Safe 50, creator 40,
  * MINI 10), so their fees reach the Safe by its own claim.
@@ -749,12 +750,12 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
 }
 
 /**
- * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for MINI and each launched EarnKit token's
+ * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for each launched EarnKit token's
  * creator (test installations' too: their fees are real; v4: and each launched builder token's wallet), after the rounds and the sweep, within at
  * most OTHERS_CLAIM_MS (`othersMs`) of the run, so it never takes time from EarnKit's own payouts.
- * The FeeLocker always pays the owner, so EarnKit never holds the creator's or MINI's money; each
+ * The FeeLocker always pays the owner, so EarnKit never holds a creator's money; each
  * claim needs 10× its gas. Recipients: cached, else read (feeRecipients, at most
- * RECIPIENT_READS_PER_RUN), newest tokens first; MINI goes first, then the creators newest first.
+ * RECIPIENT_READS_PER_RUN), newest tokens first; the creators are claimed newest first. MINI is never claimed since v4.
  * What the slice doesn't reach is 'next run'. An owner that is also the bonus wallet or the Safe is
  * claimed by claimFees (claimOwners: the first role wins).
  */
@@ -780,7 +781,7 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
     WHERE status = 'launched' AND coin_address IS NOT NULL AND wallet IS NOT NULL ORDER BY created_at DESC, builder_id DESC`;
   for (const b of builders) known.push({ creator: b.wallet, mini: null });
   if (unread.length > 0)
-    (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them, MINI falls back to policy.ts`);
+    (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them`);
   // v4 (2026-10-28): MINI's 10% ended; EarnKit no longer claims for MINI (the creators only).
   const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini: null });
   const others = [...all.filter((o) => o.role === 'mini'), ...all.filter((o) => o.role === 'creator')];

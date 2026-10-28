@@ -197,7 +197,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     'Looks right\\?$',
   ].join('\n')), s7);
   assert.equal((r7.reply?.move_up as { kind: string; agent_note: string }).kind, 'share');
-  assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show the post text exactly as given\. Never rewrite it\./);
+  assert.match((r7.reply?.move_up as { agent_note: string }).agent_note, /Show it exactly as given\. Never rewrite it\./);
 });
 
 test('Task 16 fix round 1: the signed-out reply\'s open grant is never an investment', () => {

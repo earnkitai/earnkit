@@ -166,3 +166,17 @@ test('runCron runs safe_watch (with its deps under `only`) and reports it', db, 
   const without = await runCron({ now: NOW, only: ['v4-safe-watch-none'], deps: { refreshFees: async () => 0 } });
   assert.equal((without as { safe_watch?: string }).safe_watch, undefined, 'tests without its deps never reach a chain');
 });
+
+test('(z) a price read that throws is skipped, never thrown', db, async () => {
+  const r = recorder();
+  const out = await safeWatch(NOW, {
+    ...holding(9000),
+    price: async () => {
+      throw new Error('price down');
+    },
+    mail: r.mail,
+    ...quiet,
+  });
+  assert.equal(out, 'skipped');
+  assert.equal(r.sent.length, 0);
+});
