@@ -8408,3 +8408,25 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   yes with `QUALIFY_CODES_CHECK_NOTE` (check the code first; add only if not there). `alsoOpen` lists grants only
   (`site-copy.ts programKind(c).startsWith('grant')`: never an investment, a prize program or a hackathon); `alsoLine`
   alone cuts the title at ':'.
+
+## v4.3 Task 2: the full list never contradicts itself (2026-10-29)
+
+- **Routing.** `tools.ts list_programs` sends a profiled, scoring (non-shared) builder to `benchFind` with `more` too
+  (`more: true`). `benchFind` answers null before benchView claims anything unless the state is ranked (signed in,
+  the one project counted); null falls through to today's `present.ts` path. Shared clients always keep that path
+  (hostedAnon still requires `!more`). With `more`, `signedOut` is read by `benchFind` itself (tools.ts never read it for
+  `more`), and the named-wallet change reply stays `!more`.
+- **The table.** `present.ts fullProgramTable(m, entered)`: every shown curated card (layout's matched rows, then the
+  whole `rest`, investments included, sponsored never; `layout` now also returns `rest`), today's `more` columns and
+  cells (Program | AMOUNT_HEADER | Difficulty | Ends: programCell, upToCell(prizeOf), difficultyCell, endsOf), never
+  "N more open". Set on `BenchView.fullTable` for a ranked `more` reply.
+- **Placement** (`bench-reply.ts`). The qualify reply renders `fullTable` in place of `alsoLine`. Every other ranked
+  reply goes through `withTable(reply, table, ask)`: the table right before the reply's question (its last line, split as
+  its own paragraph), else after everything (no question, or the owning nudge whose question leads).
+  The stored bench_ask and move_up are written as for `find {}`, so a yes to the question works.
+- **The old path** (`presentFirstMessage` with `more`): `noFitLine` only when no program table (`shown`) follows;
+  `programUpdates` entries for a program in a table above (matched rows or `shown`; exact "<title> closes ..." text) are
+  dropped; "Updates:" only while entries remain.
+- Tests: `v43-first-answer.test.ts` (owner `find {more: true}` byte for byte, the stored ask and its yes, eight days on
+  no "Updates:"; table before the question in a ship reply; a shared client's `more` has no "doesn't fit"; the old path's
+  update filter). Updated pins: `present.test.ts` (I3 noFit, Ruling 28 x2, I7 updates) and `match-projects.test.ts` 2.9.

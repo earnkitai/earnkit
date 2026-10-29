@@ -1094,10 +1094,12 @@ export const handlers = {
     // v2.12.1 T8 (spec 2): the Bench's three-part reply (where you stand, ways to get funded, how to
     // move up) replaces the short v2.11 reply. "Show more" (more: true) and a shared client keep the
     // v2.11 tables.
-    if ((scoring && profiled && !more) || hostedAnon) {
+    // v4.3 Task 2: "show more" for a ranked builder is the same Bench reply with the full program table (benchFind
+    // answers null in any other state, which keeps the v2.11 tables below).
+    if ((scoring && profiled) || hostedAnon) {
       // A wallet the builder named ("add my wallet") that isn't their proven one: its signing link, never the status.
       // Only with a link (a page signed in with X); else the wallet only shows its wins, as before.
-      if (scoring && profiled && wallet && wallet.toLowerCase() !== (await provenWallet(ctx.installationId))?.toLowerCase()) {
+      if (scoring && profiled && !more && wallet && wallet.toLowerCase() !== (await provenWallet(ctx.installationId))?.toLowerCase()) {
         const change = await walletChangeReply(ctx.installationId, new Date());
         if (change.move_up) return change;
       }
@@ -1106,11 +1108,13 @@ export const handlers = {
       const shownCards = withPools.filter((c) => !hide.has(c.id));
       // v2.13 T8: the Bench's three parts (bench-find.ts).
       const r = await benchFind(ctx, {
-        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut,
+        // v4.3 Task 2: signedOut was not read for "show more"; benchFind reads it then.
+        start, first, cards: shownCards, repos: yourRepos, myEntries, ask, alerts, hide, project, signedOut: more ? undefined : signedOut,
         localRepos: local_repos?.length ? local_repos : own ? (memory.local_repos ?? undefined) : undefined,
         upcoming: upcoming.filter((c) => !hide.has(c.id)),
+        more: more === true,
       });
-      return {
+      if (r) return {
         ...r,
         ...(walletNote && { wallet_note: walletNote }),
         // v2.14 A17: the question is show_to_builder's last line, so the note only routes the answer.

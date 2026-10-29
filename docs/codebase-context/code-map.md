@@ -682,7 +682,9 @@ apps/frontend/
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
-    present.ts(+test)          scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
+    present.ts(+test)          v4.3 Task 2: fullProgramTable (every shown card, ranked find {more: true}); layout returns rest;
+                               the more path drops noFitLine above the shown table and updates naming a tabled program.
+                               scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
                                ends_at, rolling last, then award, then id). v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
                                nothing else leads; context line + fresh lead), Card.winners_per_round.
                                v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
@@ -1677,7 +1679,7 @@ apps/frontend/
                                benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
                                2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
                                connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
-                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) + qualifyAsk(g, steps, name), no ship
+                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) (or BenchView.fullTable, Task 2) + qualifyAsk(g, steps, name), no ship
                                or money line; else SHIP_ASK; shipLine), qualifySteps (the qualify yes for base/use first;
                                QUALIFY_STEPS, BUILDER_CODES_GUIDE), qualifyCodesYes + QUALIFY_CODES_NOTE (v4.3: the codes-first yes), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
                                PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
@@ -1766,6 +1768,8 @@ apps/frontend/
                                benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE;
                                v4.3: stored qualify.first 'codes' answers qualifyCodesYes(name) + QUALIFY_CODES_NOTE);
                                v4.3 alsoOpen (the qualify reply's Also open: two showable grants by byRelevance);
+                               v4.3 Task 2: BenchFindArgs.more (find {more: true}): ranked only (else null, tools.ts keeps present.ts),
+                               view.fullTable = present.ts fullProgramTable;
                                connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
     raising.ts                 DELETED in v4.0 Task 11 (Backing retired; EARNKIT_RAISING is read nowhere).
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),

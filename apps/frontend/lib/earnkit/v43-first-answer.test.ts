@@ -15,7 +15,7 @@ import {
 } from './bench-reply';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
-import type { Card, RepoFit } from './present';
+import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
 
 /**
  * v4.3 Task 1 (owner-approved copy): "what can I earn" for a ranked builder with no fit names the money (Base's grant,
@@ -260,4 +260,97 @@ test('fix round 1: a stored ask from before v4.3 (no first, no name) answers a y
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), qualifySteps(BASE, ['codes', 'use']));
   assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
+});
+
+// ---- v4.3 Task 2: the full list never contradicts itself ----
+
+const FULL_TABLE = [
+  '| Program | Amount | Difficulty | Ends |',
+  '|---|---|---|---|',
+  '| Base Builder Grant Program | $5,000 | Medium | rolling |',
+  '| Arc Microgrants: Built with Arc Studio | 500 USDC × 8 grants | Medium | Nov 1, 11:59 PM ET |',
+  '| Circle Developer Grants | $5,000 to $100,000 USDC grants | Hard | rolling |',
+  '| a16z speedrun SR008 | $1M investment | Hard | Nov 1, 11:59 PM PT |',
+  '| Alliance ALL19 | $400K at admission investment | Hard | Nov 18, 11:59 PM UTC |',
+].join('\n');
+
+test("v4.3 Task 2: the owner's find {more: true}: head and gap, the full table, the same one question; never doesn't fit", db, async () => {
+  await start();
+  const { c, ctx, key } = await ownerBuilder('m');
+  const r = await mcpCall(ctx, 'find', { more: true });
+  const s = show(r);
+  assert.equal(s, [OWNER_COPY.split('\n')[0], '', FULL_TABLE, '', 'Want me to add Builder Codes to EarnKit?'].join('\n'));
+  assert.doesNotMatch(s, /doesn't fit|Updates:|Also open|\d+ programs are open|Want the guide/);
+  assert.equal(s.split('?').length - 1, 1, s);
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // The stored ask is written, so the yes is answered as asked.
+  const [{ a }] = await sql()<{ a: { kind: string; qualify?: { first?: string; name?: string } } | null }[]>`SELECT standing_seen->'bench_ask' AS a FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(a?.kind, 'qualify');
+  assert.equal(a?.qualify?.first, 'codes');
+  assert.equal(a?.qualify?.name, 'EarnKit');
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(show(yes), qualifyCodesYes('EarnKit'));
+  // Days later (Arc Microgrants closes within 3 days): still the table, never an "Updates:" line repeating it.
+  mock.timers.setTime(Date.parse('2026-10-29T12:00:00Z'));
+  const later = show(await mcpCall(ctx, 'find', { more: true }));
+  assert.match(later, /\| Arc Microgrants: Built with Arc Studio \|/, later);
+  assert.doesNotMatch(later, /doesn't fit|Updates:/, later);
+});
+
+test('v4.3 Task 2: a ranked reply with the full list puts the table right before its one question', () => {
+  const project = { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 3 };
+  const v = { state: 'ranked', variant: null, project, link: null, handle: 'maya' } as const;
+  const view: BenchView = {
+    ...v, rank: '#3 of 12 builders', streak: 3, target: null, fund: [], due: [], held: null, standingShown: true, nagShown: true,
+    ask: { kind: 'ship', project_key: 'maya/kit', line: 'Want me to suggest one small thing to ship?' },
+  };
+  const plain = benchReply(view);
+  const full = benchReply({ ...view, fullTable: '| Program |\n|---|\n| A |' });
+  assert.equal(full, plain.replace('\nWant me to suggest one small thing to ship?', '\n\n| Program |\n|---|\n| A |\n\nWant me to suggest one small thing to ship?'));
+  assert.ok(full.endsWith('\n\nWant me to suggest one small thing to ship?'), full);
+  // No table: unchanged.
+  assert.equal(benchReply({ ...view, fullTable: null }), plain);
+});
+
+test("v4.3 Task 2: a shared client's find {more: true} keeps the table path with no doesn't fit line", db, async () => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-29T12:00:00Z') });
+  const t = `ek_v43fash_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: true, matchProjects: (async () => ({ checked: 1, scored: 1, fits: [] })) as never };
+  const input = { more: true, repos: ['https://github.com/someone/app'] };
+  await mcpCall(ctx, 'find', input);
+  const s = show(await mcpCall(ctx, 'find', input));
+  assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+  assert.match(s, /\| Arc Microgrants: Built with Arc Studio \|/, s);
+  assert.doesNotMatch(s, /doesn't fit/, s);
+  assert.doesNotMatch(s, /Updates: [^\n]*Arc Microgrants/, s);
+});
+
+test('v4.3 Task 2, the old path: an update for a program in the table is dropped; one not in it still shows', () => {
+  const now = new Date('2026-10-29T12:00:00Z');
+  const card = (id: string, o: Partial<Card> = {}): Card => ({
+    id, title: `${id} Grants`, summary: '$1,000 · rolling', tag: null, each_time: [], status: 'active', chains: ['base'], max_award_usd: 1000, reward: '$1,000 per grant', ...o,
+  });
+  // Five grants fill the table (MAX_OTHERS); the investment sorts after them, so it is not in it.
+  const cards: Card[] = [
+    card('g1', { closes_in_days: 2, ends_at: new Date('2026-10-31T12:00:00Z') }), card('g2'), card('g3'), card('g4'), card('g5'),
+    card('fund', { investment: true, closes_in_days: 3, ends_at: new Date('2026-11-01T12:00:00Z') }),
+  ];
+  const repos = { checked: 1, scored: 1, fits: [] } as never;
+  const s = presentFirstMessage({
+    alerts: [], campaigns: [], cards, repos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now, more: true,
+    updates: programUpdates(cards, false), projectName: 'EarnKit',
+  });
+  assert.match(s, /\| g1 Grants \|/, s);
+  assert.doesNotMatch(s, /\| fund Grants \|/, s);
+  assert.match(s, /\nUpdates: fund Grants closes in 3 days\.\n/, s);
+  assert.doesNotMatch(s, /g1 Grants closes|doesn't fit/, s);
+  // Only updates for programs in the table: no "Updates:" line at all.
+  const only = presentFirstMessage({
+    alerts: [], campaigns: [], cards: cards.slice(0, 5), repos, workingOn: [], agentCanBuild: true, sponsorEntries: null, now, more: true,
+    updates: programUpdates(cards.slice(0, 5), false), projectName: 'EarnKit',
+  });
+  assert.doesNotMatch(only, /Updates:|doesn't fit/, only);
 });

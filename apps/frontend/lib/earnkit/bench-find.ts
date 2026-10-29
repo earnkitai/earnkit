@@ -25,7 +25,7 @@ import {
   FITS_MAX, fundWhen, scoreFits, showable, standBase, startRefresh, takeNews,
   type Seen as StandSeen, type StandBase,
 } from './stand-view';
-import { byDeadline, byRelevance, canApply, enteredIds, layout, noFitLine, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
+import { byDeadline, byRelevance, canApply, enteredIds, fullProgramTable, layout, noFitLine, submitStep, submitStepLine, type Card, type FirstMessage, type RepoFit, type YourRepos } from './present';
 import type { ReaderDeps } from './source-readers';
 import { NO_USERS_YET, creditsMainnet, type Detection } from './match';
 import { refKey, reportedName } from './project-name';
@@ -1018,6 +1018,11 @@ export type BenchFindArgs = {
   upcoming?: Card[];
   /** v3.1 cold read: the agent's local_repos report (this call's, else remembered), for what it says of the one project. */
   localRepos?: unknown;
+  /**
+   * v4.3 Task 2: the builder asked for the full list (find {more: true}): a ranked reply carries every shown program's
+   * table (BenchView.fullTable); any other state answers null before anything is claimed (tools.ts keeps present.ts).
+   */
+  more?: boolean;
 };
 
 /**
@@ -1048,11 +1053,17 @@ const leadOf = (program_id: string, first: Fit): { program_id: string; repo?: st
  * question or a submission step due is the reply's one question (A17). tools.ts adds ask_outcome, matches,
  * programs, working_on and wallet_note. Never a daily-check note.
  */
-export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Reply> {
+export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Reply | null> {
   const id = ctx.installationId;
   const now = a.first.now;
   const own = ctx.ownInstallationId ?? id;
   const read = await coveredRead(id, own, now, await benchRead(id, own, now));
+  // v4.3 Task 2: the full list is the Bench's only in the ranked state (signed in, the one project counted).
+  if (a.more) {
+    const out = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
+    const counted = Boolean(read.row?.confirmed);
+    if (out || !(read.row || read.main) || !counted) return null;
+  }
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -1109,6 +1120,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     id, now, read, own, signedOut, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
     codesFetch: ctx.codesFetch, known,
   });
+  if (a.more && view.state === 'ranked') view.fullTable = fullProgramTable(m, entered);
   const taken = view.variant === 'taken';
   const lead = Boolean((leadFit && !submit && !taken) || submit);
   // Every reply asks one question now, so news never carries a card offer of its own. R10: the news (a move up

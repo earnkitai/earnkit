@@ -279,7 +279,9 @@ test('2.9 (Review Focus 1) EarnKit kits, a one-commit contribution, a fork, a te
         more: true, // v2.10 item 2: the v2.9 tables are behind "show more"
         alerts: [], campaigns: [], cards: [card], repos: r, githubGiven: true, workingOn: [], agentCanBuild: true, sponsorEntries: null, now: T_NOW,
       });
-      assert.match(text, /Your app doesn't fit an open program yet\./);
+      // v4.3 Task 2: the program table follows, so never "doesn't fit" above it.
+      assert.doesNotMatch(text, /doesn't fit/);
+      assert.match(text, /\| Base X \|/);
       assert.doesNotMatch(text, /launch/i);
     },
   );

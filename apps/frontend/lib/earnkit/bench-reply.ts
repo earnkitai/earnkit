@@ -569,6 +569,11 @@ export type BenchView = {
   qualify?: QualifyOffer | null;
   /** v4.3: up to two other open grants the qualify reply names ("Also open: ..."); absent or empty: no line. */
   also?: AlsoOpen[];
+  /**
+   * v4.3 Task 2: the builder asked for the full list (find {more: true}): every shown program's table (present.ts
+   * fullProgramTable), in place of "Also open" in the qualify reply, else right before the question. Absent: none.
+   */
+  fullTable?: string | null;
   /** v3.1 one-tap posts: an event's drafted post (ask kind 'post'). */
   post?: EventPost | null;
   /** 2026-10-23: a one-line statement said once (TEMPLATE_NOTICE), under the account line, else above the reply. */
@@ -750,7 +755,7 @@ export function benchReply(v: BenchView): string {
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
   // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
   if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
-    return paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
+    return withTable(paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]), v.fullTable, '');
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
@@ -771,8 +776,27 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
 /** v4.2: the ship step's plain line (no points): the weekly target ("Ship code this week to hold #1."), else "Ship code this week." Pure. */
 export const shipLine = (target: string | null) => (target?.startsWith('Ship code this week') ? target : 'Ship code this week.');
 
-/** The ranked state's reply (benchReply). Pure. */
+/**
+ * v4.3 Task 2: the full program table right before the reply's question (its last line, `ask`); with no question
+ * there, after everything else. Pure.
+ */
+function withTable(reply: string, table: string | null | undefined, ask: string): string {
+  if (!table) return reply;
+  if (ask && reply.endsWith(ask)) {
+    const head = reply.slice(0, reply.length - ask.length).replace(/\n+$/, '');
+    return head ? `${head}\n\n${table}\n\n${ask}` : `${table}\n\n${ask}`;
+  }
+  return reply ? `${reply}\n\n${table}` : table;
+}
+
+/** The ranked state's reply (benchReply); with the full list (fullTable), the table before the question. Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
+  // The qualify reply carries the table in place of "Also open" (rankedBody).
+  if (!v.held && v.ask.kind === 'qualify' && v.qualify) return rankedBody(v, name, ask);
+  return withTable(rankedBody(v, name, ask), v.fullTable, ask);
+}
+
+function rankedBody(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
       [connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
@@ -798,7 +822,7 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // v4.3 (owner-approved): no fit, so Base's grant carries the money: the head (program, amount, when) and the one gap,
   // up to two other open grants, then the one question. No ship line and no money line; the standing (once shown) above.
   if (!v.held && v.ask.kind === 'qualify' && v.qualify)
-    return paras([standing, ...v.due], [`${qualifyHead(v.qualify)} ${qualifyGap(name, v.qualify)}`], [alsoLine(v.also ?? [])], [ask]);
+    return paras([standing, ...v.due], [`${qualifyHead(v.qualify)} ${qualifyGap(name, v.qualify)}`], [v.fullTable ?? alsoLine(v.also ?? [])], [ask]);
   const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'none') ? ship : null;
   return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
 }
