@@ -15,9 +15,12 @@ import { USED_DAYS, USED_PAGES, USED_PER_RUN, confirmedSql, contractsOf, exclude
  *   builder taking money out).
  * - Inbound ETH (external and internal) and Base USDC per contract, and the same outbound, alchemy.ts contractFlows,
  *   USED_PAGES pages each. Exact raw amounts; ETH at fees.ts cachedWethUsd, USDC at $1.
- * - Pass-through, judged per contract (a router): a contract whose outbound to outside addresses is at least half of
- *   its own inbound adds nothing to usd; usd is the inbound of the others (0 when every contract passes through, the
- *   row stored so drafts skip it). inbound_usd and outbound_usd stay the builder's totals.
+ * - Pass-through, judged per contract (a router): a contract with outbound to outside addresses that is at least half
+ *   of its own inbound (any outbound with no inbound counts) adds nothing to usd. usd is the inbound of the others, less
+ *   what pass-through contracts sent out beyond what outsiders sent them (that money came from the builder's other
+ *   contracts, so it is a wash: A paid in, moved to own B, B paid out), never below 0; the row is stored at 0 so drafts
+ *   skip it. A router forwarding its own inbound offsets about nothing, so one never hides a real contract.
+ *   inbound_usd and outbound_usd stay the builder's totals.
  * - Any failure stores nothing (no zero row); an unknown price stores nothing (the next run asks again).
  * Private: no route, page, builder.json or stats code reads app_revenue.
  */
@@ -32,8 +35,11 @@ const usable = (usd: number | null): usd is number => usd !== null && Number.isF
 /** Dollars, rounded to cents, from exact amounts: wei at `ethUsd`, USDC units at $1 (6 decimals). Pure. */
 const dollars = (wei: bigint, usdc: bigint, ethUsd: number) => Math.round((Number(wei / 10n ** 12n) / 1e6) * ethUsd * 100 + Number(usdc / 10_000n)) / 100;
 const cents = (usd: number) => Math.round(usd * 100) / 100;
-/** One contract is pass-through (a router) when its outbound to outside addresses is at least PASS_THROUGH of its inbound. Pure. */
-export const passesThrough = (inbound: number, outbound: number) => inbound > 0 && outbound >= PASS_THROUGH * inbound;
+/**
+ * One contract is pass-through (a router) when it sent something to outside addresses and that is at least
+ * PASS_THROUGH of its inbound (so any outbound with no inbound is). Pure.
+ */
+export const passesThrough = (inbound: number, outbound: number) => outbound > 0 && outbound >= PASS_THROUGH * inbound;
 const sumOutside = (flows: Flow[], excluded: Set<string>) => flows.reduce((s, f) => (excluded.has(f.peer) ? s : s + f.raw), 0n);
 
 /**
@@ -56,7 +62,7 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
     const excluded = excludedOf(proven, [await fundedOf(proven, call)], chosen);
     for (const c of chosen) excluded.add(c.address.toLowerCase());
     let capped = false;
-    let [usd, inbound_usd, outbound_usd] = [0, 0, 0];
+    let [earned, offset, inbound_usd, outbound_usd] = [0, 0, 0, 0];
     for (const c of chosen) {
       const read = async (dir: 'in' | 'out', kind: 'eth' | 'usdc') => {
         const r = await contractFlows(c.address, call, since, USED_PAGES, dir, kind);
@@ -65,12 +71,14 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
       };
       const inbound = dollars(await read('in', 'eth'), await read('in', 'usdc'), ethUsd);
       const outbound = dollars(await read('out', 'eth'), await read('out', 'usdc'), ethUsd);
-      // Pass-through per contract: a router forwarding what it gets adds nothing, whatever the builder's other contracts earn.
-      if (!passesThrough(inbound, outbound)) usd += inbound;
+      // Pass-through per contract: a router adds nothing; what it sent out beyond its own inbound came from the
+      // builder's other contracts and offsets their revenue (fix round 2: the wash through an own contract).
+      if (passesThrough(inbound, outbound)) offset += Math.max(0, outbound - inbound);
+      else earned += inbound;
       inbound_usd += inbound;
       outbound_usd += outbound;
     }
-    return { usd: cents(usd), inbound_usd: cents(inbound_usd), outbound_usd: cents(outbound_usd), capped, contracts: chosen.length };
+    return { usd: cents(Math.max(0, earned - offset)), inbound_usd: cents(inbound_usd), outbound_usd: cents(outbound_usd), capped, contracts: chosen.length };
   } catch (err) {
     if (!(err instanceof AlchemyNetworkOff)) throw err;
     logNetworkOff(err.network);

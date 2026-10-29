@@ -521,3 +521,27 @@ test('3.4 privacy: builder.json, the page data, /api/stats and the feed never ca
     assert.doesNotMatch(s, /revenue|paid into its contracts/i, name);
   }
 });
+
+// ---------------------------------------------------------------------------------------------- Task 2 fix round 2
+
+test('contractsRevenue: money a pass-through contract sends out beyond its own inbound offsets the others (the wash through an own contract)', dbTest, async () => {
+  const b = await builder();
+  const A = await made(b.wallets[0], 'base', 10);
+  const B = await made(b.wallets[0], 'base', 20);
+  const [p, q] = [addr(), addr()];
+  // (a) $1,000 in to A, A moves it all to own B, B pays it out: a wash.
+  const wash = alchemy({ flows: {
+    [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[B, DAY, 1_000_000_000n]],
+    [`in:usdc:${B}`]: [[A, DAY, 1_000_000_000n]], [`out:usdc:${B}`]: [[q, DAY, 1_000_000_000n]],
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, wash.call, { price }), { usd: 0, inbound_usd: 1000, outbound_usd: 1000, capped: false, contracts: 2 });
+  // (b) $1,000 in to A, $400 moved to B and paid out: $600 stays.
+  const part = alchemy({ flows: {
+    [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[B, DAY, 400_000_000n]],
+    [`in:usdc:${B}`]: [[A, DAY, 400_000_000n]], [`out:usdc:${B}`]: [[q, DAY, 400_000_000n]],
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, part.call, { price }), { usd: 600, inbound_usd: 1000, outbound_usd: 400, capped: false, contracts: 2 });
+  // (d) A revenue contract withdrawing to the builder's proven wallet is unchanged.
+  const withdraw = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[b.wallets[0], DAY, 1_000_000_000n]] } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, withdraw.call, { price }), { usd: 1000, inbound_usd: 1000, outbound_usd: 0, capped: false, contracts: 2 });
+});
