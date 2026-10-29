@@ -91,7 +91,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // 2026-10-22: no fit, so Base's grant steps are the question; the points line is still the weekly target.
-  assert.match(s, new RegExp(`^App · #2 of 10 builders\n${RANKED_ASK_RE.source}\nShip code this week to pass #1: up to \\+100 points$`), s);
+  assert.match(s, new RegExp(`^App · #2 of 10 builders\nShip code this week to pass #1\\.\n${RANKED_ASK_RE.source}$`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
@@ -109,14 +109,14 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   await unseen(me.id);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.ok(behind.endsWith('\nShip code this week to move toward #1: up to +100 points'), behind);
+  assert.match(behind, new RegExp(`\nShip code this week to move toward #1\\.\n${RANKED_ASK_RE.source}$`), behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
   for (const tool of ['find', 'score'] as const) {
     await unseen(me.id);
     const t = show(await mcpCall(ctx(me.id), tool, {}));
-    assert.match(t, new RegExp(`${RANKED_ASK_RE.source}\nShip code this week: up to \\+100 points$`), `${tool}: ${t}`);
+    assert.match(t, new RegExp(`Ship code this week\\.\n${RANKED_ASK_RE.source}$`), `${tool}: ${t}`);
     assert.equal(questions(t), 1, t);
   }
 });
@@ -126,11 +126,11 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   const top = await builder('wttop', 'Top', [1, 2]);
   await pad('wtpb', 9);
   const t = show(await mcpCall(ctx(top.id), 'find', {}));
-  assert.ok(t.endsWith('\nShip code this week to hold #1: up to +100 points'), t);
+  assert.match(t, new RegExp(`\nShip code this week to hold #1\\.\n${RANKED_ASK_RE.source}$`), t);
   await builder('wttie', 'Tie', [1, 2]);
   await unseen(top.id);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.ok(tied.endsWith('\nShip code this week to hold #1: up to +100 points'), tied);
+  assert.match(tied, new RegExp(`\nShip code this week to hold #1\\.\n${RANKED_ASK_RE.source}$`), tied);
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 
@@ -211,7 +211,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
     await unseen(me.id);
     const again = show(await mcpCall(ctx(me.id), tool, {}));
     assert.doesNotMatch(again, /Your week is ready|A post for X/, `${tool}: ${again}`);
-    assert.match(again, /\nShip code this week to move toward #1: up to \+100 points$/, again);
+    assert.match(again, new RegExp(`\nShip code this week to move toward #1\\.\n${RANKED_ASK_RE.source}$`), again);
   }
 });
 
@@ -302,12 +302,15 @@ test('L5.6 security: another builder\'s X name or handle (text they control) nev
   await history(me.id, plusDays(monday, 6), 40);
   await pad('wtpc', 8, [plusDays(monday, 6)]);
   const replies: string[] = [];
+  const shown: string[] = [];
   for (const tool of ['find', 'score', 'find'] as const) {
     const r = await mcpCall(ctx(me.id), tool, {});
     replies.push(JSON.stringify(r.reply));
+    shown.push(String(r.reply?.show_to_builder ?? ''));
   }
   assert.ok(replies[0].includes('Your week is ready, Me.'), 'the moment showed (no ship-log row: no points promised)');
-  assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1: ')), 'the target showed');
+  assert.ok(replies.some((r) => r.includes('Ship code this week to move toward #1.')), 'the target showed');
+  assert.ok(shown.every((r) => !/points/.test(r)), 'no points line in any reply');
   for (const r of replies) {
     noHostile(r);
     assert.ok(!r.includes('ignore_prev'), r);
@@ -326,7 +329,7 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     await pad('wmpc', 9, [plusDays(monday, 6)]);
     const early = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.doesNotMatch(early, /Your week is ready|A post for X/, early);
-    assert.match(early, /\nShip code this week to hold #1: up to \+100 points$/, early);
+    assert.match(early, new RegExp(`\nShip code this week to hold #1\\.\n${RANKED_ASK_RE.source}$`), early);
     assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));

@@ -10,6 +10,7 @@ import { byDeadline, byPrize, type Card } from './present';
 import { moneyText, openCurated } from './pool';
 import { newProgramOf, openCuratedRows, repoCanWin, type FitRepo } from './alerts';
 import { readFitRepos } from './installations';
+import type { Chain } from './match';
 
 /**
  * v2.12.1 T8: the reads and writes behind the Bench reply (bench-reply.ts is pure): the on-demand refresh
@@ -142,8 +143,14 @@ export const FITS_MAX = 3;
 export async function scoreFits(id: number, main: string, o: { cards: Card[]; skip: Set<string>; now: Date }): Promise<{ card: Card; repo: FitRepo }[]> {
   try {
     const [fits, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);
-    const repo = fits.find((f) => f.key.toLowerCase() === main.toLowerCase());
-    if (!repo) return [];
+    const stored = fits.find((f) => f.key.toLowerCase() === main.toLowerCase());
+    if (!stored) return [];
+    // v4.2 Task 10 (G1): what the builder told since the repo was matched (has users, a live link, chains) counts now, as
+    // in find's next match, so setup done and score read the same fits.
+    const [told] = await sql()<{ mainnet_chains: Chain[]; testnet_chains: Chain[]; live_url: string | null; has_users: boolean | null; not_mine: boolean }[]>`
+      SELECT mainnet_chains, testnet_chains, live_url, has_users, not_mine FROM builder_repo_facts
+      WHERE installation_id = ${id} AND login = '' AND lower(repo_key) = ${main.toLowerCase()}`;
+    const repo: FitRepo = told ? { ...stored, said: { mainnet: told.mainnet_chains, testnet: told.testnet_chains, live_url: told.live_url, has_users: told.has_users, not_mine: told.not_mine } } : stored;
     const byId = new Map(rows.map((r) => [r.id, newProgramOf(r)]));
     return o.cards
       // v3 Stage 2: an in-person program is never a fit (a fit is applying from the ship log); it stays on /programs.

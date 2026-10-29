@@ -25,7 +25,7 @@ const stamp = (process.pid.toString(16) + Date.now().toString(16)).slice(-12);
 const coin = (c: string) => `0x${c.repeat(28)}${stamp}`.slice(0, 42).toLowerCase();
 
 const emptyRow = {
-  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
+  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };

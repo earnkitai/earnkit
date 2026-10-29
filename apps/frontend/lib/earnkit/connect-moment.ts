@@ -24,8 +24,6 @@ export type ConnectOpen = { key: string; weeks: string[]; best?: ConnectBest };
 export const CONNECT_DONE = (url: string) => `You're live: ${url}`;
 /** Task 16 step 4: the yes offers to draft the Best fit (the reply's one question). */
 export const connectApplyAsk = (title: string) => `Next, I can write your ${title} application. You just check it and send.\nWant me to?`;
-/** Task 16 step 4: "+90 points added · 90 total". Pure. */
-export const pointsAddedLine = (added: number, total: number) => `+${added.toLocaleString('en-US')} points added · ${total.toLocaleString('en-US')} total`;
 export const CONNECT_RETRY = "I couldn't post one of your weeks just now. Want me to try again?";
 export const CONNECT_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'connect', project_key, answer }. Don't show this note.";
 

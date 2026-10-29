@@ -1144,7 +1144,7 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
     claimed,
     reported: ctx.local?.contracts ?? [],
     finish: async ({ live, deployed, unchecked, withCode, tx_count, used_tx }) => {
-      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) }, used_tx, base.claims.includes('users'));
+      const product = scored(productScore({ ...signals, deployed }, unchecked ? ['deployed'] : []), { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) }, used_tx, base.claims.includes('users'), { saidNoUsers: ctx.said?.has_users === false, saidUsers: ctx.said?.has_users === true });
       await save({ traction: product.traction, odds: product.odds });
       const facts: RepoFacts = { ...confirmMainnets(base, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo: facts, verdicts: matchRepo(facts, programs) };
@@ -1156,14 +1156,17 @@ async function checkRepo(repo: Repo, programs: ProgramFacts[], ctx: ScoreCtx): P
  * v2.10 item 6: a product score with its traction and odds (productOdds). v2.10.1 B2: measured real
  * use makes it a product first (withRealUse), so polish never outweighs use. Pure.
  */
-function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean, hidden: { ownerHidden?: boolean; saidNoUsers?: boolean } = {}): Product {
+function scored(p: Product, t: TractionFacts, usedTx: number | null, usersClaim: boolean, hidden: { ownerHidden?: boolean; saidNoUsers?: boolean; saidUsers?: boolean } = {}): Product {
   const score = traction(t);
   // v2.10.1 (C1 b): the builder's users claim is real use once the live link loads and there is a commit in 90 days.
   // v2.11 8a: on a repo GitHub hides, an active repo (last commit in 90 days, or no date sent, Ruling
   // G3) is enough, so the yes never relies on an optional field the agent may not send.
   const recent = (t.commits_90d ?? 0) > 0 || (hidden.ownerHidden === true && !p.missing.includes('active'));
   const used = withRealUse(p, usedTx, usersClaim && t.live_ok && recent);
-  return { ...used, traction: score, ...productOdds(used, t, score, hidden) };
+  // v4.2 Task 4 (F5): the builder said the product has users, and nothing measured contradicts it (0 transactions only
+  // means none were counted): odds read the count as unmeasured, as for any chain without a read, never "no users yet".
+  const told = hidden.saidUsers === true && hidden.saidNoUsers !== true && t.live_ok && t.tx_count === 0;
+  return { ...used, traction: score, ...productOdds(used, told ? { ...t, tx_count: null } : t, score, hidden) };
 }
 
 /**
@@ -1198,7 +1201,7 @@ function checkLocal(r: ReportedRepo, programs: ProgramFacts[], ctx: Pick<ScoreCt
         { tx_count, live_ok: live, commits_90d, ...(await verifiedOf(ctx)) },
         used_tx,
         facts.claims.includes('users'),
-        { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false },
+        { ownerHidden: ctx.ownerHidden === true, saidNoUsers: ctx.said?.has_users === false, saidUsers: ctx.said?.has_users === true },
       );
       const repo: RepoFacts = { ...confirmMainnets(facts, withCode), product, live_verified: live, commits_90d, tx_count: used_tx, users_said: ctx.said?.has_users ?? null };
       return { repo, verdicts: matchRepo(repo, programs) };
@@ -1442,7 +1445,7 @@ const noFitReason = (f: RepoFacts) =>
 const namedKey = (n: string) => repoKey({ url: `https://github.com/${n}`, name: n.split('/')[1] });
 
 /** get_program's eligibility check: one repo against one open program (scored, owned unless EarnKit's). */
-export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}) {
+export async function checkEligibility(ref: string, programId: string, deps: MatchDeps = {}, told?: SaidRepo) {
   const program = (deps.programs ?? (await openProgramFacts())).find((p) => p.id === programId);
   if (!program) return null;
   const repo = await repoByName(fullName(ref));
@@ -1455,6 +1458,8 @@ export async function checkEligibility(ref: string, programId: string, deps: Mat
     now,
     cache: deps.cache ?? DB_CACHE,
     starters: deps.starters,
+    // v4.2 Task 10 (G3): what the builder told about this repo counts here as in the lists.
+    ...(told && { said: told }),
   });
   // v2.10 R4 (Pre-flight P27): one repo, one ENTRY_BUDGET (1 Blockscout read).
   const { repo: facts, verdicts } = await prepared.finish((await runChecks([prepared], checks, ENTRY_BUDGET))[0]);

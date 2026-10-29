@@ -30,7 +30,7 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_pools_plus: false,
   programs_open: 5,
   bonus_programs_open: 4,
-  coins_launched: 0,
+  coins_launched: 0, tokens_declined: 0,
   fees_to_safe_eth: 0,
   bonus_paid_eth: 0,
   bonus_pools_eth: 0,

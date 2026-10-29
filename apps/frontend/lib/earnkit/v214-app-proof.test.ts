@@ -110,8 +110,8 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
   assert.match(first, /^Ships is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders), 3 weeks in a row\.\n\n/, first);
   // v3.1 cold read: the question names no week count (it never disagrees with the streak).
-  const m = /\nMake your shipping log public on (https:\/\/earnkit\.com\/\S+) so grant teams can see it\?\n\+(\d+) points$/.exec(first);
-  assert.ok(m && first.endsWith(`${connectAsk(m[1])}\n+${m[2]} points`) && Number(m[2]) > 0 && Number(m[2]) % 30 === 0, first);
+  const m = /\nMake your shipping log public on (https:\/\/earnkit\.com\/\S+) so grant teams can see it\?$/.exec(first);
+  assert.ok(m && first.endsWith(connectAsk(m[1])) && !/points/.test(first), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
   // R16a: one ranked state; Task 16: the standing line carries the rank and the streak.
@@ -123,7 +123,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.ok(text.endsWith('\nShow what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'), text);
   // L5: this week has code ("Done this week"): the plain points line.
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.ok(next.endsWith('\nShip code this week: up to +100 points'), next);
+  assert.ok(next.endsWith('\nShip code this week.') || /\nShip code this week\.\n[^\n]*\?$/.test(next), next);
   assert.doesNotMatch(next, /Your code stays private/);
 });
 

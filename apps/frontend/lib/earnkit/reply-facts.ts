@@ -27,6 +27,24 @@ export type ReplyFacts = {
   about: Record<string, string>;
 };
 
+/**
+ * v4.2 Task 3 (F10): the answers to the questions builders ask mid-flow. Each line is checked against the code:
+ * tokens split 40% builder / 60% Safe after Clanker's share (builder-token.ts, policy.ts SPLIT); the page shows the
+ * weekly summary written from commit and PR titles, never titles or code, and a private repo's name, link and (unless
+ * titles are on or the builder approved that text) summary stay off it (ship-titles.ts titlesShown, week-summary.ts
+ * summaryShown, page-data.ts shownProjects); the App is read-only, Contents and Metadata (github-app.ts); hide is
+ * tell profile 'hide'. Pure.
+ */
+export function askedFacts(): Record<string, string> {
+  return {
+    earnkit_gets: "Builders pay nothing. When a builder's token trades, 40% of the fee goes to the builder and the rest keeps EarnKit running.",
+    privacy:
+      "EarnKit gets read-only access to only the repos you pick, and never shows or posts your code. Your page shows a short summary of what you shipped each week, written from your commit titles, never the titles or the code. A private repo's name and link stay off your page, and its summary shows only if you allow it. Say hide my page and it's hidden.",
+    token_earnings: "It depends on how much people trade. There's no promise; 40% of every trade's fee goes to you, claimed for you.",
+    token_chain: 'Tokens are on Base. Grants can be on any chain.',
+  };
+}
+
 /** What EarnKit is, how ranking works, Builder Codes and the page: existing copy only (site-copy, docs-copy). Pure. */
 export function aboutFacts(): Record<string, string> {
   return {
@@ -35,6 +53,7 @@ export function aboutFacts(): Record<string, string> {
     points: POINTS_PAGE_LINE,
     builder_code: `A Builder Code is a one-line tag Base uses to see your traffic. Guide: https://${BUILDER_CODES_GUIDE}`,
     data: 'You can hide your page anytime (say hide my page).',
+    ...askedFacts(),
   };
 }
 

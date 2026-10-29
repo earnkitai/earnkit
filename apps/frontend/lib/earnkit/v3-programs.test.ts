@@ -63,7 +63,7 @@ function upcomingFile(id: string, o: Record<string, unknown> = {}) {
   });
 }
 
-const stats = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0 } as PublicStats;
+const stats = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0 } as PublicStats;
 const now = new Date('2026-10-20T12:00:00Z');
 const card = (id: string, o: Partial<Card> = {}): Card => ({ id, title: id, summary: 'up to $5,000 · rolling', tag: null, each_time: [], ends_at: null, max_award_usd: 5000, reward: 'Up to $5,000', status: 'active', chains: ['arc'], ...o });
 

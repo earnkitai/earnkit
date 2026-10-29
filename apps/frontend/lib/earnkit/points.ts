@@ -32,18 +32,6 @@ export async function weekAwarded(builderId: number, week: string): Promise<bool
   return Boolean(r);
 }
 
-/**
- * Task 16: the points a connect yes would add for these weeks (Mondays): CONNECT_POINTS for each week the ledger has
- * no row for yet (awardWeekPoints adds nothing to a week that has one). Throws on a database error.
- */
-export async function connectOfferPoints(builderId: number, weeks: string[]): Promise<number> {
-  if (weeks.length === 0) return 0;
-  const [r] = await sql()<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM unnest(${weeks}::date[]) w(week)
-    WHERE NOT EXISTS (SELECT 1 FROM builder_points p WHERE p.builder_id = ${builderId} AND p.week = w.week)`;
-  return (r?.n ?? 0) * CONNECT_POINTS;
-}
-
 /** The reply's points line. */
 export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('en-US')}. They convert to $EARN at launch, in proportion to all points earned.`;
 /** The profile's small text under the points. */

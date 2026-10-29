@@ -15,9 +15,9 @@ import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, 
 import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { walletSetupDue, walletSetupToken } from './wallet-offer';
-import { provenWallet, upgradeToken, walletMessage, walletPost } from './wallet-proof';
-import { declineBuilderToken } from './builder-token';
+import { tokenOfferDue, walletSetupDue, walletSetupToken } from './wallet-offer';
+import { provenWallet, upgradeToken, walletLink, walletMessage, walletPost } from './wallet-proof';
+import { declineBuilderToken, retryDroppedBuilderTokens } from './builder-token';
 
 /**
  * v4.0 Task 3 (docs/design-docs-and-implementation-plans/v4-builder-tokens.md, "Approved copy" 1 and 2): setup steps 1
@@ -225,9 +225,9 @@ test('step 3 copy, word for word: with the token sentence, and without it', () =
   const project: BenchProject = { key: 'maya/mealmate', name: 'MealMate', confirmed: true, live: false, weeks: 1 };
   const setup = { link: L, project: 'MealMate', token: true };
   const ranked = { state: 'ranked' as const, variant: null, project, link: null, handle: 'maya', walletSetup: setup };
-  assert.equal(stateAsk({ ...ranked, connect: { weeks: 3, points: 40 } }).kind, 'wallet_setup');
+  assert.equal(stateAsk({ ...ranked, connect: { weeks: 3 } }).kind, 'wallet_setup');
   assert.equal(stateAsk({ ...ranked, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L, true));
-  assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3, points: 40 } }).kind, 'connect');
+  assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3 } }).kind, 'connect');
   const no = { state: 'no_project' as const, variant: null, project: null, link: null, githubNo: true, walletSetup: { ...setup, project: null } };
   assert.equal(stateAsk({ ...no, baseAsk: true }).kind, 'base_start');
   assert.equal(stateAsk(no).kind, 'wallet_setup');
@@ -265,6 +265,30 @@ test('(b) a no to the wallet step: skipped, remembered, never asked again; no to
   assert.equal(p.tf.calls.length, 0);
 });
 
+test('final review 9: skipping the wallet skips the token: a wallet proven later (the change link) and the hourly retry deploy nothing; only "launch my token" launches', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
+  const p = await connected('k9');
+  const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  assert.ok(s.includes('Rather skip the token? Just say no.'), s);
+  assert.ok(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'wallet', project_key: p.key, answer: 'no' } })).startsWith("No worries, add it whenever you're ready."));
+  assert.equal(await tokenRow(p.id), null);
+  // A wallet added later another way: the change link.
+  const change = walletLink(p.id, new Date());
+  assert.ok(change);
+  assert.equal((await signOn(p.handle, change!, p.tf)).status, 200);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.ok(await provenWallet(p.id));
+  assert.equal(await tokenRow(p.id), null);
+  assert.deepEqual(await retryDroppedBuilderTokens(new Date(), { ...p.tf.deps, only: [p.id] }), { tried: 0, launched: 0, blocked: [] });
+  // Never re-pitched by the legacy offer either.
+  assert.equal(await tokenOfferDue(p.id), false);
+  assert.equal(p.tf.calls.length, 0);
+  // The builder's own "launch my token" launches, once.
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
+  assert.equal(p.tf.calls.length, 1);
+});
+
 test('(c) the proof on the wallet page launches the token, no tell call needed', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
@@ -284,14 +308,21 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   const p = await connected('n');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   // v4.0 Task 5: the no is the setup-done reply now (MealMate fits nothing open here).
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } })), "No problem, no token.\n\nMealMate doesn't fit an open program yet.");
+  const none = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: p.key, answer: 'no' } }));
+  // v4.2 (F3): programs are open, so the table, never "doesn't fit"; MealMate was matched and fits none of them, so no question (never a program picked for a reason EarnKit does not have).
+  assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
+  assert.doesNotMatch(none, /doesn't fit/, none);
+  // Matched, nothing fits: the Monday check-in (this client can schedule and was never asked), stored so a yes routes right.
+  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |\n\nWant me to check in here every Monday?'), none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
-  // A declined builder never sees the token sentence again, and "launch my token" keeps the no.
+  // A declined builder never sees the token sentence again; only their own "launch my token" (v4.2) reverses the no.
   assert.equal(await walletSetupToken(p.id), false);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Your token stays off, like you asked.');
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), 'Your token is off. Say launch my token anytime to turn it on.');
   assert.equal(p.tf.calls.length, 0);
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
+  assert.equal(p.tf.calls.length, 1);
 });
 
 test('(e) a wallet change after the launch deploys nothing; a declined builder\'s later proof deploys nothing', db, async () => {
@@ -344,9 +375,9 @@ test('(g) "launch my token" with a proven wallet and no row launches; asked agai
   // A wallet proven before tokens were on (no launch then).
   await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${hex(20)}`}, ${p.id}, now())`;
   const yes = show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
-  assert.equal(yes, 'Done. Your token is live.');
+  assert.match(yes, /^Done\. Your token is live: https:\/\/app\.uniswap\.org\//);
   assert.equal(await tokenRow(p.id), 'launched');
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Your token is already live.');
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Your token is live: https:/);
   assert.equal(p.tf.calls.length, 1);
   for (const s of [yes]) assert.doesNotMatch(s, /coin/i);
   // Without a wallet: the wallet link.
@@ -387,7 +418,7 @@ test('fix 2: a first proof launches only after the token sentence was seen; else
   await new Promise((r) => setTimeout(r, 150));
   assert.equal(await tokenRow(p.id), null);
   assert.equal(p.tf.calls.length, 0);
-  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), 'Done. Your token is live.');
+  assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })).split('\n')[0].replace(/https:.*/, 'LINK'), 'Done. Your token is live: LINK');
   assert.equal(p.tf.calls.length, 1);
 });
 
@@ -489,7 +520,9 @@ test('(a) signed on the page, token launched: the next find leads with "You\'re 
   assert.equal(await settled(b.id), 'launched');
   const r = await mcpCall(b.ctx, 'find', {});
   const s = show(r);
-  assert.equal(s, `You're all set, Maya. Your community can now back what you're building.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  // v4.2: the sign that launched the token says so, with the trade link.
+  assert.match(s, /^You're all set, Maya\. Your token is live, so your community can back what you're building: https:\/\/\S+\n\n/, s);
+  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   // The yes drafts it (the apply flow).
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: (r.reply?.move_up as { project_key: string }).project_key, answer: 'yes' } });
@@ -541,16 +574,18 @@ test('(d) said once: the next reply is the normal ranked reply; a later no to th
   assert.doesNotMatch(show(s), /You're all set|what's open for you right now/, show(s));
 });
 
-test('(e) no open fit: the no-fit line in place of the table and question, never an empty table', db, async () => {
+test('(e) every program already told: the table still shows (v4.2: "doesn\'t fit" only when nothing is open), no question, never an empty table', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('e', []);
   // Every program the stored repo facts could win, told about already (so none is open for it).
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label)
     SELECT ${b.id}, '', id, 'rejected', 'an older round' FROM programs ON CONFLICT DO NOTHING`;
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), "No worries, add it whenever you're ready.\n\nKit doesn't fit an open program yet.");
-  assert.doesNotMatch(show(r), /\|/);
-  assert.equal(kindOf(r), undefined);
+  const s = show(r);
+  assert.ok(s.startsWith(`No worries, add it whenever you're ready. ${OPEN}\n\n| Program | Up to | Closes |`), s);
+  assert.doesNotMatch(s, /doesn't fit/, s);
+  assert.doesNotMatch(s, /\?$/, s);
+  assert.notEqual(kindOf(r), 'qualify');
 });
 
 test('final review 1: a token still launching or unknown is never told as live: "Your token is on its way" in place of the community line', db, async () => {

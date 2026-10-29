@@ -36,6 +36,16 @@ export function testInstallationIds(
   return [...ids].sort((a, b) => a - b);
 }
 
+/**
+ * v4.2 final review 6: the one SQL test for "this builder is an owner test installation": its id is listed, or an
+ * installation in its group is (EARNKIT_TEST_INSTALLATIONS, `ids`). `builder` is a column (e.g. 'bt.builder_id') or a
+ * builder id. Callers write `NOT ${...}`. Used by the stats (tokens_declined, coins_launched) and tokenOfferDue.
+ */
+export function testBuilderSql(db: Db, builder: string | number, ids: number[] = testInstallationIds()) {
+  const b = typeof builder === 'number' ? db`${builder}::int` : db(builder);
+  return db`(${b} = ANY(${ids}::int[]) OR EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = ${b} AND i.id = ANY(${ids}::int[])))`;
+}
+
 /** v2.9 A7: at most this many fit repos are remembered per installation. */
 export const MAX_FIT_REPOS = 5;
 

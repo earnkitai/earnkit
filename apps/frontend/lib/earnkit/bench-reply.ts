@@ -1,5 +1,4 @@
 import { pageUrl } from './reserved-routes';
-import { MAX_WEEK_POINTS } from './points';
 import { CHEER_LINE, communityRow, mondayOpener, mondayRows } from './weekly-moment';
 
 /**
@@ -32,7 +31,11 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   /** v4.0 Task 8 fix round 1: the accepted nudge's share ask (its yes: the post's link). */
   | 'outcome_share'
   /** v4.0: `wallet_setup`, setup step 3 (the wallet, and the builder's token unless they say no), once a person. */
-  | 'wallet_setup';
+  | 'wallet_setup'
+  /** v4.2 final review 3: the setup-done reply's `closest` (the closest program's one step) and `check_fits` (check which programs fit). */
+  | 'closest' | 'check_fits'
+  /** v4.2 Task 6: `token`, the one-time token offer for a builder who set up before v4 (a wallet, no token row, never offered). */
+  | 'token';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
 export type FundLine =
@@ -101,8 +104,8 @@ export const grantHook = (g: OpenGrant) => {
   const who = g.name ?? g.org;
   return `${who} ${/s$/i.test(who) ? 'pay' : 'pays'} up to ${g.amount} for apps${g.chain ? ` on ${g.chain}` : ''}.`;
 };
-/** Task 16: the connect offer: the weeks it posts and the points that yes adds (ledger rules: points.ts connectOfferPoints). */
-export type ConnectOffer = { weeks: number; points: number };
+/** Task 16: the connect offer: the weeks it posts (v4.2 final review 4: no points; the copy never shows them). */
+export type ConnectOffer = { weeks: number };
 /**
  * Task 16: the weekly moment (step 7): the week's number (the project's weeks shipping), where the builder stands
  * (`place`: 'still' or 'now' beside the rank, null under RANK_MIN_POOL: "on EarnKit"), last week's rank, and the points
@@ -146,7 +149,8 @@ export const pickRepoAsk = (link: string, noGithub: boolean) =>
  * v3.1 answerable replies (spec 6): the connect step again the same day (UTC) after its full pitch: the link and its
  * question only (the money line and the Lovable or Bolt hint once a day). Pure.
  */
-export const pickRepoAgain = (link: string) => `Connect your app's code so I can match it (read-only, one click): ${link}\nDone?`;
+export const pickRepoAgain = (link: string, noGithub = false) =>
+  `Connect your app's code so I can match it (read-only, one click): ${link}\n${noGithub ? `${NO_GITHUB_HINT}\n` : ''}Done?`;
 /** v3.1 cold read: the tool a live link was built with, from its host (only Lovable and Bolt are confirmed). Pure. */
 export const builtWith = (url: string | null | undefined): 'lovable' | 'bolt' | null => {
   const host = url && URL.canParse(url) ? new URL(url).hostname.toLowerCase() : '';
@@ -173,8 +177,6 @@ export const SHIP_ASK_DAYS = 7;
 export const installMoreAsk = (link: string) => `Install the read-only EarnKit app on it too (one click): ${link}\nDone?`;
 /** The step 2 reply (the repo picker, or the first repo's install link), never the one-more-repo install. Pure. */
 export const isStep2 = (a: BenchAsk) => (a.kind === 'pick_repo' && a.line.startsWith(CONNECT_LEAD)) || (a.kind === 'install_app' && a.line.startsWith(CONNECT_LEAD));
-/** Task 16, step 5: the shipping points line (`lead`: the weekly target without its period, else "Ship code this week"). */
-export const shipPointsLine = (lead: string = 'Ship code this week') => `${lead}: up to +${MAX_WEEK_POINTS} points`;
 /** v3 Stage 1 (spec 5.1), v3.1 cold read: the connect weeks' one question (ranked, once a person); the page is its link (no count). */
 export const connectAsk = (page: string) => `Make your shipping log public on ${page} so grant teams can see it?`;
 /**
@@ -207,6 +209,13 @@ export const TOKEN_SENTENCE =
   "Once you sign, your token goes live so people who believe in your work can back it, and 40% of every trade's fee goes straight to you. Rather skip the token? Just say no.";
 /** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
 export const TOKEN_NO_LINE = 'Got it.';
+/**
+ * v4.2 Task 6 (F11): the one-time token offer for an earlier builder with a proven wallet and no token row. The lead is a
+ * statement; the question ends the reply (and follows the explainer when the builder asked about their token).
+ */
+export const TOKEN_OFFER_LEAD = "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you.";
+export const TOKEN_OFFER_QUESTION = 'Want it live? Rather skip it? Just say no.';
+export const TOKEN_OFFER = `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`;
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
 /**
@@ -223,10 +232,11 @@ export const SETUP_OPEN = "Here's what's open for you right now:";
  * v4.0 approved copy 4 ("Setup done"): the lead, word for word, ending with SETUP_OPEN (`open` false: no open fit, so
  * the lead alone). `first`: the builder's first name (X display name's first word, else the handle). Pure.
  */
-export function setupDoneLead(first: string, outcome: SetupOutcome, open = true): string {
+export function setupDoneLead(first: string, outcome: SetupOutcome, open = true, trade?: string | null): string {
   const tail = open ? SETUP_OPEN : null;
   switch (outcome) {
-    case 'launched': return [`You're all set, ${first}. Your community can now back what you're building.`, tail].filter(Boolean).join('\n\n');
+    // v4.2: the sign that launched the token says so, with the trade link.
+    case 'launched': return [trade ? `You're all set, ${first}. Your token is live, so your community can back what you're building: ${trade}` : `You're all set, ${first}. Your community can now back what you're building.`, tail].filter(Boolean).join('\n\n');
     case 'on_its_way': return [`You're all set, ${first}. ${TOKEN_ON_ITS_WAY}`, tail].filter(Boolean).join('\n\n');
     case 'set': return [`You're all set, ${first}.`, tail].filter(Boolean).join('\n\n');
     case 'declined': return ['No problem, no token.', tail].filter(Boolean).join(' ');
@@ -245,10 +255,16 @@ export const bestFitAsk = (program: string) => `${program} looks like your best 
  * v4.0 Task 5: the setup-done reply: the lead, the table and the draft question; with no open fit, the lead alone and
  * `noFit` (never an empty table). Pure.
  */
-export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string) =>
+export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean } = {}) =>
   rows.length === 0
-    ? `${setupDoneLead(first, outcome, false)}\n\n${noFit}`
-    : `${setupDoneLead(first, outcome)}\n\n${programsTable(rows)}\n\n${bestFitAsk(rows[0].program)}`;
+    ? `${setupDoneLead(first, outcome, false, opts.trade)}\n\n${noFit}`
+    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows),
+        opts.noAsk ? null : opts.closest ? closestAsk(opts.closest.program, opts.closest.step) : opts.check ? checkFitsAsk(opts.check) : bestFitAsk(rows[0].program)]
+        .filter((x) => x !== null).join('\n\n');
+/** v4.2 Task 10: fits not known yet: the question (a yes runs the fit check, find). Pure. */
+export const checkFitsAsk = (project: string) => `Want me to check which of these fits ${project}?`;
+/** v4.2: nothing fits now: the closest program, the one step it needs, and the offer to help. Pure. */
+export const closestAsk = (program: string, step: string) => `${program} is the closest. It needs ${step}. Want help with it?`;
 /** Only when true: the Base Builder Code stays on the first wallet; a launched token's fees stay with its launch wallet. */
 export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
 export const WALLET_COIN_FEES = "Your token's fees keep going to the wallet it launched with.";
@@ -261,7 +277,8 @@ export const walletChangeX = (current: string, link: string, extras: string[] = 
 /** "Done" before the signature arrived: a fresh link (the last one may have expired) and the same question. Pure. */
 export const walletNotYet = (link: string) => `I don't see a signature yet. Here's a fresh link (one signature, no fee): ${link}\nDone?`;
 /** Done: the wallet is the reward recipient (short). Pure. */
-export const walletDone = (wallet: string) => `Done. Your rewards now go to ${wallet}. Your contracts on Base will show on your page soon.`;
+export const walletDone = (wallet: string, contracts = false) =>
+  `Done. Your rewards now go to ${wallet}.${contracts ? ' Your contracts on Base will show on your page soon.' : ''}`;
 /** Done for contracts only: no X sign-in, so the rewards stay with the current wallet (short). Pure. */
 export const walletContractsOnly = (current: string) =>
   `Done. That wallet counts for your contracts. Your rewards still go to ${current} until you sign in with X on the wallet page.`;
@@ -269,6 +286,8 @@ export const walletContractsOnly = (current: string) =>
 export const walletNotice = (wallet: string) => `Your reward wallet changed to ${wallet}.`;
 export const WALLET_SKIPPED = 'Skipped. Ask me anytime to add your reward wallet.';
 /** 2026-10-22: a private repo with titles off, asked once (a yes: updates.ts setShipTitles on). */
+/** v4.2 Task 10: a no to the titles question. */
+export const TITLES_NO_LINE = 'Got it, your commit titles stay private.';
 export const TITLES_ASK = 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.';
 
 /**
@@ -569,6 +588,8 @@ export function stateAsk(
     noGithub?: boolean;
     /** v4.0: setup step 3 is due (wallet-offer.ts walletSetupDue): its link, the project it names, the token sentence. */
     walletSetup?: { link: string; project: string | null; token: boolean } | null;
+    /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
+    tokenOffer?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -612,6 +633,8 @@ export function stateAsk(
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
   if (v.state === 'ranked' && v.wallet) return { kind: 'wallet', project_key: key, line: walletOffer(v.wallet) };
+  // v4.2 Task 6: the one-time token offer for an earlier builder (a wallet, no token row), before the lighter nudges.
+  if (v.state === 'ranked' && v.tokenOffer) return { kind: 'token', project_key: null, line: TOKEN_OFFER };
   // 2026-10-23: a main project quiet for STALE_WEEKS: one light nudge to connect the new one.
   if (v.state === 'ranked' && v.newRepo) return { kind: 'new_repo', project_key: key, line: NEW_REPO_ASK };
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
@@ -628,8 +651,6 @@ export function stateAsk(
   return { kind: 'install_app', project_key: key, line: STATE_COPY.not_counted.ask(v.link, v.noGithub === true) };
 }
 
-/** The weekly target as the points line's lead ("Ship code this week to pass #3"), else the plain lead ("Done this week." too). Pure. */
-const shipLead = (target: string | null) => (target?.startsWith('Ship code this week') ? target.replace(/\.$/, '') : undefined);
 /**
  * Ranked: the money line: the Best fit, else the first fit, else the upcoming program.
  */
@@ -662,7 +683,7 @@ export function benchReply(v: BenchView): string {
   const step2 = !v.held && isStep2(v.ask);
   // v3.1 answerable replies (spec 6): after today's full pitch, the step is the link and its question alone.
   const again = step2 && v.pitched === true && v.link !== null;
-  const ask = again ? pickRepoAgain(v.link!) : (v.held ?? v.ask.line);
+  const ask = again ? pickRepoAgain(v.link!, v.noGithub === true) : (v.held ?? v.ask.line);
   const named = namesAccount(v);
   const notice = v.notice ?? null;
   // GTM W2 (2026-10-23, value before the ask): step 2 names the open grant ("Base pays up to $5,000 for apps on Base.")
@@ -697,16 +718,19 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
   if (v.ask.kind === 'connect' && v.connect) return false;
   if (v.ask.kind === 'share' && v.moment && v.handle) return false;
   if (v.ask.kind === 'post' && v.post) return false;
-  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'new_repo') return false;
+  if (v.ask.kind === 'apply' || v.ask.kind === 'wallet' || v.ask.kind === 'wallet_setup' || v.ask.kind === 'token' || v.ask.kind === 'new_repo') return false;
   return !(v.ask.kind === 'qualify' && v.qualify);
 }
+
+/** v4.2: the ship step's plain line (no points): the weekly target ("Ship code this week to hold #1."), else "Ship code this week." Pure. */
+export const shipLine = (target: string | null) => (target?.startsWith('Ship code this week') ? target : 'Ship code this week.');
 
 /** The ranked state's reply (benchReply). Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
       [connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
-      [ask, v.connect.points > 0 ? `+${v.connect.points} points` : null],
+      [ask],
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
     // v4.0 Task 7: the Monday block; last week's post link, else the page (the reply's one https link).
@@ -718,21 +742,20 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // v3.1 cold read: the standing only when it changed since the builder last saw it, the points line at most once a week.
   const standing = v.standingShown === false ? null : full;
   const nag = v.nagShown !== false;
-  // A reply with nothing else to say still says where the builder stands (never an empty reply).
-  // The points line alone is no reply either: the standing goes above it.
-  const pointsOnly = (l: string) => / up to \+\d+ points$/.test(l);
-  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && !pointsOnly(l)) ? lines : [full, ...lines.filter((l) => l !== full)]);
-  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, ask, nag ? shipPointsLine() : null]));
+  const ship = shipLine(v.target);
+  // A reply with nothing else to say still says where the builder stands (never an empty reply); the ship line alone is no reply either.
+  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
+  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, nag ? shipLine(null) : null, ask]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
-  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
-  const points = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? shipPointsLine(shipLead(v.target)) : null;
+  if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'token' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
   // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
   // of the upcoming program's line, so the reply stays short).
   // Owner test 2026-10-23: no grant hook above the question ("...pay up to $5,000..." then "...Base's $5,000 grant?"
   // said the amount twice, every reply); the question names the grant and its amount.
   const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [qualifyMissing(name, v.qualify)] : [];
-  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, ask, points]));
+  const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? ship : null;
+  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, target, ask]));
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

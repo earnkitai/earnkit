@@ -26,8 +26,8 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, shipPointsLine, standingLine } from './bench-reply';
-import { connectApplyAsk, pointsAddedLine } from './connect-moment';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
+import { connectApplyAsk } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
 import { weekStartLine, weeklyTarget } from './weekly-target';
@@ -464,7 +464,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -914,13 +914,11 @@ export const v2121Texts: [string, string][] = [
   ['standingNews top', standingNews({ rank: 40, at: '2026-09-01T00:00:00Z' }, { standing: { ranked: true, rank: 12, total: 120 } }, new Date('2026-10-14T00:00:00Z'), false)!.line],
   // v3.1 Task 16: the ranked replies' lines (steps 3, 4, 5 and the ship step) and the draft's (step 6).
   ['SHIP_ASK', SHIP_ASK],
-  ['shipPointsLine', shipPointsLine()],
   ['connectAsk', connectAsk('earnkit.com/maya')],
   ['connectStanding', connectStanding('Recipes', '#3 of 12 builders', 2)],
   ['standingLine', standingLine('Recipes', '#3 of 12 builders', 2, 340)],
   ['applyAsk', applyAsk('Recipe Grants', '$5,000', 'Nov 18')],
   ['connectApplyAsk', connectApplyAsk('Recipe Grants')],
-  ['pointsAddedLine', pointsAddedLine(90, 1240)],
   ['draftReadyLine', draftReadyLine('Recipe Grants', 6, 16)],
   ['OPEN_PREFILLED', OPEN_PREFILLED],
   ['SENT_ASK', SENT_ASK],
@@ -1321,7 +1319,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
-  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
+  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
   const landing = landingFrom(cards, zero, now);
   // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.
   assert.equal(landing.open_text, `${fig} in grants and prizes open`);
@@ -1334,7 +1332,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
     source: c.sponsored ? 'sponsor' : 'file', starts_at: null, ends_at: c.ends_at?.toISOString() ?? null,
   }));
   const stats = statsFrom({
-    open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, bonus_deposits_wei: null,
+    open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null,
     bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null,
   }, now);
   assert.equal(stats.open_money_text, `${fig} in grants and prizes open`);

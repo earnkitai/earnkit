@@ -140,7 +140,7 @@ import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
 import { REPLY_WAIT_MS, ReplyLate, inTime } from './reply-wait';
 import { scoreReply } from './score-tool';
-import { replyFacts, type ReplyFacts } from './reply-facts';
+import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
 import { startRefresh } from './stand-view';
@@ -173,6 +173,8 @@ export type ToolContext = {
   tokenDeps?: TokenFlowDeps;
   /** Test and e2e injection only; never set by the MCP route. */
   entryDeps?: EntryDeps;
+  /** v4.2 Task 4 (F7): set by tell submitted: the existing entry record_submission updates (never a second row). */
+  entryId?: number;
   /** Ruling 25: the program each normalized repo's coin is entered in; defaults to repoCoinPrograms. */
   repoCoins?: (repoKeys: string[]) => Promise<Map<string, { program_id: string; title: string }>>;
   /** Test and e2e injection only; never set by the MCP route. */
@@ -1205,9 +1207,12 @@ export const handlers = {
     // Eligibility dry run for one repo: pass/fail plus what's missing.
     try {
       await enforce('githubMatching', ctx.installationId, GITHUB_LIMITED);
+      // v4.2 Task 10 (G3): what the builder told about this repo (has users, a live link) counts, as in the lists (none on a shared client).
+      const full = githubRepo(repo.includes('://') ? repo : `https://github.com/${repo}`);
+      const told = full ? (await memoryOf(memoryKey(ctx), 'get_program').catch(() => null))?.repos.get(saidKeyOf({ url: `https://github.com/${full.owner}/${full.repo}`, name: full.repo })) : undefined;
       return withAlerts(ctx, {
         ...program,
-        eligibility: await checkEligibility(repo, program_id),
+        eligibility: await checkEligibility(repo, program_id, {}, told),
       });
     } catch (err) {
       if (!(err instanceof GitHubError || err instanceof RateLimitError))
@@ -1609,6 +1614,7 @@ export const handlers = {
       // v2.9 B9 (fix round 2): a shared client keeps a wallet on an entry only once the gate passed.
       keepWallet: !ctx.sharedClient,
       ...ctx.entryDeps,
+      ...(ctx.entryId !== undefined && { entryId: ctx.entryId }),
       charge: () =>
         enforce(
           'recordSubmission',
@@ -2495,7 +2501,7 @@ export function eligibilityLine(repo: string, e: unknown, o: { org?: string | nu
   // v3.1 cold read: never "no arc code found in this repo".
   const chainLine = status === 'no' ? chainFitLine(note, o.org, o.name ?? name) : null;
   if (chainLine) return chainLine;
-  const said = note ? note.replace(/\.$/, '') : null;
+  const said = note ? note.replace(/\.$/, '').replace(/^confirm: /, 'confirm ') : null;
   if (status === 'likely') return said ? `${name} fits: ${said}.` : `${name} fits.`;
   if (status === 'after_step') return `${name} fits after one step${said ? `: ${said}` : ''}.`;
   if (status === 'no') return `${name} doesn't fit yet${said ? `: ${said}` : ''}.`;
@@ -2512,12 +2518,23 @@ async function markSubmitted(s: NonNullable<z.infer<typeof TellToolInput>['submi
   // Rulings G7, G9 (fix round 1, I2): on a shared client nothing is written or read (no verified caller).
   if (ctx.sharedClient) return { show_to_builder: NOTED_FOR_NOW, agent_note: SUBMITTED_SHARED_NOTE };
   // Pre-flight P15: an old call's own project and answers (record_submission finds or makes its entry).
-  if (s.project_id === undefined && s.project)
-    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, ctx);
+  if (s.project_id === undefined && s.project) {
+    // v4.2 Task 4 (F7): an old call carries a project, maybe without the repo the confirmed entry has. Only a call with no
+    // repo falls back to the name, and only when exactly one entry of that name exists in this program (a call with a repo
+    // is matched by that repo in ownEntry; two same-named entries are ambiguous), so no second row is made and no other
+    // project's entry is marked.
+    const nm = typeof s.project.name === 'string' ? s.project.name : '';
+    const named = s.project.repo_url
+      ? []
+      : await sql()<{ id: number }[]>`
+          SELECT id FROM projects WHERE installation_id = ${ctx.installationId} AND program_id = ${s.program_id}
+            AND payout_wallet IS NULL AND lower(name) = lower(${nm}) LIMIT 2`;
+    return handlers.record_submission({ program_id: s.program_id, project: s.project, submission_data: s.submission_data ?? {}, ...done }, named.length === 1 ? { ...ctx, entryId: named[0].id } : ctx);
+  }
   const entry = await submittedEntry(ctx.installationId, s.program_id, s.project_id);
   if (!entry && s.project_id === undefined) return appliedOutside(s.program_id, ctx);
   if (!entry) throw new NotFoundError(`No entry ${s.project_id} in ${s.program_id} for this agent.`);
-  return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, ctx);
+  return handlers.record_submission({ program_id: s.program_id, project: entry.project, submission_data: entry.answers, ...done }, { ...ctx, entryId: entry.id });
 }
 
 /** GTM W2: "I sent it" for a drafted application (no entry here): saved as applied, the program's outcome asked later. */
@@ -2729,7 +2746,8 @@ export const tools = {
       // v4.0 Task 11 fix round 1: an older agent's token 'ask' answers the builder token's status, never launches
       // (tokenAsk); coin { answer } (the retired per-project offer) launches or declines only when the stored ask is
       // the builder token's offer (legacyCoinAnswer), else "Okay."; coin { raising } changes nothing.
-      if (token === 'ask') replies.push(await tokenAsk(ctx));
+      // v4.2 final review 7: beside a move_up answer, the token is answered as a statement (one question per reply).
+      if (token === 'ask') replies.push(await tokenAsk(ctx, { statement: Boolean(move_up) }));
       if (coin) replies.push((coin.answer && (await legacyCoinAnswer(ctx, coin.answer))) || { show_to_builder: NOTED_LINE });
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {
@@ -2771,7 +2789,10 @@ export const tools = {
         replies.push(r);
       }
     }
-    return joinReplies(replies);
+    // v4.2 Task 3 (F10): a question asked mid-setup arrives with the next ask (a move_up answer or token 'ask'); give the
+    // agent the about facts to answer it (small: about only, never the builder's own data here).
+    const joined = joinReplies(replies);
+    return !ctx.sharedClient && (move_up || token === 'ask') ? withFacts(joined, { about: aboutFacts() }) : joined;
   },
 
   // v2.12 spec 7: the builder's score.

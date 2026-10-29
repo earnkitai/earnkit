@@ -84,7 +84,7 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
 });
 
 test('Task 16 step 3: the first ranked reply with weeks to post (connect)', () => {
-  const v = ranked({ rank: '#1 of 13 builders', best: BASE, connect: { weeks: 3, points: 90 } });
+  const v = ranked({ rank: '#1 of 13 builders', best: BASE, connect: { weeks: 3 } });
   v.ask = stateAsk({ ...v, connect: v.connect });
   assert.equal(v.ask.kind, 'connect');
   const out = benchReply(v);
@@ -93,13 +93,12 @@ test('Task 16 step 3: the first ranked reply with weeks to post (connect)', () =
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     '',
     'Make your shipping log public on https://earnkit.com/maya so grant teams can see it?',
-    '+90 points',
   ].join('\n'));
   oneAsk(out);
   // Under RANK_MIN_POOL (no rank phrase), and with no Best fit.
   assert.equal(benchReply({ ...v, rank: null, best: null }).split('\n\n')[0], 'Recipe planner is on EarnKit: 4 weeks in a row.');
   assert.equal(connectStanding('Kit', null, 1), 'Kit is on EarnKit: 1 week in a row.');
-  assert.equal(stateAsk({ ...v, connect: { weeks: 1, points: 30 } }).line, 'Make your shipping log public on https://earnkit.com/maya so grant teams can see it?');
+  assert.equal(stateAsk({ ...v, connect: { weeks: 1 } }).line, 'Make your shipping log public on https://earnkit.com/maya so grant teams can see it?');
 });
 
 test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
@@ -109,9 +108,9 @@ test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
   const out = benchReply(v);
   assert.equal(out, [
     'Recipe planner · #1 of 13 builders · 4 weeks in a row',
+    'Ship code this week.',
     'Base Builder Grant Program is still open, up to $5,000. I can draft it in a minute.',
     'Want me to?',
-    'Ship code this week: up to +100 points',
   ].join('\n'));
   oneAsk(out);
   // A dated program says when it closes; under RANK_MIN_POOL the standing has no rank.
@@ -124,13 +123,13 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(ship, [
     'Recipe planner · #3 of 40 builders · 4 weeks in a row',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
+    'Ship code this week to pass #2.',
     SHIP_ASK,
-    'Ship code this week to pass #2: up to +100 points',
   ].join('\n'));
   oneAsk(ship);
   // Done this week: the plain points line; no fit: the upcoming program, else no money line.
   const done = benchReply(ranked({ target: 'Done this week.', fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }] }));
-  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n${SHIP_ASK}\nShip code this week: up to +100 points`);
+  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\nShip code this week.\n${SHIP_ASK}`);
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
@@ -197,7 +196,7 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
 
 test('Task 16, v4.0 Task 11: the ranked order is connect, apply, share, ship', () => {
   const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
-  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, apply };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3 }, apply };
   assert.equal(stateAsk(all).kind, 'connect');
   // v4.0 Task 11: no backing step; the apply step follows connect.
   assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
@@ -230,7 +229,7 @@ test('GTM W3 never "You qualify" past a condition the builder does not show', ()
   assert.equal(fitBar({}, { live: true, noUsers: true }), 'needs_users');
   assert.equal(qualifyLine({ ...BASE, bar: 'needs_users' }), 'Base Builder Grant Program, up to $5,000, once you have real users.');
   assert.equal(qualifyLine({ ...BASE, bar: 'qualify' }), 'You qualify for the Base Builder Grant Program, up to $5,000.');
-  const reply = benchReply(ranked({ rank: '#1 of 13 builders', best: { ...BASE, ...a16z, program_id: 'a16z-speedrun', bar: 'company' }, connect: { weeks: 2, points: 60 },
+  const reply = benchReply(ranked({ rank: '#1 of 13 builders', best: { ...BASE, ...a16z, program_id: 'a16z-speedrun', bar: 'company' }, connect: { weeks: 2 },
     ask: { kind: 'connect', project_key: RECIPE.key, line: 'Post your 2 weeks?' } }));
   assert.doesNotMatch(reply, /You qualify/);
   assert.match(reply, /full-time team/);

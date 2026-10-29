@@ -11,7 +11,7 @@ holdBonusDbLock();
 const E18 = 10n ** 18n;
 
 const emptyRow = {
-  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0,
+  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, installs_used: 0, builders: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };
@@ -26,7 +26,7 @@ test('weiToEth: ETH as a number, 6 decimals, rounded down', () => {
 test('statsFrom: an empty database reads as zeros', () => {
   const s = statsFrom(emptyRow);
   // v3 Stage 2: backing_open and backers (v4.0 Task 11: retired, always 0; the keys stay) and earned_usd last.
-  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(Object.values(s), [0, null, 0, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
@@ -451,5 +451,35 @@ test('v3.1 one-tap posts (design 5): posts_drafted, posts_tapped, backers_after_
     else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
     if (prevRaising === undefined) delete process.env.EARNKIT_RAISING;
     else process.env.EARNKIT_RAISING = prevRaising;
+  }
+});
+
+test('v4.2 F18: coins_launched counts launched builder tokens, tokens_declined the nos; a test installation\'s builder counts in neither', db, async () => {
+  const tag = `stats-bt-${process.pid}-${Date.now()}`;
+  const [inst] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${tag}) RETURNING id`;
+  const [inst2] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`${tag}-2`}) RETURNING id`;
+  const coin = `0x${(process.pid.toString(16) + Date.now().toString(16)).padStart(40, 'd')}`.slice(0, 42);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, coin_address) VALUES (${inst.id}, ${`${tag}-x1`}, 'launched', ${coin})`;
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) VALUES (${inst2.id}, ${`${tag}-x2`}, 'declined')`;
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    const { a, b, c } = await sql().begin('isolation level repeatable read', async (tx) => {
+      delete process.env.EARNKIT_TEST_INSTALLATIONS;
+      const a = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(inst.id);
+      const b = await readStats(new Date(), tx);
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(inst2.id);
+      const c = await readStats(new Date(), tx);
+      return { a, b, c };
+    });
+    assert.equal(a.coins_launched - b.coins_launched, 1);
+    assert.equal(a.tokens_declined - b.tokens_declined, 0);
+    assert.equal(a.tokens_declined - c.tokens_declined, 1);
+    assert.equal(a.coins_launched - c.coins_launched, 0);
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+    await sql()`DELETE FROM builder_tokens WHERE x_user_id IN (${`${tag}-x1`}, ${`${tag}-x2`})`;
+    await sql()`DELETE FROM installations WHERE id IN (${inst.id}, ${inst2.id})`;
   }
 });

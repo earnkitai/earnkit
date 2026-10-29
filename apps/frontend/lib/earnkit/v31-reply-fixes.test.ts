@@ -134,15 +134,15 @@ test('the no-fit copy, word for word', () => {
   assert.equal(rule(benchReply(view)), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
     'To qualify, Kit still needs to add Builder Codes and get people using it.',
+    'Ship code this week.',
     "Want the 2 steps toward Base's $5,000 grant?",
-    'Ship code this week: up to +100 points',
   ].join('\n'));
   // Some steps unknown: no missing line, the question counts every step left.
   const unsure: QualifyOffer = { ...q, missing: ['base'], steps: ['base', 'codes', 'use'] };
   assert.equal(rule(benchReply({ ...view, qualify: unsure, ask: stateAsk({ ...v, qualify: unsure }) })), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
+    'Ship code this week.',
     "Want the 3 steps to qualify for Base's $5,000 grant?",
-    'Ship code this week: up to +100 points',
   ].join('\n'));
   // No offer: the ship step as before.
   assert.equal(stateAsk(v).line, 'Want me to suggest one small thing to ship?');
@@ -218,11 +218,9 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   const s = rule(show(r));
   const lines = s.split('\n');
   // v3.1 cold read: the standing was said in the connect reply and hasn't changed, so it isn't repeated.
-  assert.deepEqual(lines.slice(0, 2), [
-    'To qualify, Kit still needs to add Builder Codes and get people using it.',
-    "Want the 2 steps toward Base's $5,000 grant?",
-  ]);
-  assert.match(lines[2], /^Ship code this week( to (hold|pass|move toward) #\d+)?: up to \+100 points$/);
+  assert.equal(lines[0], 'To qualify, Kit still needs to add Builder Codes and get people using it.');
+  assert.match(lines[1], /^Ship code this week( to (hold|pass|move toward) #\d+)?\.$/);
+  assert.equal(lines[2], "Want the 2 steps toward Base's $5,000 grant?");
   assert.equal(lines.length, 3);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
@@ -258,6 +256,16 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   assert.equal(await offer({}), null, 'already reported to Base');
 });
 
+test('v4.2 Task 10 (G5): a no to the titles question keeps them private and says so', db, async () => {
+  await start();
+  const { c, ctx, key } = await rankedBuilder('tn', { private: true, chains: {}, codes: null });
+  await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
+  const no = await mcpCall(ctx, 'tell', { move_up: { kind: 'titles', project_key: key, answer: 'no' } });
+  assert.equal(show(no), 'Got it, your commit titles stay private.');
+  const [p] = await sql()<{ on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS on FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(p.on, false);
+});
+
 test('a private repo: the titles question after the connect yes, once; its yes turns titles on', db, async () => {
   await start();
   const { c, ctx, key, handle } = await rankedBuilder('t', { private: true, chains: {}, codes: null });
@@ -267,7 +275,7 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   const r4 = await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
   const s4 = rule(show(r4));
   assert.equal(s4.split('\n').slice(0, 2).join('\n'), [`You're live: https://earnkit.com/${handle}`, 'Show what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'].join('\n'));
-  assert.match(s4.split('\n')[2], /^\+\d+ points added · \d+ total$/);
+  assert.equal(s4.split('\n').length, 2);
   assert.deepEqual(r4.reply?.move_up, { kind: 'titles', project_key: key, agent_note: TITLES_NOTE });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'titles', project_key: key, answer: 'yes' } });

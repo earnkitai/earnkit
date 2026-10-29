@@ -20,6 +20,7 @@ const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 const FRIDAY = Date.parse('2026-10-30T15:00:00Z');
 const MONDAY = Date.parse('2026-10-26T00:00:00Z');
 const DAY = 86_400_000;
+const FRIDAY_ISO = new Date(FRIDAY).toISOString();
 mock.timers.enable({ apis: ['Date'], now: FRIDAY });
 const programs: string[] = [];
 after(async () => {
@@ -243,8 +244,12 @@ test('fix round 1 (2, 4): the closing nudge owns the reply\'s one question; its 
   assert.doesNotMatch(s, /Arc Builders closes in/, 'its own deadline line goes');
   const mv = r.reply?.move_up as { kind: string; project_key: string } | undefined;
   assert.deepEqual([mv?.kind, mv?.project_key], ['apply', me.key]);
+  // v4.2 Task 5 (F14): the entry has a stored answer, so the draft is ready.
+  await sql()`UPDATE projects SET application = ${sql().json({ answers: { note: 'MealMate helps you plan meals' }, kinds: {}, fixes: [], at: FRIDAY_ISO } as never)} WHERE installation_id = ${me.id} AND program_id = ${arc}`;
   const yes = await mcpCall(findCtx(me.id), 'tell', { move_up: { kind: 'apply', project_key: me.key, answer: 'yes' } });
-  assert.match(String(yes.reply?.agent_note ?? ''), new RegExp(`program_id "${arc}"`));
+  // v4.2 Task 5 (F14): the entry exists, so the yes opens its draft (never an empty reply or a call to draft again).
+  assert.match(String(yes.reply?.show_to_builder ?? ''), /https:\/\/example\.com\/apply/);
+  assert.doesNotMatch(String(yes.reply?.agent_note ?? ''), /Call prepare/);
 });
 
 test('fix round 1 (2): the accepted nudge owns the reply\'s one question; its yes gives the post\'s link', db, async () => {

@@ -125,7 +125,6 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     'You qualify for the Base Builder Grant Program, up to $5,000.',
     '',
     `Make your shipping log public on https://earnkit.com/${handle} so grant teams can see it?`,
-    '+90 points',
   ].join('\n'));
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect');
 
@@ -136,7 +135,6 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     `You're live: https://earnkit.com/${handle}`,
     'Next, I can write your Base Builder Grant Program application. You just check it and send.',
     'Want me to?',
-    '+90 points added · 90 total',
   ].join('\n'));
   assert.deepEqual(r4.reply?.move_up && { ...(r4.reply.move_up as object), agent_note: undefined }, { kind: 'apply', project_key: key, agent_note: undefined });
   const [{ total }] = await sql()<{ total: number }[]>`SELECT COALESCE(sum(points), 0)::int AS total FROM builder_points WHERE builder_id = ${c.id}`;
@@ -148,7 +146,7 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const answers = { project_name_description: 'Kit: fans tip creators onchain in one tap', live_product_url: 'https://kit.app', usage_numbers: '120 transactions in 90 days' };
   const s6 = rule(show(await mcpCall(ctx, 'prepare', { program_id: BASE_GRANTS_ID, project: { name: 'Kit', repo_url: `https://github.com/${key}`, live_url: 'https://kit.app' }, answers })));
   const lines6 = s6.split('\n');
-  assert.equal(lines6[0], 'Your Base Builder Grant Program application is ready. I filled 3 of 16 answers from your work.');
+  assert.equal(lines6[0], 'Your Base Builder Grant Program application is ready. I filled 4 of 16 answers from your work.');
   assert.match(lines6[1], /^You add \d+ more in the form: your full name, your email and \d+ short answers\.$/);
   assert.ok(s6.endsWith(`\n\nOpen the form, your answers are already in it: ${links(s6)[0]}\nSent it?`), s6);
   assert.doesNotMatch(s6, /points/);
@@ -158,10 +156,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
   assert.equal(s8, [
     'You qualify for the Base Builder Grant Program, up to $5,000.',
+    s8.split('\n')[1],
     'Want me to suggest one small thing to ship?',
-    s8.split('\n')[2],
   ].join('\n'));
-  assert.match(s8.split('\n')[2], /^Ship code this week( to hold #1)?: up to \+100 points$/);
+  assert.match(s8.split('\n')[1], /^Ship code this week( to hold #1)?\.$/);
 
   // Step 7: Monday. Last week (Oct 12) ranked #1 of 13 and is week 4 in a row (code Sep 21 to Oct 17).
   mock.timers.setTime(Date.parse('2026-10-19T16:00:00Z'));

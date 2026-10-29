@@ -297,8 +297,8 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     await mcpCall(ctx(me.id), 'find', {});
     const yes = await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } });
     const s = show(yes);
-    // Task 16 step 4 with no Best fit: the email question, then the points line.
-    assert.ok(s.includes(`\n${EMAIL_QUESTION}\n+`), s);
+    // Task 16 step 4 with no Best fit: the email question, last.
+    assert.ok(s.endsWith(`\n${EMAIL_QUESTION}`), s);
     assert.equal(questions(s), 1, s);
     // GTM W2: the email question is a move_up.
     assert.match(JSON.stringify(yes.reply?.move_up ?? {}), /"kind":"weekly_email".*call tell with weekly_email: \{ answer: 'yes', email \}/);

@@ -49,6 +49,19 @@ export async function declineBuilderToken(builderId: number): Promise<BuilderTok
 }
 
 /**
+ * v4.2: the builder's own "launch my token" after a no: the declined row is removed, so the launch path claims a fresh
+ * one, and the first wallet proof launches it (standing_seen.token_offered). Only a declined row is touched; the
+ * automatic paths never call this, so a no still blocks them. True when a declined row was removed.
+ */
+export async function reopenDeclinedToken(builderId: number): Promise<boolean> {
+  const rows = await sql()`DELETE FROM builder_tokens WHERE builder_id = ${builderId} AND status = 'declined' RETURNING 1`;
+  if (!rows.length) return false;
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('token_offered', ${new Date().toISOString()}::text)
+    WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'token_offered', false)`;
+  return true;
+}
+
+/**
  * The ticker from the X handle (3 to 10 letters or digits), the first free and allowed one.
  * 'ticker_check_down': tokens.fun can't be asked now (try again later); 'no_ticker': none is free or allowed (lasting).
  */

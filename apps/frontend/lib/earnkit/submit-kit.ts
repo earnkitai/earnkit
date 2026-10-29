@@ -1,7 +1,7 @@
 import type { ProgramRow } from './programs';
 import type { SubmissionRequirement } from './program-file';
 import { todoOf } from './entry-text';
-import { multiChoiceParts } from './submission';
+import { isRealAnswer, multiChoiceParts } from './submission';
 import {
   ENTRY_LINK_HOSTS,
   HOST_MODES,
@@ -249,7 +249,7 @@ export function submitKit(
   const reqs = program.submission_requirements;
   const missing: string[] = [];
   const fields: KitField[] = reqs.flatMap((r): KitField[] => {
-    const answer = problems.has(r.key) ? '' : (answers[r.key]?.trim() ?? '');
+    const answer = problems.has(r.key) || !isRealAnswer(answers[r.key]) ? '' : answers[r.key].trim();
     if (answer) return [{ key: r.key, label: r.label, answer }];
     // An empty optional answer is left out; one given but not valid is a blank to check.
     if (!r.required && !problems.has(r.key)) return [];
@@ -436,7 +436,7 @@ export function draftKit(program: KitProgram, answers: Record<string, string>, o
   const reqs = program.submission_requirements;
   const missing: string[] = [];
   const fields: KitField[] = reqs.flatMap((r): KitField[] => {
-    const answer = problems.has(r.key) ? '' : (answers[r.key]?.trim() ?? '');
+    const answer = problems.has(r.key) || !isRealAnswer(answers[r.key]) ? '' : answers[r.key].trim();
     if (answer) return [{ key: r.key, label: r.label, answer }];
     if (!r.required && !problems.has(r.key)) return [];
     missing.push(todoOf(r, problems.has(r.key)));
