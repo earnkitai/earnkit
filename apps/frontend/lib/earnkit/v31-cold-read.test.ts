@@ -262,13 +262,13 @@ test('the status line only when it changed, the points line once a week; score a
 test('the wallet step (v4.0 setup step 3): every builder once the App connects, Base contracts or not; the older Base step never shows', db, async () => {
   const none = await builder('n', { wallet: false });
   const a = show(await find(none));
-  assert.equal(a, walletSetupAsk('Kit', links(a)[0] ?? '', false), a);
+  assert.equal(a, walletSetupAsk('Kit', links(a)[0] ?? ''), a);
   assert.doesNotMatch(a, /Prove your Base wallet/, a);
   const based = await builder('b', { wallet: false });
   await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
     VALUES (${based.id}, '', ${based.key.toLowerCase()}, ${['base']}, ${[]}, null, null, false, now())`;
   const b = show(await find(based));
-  assert.equal(b, walletSetupAsk('Kit', links(b)[0] ?? '', false), b);
+  assert.equal(b, walletSetupAsk('Kit', links(b)[0] ?? ''), b);
   asks(b);
   // Asked once: the next reply never offers the older step either.
   assert.doesNotMatch(show(await find(based)), /Prove your Base wallet|Step 3 of 3/);

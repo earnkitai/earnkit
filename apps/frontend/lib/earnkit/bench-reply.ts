@@ -196,34 +196,41 @@ export const WALLET_ASK = 'Done?';
 export const walletOffer = (link: string) =>
   `Prove your Base wallet so your contracts show on your page. One signature, no fee: ${link}\n${WALLET_ASK}`;
 /**
- * v4.0 approved copy 3 ("Wallet and token"): setup step 3, for every builder once step 2 is done or answered no
- * (wallet-offer.ts walletSetupDue). `project`: the main project's name ("MealMate is connected."); null on the no-GitHub
- * path (nothing is connected, so only "One last step."). `tokenLine`: tokens on, an X account, no token row yet (a
- * declined builder never hears it again). Pure.
+ * v4.4 (setup order): setup step 3 asks for the wallet only, for every builder once step 2 is done or answered no
+ * (wallet-offer.ts walletSetupDue). The one token offer follows the sign (setupTokenOffer). `project`: the main project's
+ * name ("MealMate is connected."); null on the no-GitHub path (nothing is connected, so only "One last step."). Pure.
  */
-export const walletSetupAsk = (project: string | null, link: string, tokenLine: boolean) =>
-  `${project ? `${project} is connected. ` : ''}One last step.\n\n**Step 3 of 3:** sign with your wallet. It's where your grants and community support get paid. One signature, no fee: ${link}\n\n` +
-  `${tokenLine ? `${TOKEN_SENTENCE}\n\n` : ''}Done?`;
-/** v4.0 approved copy 3: the token sentence of step 3. */
-export const TOKEN_SENTENCE =
-  "Once you sign, your token goes live so people who believe in your work can back it, and 40% of every trade's fee goes straight to you. Rather skip the token? Just say no.";
+export const walletSetupAsk = (project: string | null, link: string) =>
+  `${project ? `${project} is connected. ` : ''}One last step.\n\n**Step 3 of 3:** add your wallet. It's where grant money and builder campaign payouts get paid. One signature, no fee: ${link}\n\nDone?`;
+/**
+ * v4.4: the wallet signed during setup step 3 and the token offer is due (bench-find.ts afterStep3): the done line, the
+ * one optional offer, and its question last. `short`: the wallet's short form (entry-text.ts shortWallet). Pure.
+ */
+export const setupTokenOffer = (short: string) =>
+  `Done. Your payouts go to ${short}.\n\nOne optional thing: your own token, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. ` +
+  "If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?";
 /** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
 export const TOKEN_NO_LINE = 'Got it.';
+/** v4.4: the builder's own token, recorded (tell token { existing }; bench-find.ts tokenExisting). `short`: shortWallet. Pure. */
+export const existingTokenLine = (short: string) => `Got it. I've noted ${short} as your token, and I won't offer one again.`;
+/** v4.4: the address they named is not a token on Base (or not an address); the stored token ask stays. */
+export const EXISTING_NOT_TOKEN = "That address isn't a token on Base. Paste your token's contract address, or say skip.";
 /**
  * v4.2 Task 6 (F11): the one-time token offer for an earlier builder with a proven wallet and no token row. The lead is a
  * statement; the question ends the reply (and follows the explainer when the builder asked about their token).
  */
 export const TOKEN_OFFER_LEAD = "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you.";
-export const TOKEN_OFFER_QUESTION = 'Want it live? Rather skip it? Just say no.';
+export const TOKEN_OFFER_QUESTION = "If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?";
 export const TOKEN_OFFER = `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`;
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";
 /**
  * v4.0 Task 5: how setup step 3 settled. 'launched': a wallet signed and the token launched; 'on_its_way' (final review
  * 1): a wallet signed and the token still launching or unknown (never told as live); 'set': a wallet signed with no
- * token to claim (the neutral lead); 'declined': the token said no; 'skipped': no wallet.
+ * token to claim (the neutral lead); 'existing' (v4.4): a wallet signed and the builder's own token recorded (the same
+ * lead as 'set'); 'declined': the token said no; 'skipped': no wallet.
  */
-export type SetupOutcome = 'launched' | 'on_its_way' | 'set' | 'declined' | 'skipped';
+export type SetupOutcome = 'launched' | 'on_its_way' | 'set' | 'existing' | 'declined' | 'skipped';
 /** v4.0: a token row launching or unknown, said to the builder. */
 export const TOKEN_ON_ITS_WAY = "Your token is on its way. I'll confirm it here soon.";
 /** v4.0 approved copy 4: the line above the open programs table. */
@@ -238,7 +245,7 @@ export function setupDoneLead(first: string, outcome: SetupOutcome, open = true,
     // v4.2: the sign that launched the token says so, with the trade link.
     case 'launched': return [trade ? `You're all set, ${first}. Your token is live, so your community can back what you're building: ${trade}` : `You're all set, ${first}. Your community can now back what you're building.`, tail].filter(Boolean).join('\n\n');
     case 'on_its_way': return [`You're all set, ${first}. ${TOKEN_ON_ITS_WAY}`, tail].filter(Boolean).join('\n\n');
-    case 'set': return [`You're all set, ${first}.`, tail].filter(Boolean).join('\n\n');
+    case 'set': case 'existing': return [`You're all set, ${first}.`, tail].filter(Boolean).join('\n\n');
     case 'declined': return ['No problem, no token.', tail].filter(Boolean).join(' ');
     case 'skipped': return [WALLET_SETUP_SKIPPED, tail].filter(Boolean).join(' ');
   }
@@ -643,8 +650,8 @@ export function stateAsk(
     walk?: 'help' | 'built' | null;
     /** v4.0: the builder has no GitHub (BenchView.noGithub): step 2 carries the Lovable or Bolt hint. */
     noGithub?: boolean;
-    /** v4.0: setup step 3 is due (wallet-offer.ts walletSetupDue): its link, the project it names, the token sentence. */
-    walletSetup?: { link: string; project: string | null; token: boolean } | null;
+    /** v4.0: setup step 3 is due (wallet-offer.ts walletSetupDue): its link and the project it names. */
+    walletSetup?: { link: string; project: string | null } | null;
     /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
     tokenOffer?: boolean;
     /** v4.3 fix round 1 (R1): the agent has no folder of the code (agentReach hosted): the qualify question asks for the steps. */
@@ -663,7 +670,7 @@ export function stateAsk(
     // v3.1 cold read round 2: after the walk-through, its question stands until the Lovable prompt is written; then the
     // next step is building it and connecting GitHub (never "Is your app's code on GitHub yet?" again).
     // v4.0: setup step 3 right after the walk-through offer (the no's own reply), before its follow-ups.
-    if (v.walletSetup) return { kind: 'wallet_setup', project_key: null, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
+    if (v.walletSetup) return { kind: 'wallet_setup', project_key: null, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link) };
     if (v.walk === 'help') return { kind: 'base_help', project_key: null, line: LOVABLE_PROMPT_ASK };
     if (v.walk === 'built' && v.link) return { kind: 'pick_repo', project_key: null, line: nextBuild(v.link) };
     if (v.wallet) return { kind: 'wallet', project_key: null, line: walletOffer(v.wallet) };
@@ -671,7 +678,7 @@ export function stateAsk(
   }
   // v4.0 fix round 1: step 3 once step 2 is done, ranked or not (a project not counted yet: the App connected another repo).
   if (v.walletSetup && v.state !== 'ranked')
-    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
+    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link) };
   if (v.state === 'no_project')
     return v.link ? { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link, v.noGithub === true) } : { kind: 'start', project_key: null, line: STATE_COPY.no_project.noApp() };
   // v3.1 cold read: a live app (Lovable, Bolt) whose builder said no to GitHub once: how its tool puts the code on GitHub.
@@ -680,7 +687,7 @@ export function stateAsk(
   if (noCode && v.link) return { kind: 'pick_repo', project_key: null, line: STATE_COPY.no_project.ask(v.link, v.noGithub === true) };
   // v4.0: setup step 3 comes before every ranked ask (it ends setup).
   if (v.state === 'ranked' && v.walletSetup)
-    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link, v.walletSetup.token) };
+    return { kind: 'wallet_setup', project_key: key, line: walletSetupAsk(v.walletSetup.project, v.walletSetup.link) };
   // Fix round 1 ruling: the page is the connect reply's one https link.
   if (v.state === 'ranked' && v.connect && v.handle) return { kind: 'connect', project_key: key, line: connectAsk(`https://${pageUrl(v.handle)}`) };
   // v3.1 one-tap posts: an event's post (went live and won jump ahead of apply for 48 hours; benchView holds the rest

@@ -15,7 +15,7 @@ import { NO_GITHUB_HINT, TOKEN_NO_LINE, benchReply, pickRepoAgain, pickRepoAsk, 
 import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { tokenOfferDue, walletSetupDue, walletSetupToken } from './wallet-offer';
+import { tokenOfferDue, walletSetupDue } from './wallet-offer';
 import { provenWallet, upgradeToken, walletLink, walletMessage, walletPost } from './wallet-proof';
 import { declineBuilderToken, retryDroppedBuilderTokens } from './builder-token';
 
@@ -157,11 +157,14 @@ test('(d) the same-day repeat keeps its short form', db, async () => {
   assert.doesNotMatch(second, /You're in|Built it in Lovable/);
 });
 
-// ---- v4.0 Task 4: setup step 3 (wallet and token), the launch on the wallet proof, the opt-out, "launch my token".
+// ---- v4.0 Task 4: setup step 3, the launch on the wallet proof, the opt-out, "launch my token". v4.4: step 3 asks for
+// the wallet only (v44-setup-order.test.ts has the offer that follows the sign); the proof's launch is kept for builders
+// shown v4.0's token sentence (inFlight: standing_seen.token_offered), as these tests set it.
 
-const step3 = (project: string, link: string, token: boolean) =>
-  `${project} is connected. One last step.\n\n**Step 3 of 3:** sign with your wallet. It's where your grants and community support get paid. One signature, no fee: ${link}\n\n` +
-  `${token ? "Once you sign, your token goes live so people who believe in your work can back it, and 40% of every trade's fee goes straight to you. Rather skip the token? Just say no.\n\n" : ''}Done?`;
+const step3 = (project: string, link: string) =>
+  `${project} is connected. One last step.\n\n**Step 3 of 3:** add your wallet. It's where grant money and builder campaign payouts get paid. One signature, no fee: ${link}\n\nDone?`;
+/** A builder shown v4.0's step-3 token sentence (pre-v4.4, mid-flow): token_offered, as v4.0's takeWalletAsk set it. */
+const inFlight = (id: number) => sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_offered', now()::text) WHERE builder_id = ${id}`;
 const hex = (k: number) => randomBytes(k).toString('hex');
 const viemVerify = (a: { address: string; message: string; signature: string }) =>
   verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` });
@@ -212,28 +215,27 @@ async function connected(tag: string) {
   return { ...p, ctx, key, tf };
 }
 
-test('step 3 copy, word for word: with the token sentence, and without it', () => {
+test('step 3 copy, word for word (v4.4: the wallet only)', () => {
   const L = 'https://earnkit.com/claim/wallet?t=1.2.x';
-  assert.equal(walletSetupAsk('MealMate', L, true), step3('MealMate', L, true));
-  assert.equal(walletSetupAsk('MealMate', L, false), step3('MealMate', L, false));
+  assert.equal(walletSetupAsk('MealMate', L), step3('MealMate', L));
   assert.equal(TOKEN_NO_LINE, 'Got it.');
-  for (const s of [walletSetupAsk('MealMate', L, true), walletSetupAsk('MealMate', L, false)]) {
-    assert.doesNotMatch(s, /coin|—|\p{Extended_Pictographic}/u, s);
-    assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length - (s.includes('Rather skip the token?') ? 1 : 0), 1, s);
+  for (const s of [walletSetupAsk('MealMate', L), walletSetupAsk(null, L)]) {
+    assert.doesNotMatch(s, /coin|token|—|\p{Extended_Pictographic}/iu, s);
+    assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
   }
   // Before every ranked ask (connect, apply...), and after the GitHub no's walk-through offer.
   const project: BenchProject = { key: 'maya/mealmate', name: 'MealMate', confirmed: true, live: false, weeks: 1 };
-  const setup = { link: L, project: 'MealMate', token: true };
+  const setup = { link: L, project: 'MealMate' };
   const ranked = { state: 'ranked' as const, variant: null, project, link: null, handle: 'maya', walletSetup: setup };
   assert.equal(stateAsk({ ...ranked, connect: { weeks: 3 } }).kind, 'wallet_setup');
-  assert.equal(stateAsk({ ...ranked, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L, true));
+  assert.equal(stateAsk({ ...ranked, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).line, step3('MealMate', L));
   assert.equal(stateAsk({ ...ranked, walletSetup: null, connect: { weeks: 3 } }).kind, 'connect');
   const no = { state: 'no_project' as const, variant: null, project: null, link: null, githubNo: true, walletSetup: { ...setup, project: null } };
   assert.equal(stateAsk({ ...no, baseAsk: true }).kind, 'base_start');
   assert.equal(stateAsk(no).kind, 'wallet_setup');
 });
 
-test('(a) after GitHub connects, the next reply is step 3 with the project and the wallet link; flag off: no token sentence', db, async () => {
+test('(a) after GitHub connects, the next reply is step 3 with the project and the wallet link, flag on or off', db, async () => {
   try {
   for (const on of [true, false]) {
     process.env.EARNKIT_BUILDER_TOKENS = on ? 'on' : 'off';
@@ -242,7 +244,7 @@ test('(a) after GitHub connects, the next reply is step 3 with the project and t
     const s = show(r);
     const link = linkOf(s);
     assert.match(link, /^https:\/\/earnkit\.com\/claim\/wallet\?t=/, s);
-    assert.equal(s, step3('MealMate', link, on));
+    assert.equal(s, step3('MealMate', link));
     assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup');
     assert.match(String((r.reply?.move_up as { agent_note: string }).agent_note), /kind: 'wallet'/);
     // Asked once: the next reply moves on.
@@ -265,12 +267,13 @@ test('(b) a no to the wallet step: skipped, remembered, never asked again; no to
   assert.equal(p.tf.calls.length, 0);
 });
 
-test('final review 9: skipping the wallet skips the token: a wallet proven later (the change link) and the hourly retry deploy nothing; only "launch my token" launches', db, async () => {
+test('final review 9 (pre-v4.4 in-flight): skipping the wallet skips the token: a wallet proven later (the change link) and the hourly retry deploy nothing; only "launch my token" launches', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('k9');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
-  assert.ok(s.includes('Rather skip the token? Just say no.'), s);
+  assert.match(s, /\*\*Step 3 of 3:\*\*/, s);
+  await inFlight(p.id);
   assert.ok(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'wallet', project_key: p.key, answer: 'no' } })).startsWith("No worries, add it whenever you're ready."));
   assert.equal(await tokenRow(p.id), null);
   // A wallet added later another way: the change link.
@@ -289,11 +292,12 @@ test('final review 9: skipping the wallet skips the token: a wallet proven later
   assert.equal(p.tf.calls.length, 1);
 });
 
-test('(c) the proof on the wallet page launches the token, no tell call needed', db, async () => {
+test('(c) pre-v4.4 in-flight: the proof on the wallet page launches the token, no tell call needed', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('l');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  await inFlight(p.id);
   const signed = await signOn(p.handle, s, p.tf);
   assert.equal(signed.status, 200);
   assert.equal(signed.body.recipient, true);
@@ -317,8 +321,8 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
-  // A declined builder never sees the token sentence again; only their own "launch my token" (v4.2) reverses the no.
-  assert.equal(await walletSetupToken(p.id), false);
+  // A declined builder is never offered the token again; only their own "launch my token" (v4.2) reverses the no.
+  assert.equal(await tokenOfferDue(p.id), false);
   assert.equal(show(await mcpCall(p.ctx, 'tell', { token: 'ask' })), 'Your token is off. Say launch my token anytime to turn it on.');
   assert.equal(p.tf.calls.length, 0);
   assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
@@ -330,6 +334,7 @@ test('(e) a wallet change after the launch deploys nothing; a declined builder\'
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('e');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  await inFlight(p.id);
   await signOn(p.handle, s, p.tf);
   assert.equal(await settled(p.id), 'launched');
   await sql()`DELETE FROM builder_tokens WHERE builder_id = ${p.id}`.then(() => {}, () => {});
@@ -352,13 +357,13 @@ test('(e) a wallet change after the launch deploys nothing; a declined builder\'
   assert.equal(d.tf.calls.length, 0);
 });
 
-test('(f) no X account (x_user_id): no step 3, no token sentence, and a proof launches nothing', db, async () => {
+test('(f) no X account (x_user_id): no step 3, no token offer, and a proof launches nothing', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('x');
   await sql()`UPDATE builder_profiles SET x_user_id = NULL WHERE builder_id = ${p.id}`;
   assert.equal(await walletSetupDue(p.id, new Date()), null);
-  assert.equal(await walletSetupToken(p.id), false);
+  assert.equal(await tokenOfferDue(p.id), false);
   assert.doesNotMatch(show(await mcpCall(p.ctx, 'find', { agent_can_build: false })), /Step 3 of 3|token/i);
   const link = `https://earnkit.com/claim/wallet?t=${encodeURIComponent(upgradeToken(p.id, new Date())!)}`;
   const signed = await signOn(p.handle, link, p.tf);
@@ -389,12 +394,12 @@ test('(g) "launch my token" with a proven wallet and no row launches; asked agai
 
 // ---- Fix round 1.
 
-test('fix 1: a kindless no to step 3 with the token sentence shown declines the token (the wallet step stays open)', db, async () => {
+test('fix 1 (pre-v4.4 in-flight): a kindless no to step 3 with the token sentence shown declines the token (the wallet step stays open)', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('k1');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
-  assert.ok(s.includes('Rather skip the token? Just say no.'), s);
+  await inFlight(p.id);
   assert.ok(show(await mcpCall(p.ctx, 'tell', { move_up: { project_key: p.key, answer: 'no' } })).startsWith('No problem, no token.'));
   assert.equal(await tokenRow(p.id), 'declined');
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
@@ -429,14 +434,15 @@ test('fix 3: an App-connected builder whose main project is not counted gets ste
   const r = await mcpCall(p.ctx, 'find', { agent_can_build: false });
   const s = show(r);
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup', s);
-  assert.equal(s, step3('Your code', linkOf(s), true));
+  assert.equal(s, step3('Your code', linkOf(s)));
 });
 
-test('fix 4: a throwing side effect after the proof still launches the token', db, async () => {
+test('fix 4 (pre-v4.4 in-flight): a throwing side effect after the proof still launches the token', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('se');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
+  await inFlight(p.id);
   await assert.rejects(signOn(p.handle, s, p.tf, undefined, async () => { throw new Error('side effect down'); }));
   assert.equal(await settled(p.id), 'launched');
   assert.equal(p.tf.calls.length, 1);
@@ -512,10 +518,11 @@ test('setup done copy, word for word: the three leads, the neutral one, and the 
   ]);
 });
 
-test('(a) signed on the page, token launched: the next find leads with "You\'re all set", the table and the draft question', db, async () => {
+test('(a) pre-v4.4 in-flight: signed on the page, token launched: the next find leads with "You\'re all set", the table and the draft question', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const b = await fitted('a', [ROLLING]);
+  await inFlight(b.id);
   assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
   assert.equal(await settled(b.id), 'launched');
   const r = await mcpCall(b.ctx, 'find', {});
@@ -529,20 +536,31 @@ test('(a) signed on the page, token launched: the next find leads with "You\'re 
   assert.equal((yes.reply?.lead as { program_id?: string } | undefined)?.program_id, ROLLING, JSON.stringify(yes.reply));
 });
 
-test('(a) signed with tokens off: the neutral "You\'re all set", no token claim', db, async () => {
-  const b = await (async () => {
-    try {
-      process.env.EARNKIT_BUILDER_TOKENS = 'off';
-      return await fitted('n', [ROLLING]);
-    } finally {
-      process.env.EARNKIT_BUILDER_TOKENS = 'on';
-    }
-  })();
+test('(a) signed with tokens off: the neutral "You\'re all set", no token claim (v4.4: tokens on, the offer first: v44-setup-order.test.ts)', db, async () => {
+  try {
+    process.env.EARNKIT_BUILDER_TOKENS = 'off';
+    const b = await fitted('n', [ROLLING]);
+    assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(await tokenRow(b.id), null);
+    const s = show(await mcpCall(b.ctx, 'find', {}));
+    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  } finally {
+    process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  }
+});
+
+test('(a) v4.4: signed with tokens on (no token sentence): the next find is the setup offer, then its no is setup done', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('n4', [ROLLING]);
   assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
   await new Promise((r) => setTimeout(r, 100));
-  assert.equal(await tokenRow(b.id), null);
-  const s = show(await mcpCall(b.ctx, 'find', {}));
-  assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  const offer = await mcpCall(b.ctx, 'find', {});
+  assert.match(show(offer), /^Done\. Your payouts go to 0x\S+\.\n\nOne optional thing: [\s\S]+\n\nWant it live\?$/, show(offer));
+  assert.equal(kindOf(offer), 'token');
+  const no = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } }));
+  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(b.tf.calls.length, 0);
 });
 
 test('(b) a no to the token: "No problem, no token." with the table, right away', db, async () => {
@@ -594,6 +612,7 @@ test('final review 1: a token still launching or unknown is never told as live: 
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const b = await fitted('w', [ROLLING]);
+  await inFlight(b.id);
   const unclear = (async () => new Response(JSON.stringify({ error: 'Deployment status unknown' }), { status: 502 })) as unknown as typeof fetch;
   const tf = { f: unclear, calls: [], deps: { fetch: unclear, check: async () => true } };
   assert.equal((await signOn(b.handle, b.step, tf)).status, 200);

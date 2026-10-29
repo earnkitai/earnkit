@@ -5,7 +5,7 @@ import {
 } from './bench-reply';
 import { provenSince, provenWallet, walletLink } from './wallet-proof';
 import { COIN_PROGRAM } from './policy-constants';
-import { builderToken, builderTokensOn, tradeUrl } from './builder-token';
+import { builderTokensOn, tradeUrl } from './builder-token';
 import { tokenAnswerState, tokenAnswerText, tokenPageLine } from './token-answers';
 import { testBuilderSql } from './installations';
 
@@ -92,13 +92,10 @@ export async function contractsOnBase(builderId: number): Promise<boolean> {
     return false;
   }
 }
-/** v4.0: the agent's note with setup step 3, with the token sentence or without it. */
-export const walletSetupNote = (token: boolean) =>
+/** v4.0: the agent's note with setup step 3 (v4.4: the wallet only; the token offer follows the sign). */
+export const walletSetupNote = () =>
   "The builder signs on the page from the link; never ask for a wallet address. When they say done, call tell with move_up: { kind: 'wallet', project_key, answer: 'yes' }; " +
   "if they skip adding a wallet: { kind: 'wallet', project_key, answer: 'no' }. " +
-  (token
-    ? "A no to their token (a plain no to this step means the token, not the wallet): { kind: 'token', project_key, answer: 'no' }; they can still sign. "
-    : '') +
   "If they ask later to launch their token: { kind: 'token', project_key, answer: 'yes' }. Don't show this note.";
 
 /**
@@ -122,18 +119,6 @@ export async function walletSetupDue(builderId: number, now: Date): Promise<stri
     return logged('setup')(err);
   }
 }
-/** v4.0: step 3 carries the token sentence: tokens on, a claimed X account, no token row (a no is kept forever). Never throws. */
-export async function walletSetupToken(builderId: number): Promise<boolean> {
-  if (!builderTokensOn()) return false;
-  try {
-    const [p] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM builder_profiles WHERE builder_id = ${builderId}`;
-    return Boolean(p?.x) && (await builderToken(builderId)) === null;
-  } catch (err) {
-    logged('setup token')(err);
-    return false;
-  }
-}
-
 /**
  * v4.2 Task 6 (F11): the one-time token offer for a builder who set up before v4: tokens on, a claimed X account, a proven
  * wallet, no builder_tokens row (a no is kept forever) and never offered (standing_seen.token_offered, token_offer_legacy,
@@ -174,16 +159,16 @@ export async function takeTokenOffer(builderId: number, now: Date): Promise<bool
 
 /**
  * The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. v4.0 `setup`:
- * it is setup step 3 (standing_seen.wallet_setup, and setup_asked, kept: v4.0 Task 5's setup-done reply), so its skip is step 3's. v4.0 fix round 1 `token`: the reply carries
- * the token sentence (standing_seen.token_offered, kept): only then does the first wallet proof launch the token, and a
- * plain no to step 3 decline it. Never throws.
+ * it is setup step 3 (standing_seen.wallet_setup, and setup_asked, kept: v4.0 Task 5's setup-done reply), so its skip is
+ * step 3's. v4.4: step 3 asks for the wallet only and never sets standing_seen.token_offered, so the first wallet proof
+ * launches nothing on its own (wallet-proof.ts launchOnProof); a builder shown v4.0's token sentence keeps their flag.
+ * Never throws.
  */
-export async function takeWalletAsk(builderId: number, now: Date, setup = false, token = false): Promise<boolean> {
+export async function takeWalletAsk(builderId: number, now: Date, setup = false): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
       || jsonb_build_object('wallet_asked', ${now.toISOString()}::text, 'wallet_link_at', ${now.toISOString()}::text)
       || (CASE WHEN ${setup} THEN jsonb_build_object('wallet_setup', ${now.toISOString()}::text, 'setup_asked', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
-      || (CASE WHEN ${setup && token} THEN jsonb_build_object('token_offered', ${now.toISOString()}::text) ELSE '{}'::jsonb END)
     WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? 'wallet_asked', false) RETURNING 1`.catch((err: unknown) => {
     logged('take')(err);
     return [];
@@ -208,13 +193,14 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
 /**
  * v4.2: after a reward wallet signed, the token's state in the same reply: `launched` when this sign made it (its row
  * began after the link was given: the trade link and the page line, for the one "Done." line), else the state's copy
- * (`line`: already live, or on its way). Null when the builder has no token row (declined or never offered). Never throws.
+ * (`line`: already live, or on its way). Null when the builder has no token row (declined or never offered) or named their own (existing). Never throws.
  */
 async function signedToken(builderId: number, now: Date, linkAt: Date): Promise<{ line: string; launched: { trade: string; page: string | null } | null } | null> {
   try {
     const [t] = await sql()<{ status: string; fresh: boolean }[]>`
       SELECT status, created_at >= ${linkAt} AS fresh FROM builder_tokens WHERE builder_id = ${builderId}`;
-    if (!t || t.status === 'declined') return null;
+    // v4.4: a token the builder named (existing) has nothing a sign changes, as a no.
+    if (!t || t.status === 'declined' || t.status === 'existing') return null;
     const state = await tokenAnswerState(builderId, now);
     // "Done." only when this sign made the token; a wallet change on a live token is the Live copy.
     const addr = t.status === 'launched' && t.fresh ? state.token?.coin_address ?? null : null;
@@ -228,8 +214,12 @@ async function signedToken(builderId: number, now: Date, linkAt: Date): Promise<
   }
 }
 
-/** Final review 5: answerWallet's reply, typed: `signed` when a reward wallet was proven (bench-find.ts afterStep3 reads it, never the copy). */
-export type WalletAnswer = Reply & { signed?: true };
+/**
+ * Final review 5: answerWallet's reply, typed: `signed` when a reward wallet was proven (bench-find.ts afterStep3 reads it,
+ * never the copy). v4.4: `wallet`, the proven wallet, and `step3` when it was signed for setup step 3 (the token offer
+ * follows only that sign). Internal: never in the reply.
+ */
+export type WalletAnswer = Reply & { signed?: true; wallet?: string; step3?: true };
 
 /**
  * The builder's answer to the wallet step or the change link (bench-find.ts benchMoveUp: move_up kind 'wallet', or
@@ -267,16 +257,17 @@ export async function answerWallet(builderId: number, answer: 'yes' | 'no', now:
     if (!(await end()).length) return okay;
     const token = got.recipient ? await signedToken(builderId, now, new Date(p.at)) : null;
     const contracts = await contractsOnBase(builderId);
+    const signed = { signed: true as const, wallet: got.wallet, ...(p.setup && { step3: true as const }) };
     if (got.recipient) {
       // v4.2 Task 10 (G4): a sign that launched the token is one "Done.": the wallet and the token in the first line.
       if (token?.launched) {
         const { trade, page } = token.launched;
-        return { signed: true, show_to_builder: [`Done. Your rewards now go to ${shortWallet(got.wallet)}, and your token is live: ${trade}`, page, contracts ? 'Your contracts on Base will show on your page soon.' : null].filter(Boolean).join('\n') };
+        return { ...signed, show_to_builder: [`Done. Your rewards now go to ${shortWallet(got.wallet)}, and your token is live: ${trade}`, page, contracts ? 'Your contracts on Base will show on your page soon.' : null].filter(Boolean).join('\n') };
       }
-      return { signed: true, show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token?.line].filter(Boolean).join('\n\n') };
+      return { ...signed, show_to_builder: [walletDone(shortWallet(got.wallet), contracts), token?.line].filter(Boolean).join('\n\n') };
     }
     const current = await provenWallet(builderId);
-    return current ? { show_to_builder: walletContractsOnly(shortWallet(current)) } : { signed: true, show_to_builder: walletDone(shortWallet(got.wallet), contracts) };
+    return current ? { show_to_builder: walletContractsOnly(shortWallet(current)) } : { ...signed, show_to_builder: walletDone(shortWallet(got.wallet), contracts) };
   }
   const link = walletLink(builderId, now);
   if (!link) return { show_to_builder: 'I can\'t make a wallet link right now. Try again later.' };

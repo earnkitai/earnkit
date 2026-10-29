@@ -1013,7 +1013,7 @@ apps/frontend/
                                proposed (C6), else "ticker not checked for duplicates"; titleCase
     token-offers.ts            DELETED in v4.0 Task 11 (token_offers and token_declines stay in the schema, read by nothing).
     builder-token.ts(+test)    v4.0 (2026-10-28): the builder token, one per builder and per X account (builder_tokens: builder_id PK,
-                               x_user_id UNIQUE, status declined|launching|launched|unknown, name, symbol, wallet, coin_address UNIQUE,
+                               x_user_id UNIQUE, status declined|launching|launched|unknown|existing, name, symbol, wallet, coin_address (v4.4: unique WHERE status <> 'existing'),
                                tx_hash, told_at, created_at, updated_at). builderTokensOn (EARNKIT_BUILDER_TOKENS === 'on', off by
                                default until tokens.fun v4.1 is live), builderToken, declineBuilderToken (a no is kept forever; 'no_x' /
                                'x_taken'), builderTicker (TickerPick: a ticker from the X handle, tokens.fun checked; 'ticker_check_down' /
@@ -1032,10 +1032,23 @@ apps/frontend/
                                standing_seen.token_offered, which only step 3's shown token sentence or the builder's yes
                                (bench-find.ts markTokenYes) sets; the legacy offer's show writes token_offer_legacy, and a wallet
                                skip with no row removes token_offered (token_skipped). Tests v42-legacy-offer.test.ts, v4-setup.test.ts
+                               v4.4 Task 2: status 'existing' (the builder's own token, named: coin_address only, no wallet; schema.sql
+                               -- v4.4 rebuilds builder_tokens_status_check). recordExistingToken(builderId, address, { isToken }) ->
+                               recorded | not_token | has_token (launching/launched/unknown, unchanged)
+                               | no_x; a declined row becomes existing. Fix round 1: coin_address unique only WHERE status <> 'existing'
+                               (index builder_tokens_coin_address_launch), so a claim never blocks another builder or a launch. baseTokenCheck (alchemy.ts isToken; revert = no, failed read = null,
+                               accepted; Alchemy off accepted). launchBuilderToken returns exists for it; the retry never selects it; every
+                               launch reader filters status 'launched'. Tests v44-setup-order.test.ts
     token-answers.ts           v4.2 Task 1: the token answer in each state. tokenAnswerState (row, handle, communityUsd, walletStepOpen,
                                signLink, hasWallet), tokenAnswerText (pure; TokenAnswerOpts justLaunched, offerQuestion), tokenAnswerFor.
                                Copy: TOKEN_EXPLAINER, TOKEN_GOES_LIVE_ON_SIGN, TOKEN_OFF (final review 2: a statement, no question),
                                tokenSignLine, tokenPageLine. Tests v42-token-answers.test.ts
+                               v4.4: TOKEN_AFTER_WALLET (step 3 open, no v4.0 sentence shown); existingTokenText ("Your token is <short>.
+                               EarnKit didn't launch it, so its fees aren't claimed here."). Setup order (bench-find.ts): step 3 asks for
+                               the wallet only (bench-reply.ts walletSetupAsk(project, link); walletSetupToken gone); its sign is followed by
+                               setupOffer (setupTokenOffer, stored ask { kind 'token', setup: true }); the answer is setupDoneFor's reply
+                               (SetupOutcome launched|on_its_way|declined|existing). tell token { existing } -> bench-find.ts tokenExisting
+                               (existingTokenLine, EXISTING_NOT_TOKEN in bench-reply.ts; TOKEN_ASK_NOTE names it)
     community.ts               v4.0 Task 7/9: weekCommunityUsd(builderId, weekStart, now, price) = this week's and last week's creator
                                fee_claims paid to the builder token's wallet, priced with cachedWethUsd ({0,0} with no token, wallet or
                                price); allTimeCommunityUsd (the Token card's "fees earned"). Tests v4-weekly.test.ts, v4-token-card.test.ts
@@ -1969,9 +1982,11 @@ apps/frontend/
                                state: wallet_link_at), walletChangeReply (v4.0 final review 4: WALLET_COIN_FEES also for a launched
                                builder token), takeWalletNotice, WALLET_NOTE.
                                v4.0 Task 4: setup step 3 asks everyone for the wallet: walletSetupDue (X claimed, step 2 done or
-                               github_no, no person_wallets row, wallet_asked unset), walletSetupToken (builderTokensOn, an x_user_id,
-                               no builder_tokens row), walletSetupNote, takeWalletAsk(…, setup) stamps standing_seen.wallet_setup;
-                               a no after step 3 is the token's no (declineBuilderToken) and the wallet is skipped (WALLET_SETUP_SKIPPED)
+                               github_no, no person_wallets row, wallet_asked unset), walletSetupNote(), takeWalletAsk(…, setup) stamps
+                               standing_seen.wallet_setup. v4.4: walletSetupToken removed (step 3 asks for the wallet only); its no is the
+                               wallet skip (WALLET_SETUP_SKIPPED), the token's no only for a builder shown v4.0's sentence (token_offered);
+                               answerWallet's WalletAnswer carries wallet and step3 for afterStep3's setup offer; signedToken is null for
+                               an existing row
                                v4.2: contractsOnBase (the only time "Your contracts on Base will show" is said); tokenOfferDue /
                                takeTokenOffer (the legacy offer, Task 6; final review 1: the show writes token_offer_legacy only, never
                                token_offered); answerWallet returns WalletAnswer (final review 5: a typed signed flag for afterStep3;

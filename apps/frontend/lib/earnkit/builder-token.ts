@@ -3,6 +3,7 @@ import { STUCK_LAUNCH_MS, outcomeOf, retryAtOf, xProfileUrl } from './tokens';
 import { cleanTokenName, tickerCandidates, tickerProblem, tokensFunTickerCheck, type TickerCheck } from './token-proposal';
 import { provenWallet } from './wallet-proof';
 import { siteUrl } from './entry-text';
+import { AlchemyReverted, alchemyCall, alchemyOn, isToken, type AlchemyCall } from './alchemy';
 
 /**
  * v4 (2026-10-28): one token per builder, keyed by their X account. Default opt-in: it launches the moment the
@@ -13,8 +14,10 @@ import { siteUrl } from './entry-text';
  * only when tokens.fun said it stopped before minting (outcomeOf release); any unclear answer leaves it 'unknown' for
  * the owner to settle (runCron lists it in needs_owner, as it does a launch stuck 'launching'), and nothing retries it.
  * A launch that left no row (released, busy, not ready) is retried by the cron (retryDroppedBuilderTokens).
+ * v4.4: 'existing' is a token the builder already had and named (recordExistingToken): its coin_address only, never
+ * launched, retried, listed on tokens.fun or counted as an EarnKit launch, and the offer is never made again.
  */
-export type BuilderTokenStatus = 'declined' | 'launching' | 'launched' | 'unknown';
+export type BuilderTokenStatus = 'declined' | 'launching' | 'launched' | 'unknown' | 'existing';
 export type BuilderToken = {
   status: BuilderTokenStatus;
   symbol: string | null;
@@ -61,6 +64,68 @@ export async function reopenDeclinedToken(builderId: number): Promise<boolean> {
   return true;
 }
 
+/** v4.4: the contract address a builder names as their token (tell token { existing }). */
+export const TOKEN_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** How long the Base read of a named token may take. */
+const TOKEN_CHECK_MS = 10_000;
+
+/**
+ * v4.4: whether `address` is a token on Base (alchemy.ts isToken's two reads): true or false when both reads answered
+ * (a revert or an empty answer is a no), null when a read failed (a timeout, an HTTP error), so a failure never refuses
+ * the builder's own token. Never throws.
+ */
+export async function baseTokenCheck(address: string, call: AlchemyCall): Promise<boolean | null> {
+  let failed = false;
+  const watched: AlchemyCall = <T>(method: string, params: unknown[]) =>
+    call<T>(method, params).catch((err: unknown) => {
+      if (!(err instanceof AlchemyReverted)) failed = true;
+      throw err;
+    });
+  const yes = await isToken(address, watched).catch(() => null);
+  return yes === null || (!yes && failed) ? null : yes;
+}
+
+export type ExistingTokenDeps = {
+  /** The Base read (tests fake it). Default: baseTokenCheck through Alchemy, or null (accepted) while Alchemy is off. */
+  isToken?: (address: string) => Promise<boolean | null>;
+};
+export type ExistingTokenResult = 'recorded' | 'not_token' | 'has_token' | 'no_x';
+
+/**
+ * v4.4: the builder already has a token: `address` (0x and 40 hex, else 'not_token') is recorded as their row, status
+ * 'existing' with its lowercase coin_address, so the offer ends forever (tokenOfferDue needs no row) and nothing ever
+ * launches for them. A row already launching, launched or unknown is unchanged ('has_token', before any read); a declined
+ * row (or an earlier existing one) becomes this one. The address must be a token on Base (deps.isToken; a read failure
+ * or Alchemy off accepts it). Fix round 1: the address is the builder's unverified claim and grants nothing, so it
+ * never blocks anyone: any number of builders may name the same one, and an EarnKit launch of it is never refused
+ * (coin_address is unique only among non-'existing' rows, builder_tokens_coin_address_launch). 'no_x': no claimed X
+ * account, or one another builder's row holds (nothing written). Throws on a database error.
+ */
+export async function recordExistingToken(builderId: number, address: string, deps: ExistingTokenDeps = {}): Promise<ExistingTokenResult> {
+  const coin = address.trim().toLowerCase();
+  if (!TOKEN_ADDRESS.test(coin)) return 'not_token';
+  const row = await builderToken(builderId);
+  if (row && row.status !== 'declined' && row.status !== 'existing') return 'has_token';
+  const [p] = await sql()<{ x_user_id: string | null }[]>`SELECT x_user_id FROM builder_profiles WHERE builder_id = ${builderId}`;
+  if (!p?.x_user_id) return 'no_x';
+  const check = deps.isToken ?? ((a: string) => (alchemyOn() ? baseTokenCheck(a, alchemyCall(Date.now() + TOKEN_CHECK_MS)) : Promise.resolve(null)));
+  const yes = await check(coin).catch(() => null);
+  if (yes === false) return 'not_token';
+  try {
+    const [r] = await sql()<{ status: BuilderTokenStatus }[]>`
+      INSERT INTO builder_tokens (builder_id, x_user_id, status, coin_address) VALUES (${builderId}, ${p.x_user_id}, 'existing', ${coin})
+      ON CONFLICT (builder_id) DO UPDATE SET status = 'existing', coin_address = EXCLUDED.coin_address, updated_at = now()
+        WHERE builder_tokens.status IN ('declined', 'existing')
+      RETURNING status`;
+    // The row changed to launching (or another status) since it was read: unchanged.
+    return r ? 'recorded' : 'has_token';
+  } catch (err) {
+    // The only unique key an 'existing' row can meet is x_user_id: the X account is held by another builder's row.
+    if ((err as { code?: string }).code === '23505') return 'no_x';
+    throw err;
+  }
+}
+
 /**
  * The ticker from the X handle (3 to 10 letters or digits), the first free and allowed one.
  * 'ticker_check_down': tokens.fun can't be asked now (try again later); 'no_ticker': none is free or allowed (lasting).
@@ -98,7 +163,7 @@ export type LaunchResult =
 
 /**
  * Launch the builder's token now: needs EARNKIT_BUILDER_TOKENS on, a claimed X account, and a proven reward wallet.
- * Idempotent: an existing row (declined, launching, launched, unknown) is returned untouched, before the readiness
+ * Idempotent: an existing row (declined, launching, launched, unknown, v4.4 existing) is returned untouched, before the readiness
  * checks (a declined builder with no wallet is still 'exists' declined). 'x_taken': the X account
  * is held by another builder's row (nothing written for this builder).
  */
