@@ -129,7 +129,7 @@ export function fakeGitHub(repos: Record<string, FakeRepo>): FakeGitHub {
       const k = m[1].toLowerCase();
       const r = repos[k];
       if (!r || (r.private && r.installation !== inst)) return json(404, {});
-      return json(200, { id: r.id, full_name: k, private: Boolean(r.private), fork: Boolean(r.fork), is_template: Boolean(r.template), owner: { login: r.owner, type: r.ownerType ?? 'User' } });
+      return json(200, { id: r.id, full_name: k, created_at: r.created, private: Boolean(r.private), fork: Boolean(r.fork), is_template: Boolean(r.template), owner: { login: r.owner, type: r.ownerType ?? 'User' } });
     }
     call.routed = false;
     return json(404, { message: 'fake: not routed' });

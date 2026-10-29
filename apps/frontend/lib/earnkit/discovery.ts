@@ -4,6 +4,7 @@ import {
   CLUE_PATHS,
   cnameSite,
   foundryBroadcast,
+  ignitionClues,
   githubProfileClues,
   githubRemote,
   hardhatDeployment,
@@ -111,6 +112,7 @@ export const DISCOVER_MAX_ATTEMPTS = 5;
 
 const FOUNDRY_FILE = /^broadcast\/[^/]+\/\d+\/run-latest\.json$/;
 const HARDHAT_FILE = /^deployments\/[^/]+\/[^/]+\.json$/;
+const IGNITION_FILE = /^ignition\/deployments\/chain-(\d+)\/deployed_addresses\.json$/;
 const REPO_KEY = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}\/(?!\.\.?$)[a-z0-9._-]{1,100}$/;
 
 type ListedRepo = {
@@ -292,7 +294,7 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
     const tree = await gh<{ tree?: { path?: string; type?: string }[] }>(`/repos/${key}/git/trees/HEAD?recursive=1`);
     const paths = (Array.isArray(tree?.tree) ? tree.tree : []).filter((t) => t?.type === 'blob' && typeof t.path === 'string').map((t) => t.path!);
     const has = new Set(paths);
-    const want = [...CLUE_PATHS.filter((p) => has.has(p)), ...paths.filter((p) => FOUNDRY_FILE.test(p) || HARDHAT_FILE.test(p))];
+    const want = [...CLUE_PATHS.filter((p) => has.has(p)), ...paths.filter((p) => FOUNDRY_FILE.test(p) || HARDHAT_FILE.test(p) || IGNITION_FILE.test(p))];
     let files = 0;
     const text = async (path: string): Promise<string | null> => {
       if (files >= DISCOVER_CAPS.clueFiles) return null;
@@ -317,6 +319,10 @@ async function discoverOne(root: number, o: DiscoverOpts, out: Counts): Promise<
         const n = pypiPackage(t);
         if (n) await propose('package_pypi', n, key);
       } else if (FOUNDRY_FILE.test(path)) found.push(...foundryBroadcast(path, t));
+      else if (IGNITION_FILE.test(path)) {
+        const dir = path.slice(0, path.lastIndexOf('/'));
+        found.push(...ignitionClues(t, has.has(`${dir}/journal.jsonl`) ? await text(`${dir}/journal.jsonl`) : null, IGNITION_FILE.exec(path)![1]));
+      }
       else {
         const net = path.split('/')[1];
         const chainId = has.has(`deployments/${net}/.chainId`) ? await text(`deployments/${net}/.chainId`) : null;

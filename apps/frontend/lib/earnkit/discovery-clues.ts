@@ -6,7 +6,7 @@ import { chainOfId } from './match';
  * parser is pure and total: bad input is null or [], never a throw. A clue is a proposal; the
  * server verifies it before it scores (sources.ts).
  */
-export type ContractClue = { chain: 'base' | 'arc'; address: string; deployer: string | null; via: 'foundry' | 'hardhat' };
+export type ContractClue = { chain: 'base' | 'arc'; address: string; deployer: string | null; via: 'foundry' | 'hardhat' | 'ignition' };
 
 const HOST = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
@@ -103,6 +103,48 @@ export function hardhatDeployment(path: string, text: string, chainIdFile: strin
   if (!chain || typeof d?.address !== 'string' || !ADDR.test(d.address)) return null;
   const from = typeof d.receipt?.from === 'string' && ADDR.test(d.receipt.from) ? d.receipt.from.toLowerCase() : null;
   return { chain, address: d.address.toLowerCase(), deployer: from, via: 'hardhat' };
+}
+
+/**
+ * v4.5 Task 1: Hardhat Ignition. `deployed_addresses.json` maps a future id ("Module#Contract") to its address;
+ * `journal.jsonl` (one JSON object per line) names the sender. The deployer is the `from` of the journal's
+ * DEPLOYMENT_EXECUTION_STATE_INITIALIZE line for that future id, else of its NETWORK_INTERACTION_REQUEST line
+ * (networkInteraction.from); unreadable or unmatched is null (then ownership refuses it). Pure and total.
+ */
+export function ignitionClues(deployedAddresses: string, journal: string | null, chainId: string): ContractClue[] {
+  const chain = /^\d{1,10}$/.test(chainId) ? scored(Number(chainId)) : null;
+  const map = json(deployedAddresses);
+  if (!chain || !map || typeof map !== 'object' || Array.isArray(map)) return [];
+  const init = new Map<string, string>();
+  const request = new Map<string, string>();
+  const addr = (v: unknown) => (typeof v === 'string' && ADDR.test(v) ? v.toLowerCase() : null);
+  if (typeof journal === 'string')
+    for (const line of journal.slice(0, CLUE_JSON_MAX).split(/\r?\n/)) {
+      if (!line.includes('"futureId"')) continue;
+      let l: { type?: unknown; futureId?: unknown; from?: unknown; networkInteraction?: { from?: unknown } } | null = null;
+      try {
+        l = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!l || typeof l.futureId !== 'string') continue;
+      if (l.type === 'DEPLOYMENT_EXECUTION_STATE_INITIALIZE') {
+        const f = addr(l.from);
+        if (f && !init.has(l.futureId)) init.set(l.futureId, f);
+      } else if (l.type === 'NETWORK_INTERACTION_REQUEST') {
+        const f = addr(l.networkInteraction?.from);
+        if (f && !request.has(l.futureId)) request.set(l.futureId, f);
+      }
+    }
+  const out: ContractClue[] = [];
+  const seen = new Set<string>();
+  for (const [id, v] of Object.entries(map as Record<string, unknown>)) {
+    const address = addr(v);
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    out.push({ chain, address, deployer: init.get(id) ?? request.get(id) ?? null, via: 'ignition' });
+  }
+  return out;
 }
 
 export function githubProfileClues(u: { blog?: string | null; twitter_username?: string | null }): { site: string | null; twitter: string | null } {
