@@ -26,7 +26,7 @@ import {
 import { SCORE_SHARED } from './score-tool';
 import { POST_LINE, SKIPPED_LINE, signInFirstLine } from './share';
 import { EARN_NOTE, standingNews } from './stand-text';
-import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyMissing, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
+import { INTRO_LINE, MOMENT_ASK, NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_HEAD, PROOF_ASK, SHIP_ASK, eventHead, pageLine, postReply, redraftLine, TITLES_ASK, applyAsk, grantHook, qualifyAsk, qualifyGap, qualifySteps, introWhat, pickRepoAsk, youreIn, connectAsk, connectStanding, qualifyLine, standingLine } from './bench-reply';
 import { connectApplyAsk } from './connect-moment';
 import { OPEN_PREFILLED, SENT_ASK, draftKit, draftReadyLine } from './submit-kit';
 import { BUILDER_CODES_FIRST, builderCodesFound } from './builder-code';
@@ -1399,9 +1399,9 @@ function v31Texts(): [string, string][] {
     // 2026-10-22: the no-fit path to Base's grant, and a private repo's titles question.
     ['grantHook', grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' })],
     ['grantHook any chain', grantHook({ org: 'Arc House', amount: '$10,000', chain: null })],
-    ['qualifyMissing', qualifyMissing('Recipes', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!],
-    ['qualifyAsk all', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3)],
-    ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 2)],
+    ['qualifyGap', qualifyGap('Recipes', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })],
+    ['qualifyAsk all', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'], 'Recipes')],
+    ['qualifyAsk some', qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['codes', 'use'], 'Recipes')],
     ['qualifySteps', qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'])],
     ['TITLES_ASK', TITLES_ASK],
     ['connectAsk', connectAsk('earnkit.com/maya')],
@@ -1455,9 +1455,9 @@ test('v3.1 T14 copy sweep: the new replies, draft and email follow the v2.12.1 T
     grantHook: ['Base'],
     'grantHook any chain': ['Arc House'],
     TITLES_ASK: ['commit titles'],
-    qualifyMissing: ['Base', 'Builder Codes'],
+    qualifyGap: ['Base', 'Builder Codes'],
     'qualifyAsk all': ['Base'],
-    'qualifyAsk some': ['Base'],
+    'qualifyAsk some': ['Builder Codes'],
     qualifySteps: ['Base', 'Builder Code'],
     'Best fit dated': [GRANT],
     'Best fit rolling': [GRANT],

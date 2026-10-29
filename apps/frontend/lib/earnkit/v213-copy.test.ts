@@ -10,7 +10,7 @@ import { bestFact } from './bench-data';
 import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
 import { leaderboardLine } from './site-copy';
 import {
-  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat,
+  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyGap, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat,
   qualifyLine, standingLine, youreIn,
 } from './bench-reply';
 import { fitWhy } from './bench-find';
@@ -28,7 +28,7 @@ export const TEXTS: string[] = ([
   // v2.14 T9, R16a, v3.1 Task 16: the states' copy (STATE_COPY, VARIANT_COPY) and the owner-approved reply lines. R12: each
   // why the matcher can give (the page's fit lines).
   INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), introWhat(null), youreIn('maya'), TITLES_ASK,
-  grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' }), qualifyMissing('Recipe planner', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] })!, qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, 3),
+  grantHook({ org: 'Base', amount: '$5,000', chain: 'Base' }), qualifyGap('Recipe planner', { missing: ['base', 'codes', 'use'], steps: ['base', 'codes', 'use'] }), qualifyAsk({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use'], 'Recipe planner'),
   qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk('earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),

@@ -1,7 +1,7 @@
 import { sql } from './db';
 import { newProgramOf, openCuratedRows, programVerdict } from './alerts';
 import { readFitRepos } from './installations';
-import { showable, type Seen } from './stand-view';
+import { fundWhen, showable, type Seen } from './stand-view';
 import { creditsMainnet, type Detection, type Verdict } from './match';
 import { CHAIN_NAMES, type Chain } from './chains';
 import type { Card } from './present';
@@ -69,11 +69,14 @@ export async function liveOrUsersKnown(id: number, key: string): Promise<boolean
   return r?.yes === true;
 }
 
-/** The offer's steps from their statuses: null when every step is known met (never a "you qualify"). Pure. */
-export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>): QualifyOffer | null {
+/**
+ * The offer's steps from their statuses: null when every step is known met (never a "you qualify"). `head`: the
+ * program's title and when (v4.3: the reply's head; default the grant's own name, rolling). Pure.
+ */
+export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>, head: { title: string; when: string } = { title: grant.name ?? grant.org, when: 'rolling' }): QualifyOffer | null {
   const steps = QUALIFY_STEPS.filter((s) => st[s] !== 'met');
   if (steps.length === 0) return null;
-  return { program_id: BASE_GRANTS_ID, grant, missing: steps.filter((s) => st[s] === 'missing'), steps };
+  return { program_id: BASE_GRANTS_ID, grant, missing: steps.filter((s) => st[s] === 'missing'), steps, title: head.title, when: head.when };
 }
 
 /**
@@ -126,7 +129,7 @@ export async function qualifyOffer(
         COALESCE(standing_seen->'qualify_known', '{}'::jsonb) || jsonb_build_object(${key.toLowerCase()}::text, ${sql().json(next as never)}::jsonb))
         WHERE builder_id = ${id}`.catch(() => undefined);
     }
-    return qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid));
+    return qualifyPlan(grant, qualifyStatus(m, codes, onBase, usersSaid), { title: card.title, when: fundWhen(card) });
   } catch (err) {
     console.error('[bench] qualify', err instanceof Error ? err.name : 'error');
     return null;

@@ -10,7 +10,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
 import {
-  TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyMissing, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
+  QUALIFY_CODES_NOTE, TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { grantOf, qualifyOffer, qualifyPlan, qualifyStatus } from './base-qualify';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -101,14 +101,17 @@ test('the no-fit path: missing reasons from the matcher, steps only those not kn
 
 test('the no-fit copy, word for word', () => {
   const off = (missing: QualifyStep[], steps: QualifyStep[] = missing) => ({ missing, steps });
-  assert.equal(qualifyMissing('Kit', off(['base', 'codes', 'use'])), 'To qualify, Kit still needs to put the app on Base, add Builder Codes and get people using it.');
-  assert.equal(qualifyMissing('Kit', off(['use'])), 'To qualify, Kit still needs to get people using it.');
-  // Fix round 1: one named thing beside "the 3 steps" is never said; the line names exactly the steps counted.
-  assert.equal(qualifyMissing('Kit', off(['base'], ['base', 'codes', 'use'])), null);
-  assert.equal(qualifyMissing('Kit', off([], ['base', 'codes', 'use'])), null);
-  assert.equal(qualifyAsk(BASE, 3), "Want the 3 steps to qualify for Base's $5,000 grant?");
-  assert.equal(qualifyAsk(BASE, 2), "Want the 2 steps toward Base's $5,000 grant?");
-  assert.equal(qualifyAsk(BASE, 1), "Want the next step toward Base's $5,000 grant?");
+  // v4.3 (owner-approved): the gap names exactly the steps left; "N steps away" only when each is known missing.
+  const TAG = "Builder Codes are a one-line tag that credits your app's Base transactions to you.";
+  assert.equal(qualifyGap('Kit', off(['base', 'codes', 'use'])), `Kit is 3 steps away: put the app on Base, add Builder Codes and get people using it. ${TAG}`);
+  assert.equal(qualifyGap('Kit', off(['use'])), 'Kit is one step away: get people using it.');
+  // Fix round 1: one named thing beside "the 3 steps" is never said; partly unknown is "To qualify, ... needs to".
+  assert.equal(qualifyGap('Kit', off(['base'], ['base', 'codes', 'use'])), `To qualify, Kit needs to put the app on Base, add Builder Codes and get people using it. ${TAG}`);
+  assert.equal(qualifyGap('Kit', off([], ['base', 'codes', 'use'])), `To qualify, Kit needs to put the app on Base, add Builder Codes and get people using it. ${TAG}`);
+  // v4.3: the question by the first step left.
+  assert.equal(qualifyAsk(BASE, ['base', 'codes', 'use'], 'Kit'), 'Want help putting Kit on Base?');
+  assert.equal(qualifyAsk(BASE, ['codes', 'use'], 'Kit'), 'Want me to add Builder Codes to Kit?');
+  assert.equal(qualifyAsk(BASE, ['use'], 'Kit'), "Want the next step toward Base's $5,000 grant?");
   const all = rule(qualifySteps(BASE, ['base', 'codes', 'use']));
   assert.equal(all, [
     "3 steps to qualify for Base's $5,000 grant:",
@@ -125,24 +128,27 @@ test('the no-fit copy, word for word', () => {
     'Want help with it now?',
   ].join('\n'));
 
-  // The ranked reply: the standing, the hook, what is missing (the same steps the question counts), the question, the points line.
-  const q: QualifyOffer = { program_id: BASE_GRANTS_ID, grant: BASE, missing: ['codes', 'use'], steps: ['codes', 'use'] };
+  // v4.3: the ranked reply: the standing, then the head and the gap, then the question; no ship line.
+  const q: QualifyOffer = { program_id: BASE_GRANTS_ID, grant: BASE, missing: ['codes', 'use'], steps: ['codes', 'use'], title: 'Base Builder Grant Program', when: 'rolling' };
   const project = { key: 'maya/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const v = { state: 'ranked', variant: null, project, link: null, handle: 'maya' } as const;
   const view: BenchView = { ...v, rank: '#3 of 12 builders', streak: 4, target: null, handle: 'maya', fund: [], due: [], held: null, qualify: q, ask: stateAsk({ ...v, qualify: q }) };
   assert.equal(view.ask.kind, 'qualify');
   assert.equal(rule(benchReply(view)), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
-    'To qualify, Kit still needs to add Builder Codes and get people using it.',
-    'Ship code this week.',
-    "Want the 2 steps toward Base's $5,000 grant?",
+    '',
+    `Base Builder Grants: $5,000, rolling. Kit is 2 steps away: add Builder Codes and get people using it. ${TAG}`,
+    '',
+    'Want me to add Builder Codes to Kit?',
   ].join('\n'));
-  // Some steps unknown: no missing line, the question counts every step left.
+  // Some steps unknown: "To qualify, ... needs to", the question by the first step left.
   const unsure: QualifyOffer = { ...q, missing: ['base'], steps: ['base', 'codes', 'use'] };
   assert.equal(rule(benchReply({ ...view, qualify: unsure, ask: stateAsk({ ...v, qualify: unsure }) })), [
     'Kit · #3 of 12 builders · 4 weeks in a row',
-    'Ship code this week.',
-    "Want the 3 steps to qualify for Base's $5,000 grant?",
+    '',
+    `Base Builder Grants: $5,000, rolling. To qualify, Kit needs to put the app on Base, add Builder Codes and get people using it. ${TAG}`,
+    '',
+    'Want help putting Kit on Base?',
   ].join('\n'));
   // No offer: the ship step as before.
   assert.equal(stateAsk(v).line, 'Want me to suggest one small thing to ship?');
@@ -218,21 +224,17 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   const s = rule(show(r));
   const lines = s.split('\n');
   // v3.1 cold read: the standing was said in the connect reply and hasn't changed, so it isn't repeated.
-  assert.equal(lines[0], 'To qualify, Kit still needs to add Builder Codes and get people using it.');
-  assert.match(lines[1], /^Ship code this week( to (hold|pass|move toward) #\d+)?\.$/);
-  assert.equal(lines[2], "Want the 2 steps toward Base's $5,000 grant?");
-  assert.equal(lines.length, 3);
+  // v4.3 (owner-approved): the head and the gap, Also open, then the question by the first step; no ship line.
+  assert.equal(lines[0], "Base Builder Grants: $5,000, rolling. Kit is 2 steps away: add Builder Codes and get people using it. Builder Codes are a one-line tag that credits your app's Base transactions to you.");
+  assert.match(lines[2], /^Also open: /);
+  assert.equal(lines.at(-1), 'Want me to add Builder Codes to Kit?');
+  assert.equal(lines.length, 5);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
+  // v4.3: Builder Codes first, so the yes is the doing: a statement with Base's guide, no question.
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(rule(show(yes)), [
-    "Your next 2 steps toward Base's $5,000 grant:",
-    `1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: ${GUIDE}`,
-    '2. Have a live product people use.',
-    '',
-    'Want help with step 1 now?',
-  ].join('\n'));
-  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
+  assert.equal(show(yes), `Adding Builder Codes to Kit. Base's guide: ${GUIDE}`);
+  assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
   // Answered once.
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), 'Okay.');
   // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
@@ -283,13 +285,18 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   const [p] = await sql()<{ on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS on FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.ok(p.on, 'titles on');
   // Never asked again; the next reply is the no-fit path. Not on Base is known, Builder Codes and users are not, so
-  // no missing line: the question counts all three steps.
+  // v4.3: "To qualify, ... needs to" (never "3 steps away"), and the question by the first step: Base.
   const next = rule(show(await mcpCall(ctx, 'find', {})));
-  assert.doesNotMatch(next, /Your code stays private|still needs/);
-  assert.ok(next.includes("Want the 3 steps to qualify for Base's $5,000 grant?"), next);
+  assert.doesNotMatch(next, /Your code stays private|still needs|steps away/);
+  assert.ok(next.includes('To qualify, Kit needs to put the app on Base, add Builder Codes and get people using it.'), next);
+  assert.ok(next.endsWith('\n\nWant help putting Kit on Base?'), next);
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');
+  // v4.3: a yes with Base first keeps the steps reply (qualifySteps) and its note.
+  const yes2 = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(rule(show(yes2)), qualifySteps(BASE, ['base', 'codes', 'use']));
+  assert.equal(yes2.reply?.agent_note, QUALIFY_STEPS_NOTE);
 });
 
 test('a private repo with a Best fit: the connect yes offers the draft, never the titles question', db, async () => {

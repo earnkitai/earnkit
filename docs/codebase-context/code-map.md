@@ -1677,8 +1677,9 @@ apps/frontend/
                                benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
                                2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
                                connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
-                               path: grantHook, qualifyMissing, qualifyAsk, else SHIP_ASK; shipPointsLine), qualifySteps
-                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
+                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) + qualifyAsk(g, steps, name), no ship
+                               or money line; else SHIP_ASK; shipLine), qualifySteps (the qualify yes for base/use first;
+                               QUALIFY_STEPS, BUILDER_CODES_GUIDE), qualifyCodesYes + QUALIFY_CODES_NOTE (v4.3: the codes-first yes), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
                                PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. 2026-10-23 Base onboarding: kinds base_start, next_step, new_repo;
@@ -1703,6 +1704,7 @@ apps/frontend/
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
                                GTM W3: onBaseKnown + qualifyStatus(onBaseSaid): never "Put your app on Base" to a project on Base
+                               v4.3: QualifyOffer carries title + when (fundWhen) for the reply's head (qualifyPlan's `head`)
     reply-format.ts            v3.1 (2026-10-23): formatReply (a blank line between lines, list items and table rows together, no
                                emphasis) and withFormattedReply; mcp.ts run applies it to every show_to_builder.
                                v4.0 Task 6: Surface 'rich' | 'plain', surfaceOf(client_name) (the caller's installation client; Grok Bot
@@ -1761,7 +1763,9 @@ apps/frontend/
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
                                repo-picker.test.ts, weekly-moment.test.ts. 2026-10-22: benchView asks titles (updates.ts
                                titlesAskDue/takeTitlesAsk) then qualify (base-qualify.ts qualifyOffer, no fit only);
-                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE);
+                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE;
+                               v4.3: stored qualify.first 'codes' answers qualifyCodesYes(name) + QUALIFY_CODES_NOTE);
+                               v4.3 alsoOpen (the qualify reply's Also open: two showable grants by byRelevance);
                                connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
     raising.ts                 DELETED in v4.0 Task 11 (Backing retired; EARNKIT_RAISING is read nowhere).
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),

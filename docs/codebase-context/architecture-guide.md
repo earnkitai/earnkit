@@ -8377,3 +8377,28 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   (`get_program`, from the builder memory), as the lists do.
 - **Stats.** `tokens_declined` (declined builder tokens) and `coins_launched` (launched project tokens plus launched
   builder tokens), both without test installations (`testBuilderSql`, final review 6).
+
+## v4.3 Task 1: the qualify reply carries the money (2026-10-29)
+
+- **The copy (owner-approved, byte for byte).** For a ranked builder with no fit and Base Builder Grants offered
+  (`base-qualify.ts qualifyOffer`), `bench-reply.ts rankedReply`'s qualify branch is: the standing (once-shown rule) and
+  due lines as their own paragraph; then `qualifyHead` ("Base Builder Grants: $5,000, rolling.": `grantProgramName(title)`,
+  the grant's amount, `when` from `stand-view.ts fundWhen`) and `qualifyGap` on one line; then `alsoLine` ("Also open: ..."
+  for up to two other grants, absent with none); then the question. No ship line, no money line, and the week's ship line
+  is not marked shown (`nag_week`) by a qualify reply.
+- **The gap.** Every remaining step known missing: "<name> is one step away: ..." / "N steps away"; otherwise "To qualify,
+  <name> needs to ...". Builder Codes are explained once: after their item when last, else in their own sentence.
+  `qualifyMissing` is removed.
+- **Also open.** `bench-find.ts alsoOpen(cards, now, skip, not)`: `showable` (never sponsored, an EarnKit campaign, an
+  investment or hidden) minus the qualify program, `byRelevance`, two at most; title before ':', `upToCell(prizeOf)` and
+  `fundWhen`. Set on `BenchView.also` only when the ask is qualify.
+- **The question by the first step** (`qualifyAsk(g, steps, name)`): codes "Want me to add Builder Codes to <name>?";
+  base "Want help putting <name> on Base?"; use only, the old "Want the next step toward Base's $5,000 grant?".
+- **The yes.** The stored ask's `qualify` gains `first` and `name`; `benchMoveUp` kind qualify with `first === 'codes'`
+  answers `qualifyCodesYes(name)` ("Adding Builder Codes to <name>. Base's guide: https://...", no question) with
+  `QUALIFY_CODES_NOTE` (add it here, show the change, don't ask again). Other first steps (and older stored asks without
+  `first`) keep `qualifySteps`. The no is unchanged (`declined['qualify:<key>']`).
+- Tests: `v43-first-answer.test.ts` (pure copy, the owner's state through `mcpCall` byte for byte, the yes, the no).
+  `fixtures/ranked-step.ts endsOnRankedStep` accepts the qualify reply (head paragraph, question last);
+  `fixtures/banned-words.ts` allows the Builder Codes tag and the Base question. Tests about the weekly target decline
+  Base's grant steps first so the ship step shows.

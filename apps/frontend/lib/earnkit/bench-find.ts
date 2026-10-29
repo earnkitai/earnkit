@@ -34,7 +34,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
-  TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE,
+  TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -53,7 +53,7 @@ import { pointsTotal } from './points';
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath } from './reserved-routes';
-import { siteUrl } from './entry-text';
+import { prizeOf, siteUrl, upToCell } from './entry-text';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken, takeTokenOffer, tokenOfferDue } from './wallet-offer';
@@ -169,7 +169,7 @@ export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 export type Seen = StandSeen & {
   /** The stored ask's kind: a BenchAskKind, or a retired one an older reply stored (OLD_ASKS). */
   bench_ask?: {
-    kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'>;
+    kind: BenchAskKind | string; key: string | null; program_id?: string; repo?: string; qualify?: Pick<QualifyOffer, 'grant' | 'steps'> & { first?: QualifyStep; name?: string };
     /** v4.2 (kind 'closest', from setup done; final review 3): the closest program's title and the one step it needs. */
     program?: string; step?: string;
     /** v3.1 one-tap posts (kind 'post'): the post's code, its head line and its moment (post-reply.ts). */
@@ -648,7 +648,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
     ...(nudgeAsk?.kind === 'apply' && { program_id: nudgeAsk.program_id }),
     ...(nudgeAsk?.kind === 'outcome_share' && { link: nudgeAsk.link }),
-    ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps } }),
+    // v4.3: the first step and the name the question used, so its yes is answered as asked (Builder Codes: added here).
+    ...(qualify && finalAsk.kind === 'qualify' && { program_id: qualify.program_id, qualify: { grant: qualify.grant, steps: qualify.steps, first: qualify.steps[0], name: project?.name ?? '' } }),
     ...((finalAsk.kind === 'wallet' || finalAsk.kind === 'wallet_setup') && { at: now.toISOString() }),
   };
   if (finalAsk.kind !== 'post') await sql()`
@@ -673,6 +674,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     nudge: nudge?.line ?? null, nudgeOwns: owns,
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
     noGithub, ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
+    also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));
@@ -694,7 +696,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     const week = isoWeekOf(now);
     view.nagShown = read.seen.nag_week !== week;
     // Fix round 2: an owning nudge's reply shows no points line, so the week's line is not marked shown.
-    const nags = !held && !owns && view.nagShown && ['apply', 'ship', 'qualify', 'none'].includes(finalAsk.kind);
+    const nags = !held && !owns && view.nagShown && ['apply', 'ship', 'none'].includes(finalAsk.kind);
     const keep: Record<string, unknown> = {
       ...(carries && { status_seen: standKey }),
       ...(nags && { nag_week: week }),
@@ -730,6 +732,19 @@ export function openGrant(cards: Card[], now: Date, skip: Set<string>): OpenGran
   // Fix round 1: a grant (showable already drops investments; checked here too, so "pays" never names one).
   const c = cards.filter((x) => showable(x, now, skip) && x.investment !== true && (x.max_award_usd ?? 0) > 0 && x.organizer?.trim()).sort(byRelevance)[0];
   return c ? grantOf(c) : null;
+}
+
+/**
+ * v4.3 (owner-approved): the qualify reply's "Also open": up to two other open grants a person could be shown (never an
+ * investment, a sponsor or EarnKit campaign, a hidden program or the qualify program `not`), in byRelevance order;
+ * each its title before the first ':', the amount cell (upToCell(prizeOf)) and when (fundWhen). Pure.
+ */
+export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: string): AlsoOpen[] {
+  return cards
+    .filter((c) => c.id !== not && c.investment !== true && showable(c, now, skip))
+    .sort(byRelevance)
+    .slice(0, 2)
+    .map((c) => ({ title: c.title.split(':')[0].trim(), amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
 }
 
 /** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
@@ -1424,6 +1439,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
+      // v4.3 (owner-approved): "Want me to add Builder Codes to EarnKit?": its yes is the doing, never another question.
+      if (asked.qualify.first === 'codes' && asked.qualify.name) return { show_to_builder: qualifyCodesYes(asked.qualify.name), agent_note: QUALIFY_CODES_NOTE };
       return {
         show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]),
         agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
