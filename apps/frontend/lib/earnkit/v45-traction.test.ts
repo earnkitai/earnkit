@@ -545,3 +545,17 @@ test('contractsRevenue: money a pass-through contract sends out beyond its own i
   const withdraw = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[b.wallets[0], DAY, 1_000_000_000n]] } });
   assert.deepEqual(await contractsRevenue(b.id, NOW, withdraw.call, { price }), { usd: 1000, inbound_usd: 1000, outbound_usd: 0, capped: false, contracts: 2 });
 });
+
+// ---------------------------------------------------------------------------------------------- Task 2 fix round 3
+
+test('contractsRevenue: none of the builder\'s contracts is an outside wallet, even one past the newest USED_CONTRACTS', dbTest, async () => {
+  const b = await builder();
+  const all: string[] = [];
+  for (let i = 0; i < USED_CONTRACTS + 1; i++) all.push(await made(b.wallets[0], 'base', i + 1));
+  const A = all[0];
+  const old = all.at(-1)!; // the 11th, older, never read
+  const p = addr();
+  const fake = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 300_000_000n], [old, DAY, 500_000_000n]] } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, fake.call, { price }), { usd: 300, inbound_usd: 300, outbound_usd: 0, capped: false, contracts: USED_CONTRACTS });
+  assert.ok(!fake.calls.some((c) => c.q.toAddress === old || c.q.fromAddress === old), 'the older one is still not read');
+});

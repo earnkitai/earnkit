@@ -49,7 +49,8 @@ const sumOutside = (flows: Flow[], excluded: Set<string>) => flows.reduce((s, f)
  * Base not enabled in Alchemy, or with no ETH price; any other failure throws (the deadline propagates).
  */
 export async function contractsRevenue(builderId: number, now: Date, call: AlchemyCall, o: { price?: Price } = {}): Promise<Revenue | null> {
-  const all = (await contractsOf(builderId)).filter((c) => c.chain === 'base');
+  const mine = await contractsOf(builderId);
+  const all = mine.filter((c) => c.chain === 'base');
   if (all.length === 0) return null;
   const since = now.getTime() - USED_DAYS * DAY_MS;
   try {
@@ -60,7 +61,8 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
     if (!usable(ethUsd)) return null;
     const proven = await provenWallets(builderId);
     const excluded = excludedOf(proven, [await fundedOf(proven, call)], chosen);
-    for (const c of chosen) excluded.add(c.address.toLowerCase());
+    // Fix round 3: none of the builder's contracts (any chain, read or not) is an outside wallet, as payer or recipient.
+    for (const c of mine) excluded.add(c.address.toLowerCase());
     let capped = false;
     let [earned, offset, inbound_usd, outbound_usd] = [0, 0, 0, 0];
     for (const c of chosen) {
