@@ -66,7 +66,11 @@ export async function shipLogFacts(builderId: number, now: Date): Promise<ShipLo
     streak: 0,
     live: null,
     page: pageUrl(p.handle),
-    ...(await tractionFacts(builderId, now)),
+    // A failed traction read is no traction lines, never no ship log.
+    ...(await tractionFacts(builderId, now).catch((err: unknown) => {
+      console.error('[ship log] traction', err instanceof Error ? err.name : 'error');
+      return { usedBy: null, revenue: null };
+    })),
   };
   if (!p.main) return facts;
   const [b] = await db<{ confirmed: boolean }[]>`
