@@ -657,3 +657,31 @@ test('final review I3: a contract whose outbound read was capped is pass-through
   } });
   assert.deepEqual(await contractsRevenue(b.id, NOW, busy.call, { price }), { usd: 10 * USED_PAGES, inbound_usd: 10 * USED_PAGES, outbound_usd: 1, capped: true, contracts: 1 });
 });
+
+test('final review N1: dust from a proven wallet never hides money sent to an unread own contract or its deployer', dbTest, async () => {
+  const b = await builder();
+  const [P] = b.wallets;
+  const all: string[] = [];
+  for (let i = 0; i < USED_CONTRACTS + 1; i++) all.push(await made(P, 'base', i + 1));
+  const [A, C] = [all[0], all.at(-1)!];
+  const p = addr();
+  // P dusts C (1 wei ETH, 1 USDC unit), an outsider pays A $1,000, A sends it to C: pass-through, usd 0.
+  const dusted = alchemy({
+    funded: { [P]: [C] },
+    flows: { [`out:usdc:${P}`]: [[C, DAY, 1n]], [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[C, DAY, 1_000_000_000n]] },
+  });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, dusted.call, { price }), { usd: 0, inbound_usd: 1000, outbound_usd: 1000, capped: false, contracts: USED_CONTRACTS });
+  // An unread verified source's deployer D, dusted by P, receiving A's money is outbound too.
+  const T = addr();
+  const D = addr();
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at, deployed_at, deployer)
+    VALUES (${b.id}, 'contract', ${`base:${T}`}, ${b.key}, 'deployer', 'verified', 'server', now(), ${iso(400 * DAY)}, ${D})`;
+  const toDeployer = alchemy({
+    funded: { [P]: [D] },
+    flows: { [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[D, DAY, 1_000_000_000n]] },
+  });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, toDeployer.call, { price }), { usd: 0, inbound_usd: 1000, outbound_usd: 1000, capped: false, contracts: USED_CONTRACTS });
+  // A withdrawal to the proven wallet itself is still not outbound.
+  const withdraw = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[P, DAY, 1_000_000_000n]] } });
+  assert.equal((await contractsRevenue(b.id, NOW, withdraw.call, { price }))!.usd, 1000);
+});

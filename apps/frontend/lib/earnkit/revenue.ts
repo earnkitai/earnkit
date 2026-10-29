@@ -77,6 +77,18 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
       payers.add(c.address.toLowerCase());
       if (c.deployer) payers.add(c.deployer.toLowerCase());
     }
+    // Final review N1: dust from a proven wallet puts an unread own contract (or its deployer) in `funded`; on the
+    // outbound side it stays a recipient whatever was sent to it, so money moved there is never hidden.
+    const isRead = new Set(chosen.map((c) => c.address.toLowerCase()));
+    const keys = new Set([...proven, ...chosen.flatMap((c) => (c.deployer ? [c.deployer.toLowerCase()] : []))]);
+    const recipients = new Set(excluded);
+    for (const c of mine) {
+      const a = c.address.toLowerCase();
+      if (isRead.has(a)) continue;
+      recipients.delete(a);
+      const d = c.deployer?.toLowerCase();
+      if (d && !keys.has(d)) recipients.delete(d);
+    }
     let capped = false;
     let [earned, offset, inbound_usd, outbound_usd] = [0, 0, 0, 0];
     for (const c of chosen) {
@@ -85,7 +97,7 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
         const r = await contractFlows(c.address, call, since, USED_PAGES, dir, kind);
         if (r.capped) capped = true;
         if (r.capped && dir === 'out') outCapped = true;
-        return sumOutside(r.flows, dir === 'in' ? payers : excluded);
+        return sumOutside(r.flows, dir === 'in' ? payers : recipients);
       };
       const inbound = dollars(await read('in', 'eth'), await read('in', 'usdc'), ethUsd);
       const outbound = dollars(await read('out', 'eth'), await read('out', 'usdc'), ethUsd);
