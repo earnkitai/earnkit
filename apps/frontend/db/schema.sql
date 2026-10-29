@@ -2096,3 +2096,20 @@ CREATE TABLE IF NOT EXISTS owner_alerts (
   state text,
   at    timestamptz
 );
+
+-- v4.5 (2026-10-29): the daily revenue read (revenue.ts runRevenue), one row per builder and UTC day. Over the builder's
+-- counted Base contracts (used-by.ts contractsOf, never a token), the last 30 days: inbound_usd the ETH and USDC paid in
+-- by outside wallets (never a proven wallet, a deployer or a wallet they funded), outbound_usd what went out to outside
+-- addresses; usd is inbound_usd, or 0 when outbound_usd >= half of it (pass-through, a router). capped: a page limit
+-- was hit (the sums are floors). A failed read stores nothing. Private: no route or page reads it.
+CREATE TABLE IF NOT EXISTS app_revenue (
+  builder_id   integer NOT NULL,
+  day          date NOT NULL,
+  usd          numeric NOT NULL CHECK (usd >= 0),
+  inbound_usd  numeric NOT NULL CHECK (inbound_usd >= 0),
+  outbound_usd numeric NOT NULL CHECK (outbound_usd >= 0),
+  capped       boolean NOT NULL,
+  contracts    integer NOT NULL CHECK (contracts >= 0),
+  read_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, day)
+);
