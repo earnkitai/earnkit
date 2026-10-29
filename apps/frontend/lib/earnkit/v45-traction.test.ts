@@ -601,3 +601,59 @@ test('3.6 a failed traction read is no traction lines: the ship log, prepare, fi
     await sql()`DELETE FROM programs WHERE id = ${pid}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`);
   }
 });
+
+// ---------------------------------------------------------------------------------------------- final review fixes
+
+test('final review I1: a wallet a proven wallet funded with USDC, or the deployer funded, never pays', dbTest, async () => {
+  const b = await builder();
+  const [P] = b.wallets;
+  const A = await made(P, 'base', 10);
+  const S = addr();
+  const D = addr();
+  await source(b, S, D);
+  const [W, W2, p] = [addr(), addr(), addr()];
+  const fake = alchemy({
+    flows: {
+      [`out:usdc:${P}`]: [[W, DAY, 500_000_000n]], // P sends USDC to a fresh wallet
+      [`in:usdc:${A}`]: [[W, DAY, 500_000_000n], [p, DAY, 200_000_000n]],
+      [`in:eth:${S}`]: [[W2, DAY, ETH]],
+    },
+    funded: { [D]: [W2] }, // the deployer funded W2 with ETH
+  });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, fake.call, { price }), { usd: 200, inbound_usd: 200, outbound_usd: 0, capped: false, contracts: 2 });
+  const usdcFunding = fake.calls.filter((c) => c.q.fromAddress && (c.q.category as string[]).includes('erc20') && [P, D].includes(String(c.q.fromAddress)));
+  assert.equal(usdcFunding.length, 2, 'the proven wallet and the deployer, one USDC page each');
+  assert.deepEqual(usdcFunding[0].q.contractAddresses, [BASE_USDC]);
+});
+
+test('final review I2: money a read contract sends to an unread own contract is outbound (the wash through it is pass-through)', dbTest, async () => {
+  const b = await builder();
+  const all: string[] = [];
+  for (let i = 0; i < USED_CONTRACTS + 1; i++) all.push(await made(b.wallets[0], 'base', i + 1));
+  const [A, C] = [all[0], all.at(-1)!];
+  const p = addr();
+  const fake = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${A}`]: [[C, DAY, 1_000_000_000n]] } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, fake.call, { price }), { usd: 0, inbound_usd: 1000, outbound_usd: 1000, capped: false, contracts: USED_CONTRACTS });
+  // An unread contract's deployer (a verified source past the newest) never pays either.
+  const T = addr();
+  const D = addr();
+  await sql()`INSERT INTO builder_sources (builder_id, kind, ref, project_key, proof, state, proposed_by, verified_at, deployed_at, deployer)
+    VALUES (${b.id}, 'contract', ${`base:${T}`}, ${b.key}, 'deployer', 'verified', 'server', now(), ${iso(400 * DAY)}, ${D})`;
+  const dep = alchemy({ flows: { [`in:usdc:${A}`]: [[D, DAY, 700_000_000n], [p, DAY, 100_000_000n]] } });
+  assert.equal((await contractsRevenue(b.id, NOW, dep.call, { price }))!.usd, 100);
+});
+
+test('final review I3: a contract whose outbound read was capped is pass-through; a capped inbound with modest outbound still counts', dbTest, async () => {
+  const b = await builder();
+  const A = await made(b.wallets[0]);
+  const splitter = alchemy({ pageSize: 1, flows: {
+    [`in:usdc:${A}`]: [[addr(), DAY, 1_000_000_000n]],
+    [`out:usdc:${A}`]: Array.from({ length: USED_PAGES + 2 }, () => [addr(), DAY, 1_000_000n] as F),
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, splitter.call, { price }), { usd: 0, inbound_usd: 1000, outbound_usd: USED_PAGES, capped: true, contracts: 1 });
+  const busy = alchemy({ pageSize: 1, flows: {
+    [`in:usdc:${A}`]: Array.from({ length: USED_PAGES + 2 }, () => [addr(), DAY, 10_000_000n] as F),
+    [`out:usdc:${A}`]: [[addr(), DAY, 1_000_000n]],
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, busy.call, { price }), { usd: 10 * USED_PAGES, inbound_usd: 10 * USED_PAGES, outbound_usd: 1, capped: true, contracts: 1 });
+});

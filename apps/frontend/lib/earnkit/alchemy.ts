@@ -313,6 +313,15 @@ export async function fundedBy(wallet: string, call: AlchemyCall): Promise<Set<s
   return new Set((page.transfers ?? []).map((t) => (typeof t.to === 'string' ? t.to.toLowerCase() : '')).filter((a) => /^0x[0-9a-f]{40}$/.test(a)));
 }
 
+/**
+ * v4.5 final review I1: the wallets `wallet` sent Base USDC to (erc20, BASE_USDC only, value above zero, newest first,
+ * one page of 1000), lowercase. The revenue read's funded set takes these with fundedBy's ETH ones.
+ */
+export async function usdcFundedBy(wallet: string, call: AlchemyCall): Promise<Set<string>> {
+  const page = await transfers(call, { fromAddress: wallet, category: ['erc20'], contractAddresses: [BASE_USDC], excludeZeroValue: true, order: 'desc', maxCount: '0x3e8' });
+  return new Set((page.transfers ?? []).map((t) => (typeof t.to === 'string' ? t.to.toLowerCase() : '')).filter((a) => /^0x[0-9a-f]{40}$/.test(a)));
+}
+
 /** Logs a network not enabled in Alchemy once per process (alchemyWalletContracts' and used-by.ts' skip line). */
 export function logNetworkOff(network: string) {
   if (!offLogged.has(network)) console.warn(`[alchemy] ${network} not enabled for this app, skipped`);

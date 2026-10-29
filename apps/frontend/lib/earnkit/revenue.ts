@@ -1,18 +1,19 @@
 import { sql } from './db';
-import { AlchemyNetworkOff, alchemyCall, alchemyOn, contractFlows, logNetworkOff, type AlchemyCall, type Flow } from './alchemy';
+import { AlchemyNetworkOff, alchemyCall, alchemyOn, contractFlows, fundedBy, logNetworkOff, usdcFundedBy, type AlchemyCall, type Flow } from './alchemy';
 import { ScoreDeadline } from './campaigns';
 import { cachedWethUsd } from './fees';
 import { hit } from './rate-limit';
 import { USED_STALE_DAYS } from './site-data';
-import { USED_DAYS, USED_PAGES, USED_PER_RUN, confirmedSql, contractsOf, excludedOf, fundedOf, keptOn, newestChosen, provenWallets } from './used-by';
+import { USED_DAYS, USED_PAGES, USED_PER_RUN, confirmedSql, contractsOf, excludedOf, keptOn, newestChosen, provenWallets } from './used-by';
 
 /**
  * v4.5 Task 2 (2026-10-29): the daily revenue read. What outside wallets paid into a builder's own counted Base
  * contracts in the last USED_DAYS days, kept in app_revenue (one row per builder and UTC day) for the grant drafts.
  * - The contracts and exclusions are used-by.ts's (contractsOf, keptOn, newestChosen, excludedOf), so a token, a
  *   contract the builder has not proven, or builder_tokens' 'existing' claims are never read, and the builder's proven
- *   wallets, each deployer and every wallet a proven wallet funded never count as paying (or as outbound: that is the
- *   builder taking money out).
+ *   wallets, each deployer and every wallet a proven wallet or a read contract's deployer funded (ETH or Base USDC)
+ *   never count as paying (or as outbound: that is the builder taking money out). The builder's other contracts never
+ *   pay either; money sent to an unread one is outbound.
  * - Inbound ETH (external and internal) and Base USDC per contract, and the same outbound, alchemy.ts contractFlows,
  *   USED_PAGES pages each. Exact raw amounts; ETH at fees.ts cachedWethUsd, USDC at $1.
  * - Pass-through, judged per contract (a router): a contract with outbound to outside addresses that is at least half
@@ -20,7 +21,8 @@ import { USED_DAYS, USED_PAGES, USED_PER_RUN, confirmedSql, contractsOf, exclude
  *   what pass-through contracts sent out beyond what outsiders sent them (that money came from the builder's other
  *   contracts, so it is a wash: A paid in, moved to own B, B paid out), never below 0; the row is stored at 0 so drafts
  *   skip it. A router forwarding its own inbound offsets about nothing, so one never hides a real contract.
- *   inbound_usd and outbound_usd stay the builder's totals.
+ *   A contract whose outbound read hit its page limit is pass-through (a splitter). inbound_usd and outbound_usd stay
+ *   the builder's totals.
  * - Any failure stores nothing (no zero row); an unknown price stores nothing (the next run asks again).
  * Private: no route, page, builder.json or stats code reads app_revenue.
  */
@@ -44,8 +46,9 @@ const sumOutside = (flows: Flow[], excluded: Set<string>) => flows.reduce((s, f)
 
 /**
  * One builder's revenue on Base (`call`): the newest counted contracts (at most USED_CONTRACTS, never a token), four
- * reads each, one contract at a time, pass-through judged per contract. A contract of the builder's on either side is no outside wallet (money moving
- * between their own contracts is neither paid in nor passed through). Null without a counted Base contract, with
+ * reads each, one contract at a time, pass-through judged per contract (a capped outbound read is pass-through). A
+ * read contract of the builder's is no outside wallet on either side; an unread one (and its deployer) never pays,
+ * but money sent to it is outbound. Null without a counted Base contract, with
  * Base not enabled in Alchemy, or with no ETH price; any other failure throws (the deadline propagates).
  */
 export async function contractsRevenue(builderId: number, now: Date, call: AlchemyCall, o: { price?: Price } = {}): Promise<Revenue | null> {
@@ -60,22 +63,36 @@ export async function contractsRevenue(builderId: number, now: Date, call: Alche
     const ethUsd = await (o.price ?? cachedWethUsd)(now.getTime());
     if (!usable(ethUsd)) return null;
     const proven = await provenWallets(builderId);
-    const excluded = excludedOf(proven, [await fundedOf(proven, call)], chosen);
-    // Fix round 3: none of the builder's contracts (any chain, read or not) is an outside wallet, as payer or recipient.
-    for (const c of mine) excluded.add(c.address.toLowerCase());
+    // Final review I1: who the proven wallets and the read contracts' deployers funded, in ETH or Base USDC (one page each).
+    const funders = [...new Set([...proven, ...chosen.flatMap((c) => (c.deployer ? [c.deployer.toLowerCase()] : []))])];
+    const funded = new Set<string>();
+    for (const w of funders) for (const a of [...(await fundedBy(w, call)), ...(await usdcFundedBy(w, call))]) funded.add(a);
+    // Never outside on either side: proven wallets, funded wallets, the read contracts and their deployers.
+    const excluded = excludedOf(proven, [funded], chosen);
+    for (const c of chosen) excluded.add(c.address.toLowerCase());
+    // Final review I2 and M2: the builder's other contracts (unread, any chain) and their deployers never pay, but money
+    // sent to an unread own contract counts as outbound (its own outflow is never read, so nothing could offset it).
+    const payers = new Set(excluded);
+    for (const c of mine) {
+      payers.add(c.address.toLowerCase());
+      if (c.deployer) payers.add(c.deployer.toLowerCase());
+    }
     let capped = false;
     let [earned, offset, inbound_usd, outbound_usd] = [0, 0, 0, 0];
     for (const c of chosen) {
+      let outCapped = false;
       const read = async (dir: 'in' | 'out', kind: 'eth' | 'usdc') => {
         const r = await contractFlows(c.address, call, since, USED_PAGES, dir, kind);
         if (r.capped) capped = true;
-        return sumOutside(r.flows, excluded);
+        if (r.capped && dir === 'out') outCapped = true;
+        return sumOutside(r.flows, dir === 'in' ? payers : excluded);
       };
       const inbound = dollars(await read('in', 'eth'), await read('in', 'usdc'), ethUsd);
       const outbound = dollars(await read('out', 'eth'), await read('out', 'usdc'), ethUsd);
       // Pass-through per contract: a router adds nothing; what it sent out beyond its own inbound came from the
-      // builder's other contracts and offsets their revenue (fix round 2: the wash through an own contract).
-      if (passesThrough(inbound, outbound)) offset += Math.max(0, outbound - inbound);
+      // builder's other contracts and offsets their revenue (fix round 2: the wash through an own contract). Final
+      // review I3: a capped outbound read covers less time than its inbound (a splitter), so it is pass-through.
+      if (outCapped || passesThrough(inbound, outbound)) offset += Math.max(0, outbound - inbound);
       else earned += inbound;
       inbound_usd += inbound;
       outbound_usd += outbound;

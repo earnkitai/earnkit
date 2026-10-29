@@ -2098,10 +2098,13 @@ CREATE TABLE IF NOT EXISTS owner_alerts (
 );
 
 -- v4.5 (2026-10-29): the daily revenue read (revenue.ts runRevenue), one row per builder and UTC day. Over the builder's
--- counted Base contracts (used-by.ts contractsOf, never a token), the last 30 days: inbound_usd the ETH and USDC paid in
--- by outside wallets (never a proven wallet, a deployer or a wallet they funded), outbound_usd what went out to outside
--- addresses; usd is inbound_usd, or 0 when outbound_usd >= half of it (pass-through, a router). capped: a page limit
--- was hit (the sums are floors). A failed read stores nothing. Private: no route or page reads it.
+-- newest counted Base contracts (used-by.ts contractsOf, never a token), the last 30 days: inbound_usd the ETH and USDC
+-- paid in by outside wallets (never a proven wallet, a deployer, a wallet they funded in ETH or USDC, or any of the
+-- builder's own contracts), outbound_usd what went out to outside addresses (money sent to an unread own contract
+-- counts). Pass-through is judged per contract: outbound >= half its own inbound, any outbound with no inbound, or a
+-- capped outbound read adds nothing; usd is the others' inbound less what pass-through contracts sent out beyond their
+-- own inbound (a wash through own contracts), never below 0. capped: a page limit was hit (the sums are floors). A
+-- failed read stores nothing. Private: no route or page reads it.
 CREATE TABLE IF NOT EXISTS app_revenue (
   builder_id   integer NOT NULL,
   day          date NOT NULL,
