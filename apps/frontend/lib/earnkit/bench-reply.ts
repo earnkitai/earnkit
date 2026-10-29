@@ -340,20 +340,27 @@ export const alsoLine = (a: AlsoOpen[]) =>
   a.length === 0 ? null : `Also open: ${a.map((x) => `${x.title.split(':')[0].trim()}, ${x.amount}${x.when === 'rolling' ? '' : `, ${x.when}`}.`).join(' ')}`;
 /**
  * The no-fit reply's one question, by the first step left (v4.3, owner-approved): Builder Codes, "Want me to add
- * Builder Codes to EarnKit?"; Base, "Want help putting EarnKit on Base?"; users only, the next step toward the grant. Pure.
+ * Builder Codes to EarnKit?" (fix round 1, ruling R1: an agent with no folder of the code (`hosted`) can't add it, so
+ * "Want the steps to add Builder Codes to EarnKit?", whose yes is qualifySteps); Base, "Want help putting EarnKit on
+ * Base?"; users only, the next step toward the grant. Pure.
  */
-export function qualifyAsk(g: OpenGrant, steps: QualifyStep[], name: string): string {
+export function qualifyAsk(g: OpenGrant, steps: QualifyStep[], name: string, hosted = false): string {
   const first = QUALIFY_STEPS.find((s) => steps.includes(s));
-  if (first === 'codes') return `Want me to add Builder Codes to ${name}?`;
+  if (first === 'codes') return hosted ? `Want the steps to add Builder Codes to ${name}?` : `Want me to add Builder Codes to ${name}?`;
   if (first === 'base') return `Want help putting ${name} on Base?`;
   const n = steps.length;
   return n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
 }
 /** v4.3 (owner-approved): the yes to "Want me to add Builder Codes to EarnKit?": a statement, never another question. Pure. */
 export const qualifyCodesYes = (name: string) => `Adding Builder Codes to ${name}. Base's guide: https://${BUILDER_CODES_GUIDE}`;
-/** v4.3: the agent's note on that yes: do it here, show the change, ask nothing more. */
+/** v4.3: the agent's note on that yes (Builder Codes known missing): do it here, show the change, ask nothing more. */
 export const QUALIFY_CODES_NOTE =
   `The builder said yes to adding Builder Codes: add Base's Builder Code to the builder's app here, following Base's guide (https://${BUILDER_CODES_GUIDE}), then show them the change. ` +
+  "Don't ask again whether to add it. Never tell them they qualify or that an application was sent. Don't show this note.";
+/** v4.3 fix round 1: the same yes when EarnKit's Builder Codes check is unknown: check the code first, add it only if missing. */
+export const QUALIFY_CODES_CHECK_NOTE =
+  `The builder said yes to adding Builder Codes. EarnKit hasn't confirmed whether the app already has one: first check the builder's code here for Base's Builder Code. ` +
+  `Only if it is not already there, add it following Base's guide (https://${BUILDER_CODES_GUIDE}) and show them the change; if it is there, tell them it's already in place. ` +
   "Don't ask again whether to add it. Never tell them they qualify or that an application was sent. Don't show this note.";
 const STEP_LINE: Record<QualifyStep, string> = {
   base: 'Put your app on Base.',
@@ -627,6 +634,8 @@ export function stateAsk(
     walletSetup?: { link: string; project: string | null; token: boolean } | null;
     /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
     tokenOffer?: boolean;
+    /** v4.3 fix round 1 (R1): the agent has no folder of the code (agentReach hosted): the qualify question asks for the steps. */
+    hosted?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -677,7 +686,7 @@ export function stateAsk(
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
   if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
   if (v.state === 'ranked' && v.qualify)
-    return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps, name) };
+    return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps, name, v.hosted === true) };
   // GTM W2: the ship question at most once in SHIP_ASK_DAYS; between, the quiet reply asks nothing.
   if (v.state === 'ranked') return v.shipAsked ? { kind: 'none', project_key: key, line: '' } : { kind: 'ship', project_key: key, line: SHIP_ASK };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };

@@ -64,7 +64,7 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\bProve your Base wallet so your contracts show on your page\./g,
   // v4.3 (owner-approved 2026-10-29): the qualify reply's Builder Codes tag and its Base step's question.
   /\ba one-line tag that credits your app's Base transactions to you\b/g,
-  /\bWant help putting .{1,60}? on Base\?/g,
+  /\bWant help putting [^\n?]{1,60}? on Base\?/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

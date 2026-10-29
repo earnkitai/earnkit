@@ -8402,3 +8402,9 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   `fixtures/ranked-step.ts endsOnRankedStep` accepts the qualify reply (head paragraph, question last);
   `fixtures/banned-words.ts` allows the Builder Codes tag and the Base question. Tests about the weekly target decline
   Base's grant steps first so the ship step shows.
+- **Fix round 1.** Hosted agents (`agentReach` hosted, passed as `stateAsk({ hosted })`) are asked "Want the steps to
+  add Builder Codes to <name>?" when codes is first; the stored `qualify.hosted` makes the yes `qualifySteps` with
+  `QUALIFY_STEPS_NOTE_HOSTED`. The stored `qualify.codes_missing` false (the Builder Codes check unknown) answers the codes
+  yes with `QUALIFY_CODES_CHECK_NOTE` (check the code first; add only if not there). `alsoOpen` lists grants only
+  (`site-copy.ts programKind(c).startsWith('grant')`: never an investment, a prize program or a hackathon); `alsoLine`
+  alone cuts the title at ':'.

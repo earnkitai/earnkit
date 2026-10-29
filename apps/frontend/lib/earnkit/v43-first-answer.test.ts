@@ -8,14 +8,14 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_NOTE } from './bench-find';
+import { QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen } from './bench-find';
 import {
-  QUALIFY_CODES_NOTE, alsoLine, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, stateAsk,
+  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
-import type { RepoFit } from './present';
+import type { Card, RepoFit } from './present';
 
 /**
  * v4.3 Task 1 (owner-approved copy): "what can I earn" for a ranked builder with no fit names the money (Base's grant,
@@ -90,6 +90,11 @@ test('the question by the first step', () => {
   assert.equal(qualifyAsk(BASE, ['codes', 'use'], 'EarnKit'), 'Want me to add Builder Codes to EarnKit?');
   assert.equal(qualifyAsk(BASE, ['base', 'codes', 'use'], 'EarnKit'), 'Want help putting EarnKit on Base?');
   assert.equal(qualifyAsk(BASE, ['use'], 'EarnKit'), "Want the next step toward Base's $5,000 grant?");
+  // Fix round 1 (R1): an agent with no folder of the code is asked for the steps; the other first steps are unchanged.
+  assert.equal(qualifyAsk(BASE, ['codes'], 'EarnKit', true), 'Want the steps to add Builder Codes to EarnKit?');
+  assert.equal(qualifyAsk(BASE, ['base', 'codes'], 'EarnKit', true), 'Want help putting EarnKit on Base?');
+  const v = { state: 'ranked', variant: null, project: { key: 'a/b', name: 'EarnKit', confirmed: true, live: true, weeks: 1 }, link: null, handle: 'a' } as const;
+  assert.equal(stateAsk({ ...v, qualify: offer(['codes']), hosted: true }).line, 'Want the steps to add Builder Codes to EarnKit?');
   assert.equal(qualifyCodesYes('EarnKit'), `Adding Builder Codes to EarnKit. Base's guide: ${GUIDE}`);
   assert.doesNotMatch(qualifyCodesYes('EarnKit'), /\?/);
 });
@@ -115,8 +120,39 @@ test('the ranked qualify reply: no ship line, no money line; the standing above 
   assert.equal(benchReply({ ...view, also: [] }), [OWNER_COPY.split('\n')[0], '', 'Want me to add Builder Codes to EarnKit?'].join('\n'));
 });
 
+test('also open: grants only, shown and open, never the qualify program; two at most, by relevance', () => {
+  const now = new Date('2026-10-21T12:00:00Z');
+  const card = (id: string, o: Partial<Card> = {}): Card => ({
+    id, title: `${id} Grants`, summary: `$1,000 · rolling`, tag: null, each_time: [], status: 'active', chains: ['arc'], max_award_usd: 1000, reward: '$1,000 per grant', ...o,
+  });
+  const cards: Card[] = [
+    card('base-builder-grants', { chains: ['base'], max_award_usd: 5000, summary: 'up to $5,000 · rolling' }),
+    card('invest', { investment: true, chains: ['base'] }),
+    card('hack', { title: 'Hack: Online', reward: '$50K in prizes', chains: ['base'], summary: '$50K in prizes · closes Oct 25' }),
+    card('inperson', { in_person: true, chains: ['base'] }),
+    card('sponsor', { sponsored: true, chains: ['base'] }),
+    card('campaign', { earnkit_campaign: true, chains: ['base'] } as Partial<Card>),
+    card('hidden', { chains: ['base'] }),
+    card('closed', { status: 'closed', chains: ['base'] }),
+    card('upcoming', { status: 'upcoming', chains: ['base'] }),
+    card('ended', { ends_at: new Date('2026-10-20T00:00:00Z'), chains: ['base'] }),
+    card('rolling-arc'),
+    card('soon-arc', { title: 'Soon Arc: Built with Studio', summary: '500 USDC × 8 grants · closes Nov 1, 11:59 PM ET', ends_at: new Date('2026-11-02T04:59:00Z'), reward: '500 USDC per grant' }),
+    card('any-chain', { chains: [], any_chain: true, summary: 'up to $2,000 · rolling' }),
+  ];
+  const got = alsoOpen(cards, now, new Set(['hidden']), 'base-builder-grants');
+  // byRelevance: any chain before other chains; then the sooner deadline (rolling last).
+  assert.deepEqual(got, [
+    { title: 'any-chain Grants', amount: '$2,000', when: 'rolling' },
+    { title: 'Soon Arc: Built with Studio', amount: '500 USDC × 8 grants', when: 'closes Nov 1' },
+  ]);
+  assert.equal(alsoLine(got), 'Also open: any-chain Grants, $2,000. Soon Arc, 500 USDC × 8 grants, closes Nov 1.');
+  // Only excluded kinds left: none.
+  assert.deepEqual(alsoOpen(cards.filter((c) => !['rolling-arc', 'soon-arc', 'any-chain'].includes(c.id)), now, new Set(['hidden']), 'base-builder-grants'), []);
+});
+
 /** A signed-in builder whose one project EarnKit is ranked; Base's grant has only Builder Codes missing. */
-async function ownerBuilder(tag: string) {
+async function ownerBuilder(tag: string, o: { hosted?: boolean; codes?: boolean | null } = {}) {
   const t = `ek_v43fa${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
@@ -138,7 +174,9 @@ async function ownerBuilder(tag: string) {
   await mcpCall(ctx, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   // Builder Codes checked: not found. People use it (the builder said so), so only Builder Codes is missing.
-  await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key}, false, ${new Date()}) ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at`;
+  if (o.codes !== null) await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key}, ${o.codes ?? false}, ${new Date()}) ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at`;
+  // A hosted agent (no folder of the code: find told agent_can_build: false, remembered as no_folder).
+  if (o.hosted) await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"no_folder": true}'::jsonb WHERE builder_id = ${c.id}`;
   await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
     VALUES (${c.id}, '', ${key}, ${['base']}, ${[]}, null, true, false, now())`;
   const r3 = await mcpCall(ctx, 'find', {});
@@ -183,4 +221,43 @@ test('a no to the codes question is remembered and never asked again', db, async
   const next = await mcpCall(ctx, 'find', {});
   assert.notEqual((next.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
   assert.doesNotMatch(show(next), /Builder Codes|qualify/);
+});
+
+test('fix round 1 (R1): a hosted agent is asked for the steps; its yes is the steps reply with the hosted note', db, async () => {
+  await start();
+  const { ctx, key } = await ownerBuilder('h', { hosted: true });
+  // A hosted agent can schedule: the one-time Monday check-in comes first; its no.
+  const first = await mcpCall(ctx, 'find', {});
+  const m = first.reply?.move_up as { kind: string } | undefined;
+  if (m?.kind === 'checkin') await mcpCall(ctx, 'tell', { move_up: { kind: 'checkin', project_key: key, answer: 'no' } });
+  const r = m?.kind === 'checkin' ? await mcpCall(ctx, 'find', {}) : first;
+  const s = show(r);
+  assert.equal(s, OWNER_COPY.replace('Want me to add Builder Codes to EarnKit?', 'Want the steps to add Builder Codes to EarnKit?'));
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'qualify');
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(show(yes), qualifySteps(BASE, ['codes']));
+  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE_HOSTED);
+  assert.doesNotMatch(show(yes), /Adding Builder Codes/);
+});
+
+test('fix round 1: Builder Codes unknown: the gap says "To qualify", the yes tells the agent to check before adding', db, async () => {
+  await start();
+  const { ctx, key } = await ownerBuilder('u', { codes: null });
+  const s = show(await mcpCall(ctx, 'find', {}));
+  assert.match(s, /^Base Builder Grants: \$5,000, rolling\. To qualify, EarnKit needs to add Builder Codes, /, s);
+  assert.ok(s.endsWith('\n\nWant me to add Builder Codes to EarnKit?'), s);
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(show(yes), qualifyCodesYes('EarnKit'));
+  assert.equal(yes.reply?.agent_note, QUALIFY_CODES_CHECK_NOTE);
+  assert.match(QUALIFY_CODES_CHECK_NOTE, /first check .*Only if it is not already there, add it/);
+});
+
+test('fix round 1: a stored ask from before v4.3 (no first, no name) answers a yes with the steps reply', db, async () => {
+  await start();
+  const { c, ctx, key } = await ownerBuilder('o');
+  const old = { kind: 'qualify', key, program_id: BASE_GRANTS_ID, qualify: { grant: BASE, steps: ['codes', 'use'] } };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(old as never)}::jsonb) WHERE builder_id = ${c.id}`;
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(show(yes), qualifySteps(BASE, ['codes', 'use']));
+  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
 });
