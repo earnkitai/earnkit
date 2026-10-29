@@ -20,7 +20,6 @@ import { AMOUNT_HEADER, upToCell } from './entry-text';
 import { FIND_DESCRIPTION_BENCH, TOOL_DESCRIPTIONS } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
 import { aboutFacts, type ReplyFacts } from './reply-facts';
-import { POINTS_PAGE_LINE } from './points';
 import { CHECKIN_INSTEAD_NOTE } from './tools';
 
 /**
@@ -129,7 +128,7 @@ test('copy: the jargon lines and the answer note', () => {
   assert.match(ANSWER_FIRST_NOTE, /from show_to_builder and facts only; if that answer needs a link, use the one in facts/);
   // about: existing copy only; no deletion policy invented; v4.0 Task 11: no backers line (Backing is retired).
   const about = aboutFacts();
-  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'points', 'builder_code', 'data', 'earnkit_gets', 'privacy', 'token_earnings', 'token_chain']);
+  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'builder_code', 'data', 'earnkit_gets', 'privacy', 'token_earnings', 'token_chain']);
   assert.equal(about.earnkit_gets, "Builders pay nothing. When a builder's token trades, 40% of the fee goes to the builder and the rest keeps EarnKit running.");
   assert.match(about.privacy, /read-only access to only the repos you pick/);
   assert.match(about.privacy, /never the titles or the code/);
@@ -138,7 +137,7 @@ test('copy: the jargon lines and the answer note', () => {
   assert.equal(about.token_earnings, "It depends on how much people trade. There's no promise; 40% of every trade's fee goes to you, claimed for you.");
   assert.equal(about.token_chain, 'Tokens are on Base. Grants can be on any chain.');
   assert.equal(about.data, 'You can hide your page anytime (say hide my page).');
-  assert.equal(about.points, POINTS_PAGE_LINE);
+  assert.equal('points' in about, false);
   assert.match(about.builder_code, /^A Builder Code is a one-line tag Base uses to see your traffic\./);
   for (const s of Object.values(about)) assert.doesNotMatch(s, /—|EARN points|delete/i);
 });
@@ -154,12 +153,12 @@ test('facts: a shared client without a signed-in builder gets about alone (find 
   }
 });
 
-test('facts: signed in, no repo: the page, points and what they are for, Earned and applications; no rank or wallet', db, () => withEnv(ON, async () => {
+test('facts: signed in, no repo: the page, Earned and applications; no rank or wallet', db, () => withEnv(ON, async () => {
   const p = await signedIn('s');
   const r = await mcpCall(p.ctx, 'find', { agent_can_build: false });
   const f = facts(r);
   assert.deepEqual(f.page, { url: `https://earnkit.com/${p.username}`, public: true });
-  assert.deepEqual(f.points, { total: 0, this_week: 0, what_for: POINTS_PAGE_LINE });
+  assert.equal('points' in f, false);
   assert.equal(f.rank, undefined);
   assert.equal(f.wallet, undefined);
   assert.equal('coin' in f, false);

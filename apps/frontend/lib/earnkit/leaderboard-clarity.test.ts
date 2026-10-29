@@ -205,10 +205,10 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
   const s = oneStatusOneStep(r);
   assert.ok(s.startsWith(INTRO_LINE), s);
   assert.doesNotMatch(s, RANKED);
-  assert.deepEqual(r?.rank_lines, []);
+  assert.deepEqual(r?.rank_lines ?? [], []);
   const score = (await mcpCall(a.ctx, 'score', {})).reply;
   oneStatusOneStep(score);
-  assert.deepEqual(score?.rank_lines, []);
+  assert.deepEqual(score?.rank_lines ?? [], []);
 });
 
 test('R10: ranked, the move-up news shows with the rank; once the project is not counted (a stale ranked row) no rank, no news, anywhere', db, async () => {
@@ -239,10 +239,10 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   assert.match(s, /^(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code (?:on GitHub )?so I can match it /);
   assert.doesNotMatch(s, RANKED, s);
   assert.doesNotMatch(s, /You moved up/, s);
-  assert.deepEqual(stale?.rank_lines, []);
+  assert.deepEqual(stale?.rank_lines ?? [], []);
   const score = (await mcpCall(a.ctx, 'score', {})).reply;
   assert.doesNotMatch(oneStatusOneStep(score), RANKED);
-  assert.deepEqual(score?.rank_lines, []);
+  assert.deepEqual(score?.rank_lines ?? [], []);
 
   // The profile and the card: no rank while the project isn't counted.
   const d = (await profileData(a.id, new Date()))!;

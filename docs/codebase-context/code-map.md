@@ -2562,3 +2562,10 @@ sender: archive `eth_getCode` binary search, the block's receipts, else `trace_b
 `source-readers.ts` `contractOrigin` and `ownership.ts` `alchemyDeployer`; `alchemyTxCount` (capped at `verify.ts`
 `TX_COUNT_CAP` = 100, seam `CheckDeps.txCounter`) replaces the Blockscout counters; wallet reads and people signals are
 Alchemy only. Still on Blockscout, dormant: `campaigns.ts` sponsor scoring and `traction.ts` coin holders.
+
+v4.3 (first answer): `bench-reply.ts` qualifyHead/qualifyGap/alsoLine/qualifyAsk/qualifyCodesYes (qualify reply = head, gap, Also open,
+one question; hosted asks for steps); `BenchView.fullTable` + `present.ts fullProgramTable` (ranked `find {more: true}` through the
+Bench reply, no table on nudge or step 3, never setup-done; the old present.ts path drops "doesn't fit" above a table and updates for
+shown programs); `bench-find.ts` `alsoOpen`, `standingFields` (find fields: `streak`, `standing`, `rank_lines` only when non-empty, no
+`points_total`); `reply-facts.ts` no points facts; `stand-text.ts` `ANSWER_FIRST_NOTE` (no points or rank list, points answer).
+Tests: `v43-first-answer.test.ts`.

@@ -49,7 +49,6 @@ import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
   type ConnectBest,
 } from './connect-moment';
-import { pointsTotal } from './points';
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath } from './reserved-routes';
@@ -531,7 +530,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
         ? { kind: 'apply', project_key: done.move_up.project_key, line: '', program_id: done.program_id }
         : { kind: 'none', project_key: null, line: '' };
       const view: BenchView = { state, variant, project, rank: null, streak, target: null, handle, link: null, fund: [], due: [], ask, held: null, setupDone: done.show_to_builder };
-      return { view, fields: { ...(done.move_up && { move_up: done.move_up }), rank_lines: [], streak } };
+      return { view, fields: { ...(done.move_up && { move_up: done.move_up }), ...standingFields(streak) } };
     }
   }
   // v4.0 setup step 3 (the wallet, and the token unless they say no): once step 2 is done or answered no, in any signed-in
@@ -720,14 +719,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
     : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : BENCH_MOVE_UP_NOTE;
+  const rankLines = ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [];
   const fields: Reply = {
     ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
-    rank_lines: ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [],
-    streak,
-    // Owner test 2026-10-23: "how many points do I have" had no fact to answer from (ANSWER_FIRST_NOTE).
-    points_total: await pointsTotal(id).catch(() => null),
+    ...(rankLines.length > 0 && { rank_lines: rankLines }),
+    ...standingFields(streak),
   };
   return { view, fields };
+}
+
+/** v4.3: `streak` and the `standing` fact the agent answers "where do I stand" from (no points, no empty rank). Pure. */
+export function standingFields(streak: number): { streak: number; standing?: string } {
+  return { streak, ...(streak >= 1 && { standing: streak === 1 ? '1 week shipping' : `${streak} weeks shipping in a row` }) };
 }
 
 /**

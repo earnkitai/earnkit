@@ -8,7 +8,8 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen } from './bench-find';
+import { QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields } from './bench-find';
+import { ANSWER_FIRST_NOTE } from './stand-text';
 import {
   QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_SENTENCE, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
@@ -437,4 +438,43 @@ test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word
   const link = s.match(/no fee: (\S+)/)?.[1] ?? '';
   assert.equal(s, walletSetupAsk('EarnKit', link, s.includes(TOKEN_SENTENCE)));
   assert.doesNotMatch(s, /\| Program \|/, s);
+});
+
+test('v4.3 Task 3: standing is absent for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
+  assert.deepEqual(standingFields(0), { streak: 0 });
+  assert.deepEqual(standingFields(1), { streak: 1, standing: '1 week shipping' });
+  assert.deepEqual(standingFields(6), { streak: 6, standing: '6 weeks shipping in a row' });
+});
+
+test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing, and answers points', () => {
+  assert.doesNotMatch(ANSWER_FIRST_NOTE, /their points, rank|how ranking works/);
+  assert.match(ANSWER_FIRST_NOTE, /from standing and show_to_builder, never points or a rank/);
+  assert.ok(ANSWER_FIRST_NOTE.includes("EarnKit doesn't use points. It tracks the weeks you ship."));
+});
+
+test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lines only when non-empty; standing matches the streak', db, async () => {
+  await start();
+  const { ctx } = await ownerBuilder('p');
+  for (const args of [{}, { more: true }] as const) {
+    const r = await mcpCall(ctx, 'find', { ...args });
+    const reply = r.reply as Record<string, unknown>;
+    assert.ok(!('points_total' in reply), JSON.stringify(Object.keys(reply)));
+    assert.ok(!('points' in ((reply.facts as object) ?? {})), 'facts carry no points');
+    assert.ok(!('points' in (((reply.facts as { about?: object })?.about) ?? {})), 'about carries no points');
+    if ('rank_lines' in reply) assert.ok((reply.rank_lines as string[]).length > 0);
+    const streak = Number(reply.streak ?? 0);
+    assert.equal(reply.standing, standingFields(streak).standing);
+  }
+});
+
+test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines and no points_total', db, async () => {
+  await start();
+  const t = `ek_v43fan_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false }, 'find', {});
+  const reply = r.reply as Record<string, unknown>;
+  assert.ok(!('points_total' in reply));
+  assert.ok(!('rank_lines' in reply));
+  assert.ok(!('standing' in reply) || typeof reply.standing === 'string');
 });

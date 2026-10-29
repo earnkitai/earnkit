@@ -8436,3 +8436,18 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   `benchFind` reads `signedOut` once, at the top, and a signed-out `more` returns null before `coveredRead`.
   `programUpdates` returns `ProgramUpdate { text, program_id }` (FirstMessage.updates accepts strings too); the
   tabled-program filter matches by id.
+
+## v4.3 Task 3: no points, no empty rank, a standing fact (2026-10-29)
+
+v4.3 in one paragraph. The ranked qualify reply is head (program, amount, rolling or closes), gap (steps known missing,
+"To qualify" when partly unknown), "Also open" (two other open grants) and one question; a hosted agent is asked for the
+steps and the codes yes adds Builder Codes with no question. `find {more: true}` for a ranked builder goes through the
+same Bench reply with the full program table in place of "Also open" (same stored ask and move_up, never "doesn't fit",
+never the setup-done reply, no table on a nudge or step 3); the present.ts path drops "doesn't fit" above a table and
+updates for shown programs. Task 3: find and score replies carry no `points_total` and no points fact in `facts`
+(`reply-facts.ts` drops `points` and `about.points`); `rank_lines` is sent only when non-empty; `standing`
+(`bench-find.ts standingFields`: absent for 0 weeks, `1 week shipping`, `n weeks shipping in a row`) is the fact the agent
+answers "where do I stand" from. `ANSWER_FIRST_NOTE` no longer lists points, rank or how ranking works, and answers a
+points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` and the
+internal ledger stay (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
+R10 (absent, not `[]`) and `v31-answerable.test.ts` (no points in facts or about).
