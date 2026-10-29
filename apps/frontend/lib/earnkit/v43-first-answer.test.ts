@@ -491,13 +491,18 @@ test('v4.3 Task 3: standing through find and score for a real streak of 6, 1 and
 test('v4.3 Task 3: under RANK_MIN_POOL, find and score carry no rank_lines and facts.rank is absent', db, async () => {
   mock.timers.reset();
   mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
-  await sql()`UPDATE builder_profiles SET hidden = true`;
-  const ctx = await streakBuilder('sd', 3);
-  for (const tool of ['find', 'score'] as const) {
-    const reply = (await mcpCall(ctx, tool, {})).reply as { rank_lines?: string[]; facts?: { rank?: unknown } };
-    assert.equal(reply.rank_lines, undefined, tool);
-    if (tool === 'find') assert.equal(reply.facts?.rank, undefined);
-    assert.doesNotMatch(JSON.stringify(reply), /#\d/, tool);
+  // Hide only the profiles visible now (this file's database), and restore exactly those afterwards.
+  const hid = (await sql()<{ builder_id: number }[]>`UPDATE builder_profiles SET hidden = true WHERE hidden = false RETURNING builder_id`).map((r) => r.builder_id);
+  try {
+    const ctx = await streakBuilder('sd', 3);
+    for (const tool of ['find', 'score'] as const) {
+      const reply = (await mcpCall(ctx, tool, {})).reply as { rank_lines?: string[]; facts?: { rank?: unknown } };
+      assert.equal(reply.rank_lines, undefined, tool);
+      if (tool === 'find') assert.equal(reply.facts?.rank, undefined);
+      assert.doesNotMatch(JSON.stringify(reply), /#\d/, tool);
+    }
+  } finally {
+    if (hid.length > 0) await sql()`UPDATE builder_profiles SET hidden = false WHERE builder_id = ANY(${hid}::int[])`;
   }
 });
 
