@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { walletOffered } from './fixtures/wallet-step';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
+import { person } from './fixtures/find';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
@@ -448,7 +449,7 @@ test('v4.3 Task 3: standing is absent for 0 weeks, "1 week shipping" for 1, "n w
 
 test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing, and answers points', () => {
   assert.doesNotMatch(ANSWER_FIRST_NOTE, /their points, rank|how ranking works/);
-  assert.match(ANSWER_FIRST_NOTE, /from standing and show_to_builder, never points or a rank/);
+  assert.match(ANSWER_FIRST_NOTE, /never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one/);
   assert.ok(ANSWER_FIRST_NOTE.includes("EarnKit doesn't use points. It tracks the weeks you ship."));
 });
 
@@ -467,14 +468,47 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
   }
 });
 
-test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines and no points_total', db, async () => {
+/** A ranked, listed builder with a streak of `streak` weeks ending last week (fixtures/find.ts person); a no to the Base steps. */
+async function streakBuilder(tag: string, streak: number) {
+  const key = `${tag}${RUN}/app`;
+  const id = await person({ main: key, claimed: `${tag}${RUN}`.slice(0, 15), ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true, streak }] });
+  return { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
+}
+
+test('v4.3 Task 3: standing through find and score for a real streak of 6, 1 and 0', db, async () => {
+  await start();
+  for (const [tag, streak, want] of [['sa', 6, '6 weeks shipping in a row'], ['sb', 1, '1 week shipping'], ['sc', 0, undefined]] as const) {
+    const ctx = await streakBuilder(tag, streak);
+    for (const tool of ['find', 'score'] as const) {
+      const reply = (await mcpCall(ctx, tool, {})).reply as Record<string, unknown>;
+      assert.equal(reply.streak, streak, `${tool} ${tag}`);
+      assert.equal(reply.standing, want, `${tool} ${tag}`);
+      assert.ok(!('points_total' in reply));
+    }
+  }
+});
+
+test('v4.3 Task 3: under RANK_MIN_POOL, find and score carry no rank_lines and facts.rank is absent', db, async () => {
+  mock.timers.reset();
+  mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
+  await sql()`UPDATE builder_profiles SET hidden = true`;
+  const ctx = await streakBuilder('sd', 3);
+  for (const tool of ['find', 'score'] as const) {
+    const reply = (await mcpCall(ctx, tool, {})).reply as { rank_lines?: string[]; facts?: { rank?: unknown } };
+    assert.equal(reply.rank_lines, undefined, tool);
+    if (tool === 'find') assert.equal(reply.facts?.rank, undefined);
+    assert.doesNotMatch(JSON.stringify(reply), /#\d/, tool);
+  }
+});
+
+test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and no standing', db, async () => {
   await start();
   const t = `ek_v43fan_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c = (await connectInstallation(t))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false }, 'find', {});
   const reply = r.reply as Record<string, unknown>;
-  assert.ok(!('points_total' in reply));
-  assert.ok(!('rank_lines' in reply));
-  assert.ok(!('standing' in reply) || typeof reply.standing === 'string');
+  assert.equal(reply.points_total, undefined);
+  assert.equal(reply.rank_lines, undefined);
+  assert.equal(reply.standing, undefined);
 });

@@ -161,7 +161,7 @@ export const TELL_DESCRIPTION_BENCH =
 
 /** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
-  "Where the builder stands: their Shipping score, their rank (every ranked builder sees one), their page, and the one step up. Call it when they ask how they're doing. " +
+  "Where the builder stands: their Shipping score, their rank only when the reply shows one, their weeks shipping, their page, and the one step up. Call it when they ask how they're doing. " +
   'Show show_to_builder as written; a yes or no to its question goes to tell move_up (with move_up.kind and project_key). ' +
   SAFETY_TEXT;
 
