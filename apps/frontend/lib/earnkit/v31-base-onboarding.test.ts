@@ -50,8 +50,8 @@ type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-/** v4.0 setup step 3 on the no-GitHub path (nothing connected, so no project line; tokens off here): once a person. */
-const isStep3 = (s: string) => s === walletSetupAsk(null, links(s)[0] ?? '', false);
+/** v4.0 setup step 3 on the no-GitHub path (nothing connected, so no project line): once a person. */
+const isStep3 = (s: string) => s === walletSetupAsk(null, links(s)[0] ?? '');
 const rule = (s: string, asks = 1) => {
   assert.ok(links(s).length <= 1, s);
   assert.equal(questions(s), asks, s);

@@ -7,7 +7,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { tradeUrl } from './builder-token';
-import { TOKEN_EXPLAINER, TOKEN_GOES_LIVE_ON_SIGN, TOKEN_OFF, tokenAnswerText, tokenSignLine, type TokenAnswerState } from './token-answers';
+import { TOKEN_AFTER_WALLET, TOKEN_EXPLAINER, TOKEN_GOES_LIVE_ON_SIGN, TOKEN_OFF, tokenAnswerText, tokenSignLine, type TokenAnswerState } from './token-answers';
 import { TOKEN_ON_ITS_WAY } from './bench-find';
 import { shortWallet } from './entry-text';
 
@@ -27,7 +27,10 @@ const WALLET = '0x' + 'cd'.repeat(20);
 const base: TokenAnswerState = { token: null, handle: 'ada', communityUsd: 0, walletStepOpen: false, signLink: null, hasWallet: false };
 test('the text of each state is exact', () => {
   const live = { status: 'launched', symbol: 'ADA', coin_address: COIN, wallet: WALLET } as const;
-  assert.equal(tokenAnswerText({ ...base, walletStepOpen: true }), `${TOKEN_EXPLAINER}\n\n${TOKEN_GOES_LIVE_ON_SIGN}`);
+  // v4.4: step 3 asks for the wallet only: the token is a statement; a builder shown v4.0's token sentence keeps its line.
+  assert.equal(tokenAnswerText({ ...base, walletStepOpen: true }), `${TOKEN_EXPLAINER}\n\n${TOKEN_AFTER_WALLET}`);
+  assert.equal(TOKEN_AFTER_WALLET, 'You can turn it on once your wallet is added.');
+  assert.equal(tokenAnswerText({ ...base, walletStepOpen: true, tokenOffered: true }), `${TOKEN_EXPLAINER}\n\n${TOKEN_GOES_LIVE_ON_SIGN}`);
   assert.equal(TOKEN_EXPLAINER, "Your token is how people who believe in your work can back it. Anyone can trade it, and 40% of every trade's fee goes to your wallet, claimed for you. It lives on Base, whatever chain you build on.");
   assert.equal(TOKEN_GOES_LIVE_ON_SIGN, 'It goes live when you sign. Rather skip it? Just say no.');
   assert.equal(tokenAnswerText({ ...base, signLink: 'https://x.test/w' }), `${TOKEN_EXPLAINER}\n\nSign with your wallet and it goes live: https://x.test/w`);
@@ -98,7 +101,19 @@ test('a declined builder\'s own "launch my token" launches once; a second yes is
   assert.equal(show(await mcpCall(b.ctx, 'tell', { token: 'ask' })), second);
 }));
 
-test('a question with the wallet step open answers with the explainer and adds no question; nothing launches', db, () => on(async () => {
+test('v4.4: a question with step 3 open (wallet only) answers with the explainer and a statement; the step-3 ask stays', db, () => on(async () => {
+  const b = await builder('op4', false);
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || '{"wallet_setup":"2026-10-01T00:00:00Z","wallet_asked":"2026-10-01T00:00:00Z","bench_ask":{"kind":"wallet_setup","key":null}}'::jsonb WHERE builder_id = ${b.id}`;
+  const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+  assert.equal(show(r), `${TOKEN_EXPLAINER}\n\n${TOKEN_AFTER_WALLET}`);
+  assert.doesNotMatch(show(r), /\?/);
+  assert.equal(r.reply?.move_up, undefined);
+  assert.equal(await storedAsk(b.id), 'wallet_setup');
+  assert.equal(b.calls.length, 0);
+}));
+
+test('pre-v4.4 in-flight: a question with the wallet step open (token sentence shown) answers with the explainer and adds no question; nothing launches', db, () => on(async () => {
   const b = await builder('open', false);
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
     || '{"wallet_setup":"2026-10-01T00:00:00Z","wallet_asked":"2026-10-01T00:00:00Z","token_offered":"2026-10-01T00:00:00Z","bench_ask":{"kind":"wallet_setup","key":null}}'::jsonb WHERE builder_id = ${b.id}`;
@@ -118,7 +133,7 @@ test('no wallet and no step open: the explainer and a signing link; wallet prove
   const w = await builder('wal', true);
   // v4.2 Task 6: a wallet and never offered is the earlier builder: the explainer then the one-time offer question (stored as the ask).
   const q = await mcpCall(w.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(q), `${TOKEN_EXPLAINER}\n\nWant it live? Rather skip it? Just say no.`);
+  assert.equal(show(q), `${TOKEN_EXPLAINER}\n\nAlready have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?`);
   assert.equal((q.reply?.move_up as { kind: string }).kind, 'token');
   assert.equal(await storedAsk(w.id), 'token');
   assert.equal(w.calls.length, 0);

@@ -48,8 +48,9 @@ const on = async (fn: () => Promise<void>) => {
   try { await fn(); } finally { delete process.env.EARNKIT_BUILDER_TOKENS; delete process.env.EARNKIT_TEST_INSTALLATIONS; }
 };
 
-test('the offer copy is exact, one statement then one question, no em dash or "coin"', () => {
-  assert.equal(TOKEN_OFFER, "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. Want it live? Rather skip it? Just say no.");
+test('the offer copy is exact, the statement then the question last, no em dash or "coin"', () => {
+  // v4.4: the opt-out ("already have one, or skip") before the question, which ends the reply.
+  assert.equal(TOKEN_OFFER, "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?");
   assert.equal(TOKEN_OFFER, `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`);
   assert.doesNotMatch(TOKEN_OFFER, /—|coin/i);
 });
@@ -62,7 +63,7 @@ test('the offer yields to every other ranked question and to setup step 3, and c
   assert.equal(stateAsk({ ...v, connect: { weeks: 3 } }).kind, 'connect');
   assert.equal(stateAsk({ ...v, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
   assert.equal(stateAsk({ ...v, share: true }).kind, 'share');
-  assert.equal(stateAsk({ ...v, walletSetup: { link: 'https://x/w', project: 'Kit', token: true } }).kind, 'wallet_setup');
+  assert.equal(stateAsk({ ...v, walletSetup: { link: 'https://x/w', project: 'Kit' } }).kind, 'wallet_setup');
   assert.equal(stateAsk({ ...v, newRepo: true }).kind, 'token');
   assert.equal(stateAsk({ ...v, tokenOffer: false }).kind, 'ship');
 });

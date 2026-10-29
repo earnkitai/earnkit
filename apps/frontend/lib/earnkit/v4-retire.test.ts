@@ -146,7 +146,7 @@ test('(d) fix round 1: tell token \'ask\' only answers the token\'s status; it n
   // one-time offer question, stored as the ask; nothing launched until the builder's yes.
   const b = await withWallet('dnone');
   const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(r), `${TOKEN_EXPLAINER}\n\nWant it live? Rather skip it? Just say no.`);
+  assert.equal(show(r), `${TOKEN_EXPLAINER}\n\nAlready have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?`);
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'token');
   assert.equal(b.tf.calls.length, 0);
   assert.equal(await tokenRow(b.id), null);

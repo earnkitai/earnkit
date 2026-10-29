@@ -163,9 +163,9 @@ test('offered once, claimed only when shown; "done" before signing sends a fresh
   assert.equal((await seen(c.id)).wallet_asked, undefined);
   const r = await mcpCall(ctx, 'find', {});
   const s = rule(show(r));
-  // v4.0 approved copy 3, alone: no standing, money or points line (tokens off here: no token sentence).
-  assert.equal(s, walletSetupAsk('Kit', links(s)[0] ?? '', false));
-  assert.deepEqual(r.reply?.move_up, { kind: 'wallet_setup', project_key: key, agent_note: walletSetupNote(false) });
+  // v4.0 approved copy 3, alone: no standing, money or points line (v4.4: the wallet only).
+  assert.equal(s, walletSetupAsk('Kit', links(s)[0] ?? ''));
+  assert.deepEqual(r.reply?.move_up, { kind: 'wallet_setup', project_key: key, agent_note: walletSetupNote() });
   assert.equal(upgradeOf(tokenOf(s), new Date()), c.id, 'a fresh link for this builder');
   assert.equal(typeof (await seen(c.id)).wallet_asked, 'string', 'claimed with the reply that carries it');
 

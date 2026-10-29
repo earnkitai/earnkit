@@ -16,7 +16,7 @@ import { isoWeekOf } from './weeks';
 import { FIND_DESCRIPTION_BENCH } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
 import {
-  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, TOKEN_SENTENCE, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
+  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -443,7 +443,7 @@ test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word
   const s = show(r);
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup', s);
   const link = s.match(/no fee: (\S+)/)?.[1] ?? '';
-  assert.equal(s, walletSetupAsk('EarnKit', link, s.includes(TOKEN_SENTENCE)));
+  assert.equal(s, walletSetupAsk('EarnKit', link));
   assert.doesNotMatch(s, /\| Program \|/, s);
 });
 

@@ -175,7 +175,7 @@ const repoFacts = (key: string): RepoFit[] => {
   }];
 };
 
-test('F4: the wallet "done" while step 3 is open is the setup-done reply (one message), with the trade link', db, async () => {
+test('F4 (pre-v4.4 in-flight, token sentence shown): the wallet "done" while step 3 is open is the setup-done reply (one message), with the trade link', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const { c, handle } = await signedIn('sg');
@@ -195,6 +195,8 @@ test('F4: the wallet "done" while step 3 is open is the setup-done reply (one me
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
   const step = show(await mcpCall(ctx, 'find', {}));
   assert.match(step, /\*\*Step 3 of 3:\*\*/, step);
+  // v4.4: step 3 never sets token_offered; a builder shown v4.0's token sentence has it (v44-setup-order.test.ts: the offer).
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_offered', now()::text) WHERE builder_id = ${c.id}`;
   const t = decodeURIComponent(/https:\/\/earnkit\.com\/claim\/wallet\?t=(\S+)/.exec(step)![1]);
   const acct = privateKeyToAccount(generatePrivateKey());
   const signature = await acct.signMessage({ message: walletMessage(handle, t) });

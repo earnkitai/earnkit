@@ -16,7 +16,10 @@ const logged = (where: string) => (err: unknown) => {
  */
 export const TOKEN_EXPLAINER =
   "Your token is how people who believe in your work can back it. Anyone can trade it, and 40% of every trade's fee goes to your wallet, claimed for you. It lives on Base, whatever chain you build on.";
+/** v4.0: an open step 3 that showed the token sentence (standing_seen.token_offered; builders mid-flow keep it). */
 export const TOKEN_GOES_LIVE_ON_SIGN = 'It goes live when you sign. Rather skip it? Just say no.';
+/** v4.4: an open step 3 asks for the wallet only; the token is said as a statement (its offer follows the sign). */
+export const TOKEN_AFTER_WALLET = 'You can turn it on once your wallet is added.';
 /** Final review 2: a statement, no question (a yes to it would answer nothing). */
 export const TOKEN_OFF = 'Your token is off. Say launch my token anytime to turn it on.';
 export const tokenSignLine = (link: string) => `Sign with your wallet and it goes live: ${link}`;
@@ -31,6 +34,8 @@ export type TokenAnswerState = {
   communityUsd: number;
   /** Setup step 3 is open: the wallet question was asked and not answered. */
   walletStepOpen: boolean;
+  /** v4.0: the builder was shown step 3's token sentence (standing_seen.token_offered): the sign launches it. */
+  tokenOffered?: boolean;
   /** A fresh wallet signing link, when there is no proven wallet (null: none can be made). */
   signLink: string | null;
   /** A reward wallet is proven. */
@@ -60,7 +65,7 @@ export function tokenAnswerText(s: TokenAnswerState, opts: TokenAnswerOpts = {})
     ].filter(Boolean).join('\n');
   }
   if (t) return TOKEN_ON_ITS_WAY;
-  if (s.walletStepOpen) return `${TOKEN_EXPLAINER}\n\n${TOKEN_GOES_LIVE_ON_SIGN}`;
+  if (s.walletStepOpen) return `${TOKEN_EXPLAINER}\n\n${s.tokenOffered ? TOKEN_GOES_LIVE_ON_SIGN : TOKEN_AFTER_WALLET}`;
   if (!s.hasWallet) return s.signLink ? `${TOKEN_EXPLAINER}\n\n${tokenSignLine(s.signLink)}` : TOKEN_EXPLAINER;
   return opts.offerQuestion ? `${TOKEN_EXPLAINER}\n\n${opts.offerQuestion}` : TOKEN_EXPLAINER;
 }
@@ -68,8 +73,9 @@ export function tokenAnswerText(s: TokenAnswerState, opts: TokenAnswerOpts = {})
 /** Reads the builder's token state. Throws on a database error (callers catch). */
 export async function tokenAnswerState(builderId: number, now: Date, token?: BuilderToken | null): Promise<TokenAnswerState> {
   const row = token === undefined ? await builderToken(builderId) : token;
-  const [p] = await sql()<{ handle: string | null; step: boolean }[]>`
-    SELECT x_handle AS handle, COALESCE(standing_seen ? 'wallet_setup', false) AS step FROM builder_profiles WHERE builder_id = ${builderId}`;
+  const [p] = await sql()<{ handle: string | null; step: boolean; offered: boolean }[]>`
+    SELECT x_handle AS handle, COALESCE(standing_seen ? 'wallet_setup', false) AS step, COALESCE(standing_seen ? 'token_offered', false) AS offered
+    FROM builder_profiles WHERE builder_id = ${builderId}`;
   const wallet = await provenWallet(builderId);
   const communityUsd = row?.status === 'launched' ? await allTimeCommunityUsd(builderId).catch((err: unknown) => (logged('community')(err), 0)) : 0;
   return {
@@ -77,6 +83,7 @@ export async function tokenAnswerState(builderId: number, now: Date, token?: Bui
     handle: p?.handle ?? null,
     communityUsd,
     walletStepOpen: !wallet && p?.step === true,
+    tokenOffered: p?.offered === true,
     signLink: wallet || row ? null : walletLink(builderId, now),
     hasWallet: Boolean(wallet),
   };

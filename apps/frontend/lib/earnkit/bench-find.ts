@@ -38,7 +38,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, setupTokenOffer, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -52,11 +52,11 @@ import {
 import { POST_NOTE, eventPost, redraftAnswer, weeklyPost } from './post-reply';
 import { EMAIL_NOTE, WHICH_EMAIL, askWeeklyEmail, digestEnabled, saveWeeklyEmail } from './digest';
 import { pagePath } from './reserved-routes';
-import { prizeOf, siteUrl, upToCell } from './entry-text';
+import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
-import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, walletSetupToken, takeTokenOffer, tokenOfferDue } from './wallet-offer';
+import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, takeTokenOffer, tokenOfferDue } from './wallet-offer';
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
 import { provenWallet } from './wallet-proof';
@@ -188,6 +188,8 @@ export type Seen = StandSeen & {
     link?: string;
     /** v3.1 wallet proof (kind 'wallet'): when the step was asked (ISO); its yes checks for a wallet proven since. */
     at?: string;
+    /** v4.4 (kind 'token'): the offer that followed setup step 3's sign; its answer is the setup-done reply. */
+    setup?: boolean;
   };
   /** Fix round 1: when the qualify steps were given ({ [lowercase project key]: iso }); held back DECLINE_MS. */
   qualify_given?: Record<string, string>;
@@ -543,13 +545,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
       return { view, fields: { ...(done.move_up && { move_up: done.move_up }), ...standingFields(streak) } };
     }
   }
-  // v4.0 setup step 3 (the wallet, and the token unless they say no): once step 2 is done or answered no, in any signed-in
+  // v4.0 setup step 3 (v4.4: the wallet only; the token offer follows its sign): once step 2 is done or answered no, in any signed-in
   // state; before every ranked ask, and on the no-GitHub path after the walk-through offer. While it is due, no other
   // ranked offer is opened (each one is claimed when made). Fix round 1: a project not counted yet is "Your code" (the
   // App connected another repo); the no-GitHub path names none.
   const setupLink = !held && handle !== null && state !== 'signed_out' ? await walletSetupDue(id, now) : null;
   const walletSetup = setupLink
-    ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code', token: await walletSetupToken(id) }
+    ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code' }
     : null;
   const rankedFree = ranked && !walletSetup;
   // v4.3 final review F3: a "show more" call never claims or opens a one-time offer (connect, an event post, a nudge,
@@ -652,7 +654,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v4.2 Task 6: the token offer the same way (marks token_offered); it is the stored ask, so a yes or no answers it.
   if (finalAsk.kind === 'token' && !(await takeTokenOffer(id, now))) finalAsk = stateAsk({ ...asks, tokenOffer: false, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
-  if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true, walletSetup?.token === true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
+  if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -728,7 +730,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote(walletSetup?.token === true)
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
@@ -1398,13 +1400,22 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v3.1 wallet proof fix round: the wallet step is answered from its state (a link given, a wallet proven since), so a
   // "done" after another reply still checks it (wallet-offer.ts answerWallet).
   if (m.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now, ctx.ownInstallationId ?? id);
-  // v4.0 setup step 3: "done" is the wallet's yes; a plain no is a no to the token (the copy's "Just say no"), else
-  // (no token sentence shown) a skip of the wallet.
+  // v4.0 setup step 3: "done" is the wallet's yes; v4.4: a no is the wallet skip (a builder shown v4.0's token sentence:
+  // the token's no, setupAnswer).
   if (m.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now, ctx.ownInstallationId ?? id);
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
   if (m.kind === 'token') {
-    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
-    return afterStep3(id, await tokenAnswer(ctx, id, m.answer, now, ownTokenYes), now, ctx.ownInstallationId ?? id);
+    // v4.4: the answer to the offer that followed step 3's sign (the stored ask's setup) is the setup-done reply.
+    const [t] = await sql()<{ setup: boolean }[]>`
+      UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'bench_ask'
+      FROM (SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id} FOR UPDATE) o
+      WHERE p.builder_id = ${id} AND o.ask->>'kind' = 'token' RETURNING COALESCE((o.ask->>'setup')::boolean, false) AS setup`.catch((err: unknown) => {
+      logged('clear token ask')(err);
+      return [];
+    });
+    const r = await tokenAnswer(ctx, id, m.answer, now, ownTokenYes);
+    if (t?.setup && (await builderToken(id).catch(() => null))) return (await setupDoneFor(id, now, null, ctx.ownInstallationId ?? id)) ?? r;
+    return afterStep3(id, r, now, ctx.ownInstallationId ?? id);
   }
   // v4.0 Task 11 fix round 1: an old agent's coin answer is the builder token's only after its offer (legacyCoinAnswer);
   // otherwise the stored-ask path below (an old 'coin' ask is cleared, nothing launched).
@@ -1580,10 +1591,9 @@ async function afterGithubNo(id: number, now: Date): Promise<Reply> {
 async function walletStep(id: number, now: Date): Promise<Record<string, unknown> | null> {
   const setup = await walletSetupDue(id, now);
   if (setup) {
-    const token = await walletSetupToken(id);
-    if (!(await takeWalletAsk(id, now, true, token))) return null;
+    if (!(await takeWalletAsk(id, now, true))) return null;
     await storeAsk(id, { kind: 'wallet_setup', key: null, at: now.toISOString() });
-    return { show_to_builder: walletSetupAsk(null, setup, token), move_up: { kind: 'wallet_setup', project_key: null, agent_note: walletSetupNote(token) } };
+    return { show_to_builder: walletSetupAsk(null, setup), move_up: { kind: 'wallet_setup', project_key: null, agent_note: walletSetupNote() } };
   }
   const link = await walletOfferDue(id, now);
   // v4.2 Task 6 (F11): an earlier builder with a wallet and no token row hears the token offer, once.
@@ -1635,7 +1645,7 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
   });
   if (!p?.asked || p.done) return null;
   const outcome: SetupOutcome | null = p.token === 'declined' ? 'declined'
-    : p.wallet ? (p.token === 'launched' ? 'launched' : p.token === 'launching' || p.token === 'unknown' ? 'on_its_way' : 'set')
+    : p.wallet ? (p.token === 'launched' ? 'launched' : p.token === 'launching' || p.token === 'unknown' ? 'on_its_way' : p.token === 'existing' ? 'existing' : 'set')
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
@@ -1755,15 +1765,23 @@ async function tokenTradeUrl(id: number): Promise<string | null> {
  */
 async function afterStep3(id: number, answer: WalletAnswer, now: Date, own: number = id): Promise<Reply> {
   // v4.2 (F4): a wallet signed while step 3 is open is the setup-done reply too (one message, not two). Final review 5:
-  // answerWallet's typed `signed`, never its copy; the flag is internal and never reaches the reply.
-  const { signed, ...r } = answer;
+  // answerWallet's typed `signed`, never its copy; the flags are internal and never reach the reply.
+  const { signed, wallet, step3, ...r } = answer;
   if (r.show_to_builder !== WALLET_SETUP_SKIPPED && r.show_to_builder !== TOKEN_NO_LINE && !signed) return r;
+  // v4.4: the wallet signed for step 3 and the one token offer is due (tokens on, no row, never offered, never an owner
+  // test installation): the done line and the offer, stored as the token ask with `setup`, so its answer (yes or no)
+  // is the setup-done reply (benchMoveUp). A builder shown v4.0's token sentence (token_offered) is never offered again.
+  if (signed && step3 && wallet && (await tokenOfferDue(id)) && (await takeTokenOffer(id, now))) {
+    await storeAsk(id, { kind: 'token', key: null, at: now.toISOString(), setup: true });
+    return { show_to_builder: setupTokenOffer(shortWallet(wallet)), move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
+  }
   return (await setupDoneFor(id, now, null, own)) ?? r;
 }
 /**
- * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. Fix round 1:
- * a no after the token sentence was shown (standing_seen.token_offered) and before any token row is a no to the token
- * (the copy's "Just say no"; the wallet step stays open); otherwise a skip of the wallet. Never throws.
+ * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. v4.4: a no
+ * is the wallet skip (step 3 asks for the wallet only), except for a builder shown v4.0's token sentence
+ * (standing_seen.token_offered, kept for builders mid-flow) with no token row yet: a no to the token (that copy's "Just
+ * say no"; the wallet step stays open). Never throws.
  */
 async function setupAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: number, answer: 'yes' | 'no', now: Date): Promise<Reply> {
   if (answer === 'yes') return answerWallet(id, 'yes', now);
@@ -1802,8 +1820,8 @@ export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>, o: { st
     if (!offer) {
       const state = await tokenAnswerState(id, now);
       // Final review 2: this answer asks nothing, so only the ask it shows is answerable: none. The stored ask is
-      // cleared (a later kindless yes can't answer an older question), except an open step 3's, whose question this
-      // answer repeats ("Rather skip it? Just say no.").
+      // cleared (a later kindless yes can't answer an older question), except an open step 3's, which stays the one
+      // question ("Done?") the builder still owes.
       if (!state.walletStepOpen) await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id}`.catch(logged('token ask clear'));
       return { show_to_builder: tokenAnswerText(state) };
     }
