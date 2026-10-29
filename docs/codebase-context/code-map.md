@@ -1680,9 +1680,9 @@ apps/frontend/
                                benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
                                2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
                                connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
-                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) (or BenchView.fullTable, Task 2) + qualifyAsk(g, steps, name), no ship
-                               or money line; else SHIP_ASK; shipLine), qualifySteps (the qualify yes for base/use first;
-                               QUALIFY_STEPS, BUILDER_CODES_GUIDE), qualifyCodesYes + QUALIFY_CODES_NOTE (v4.3: the codes-first yes), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
+                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) (or BenchView.fullTable, Task 2) + qualifyAsk(g, steps, name, hosted = false), no ship
+                               or money line; else SHIP_ASK; shipLine), qualifySteps(g, steps, ask = true) (the qualify yes for use first; base first: ask false, QUALIFY_BASE_YES_NOTE;
+                               QUALIFY_STEPS, BUILDER_CODES_GUIDE), qualifyCodesYes(name, missing = true) + QUALIFY_CODES_NOTE (v4.3: the codes-first yes), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
                                PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. 2026-10-23 Base onboarding: kinds base_start, next_step, new_repo;
@@ -2283,7 +2283,7 @@ v2.14 T10: `app/layout.tsx` loads Funnel Display and Funnel Sans through `next/f
 build. `fonts` is in `reserved-routes.ts` (the folder has no page).
 
 v3 Stage 1 (the founder's loop; see the architecture guide's "v3 Stage 1" section): `points.ts` (the `builder_points`
-ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`, `POINTS_PAGE_LINE`),
+ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`; `POINTS_PAGE_LINE` removed v4.3),
 `connect-moment.ts` (every unconfirmed week with facts, at most 12, in the first ranked reply and the one yes; `backfillComplete`), `week-links.ts` (signed
 "Looks right" and "Hide this week" links), `app/api/week/route.ts` (GET shows the button, POST acts). Changed:
 `week-facts.ts` (`pointsOf`, `UNCONFIRMED_LABEL`; `upsertWeekFacts` awards an approved week's points when its facts arrive late), `weekly-moment.ts` (`approveWeek` via), `digest.ts` (Monday email, `EMAIL_QUESTION`),

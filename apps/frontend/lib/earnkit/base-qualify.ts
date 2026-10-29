@@ -71,9 +71,9 @@ export async function liveOrUsersKnown(id: number, key: string): Promise<boolean
 
 /**
  * The offer's steps from their statuses: null when every step is known met (never a "you qualify"). `head`: the
- * program's title and when (v4.3: the reply's head; default the grant's own name, rolling). Pure.
+ * program's title and when (v4.3: the reply's head). Pure.
  */
-export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>, head: { title: string; when: string } = { title: grant.name ?? grant.org, when: 'rolling' }): QualifyOffer | null {
+export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>, head: { title: string; when: string }): QualifyOffer | null {
   const steps = QUALIFY_STEPS.filter((s) => st[s] !== 'met');
   if (steps.length === 0) return null;
   return { program_id: BASE_GRANTS_ID, grant, missing: steps.filter((s) => st[s] === 'missing'), steps, title: head.title, when: head.when };

@@ -8392,7 +8392,7 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
 - **Also open.** `bench-find.ts alsoOpen(cards, now, skip, not)`: `showable` (never sponsored, an EarnKit campaign, an
   investment or hidden) minus the qualify program, `byRelevance`, two at most; title before ':', `upToCell(prizeOf)` and
   `fundWhen`. Set on `BenchView.also` only when the ask is qualify.
-- **The question by the first step** (`qualifyAsk(g, steps, name)`): codes "Want me to add Builder Codes to <name>?";
+- **The question by the first step** (`qualifyAsk(g, steps, name, hosted = false)`): codes "Want me to add Builder Codes to <name>?";
   base "Want help putting <name> on Base?"; use only, the old "Want the next step toward Base's $5,000 grant?".
 - **The yes.** The stored ask's `qualify` gains `first` and `name`; `benchMoveUp` kind qualify with `first === 'codes'`
   answers `qualifyCodesYes(name)` ("Adding Builder Codes to <name>. Base's guide: https://...", no question) with
@@ -8425,11 +8425,26 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   its own paragraph), else after everything (no question, or the owning nudge whose question leads).
   The stored bench_ask and move_up are written as for `find {}`, so a yes to the question works.
 - **The old path** (`presentFirstMessage` with `more`): `noFitLine` only when no program table (`shown`) follows;
-  `programUpdates` entries for a program in a table above (matched rows or `shown`; exact "<title> closes ..." text) are
+  `programUpdates` entries for a program in a table above (matched rows or `shown`, matched by program id) are
   dropped; "Updates:" only while entries remain.
 - Tests: `v43-first-answer.test.ts` (owner `find {more: true}` byte for byte, the stored ask and its yes, eight days on
   no "Updates:"; table before the question in a ship reply; a shared client's `more` has no "doesn't fit"; the old path's
   update filter). Updated pins: `present.test.ts` (I3 noFit, Ruling 28 x2, I7 updates) and `match-projects.test.ts` 2.9.
+
+## v4.3 final review fixes (2026-10-29)
+
+- **more only on request.** `mcp.ts FIND_DESCRIPTION_BENCH` and the `more` field: `more: true` only when the builder
+  asks for the full list or everything open (or yes to "Want the 3 easiest?"); "what can I earn" is a plain find.
+- **No one-time offers on more.** `benchView` with `o.more` never claims or opens connect, an event post, a nudge
+  (stand-in included), the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge or titles
+  (setup-done was already held). They stay due for the next plain find. The question is qualify, apply or ship (or
+  none; a held question and setup step 3 keep their place). `benchFind` never sets `fullTable` on a post or share ask.
+- **Yes copy.** The codes yes with the check unknown (`codes_missing` false) is `qualifyCodesYes(name, false)`:
+  "Adding Builder Codes to <name> if they're not there yet. Base's guide: ...". The yes to "Want help putting <name>
+  on Base?" (`first === 'base'`) is `qualifySteps(g, steps, false)` (the steps, no question) with
+  `QUALIFY_BASE_YES_NOTE` (`_HOSTED`): help with step 1 now.
+- `fixtures/ranked-step.ts QUALIFY_ASK` accepts the hosted "Want the steps to add Builder Codes to <name>?".
+  `points.ts POINTS_PAGE_LINE` is removed; `base-qualify.ts qualifyPlan`'s `head` is required.
 - **Fix round 1.** With `more`: no table on a nudge-owned reply or on the wallet_setup step 3 reply (bench-find leaves
   `fullTable` unset; rankedReply also skips it for wallet_setup), so the question stays last and step 3 word for word.
   benchView takes `more` and skips the setup-done branch, so `setup_done` stays unclaimed for the next plain find.

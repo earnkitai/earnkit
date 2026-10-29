@@ -131,6 +131,16 @@ export const QUALIFY_STEPS_NOTE =
 export const QUALIFY_STEPS_NOTE_HOSTED =
   "A yes to the question: walk the builder through the first step listed, in short plain steps they can do themselves (for Builder Codes, follow the guide linked). " +
   "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
+/**
+ * v4.3 final review F4: the yes to "Want help putting EarnKit on Base?" (the steps, no question): help with step 1 now.
+ */
+export const QUALIFY_BASE_YES_NOTE =
+  "The builder said yes to help putting the app on Base: help them with step 1 now, here in this folder. Don't ask again whether they want help. " +
+  "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
+/** QUALIFY_BASE_YES_NOTE for an agent with no folder of the code. */
+export const QUALIFY_BASE_YES_NOTE_HOSTED =
+  "The builder said yes to help putting the app on Base: walk them through step 1 now, in short plain steps they can do themselves. Don't ask again whether they want help. " +
+  "Never tell them they qualify or that an application was sent; EarnKit checks and offers the draft. Don't show this note.";
 /** 2026-10-23 Base onboarding: the walk-through offer's note; the builder can ask for it again any time. */
 export const BASE_START_NOTE =
   "A yes or no to the question: call tell with move_up: { kind: 'base_start', project_key: null, answer }. " +
@@ -542,6 +552,10 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     ? { link: setupLink, project: githubNo ? null : ranked ? (project?.name ?? 'Your code') : 'Your code', token: await walletSetupToken(id) }
     : null;
   const rankedFree = ranked && !walletSetup;
+  // v4.3 final review F3: a "show more" call never claims or opens a one-time offer (connect, an event post, a nudge,
+  // the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge, titles): its question is
+  // the qualify, apply or ship ask (or none), and each offer stays due for the next plain find.
+  const more = o.more === true;
   // Launch ready L5: the weekly target, the ship step's points line lead (ranks only, never another builder's name).
   const aim = ranked ? await targetIn(id, read.parts, now) : null;
   const target = aim ? weeklyTarget(aim) : null;
@@ -560,9 +574,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     : null;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
-  const connect = rankedFree && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
+  const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
   // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
-  const hot = rankedFree && project && handle && !held && !connect ? await eventPost(id, handle, now, { hot: true }) : null;
+  const hot = rankedFree && !more && project && handle && !held && !connect ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
   // v4.0 Task 8: this week's nudge (at most one), peeked here and claimed only when this reply shows it. It leads a
   // ranked reply only: never setup, the setup-done reply (returned above), a held question, connect, an event post or the Monday block (those lead, and the nudge waits unclaimed).
@@ -571,18 +585,18 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // Fix round 2: the closing nudge standing in for the submit question keeps that question's place (it held off connect,
   // backing, the coin's wallet and event posts above); it shows only in a ranked reply with setup step 3 not due and no
   // Monday block to show, once its week is claimed. Then the submit question goes; else it stays held.
-  const standIn = Boolean(o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
+  const standIn = Boolean(!more && o.nudge && held && state === 'ranked' && project && handle && !(await walletSetupDue(id, now))
     && !(await momentWouldShow(o.own, id, project.key, now)) && (await claimNudge(id, now, o.nudge.keep)));
   if (standIn) held = null;
-  const nudgeOk = standIn || Boolean(rankedFree && project && handle && !held && !connect && !hot);
+  const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
   const peek = !nudgeOk ? null : standIn ? o.nudge! : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
   const askMoment = !standIn && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
   const apply = !owns && !askMoment && !walletSetup && !connect && !hot && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
   // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && project && handle && !held && !connect && !hot && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
+  const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
-  const event = hot ?? (!owns && rankedFree && project && handle && !held && !connect && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
+  const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
   const quiet = !owns && rankedFree && project !== null && !held && !connect && !apply && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
@@ -592,16 +606,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
   // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
   const reach = o.reach ?? (await agentReach(o.own, id));
-  const checkin = quiet && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
-  const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && handle !== null ? await walletOfferDue(id, now) : null;
+  const checkin = quiet && !more && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
+  const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
   // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
   // v4.2 Task 6 (F11): the one-time token offer for an earlier builder, in a quiet reply (never beside another question,
   // never during setup: step 3 is not due); claimed below only once this reply carries it.
-  const tokenOffer = quiet && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
-  const newRepo = quiet && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  const tokenOffer = quiet && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
+  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
   const qualify = quiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known })
     : null;
@@ -1124,7 +1138,8 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     codesFetch: ctx.codesFetch, known, more: a.more,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
-  if (a.more && view.state === 'ranked' && !view.setupDone && !(view.nudgeOwns && view.nudge) && view.ask.kind !== 'wallet_setup')
+  // Final review F9: never between a post and its question (benchView opens no post on "show more"; belt and braces).
+  if (a.more && view.state === 'ranked' && !view.setupDone && !(view.nudgeOwns && view.nudge) && !['wallet_setup', 'post', 'share'].includes(view.ask.kind))
     view.fullTable = fullProgramTable(m, entered);
   const taken = view.variant === 'taken';
   const lead = Boolean((leadFit && !submit && !taken) || submit);
@@ -1466,11 +1481,20 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.3 (owner-approved): "Want me to add Builder Codes to EarnKit?": its yes is the doing, never another question.
       // Fix round 1 (R1): a hosted agent was asked for the steps (it can't add code), so its yes is the steps reply below.
       if (asked.qualify.first === 'codes' && asked.qualify.name && asked.qualify.hosted !== true)
-        return { show_to_builder: qualifyCodesYes(asked.qualify.name), agent_note: asked.qualify.codes_missing === false ? QUALIFY_CODES_CHECK_NOTE : QUALIFY_CODES_NOTE };
-      return {
-        show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]),
-        agent_note: (await agentReach(ctx.ownInstallationId ?? id, id)).hosted ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
-      };
+        return { show_to_builder: qualifyCodesYes(asked.qualify.name, asked.qualify.codes_missing !== false), agent_note: asked.qualify.codes_missing === false ? QUALIFY_CODES_CHECK_NOTE : QUALIFY_CODES_NOTE };
+      {
+        const hostedNow = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
+        // Final review F4: "Want help putting EarnKit on Base?" was already a yes to help: the steps, no second question.
+        if (asked.qualify.first === 'base' && asked.qualify.name)
+          return {
+            show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[], false),
+            agent_note: hostedNow ? QUALIFY_BASE_YES_NOTE_HOSTED : QUALIFY_BASE_YES_NOTE,
+          };
+        return {
+          show_to_builder: qualifySteps(asked.qualify.grant, asked.qualify.steps as QualifyStep[]),
+          agent_note: hostedNow ? QUALIFY_STEPS_NOTE_HOSTED : QUALIFY_STEPS_NOTE,
+        };
+      }
     case 'check_fits':
       // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit.
       return { show_to_builder: '', agent_note: CHECK_FITS_NOTE };

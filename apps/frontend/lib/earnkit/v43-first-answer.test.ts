@@ -9,10 +9,14 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields } from './bench-find';
+import { randomBytes } from 'node:crypto';
+import { tokenOfferDue } from './wallet-offer';
+import { isoWeekOf } from './weeks';
+import { FIND_DESCRIPTION_BENCH } from './mcp';
 import { ANSWER_FIRST_NOTE } from './stand-text';
 import {
-  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_SENTENCE, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
+  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, TOKEN_SENTENCE, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -249,7 +253,9 @@ test('fix round 1: Builder Codes unknown: the gap says "To qualify", the yes tel
   assert.match(s, /^Base Builder Grants: \$5,000, rolling\. To qualify, EarnKit needs to add Builder Codes, /, s);
   assert.ok(s.endsWith('\n\nWant me to add Builder Codes to EarnKit?'), s);
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), qualifyCodesYes('EarnKit'));
+  // Final review F2: the check is unknown, so "if they're not there yet".
+  assert.equal(show(yes), `Adding Builder Codes to EarnKit if they're not there yet. Base's guide: ${GUIDE}`);
+  assert.equal(show(yes), qualifyCodesYes('EarnKit', false));
   assert.equal(yes.reply?.agent_note, QUALIFY_CODES_CHECK_NOTE);
   assert.match(QUALIFY_CODES_CHECK_NOTE, /first check .*Only if it is not already there, add it/);
 });
@@ -516,4 +522,105 @@ test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no po
   assert.equal(reply.points_total, undefined);
   assert.equal(reply.rank_lines, undefined);
   assert.equal(reply.standing, undefined);
+});
+
+// ---- v4.3 final review fixes ----
+
+test('final review F1: find runs more only on an explicit full-list ask; "what can I earn" is a plain find', () => {
+  assert.ok(FIND_DESCRIPTION_BENCH.includes('more: true only on a full-list ask, not for what can I earn. '));
+  assert.doesNotMatch(FIND_DESCRIPTION_BENCH, /more: true for what can I earn/);
+  assert.ok(FIND_DESCRIPTION_BENCH.length < 800, String(FIND_DESCRIPTION_BENCH.length));
+});
+
+test('final review F2: the codes yes, known missing and unknown', () => {
+  assert.equal(qualifyCodesYes('EarnKit'), `Adding Builder Codes to EarnKit. Base's guide: ${GUIDE}`);
+  assert.equal(qualifyCodesYes('EarnKit', true), `Adding Builder Codes to EarnKit. Base's guide: ${GUIDE}`);
+  assert.equal(qualifyCodesYes('EarnKit', false), `Adding Builder Codes to EarnKit if they're not there yet. Base's guide: ${GUIDE}`);
+  assert.doesNotMatch(qualifyCodesYes('EarnKit', false), /\?|—/);
+});
+
+test('final review F2: through tell, Builder Codes known missing keeps "Adding Builder Codes to EarnKit."', db, async () => {
+  await start();
+  const { ctx, key } = await ownerBuilder('k2');
+  assert.equal(show(await mcpCall(ctx, 'find', {})), OWNER_COPY);
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.equal(show(yes), `Adding Builder Codes to EarnKit. Base's guide: ${GUIDE}`);
+  assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
+});
+
+test('final review F4: the steps with no question', () => {
+  const s = qualifySteps(BASE, ['base', 'codes'], false);
+  assert.equal(s, qualifySteps(BASE, ['base', 'codes']).split('\n').slice(0, -2).join('\n'));
+  assert.doesNotMatch(s, /\?/);
+  assert.match(QUALIFY_BASE_YES_NOTE, /help them with step 1 now/);
+});
+
+test('final review F4: the yes to "Want help putting EarnKit on Base?" is the steps, no second question, and a note to start step 1', db, async () => {
+  await start();
+  const { c, ctx, key } = await ownerBuilder('b4');
+  const asked = { kind: 'qualify', key, program_id: BASE_GRANTS_ID, qualify: { grant: BASE, steps: ['base', 'codes'], first: 'base', name: 'EarnKit', hosted: false, codes_missing: true } };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(asked as never)}::jsonb) WHERE builder_id = ${c.id}`;
+  const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  const s = show(yes);
+  assert.equal(s, qualifySteps(BASE, ['base', 'codes'], false));
+  assert.match(s, /^Your next 2 steps toward Base's \$5,000 grant:\n1\. Put your app on Base\.\n2\. Add Base's Builder Code/, s);
+  assert.doesNotMatch(s, /\?|Want help/, s);
+  assert.equal(yes.reply?.agent_note, QUALIFY_BASE_YES_NOTE);
+});
+
+test('final review F3: find {more: true} never shows or claims a due token offer; the next plain find shows it', db, async () => {
+  await start();
+  const { c, ctx } = await ownerBuilder('t3');
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  try {
+    await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c.id}, now())`;
+    assert.equal(await tokenOfferDue(c.id), true);
+    const r = await mcpCall(ctx, 'find', { more: true });
+    const s = show(r);
+    assert.ok(!s.includes(TOKEN_OFFER), s);
+    assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+    assert.ok(['qualify', 'apply', 'ship', undefined].includes((r.reply?.move_up as { kind?: string } | undefined)?.kind), JSON.stringify(r.reply?.move_up));
+    const [{ legacy }] = await sql()<{ legacy: string | null }[]>`SELECT standing_seen->>'token_offer_legacy' AS legacy FROM builder_profiles WHERE builder_id = ${c.id}`;
+    assert.equal(legacy, null, 'not claimed');
+    assert.equal(await tokenOfferDue(c.id), true);
+    const next = await mcpCall(ctx, 'find', {});
+    assert.ok(show(next).includes(TOKEN_OFFER), show(next));
+    assert.equal((next.reply?.move_up as { kind: string }).kind, 'token');
+  } finally {
+    delete process.env.EARNKIT_BUILDER_TOKENS;
+  }
+});
+
+test('final review F3 and F9: find {more: true} never drafts or shows a due event post; the next plain find shows it', db, async () => {
+  await start();
+  const key = `fp${RUN}/kit`;
+  const handle = `fp${RUN}`.slice(0, 15);
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'Kit', confirmed: true }] });
+  await sql()`UPDATE builder_projects SET commit_weeks = ${[1, 2, 3, 4, 5, 6, 7, 8].map((a) => isoWeekOf(new Date(Date.now() - a * 7 * DAY))).sort()}::text[] WHERE builder_id = ${id}`;
+  await sql()`INSERT INTO source_live (source_id, signals, ok, read_at) SELECT id, '{"private": false}'::jsonb, true, now() FROM builder_sources WHERE builder_id = ${id}
+    ON CONFLICT (source_id) DO UPDATE SET signals = EXCLUDED.signals`;
+  const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
+  const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });
+  const tr = { tx_count: 120, live_ok: true, commits_90d: 25 };
+  const product = { ...ps, traction: traction(tr), ...productOdds(ps, tr, ps.score) };
+  const facts = { name: 'kit', url: `https://github.com/${key}`, homepage: 'https://kit.app', created_at: '2025-01-01T00:00:00Z', chains, commits_in_window: {}, product, live_verified: true, tx_count: 120, commits_90d: 25 };
+  const fits: RepoFit[] = [{
+    repo: 'kit', repo_url: `https://github.com/${key}`, key, product, facts, live_verified: true,
+    verdicts: [{ program_id: BASE_GRANTS_ID, program: BASE_GRANTS_ID, status: 'likely', missing: [], effort: 'none', note: null }],
+  } as never];
+  const ctx = { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
+  // Live 3 days ago: the went-live post is due (ahead of the apply step for 48 hours).
+  await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
+    VALUES (${`fp${id}`}, 'kit', ${key}, ${id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
+  const drafts = async () => Number((await sql()<{ n: string }[]>`SELECT count(*) AS n FROM post_drafts WHERE builder_id = ${id}`)[0].n);
+  const r = await mcpCall(ctx, 'find', { more: true });
+  const s = show(r);
+  assert.doesNotMatch(s, /went live|Your post for X|Post it in one tap|Want a different version/, s);
+  assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+  const kind = (r.reply?.move_up as { kind?: string } | undefined)?.kind;
+  assert.ok(['qualify', 'apply', 'ship', undefined].includes(kind), String(kind));
+  assert.equal(await drafts(), 0, 'no post drafted');
+  const next = await mcpCall(ctx, 'find', {});
+  assert.equal((next.reply?.move_up as { kind: string }).kind, 'post', show(next));
+  assert.match(show(next), /^Kit went live this week\.\nYour post for X:/, show(next));
 });

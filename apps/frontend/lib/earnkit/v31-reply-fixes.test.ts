@@ -8,7 +8,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
 import {
   QUALIFY_CODES_NOTE, TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
@@ -45,14 +45,15 @@ type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-const rule = (s: string) => {
+const rule = (s: string, asks = 1) => {
   assert.ok(links(s).length <= 1, s);
-  assert.equal(questions(s), 1, s);
+  assert.equal(questions(s), asks, s);
   assert.doesNotMatch(s, /—|\p{Extended_Pictographic}/u, s);
   return s;
 };
 
 const BASE: OpenGrant = { org: 'Base', amount: '$5,000', chain: 'Base' };
+const HEAD = { title: 'Base', when: 'rolling' };
 const GUIDE = 'https://docs.base.org/base-chain/builder-codes/builder-codes';
 
 test('the hook names the grant from its program facts', () => {
@@ -77,26 +78,26 @@ test('the no-fit path: missing reasons from the matcher, steps only those not kn
   const deployed: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
 
   // Not on Base at all: no row; Base missing, use unknown; no Builder Codes.
-  const none = qualifyPlan(BASE, qualifyStatus(at(repo({})), false))!;
+  const none = qualifyPlan(BASE, qualifyStatus(at(repo({})), false), HEAD)!;
   assert.deepEqual([none.missing, none.steps], [['base', 'codes'], ['base', 'codes', 'use']]);
   // Deployed on Base, no live link or users: Base met.
-  const live = qualifyPlan(BASE, qualifyStatus(at(repo(deployed)), false))!;
+  const live = qualifyPlan(BASE, qualifyStatus(at(repo(deployed)), false), HEAD)!;
   assert.deepEqual([live.missing, live.steps], [['codes', 'use'], ['codes', 'use']]);
   // Testnet only: the matcher's mainnet_deploy reason.
-  const testnet = qualifyPlan(BASE, qualifyStatus(at(repo({ base: { mainnet: false, testnet: true, evidence: 'config', basis: 'config' } as never })), true))!;
+  const testnet = qualifyPlan(BASE, qualifyStatus(at(repo({ base: { mainnet: false, testnet: true, evidence: 'config', basis: 'config' } as never })), true), HEAD)!;
   assert.deepEqual(testnet.steps.includes('codes'), false, 'Builder Codes found: dropped');
   assert.ok(testnet.missing.includes('base'));
   // v3.1 GTM W3: contracts the builder or the agent reported on Base (or confirmed): never "Put your app on Base."
   assert.equal(qualifyStatus(null, null, true).base, 'met');
   assert.equal(qualifyStatus(at(repo({})), false, true).base, 'met');
-  assert.ok(!qualifyPlan(BASE, qualifyStatus(null, null, true))!.steps.includes('base'));
+  assert.ok(!qualifyPlan(BASE, qualifyStatus(null, null, true), HEAD)!.steps.includes('base'));
   // Never matched and the check never ran: every step, none named missing.
-  const unknown = qualifyPlan(BASE, qualifyStatus(null, null))!;
+  const unknown = qualifyPlan(BASE, qualifyStatus(null, null), HEAD)!;
   assert.deepEqual([unknown.missing, unknown.steps], [[], ['base', 'codes', 'use']]);
   // Every step known met: no offer (never a claim of eligibility).
   const users = repo(deployed, { homepage: 'https://kit.app', tx_count: 500, live_verified: true });
   assert.equal(qualifyStatus(at(users), true).use, 'met');
-  assert.equal(qualifyPlan(BASE, qualifyStatus(at(users), true)), null);
+  assert.equal(qualifyPlan(BASE, qualifyStatus(at(users), true), HEAD), null);
 });
 
 test('the no-fit copy, word for word', () => {
@@ -293,10 +294,11 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');
-  // v4.3: a yes with Base first keeps the steps reply (qualifySteps) and its note.
+  // v4.3 final review F4: the yes to "Want help putting Kit on Base?" is the steps with no second question, and a
+  // note to help with step 1 now.
   const yes2 = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(rule(show(yes2)), qualifySteps(BASE, ['base', 'codes', 'use']));
-  assert.equal(yes2.reply?.agent_note, QUALIFY_STEPS_NOTE);
+  assert.equal(rule(show(yes2), 0), qualifySteps(BASE, ['base', 'codes', 'use'], false));
+  assert.equal(yes2.reply?.agent_note, QUALIFY_BASE_YES_NOTE);
 });
 
 test('a private repo with a Best fit: the connect yes offers the draft, never the titles question', db, async () => {

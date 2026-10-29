@@ -126,7 +126,7 @@ export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit g
 export const FIND_DESCRIPTION_BENCH =
   'Where the builder stands, how to get funded. Pass identity.project (name, what (README), repo (git remote), live_url; never a list) and identity.github_login (not github_user or repos); never ask. ' +
   'Follow every agent_note. A yes or no to the question goes to tell move_up. program_id: one program\'s guide. ' +
-  'more: true for what can I earn, what fits me, show programs. ' +
+  'more: true only on a full-list ask, not for what can I earn. ' +
   SAFETY_TEXT;
 
 /** v2.13: find's identity field: the one project, never a list. */
@@ -336,7 +336,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         // v2.14 T5 (A6): the fallback sign-in link's paste-back code; find binds with it before anything else.
         sign_in_code: z.string().max(40).optional().describe('The code the builder pasted after signing in with X from your sign-in link'),
         // v2.10 item 2: "show more".
-        more: z.boolean().optional().describe('true for the full tables: when the builder asks what they can earn, what fits them, to see programs or more, or says yes to "Want the 3 easiest?" (never for a yes to the lead)'),
+        more: z.boolean().optional().describe('true for the full tables, only when the builder asks for the full list or everything open, or says yes to "Want the 3 easiest?". What can I earn is a plain find (never more, never for a yes to the lead)'),
         program_id: z.string().optional().describe("One program's details; for a curated program show_to_builder is its guide"),
         repo: z.string().optional().describe('With program_id: "owner/repo" or a github.com link to check against that program'),
       },

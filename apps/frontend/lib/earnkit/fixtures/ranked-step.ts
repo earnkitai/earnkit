@@ -7,7 +7,7 @@ export const RANKED_STEP = /^Ship code this week( to (hold|pass|move toward) #[\
  * 2026-10-22: with no fit and Base Builder Grants open, the ranked step is its question (bench-reply.ts qualifyAsk; v4.3:
  * by the first step left: Builder Codes, Base, else the next step toward the grant).
  */
-export const QUALIFY_ASK = /^(?:Want me to add Builder Codes to .+|Want help putting .+ on Base|Want the (?:\d+ steps to qualify for|\d+ steps toward|next step toward) Base's \$5,000 grant)\?$/;
+export const QUALIFY_ASK = /^(?:Want me to add Builder Codes to .+|Want the steps to add Builder Codes to .+|Want help putting .+ on Base|Want the (?:\d+ steps to qualify for|\d+ steps toward|next step toward) Base's \$5,000 grant)\?$/;
 /** v4.3 (owner-approved): the qualify reply's head paragraph, the grant and its amount first. */
 export const QUALIFY_HEAD = /^Base Builder Grants: \$5,000, rolling\. /;
 

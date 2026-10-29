@@ -122,8 +122,8 @@ test('copy: the jargon lines and the answer note', () => {
   assert.equal(AMOUNT_HEADER, 'Amount');
   assert.equal(upToCell('up to $5,000'), '$5,000');
   assert.equal(upToCell('500 USDC × 20 grants'), '500 USDC × 20 grants');
-  // find points "what can I earn" at more: true; every description stays under 800 characters.
-  assert.match(FIND_DESCRIPTION_BENCH, /more: true for what can I earn, what fits me, show programs\./);
+  // v4.3 final review F1: more only on an explicit full-list ask; "what can I earn" is a plain find. Under 800 characters.
+  assert.match(FIND_DESCRIPTION_BENCH, /more: true only on a full-list ask, not for what can I earn\./);
   for (const [k, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.ok((d as string).length < 800, `${k} ${(d as string).length}`);
   assert.match(ANSWER_FIRST_NOTE, /from show_to_builder and facts only; if that answer needs a link, use the one in facts/);
   // about: existing copy only; no deletion policy invented; v4.0 Task 11: no backers line (Backing is retired).

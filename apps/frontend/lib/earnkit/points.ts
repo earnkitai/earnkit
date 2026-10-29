@@ -34,8 +34,6 @@ export async function weekAwarded(builderId: number, week: string): Promise<bool
 
 /** The reply's points line. */
 export const POINTS_LINE = (total: number) => `Points: ${total.toLocaleString('en-US')}. They convert to $EARN at launch, in proportion to all points earned.`;
-/** The profile's small text under the points. */
-export const POINTS_PAGE_LINE = 'Points convert to $EARN when it launches, in proportion to all points earned. They are not a token and have no value until then.';
 
 /** One row per builder and week (created_at `now`): the points awarded now, or 0 when the week already had its row. */
 export async function awardWeekPoints(builderId: number, week: string, via: ApproveVia, now: Date): Promise<number> {

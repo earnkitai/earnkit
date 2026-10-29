@@ -351,8 +351,12 @@ export function qualifyAsk(g: OpenGrant, steps: QualifyStep[], name: string, hos
   const n = steps.length;
   return n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
 }
-/** v4.3 (owner-approved): the yes to "Want me to add Builder Codes to EarnKit?": a statement, never another question. Pure. */
-export const qualifyCodesYes = (name: string) => `Adding Builder Codes to ${name}. Base's guide: https://${BUILDER_CODES_GUIDE}`;
+/**
+ * v4.3 (owner-approved): the yes to "Want me to add Builder Codes to EarnKit?": a statement, never another question.
+ * Final review F2: when EarnKit's check is unknown (`missing` false), "if they're not there yet". Pure.
+ */
+export const qualifyCodesYes = (name: string, missing = true) =>
+  `Adding Builder Codes to ${name}${missing ? '' : " if they're not there yet"}. Base's guide: https://${BUILDER_CODES_GUIDE}`;
 /** v4.3: the agent's note on that yes (Builder Codes known missing): do it here, show the change, ask nothing more. */
 export const QUALIFY_CODES_NOTE =
   `The builder said yes to adding Builder Codes: add Base's Builder Code to the builder's app here, following Base's guide (https://${BUILDER_CODES_GUIDE}), then show them the change. ` +
@@ -371,11 +375,15 @@ const STEP_LINE: Record<QualifyStep, string> = {
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
 /** Cold read: one step left has no "step 1" to point at. */
 export const QUALIFY_HELP_ASK_ONE = 'Want help with it now?';
-/** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
-export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
+/**
+ * The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Final review F4:
+ * `ask` false (the builder already said yes to help, "Want help putting EarnKit on Base?"): the steps, no question. Pure.
+ */
+export function qualifySteps(g: OpenGrant, steps: QualifyStep[], ask = true): string {
   const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
   const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
-  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK].join('\n');
+  const lines = [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`)];
+  return (ask ? [...lines, '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK] : lines).join('\n');
 }
 /**
  * 2026-10-23 Base onboarding (owner-approved): a builder who said no to step 2 (no GitHub, or not connecting now) is
