@@ -52,7 +52,8 @@ test('(a) a ranked reply has no why sentence, no Originality and no points total
   await approveWeek(me.id, me.key, monday, new Date());
   const s = show(await mcpCall(ctxOf(me.id), 'find', {}));
   assert.match(s, /^App · 1 week in a row$/m, s);
-  assert.match(s, /\nShip code this week( to (hold|pass|move toward) #\d+)?\.\n[^\n]*\?$/, s);
+  // v4.3: with no fit, Base's grant reply (its money and gap, then its question); it carries no ship line.
+  assert.match(s, /\nBase Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want [^\n]*\?$/, s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, s);
   assert.doesNotMatch(s, /Originality/, s);
   assert.doesNotMatch(s, /Points:/, s);

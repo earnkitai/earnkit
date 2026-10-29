@@ -121,7 +121,9 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
   // 2026-10-22: a private repo with titles off: the titles question, once.
   assert.ok(text.endsWith('\nShow what you shipped (commit titles) on your page so grant teams see real progress? Your code stays private.'), text);
-  // L5: this week has code ("Done this week"): the plain points line.
+  // L5: this week has code ("Done this week"): the plain points line. v4.3: the qualify reply carries no ship line, so
+  // Base's grant steps are declined here and the ranked step is the ship step.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('declined', jsonb_build_object(${`qualify:${key}`}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${p.id}`;
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
   assert.ok(next.endsWith('\nShip code this week.') || /\nShip code this week\.\n[^\n]*\?$/.test(next), next);
   assert.doesNotMatch(next, /Your code stays private/);

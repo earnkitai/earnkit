@@ -399,7 +399,9 @@ test('programUpdates: sponsored ones counted, closing soon by name, nothing on a
     { ...tiny, closes_in_days: 1 },
     { ...sponsored, is_new: true },
   ];
-  assert.deepEqual(programUpdates(cards, false), ['1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  // v4.3 Task 2 fix round 1 (F6): each update carries the program it names.
+  assert.deepEqual(programUpdates(cards, false).map((u) => u.text), ['1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  assert.deepEqual(programUpdates(cards, false).map((u) => u.program_id), [null, tiny.id]);
   assert.deepEqual(programUpdates(cards, true), []);
 });
 
@@ -436,7 +438,8 @@ test('I3 offers: no repos known closes on the build offer; v3.1 cold read: repos
   const noFit = presentFirstMessage(msg({ cards: [base, arc, tiny], repos: repos(v('arc-microgrants', 'no', 'not on Arc')) }));
   // v3.1 cold read (owner-approved): never "build something new" (a huge pivot as a casual yes) and never "start on" a
   // program the repo was ruled out of: the first program's guide (the program list's order).
-  assert.match(noFit, /Your app doesn't fit an open program yet\./);
+  // v4.3 Task 2: the program table follows, so never "doesn't fit" above it.
+  assert.doesNotMatch(noFit, /doesn't fit/);
   assert.match(noFit, /\n\nWant the guide for Tiny Bounty\?$/);
   assert.doesNotMatch(noFit, /start on|build something new/);
   // Ruling 19: a repo error is the no-repo state, so even with no ideas it closes on the build offer.
@@ -459,13 +462,14 @@ test('Ruling 28, v3.1 cold read: repos known, nothing fits: "<Project> doesn\'t 
   const text = presentFirstMessage(msg({
     cards: [circle, base], repos: repos(v('base-builder-grants', 'no', 'not on Base')),
   }));
-  assert.match(text, /Your app doesn't fit an open program yet\./);
+  // v4.3 Task 2: the program table follows, so never "doesn't fit" above it.
+  assert.doesNotMatch(text, /doesn't fit/);
   assert.match(text, /\n\nWant the guide for Base Builder Grant Program\?$/);
   assert.doesNotMatch(text, /Pick one|build something new/);
   const named = presentFirstMessage(msg({
     cards: [{ ...arc, builder_fields: 3 }], repos: repos(v('arc-microgrants', 'no', 'not on Arc')), projectName: 'TipJar',
   }));
-  assert.match(named, /^TipJar doesn't fit an open program yet\./);
+  assert.doesNotMatch(named, /doesn't fit/);
   assert.match(named, /\n\nWant the guide for Arc Microgrants\?$/);
 });
 
@@ -478,7 +482,8 @@ test('I7: closing-soon and new non-campaign programs stay in the body; they neve
   // fix round 1: with no repo and no ideas on these cards, the offer is now "Pick one and I'll
   // start." (finding 1) rather than "Want me to check…"; this test only cares that Updates sits
   // above whatever the offer is.
-  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign; Tiny Bounty closes in 1 day\\.\\n\\nWant the guide for Tiny Bounty\\?$`));
+  // v4.3 Task 2: Tiny Bounty is in the table above, so its update is dropped; the sponsored count stays.
+  assert.match(quiet, new RegExp(`\\n\\nUpdates: 1 new sponsored campaign\\.\\n\\nWant the guide for Tiny Bounty\\?$`));
   // Real news (a win) still leads; the updates stay below.
   const news = presentFirstMessage(msg({ alerts: ['you won $100 in MINI with Tip Jar (basescan.org/tx/0x1)'], cards, updates }));
   assert.match(news, /^Since you last checked: you won \$100 in MINI with Tip Jar \(basescan\.org\/tx\/0x1\)\.\n\n/);

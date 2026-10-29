@@ -138,7 +138,7 @@ export type FirstMessage = {
    */
   alerts: string[];
   /** Program news (programUpdates: closing soon, new non-campaign programs): in the body, never an alert. */
-  updates?: string[];
+  updates?: (string | ProgramUpdate)[];
   campaigns: CampaignRow[];
   /** Open programs that aren't EarnKit campaigns (curated and sponsored). */
   cards: Card[];
@@ -285,19 +285,21 @@ export const youCould = (repos: YourRepos | null, githubGiven: boolean) => repos
  * finding 3: new curated programs are the alerts' news only (newProgramLines, Ruling 10: fit or
  * Easy, at most 3), so a program is never announced twice in one reply. Pure.
  */
-export function programUpdates(cards: Card[], firstCheck: boolean): string[] {
+export function programUpdates(cards: Card[], firstCheck: boolean): ProgramUpdate[] {
   if (firstCheck) return [];
   const named = cards.filter((c) => !c.sponsored);
   const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
   return [
     ...(sponsoredNew > 0
-      ? [`${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`]
+      ? [{ text: `${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`, program_id: null }]
       : []),
     ...named
       .filter((c) => c.closes_in_days != null)
-      .map((c) => `${c.title} ${soon(c.closes_in_days!)}`),
+      .map((c) => ({ text: `${c.title} ${soon(c.closes_in_days!)}`, program_id: c.id })),
   ];
 }
+/** v4.3 Task 2 fix round 1 (F6): one program update and the program it names (null: none, a sponsored count). */
+export type ProgramUpdate = { text: string; program_id: string | null };
 
 /** A markdown table; "|" is escaped and line breaks folded so a cell can't break it. Pure; exported for tests. */
 export function table(head: string[], rows: string[][]) {
@@ -636,7 +638,22 @@ export function layout(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, don
       enteredLast(a, b) || Number(Boolean(a.investment)) - Number(Boolean(b.investment))
       || levelRank(a.difficulty?.level ?? 'Medium') - levelRank(b.difficulty?.level ?? 'Medium') || byEaseThenPrize(a, b));
   const shown = rest.slice(0, MAX_OTHERS);
-  return { byId, rows, shown, more: rest.length - shown.length };
+  return { byId, rows, shown, rest, more: rest.length - shown.length };
+}
+
+/**
+ * v4.3 Task 2: the full program list a ranked builder's "show more" (find {more: true}) carries: every shown curated
+ * program (the matched rows, then the rest; investments included, sponsor campaigns never), with today's "more" table
+ * columns and cells (Program | Amount | Difficulty | Ends), never "N more open". Null with none. Pure.
+ */
+export function fullProgramTable(m: Pick<FirstMessage, 'cards' | 'repos' | 'entries'>, entered = enteredIds(m)): string | null {
+  const { rows, rest } = layout(m, entered);
+  const cards = [...rows.map((r) => r.card), ...rest];
+  if (cards.length === 0) return null;
+  return table(
+    ['Program', AMOUNT_HEADER, 'Difficulty', 'Ends'],
+    cards.map((c) => [programCell(c, entered, noMatch(m.repos)), upToCell(prizeOf(c)), difficultyCell(c), endsOf(c)]),
+  );
 }
 
 /**
@@ -853,7 +870,8 @@ export function presentFirstMessage(given: FirstMessage): string {
   const bestRow = rows.find(qualifies);
   const header = moneyHeader(openCount, bestRow ? bestRow.card : null);
   if (m.repos && 'error' in m.repos) sections.push(`Couldn't read your repos: ${m.repos.error}`);
-  else if (m.repos && !noRepo(m.repos) && rows.length === 0) sections.push(noFitLine(m.projectName));
+  // v4.3 Task 2: never "doesn't fit" above the program table in the same reply (the table answers it).
+  else if (m.repos && !noRepo(m.repos) && rows.length === 0 && shown.length === 0) sections.push(noFitLine(m.projectName));
   // v3.1 cold read round 2: when every matched row is a long shot, the open programs come first and the long shots after.
   const longOnly = rows.length > 0 && rows.every(longShot) && shown.length > 0 && !(m.repos && 'error' in m.repos);
   let matchedSection: string | null = null;
@@ -930,7 +948,14 @@ export function presentFirstMessage(given: FirstMessage): string {
     );
   if (m.sponsorEntries) sections.push(m.sponsorEntries);
   // After the tables, so the reply never starts with it: news, not an alert (I7).
-  if (m.updates?.length) sections.push(`Updates: ${m.updates.join('; ')}.`);
+  // v4.3 Task 2: an update naming a program already in a table above is dropped (the table shows its deadline);
+  // "Updates:" only while entries remain.
+  // Fix round 1 (F6): matched by the program's id, never by its words.
+  const tabled = new Set([...(m.repos && 'error' in m.repos ? [] : rows.map((r) => r.card.id)), ...shown.map((c) => c.id)]);
+  const updates = (m.updates ?? [])
+    .filter((u) => typeof u === 'string' || u.program_id === null || !tabled.has(u.program_id))
+    .map((u) => (typeof u === 'string' ? u : u.text));
+  if (updates.length) sections.push(`Updates: ${updates.join('; ')}.`);
 
   // The one closing offer.
   // v3.1 (spec 3.4): the ideas list is gone; the close a shown program with curated ideas earned stays the same.

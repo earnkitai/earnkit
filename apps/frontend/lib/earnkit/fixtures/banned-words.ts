@@ -62,6 +62,9 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   /\bAdd Base's Builder Code to your app, a one-line tag Base uses to see your traffic\b/g,
   /\bI can launch \$[A-Z0-9]+, a coin for .{1,80}? on Base\./g,
   /\bProve your Base wallet so your contracts show on your page\./g,
+  // v4.3 (owner-approved 2026-10-29): the qualify reply's Builder Codes tag and its Base step's question.
+  /\ba one-line tag that credits your app's Base transactions to you\b/g,
+  /\bWant help putting [^\n?]{1,60}? on Base\?/g,
 ];
 export const BENCH_ALLOWED: RegExp[] = [
   /(?<![\w#])(?:[Tt]op \d+(?:\.\d)?%|#\d+ of \d+(?: builders?)?) on (?:Base|Arc|Robinhood Chain)\b/g,

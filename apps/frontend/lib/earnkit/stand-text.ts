@@ -40,9 +40,11 @@ export function newsOpener(alerts: string[], news: string[]): string | null {
  * from show_to_builder and the reply's facts (reply-facts.ts) only, then shows show_to_builder exactly as written.
  */
 export const ANSWER_FIRST_NOTE =
-  "If the builder asked a question (their points, rank, page, wallet, token, backers, what they shipped, what they earned, " +
-  "their applications, what EarnKit is or gets paid, privacy, what the token earns or its chain, how ranking works, a Builder Code), first answer it in one short line from show_to_builder and facts only; " +
+  "If the builder asked a question (their page, wallet, token, backers, what they shipped, what they earned, " +
+  "their applications, what EarnKit is or gets paid, privacy, what the token earns or its chain, a Builder Code), first answer it in one short line from show_to_builder and facts only; " +
   "if that answer needs a link, use the one in facts. A fact that isn't there is unknown: say so, never invent amounts, dates or program facts. " +
+  "Where they stand is answered from standing and show_to_builder, never points; never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one. " +
+  "A question about points is answered exactly: EarnKit doesn't use points. It tracks the weeks you ship. " +
   "Then show show_to_builder to the builder exactly as written.";
 export const EARN_NOTE = 'If the builder picks a program, prepare it with lead.program_id (call prepare). Programs are named, not asked: the reply has one question, its next step.';
 /** The plain answer when a yes or no changes nothing (v2.12.1 make-countable.ts COUNT_LINES.noted). */

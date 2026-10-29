@@ -11,9 +11,11 @@ import { pointsTotal } from './points';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { connectAsk, CONNECT_RETRY, answerConnect, connectWeeks, connectDue, openConnect } from './connect-moment';
 
-/** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
-/** v3.1 cold read: Base's steps question (its count leaves out a step the project's facts show met). */
-const RANKED_END = /(?:^|\n)Ship code this week\.\nWant the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?$/;
+/**
+ * 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its question. v4.3 (owner-approved): the head
+ * (the grant's money and the gap), Also open, then the question by the first step; no ship line.
+ */
+const RANKED_END = /(?:^|\n)Base Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want (?:me to add Builder Codes to|help putting) [^\n?]+\?$/;
 import { EMAIL_NOTE, EMAIL_QUESTION } from './digest';
 
 /**

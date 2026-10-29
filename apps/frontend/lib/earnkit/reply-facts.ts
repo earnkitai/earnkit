@@ -4,20 +4,17 @@ import { BUILDER_CODES_GUIDE } from './bench-reply';
 import { BENCH_VERIFIED, HERO_TITLE, STEPS } from './site-copy';
 import { DOCS_SCORE } from './docs-copy';
 import { shortWallet, siteUrl } from './entry-text';
-import { POINTS_PAGE_LINE } from './points';
 import { pagePath } from './reserved-routes';
 import { provenWallet } from './wallet-proof';
-import { mondayOf } from './weeks';
 
 /**
  * v3.1 answerable replies (spec section 1): the facts find and score carry so the agent can answer the builder's own
- * question ("how many points do I have", "what's my wallet", "who backed me") in one short line. Only what is true and
+ * question ("what's my wallet", "who backed me") in one short line. Only what is true and
  * known; unknown keys are left out. Only the caller's own data: a shared client without a signed-in builder gets
  * `about` alone. The `about` lines are EarnKit's existing site and docs copy, never new claims.
  */
 export type ReplyFacts = {
   page?: { url: string; public: boolean };
-  points?: { total: number; this_week: number; what_for: string };
   rank?: { line: string; score?: number };
   streak?: number;
   shipped_last_week?: { week: string; summary?: string; note?: string; commits?: number };
@@ -50,7 +47,6 @@ export function aboutFacts(): Record<string, string> {
   return {
     earnkit: `${HERO_TITLE} ${STEPS[1].text} ${STEPS[2].text}`,
     ranking: `Builders are ranked by how often they ship. Shipping score: ${DOCS_SCORE.text} ${BENCH_VERIFIED}`,
-    points: POINTS_PAGE_LINE,
     builder_code: `A Builder Code is a one-line tag Base uses to see your traffic. Guide: https://${BUILDER_CODES_GUIDE}`,
     data: 'You can hide your page anytime (say hide my page).',
     ...askedFacts(),
@@ -65,7 +61,7 @@ async function personal(ctx: { installationId: number; ownInstallationId?: numbe
 }
 
 /**
- * The facts for this caller: `about` always; the builder's own page, points, rank, streak, last shipped week (as the page
+ * The facts for this caller: `about` always; the builder's own page, rank, streak, last shipped week (as the page
  * shows it: bench-data.ts profileData's visibility rules), proven reward wallet (short), Earned and applications
  * only for a signed-in builder with a page. Never throws: a failed read leaves its keys out (logged).
  */
@@ -77,9 +73,8 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     const d = await profileData(id, now);
     if (!d) return { about };
     const db = sql();
-    const [[prof], [week], wallet, statuses] = await Promise.all([
+    const [[prof], wallet, statuses] = await Promise.all([
       db<{ hidden: boolean; bound: boolean }[]>`SELECT hidden, x_user_id IS NOT NULL AS bound FROM builder_profiles WHERE builder_id = ${id}`,
-      db<{ n: string }[]>`SELECT COALESCE(sum(points), 0)::text AS n FROM builder_points WHERE builder_id = ${id} AND created_at >= ${`${mondayOf(now)}T00:00:00Z`}::timestamptz`,
       provenWallet(id),
       db<{ program: string; status: string }[]>`
         SELECT g.title AS program, s.status FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
@@ -87,7 +82,6 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     ]);
     const facts: ReplyFacts = {
       page: { url: `${siteUrl()}${pagePath(d.handle)}`, public: Boolean(prof && !prof.hidden && prof.bound) },
-      points: { total: d.points, this_week: Number(week?.n ?? 0), what_for: POINTS_PAGE_LINE },
       about,
     };
     if (d.bench) facts.rank = { line: d.bench, ...(d.score !== null && { score: d.score }) };

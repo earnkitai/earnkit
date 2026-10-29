@@ -300,26 +300,72 @@ export const QUALIFY_STEPS: readonly QualifyStep[] = ['base', 'codes', 'use'];
  * 2026-10-22: the no-fit reply's path to Base's grant: its hook (grantHook), the steps the matcher and the Builder
  * Codes check show missing (`missing`, named) and the steps to take (`steps`: missing or unknown, never one known met).
  */
-export type QualifyOffer = { program_id: string; grant: OpenGrant; missing: QualifyStep[]; steps: QualifyStep[] };
+export type QualifyOffer = {
+  program_id: string; grant: OpenGrant; missing: QualifyStep[]; steps: QualifyStep[];
+  /** v4.3: the program's title ("Base Builder Grant Program") and when ("rolling", "closes Nov 1"; stand-view.ts fundWhen), the reply's head. */
+  title: string; when: string;
+};
+/** v4.3: another open grant the qualify reply names ("Arc Microgrants", "500 USDC × 8 grants", "closes Nov 1" or "rolling"). */
+export type AlsoOpen = { title: string; amount: string; when: string };
 /** Builder Codes' guide (Base's docs), the one link of the steps reply. */
 export const BUILDER_CODES_GUIDE = 'docs.base.org/base-chain/builder-codes/builder-codes';
 const NEEDS: Record<QualifyStep, string> = { base: 'put the app on Base', codes: 'add Builder Codes', use: 'get people using it' };
 /** "a, b and c". Pure. */
 const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
-/**
- * "To qualify, Kit still needs to add Builder Codes and get people using it.": only when every remaining step is known
- * missing, so the line names exactly the steps the question counts; null otherwise (fix round 1: never one named thing
- * beside "the 3 steps"). Pure.
- */
-export const qualifyMissing = (name: string, q: Pick<QualifyOffer, 'missing' | 'steps'>) =>
-  q.steps.length > 0 && q.steps.every((s) => q.missing.includes(s))
-    ? `To qualify, ${name} still needs to ${andList(QUALIFY_STEPS.filter((s) => q.steps.includes(s)).map((s) => NEEDS[s]))}.`
-    : null;
 /** "Base's $5,000 grant". Pure. */
 const grantName = (g: OpenGrant) => `${g.org}'s ${g.amount} grant`;
-/** The no-fit reply's one question: all three steps "to qualify", fewer "toward" (never a claim the rest is met). Pure. */
-export const qualifyAsk = (g: OpenGrant, n: number) =>
-  n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
+/** v4.3 (owner-approved): what Builder Codes are, said once in the gap. */
+const CODES_TAG = "a one-line tag that credits your app's Base transactions to you";
+/** v4.3 (owner-approved): "Base Builder Grants: $5,000, rolling." Pure. */
+export const qualifyHead = (q: Pick<QualifyOffer, 'title' | 'grant' | 'when'>) => `${grantProgramName(q.title)}: ${q.grant.amount}, ${q.when}.`;
+/**
+ * v4.3 (owner-approved): the one gap in plain words. Every remaining step known missing: "EarnKit is one step away: add
+ * Builder Codes, a one-line tag ..."; otherwise "To qualify, EarnKit needs to ..." (never "one step away" on a guess).
+ * Builder Codes are explained right after their item when last, else in their own sentence after the gap. Pure.
+ */
+export function qualifyGap(name: string, q: Pick<QualifyOffer, 'missing' | 'steps'>): string {
+  const steps = QUALIFY_STEPS.filter((s) => q.steps.includes(s));
+  const known = steps.length > 0 && steps.every((s) => q.missing.includes(s));
+  const codesLast = steps.at(-1) === 'codes';
+  const needs = andList(steps.map((s) => (s === 'codes' && codesLast ? `${NEEDS.codes}, ${CODES_TAG}` : NEEDS[s])));
+  const n = steps.length;
+  const gap = known ? `${name} is ${n === 1 ? 'one step' : `${n} steps`} away: ${needs}.` : `To qualify, ${name} needs to ${needs}.`;
+  return steps.includes('codes') && !codesLast ? `${gap} Builder Codes are ${CODES_TAG}.` : gap;
+}
+/**
+ * v4.3 (owner-approved): "Also open: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Circle Developer Grants, ...":
+ * each title before its first ':', its amount cell and, unless rolling, when. Null with none. Pure.
+ */
+export const alsoLine = (a: AlsoOpen[]) =>
+  a.length === 0 ? null : `Also open: ${a.map((x) => `${x.title.split(':')[0].trim()}, ${x.amount}${x.when === 'rolling' ? '' : `, ${x.when}`}.`).join(' ')}`;
+/**
+ * The no-fit reply's one question, by the first step left (v4.3, owner-approved): Builder Codes, "Want me to add
+ * Builder Codes to EarnKit?" (fix round 1, ruling R1: an agent with no folder of the code (`hosted`) can't add it, so
+ * "Want the steps to add Builder Codes to EarnKit?", whose yes is qualifySteps); Base, "Want help putting EarnKit on
+ * Base?"; users only, the next step toward the grant. Pure.
+ */
+export function qualifyAsk(g: OpenGrant, steps: QualifyStep[], name: string, hosted = false): string {
+  const first = QUALIFY_STEPS.find((s) => steps.includes(s));
+  if (first === 'codes') return hosted ? `Want the steps to add Builder Codes to ${name}?` : `Want me to add Builder Codes to ${name}?`;
+  if (first === 'base') return `Want help putting ${name} on Base?`;
+  const n = steps.length;
+  return n >= QUALIFY_STEPS.length ? `Want the ${n} steps to qualify for ${grantName(g)}?` : `Want the ${n === 1 ? 'next step' : `${n} steps`} toward ${grantName(g)}?`;
+}
+/**
+ * v4.3 (owner-approved): the yes to "Want me to add Builder Codes to EarnKit?": a statement, never another question.
+ * Final review F2: when EarnKit's check is unknown (`missing` false), "if they're not there yet". Pure.
+ */
+export const qualifyCodesYes = (name: string, missing = true) =>
+  `Adding Builder Codes to ${name}${missing ? '' : " if they're not there yet"}. Base's guide: https://${BUILDER_CODES_GUIDE}`;
+/** v4.3: the agent's note on that yes (Builder Codes known missing): do it here, show the change, ask nothing more. */
+export const QUALIFY_CODES_NOTE =
+  `The builder said yes to adding Builder Codes: add Base's Builder Code to the builder's app here, following Base's guide (https://${BUILDER_CODES_GUIDE}), then show them the change. ` +
+  "Don't ask again whether to add it. Never tell them they qualify or that an application was sent. Don't show this note.";
+/** v4.3 fix round 1: the same yes when EarnKit's Builder Codes check is unknown: check the code first, add it only if missing. */
+export const QUALIFY_CODES_CHECK_NOTE =
+  `The builder said yes to adding Builder Codes. EarnKit hasn't confirmed whether the app already has one: first check the builder's code here for Base's Builder Code. ` +
+  `Only if it is not already there, add it following Base's guide (https://${BUILDER_CODES_GUIDE}) and show them the change; if it is there, tell them it's already in place. ` +
+  "Don't ask again whether to add it. Never tell them they qualify or that an application was sent. Don't show this note.";
 const STEP_LINE: Record<QualifyStep, string> = {
   base: 'Put your app on Base.',
   codes: `Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://${BUILDER_CODES_GUIDE}`,
@@ -329,11 +375,15 @@ const STEP_LINE: Record<QualifyStep, string> = {
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
 /** Cold read: one step left has no "step 1" to point at. */
 export const QUALIFY_HELP_ASK_ONE = 'Want help with it now?';
-/** The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Pure. */
-export function qualifySteps(g: OpenGrant, steps: QualifyStep[]): string {
+/**
+ * The yes to qualifyAsk: the remaining steps as plain lines, what EarnKit does next, one question. Final review F4:
+ * `ask` false (the builder already said yes to help, "Want help putting EarnKit on Base?"): the steps, no question. Pure.
+ */
+export function qualifySteps(g: OpenGrant, steps: QualifyStep[], ask = true): string {
   const todo = QUALIFY_STEPS.filter((s) => steps.includes(s));
   const head = todo.length >= QUALIFY_STEPS.length ? `${todo.length} steps to qualify for ${grantName(g)}:` : `${todo.length === 1 ? 'Your next step' : `Your next ${todo.length} steps`} toward ${grantName(g)}:`;
-  return [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`), '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK].join('\n');
+  const lines = [head, ...todo.map((s, i) => `${i + 1}. ${STEP_LINE[s]}`)];
+  return (ask ? [...lines, '', todo.length === 1 ? QUALIFY_HELP_ASK_ONE : QUALIFY_HELP_ASK] : lines).join('\n');
 }
 /**
  * 2026-10-23 Base onboarding (owner-approved): a builder who said no to step 2 (no GitHub, or not connecting now) is
@@ -525,6 +575,13 @@ export type BenchView = {
   moment?: MomentView | null;
   /** 2026-10-22: Base's grant steps (ask kind 'qualify'). */
   qualify?: QualifyOffer | null;
+  /** v4.3: up to two other open grants the qualify reply names ("Also open: ..."); absent or empty: no line. */
+  also?: AlsoOpen[];
+  /**
+   * v4.3 Task 2: the builder asked for the full list (find {more: true}): every shown program's table (present.ts
+   * fullProgramTable), in place of "Also open" in the qualify reply, else right before the question. Absent: none.
+   */
+  fullTable?: string | null;
   /** v3.1 one-tap posts: an event's drafted post (ask kind 'post'). */
   post?: EventPost | null;
   /** 2026-10-23: a one-line statement said once (TEMPLATE_NOTICE), under the account line, else above the reply. */
@@ -590,6 +647,8 @@ export function stateAsk(
     walletSetup?: { link: string; project: string | null; token: boolean } | null;
     /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
     tokenOffer?: boolean;
+    /** v4.3 fix round 1 (R1): the agent has no folder of the code (agentReach hosted): the qualify question asks for the steps. */
+    hosted?: boolean;
   },
 ): BenchAsk {
   const key = v.project?.key ?? null;
@@ -640,7 +699,7 @@ export function stateAsk(
   // 2026-10-22: a private repo's titles question (once), then Base's grant steps for a builder with no fit, else the ship step.
   if (v.state === 'ranked' && v.titles) return { kind: 'titles', project_key: key, line: TITLES_ASK };
   if (v.state === 'ranked' && v.qualify)
-    return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps.length) };
+    return { kind: 'qualify', project_key: key, program_id: v.qualify.program_id, line: qualifyAsk(v.qualify.grant, v.qualify.steps, name, v.hosted === true) };
   // GTM W2: the ship question at most once in SHIP_ASK_DAYS; between, the quiet reply asks nothing.
   if (v.state === 'ranked') return v.shipAsked ? { kind: 'none', project_key: key, line: '' } : { kind: 'ship', project_key: key, line: SHIP_ASK };
   if (v.variant === 'taken' || v.variant === 'copy') return { kind: 'other_project', project_key: key, line: VARIANT_COPY[v.variant].ask() };
@@ -704,6 +763,7 @@ export function benchReply(v: BenchView): string {
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
   // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
   if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
+    // v4.3 Task 2 fix round 1 (R3): the nudge's question leads, so no table (the question stays the one ask).
     return paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
@@ -725,8 +785,27 @@ export function upcomingShown(v: Pick<BenchView, 'held' | 'ask' | 'connect' | 'm
 /** v4.2: the ship step's plain line (no points): the weekly target ("Ship code this week to hold #1."), else "Ship code this week." Pure. */
 export const shipLine = (target: string | null) => (target?.startsWith('Ship code this week') ? target : 'Ship code this week.');
 
-/** The ranked state's reply (benchReply). Pure. */
+/**
+ * v4.3 Task 2: the full program table right before the reply's question (its last line, `ask`); with no question
+ * there, after everything else. Pure.
+ */
+function withTable(reply: string, table: string | null | undefined, ask: string): string {
+  if (!table) return reply;
+  if (ask && reply.endsWith(ask)) {
+    const head = reply.slice(0, reply.length - ask.length).replace(/\n+$/, '');
+    return head ? `${head}\n\n${table}\n\n${ask}` : `${table}\n\n${ask}`;
+  }
+  return reply ? `${reply}\n\n${table}` : table;
+}
+
+/** The ranked state's reply (benchReply); with the full list (fullTable), the table before the question. Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
+  // The qualify reply carries the table in place of "Also open" (rankedBody); fix round 1 (R3): step 3 stays word for word.
+  if (!v.held && ((v.ask.kind === 'qualify' && v.qualify) || v.ask.kind === 'wallet_setup')) return rankedBody(v, name, ask);
+  return withTable(rankedBody(v, name, ask), v.fullTable, ask);
+}
+
+function rankedBody(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
       [connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
@@ -749,13 +828,12 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
   if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'token' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));
-  // 2026-10-22: no fit, so Base's grant: its hook and what the matcher shows missing, above the one question (in place
-  // of the upcoming program's line, so the reply stays short).
-  // Owner test 2026-10-23: no grant hook above the question ("...pay up to $5,000..." then "...Base's $5,000 grant?"
-  // said the amount twice, every reply); the question names the grant and its amount.
-  const q = !v.held && v.ask.kind === 'qualify' && v.qualify ? [qualifyMissing(name, v.qualify)] : [];
-  const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'qualify' || v.ask.kind === 'none') ? ship : null;
-  return paras(orStanding([standing, ...v.due, moneyLine(v, { upcoming: q.length === 0 }), ...q, target, ask]));
+  // v4.3 (owner-approved): no fit, so Base's grant carries the money: the head (program, amount, when) and the one gap,
+  // up to two other open grants, then the one question. No ship line and no money line; the standing (once shown) above.
+  if (!v.held && v.ask.kind === 'qualify' && v.qualify)
+    return paras([standing, ...v.due], [`${qualifyHead(v.qualify)} ${qualifyGap(name, v.qualify)}`], [v.fullTable ?? alsoLine(v.also ?? [])], [ask]);
+  const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'none') ? ship : null;
+  return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

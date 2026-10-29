@@ -9,11 +9,16 @@ import { profileData } from './bench-data';
 import { readStats } from './stats';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 
-/** 2026-10-22: no fit and Base Builder Grants open, so the ranked step is its steps question. */
-/** v3.1 cold read: Base's steps question (its count leaves out a step the project's facts show met). */
-const RANKED_ASK_RE = /Want the (?:\d steps|next step) (?:to qualify for|toward) Base's \$5,000 grant\?/;
-/** v3.1 cold read: the standing line and the points line are said once (a week); forget them, so a reply says them again. */
-const unseen = (id: number) => sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) - 'nag_week' - 'status_seen' WHERE builder_id = ${id}`;
+/**
+ * v4.3: the qualify reply carries no ship line (owner-approved), so these builders said no to Base's grant steps
+ * (builder(): declined) and the ranked step is the ship step, which the weekly target leads.
+ */
+const RANKED_ASK_RE = /Want me to suggest one small thing to ship\?/;
+/**
+ * v3.1 cold read: the standing line and the points line are said once (a week); forget them, so a reply says them again.
+ * GTM W2: the ship question at most once in SHIP_ASK_DAYS; forget it too, so the reply asks it again.
+ */
+const unseen = (id: number) => sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) - 'nag_week' - 'status_seen' - 'ship_asked' WHERE builder_id = ${id}`;
 import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
 
@@ -52,7 +57,8 @@ async function builder(tag: string, name: string, ages: number[]) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
+  // v4.3: a no to Base's grant steps (within DECLINE_MS of every clock here), so the ranked step is the ship step.
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' } }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
   await setWeeks(id, ages);
   return { id, key, handle };
@@ -90,12 +96,12 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await pad('wtpa', 7);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  // 2026-10-22: no fit, so Base's grant steps are the question; the points line is still the weekly target.
+  // v4.3: Base's grant steps declined (builder()), so the ship step is the question, led by the weekly target.
   assert.match(s, new RegExp(`^App · #2 of 10 builders\nShip code this week to pass #1\\.\n${RANKED_ASK_RE.source}$`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
-  assert.equal((f.reply?.move_up as { kind: string }).kind, 'qualify');
+  assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
   assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);

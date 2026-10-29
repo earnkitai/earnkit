@@ -8377,3 +8377,92 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   (`get_program`, from the builder memory), as the lists do.
 - **Stats.** `tokens_declined` (declined builder tokens) and `coins_launched` (launched project tokens plus launched
   builder tokens), both without test installations (`testBuilderSql`, final review 6).
+
+## v4.3 Task 1: the qualify reply carries the money (2026-10-29)
+
+- **The copy (owner-approved, byte for byte).** For a ranked builder with no fit and Base Builder Grants offered
+  (`base-qualify.ts qualifyOffer`), `bench-reply.ts rankedReply`'s qualify branch is: the standing (once-shown rule) and
+  due lines as their own paragraph; then `qualifyHead` ("Base Builder Grants: $5,000, rolling.": `grantProgramName(title)`,
+  the grant's amount, `when` from `stand-view.ts fundWhen`) and `qualifyGap` on one line; then `alsoLine` ("Also open: ..."
+  for up to two other grants, absent with none); then the question. No ship line, no money line, and the week's ship line
+  is not marked shown (`nag_week`) by a qualify reply.
+- **The gap.** Every remaining step known missing: "<name> is one step away: ..." / "N steps away"; otherwise "To qualify,
+  <name> needs to ...". Builder Codes are explained once: after their item when last, else in their own sentence.
+  `qualifyMissing` is removed.
+- **Also open.** `bench-find.ts alsoOpen(cards, now, skip, not)`: `showable` (never sponsored, an EarnKit campaign, an
+  investment or hidden) minus the qualify program, `byRelevance`, two at most; title before ':', `upToCell(prizeOf)` and
+  `fundWhen`. Set on `BenchView.also` only when the ask is qualify.
+- **The question by the first step** (`qualifyAsk(g, steps, name, hosted = false)`): codes "Want me to add Builder Codes to <name>?";
+  base "Want help putting <name> on Base?"; use only, the old "Want the next step toward Base's $5,000 grant?".
+- **The yes.** The stored ask's `qualify` gains `first` and `name`; `benchMoveUp` kind qualify with `first === 'codes'`
+  answers `qualifyCodesYes(name)` ("Adding Builder Codes to <name>. Base's guide: https://...", no question) with
+  `QUALIFY_CODES_NOTE` (add it here, show the change, don't ask again). Other first steps (and older stored asks without
+  `first`) keep `qualifySteps`. The no is unchanged (`declined['qualify:<key>']`).
+- Tests: `v43-first-answer.test.ts` (pure copy, the owner's state through `mcpCall` byte for byte, the yes, the no).
+  `fixtures/ranked-step.ts endsOnRankedStep` accepts the qualify reply (head paragraph, question last);
+  `fixtures/banned-words.ts` allows the Builder Codes tag and the Base question. Tests about the weekly target decline
+  Base's grant steps first so the ship step shows.
+- **Fix round 1.** Hosted agents (`agentReach` hosted, passed as `stateAsk({ hosted })`) are asked "Want the steps to
+  add Builder Codes to <name>?" when codes is first; the stored `qualify.hosted` makes the yes `qualifySteps` with
+  `QUALIFY_STEPS_NOTE_HOSTED`. The stored `qualify.codes_missing` false (the Builder Codes check unknown) answers the codes
+  yes with `QUALIFY_CODES_CHECK_NOTE` (check the code first; add only if not there). `alsoOpen` lists grants only
+  (`site-copy.ts programKind(c).startsWith('grant')`: never an investment, a prize program or a hackathon); `alsoLine`
+  alone cuts the title at ':'.
+
+## v4.3 Task 2: the full list never contradicts itself (2026-10-29)
+
+- **Routing.** `tools.ts list_programs` sends a profiled, scoring (non-shared) builder to `benchFind` with `more` too
+  (`more: true`). `benchFind` answers null before benchView claims anything unless the state is ranked (signed in,
+  the one project counted); null falls through to today's `present.ts` path. Shared clients always keep that path
+  (hostedAnon still requires `!more`). With `more`, `signedOut` is read by `benchFind` itself (tools.ts never read it for
+  `more`), and the named-wallet change reply stays `!more`.
+- **The table.** `present.ts fullProgramTable(m, entered)`: every shown curated card (layout's matched rows, then the
+  whole `rest`, investments included, sponsored never; `layout` now also returns `rest`), today's `more` columns and
+  cells (Program | AMOUNT_HEADER | Difficulty | Ends: programCell, upToCell(prizeOf), difficultyCell, endsOf), never
+  "N more open". Set on `BenchView.fullTable` for a ranked `more` reply.
+- **Placement** (`bench-reply.ts`). The qualify reply renders `fullTable` in place of `alsoLine`. Every other ranked
+  reply goes through `withTable(reply, table, ask)`: the table right before the reply's question (its last line, split as
+  its own paragraph), else after everything (no question, or the owning nudge whose question leads).
+  The stored bench_ask and move_up are written as for `find {}`, so a yes to the question works.
+- **The old path** (`presentFirstMessage` with `more`): `noFitLine` only when no program table (`shown`) follows;
+  `programUpdates` entries for a program in a table above (matched rows or `shown`, matched by program id) are
+  dropped; "Updates:" only while entries remain.
+- Tests: `v43-first-answer.test.ts` (owner `find {more: true}` byte for byte, the stored ask and its yes, eight days on
+  no "Updates:"; table before the question in a ship reply; a shared client's `more` has no "doesn't fit"; the old path's
+  update filter). Updated pins: `present.test.ts` (I3 noFit, Ruling 28 x2, I7 updates) and `match-projects.test.ts` 2.9.
+
+## v4.3 final review fixes (2026-10-29)
+
+- **more only on request.** `mcp.ts FIND_DESCRIPTION_BENCH` and the `more` field: `more: true` only when the builder
+  asks for the full list or everything open (or yes to "Want the 3 easiest?"); "what can I earn" is a plain find.
+- **No one-time offers on more.** `benchView` with `o.more` never claims or opens connect, an event post, a nudge
+  (stand-in included), the weekly moment, the check-in, the wallet step, the token offer, the new-repo nudge or titles
+  (setup-done was already held). They stay due for the next plain find. The question is qualify, apply or ship (or
+  none; a held question and setup step 3 keep their place). `benchFind` never sets `fullTable` on a post or share ask.
+- **Yes copy.** The codes yes with the check unknown (`codes_missing` false) is `qualifyCodesYes(name, false)`:
+  "Adding Builder Codes to <name> if they're not there yet. Base's guide: ...". The yes to "Want help putting <name>
+  on Base?" (`first === 'base'`) is `qualifySteps(g, steps, false)` (the steps, no question) with
+  `QUALIFY_BASE_YES_NOTE` (`_HOSTED`): help with step 1 now.
+- `fixtures/ranked-step.ts QUALIFY_ASK` accepts the hosted "Want the steps to add Builder Codes to <name>?".
+  `points.ts POINTS_PAGE_LINE` is removed; `base-qualify.ts qualifyPlan`'s `head` is required.
+- **Fix round 1.** With `more`: no table on a nudge-owned reply or on the wallet_setup step 3 reply (bench-find leaves
+  `fullTable` unset; rankedReply also skips it for wallet_setup), so the question stays last and step 3 word for word.
+  benchView takes `more` and skips the setup-done branch, so `setup_done` stays unclaimed for the next plain find.
+  `benchFind` reads `signedOut` once, at the top, and a signed-out `more` returns null before `coveredRead`.
+  `programUpdates` returns `ProgramUpdate { text, program_id }` (FirstMessage.updates accepts strings too); the
+  tabled-program filter matches by id.
+
+## v4.3 Task 3: no points, no empty rank, a standing fact (2026-10-29)
+
+v4.3 in one paragraph. The ranked qualify reply is head (program, amount, rolling or closes), gap (steps known missing,
+"To qualify" when partly unknown), "Also open" (two other open grants) and one question; a hosted agent is asked for the
+steps and the codes yes adds Builder Codes with no question. `find {more: true}` for a ranked builder goes through the
+same Bench reply with the full program table in place of "Also open" (same stored ask and move_up, never "doesn't fit",
+never the setup-done reply, no table on a nudge or step 3); the present.ts path drops "doesn't fit" above a table and
+updates for shown programs. Task 3: find and score replies carry no `points_total` and no points fact in `facts`
+(`reply-facts.ts` drops `points` and `about.points`); `rank_lines` is sent only when non-empty; `standing`
+(`bench-find.ts standingFields`: absent for 0 weeks, `1 week shipping`, `n weeks shipping in a row`) is the fact the agent
+answers "where do I stand" from. `ANSWER_FIRST_NOTE` no longer lists points, rank or how ranking works, and answers a
+points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` and the
+internal ledger stay (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
+R10 (absent, not `[]`) and `v31-answerable.test.ts` (no points in facts or about).

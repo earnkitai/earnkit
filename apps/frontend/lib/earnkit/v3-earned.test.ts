@@ -174,7 +174,8 @@ async function builder(tag: string): Promise<B> {
 const find = (b: B) => mcpCall(b.ctx, 'find', {});
 /** The line under "Where you stand". */
 /** Task 16: the ranked reply's standing line (its last paragraph's first line, after any news). */
-const standLine = (s: string) => s.split('\n\n').at(-1)?.split('\n')[0] ?? '';
+// v4.3: the qualify reply puts the standing in its own paragraph above the head, so the stand line is found by its shape.
+const standLine = (s: string) => s.split('\n').find((l) => /^\S.* · /.test(l)) ?? '';
 /** An announced prize (or another outcome) for an entry of `installation`. */
 async function outcome(installation: number, result: string, basis: string, prize: number | null) {
   const tag = `v3e-prog-${RUN}`;

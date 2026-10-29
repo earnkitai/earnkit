@@ -241,6 +241,6 @@ test('GTM W3 the upcoming line is claimed only where the reply says it', () => {
   assert.match(benchReply(v), /Base Batches 005: up to \$100K investment, not open yet\./);
   assert.equal(upcomingShown({ ...v, ask: { kind: 'apply', project_key: RECIPE.key, line: 'x?' } }), false);
   assert.equal(upcomingShown({ ...v, ask: { kind: 'wallet', project_key: RECIPE.key, line: 'x?' } }), false);
-  assert.equal(upcomingShown({ ...v, ask: { kind: 'qualify', project_key: RECIPE.key, line: 'x?' }, qualify: { program_id: 'b', grant: { org: 'Base', amount: '$5,000', chain: 'Base' }, missing: [], steps: ['codes'] } }), false);
+  assert.equal(upcomingShown({ ...v, ask: { kind: 'qualify', project_key: RECIPE.key, line: 'x?' }, qualify: { program_id: 'b', grant: { org: 'Base', amount: '$5,000', chain: 'Base' }, missing: [], steps: ['codes'], title: 'Base Builder Grant Program', when: 'rolling' } }), false);
   assert.equal(upcomingShown({ ...v, held: 'Did you hear back?' }), true);
 });

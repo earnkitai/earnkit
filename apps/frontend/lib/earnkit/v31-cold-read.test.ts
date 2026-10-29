@@ -239,7 +239,8 @@ test('the status line only when it changed, the points line once a week; score a
   const one = show(await find(b));
   clean(one);
   assert.match(one, /^Kit is on EarnKit\./, one);
-  assert.match(one, /Ship code this week( to (hold|pass|move toward) #\d+)?\.\n[^\n]*\?$/, one);
+  // v4.3: with no fit, Base's grant reply (its money and gap, then its question); it carries no ship line.
+  assert.match(one, /\nBase Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want [^\n]*\?$/, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
   // (no points line again this week).
   let r2 = await find(b);

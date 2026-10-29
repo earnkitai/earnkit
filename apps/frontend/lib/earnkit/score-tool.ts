@@ -18,6 +18,8 @@ export type StandScoreReply = {
   /** v2.13 T8: the person's rank lines (the Bench, then each chain) and the one project's streak. */
   rank_lines?: string[];
   streak?: number;
+  /** v4.3: `1 week shipping` / `n weeks shipping in a row`; absent at 0. */
+  standing?: string;
 };
 
 /**

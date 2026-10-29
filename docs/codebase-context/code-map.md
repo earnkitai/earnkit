@@ -682,7 +682,10 @@ apps/frontend/
                                World's Fair file (a starter missing new work is low); journey 11.6. Fix round 1: C1 (Arc
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
-    present.ts(+test)          scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
+    present.ts(+test)          v4.3 Task 2: fullProgramTable (every shown card, ranked find {more: true}); layout returns rest;
+                               the more path drops noFitLine above the shown table and updates naming a tabled program (by id: programUpdates
+                               returns ProgramUpdate { text, program_id }, fix round 1).
+                               scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
                                ends_at, rolling last, then award, then id). v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
                                nothing else leads; context line + fresh lead), Card.winners_per_round.
                                v2.10.2 fix round 2: starterRepo/STARTER_DAYS (under 30 days old, or a template or EarnKit
@@ -1677,8 +1680,9 @@ apps/frontend/
                                benchReply per step: signed out (INTRO_LINE, introWhat(OpenGrant), grantHook; no points line,
                                2026-10-22), step 2 (youreIn, pickRepoAsk with NO_GITHUB_HINT; namesAccount), connect (connectStanding, qualifyLine,
                                connectAsk, "+P points"), ranked (standingLine, applyAsk / moneyLine, TITLES_ASK, the no-fit
-                               path: grantHook, qualifyMissing, qualifyAsk, else SHIP_ASK; shipPointsLine), qualifySteps
-                               (the qualify yes; QUALIFY_STEPS, BUILDER_CODES_GUIDE), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
+                               path: v4.3 qualifyHead + qualifyGap + alsoLine(AlsoOpen[]) (or BenchView.fullTable, Task 2) + qualifyAsk(g, steps, name, hosted = false), no ship
+                               or money line; else SHIP_ASK; shipLine), qualifySteps(g, steps, ask = true) (the qualify yes for use first; base first: ask false, QUALIFY_BASE_YES_NOTE;
+                               QUALIFY_STEPS, BUILDER_CODES_GUIDE), qualifyCodesYes(name, missing = true) + QUALIFY_CODES_NOTE (v4.3: the codes-first yes), the moment (momentHead with no points, postLines or pageLine, MOMENT_ASK); v3.1 one-tap posts: POST_HEAD, POST_ASK,
                                PROOF_ASK, postReply, eventHead, redraftLine, PostOffer/EventPost, ask kind 'post' (after connect). awardAmount, BestFit,
                                ConnectOffer, MomentView, STATE_COPY, VARIANT_COPY, upcomingLine, backingLine,
                                displayName. 2026-10-23 Base onboarding: kinds base_start, next_step, new_repo;
@@ -1703,6 +1707,7 @@ apps/frontend/
                                Codes answer), qualifyPlan (null when all met), qualifyOffer (open and shown, not declined
                                or told, not answered within DECLINE_MS; starts the Builder Codes check; never throws). tests v31-reply-fixes.test.ts
                                GTM W3: onBaseKnown + qualifyStatus(onBaseSaid): never "Put your app on Base" to a project on Base
+                               v4.3: QualifyOffer carries title + when (fundWhen) for the reply's head (qualifyPlan's `head`)
     reply-format.ts            v3.1 (2026-10-23): formatReply (a blank line between lines, list items and table rows together, no
                                emphasis) and withFormattedReply; mcp.ts run applies it to every show_to_builder.
                                v4.0 Task 6: Surface 'rich' | 'plain', surfaceOf(client_name) (the caller's installation client; Grok Bot
@@ -1761,7 +1766,11 @@ apps/frontend/
                                tests v214-replies.test.ts (through mcpCall), v2131-o5.test.ts, v2133-owner-test.test.ts,
                                repo-picker.test.ts, weekly-moment.test.ts. 2026-10-22: benchView asks titles (updates.ts
                                titlesAskDue/takeTitlesAsk) then qualify (base-qualify.ts qualifyOffer, no fit only);
-                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE);
+                               benchMoveUp kinds titles (setShipTitles on) and qualify (qualifySteps, QUALIFY_STEPS_NOTE;
+                               v4.3: stored qualify.first 'codes' answers qualifyCodesYes(name) + QUALIFY_CODES_NOTE);
+                               v4.3 alsoOpen (the qualify reply's Also open: two showable grants by byRelevance);
+                               v4.3 Task 2: BenchFindArgs.more (find {more: true}): ranked only (else null, tools.ts keeps present.ts),
+                               view.fullTable = present.ts fullProgramTable;
                                connectTitles in the connect yes; TITLES_NOTE, QUALIFY_NOTE
     raising.ts                 DELETED in v4.0 Task 11 (Backing retired; EARNKIT_RAISING is read nowhere).
     bench-data.ts(+test)       v2.13 T10/T11: parseBenchFilter, benchRows (safe names, pill in the same read),
@@ -2274,7 +2283,7 @@ v2.14 T10: `app/layout.tsx` loads Funnel Display and Funnel Sans through `next/f
 build. `fonts` is in `reserved-routes.ts` (the folder has no page).
 
 v3 Stage 1 (the founder's loop; see the architecture guide's "v3 Stage 1" section): `points.ts` (the `builder_points`
-ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`, `POINTS_PAGE_LINE`),
+ledger: `awardWeekPoints`, `pointsForRank`, `CONNECT_POINTS`, `pointsTotal`, `POINTS_LINE`; `POINTS_PAGE_LINE` removed v4.3),
 `connect-moment.ts` (every unconfirmed week with facts, at most 12, in the first ranked reply and the one yes; `backfillComplete`), `week-links.ts` (signed
 "Looks right" and "Hide this week" links), `app/api/week/route.ts` (GET shows the button, POST acts). Changed:
 `week-facts.ts` (`pointsOf`, `UNCONFIRMED_LABEL`; `upsertWeekFacts` awards an approved week's points when its facts arrive late), `weekly-moment.ts` (`approveWeek` via), `digest.ts` (Monday email, `EMAIL_QUESTION`),
@@ -2553,3 +2562,10 @@ sender: archive `eth_getCode` binary search, the block's receipts, else `trace_b
 `source-readers.ts` `contractOrigin` and `ownership.ts` `alchemyDeployer`; `alchemyTxCount` (capped at `verify.ts`
 `TX_COUNT_CAP` = 100, seam `CheckDeps.txCounter`) replaces the Blockscout counters; wallet reads and people signals are
 Alchemy only. Still on Blockscout, dormant: `campaigns.ts` sponsor scoring and `traction.ts` coin holders.
+
+v4.3 (first answer): `bench-reply.ts` qualifyHead/qualifyGap/alsoLine/qualifyAsk/qualifyCodesYes (qualify reply = head, gap, Also open,
+one question; hosted asks for steps); `BenchView.fullTable` + `present.ts fullProgramTable` (ranked `find {more: true}` through the
+Bench reply, no table on nudge or step 3, never setup-done; the old present.ts path drops "doesn't fit" above a table and updates for
+shown programs); `bench-find.ts` `alsoOpen`, `standingFields` (find fields: `streak`, `standing`, `rank_lines` only when non-empty, no
+`points_total`); `reply-facts.ts` no points facts; `stand-text.ts` `ANSWER_FIRST_NOTE` (no points or rank list, points answer).
+Tests: `v43-first-answer.test.ts`.
