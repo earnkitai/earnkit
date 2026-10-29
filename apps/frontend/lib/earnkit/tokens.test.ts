@@ -452,7 +452,7 @@ test('6.4 deployToken: no upload and no logo sends the generated mark, never the
  * v2.13 T9: one launch through deployToken against a fake tokens.fun whose deploy answer carries
  * `txHash` (and `chainId` when given), on a project of its own. `done` removes every row it made.
  */
-async function launchedThroughFake(o: { chain: 'base' | 'robinhood' | 'arbitrum'; txHash: string; chainId?: number }): Promise<{ projectId: number; done: () => Promise<void> }> {
+async function launchedThroughFake(o: { chain: 'base'; txHash: string; chainId?: number }): Promise<{ projectId: number; done: () => Promise<void> }> {
   const { sql } = await import('./db');
   const { deployToken } = await import('./tokens');
   const key = process.env.TOKENSFUN_DEPLOY_API_KEY;
@@ -490,24 +490,20 @@ async function launchedThroughFake(o: { chain: 'base' | 'robinhood' | 'arbitrum'
   return { projectId: p.id, done };
 }
 
-test('9.8 a launch stores tokens.fun\'s txHash and the chainId it answered, else the chain asked for (F8)', dbTest, async () => {
+test('9.8 a launch stores tokens.fun\'s txHash and the chainId it answered, else Base (F8; v4: Base only)', dbTest, async () => {
   const { sql } = await import('./db');
   const tx = `0x${'c'.repeat(64)}`;
-  // tokens.fun answers chainId 4663 (Robinhood Chain) for a Robinhood launch: 4663 is stored.
-  const answered = await launchedThroughFake({ chain: 'robinhood', txHash: tx, chainId: 4663 });
   // Its answer wins over the chain asked for.
-  const differs = await launchedThroughFake({ chain: 'base', txHash: tx, chainId: 4663 });
-  // No chainId in the answer: the chain the launch asked for (CHAIN_IDS.arbitrum).
-  const asked = await launchedThroughFake({ chain: 'arbitrum', txHash: tx });
+  const answered = await launchedThroughFake({ chain: 'base', txHash: tx, chainId: 8453 });
+  // No chainId in the answer: Base, the chain asked for.
+  const asked = await launchedThroughFake({ chain: 'base', txHash: tx });
   try {
     const read = async (id: number) =>
       (await sql()<{ coin_tx: string | null; coin_chain_id: number | null }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${id}`)[0];
-    assert.deepEqual(await read(answered.projectId), { coin_tx: tx, coin_chain_id: 4663 });
-    assert.deepEqual(await read(differs.projectId), { coin_tx: tx, coin_chain_id: 4663 });
-    assert.deepEqual(await read(asked.projectId), { coin_tx: tx, coin_chain_id: 42161 });
+    assert.deepEqual(await read(answered.projectId), { coin_tx: tx, coin_chain_id: 8453 });
+    assert.deepEqual(await read(asked.projectId), { coin_tx: tx, coin_chain_id: 8453 });
   } finally {
     await answered.done();
-    await differs.done();
     await asked.done();
   }
 });

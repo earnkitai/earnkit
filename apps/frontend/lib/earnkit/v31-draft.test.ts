@@ -1,6 +1,7 @@
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -49,6 +50,8 @@ async function builder(tag: string, programs: string[] = []) {
   const handle = `vd${tag}${RUN}`.slice(0, 15);
   assert.ok((await attachToX(own, { id: `96${RUN}${n}${tag.length}`, username: handle, name: 'vd', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(c.id);
   const key = `vd${tag}${RUN}/kit`;
   const chains: Detection = { base: { mainnet: true, testnet: false, evidence: 'deployed contract', basis: 'deployed' } };
   const ps = productScore({ active: true, young: true, original: true, readme: true, deployed: true, owned: true });

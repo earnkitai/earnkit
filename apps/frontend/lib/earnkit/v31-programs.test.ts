@@ -106,8 +106,8 @@ test('(d) pnpm programs:check passes (spawn) and the two files are unlisted', ()
   assert.equal(committedProgram(AVA).status, 'unlisted');
   assert.equal(committedProgram(MUMBAI).status, 'unlisted');
   const base = committedProgram('base-builder-grants');
-  assert.equal(base.verified_at, '2026-10-21');
-  assert.equal(base.form.read_at, '2026-10-21');
+  assert.equal(base.verified_at, '2026-10-28');
+  assert.equal(base.form.read_at, '2026-10-28');
   // The schema: unlisted follows the active rules (requirements needed, no opens_note).
   assert.equal(ProgramFile.safeParse({ ...committedProgram(AVA), submission_requirements: [] }).success, false);
   assert.equal(ProgramFile.safeParse({ ...committedProgram(AVA), opens_note: 'Opens in November.' }).success, false);

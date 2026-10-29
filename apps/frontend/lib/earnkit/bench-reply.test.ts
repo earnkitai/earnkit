@@ -30,16 +30,22 @@ test('Task 16 step 1: signed out, the first reply after install', () => {
     ask: stateAsk({ state: 'signed_out', variant: null, project: null, link }), open: { org: 'Base', amount: '$5,000', chain: 'Base' },
   };
   const out = benchReply(v);
+  // v4.0 approved copy 1.
   assert.equal(out, [
-    'EarnKit gets you paid for building.',
-    'I read your commits every week, rank you against other builders, and find grants you qualify for. Base pays up to $5,000 for apps on Base.',
+    '**EarnKit gets you paid for building.**',
     '',
-    `Step 1 of 2: sign in with X (one click): ${link}`,
-    'Done?',
+    'Every week I read what you ship, rank you against other builders, and find grants and programs you qualify for. Up to $5,000 is open from Base right now.',
+    '',
+    'Setup takes about a minute:',
+    `1. Sign in with X: ${link}`,
+    '2. Connect your code',
+    '3. Add your wallet',
+    '',
+    'Done with step 1?',
   ].join('\n'));
   oneAsk(out);
   // With no open grant to name, the sentence is dropped.
-  assert.match(benchReply({ ...v, open: null }), /grants you qualify for\.\n\n/);
+  assert.match(benchReply({ ...v, open: null }), /programs you qualify for\.\n\n/);
   // The link couldn't be made: the retry question, no points line.
   const retry = benchReply({ ...v, link: null, ask: stateAsk({ state: 'signed_out', variant: null, project: null, link: null }) });
   assert.ok(retry.endsWith("I couldn't make your sign-in link just now. Want me to try again?"), retry);
@@ -52,10 +58,12 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
     state: 'no_project', variant: null, project: null, rank: null, streak: 0, target: null, handle: 'maya', link, fund: [], due: [], held: null,
     ask: stateAsk({ state: 'no_project', variant: null, project: null, link }), welcome: true,
   };
+  // v4.0 approved copy 2 (GitHub unknown: no Lovable or Bolt hint).
   const want = [
-    "You're in, @maya. I find grants your app qualifies for and write the applications.",
-    `Connect your app's code on GitHub so I can match it (read-only, one click): ${link}`,
-    'Built it in Lovable or Bolt: connect GitHub there first (Lovable: Project settings, Git. Bolt: GitHub icon, top right).',
+    "You're in, @maya. Really glad you're here.",
+    '',
+    `**Step 2 of 3:** connect your app's code on GitHub so I can match you to the right programs. Read-only, one click: ${link}`,
+    '',
     'Done?',
   ].join('\n');
   assert.doesNotMatch(want, /points/, '2026-10-22: no points in the first two replies');
@@ -71,7 +79,7 @@ test('Task 16 step 2: signed in with no repo (the picker), and a named repo not 
   assert.ok(!namesAccount({ ...named, held: 'Did it win?' }));
   // v3.1 cold read: "You're in" only on the first reply after sign-in; later the same step without it.
   const later = { ...pick, welcome: false };
-  assert.equal(benchReply(later), want.split('\n').slice(1).join('\n'));
+  assert.equal(benchReply(later), want.split('\n').slice(2).join('\n'));
   assert.ok(!namesAccount(later));
 });
 
@@ -126,11 +134,6 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
-  // Backing: the offer is the question, no points line.
-  const offer = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
-  const backing = benchReply(ranked({ ask: { kind: 'backing', project_key: RECIPE.key, line: offer } }));
-  assert.equal(backing, `Recipe planner · #3 of 40 builders · 4 weeks in a row\n${offer}`);
-  oneAsk(backing);
   // A held question takes the step's place; no points line.
   const held = benchReply(ranked({ held: 'Did Apply X come back on Recipe planner? applied / accepted / funded / rejected.' }));
   assert.ok(held.endsWith('applied / accepted / funded / rejected.'), held);
@@ -139,26 +142,32 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(standingLine('Kit', null, 0), 'Kit is on EarnKit.');
 });
 
-test('Task 16 step 7, v3.1 one-tap posts: the weekly moment with last week\'s post and its one-tap link; with none, the page; no points', () => {
+test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with last week\'s post link; with none, the page; no points', () => {
   const link = 'https://earnkit.com/maya/post/abcdefghij';
-  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link } } });
+  const facts = { first: 'Maya', score: 82, change: 4, community: { usd: 0, lastWeekUsd: 0 } };
+  const v = ranked({ moment: { week: 6, place: 'now', rank: 3, post: { text: 'Recipe planner, week 6: added offline mode and fixed several sync bugs.', link }, ...facts } });
   v.ask = stateAsk({ ...v, share: true });
   assert.deepEqual(v.ask, { kind: 'share', project_key: RECIPE.key, line: MOMENT_ASK });
   const out = benchReply(v);
   assert.equal(out, [
-    "Week 6 done:",
-    'Your post for X:',
-    '"Recipe planner, week 6: added offline mode and fixed several sync bugs."',
-    `Post it in one tap: ${link}`,
-    'Look right?',
+    'Your week is ready, Maya. You shipped this week. Nice work.',
+    '',
+    '| | This week |',
+    '|---|---|',
+    '| Shipping score | 82, up 4 |',
+    '| Streak | 6 weeks |',
+    '',
+    `Your post is ready to share: ${link}`,
+    '',
+    'Looks right?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
-  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null } });
-  assert.equal(none, "Week 4 done:\nYour page: https://earnkit.com/maya\nLook right?");
+  const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLooks right\?$/);
   oneAsk(none);
-  assert.match(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null } }), /^Last week done:\n/);
+  assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
 });
 
 test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news): its head, the post, the one-tap link, "Want a different version?"', () => {
@@ -183,19 +192,17 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   // Fix round: the profile doesn't show an acceptance or funding; the news is on the page as the update.
   for (const moment of ['accepted', 'funded']) assert.equal(eventHead({ moment, input: { name: 'Kit', program: 'X' } }, now), '', 'no head: the reply starts at "Your post for X"');
   assert.equal(eventHead({ moment: 'news', input: { note: 'x' } }, now), 'Added to your page.');
-  assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), 'Backing is open on your page.');
+  assert.equal(eventHead({ moment: 'coin_intro', input: { name: 'Kit' } }, now), '', 'v4.0 Task 11: an old coin intro draft has no head');
 });
 
-test('Task 16, GTM W2: the ranked order is connect, backing, apply, share, ship', () => {
-  const backing = 'People can back Recipe planner onchain. Want to open backing for Recipe planner?';
+test('Task 16, v4.0 Task 11: the ranked order is connect, apply, share, ship', () => {
   const apply: ApplyPick = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: null };
-  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, backing, apply };
+  const all = { state: 'ranked' as const, variant: null, project: RECIPE, link: null, share: true, handle: 'maya', connect: { weeks: 3, points: 90 }, apply };
   assert.equal(stateAsk(all).kind, 'connect');
-  // GTM W2 (owner: no coin launched is the biggest revenue failure): backing right after connect, above the apply step.
-  assert.equal(stateAsk({ ...all, connect: null }).kind, 'backing');
-  assert.equal(stateAsk({ ...all, connect: null, backing: null }).kind, 'apply');
-  assert.equal(stateAsk({ ...all, connect: null, apply: null, backing: null }).kind, 'share');
-  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, backing: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
+  // v4.0 Task 11: no backing step; the apply step follows connect.
+  assert.equal(stateAsk({ ...all, connect: null }).kind, 'apply');
+  assert.equal(stateAsk({ ...all, connect: null, apply: null }).kind, 'share');
+  assert.deepEqual(stateAsk({ ...all, connect: null, apply: null, share: false }), { kind: 'ship', project_key: RECIPE.key, line: SHIP_ASK });
   assert.equal(replyState({ signedIn: true, project: RECIPE, counted: true }), 'ranked');
 });
 

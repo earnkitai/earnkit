@@ -82,7 +82,7 @@ test('v2.7.1: programs:check refuses a pool the reward text does not state, and 
     'colosseum-worlds-fair': 840000,
     'monad-metropolis': 250000,
     'arc-microgrants': 10000,
-    'circle-developer-grants': 200000,
+    'circle-developer-grants': 135000,
     'base-builder-grants': null,
   });
 });

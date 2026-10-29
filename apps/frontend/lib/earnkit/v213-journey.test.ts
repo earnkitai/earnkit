@@ -1,7 +1,6 @@
 import './fixtures/no-network-checks';
 import { walletOffered } from './fixtures/wallet-step';
 import { isoWeekOf, lastFinishedMonday, weekLabel } from './weeks';
-import { TOKEN_LOG_PENDING } from './bench-find';
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -27,7 +26,6 @@ import { saveVerification } from './github-verify';
 import { rootOf } from './identity';
 import { proveByApp } from './repo-proof';
 import { NOT_CONFIRMED_NOTE } from './updates';
-import { pillOf } from './raising';
 import { feedWeeks, feedRankStep } from './feed';
 import { weeklyFactsStep } from './week-facts';
 import { readLanding } from './landing';
@@ -62,7 +60,7 @@ import { padPool } from './fixtures/rank-pool';
  * /bench and /feed a 404).
  *
  * Real: every program file, the tools, the readers' parsing, discovery, the App proof (repo-proof.ts),
- * the score and rank, the claim, the starter build (deploy and its proof), the coin launch
+ * the score and rank, the claim, the starter build (deploy and its proof), no coin launch (v4.0 Task 11)
  * behind deployToken, and a throwaway database of its own (schema.sql, dropped after).
  *
  * Faked, the outside world only: GitHub (the by-name GraphQL repo read, the App's installations, tokens
@@ -387,7 +385,7 @@ async function newInstall(): Promise<number> {
   assert.ok(id);
   return id;
 }
-const call = async (tool: 'find' | 'prepare' | 'confirm' | 'tell' | 'score', input: unknown, c: unknown) =>
+const call = async (tool: 'find' | 'prepare' | 'tell' | 'score', input: unknown, c: unknown) =>
   (await (tools[tool] as (i: unknown, c: unknown) => Promise<unknown>)(input, c)) as Reply;
 
 /** v2.14: the installation signs in with X (x-install.ts attachToX, as the token exchange or the paste code binds it). */
@@ -515,7 +513,7 @@ async function runStarterBuild(id: number, programId: string, o: { owner?: strin
 const MAYA_WALLET = `0x${'1a'.repeat(20)}`;
 const MAYA2_WALLET = '0x12ab34cd56ef7890a1b2c3d4e5f6a7b8c9d09f3e';
 /** The 16.1 person (set by 16.1). */
-const MAYA = { id: 0, wallet: MAYA_WALLET, offer: '' };
+const MAYA = { id: 0, wallet: MAYA_WALLET };
 /** The highest of seedBaseBuilders (set by 16.4). */
 let BASE_HANDLE = '';
 /** The Review Focus 3 claimant of maya/recipes (set by 16.1b). */
@@ -550,16 +548,12 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
   // v3.1 cold read: long shots (the investments this repo matches) never lead, so with no real fit the step is Base's path.
   assert.equal(r2.move_up?.kind, 'qualify');
-  // Only when the builder asks about a token (tell token, through the MCP schema) is the community round offered.
-  // v3 Stage 2 review: under EARNKIT_RAISING, backing opens after the first approved week with code.
-  // v3.1 cold read: no dead end: the shipping log isn't written up yet (no backfilled week), said plainly.
-  assert.equal((await call('tell', { token: 'ask' }, ctx(id))).show_to_builder, TOKEN_LOG_PENDING);
+  // v4.0 Task 11: an older agent's tell token ask is the builder token's answer, never a project coin offer.
   await sql()`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
   const asked = await call('tell', { token: 'ask' }, ctx(id));
-  assert.match(asked.show_to_builder, /^I can launch \$\w+, a coin for Recipe planner on Base\. Every trade pays a fee and you keep 40%\. Coins can go to zero\. Launch it\?$/, asked.show_to_builder);
-  MAYA.offer = asked.show_to_builder;
+  assert.doesNotMatch(asked.show_to_builder, /\bcoin|Launch it\?/i, asked.show_to_builder);
   assert.equal(r2.claim, undefined, 'no claim link');
   const page = await renderProfile('maya_makes');
   assert.match(page, /src="https:\/\/pbs\.twimg\.com\/profile_images\/1\/m_400x400\.jpg"/);
@@ -588,7 +582,7 @@ test('16.2 acceptance 2, without a project: the repo picker and no build offer (
   xUser = { id: 'x-maya2', username: 'maya2_builds', name: 'Maya Two', avatar: null };
   await signInX(id);
   const r = await call('find', { agent_can_build: true, github_user: 'maya2' }, ctx(id));
-  assert.match(r.show_to_builder, /^You're in, @maya2_builds\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it /, r.show_to_builder);
+  assert.match(r.show_to_builder, /^You're in, @maya2_builds\. Really glad you're here\.\n\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you /, r.show_to_builder);
   // v2.14 A18: find offers no build; prepare { build } stays for a program guide that names a starter.
   assert.equal((r as { build_offer?: unknown }).build_offer, undefined);
   assert.notEqual(r.move_up?.kind, 'build');
@@ -639,31 +633,24 @@ test('16.4 acceptance 4, Bench filters: /bench?chain=base lists only Base projec
   assert.match(await renderProfile(BASE_HANDLE), /data-ek-standing="" title="(#\d+ of \d+ builders|Top \d+(\.\d)?% of builders)"[^>]*>[\s\S]*?(#\d+ of \d+ builders|Top \d+(\.\d)?% of builders)</);
 });
 
-test('16.5 acceptance 5, a community round (v2.13.3 ruling B): the yes launches the coin, the pill shows on the profile, the Bench row and the card; closing it removes it', db, async () => {
+test('16.5 v4.0 Task 11: an old coin yes launches no project coin; no pill on the profile, the Bench row or the card', db, async () => {
   const id = MAYA.id;
   await giveFivePeople(id);
-  // The offer came when the builder asked about a token (16.1, R8); the builder says yes to it now.
-  assert.match(MAYA.offer, /a coin for Recipe planner on Base\. .*Launch it\?/);
   // Review focus 3: the Confirming claimant is never offered a community round.
   await advanceRefreshGuard(EVE, 11 * 60_000);
   assert.doesNotMatch((await call('find', {}, ctx(EVE))).show_to_builder, /community round|raise|backing/i);
   const yes = await call('tell', { coin: { project_key: 'maya/recipes', answer: 'yes', wallet: MAYA.wallet } }, ctx(id));
-  assert.ok(yes.project_id, JSON.stringify(yes));
-  // v2.14 spec 2: the App proved the repo: nothing is pushed.
-  const launch = await call('confirm', { project_id: yes.project_id, yes: true, wallet: MAYA.wallet }, ctx(id));
-  assert.equal(launched.length, 1, JSON.stringify(launch));
-  const pill = await pillOf(id);
-  assert.ok(pill, JSON.stringify(launch));
-  // v3.1 Task 7: the coin is the Token card's ($SYMBOL and the Back pill).
+  assert.equal(yes.project_id, undefined, JSON.stringify(yes));
+  assert.doesNotMatch(yes.show_to_builder, /\bcoin/i);
+  assert.equal(launched.length, 0);
+  const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM projects WHERE installation_id = ${id} AND program_id = 'earnkit-coin'`;
+  assert.equal(c, 0);
+  // v4.0 Task 9: the Token card is the builder token's only.
   const prof = unsign(await renderProfile('maya_makes'));
-  assert.match(prof, new RegExp(`data-ek-token[\\s\\S]*?\\$${pill.symbol}`), prof);
+  assert.doesNotMatch(prof, /data-ek-token|Backing/, prof);
   const row = (await benchRows(parseBenchFilter({}))).rows.find((r) => r.handle === 'maya_makes');
-  assert.deepEqual(row?.backing, pill);
-  assert.equal((await benchCardFacts(id))?.raising, pill.symbol, 'the share card');
-  const [p] = await sql()<{ coin_tx: string; coin_chain_id: number }[]>`SELECT coin_tx, coin_chain_id FROM projects WHERE id = ${yes.project_id!}`;
-  assert.deepEqual({ ...p }, { coin_tx: `0x${'c'.repeat(64)}`, coin_chain_id: 8453 });
-  await call('tell', { coin: { raising: false } }, ctx(id));
-  assert.equal(await pillOf(id), null);
+  assert.equal(row && 'backing' in row, false);
+  assert.equal((await benchCardFacts(id)) !== null, true, 'the share card');
 });
 
 test('16.6 acceptance 6, the landing page: the hero and the Activity cards', db, async () => {

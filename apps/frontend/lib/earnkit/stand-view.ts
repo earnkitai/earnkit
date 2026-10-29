@@ -66,6 +66,9 @@ export async function standBase(id: number, o: { own?: number } = {}): Promise<{
   return { base: { standing, claimed, handle: claimed ? s.handle : null, signInLink: link }, seen };
 }
 
+/** The standing_seen keys takeNews owns (it replaces them); every other key is kept. */
+export const NEWS_KEYS = ['rank', 'at', 'people'];
+
 /**
  * spec 4: the news line since the person last looked, or null. The first look records where they
  * stand and says nothing (nothing happened yet). A line made records the new standing and, with a
@@ -77,27 +80,11 @@ export async function takeNews(id: number, seen: Seen, base: StandBase, now: Dat
       ...(base.standing.ranked && { rank: base.standing.rank }),
       at: now.toISOString(),
     };
+    // v4.0 Task 8 fix round 1: every key is kept but the ones this rewrite owns (where the person stood when told:
+    // `rank`, `at`, and the retired `people`), replaced by `next`; an allow-list dropped every key added since
+    // (token_offered, setup_asked, setup_done, ...), so a new key can never be lost here again.
     await sql()`
-      UPDATE builder_profiles SET standing_seen = ${sql().json(next as never)}::jsonb || jsonb_strip_nulls(jsonb_build_object('declined', standing_seen->'declined',
-          -- v2.13 (bench-find.ts): what the Bench reply asked and noted is kept too 
-          'bench_ask', standing_seen->'bench_ask', 'weekly_note_at', standing_seen->'weekly_note_at',
-          -- v2.13.1 O5: the quiet asks.
-          'quiet', standing_seen->'quiet'))
-          -- v2.13.1 O5 fix round 2: the kept repo reads and match, unstripped (their nulls are values).
-          -- v2.13.4: the live link check. Launch ready L6: the open share offer. v3: the connect offer and its answer, the apply step's once-guard.
-          -- 2026-10-22 and v3.1 wallet proof: every once-ask guard (titles, Base's steps, the wallet step), the wallet's
-          -- link state and its one-line notice; 2026-10-23 Base onboarding: the GitHub no, the walk-through's guard and
-          -- answer, the template notice, the new-repo nudge's guard; v3.1 GTM W3: the upcoming line's weekly guard; GTM W2: the
-          -- check-in ask and answer, the ship ask's cooldown and the no-folder flag. A key left
-          -- out here would be asked again after a news line.
-          || (SELECT COALESCE(jsonb_object_agg(k, standing_seen->k), '{}'::jsonb) FROM unnest(ARRAY['repo_probe', 'bench_match', 'live_check', 'share_open', 'connect_open', 'connect_done', 'apply_asked',
-            'titles_asked', 'qualify_given', 'wallet_asked', 'wallet_link_at', 'wallet_notice',
-            'github_no', 'base_asked', 'base_walk', 'template_refused', 'new_repo_asked', 'upcoming_said',
-            'checkin_asked', 'checkin', 'ship_asked', 'no_folder',
-            -- v3.1 cold read: the welcome said, the standing line, the weekly points line and the backers last shown, a live app's GitHub no.
-            'welcomed', 'status_seen', 'nag_week', 'backers_seen', 'github_no_app', 'lovable_prompt', 'coin_wallet_wait', 'qualify_known',
-            -- v3.1 answerable replies: the day the connect step's full pitch was shown.
-            'pitch_day']) k WHERE standing_seen ? k),
+      UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - ${NEWS_KEYS}::text[]) || ${sql().json(next as never)}::jsonb,
         card_moments = CASE WHEN ${card}::text IS NULL THEN card_moments ELSE card_moments || jsonb_build_object('latest', ${card}::text) END
       WHERE builder_id = ${id}`;
   };

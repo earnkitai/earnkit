@@ -429,51 +429,28 @@ async function coin(b: B, symbol: string): Promise<string> {
   return c;
 }
 
-test('(f) profileSite.token: raising on with an open coin; never with raising off; never for earnkitai/earnkit', db, async () => {
+test('(f) profileSite.token: never from a project coin (v4.0 Task 9: the builder token only); tokenAllowed still fails closed', db, async () => {
   const b = await builder({ chains: ['base'] });
-  const c = await coin(b, 'TIPJAR');
-  await sql()`INSERT INTO coin_backers (coin, wallet, first_block) VALUES (${c}, ${addr()}, ${Math.ceil((NOW.getTime() / 1000 - BASE_GENESIS_UNIX) / 2) - 100})`;
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
-    const s = await profileSite(b.id, await page(b.id), NOW);
-    assert.ok(s.token);
-    assert.equal(s.token.symbol, 'TIPJAR');
-    assert.equal(s.token.backers, 1);
-    assert.equal(s.token.letter, 'T');
-    assert.equal(s.token.weeks.length, 12);
-    assert.equal(s.token.weeks[11], 1);
-  });
-  await withEnv({ EARNKIT_RAISING: undefined }, async () => {
-    assert.equal((await profileSite(b.id, await page(b.id), NOW)).token, null);
-  });
-  // EarnKit's own repo: never backing, even with the flag on and a coin open.
+  await coin(b, 'TIPJAR');
+  for (const raising of ['on', undefined])
+    await withEnv({ EARNKIT_RAISING: raising }, async () => {
+      assert.equal((await profileSite(b.id, await page(b.id), NOW)).token, null, String(raising));
+    });
   const own = await builder({ key: 'earnkitai/earnkit', name: 'EarnKit', chains: ['base'], link: 'https://earnkit.com' });
-  await coin(own, 'EARNKIT');
   await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
     const s = await profileSite(own.id, await page(own.id), NOW);
-    assert.equal(s.token, null);
     assert.equal(s.project?.earnkit, true);
     assert.equal(s.project?.onBase, true);
     assert.deepEqual(s.project?.link, { href: 'https://earnkit.com/', text: 'earnkit.com' });
     assert.equal(s.project?.repo, 'https://github.com/earnkitai/earnkit');
     assert.equal(s.first, 'Sam');
   });
-  // Fails closed: an unknown main key (none, or its read failed) never allows the card; EarnKit's repos never do.
+  // The leaderboard's Backed pill still uses it (bench-data): an unknown key never allows it; EarnKit's repos never do.
   assert.equal(tokenAllowed(null), false);
   assert.equal(tokenAllowed(''), false);
   assert.equal(tokenAllowed('earnkitai/earnkit'), false);
   assert.equal(tokenAllowed('EarnKitAI/other'), false);
   assert.equal(tokenAllowed(b.key), true);
-  // Backing on the page data but no main project key (as after a failed read): no Token card.
-  await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
-    const d = await page(b.id);
-    assert.ok(d.backing);
-    await sql()`UPDATE builder_profiles SET main_project_key = NULL WHERE builder_id = ${b.id}`;
-    try {
-      assert.equal((await profileSite(b.id, d, NOW)).token, null);
-    } finally {
-      await sql()`UPDATE builder_profiles SET main_project_key = ${b.key} WHERE builder_id = ${b.id}`;
-    }
-  });
 });
 
 test('(g) a hidden repo: Private project, no repo, no link unless a non-GitHub site, no about; Highlights never names the repo', db, async () => {

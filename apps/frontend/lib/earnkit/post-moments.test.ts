@@ -10,7 +10,6 @@ import {
   SAME_KIND_DAYS,
   WEEKLY_TAPPED_COOLDOWN_DAYS,
   announcedWinCandidates,
-  coinIntroCandidate,
   draftMoment,
   hasEntry,
   holdOf,
@@ -49,7 +48,7 @@ const logged = (moment: PostMoment, moment_key: string, created: Date, o: { tapp
 
 // ---- Pure rules ----
 
-test('the moments: weekly, went live, won, accepted, funded, news, coin intro; never backing opened, applied, first users or a streak alone', () => {
+test('the moments: weekly, went live, won, accepted, funded, news (coin intro stored only for old drafts); never backing opened, applied, first users or a streak alone', () => {
   assert.deepEqual([...POST_MOMENTS], ['weekly', 'went_live', 'won', 'accepted', 'funded', 'news', 'coin_intro']);
   for (const never of ['backing', 'raising_on', 'applied', 'first_users', 'streak']) assert.ok(!(POST_MOMENTS as readonly string[]).includes(never), never);
   assert.deepEqual([WEEKLY_TAPPED_COOLDOWN_DAYS, SAME_KIND_DAYS, NEWS_COOLDOWN_HOURS, LIVE_SETTLE_DAYS, EVENT_FRESH_DAYS], [13, 28, 24, 2, 14]);
@@ -190,7 +189,6 @@ test('proof ruling, last fix wave (A): only the builder\'s verified @handle (or 
   assert.equal(await proofNamesBuilder(post, who, oembed({ author_url: 'https://twitter.com/base', html: '<blockquote><p>Welcome Recipes</p>&mdash; fan (@maya_k)</blockquote>' })), false, 'only the post\'s own words count; the name never');
   assert.equal(await proofNamesBuilder(post, who, page('not json')), false);
 });
-
 
 // ---- From the data ----
 
@@ -404,34 +402,6 @@ test('builder\'s news: checked like an update; 24 hours apart', dbTest, async ()
   assert.deepEqual(await draftMoment(id, next, { asked: true }, new Date(NOW.getTime() + 3_600_000)), { ok: false, reason: 'cooldown' });
 });
 
-test('coin intro (owner ruling 1): once the coin is launched and the page shows backing; never while backing is off; once ever', dbTest, async () => {
-  const before = process.env.EARNKIT_RAISING;
-  try {
-    const { id, key } = await maya({ weeksShipping: 9 });
-    await sql()`INSERT INTO projects (program_id, name, repo_url, token_repo_key, installation_id, token_symbol, token_status, token_url, raising_at, coin_address, coin_launched_at)
-      VALUES ('earnkit-coin', 'Recipes', ${`https://github.com/${key}`}, ${`github.com/${key}`}, ${id}, 'RCP', 'launched', 'https://tokens.fun/c/1', now(), ${`0x${randomBytes(20).toString('hex')}`}, ${ago(20)})`;
-    delete process.env.EARNKIT_RAISING;
-    assert.equal(await coinIntroCandidate(id, NOW), 'no_coin', 'backing off: no intro');
-    process.env.EARNKIT_RAISING = 'on';
-    // Fix round: launched 20 days ago: old news, no intro.
-    assert.equal(await coinIntroCandidate(id, NOW), 'stale');
-    await sql()`UPDATE projects SET coin_launched_at = ${ago(2)} WHERE installation_id = ${id} AND program_id = 'earnkit-coin'`;
-    delete process.env.EARNKIT_RAISING;
-    process.env.EARNKIT_RAISING = 'on';
-    const r = await offeredMoment(id, NOW);
-    assert.equal(r.moment?.moment, 'coin_intro');
-    const d = await draftMoment(id, r.moment!, { asked: false }, NOW);
-    assert.ok(d.ok);
-    assert.equal(d.draft.text, 'Recipes has a coin now, $RCP. 9 weeks shipping so far.');
-    const later = await offeredMoment(id, new Date(NOW.getTime() + 5 * DAY));
-    assert.notEqual(later.moment?.moment, 'coin_intro');
-    assert.ok(later.skipped.includes('once'));
-  } finally {
-    if (before === undefined) delete process.env.EARNKIT_RAISING;
-    else process.env.EARNKIT_RAISING = before;
-  }
-});
-
 test('applied and first users are never a post: an applied program and a week with people offer nothing', dbTest, async () => {
   const { id, key } = await maya();
   const { program } = await entered(id, key);
@@ -439,7 +409,7 @@ test('applied and first users are never a post: an applied program and a week wi
   await weekRow(id, key, { facts: { users_up: { n: 40 }, checked: true } });
   const r = await offeredMoment(id, NOW);
   assert.equal(r.moment, null);
-  assert.deepEqual(r.skipped, ['not_live', 'no_coin', 'no_facts']);
+  assert.deepEqual(r.skipped, ['not_live', 'no_facts']);
 });
 
 test('a private project (no name to show) gets only nameless weekly shapes; no went-live or win post names it', dbTest, async () => {
@@ -496,7 +466,7 @@ test('final review 3: an event that can\'t be drafted gives way to the next one;
   assert.match(e.text, /^Recipes is live\./, 'the win could not be drafted; going live is next');
 });
 
-test('final review 3: what nothing-to-draft remembered is read again the same day once a coin launches or a win is announced', dbTest, async () => {
+test('final review 3: what nothing-to-draft remembered is read again the same day once a win is announced', dbTest, async () => {
   const { eventPost } = await import('./post-reply');
   const { id, key } = await maya({ weeks: [isoWeekOf(ago(60))] });
   assert.equal(await eventPost(id, `pm_${id}`, NOW, { hot: false }), null);

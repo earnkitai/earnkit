@@ -11,7 +11,10 @@ import { freeTierRoom, takeFreeTier } from './free-tier';
 import { testInstallationIds } from './installations';
 import { mainConfirmed } from './main-project';
 import { weeklyPostLink } from './post-reply';
-import { lastWeekOf, markOffered, momentLines, shareText, type WeekStanding } from './weekly-moment';
+import { lastWeekOf, markOffered, mondayLines, momentSummary, shareText, weekNumber, type WeekStanding } from './weekly-moment';
+import { weekCommunityUsd } from './community';
+import { streaksFor } from './streak';
+import { firstName } from './bench-reply';
 import { weekUrl } from './week-links';
 
 /**
@@ -98,7 +101,7 @@ export function digestDue(s: DigestState, now: Date): boolean {
   return !(s.last_considered_at && s.last_considered_at >= start);
 }
 
-/** Last week's moment: its lines (weekly-moment.ts momentLines), standing (the subject) and the two signed links. */
+/** Last week's moment: its lines (weekly-moment.ts mondayLines, v4.0 Task 7), standing (the subject) and the two signed links. */
 export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
 export type DigestFacts = {
   week: DigestWeek | null;
@@ -157,7 +160,7 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
   const week = f.week
     ? [
         ...f.week.lines,
-        ...(f.week.postUrl ? [`Post it on X: ${f.week.postUrl}`] : []),
+        ...(f.week.postUrl ? [`Your post is ready to share: ${f.week.postUrl}`] : []),
         ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
       ].join('\n')
     : null;
@@ -373,8 +376,8 @@ type SubRow = DigestState & { installation_id: number; login: string; email: str
  */
 async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFacts, 'week' | 'handle' | 'pending'> & { person: number | null }> {
   if (s.shared || s.login) return { week: null, handle: null, person: null };
-  const [p] = await db<{ id: number; key: string | null; handle: string | null }[]>`
-    SELECT x.id, b.main_project_key AS key, b.x_handle AS handle
+  const [p] = await db<{ id: number; key: string | null; handle: string | null; name: string | null }[]>`
+    SELECT x.id, b.main_project_key AS key, b.x_handle AS handle, b.x_name AS name
     FROM (SELECT COALESCE((SELECT p.builder_id FROM builder_profiles p WHERE p.x_user_id = i.x_user_id), i.builder_id, i.id) AS id
           FROM installations i WHERE i.id = ${s.installation_id}) x
     LEFT JOIN builder_profiles b ON b.builder_id = x.id`;
@@ -397,7 +400,17 @@ async function digestWeek(s: SubRow, now: Date, db: Db): Promise<Pick<DigestFact
     // v3.2: the week's one-tap post (the reply's draft), only for an approved week (a builder's own text goes out only
     // once they said it looks right).
     const postUrl = handle && last.approved ? await weeklyPostLink(p.id, handle, now) : null;
-    return { week: { lines: momentLines(last), standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, ...(postUrl && { postUrl }) }, handle, person };
+    // v4.0 Task 7 (approved copy 5): the Monday reply's facts as plain lines (the streak and the community as find reads them).
+    const [lit, community] = await Promise.all([
+      streaksFor([p.id], now).then((m) => m.get(p.id) ?? null),
+      weekCommunityUsd(p.id, new Date(`${last.monday}T00:00:00Z`), now),
+    ]);
+    const lines = mondayLines({
+      first: firstName(p.name, handle), summary: momentSummary(last.summary ?? null), score: last.now.score,
+      change: last.before ? last.now.score - last.before.score : null, streak: lit ? weekNumber([...lit.weeks], last.monday) : 0,
+      usd: community.usd, lastWeekUsd: community.lastWeekUsd,
+    });
+    return { week: { lines, standing: last.now, approveUrl: link('approve'), hideUrl: link('hide'), approved: last.approved, ...(postUrl && { postUrl }) }, handle, person };
   } catch (err) {
     // v3.2 (2026-10-27): a failed read waits like a week not written yet (retried next run, sent without the week
     // after PENDING_MAX_MS), never an empty email that marks the week considered: the owner's first Monday email

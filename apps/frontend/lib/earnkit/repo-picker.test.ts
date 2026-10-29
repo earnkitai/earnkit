@@ -2,6 +2,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { GITHUB_INSTALLATIONS_URL, PICK_ADMIN_CHECKS, PICK_PAGE, appSetup } from './github-app';
 import { APP_CONFIRM_ONLY_YOURS, PICK_REPOS, createVerifyLink, csrfCookieName, verifyStart } from './github-verify';
 import { connectInstallation, saveInstallation } from './installations';
@@ -46,6 +47,8 @@ async function signedIn(handle: string) {
   const no = async () => { throw new Error('offline'); };
   const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: NO_MATCH, readerDeps } as never;
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(c.id);
   return { id: c.id, ctx, username, login: username.toLowerCase() };
 }
 
@@ -74,7 +77,7 @@ test('L2.1 signed in with no project: the reply carries the repo picker link and
   const p = await signedIn('ana');
   const r = await mcpCall(p.ctx, 'find', {});
   const s = String(r.reply?.show_to_builder);
-  assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/, s);
+  assert.match(s, /^You're in, @\S+\. Really glad you're here\.\n\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nDone\?$/, s);
   assert.doesNotMatch(s, /What's your GitHub|link to something you've made/);
   assert.equal(links(s).length, 1, 'one https link');
   assert.ok(s.includes(`@${p.username}.`), s);

@@ -12,20 +12,17 @@ import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
-import { COIN_YES_NOTE } from './coin-moments';
-import { EntryError } from './campaigns';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { CONFIRM_BACKING_DESCRIPTION, SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS, toolDescriptions } from './mcp';
-import { CONFIRM_ENTRY_GONE, tools } from './tools';
-import { COIN_BLOCKED } from './coin-moments';
+import { SERVER_INSTRUCTIONS, TOOL_DESCRIPTIONS } from './mcp';
+import { tools } from './tools';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import type { TokenFlowDeps } from './token-launch';
 
 /**
- * v3.1 P0 Task 10 (spec 3.4, D1): the agent sees find, prepare (draft only), tell and score; confirm is registered only
- * while EARNKIT_RAISING is on, and only opens Backing (the coin launch by project_id). find offers no build.
+ * v3.1 P0 Task 10 (spec 3.4, D1): the agent sees find, prepare (draft only), tell and score. v4.0 Task 11: confirm (the
+ * per-project coin launch) is never registered, whatever EARNKIT_RAISING says. find offers no build.
  */
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -102,10 +99,9 @@ async function ranked(tag: string, key = `v31s${tag}${RUN}/kit`) {
   return { ctx, id: c.id, key, calls, wallet };
 }
 
-test('(a) tools/list: find, prepare, score, tell with the flag off', () => withEnv(OFF, async () => {
+test('(a) tools/list: find, prepare, score, tell', () => withEnv(OFF, async () => {
   const listed = await mcpListTools({ installationId: 1 });
   assert.deepEqual(listed.map((t) => t.name).sort(), ['find', 'prepare', 'score', 'tell']);
-  assert.equal(toolDescriptions(false).confirm, undefined);
   // prepare says it only drafts (Task 9's carry-over): never "the confirm line", never submits.
   const prepare = listed.find((t) => t.name === 'prepare')!.description!;
   assert.ok(prepare.startsWith(
@@ -114,62 +110,13 @@ test('(a) tools/list: find, prepare, score, tell with the flag off', () => withE
   assert.doesNotMatch(prepare, /confirm/);
 }));
 
-test('(b) flag on: confirm is listed with project_id required and no program_id', () => withEnv(ON, async () => {
+test('(b) v4.0 Task 11: with the old EARNKIT_RAISING on, still no confirm; an old confirm call is an unknown tool', () => withEnv(ON, async () => {
   const listed = await mcpListTools({ installationId: 1 });
-  assert.deepEqual(listed.map((t) => t.name).sort(), ['confirm', 'find', 'prepare', 'score', 'tell']);
-  const confirm = listed.find((t) => t.name === 'confirm')!;
-  assert.equal(confirm.description, CONFIRM_BACKING_DESCRIPTION);
-  assert.equal(CONFIRM_BACKING_DESCRIPTION,
-    "The builder's yes to opening Backing. Pass project_id, yes: true, wallet and token exactly as tell coin returned them; check: true reads a launching coin. Then follow agent_note.");
-  assert.deepEqual(confirm.inputSchema.required, ['project_id']);
-  const props = confirm.inputSchema.properties as Record<string, unknown>;
-  for (const gone of ['program_id', 'project', 'answers', 'skip_token', 'contracts', 'deployer_signature', 'submitted']) assert.ok(!(gone in props), gone);
-  for (const k of ['project_id', 'yes', 'check', 'token', 'wallet', 'image_url', 'image_data', 'builder_x', 'agent']) assert.ok(k in props, k);
-  // Strict: an entry's fields are an error before the tool runs.
-  const r = await mcpCall({ installationId: 1 }, 'confirm', { project_id: 1, program_id: 'base-builder-grants', yes: true });
+  assert.deepEqual(listed.map((t) => t.name).sort(), ['find', 'prepare', 'score', 'tell']);
+  assert.equal(Object.hasOwn(tools, 'confirm'), false);
+  const r = await mcpCall({ installationId: 1 }, 'confirm' as never, { project_id: 1, yes: true });
   assert.equal(r.isError, true);
-  assert.match(r.text, /Unrecognized key/);
 }));
-
-test('(c) flag on: the Backing yes (move_up backing yes, then confirm { project_id, yes }) still launches through the fake tokens.fun deploy', db, () => withEnv(ON, async () => {
-  const b = await ranked('c');
-  const offer = await mcpCall(b.ctx, 'find', {});
-  assert.equal((offer.reply?.move_up as { kind: string }).kind, 'backing', show(offer));
-  const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'backing', project_key: b.key, answer: 'yes' } });
-  assert.equal(yes.reply?.agent_note, COIN_YES_NOTE, yes.text);
-  assert.match(COIN_YES_NOTE, /^Call confirm with project_id/);
-  const { project_id, wallet, token } = yes.reply as { project_id: number; wallet: string; token: { name: string; symbol: string } };
-  assert.equal(typeof project_id, 'number');
-  const launched = await mcpCall(b.ctx, 'confirm', { project_id, yes: true, wallet, token });
-  assert.equal(launched.isError, false, launched.text);
-  assert.equal(launched.reply?.status, 'launched', launched.text);
-  assert.equal(b.calls.deploy, 1);
-  assert.deepEqual(b.calls.wallets, [wallet]);
-  assert.deepEqual(b.calls.symbols, [token.symbol]);
-  const [p] = await sql()<{ token_status: string; creator_wallet: string }[]>`SELECT token_status, creator_wallet FROM projects WHERE id = ${project_id}`;
-  assert.deepEqual({ ...p }, { token_status: 'launched', creator_wallet: wallet });
-  // check: true reads it back; nothing launches again.
-  const check = await mcpCall(b.ctx, 'confirm', { project_id, check: true });
-  assert.equal(check.isError, false, check.text);
-  assert.equal(b.calls.deploy, 1);
-  // earnkitai/earnkit never gets a Backing offer.
-  const own = await ranked('co', 'earnkitai/earnkit');
-  const ownFind = await mcpCall(own.ctx, 'find', {});
-  assert.doesNotMatch(show(ownFind), /backing/i, show(ownFind));
-  assert.notEqual((ownFind.reply?.move_up as { kind?: string } | undefined)?.kind, 'backing');
-}));
-
-test('(d) confirm with program_id: CONFIRM_ENTRY_GONE', async () => {
-  assert.equal(CONFIRM_ENTRY_GONE, "EarnKit drafts applications now; the builder sends them on the program's site. Call prepare for a draft.");
-  // Thrown before anything is read or written (no database touched).
-  for (const input of [
-    { program_id: 'base-builder-grants', project: { name: 'Kit' }, answers: {}, yes: true },
-    { program_id: 'base-builder-grants', skip_token: true },
-    { program_id: 'arc-microgrants', project_id: 7, yes: true },
-    { program_id: 'base-builder-grants', submitted: {} },
-  ])
-    await assert.rejects(tools.confirm(input, { installationId: 1 }), (err: unknown) => err instanceof EntryError && err.message === CONFIRM_ENTRY_GONE, JSON.stringify(input));
-});
 
 test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" section; a no_project Bench reply has no idea line', db, () => withEnv({ ...OFF, DEPLOYER_PRIVATE_KEY: `0x${'11'.repeat(32)}` }, async () => {
   const stamp = `${process.pid}-${Date.now()}`;
@@ -200,7 +147,7 @@ test('(e) find (more: true and a shared client) has no build_offer, no "Ideas" s
   const c = (await connectInstallation(t))!;
   const r = await mcpCall({ installationId: c.id, ownInstallationId: c.own, sharedClient: false, freshDeps } as Ctx, 'find', {});
   const s = show(r);
-  assert.match(s, /^You're in, @\S+\. I find grants your app qualifies for and write the applications\.\n(?:[^\n]+ pays? up to \$[\d,]+ for apps(?: on [^\n]+)?\.\n)?Connect your app's code on GitHub so I can match it/, s);
+  assert.match(s, /^You're in, @\S+\. Really glad you're here\.\n\n\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you/, s);
   assert.doesNotMatch(s, / pays .* for tip jars\.|V31 Pitch pays/, s);
   assert.equal(r.reply?.build_offer, undefined);
 }));
@@ -213,21 +160,21 @@ test('(f) every description under 800 characters, no em dash, no tool name in bu
     assert.ok(d.length < 800, `${label}: ${d.length}`);
     assert.doesNotMatch(d, /—/, label);
   }
-  // The instructions never send an entry through confirm (it only opens Backing, named by the yes's agent_note).
+  // The instructions never name confirm (v4.0 Task 11: it is retired).
   assert.doesNotMatch(SERVER_INSTRUCTIONS, /confirm/);
 }));
 
-test('(g) the builder text of a Backing offer, yes and launch never names a tool', db, () => withEnv(ON, async () => {
+test('(g) v4.0 Task 11: no reply offers Backing; an old Backing yes launches nothing and names no tool', db, () => withEnv(ON, async () => {
   const tool = /\b(find|prepare|confirm|tell|score|move_up|project_id)\b/;
   const b = await ranked('f');
   const offer = await mcpCall(b.ctx, 'find', {});
   assert.doesNotMatch(show(offer), tool, show(offer));
+  assert.doesNotMatch(show(offer), /\bcoin|Backing/i, show(offer));
+  assert.notEqual((offer.reply?.move_up as { kind?: string } | undefined)?.kind, 'backing');
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'backing', project_key: b.key, answer: 'yes' } });
   assert.doesNotMatch(show(yes), tool, show(yes));
-  const { project_id, wallet, token } = yes.reply as { project_id: number; wallet: string; token: object };
-  const launched = await mcpCall(b.ctx, 'confirm', { project_id, yes: true, wallet, token });
-  assert.equal(launched.reply?.status, 'launched', launched.text);
-  assert.doesNotMatch(show(launched), tool, show(launched));
+  assert.equal(yes.reply?.project_id, undefined, yes.text);
+  assert.equal(b.calls.deploy, 0);
 }));
 
 test('(h) fix round 1: prepare { host: true } on a curated program returns the draft (no "Ready to submit?", no confirm note), host beside it', db, () => withEnv(OFF, async () => {
@@ -257,15 +204,15 @@ test('(h) fix round 1: prepare { host: true } on a curated program returns the d
   assert.equal(c, 0, 'nothing entered');
 }));
 
-test('(i) fix round 1: /llms.txt describes the draft flow; confirm (Backing only) is named only with EARNKIT_RAISING on', async () => {
+test('(i) fix round 1: /llms.txt describes the draft flow; v4.0 Task 11: confirm is never named', async () => {
   const { GET } = await import('../../app/llms.txt/route');
   const read = async () => (await GET()).text();
   const on = await withEnv(ON, read);
   const off = await withEnv(OFF, read);
-  const line = "- confirm: only opens Backing, by project_id, after the builder's yes.";
-  assert.ok(on.includes(line), on);
-  assert.ok(!off.includes('- confirm'), off);
+  assert.equal(on, off);
   for (const text of [on, off]) {
+    assert.ok(!text.includes('- confirm'), text);
+    assert.doesNotMatch(text, /\bconfirm\b|Backing|\bcoin/);
     assert.match(text, /prepare drafts the application/);
     assert.match(text, /tell program_status applied/);
     assert.doesNotMatch(text, /confirm line|One "yes" at the confirmation|skip_token|submit kit|launches its token/);
@@ -275,31 +222,20 @@ test('(i) fix round 1: /llms.txt describes the draft flow; confirm (Backing only
   }
 });
 
-test('(j) final fix 1: tell token ask with EARNKIT_RAISING off offers no coin (no confirm to call); on, the Backing yes reaches confirm and launches', db, async () => {
-  // Off: not available, no coin, no note pointing at a tool that isn't registered, nothing recorded.
-  await withEnv({ ...OFF, TOKENSFUN_DEPLOY_API_KEY: 'v31-surface-key' }, async () => {
-    const b = await ranked('jo');
-    const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-    assert.equal(r.isError, false, r.text);
-    assert.equal(show(r), COIN_BLOCKED.off, r.text);
-    assert.equal(r.reply?.coin, undefined, r.text);
-    assert.doesNotMatch(r.text, /confirm|tell with coin/, r.text);
-    const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM coin_moments WHERE builder_id = ${b.id}`;
-    assert.equal(c, 0, 'no offer recorded');
-    assert.ok(!(await mcpListTools({ installationId: b.id })).some((t) => t.name === 'confirm'));
-  });
-  // On: the offer, the yes, confirm { project_id } launches through the fake deploy.
-  await withEnv(ON, async () => {
-    const b = await ranked('jn');
-    const asked = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-    assert.deepEqual(asked.reply?.coin, { project_key: b.key }, asked.text);
-    const yes = await mcpCall(b.ctx, 'tell', { coin: { project_key: b.key, answer: 'yes', wallet: b.wallet } });
-    assert.equal(yes.reply?.agent_note, COIN_YES_NOTE, yes.text);
-    const { project_id, wallet, token } = yes.reply as { project_id: number; wallet: string; token: { name: string; symbol: string } };
-    assert.ok((await mcpListTools({ installationId: b.id })).some((t) => t.name === 'confirm'));
-    const launched = await mcpCall(b.ctx, 'confirm', { project_id, yes: true, wallet, token });
-    assert.equal(launched.isError, false, launched.text);
-    assert.equal(launched.reply?.status, 'launched', launched.text);
-    assert.equal(b.calls.deploy, 1);
-  });
+test('(j) v4.0 Task 11: an old tell token ask or coin yes never offers or launches a project coin, flag on or off', db, async () => {
+  for (const [tag, env] of [['jo', { ...OFF, TOKENSFUN_DEPLOY_API_KEY: 'v31-surface-key' }], ['jn', ON]] as const)
+    await withEnv(env, async () => {
+      const b = await ranked(tag);
+      const r = await mcpCall(b.ctx, 'tell', { token: 'ask' });
+      assert.equal(r.isError, false, r.text);
+      assert.equal(r.reply?.coin, undefined, r.text);
+      assert.doesNotMatch(r.text, /confirm|tell with coin|\bcoin/, r.text);
+      const yes = await mcpCall(b.ctx, 'tell', { coin: { project_key: b.key, answer: 'yes', wallet: b.wallet } });
+      assert.equal(yes.isError, false, yes.text);
+      assert.equal(yes.reply?.project_id, undefined, yes.text);
+      assert.equal(b.calls.deploy, 0);
+      const [{ c }] = await sql()<{ c: number }[]>`SELECT count(*)::int AS c FROM coin_moments WHERE builder_id = ${b.id}`;
+      assert.equal(c, 0, 'no offer recorded');
+      assert.ok(!(await mcpListTools({ installationId: b.id })).some((t) => t.name === 'confirm'));
+    });
 });

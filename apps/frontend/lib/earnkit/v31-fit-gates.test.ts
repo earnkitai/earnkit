@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -184,6 +185,8 @@ async function rankedBuilder(tag: string, key: string, fitFor: (key: string) => 
   const handle = `f1${tag}${RUN}`.slice(0, 15);
   assert.ok((await attachToX(own, { id: `98${RUN}${n}${tag.length}`, username: handle, name: 'f1', avatar: null }, new Date())).ok);
   const c = (await connectInstallation(t))!;
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(c.id);
   const matcher = (async (_input: unknown, d: MatchDeps) => {
     onMatch?.(d);
     return { checked: 1, scored: 1, fits: [fitFor(key)] };

@@ -53,7 +53,7 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
   const a = await agent();
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
   assert.ok(s.startsWith(INTRO_LINE), s);
-  assert.match(s, /Step 1 of 2: sign in with X \(one click\): https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\nDone\?$/);
+  assert.match(s, /1\. Sign in with X: https:\/\/earnkit\.com\/signin\/[A-Za-z0-9_-]{22}\n2\. Connect your code\n3\. Add your wallet\n\nDone with step 1\?$/);
   const yes = await mcpCall(a.ctx, 'tell', { move_up: { kind: 'sign_in', project_key: null, answer: 'yes' } });
   assert.match(String(yes.reply?.agent_note), /sign_in_code/);
 });
@@ -61,8 +61,8 @@ test('9.8 state 1, not signed in: the sign-in link and its question', db, async 
 test('9.9 state 2, signed in with no project: the page and the repo picker (launch ready L2)', db, async () => {
   const a = await agent({ x: 'abe' });
   const s = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, new RegExp(`^You're in, @abe${RUN}\\. I find grants your app qualifies for and write the applications\\.\n`, 'i'));
-  assert.match(s, /Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=/);
+  assert.match(s, new RegExp(`^You're in, @abe${RUN}\\. Really glad you're here\\.\n`, 'i'));
+  assert.match(s, /\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.ok(s.endsWith("Done?"));
   assert.doesNotMatch(s, /What's your GitHub/);
 });
@@ -73,7 +73,7 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   const a = await agent({ x: 'bo' });
   const key = `bo${RUN}/kit`;
   const s = rule((await mcpCall(a.ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } })).reply);
-  assert.match(s, new RegExp(`^You're in, @bo${RUN}\\. I find grants`, 'i'));
+  assert.match(s, new RegExp(`^You're in, @bo${RUN}\\. Really glad you're here`, 'i'));
   assert.match(s, /https:\/\/earnkit\.com\/github\/verify\?n=/);
   assert.match(s, /Done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
@@ -141,7 +141,7 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
   assert.equal(bound.reply?.sign_in_note, SIGN_IN_NOTES.bound);
   const first = rule(bound.reply);
   // Task 16 step 2 names the account itself ("You're in"), so no "Signed in as" line above it.
-  assert.ok(first.startsWith(`You're in, @${handle}. I find grants`), first);
+  assert.ok(first.startsWith(`You're in, @${handle}. Really glad you're here.`), first);
   assert.doesNotMatch(first, /Signed in as/);
   const c = (await connectInstallation(String(a.token)))!;
   const next = rule((await mcpCall({ ...a.ctx, installationId: c.id }, 'find', {})).reply);
@@ -154,7 +154,7 @@ test('9.13 D14: the link score shows is minted for the calling installation; its
 test('9.14 the first reply after the sign-in at install names the account (Task 16: "You\'re in")', db, async () => {
   const a = await agent({ x: 'eve' });
   const first = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(first.split('\n')[0], new RegExp(`^You're in, @eve${RUN}\\. I find grants your app qualifies for and write the applications\\.$`, 'i'));
+  assert.match(first.split('\n')[0], new RegExp(`^You're in, @eve${RUN}\\. Really glad you're here\\.$`, 'i'));
   assert.doesNotMatch(first, /Signed in as/);
   // v3.1 cold read: said once; the next reply (score) goes straight to the step.
   assert.doesNotMatch(rule((await mcpCall(a.ctx, 'score', {})).reply), /You're in/);
@@ -171,7 +171,7 @@ test('9.15 fix round 1: signed out with a results question due: the sign-in ques
   const s = rule(out.reply);
   assert.equal(links(s).length, 1);
   assert.match(links(s)[0]!, /\/signin\//);
-  assert.ok(s.endsWith('Done?'), s);
+  assert.ok(s.endsWith('Done with step 1?'), s);
   assert.equal(out.reply?.ask_outcome, undefined);
   const [row] = await sql()<{ at: Date | null }[]>`SELECT outcome_asked_at AS at FROM projects WHERE id = ${pid}`;
   assert.equal(row.at, null, 'not used up while signed out');

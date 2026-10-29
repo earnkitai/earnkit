@@ -13,8 +13,7 @@ import { attachToX } from './x-install';
 import { lastFinishedMonday } from './weeks';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
-import { backingLine, pickRepoAgain } from './bench-reply';
-import { backersLine, coinLinkLine } from './bench-find';
+import { pickRepoAgain } from './bench-reply';
 import { EMAIL_ON, WHICH_EMAIL } from './digest';
 import { APPROVED_LINE } from './weekly-moment';
 import { AMOUNT_HEADER, upToCell } from './entry-text';
@@ -27,7 +26,7 @@ import { CHECKIN_INSTEAD_NOTE } from './tools';
 /**
  * v3.1 answerable replies (design doc v3.1-answerable-replies.md), through the real MCP tools/call path: find's and
  * score's facts per builder state (none of another builder's, none on a shared client without a signed-in builder),
- * the coin ask with a live coin, the weekly email yes without an address, the shortened repeat connect pitch, and the
+ * the weekly email yes without an address, the shortened repeat connect pitch, and the
  * jargon lines. Every reply: at most one https link, one question at most, no em dash or emoji.
  */
 appEnv();
@@ -114,25 +113,10 @@ async function coinBuilder(tag: string): Promise<B> {
   return { ctx, id: c.id, key, handle };
 }
 
-/** Launches the builder's coin the way an agent does: the token ask's offer, its yes, then confirm. */
-async function launch(b: B): Promise<string> {
-  const ask = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  const pk = (ask.reply?.coin as { project_key?: string } | undefined)?.project_key ?? b.key;
-  const yes = await mcpCall(b.ctx, 'tell', { coin: { project_key: pk, answer: 'yes' } });
-  const pid = yes.reply?.project_id as number;
-  assert.ok(pid, JSON.stringify(yes.reply));
-  const c = await mcpCall(b.ctx, 'confirm', { project_id: pid, yes: true, token: yes.reply?.token, wallet: yes.reply?.wallet });
-  assert.equal(c.reply?.status, 'launched', c.text);
-  const [row] = await sql()<{ u: string }[]>`SELECT token_url AS u FROM projects WHERE id = ${pid}`;
-  return row.u;
-}
-
 test('copy: the jargon lines and the answer note', () => {
-  assert.equal(backingLine(0, 0, 'https://earnkit.com/kit', 'KIT'), 'Your coin $KIT is live. Your page: https://earnkit.com/kit');
   assert.equal(APPROVED_LINE, 'Thanks. Last week is on your page.');
   assert.equal(EMAIL_ON, 'Done. Your summary comes every Monday.');
   assert.equal(WHICH_EMAIL, 'Which email should your Monday summary go to?');
-  assert.equal(coinLinkLine('KIT', 'https://tokens.fun/coin/0xabc'), '$KIT is live: https://tokens.fun/coin/0xabc');
   assert.equal(pickRepoAgain('https://x.test/l'), "Connect your app's code so I can match it (read-only, one click): https://x.test/l\nDone?");
   rule(pickRepoAgain('https://x.test/l'));
   // Money tables say "Up to" (grants and investments aren't prizes), the cell without its own "up to".
@@ -143,13 +127,12 @@ test('copy: the jargon lines and the answer note', () => {
   assert.match(FIND_DESCRIPTION_BENCH, /more: true for what can I earn, what fits me, show programs\./);
   for (const [k, d] of Object.entries(TOOL_DESCRIPTIONS)) assert.ok((d as string).length < 800, `${k} ${(d as string).length}`);
   assert.match(ANSWER_FIRST_NOTE, /from show_to_builder and facts only; if that answer needs a link, use the one in facts/);
-  // about: existing copy only; no deletion policy invented; backers only while Backing is on.
-  const about = aboutFacts(true);
-  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'points', 'builder_code', 'backers', 'data']);
+  // about: existing copy only; no deletion policy invented; v4.0 Task 11: no backers line (Backing is retired).
+  const about = aboutFacts();
+  assert.deepEqual(Object.keys(about), ['earnkit', 'ranking', 'points', 'builder_code', 'data']);
   assert.equal(about.data, 'You can hide your page anytime (say hide my page).');
   assert.equal(about.points, POINTS_PAGE_LINE);
   assert.match(about.builder_code, /^A Builder Code is a one-line tag Base uses to see your traffic\./);
-  assert.equal(aboutFacts(false).backers, undefined);
   for (const s of Object.values(about)) assert.doesNotMatch(s, /—|EARN points|delete/i);
 });
 
@@ -164,7 +147,7 @@ test('facts: a shared client without a signed-in builder gets about alone (find 
   }
 });
 
-test('facts: signed in, no repo: the page, points and what they are for, Earned and applications; no rank, coin or wallet', db, () => withEnv(ON, async () => {
+test('facts: signed in, no repo: the page, points and what they are for, Earned and applications; no rank or wallet', db, () => withEnv(ON, async () => {
   const p = await signedIn('s');
   const r = await mcpCall(p.ctx, 'find', { agent_can_build: false });
   const f = facts(r);
@@ -172,7 +155,7 @@ test('facts: signed in, no repo: the page, points and what they are for, Earned 
   assert.deepEqual(f.points, { total: 0, this_week: 0, what_for: POINTS_PAGE_LINE });
   assert.equal(f.rank, undefined);
   assert.equal(f.wallet, undefined);
-  assert.equal(f.coin, null);
+  assert.equal('coin' in f, false);
   assert.deepEqual(f.earned, { usd: 0 });
   assert.deepEqual(f.applications, []);
   assert.ok(f.about.earnkit);
@@ -192,15 +175,18 @@ test('facts: signed in, no repo: the page, points and what they are for, Earned 
 test('the connect pitch: in full once a day, then its link and question alone', db, async () => {
   const p = await signedIn('p');
   const first = rule(show(await mcpCall(p.ctx, 'find', {})));
-  assert.match(first, /pays? up to \$/);
-  assert.match(first, /Lovable or Bolt/);
+  // v4.0 approved copy 2: the full pitch (the welcome reply: no money line; GitHub unknown: no Lovable or Bolt hint).
+  assert.match(first, /\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\./);
+  assert.doesNotMatch(first, /Lovable or Bolt/);
   for (const tool of ['find', 'score'] as const) {
     const again = rule(show(await mcpCall(p.ctx, tool, {})));
     assert.equal(again, pickRepoAgain(links(again)[0]!), tool);
   }
   // The next day: the full pitch again.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || '{"pitch_day": "2020-01-01"}'::jsonb WHERE builder_id = ${p.id}`;
-  assert.match(show(await mcpCall(p.ctx, 'find', {})), /Lovable or Bolt/);
+  const next = show(await mcpCall(p.ctx, 'find', {}));
+  assert.match(next, /pays? up to \$/);
+  assert.match(next, /\*\*Step 2 of 3:\*\*/);
 });
 
 test('weekly email yes without an address: asks which email unless one is on file; with one, done', db, () => withEnv(ON, async () => {
@@ -221,19 +207,9 @@ test('weekly email yes without an address: asks which email unless one is on fil
   assert.ok(!String((await mcpCall(g.ctx, 'tell', { weekly_email: { answer: 'yes' } })).reply?.agent_note).includes(CHECKIN_INSTEAD_NOTE));
 }));
 
-test('a ranked builder with a live coin: the coin ask leads with its link; facts carry rank, streak, wallet, coin and last week', db, () => withEnv(ON, async () => {
+test('a ranked builder: facts carry rank, streak, wallet and last week (v4.0 Task 11: never a project coin)', db, () => withEnv(ON, async () => {
   await padPool(12, 5);
   const b = await coinBuilder('k');
-  const url = await launch(b);
-  // The token ask with the coin live: "$SYM is live: <tokens.fun>", the backers and fees line, one question, one link.
-  const t = await mcpCall(b.ctx, 'tell', { token: 'ask' });
-  const s = rule(show(t));
-  const [line1, line2] = s.split('\n');
-  assert.match(line1, /^\$[A-Z0-9]+ is live: https:\/\/tokens\.fun\/coin\/0x[0-9a-f]{40}$/);
-  assert.equal(line1.split(': ')[1], url);
-  assert.equal(line2, backersLine(0, 0));
-  assert.equal(links(s).length, 1);
-  assert.equal((t.reply?.move_up as { kind: string }).kind, 'backers_post');
   // score's facts: everything the builder's own questions need, nothing of another builder's.
   const f = facts(await mcpCall(b.ctx, 'score', {}));
   assert.deepEqual(f.page, { url: `https://earnkit.com/${b.handle}`, public: true });
@@ -241,12 +217,9 @@ test('a ranked builder with a live coin: the coin ask leads with its link; facts
   assert.equal(typeof f.rank?.score, 'number');
   assert.equal(typeof f.streak, 'number');
   assert.match(f.wallet ?? '', /^0x[0-9a-f]{4}…[0-9a-f]{4}$/);
-  assert.equal(f.coin?.url, url);
-  assert.equal(f.coin?.backers, 0);
-  assert.equal(f.coin?.fees_to_you, 0);
+  assert.equal('coin' in f, false);
   assert.equal(f.shipped_last_week?.week, lastFinishedMonday(new Date()));
   assert.equal(f.shipped_last_week?.summary, 'Added streak rewards in USDC.');
-  assert.ok(f.about.backers);
   const json = JSON.stringify(f);
   for (const other of ['pad', 'an', 'acs'].map((x) => `"${x}`)) assert.ok(!json.includes(`earnkit.com/${other}`), json);
   process.stdout.write(`# facts example: ${json}\n`);

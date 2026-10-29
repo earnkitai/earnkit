@@ -23,6 +23,8 @@ export const BENCH_PITCH_ALLOWED: RegExp[] = [
   // ("for apps on Base"); the rest of the sentence is still scanned.
   /\b[A-Z][\w&'-]*(?: [A-Z][\w&'-]*){0,3}(?= pays? up to \$[\d,]+(?: investment)? for apps\b)/g,
   /(?<=\bfor apps on )(?:Base|Arc|Tempo|Monad|Robinhood Chain|Avalanche)\b/g,
+  // v4.0 approved copy 1: the intro's open grant names its organizer ("Up to $5,000 is open from Base right now.").
+  /(?<=\bUp to \$[\d,]+ is open from )[A-Z][\w&'-]*(?: [A-Z][\w&'-]*){0,3}(?= right now\.)/g,
   /\b(?:Base|Arc|Robinhood Chain)(?= pays? up to \$\d[\d,.]*[KkMm]? for )/g, // strips the \"who\" name only; the tail is still checked
   /\b[Aa] tip jar on (?:Base|Arc|Robinhood Chain)\b/g,
   // v2.13.3 (2): what a program needs names its chain ("for a Base app", "for an app on Base, Tempo or Robinhood Chain").

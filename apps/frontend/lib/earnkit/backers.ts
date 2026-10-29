@@ -11,7 +11,7 @@ import {
   type BonusChain,
   type BonusRpc,
 } from './bonus-ledger';
-import { pillCoin } from './raising';
+import { builderToken } from './builder-token';
 import { SHARED_BASE_CONTRACTS, tradeVenue } from './shared-contracts';
 import { CLANKER_ADDRESSES } from './traction';
 
@@ -21,7 +21,7 @@ import { CLANKER_ADDRESSES } from './traction';
  * block, from the `coin_tx` receipt), in ranges of at most INDEX_CHUNK blocks, within INDEXER_MS a run, oldest cursor
  * first; one coin's failure never stops the rest. A backer received the coin from the pool side (the Transfer's `from`
  * is a trade venue: the PoolManager, a router or aggregator, or the coin's hook) and is no contract in BACKER_EXCLUDED
- * and not the coin's creator wallet; a transfer between two wallets, an airdrop or a dev buy never adds one. Backers never touch Shipping or rank; they show only while EARNKIT_RAISING is on (bench-data, stats).
+ * and not the coin's creator wallet; a transfer between two wallets, an airdrop or a dev buy never adds one. Backers never touch Shipping or rank; v4.0: they show as a builder token's holders (the Token card, the post card).
  */
 
 /** Each indexer's time slice per run (the cron's runBonusLedger), ms. */
@@ -83,7 +83,8 @@ export async function launchBlock(row: { coin_tx: string | null; launched_at: Da
 }
 
 /**
- * Indexes every launched Base coin's backers (projects.coin_address, token_status 'launched') from its cursor in
+ * Indexes every launched Base coin's backers (projects.coin_address, token_status 'launched', and builder_tokens
+ * status 'launched') from its cursor in
  * coin_backer_cursor up to CONFIRMATIONS behind the head: each Transfer's `to`, unless excluded, is a backer (first
  * block kept). A range is stored completely before the cursor passes it; inserts are idempotent. Bounded by
  * `deadline`, CALLS_PER_COIN and INDEX_CHUNK; coins whose cursor moved longest ago go first. Without a Transfer
@@ -98,12 +99,22 @@ export async function indexBackers(now: Date, o: IndexOpts = {}) {
   const log = o.log ?? console.error;
   if (Date.now() >= deadline) return { coins: 0, added: 0, failed: 0, outOfTime: true as const };
   const db = sql();
+  // v4.0 Task 9: and every launched builder token (builder_tokens: its tx_hash, its wallet the creator), so the
+  // Token card's holders are real. A coin in both lists is read once.
   const rows = await db<{ coin: Hex; coin_tx: string | null; launched_at: Date | null; block: string | null; creator: string | null }[]>`
-    SELECT lower(p.coin_address) AS coin, p.coin_tx, p.coin_launched_at AS launched_at, c.block::text AS block, ${creatorWalletSql(db)} AS creator
-    FROM projects p LEFT JOIN coin_backer_cursor c ON c.coin = lower(p.coin_address)
-    WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND COALESCE(p.coin_chain_id, 8453) = 8453
-      AND (${onlyCoins(o.only)}::text[] IS NULL OR lower(p.coin_address) = ANY(${onlyCoins(o.only)}::text[]))
-    ORDER BY c.updated_at ASC NULLS FIRST, p.id`;
+    SELECT x.coin, x.coin_tx, x.launched_at, c.block::text AS block, x.creator
+    FROM (
+      SELECT DISTINCT ON (coin) * FROM (
+        SELECT lower(p.coin_address) AS coin, p.coin_tx, p.coin_launched_at AS launched_at, ${creatorWalletSql(db)} AS creator, 0 AS src, p.id AS ord
+        FROM projects p
+        WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND COALESCE(p.coin_chain_id, 8453) = 8453
+        UNION ALL
+        SELECT lower(t.coin_address), t.tx_hash, t.created_at, lower(t.wallet), 1, t.builder_id
+        FROM builder_tokens t WHERE t.status = 'launched' AND t.coin_address IS NOT NULL
+      ) u ORDER BY coin, src, ord
+    ) x LEFT JOIN coin_backer_cursor c ON c.coin = x.coin
+    WHERE ${onlyCoins(o.only)}::text[] IS NULL OR x.coin = ANY(${onlyCoins(o.only)}::text[])
+    ORDER BY c.updated_at ASC NULLS FIRST, x.src, x.ord`;
   if (rows.length === 0) return { coins: 0, added: 0, failed: 0 };
   const head = (await rpc.blockNumber()) - CONFIRMATIONS;
   const fixed = [...BACKER_EXCLUDED, chain.feeLocker, chain.safe, ...chain.lockers].map(lower);
@@ -174,22 +185,22 @@ export async function backersOf(coins: string[]): Promise<Map<string, number>> {
   return new Map(rows.map((r) => [r.coin, r.n]));
 }
 
-/** The backers of one coin (lowercase address; 0 for null or none), e.g. raising.ts pillCoin's `coin`. */
+/** The backers of one coin (lowercase address; 0 for null or none), e.g. a builder token's coin_address. */
 export async function backersOfCoin(coin: string | null): Promise<number> {
   return coin ? ((await backersOf([coin])).get(lower(coin)) ?? 0) : 0;
 }
 
 /**
  * v3.1 (spec 3.3): the backers EarnKit first saw after `since` (coin_backers.first_seen_at; a row from before v3.1 is
- * 'epoch', never new) on the builder's coin whose backing is open (raising.ts pillCoin: EARNKIT_RAISING on, launched,
- * opened, the one project confirmed). 0 with the flag off, no such coin, or on a read error. Never throws.
+ * 'epoch', never new) on the builder's launched builder token (v4.0 Task 11: builder_tokens, never a project's coin).
+ * 0 with no launched token, or on a read error. Never throws.
  */
 export async function newBackers(builderId: number, since: Date): Promise<number> {
   try {
-    const c = await pillCoin(builderId);
-    if (!c?.coin) return 0;
+    const t = await builderToken(builderId);
+    if (t?.status !== 'launched' || !t.coin_address) return 0;
     const [r] = await sql()<{ n: number }[]>`
-      SELECT count(DISTINCT wallet)::int AS n FROM coin_backers WHERE coin = ${lower(c.coin)} AND first_seen_at > ${since}`;
+      SELECT count(DISTINCT wallet)::int AS n FROM coin_backers WHERE coin = ${lower(t.coin_address)} AND first_seen_at > ${since}`;
     return r?.n ?? 0;
   } catch (err) {
     console.error('[backers] new', err instanceof Error ? err.name : 'error');

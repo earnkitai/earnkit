@@ -116,16 +116,17 @@ test('(c) Activity: the live dot, 3 week cards a page, the pager; page 2 shows t
 test('(d) Token card: only with site.token, with the board copy; site.token null renders none of it', () => {
   const h = page(MAYA, MAYA_SITE);
   const tok = block(h, 'data-ek-token');
-  for (const s of ['$TIPJAR', 'Back Maya on Base', '23', '$412', 'earned by Maya', 'Maya keeps 40% of fees']) assert.ok(text(tok).includes(s), s);
-  const bars = block(tok, 'aria-label="New backers each week, last 12 weeks"');
+  // v4.0 Task 9: the owner-approved wording ("<first>'s token on Base", holders, Trade).
+  for (const s of ['$TIPJAR', "Maya's token on Base", '23', 'holders', '$412', 'earned by Maya', 'Maya keeps 40% of fees']) assert.ok(text(tok).includes(s), s);
+  const bars = block(tok, 'aria-label="New holders each week, last 12 weeks"');
   assert.equal(count(bars, /<span /g), 12);
   assert.equal(count(bars, /bg-s-bar-on/g), 1, 'the last bar only');
-  assert.match(tok, /<a[^>]*href="https:\/\/tokens\.fun\/c\/tipjar"[^>]*>Back Maya<\/a>/);
+  assert.match(tok, /<a[^>]*href="https:\/\/tokens\.fun\/c\/tipjar"[^>]*>Trade<\/a>/);
   assert.match(tok, /<a[^>]*href="https:\/\/tokens\.fun\/c\/tipjar"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
   // Review Focus 1: no Token card, no Back link, no coin line, whatever ProfileData.backing says.
   const none = page(MAYA, { ...MAYA_SITE, token: null });
   assert.doesNotMatch(none, /data-ek-token|tokens\.fun/);
-  for (const s of ['$TIPJAR', 'Back Maya', 'earned by Maya', 'keeps 40%', 'backers']) assert.ok(!text(none).includes(s), s);
+  for (const s of ['$TIPJAR', "Maya's token", 'Trade', 'earned by Maya', 'keeps 40%', 'holders']) assert.ok(!text(none).includes(s), s);
 });
 
 test('(e) the standing pill: metal, its place as the title; standing null shows no rank anywhere', () => {
@@ -187,7 +188,7 @@ test('(f) first week, no project, confirming: every card has text; nothing reads
 });
 
 test('(g) a hidden repo: Private project, no github.com link, no about line', () => {
-  const data: ProfileData = { ...MAYA, backing: null, project: { ...MAYA.project!, name: PRIVATE_NAME, what: null, live: null, repo: null, coin: null } };
+  const data: ProfileData = { ...MAYA, project: { ...MAYA.project!, name: PRIVATE_NAME, what: null, live: null, repo: null } };
   const site: ProfileSite = {
     ...MAYA_SITE, token: null, standing: null,
     project: { name: PRIVATE_NAME, about: null, link: null, repo: null, onBase: true, earnkit: false, letter: 'P', color: MAYA_SITE.project!.color },
@@ -272,9 +273,9 @@ test('(l) fix round 1: money signs in Funnel Sans; the coin is the project tile;
   assert.equal(sign(tok).length, 2, 'the ticker and the fees');
   assert.match(tok, /<span data-ek-sign[^>]*>\$<\/span>TIPJAR/);
   assert.match(tok, /<span data-ek-sign[^>]*>\$<\/span>412/);
-  // The coin: the project's letter and colour, not the symbol's.
-  const coin = page(MAYA, { ...MAYA_SITE, token: { ...MAYA_SITE.token!, letter: 'Z', color: 'x' }, project: { ...MAYA_SITE.project!, letter: 'Q', color: 'rgb(1, 2, 3)' } });
-  assert.match(block(coin, 'data-ek-token'), /style="background:rgb\(1, 2, 3\)">Q</);
+  // v4.0 Task 9: the circle is the builder's (their initial on its colour without a photo), never the project tile.
+  const coin = page(MAYA, { ...MAYA_SITE, token: { ...MAYA_SITE.token!, letter: 'M', color: 'rgb(1, 2, 3)' }, project: { ...MAYA_SITE.project!, letter: 'Q', color: 'x' } });
+  assert.match(block(coin, 'data-ek-token'), /style="background:rgb\(1, 2, 3\)">M</);
   // A facts-only week with its commits at the right does not repeat them in the words.
   const act = block(page({ ...JENIL, log: [{ week: '2026-10-12', text: null, chips: ['Went live', '12 commits'], commits: 12 }] }, JENIL_SITE), 'data-ek-activity');
   assert.equal((text(act).match(/12 commits/g) ?? []).length, 1);

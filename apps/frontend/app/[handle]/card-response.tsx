@@ -31,7 +31,7 @@ export { CardWordmark } from './card-parts';
  * GTM W4 (2026-10-23): the card is the profile in small, in the v3.1 site language (DESIGN.md): the page's dark
  * ground, the blue hero (photo, name in Kaftan Serif, @handle, the project panel with its verified live host and
  * quiet facts, earnkit.com/<handle> with the mark), and beside it up to two big facts as the profile's own cards
- * (card-facts.ts: the navy Shipping ring while ranked, the white Backing card, a win, the rust streak; the commits
+ * (card-facts.ts: the navy Shipping ring while ranked, the white Token card (holders), a win, the rust streak; the commits
  * tile went with Highlights' commit count, v3.1 Highlights competence), and one of the site's paintings in a slot no fact fills. No confirmed project: one calm line in
  * the hero. Drawn to read at X's phone preview (about 0.42 of 1200px): nothing under 24px.
  */
@@ -239,10 +239,10 @@ function Tile({ t, height, grid }: { t: CardTile; height: number; grid: boolean[
     case 'backing':
       return (
         <Card bg={S.light} width={SIDE} height={height}>
-          <div style={{ display: 'flex', fontSize: 28, fontWeight: 600, color: S.inkBody }}>Backing open</div>
+          <div style={{ display: 'flex', fontSize: 28, fontWeight: 600, color: S.inkBody }}>Token</div>
           <div style={{ display: 'flex', flex: 1 }} />
           <div style={{ display: 'flex', fontFamily: DISPLAY, fontSize: t.symbol.length > 6 ? 64 : 84, lineHeight: 1, color: S.ink }}>${t.symbol}</div>
-          {t.backers !== null ? <div style={{ display: 'flex', marginTop: 10, fontSize: 26, color: S.inkMuted }}>{`${t.backers.toLocaleString('en-US')} backers`}</div> : null}
+          {t.backers !== null ? <div style={{ display: 'flex', marginTop: 10, fontSize: 26, color: S.inkMuted }}>{`${t.backers.toLocaleString('en-US')} holders`}</div> : null}
         </Card>
       );
     case 'won':

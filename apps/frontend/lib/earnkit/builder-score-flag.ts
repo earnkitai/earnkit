@@ -9,6 +9,3 @@ export const archiveFlag = (name: ArchiveName, env: Record<string, string | unde
 export const xSignInEnabled = (env: Record<string, string | undefined> = process.env) =>
   Boolean(env.X_CLIENT_ID?.trim() && env.X_CLIENT_SECRET?.trim());
 
-/** The community round's pill and asks: the legal switch (spec 5: "EARNKIT_RAISING stays"). */
-export const RAISING_FLAG = 'EARNKIT_RAISING';
-export const raisingEnabled = (env: Record<string, string | undefined> = process.env) => env[RAISING_FLAG] === 'on';

@@ -61,7 +61,7 @@ test('7.3 a signed message proves a wallet once; a wrong signer, an expired toke
   const token = upgradeToken(me.id, NOW)!;
   const signature = await signWith(acct, me.handle, token);
   const first = await proveWallet({ token, wallet: acct.address, signature }, NOW, viemVerify);
-  assert.deepEqual(first, { ok: true, recipient: true, line: walletDoneLine(acct.address.toLowerCase()) });
+  assert.deepEqual(first, { ok: true, recipient: true, first: true, line: walletDoneLine(acct.address.toLowerCase()) });
   const [w] = await sql()`SELECT builder_id FROM person_wallets WHERE wallet = ${acct.address.toLowerCase()}`;
   assert.equal(w.builder_id, me.id);
   const [q] = await sql()<{ done_at: Date | null }[]>`SELECT done_at FROM discovery_queue WHERE builder_id = ${me.id}`;
@@ -98,7 +98,7 @@ test('fix round 1: a second wallet without the X sign-in counts for contracts on
   const later = new Date(NOW.getTime() + 60_000);
   const t2 = upgradeToken(me.id, later)!;
   const leaked = await proveWallet({ token: t2, wallet: second.address, signature: await signWith(second, me.handle, t2) }, later, viemVerify);
-  assert.deepEqual(leaked, { ok: true, recipient: false, line: walletContractsLine(W1) });
+  assert.deepEqual(leaked, { ok: true, recipient: false, first: false, line: walletContractsLine(W1) });
   assert.equal(await provenWallet(me.id), W1);
   assert.deepEqual(await provenSince(me.id, later), { wallet: second.address.toLowerCase(), recipient: false });
   // With the page's X sign-in for that link in this browser (its cookie secret), re-proving makes it the recipient.
@@ -107,7 +107,7 @@ test('fix round 1: a second wallet without the X sign-in counts for contracts on
   const ck = await walletXSignIn(t3, me.x);
   assert.ok(ck);
   const moved = await proveWallet({ token: t3, wallet: second.address, signature: await signWith(second, me.handle, t3), xSecret: ck.split('=')[1] }, later2, viemVerify);
-  assert.deepEqual(moved, { ok: true, recipient: true, line: walletDoneLine(second.address.toLowerCase()) });
+  assert.deepEqual(moved, { ok: true, recipient: true, first: false, line: walletDoneLine(second.address.toLowerCase()) });
   assert.equal(await provenWallet(me.id), second.address.toLowerCase());
   const [s] = await sql()<{ n: string | null }[]>`SELECT standing_seen->>'wallet_notice' AS n FROM builder_profiles WHERE builder_id = ${me.id}`;
   assert.equal(s.n, short(second.address.toLowerCase()));

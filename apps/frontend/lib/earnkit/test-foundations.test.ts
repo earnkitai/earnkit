@@ -44,7 +44,7 @@ test('2.3 this file runs in its own database, with the schema and the programs',
   assert.ok(p.n > 0, 'the programs were synced into the template');
 });
 
-test('2.4 mcpCall goes through tools/call: the schema runs before the handler', db, () => withEnv({ EARNKIT_RAISING: 'on' }, async () => {
+test('2.4 mcpCall goes through tools/call: the schema runs before the handler', db, () => withEnv({}, async () => {
   const token = `ek_t2_${process.pid}_${Date.now()}`;
   await saveInstallation(token, undefined, false);
   const c = (await connectInstallation(token))!;
@@ -52,22 +52,22 @@ test('2.4 mcpCall goes through tools/call: the schema runs before the handler', 
   const r = await mcpCall(ctx, 'find', {});
   assert.equal(r.isError, false, r.text);
   assert.equal(typeof r.reply?.show_to_builder, 'string');
-  const bad = await mcpCall(ctx, 'confirm', { yes: 'not-a-boolean' });
+  const bad = await mcpCall(ctx, 'tell', { card: 'not-an-answer' });
   assert.equal(bad.isError, true);
-  assert.match(bad.text, /invalid|yes|expected/i, `the schema's validation message, got: ${bad.text}`);
+  assert.match(bad.text, /invalid|card|expected/i, `the schema's validation message, got: ${bad.text}`);
   // find's schema is a plain object: an unknown key is stripped, not an error.
   const stripped = await mcpCall(ctx, 'find', { not_a_real_key: 1 });
   assert.equal(stripped.isError, false, stripped.text);
-  // confirm's schema is .strict(): an unknown key is a validation error naming the key.
-  const strict = await mcpCall(ctx, 'confirm', { not_a_real_key: 1 });
+  // tell's schema is .strict(): an unknown key is a validation error naming the key.
+  const strict = await mcpCall(ctx, 'tell', { not_a_real_key: 1 });
   assert.equal(strict.isError, true);
   assert.match(strict.text, /not_a_real_key|unrecognized|invalid/i, strict.text);
 }));
 
-test('2.5 mcpListTools lists the four tools; confirm (Backing) only with EARNKIT_RAISING on', async () => {
+test('2.5 mcpListTools lists the four tools (v4.0 Task 11: never confirm, whatever EARNKIT_RAISING says)', async () => {
   const names = async () => (await mcpListTools({ installationId: 1 })).map((t) => t.name).sort();
   assert.deepEqual(await withEnv({ EARNKIT_RAISING: undefined }, names), ['find', 'prepare', 'score', 'tell']);
-  assert.deepEqual(await withEnv({ EARNKIT_RAISING: 'on' }, names), ['confirm', 'find', 'prepare', 'score', 'tell']);
+  assert.deepEqual(await withEnv({ EARNKIT_RAISING: 'on' }, names), ['find', 'prepare', 'score', 'tell']);
 });
 
 test('2.6 every v214 agent-input test goes through mcpCall, never a handler alone', () => {

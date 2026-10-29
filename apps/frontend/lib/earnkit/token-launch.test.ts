@@ -632,11 +632,13 @@ test('v2.8.1 §A1, §A5: a launch in progress says "launching"; settled or past 
 
 test('launchToken: reuses the stored name and ticker, and passes the chain', async () => {
   const h = harness({ token_name: 'Kit One', token_symbol: 'KONE' });
-  const out = await launchToken(launchInput({ chain: 'arbitrum' }), 1, h.deps);
+  const out = await launchToken(launchInput({ chain: 'base' }), 1, h.deps);
   assert.equal(out.status, 'launched');
   assert.equal(h.deploys[0].name, 'Kit One');
   assert.equal(h.deploys[0].symbol, 'KONE');
-  assert.equal(h.deploys[0].chain, 'arbitrum');
+  assert.equal(h.deploys[0].chain, 'base');
+  // v4: tokens launch on Base only.
+  assert.throws(() => launchInput({ chain: 'arbitrum' } as never));
 });
 
 test('launchToken: an invalid stored ticker falls back to the proposal', async () => {

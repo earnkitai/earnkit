@@ -5,11 +5,11 @@
   "description": "Grants for teams building on Arc and the Circle Developer Platform: milestone-based USDC funding, co-marketing, technical guidance, and Circle ecosystem access. Focus areas: agentic economic activity, stablecoin FX, peer-to-peer payments, treasury management, prediction markets, and lending and borrowing. The current round is Circle 2026 Cohort 2.",
   "source_url": "https://www.circle.com/grant",
   "submission_url": "https://circle.questbook.app/",
-  "reward": "Milestone-based USDC grants from $5,000 to $100,000 per project (Cohort 2 shows $200K available)",
+  "reward": "Milestone-based USDC grants from $5,000 to $100,000 per project (Cohort 2 shows $135K available)",
   "summary": "$5,000 to $100,000 USDC grants · rolling",
   "max_award_usd": 100000,
   "min_award_usd": 5000,
-  "pool_usd": 200000,
+  "pool_usd": 135000,
   "pool_source_url": "https://circle.questbook.app/",
   "ideas": [
     "An agent that settles payments in USDC on Arc",
@@ -20,7 +20,7 @@
   "tag": "needs a live product",
   "starts_at": null,
   "ends_at": null,
-  "verified_at": "2026-10-20",
+  "verified_at": "2026-10-28",
   "status": "active",
   "existing_work": "allowed",
   "needs_repo": false,
@@ -39,7 +39,7 @@
     "Circle prioritizes teams with proven shipping ability and evidence of usage, pilots, partnerships, revenue, or a credible path to get there.",
     "Payments are released as agreed milestones are met and approved, not up front.",
     "Process: application, initial review, finalist technical review (with screenings), milestone design, then disbursement.",
-    "Selective: as of Oct 20, 2026 the Cohort 2 portal showed 881 proposals and 14 accepted.",
+    "Selective: as of Oct 28, 2026 the Cohort 2 portal showed 913 proposals and 14 accepted.",
     "Qualifying Arc builders can also get security audit funding through Developer Grants."
   ],
   "submission_requirements": [
@@ -119,7 +119,7 @@
   "best_bet": "A live stablecoin FX or peer-to-peer payments app settling on Arc",
   "difficulty_override": {
     "level": "Hard",
-    "basis": "14 of 881 proposals accepted so far in Cohort 2",
+    "basis": "14 of 913 proposals accepted so far in Cohort 2",
     "source_url": "https://circle.questbook.app/"
   },
   "x_handles": [

@@ -2,12 +2,12 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import BenchView, { BENCH_EMPTY, FILTER_BACKED, LEADERBOARD_PAGE, countLine, emptyLine, pageHref } from '../../app/leaderboard/BenchView';
+import BenchView, { BENCH_EMPTY, LEADERBOARD_PAGE, countLine, emptyLine, pageHref } from '../../app/leaderboard/BenchView';
 import { benchRows, type BenchFilter, type BenchRow } from './bench-data';
 import { sql } from './db';
 import { person, withEnv } from './fixtures/find';
 import { RANK_MIN_POOL } from './rank';
-import { BENCH_EARLY, BENCH_EMPTY_BACKED, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, CTA_INSTALL, leaderboardLine } from './site-copy';
+import { BENCH_EARLY, BENCH_EMPTY_BASE, BENCH_INVITE, BENCH_TOP_EMPTY, BENCH_VERIFIED, CTA_INSTALL, leaderboardLine } from './site-copy';
 
 /**
  * v3.1 site Task 8: the leaderboard (Leaderboard board): the podium (blue, navy, rust, metal place pills), the rows
@@ -32,7 +32,6 @@ const rowsOf = (n: number): BenchRow[] =>
     handle: `bldr_${i + 1}`,
     name: `Builder ${i + 1}`,
     avatar: null,
-    backing: null,
     chains: ['base'],
     project: `Project ${i + 1}`,
     best: '2 weeks in a row',
@@ -99,7 +98,7 @@ test('(a) 12 rows, count 12: three podium cards (#1 gold blue, #2 silver navy, #
   assert.doesNotMatch(text(h), /\bpoints?\b/i, 'no points on the page');
 });
 
-test('(b) the filter rail: All on for the plain filter; Base only with a base chip; Backed only with EARNKIT_RAISING=on; ?backed=1 marks Backed', () =>
+test('(b) the filter rail: All on for the plain filter; Base only with a base chip; v4.0 Task 11: never Backed, whatever EARNKIT_RAISING says', () =>
   withEnv({ EARNKIT_RAISING: undefined }, async () => {
     const tabs = (h: string) => [...block(h, 'aria-label="Filters"').matchAll(/<a ([^>]*)>([^<]*)<\/a>/g)].map((m) => ({ href: /href="([^"]*)"/.exec(m[1])![1], on: m[1].includes('aria-current="page"'), label: m[2] }));
     const off = view(rowsOf(12));
@@ -109,11 +108,7 @@ test('(b) the filter rail: All on for the plain filter; Base only with a base ch
     // Old links still filter (the rows are the caller's) and mark no tab (W3).
     for (const filter of [{ chain: 'arc' as const, weekly: false }, { chain: null, weekly: true }]) assert.equal(tabs(view(rowsOf(12), { filter })).filter((t) => t.on).length, 0);
     await withEnv({ EARNKIT_RAISING: 'on' }, async () => {
-      const on = view(rowsOf(12));
-      assert.deepEqual(tabs(on).map((t) => t.label), ['All', 'Base', FILTER_BACKED]);
-      assert.equal(tabs(on).at(-1)!.href, '/leaderboard?backed=1');
-      const backed = tabs(view(rowsOf(12), { filter: { chain: null, weekly: false, backed: true } }));
-      assert.deepEqual(backed.filter((t) => t.on).map((t) => t.label), [FILTER_BACKED]);
+      assert.deepEqual(tabs(view(rowsOf(12))).map((t) => t.label), ['All', 'Base']);
     });
   }));
 
@@ -160,13 +155,12 @@ test('(c2) few builders (1 to 9 ranked): no podium, no filter rail, every builde
   assert.doesNotMatch(view([], { count: 0 }), /data-ek-invite=|aria-label="Builders"/);
 });
 
-test('(c3) a filter with no rows says what is missing: Base, Backed, else BENCH_EMPTY', () => {
+test('(c3) a filter with no rows says what is missing: Base, else BENCH_EMPTY', () => {
   assert.equal(emptyLine({ chain: 'base', weekly: false }), BENCH_EMPTY_BASE);
-  assert.equal(emptyLine({ chain: null, weekly: false, backed: true }), BENCH_EMPTY_BACKED);
   assert.equal(emptyLine({ chain: 'arc', weekly: false }), BENCH_EMPTY);
   assert.equal(emptyLine({ chain: null, weekly: true }), BENCH_EMPTY);
-  const h = view([], { count: 12, filter: { chain: null, weekly: false, backed: true } });
-  assert.ok(text(h).includes(BENCH_EMPTY_BACKED));
+  const h = view([], { count: 12, filter: { chain: 'base', weekly: false } });
+  assert.ok(text(h).includes(BENCH_EMPTY_BASE));
 });
 
 test('(d) 45 rows: page 1 shows the podium and rows 4 to 20, "1 of 3"; page 2 rows 21 to 40, no podium, Previous enabled', () => {
@@ -191,18 +185,8 @@ test('(d) 45 rows: page 1 shows the podium and rows 4 to 20, "1 of 3"; page 2 ro
   assert.doesNotMatch(view(rowsOf(12)), /aria-label="Pages"/);
 });
 
-test('(e) a row with backing shows "Backed" (navy tag); none without', () => {
-  const rows = rowsOf(12).map((r) => (r.rank === 5 ? { ...r, backing: { symbol: 'KIT', url: 'https://tokens.fun/coin/0xabc' } } : r));
-  const h = view(rows);
-  const row = block(h, 'data-row="bldr_5"');
-  assert.match(row, /data-ek-backed=""[^>]*class="[^"]*\bbg-s-navy\b[^"]*\btext-s-on-navy\b[^"]*"[^>]*>Backed</);
-  assert.doesNotMatch(row, /Backing|\$KIT|tokens\.fun/, 'the tag only, never the coin');
-  for (const r of listRows(h).filter((x) => x !== 'bldr_5')) assert.doesNotMatch(block(h, `data-row="${r}"`), /Backed/);
-  assert.doesNotMatch(view(rowsOf(12)), /data-ek-backed/);
-});
-
 test('(f) no <a> inside an <a>', () => {
-  const rows = rowsOf(45).map((r) => ({ ...r, backing: { symbol: 'KIT', url: 'https://tokens.fun/coin/0xabc' } }));
+  const rows = rowsOf(45);
   for (const h of [view(rows), view(rows, { page: 2 }), view(rowsOf(9))]) {
     let depth = 0;
     for (const m of h.matchAll(/<(\/?)a\b/g)) {
@@ -212,7 +196,7 @@ test('(f) no <a> inside an <a>', () => {
   }
 });
 
-test('(g) EarnKit\'s own repo never shows Backing: with EARNKIT_RAISING on and an open coin, no tag, no Backed filter row', db, () =>
+test('(g) v4.0 Task 11: no row shows Backing, EarnKit\'s own repo or another, even with EARNKIT_RAISING on and an open coin', db, () =>
   withEnv({ EARNKIT_RAISING: 'on' }, async () => {
     const coin = async (id: number, key: string, symbol: string) =>
       sql()`
@@ -224,20 +208,11 @@ test('(g) EarnKit\'s own repo never shows Backing: with EARNKIT_RAISING on and a
     await coin(own, 'earnkitai/earnkit', 'EARNKIT');
     await coin(other, `${tag}/kit`, 'KIT');
     const all = await benchRows(PLAIN, { only: [own, other] });
-    const byHandle = new Map(all.rows.map((r) => [r.handle, r]));
-    assert.equal(byHandle.get(`${tag}a`)!.backing, null, 'never for earnkitai/earnkit');
-    assert.ok(byHandle.get(`${tag}b`)!.backing, 'another open coin is Backed');
-    const backed = await benchRows({ ...PLAIN, backed: true }, { only: [own, other] });
-    assert.deepEqual(backed.rows.map((r) => r.handle), [`${tag}b`]);
+    assert.deepEqual(all.rows.map((r) => r.handle).sort(), [`${tag}a`, `${tag}b`]);
     const h = view(all.rows, { count: all.count });
     const mine = block(h, `data-row="${tag}a"`);
     assert.ok(text(mine).includes(`@${tag}a`), mine);
-    assert.doesNotMatch(mine, /Backed|Backing|EARNKIT|tokens\.fun/);
-    assert.doesNotMatch(h, /\$EARNKIT|Backing ·/);
-    // Another org repo of EarnKit's is excluded too.
-    const kit = await person({ projects: [{ key: 'earnkitai/chain-kits', name: 'Kits', confirmed: true, streak: 1 }], score: 60, ranked: true, main: 'earnkitai/chain-kits', claimed: `${tag}c` });
-    await coin(kit, 'earnkitai/chain-kits', 'KITS');
-    assert.equal((await benchRows(PLAIN, { only: [kit] })).rows[0].backing, null);
+    assert.doesNotMatch(h, /Backed|Backing|data-ek-backed|\$EARNKIT|\$KIT|tokens\.fun/);
   }));
 
 function count(h: string, re: RegExp) {

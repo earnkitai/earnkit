@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mondayOpener } from './weekly-moment';
 import { BENCH_ALLOWED, bannedIn, bannedInBench } from './fixtures/banned-words';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -8,11 +9,8 @@ import { CHAIN_LABEL, rankLine, scoreLine } from './rank';
 import { bestFact } from './bench-data';
 import BenchView, { BENCH_EMPTY, BENCH_TITLE, FILTER_WEEKLY } from '../../app/leaderboard/BenchView';
 import { leaderboardLine } from './site-copy';
-import { raiseLine } from './coin-moments';
-import { RAISE_LINES, showRaisingLine } from './raising';
-import RaisingPill from '../../app/components/ui/RaisingPill';
 import {
-  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat, momentHead,
+  INTRO_LINE, MOMENT_ASK, SHIP_ASK, TITLES_ASK, grantHook, qualifyAsk, qualifyMissing, qualifySteps, STATE_COPY, VARIANT_COPY, applyAsk, connectAsk, connectStanding, introWhat,
   qualifyLine, shipPointsLine, standingLine, youreIn,
 } from './bench-reply';
 import { fitWhy } from './bench-find';
@@ -34,7 +32,7 @@ export const TEXTS: string[] = ([
   qualifySteps({ org: 'Base', amount: '$5,000', chain: 'Base' }, ['base', 'codes', 'use']),
   STATE_COPY.not_counted.stand('Recipe planner'), standingLine('Recipe planner', 'Top 18% of builders', 3, 340), connectStanding('Recipe planner', '#3 of 12 builders', 2),
   connectAsk('earnkit.com/maya'), qualifyLine({ title: 'Base Builder Grants', amount: '$5,000', when: 'closes Oct 30' }), applyAsk('Base Builder Grants', '$5,000', null),
-  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), momentHead({ week: 4 }), MOMENT_ASK,
+  SHIP_ASK, shipPointsLine(), shipPointsLine('Ship code this week to pass #2'), mondayOpener('Maya', null), MOMENT_ASK,
   ...([
     { chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
     { chains: { arc: { mainnet: true, testnet: false, evidence: 'x', basis: 'deploy_config' } }, live: false },
@@ -42,11 +40,8 @@ export const TEXTS: string[] = ([
     { chains: { robinhood: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } }, live: true },
   ] as const).map((repo) => fitWhy({ chains: ['base', 'arc', 'monad', 'robinhood'], any_chain: false, tag: 'needs a live product' }, repo)),
   fitWhy({ chains: [], any_chain: true, tag: null }, { chains: {}, live: false }),
-  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x'), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x'),
+  STATE_COPY.signed_out.ask('https://earnkit.com/signin/x'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://earnkit.com/github/verify?n=x', false), STATE_COPY.not_counted.ask('https://earnkit.com/github/verify?n=x', false),
   ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('Recipe planner'), v.ask('Recipe planner')]),
-  // T9: the raise lines and the pill's words.
-  raiseLine('Recipe planner', 'RECIPE', null), showRaisingLine('RECIPE'), RAISE_LINES.on('RECIPE'), RAISE_LINES.off, RAISE_LINES.notLaunched,
-  pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })),
 ] as (string | null)[]).filter((x): x is string => x !== null);
 
 test('7.5 every v2.13 string passes the v2.13 copy rule', () => {
@@ -64,12 +59,6 @@ test('7.6 the rule: chain names only inside a rank line, "percentile", "signal",
     'Base pays up to $5K for the builder bonus.', 'Arc pays up to $5K for Base apps.', 'Desktop 5% on Base', 'Stop 1% on Base'])
     assert.notDeepEqual(bannedInBench(bad, []), [], bad);
   assert.ok(BENCH_ALLOWED.every((r) => r.global), 'every allowance strips every match');
-});
-
-test('9.9 the pill says "Backing · $RECIPE" (v3 Stage 2) and links to the coin\'s tokens.fun page, nothing else', () => {
-  const h = renderToStaticMarkup(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc', size: 'sm' }));
-  assert.equal(pageWords(React.createElement(RaisingPill, { symbol: 'RECIPE', url: 'https://tokens.fun/coin/0xabc' })).trim(), 'Backing · $RECIPE');
-  assert.match(h, /^<a href="https:\/\/tokens\.fun\/coin\/0xabc" target="_blank" rel="noopener noreferrer"/);
 });
 
 test('10.7 the Bench\'s words pass the v2.13 rule; its chips may name a chain (copy rules)', () => {

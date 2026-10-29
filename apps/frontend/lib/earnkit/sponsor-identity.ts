@@ -248,7 +248,7 @@ export function reservedNameProblem(
         ? 'a title may say where to build ("Build on Base"), but not read as by or official to the ' +
           'brand ("Official", "by/from <brand>", or "<brand> Grant/Foundation/Labs/…").'
         : 'names are matched as whole words after normalizing look-alike letters, and words that join ' +
-          'into a brand count too (e.g. "Coin Base").')
+          'into a brand count too (e.g. "Earn Kit").')
     );
   }
   return null;

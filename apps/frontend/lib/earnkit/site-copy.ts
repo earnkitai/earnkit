@@ -48,10 +48,12 @@ export function agoWords(at: Date, now: Date): string {
   return `on ${monthDay(at)}`;
 }
 
-/** The first word of the X name; the handle when the name is empty or is the `@handle` placeholder. */
+/**
+ * The first word of the X name that has a letter (v4.0 final review 8: the reply side's rule, bench-reply.ts firstName,
+ * so an emoji display name never shows); the handle when there is none or the name is the `@handle` placeholder.
+ */
 export function firstName(name: string, handle: string): string {
-  const first = name.trim().split(/\s+/)[0] ?? '';
-  return first === '' || first.startsWith('@') ? handle : first;
+  return name.trim().split(/\s+/).find((w) => /\p{L}/u.test(w) && !w.startsWith('@')) || handle;
 }
 
 /** The metal of a "Top N%" standing pill: gold up to 5, silver up to 10, bronze up to 25. */
@@ -101,7 +103,7 @@ export const STEPS_TITLE = 'From commit to capital';
 export const STEPS = [
   { title: 'Connect', text: 'Add EarnKit to your agent. Connect your GitHub.' },
   { title: 'Ship', text: 'We score how steadily you ship, every day.' },
-  { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.', backing: 'Fans can back you with your coin.' },
+  { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.' },
 ] as const;
 export const ACTIVITY_TITLE = 'Activity';
 export const ACTIVITY_MORE = 'See the leaderboard';
@@ -132,11 +134,12 @@ export const STREAK_TITLE = 'Streak';
 export const PROFILE_ACTIVITY = 'Activity';
 export const shippedAgo = (w: string): string => `Shipped ${w}`;
 export const HIGHLIGHTS_TITLE = 'Highlights';
-export const backOn = (first: string): string => `Back ${first} on Base`;
-export const backLabel = (first: string): string => `Back ${first}`;
+/** v4.0 Task 9 (owner-approved Token card): the builder's own token, traded on Uniswap. */
+export const backOn = (first: string): string => `${first}'s token on Base`;
+export const backLabel = (_first: string): string => 'Trade';
 export const keepsLine = (first: string): string => `${first} keeps 40% of fees`;
 export const feesBy = (first: string): string => `earned by ${first}`;
-export const BACKERS = 'backers';
+export const BACKERS = 'holders';
 export const leaderboardLine = (n: number): string => `${n.toLocaleString('en-US')} ${n === 1 ? 'builder' : 'builders'}, ranked by how often they ship`;
 /** Clarity batch: after the leaderboard's count line, so a grant lead sees the score is read, not claimed. */
 export const BENCH_VERIFIED = 'From GitHub commits, read daily. Not self-reported.';
@@ -148,9 +151,7 @@ export const BENCH_EARLY = 'Scored by how often they ship, out of 100';
 export const BENCH_INVITE = 'Be the next builder here.';
 /** A filter with no rows: what is missing, in plain words (the "Show everyone" pill sits beside it). */
 export const BENCH_EMPTY_BASE = 'No builder on Base yet.';
-export const BENCH_EMPTY_BACKED = 'No builder has opened Backing yet.';
-export const FILTERS = { all: 'All', base: 'Base', backed: 'Backed' } as const;
-export const BACKED_TAG = 'Backed';
+export const FILTERS = { all: 'All', base: 'Base' } as const;
 /** Above the feed's pager when a week has more builders than the feed shows (FEED_WEEK_MAX cards a week). */
 export const feedShowingLine = (shown: number, all: number): string => `Showing the top ${shown.toLocaleString('en-US')} of ${all.toLocaleString('en-US')} builders`;
 export const FEED_STATS = { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' } as const;

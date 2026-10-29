@@ -20,6 +20,7 @@ import {
   BASE_START_ASK, LOVABLE_PROMPT_ASK, NEW_REPO_ASK, NEXT_STEP_ASK, NEXT_STEP_LATER, TEMPLATE_NOTICE, TITLES_ASK, baseStartSteps, benchReply, stateAsk, walletOffer,
   type BenchProject, type BenchView,
 } from './bench-reply';
+import { walletSetupAsk } from './bench-reply';
 import { BASE_START_NOTE, BASE_STEPS_NOTE, LOVABLE_PROMPT_NOTE, NEW_REPO_NOTE, NEW_REPO_YES_NOTE, NEXT_STEP_NOTE, PICK_REPO_NOTE, staleRepo } from './bench-find';
 import { WALLET_NOTE } from './wallet-offer';
 import { takeNews, type StandBase } from './stand-view';
@@ -49,16 +50,20 @@ type R = Awaited<ReturnType<typeof mcpCall>>;
 const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
 const questions = (s: string) => (s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length;
-const rule = (s: string) => {
+/** v4.0 setup step 3 on the no-GitHub path (nothing connected, so no project line; tokens off here): once a person. */
+const isStep3 = (s: string) => s === walletSetupAsk(null, links(s)[0] ?? '', false);
+const rule = (s: string, asks = 1) => {
   assert.ok(links(s).length <= 1, s);
-  assert.equal(questions(s), 1, s);
+  assert.equal(questions(s), asks, s);
   assert.doesNotMatch(s, /—|\p{Extended_Pictographic}/u, s);
   return s;
 };
 const GUIDE = 'https://docs.base.org/base-chain/builder-codes/builder-codes';
-const STEP2 = /^Connect your app's code on GitHub so I can match it \(read-only, one click\): https:\/\/earnkit\.com\/github\/verify\?n=\S+\nBuilt it in Lovable or Bolt: connect GitHub there first \(Lovable: Project settings, Git\. Bolt: GitHub icon, top right\)\.\nDone\?$/;
+const STEP2 = /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nDone\?$/;
+/** v4.0 approved copy 2: step 2 for a builder with no GitHub (said so): the Lovable or Bolt hint, its own question. */
+const STEP2_HINT = /^\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\. Read-only, one click: https:\/\/earnkit\.com\/github\/verify\?n=\S+\n\nBuilt it in Lovable or Bolt\? Connect GitHub there first \(Lovable: Project settings, then Git\. Bolt: the GitHub icon, top right\)\.\n\nDone\?$/;
 /** v3.1 cold read: the first reply's welcome (once). */
-const WELCOME = (u: string) => `You're in, @${u}. I find grants your app qualifies for and write the applications.`;
+const WELCOME = (u: string) => `You're in, @${u}. Really glad you're here.`;
 /** v3.1 cold read: the walk-through for Base Builder Grants as listed ($5,000, on Base). */
 const STEPS = baseStartSteps({ org: 'Base', amount: '$5,000', chain: 'Base', name: 'Base Builder Grants' });
 const seen = async (id: number) => ((await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`)[0]?.s ?? {});
@@ -141,7 +146,7 @@ test('the order: step 2 until a no; then the walk-through, the wallet step, the 
   const view: BenchView = { ...v, link: null, rank: null, streak: 0, target: null, fund: [], due: [], held: null, ask: rest, notice: TEMPLATE_NOTICE };
   // v3.1 cold read: "You're in" only when this reply is the first after sign-in (welcome).
   assert.equal(rule(benchReply(view)), `${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
-  assert.equal(rule(benchReply({ ...view, welcome: true })), `${WELCOME('maya')}\n${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
+  assert.equal(rule(benchReply({ ...view, welcome: true })), `${WELCOME('maya')}\n\n${TEMPLATE_NOTICE}\n${NEXT_STEP_ASK}`);
 
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const r = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit' };
@@ -162,13 +167,13 @@ test('staleRepo: no commits in the last 8 weeks (this one included); no weeks kn
   assert.equal(staleRepo([wk(0)], now), false);
 });
 
-test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wallet step (no contracts), the page reads Getting started on Base', db, async () => {
+test('GitHub no, then yes to Base: step 2 never repeats, the steps once, setup step 3 once (v4.0), the page reads Getting started on Base', db, async () => {
   const p = await signedIn('y');
   const first = await find(p.ctx);
   const s1 = rule(show(first));
   assert.equal(s1.split('\n')[0], WELCOME(p.username));
-  // GTM W2 (value before the ask): the open grant's line, then step 2.
-  assert.match(s1.split('\n')[1], / pays? up to \$[\d,]+ for apps/);
+  // v4.0 approved copy 2: the welcome, then step 2 alone (the intro named the open grant).
+  assert.equal(s1.split('\n')[1], '');
   assert.match(s1.split('\n').slice(2).join('\n'), STEP2);
   assert.deepEqual(first.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.match(PICK_REPO_NOTE, /no GitHub yet, or not connecting it now, is a no/);
@@ -202,7 +207,11 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   assert.equal(show(help), '');
   assert.equal(help.reply?.agent_note, LOVABLE_PROMPT_NOTE);
 
-  // v3.1 cold read round 2: no wallet step (no contracts on Base known); once the prompt was written, every find and score
+  // v4.0: setup step 3 is for everyone (the GitHub no answers step 2): once, on the next reply.
+  const step3 = await find(p.ctx);
+  assert.ok(isStep3(rule(show(step3))), show(step3));
+  assert.equal((step3.reply?.move_up as { kind: string }).kind, 'wallet_setup');
+  // v3.1 cold read round 2: once the prompt was written, every find and score
   // gives the next step (build it, then connect GitHub here, with the link), never "Is your app's code on GitHub yet?".
   for (const r of [await find(p.ctx), await find(p.ctx), await mcpCall(p.ctx, 'score', {})]) {
     const s = rule(show(r));
@@ -212,7 +221,7 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   }
   // Its yes ("done") with nothing connected: the no is cleared and the connect step given again.
   const again = await tell(p.ctx, 'pick_repo', 'yes');
-  assert.match(rule(show(again)), STEP2);
+  assert.match(rule(show(again), 2), STEP2_HINT);
   assert.deepEqual(again.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });
   assert.equal((await seen(p.id)).github_no, undefined);
   assert.equal(((await seen(p.id)).bench_ask as { kind: string }).kind, 'pick_repo');
@@ -220,13 +229,14 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, no wall
   assert.match(show(await find(p.ctx)), /Connect your app's code (?:on GitHub )?so I can match it/);
 });
 
-test('GitHub no, then no to Base: "No rush." (no wallet step without contracts), both nos remembered, the page keeps today\'s wording', db, async () => {
+test('GitHub no, then no to Base: setup step 3 (v4.0, once), both nos remembered, the page keeps today\'s wording', db, async () => {
   const p = await signedIn('n');
   await find(p.ctx);
   assert.equal(show(await tell(p.ctx, 'pick_repo', 'no')), BASE_START_ASK);
+  // v4.0: the no's reply is setup step 3 (once a person; "No rush." was the reply when no wallet step was due).
   const no = await tell(p.ctx, 'base_start', 'no');
-  assert.equal(show(no), NEXT_STEP_LATER);
-  assert.equal(no.reply?.move_up, undefined);
+  assert.ok(isStep3(rule(show(no))), show(no));
+  assert.equal((no.reply?.move_up as { kind: string }).kind, 'wallet_setup');
   assert.equal(((await seen(p.id)).base_walk as { answer: string }).answer, 'no');
   for (let i = 0; i < 2; i++) {
     const r = rule(show(await find(p.ctx)));
@@ -235,7 +245,7 @@ test('GitHub no, then no to Base: "No rush." (no wallet step without contracts),
   }
   // The builder asks to connect after all (the notes' path): step 2's link again.
   const again = await tell(p.ctx, 'pick_repo', 'yes');
-  assert.match(rule(show(again)), STEP2);
+  assert.match(rule(show(again), 2), STEP2_HINT);
   assert.equal((await seen(p.id)).github_no, undefined);
   await tell(p.ctx, 'pick_repo', 'no');
   const pg = await pageText(p.id);
@@ -250,7 +260,8 @@ test('the GitHub no right away (find again before answering): the walk-through o
   const p = await signedIn('f');
   await find(p.ctx);
   assert.equal(show(await tell(p.ctx, 'pick_repo', 'no')), BASE_START_ASK);
-  // The agent calls find before the builder answers: the walk-through isn't asked twice (and no wallet step: no contracts).
+  // The agent calls find before the builder answers: the walk-through isn't asked twice; v4.0: setup step 3 once, then rest.
+  assert.ok(isStep3(rule(show(await find(p.ctx)))));
   const w = rule(show(await find(p.ctx)));
   assert.equal(w, NEXT_STEP_ASK);
   void WALLET_NOTE;

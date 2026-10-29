@@ -42,6 +42,8 @@ async function personWith(key: string, handle: string) {
   const readerDeps = new Proxy({}, { get: (_t, k) => (k === 'now' ? new Date() : k === 'ghSpent' ? () => false : k === 'ghFetch' ? undefined : no) });
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: async () => ({ checked: 0, scored: 0, fits: [] }), readerDeps } as never;
   await mcpCall(ctx, 'find', { identity: { project: { name: key.split('/')[1], repo: `https://github.com/${key}` } } });
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(c.id);
   return { id: c.id, ctx };
 }
 

@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mondayOpener } from './weekly-moment';
 import { bannedInBench } from './fixtures/banned-words';
 import {
-  INTRO_LINE, MOMENT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, benchReply, connectAsk, introWhat, momentHead, pickRepoAsk, replyState, stateAsk,
+  INTRO_LINE, MOMENT_ASK, SHIP_ASK, STATE_COPY, VARIANT_COPY, applyAsk, benchReply, connectAsk, introWhat, pickRepoAsk, replyState, stateAsk,
   type BenchProject, type BenchView,
 } from './bench-reply';
 
@@ -30,16 +31,16 @@ test('9.1 which state (R16a: four states; proven and shipping are one, ranked)',
 test('9.2 the four replies (Task 16 copy)', () => {
   const link = 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA';
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link }));
-  assert.equal(out, [INTRO_LINE, introWhat(null), '', `Step 1 of 2: sign in with X (one click): ${link}`, 'Done?'].join('\n'));
+  assert.equal(out, [INTRO_LINE, '', introWhat(null), '', 'Setup takes about a minute:', `1. Sign in with X: ${link}`, '2. Connect your code', '3. Add your wallet', '', 'Done with step 1?'].join('\n'));
   oneQuestion(out);
   // v3.1 cold read: "You're in" is the first reply's only (welcome); later replies go straight to the step.
   const none = benchReply({ ...view({ state: 'no_project', project: null }), welcome: true });
-  assert.equal(none, "You're in, @maya_makes. I find grants your app qualifies for and write the applications.\nWhat's your GitHub, or a link to something you've made?");
+  assert.equal(none, "You're in, @maya_makes. Really glad you're here.\n\nWhat's your GitHub, or a link to something you've made?");
   assert.equal(benchReply(view({ state: 'no_project', project: null })), "What's your GitHub, or a link to something you've made?");
   oneQuestion(none, false);
   const verify = 'https://earnkit.com/github/verify?n=abc';
   const unc = benchReply({ ...view({ state: 'not_counted', project: { ...P, confirmed: false }, link: verify }), welcome: true });
-  assert.equal(unc, `You're in, @maya_makes. I find grants your app qualifies for and write the applications.\n${pickRepoAsk(verify)}`);
+  assert.equal(unc, `You're in, @maya_makes. Really glad you're here.\n\n${pickRepoAsk(verify, false)}`);
   oneQuestion(unc);
   const ranked = benchReply(view({ state: 'ranked', fund: [{ kind: 'fits', title: 'Base Builder Grants', amount: '$5,000', when: 'rolling' }] }));
   assert.equal(ranked, ['Recipes · #1 of 10 builders · 2 weeks in a row', 'You qualify for the Base Builder Grants, up to $5,000.', SHIP_ASK, 'Ship code this week: up to +100 points'].join('\n'));
@@ -80,22 +81,20 @@ test('9.6 R8: the ranked step is to ship (never an entry, a coin or going live)'
   assert.doesNotMatch(out, /coin|token|community round|prepare an entry|online/i);
 });
 
-test('9.6b v3.1 spec 3.2, GTM W2: the backing offer comes before the apply step; the Best fit shows only when ranked', () => {
+test('9.6b v3.1 spec 3.2, v4.0 Task 11: the apply step (no backing offer); the Best fit shows only when ranked', () => {
   const best = { program_id: 'base-builder-grants', title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling', why: 'You deployed on Base.', codes: null };
   const apply = { program_id: best.program_id, title: best.title, amount: '$5,000', when: null };
-  const out = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply, backing: 'Want to open backing for Recipes?' }) });
-  assert.ok(out.endsWith('Want to open backing for Recipes?') && !out.includes(applyAsk(best.title, '$5,000', null)), 'backing before apply: ' + out);
-  oneQuestion(out, false);
-  const next = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply, backing: null }) });
+  // v4.0 Task 11: no backing step; the apply step is the ranked ask.
+  const next = benchReply({ ...view({ state: 'ranked' }), best, ask: stateAsk({ state: 'ranked', variant: null, project: P, link: null, apply }) });
   assert.ok(next.includes(applyAsk(best.title, '$5,000', null)), 'then the apply step: ' + next);
   for (const state of ['signed_out', 'no_project', 'not_counted'] as const) assert.doesNotMatch(benchReply({ ...view({ state }), best }), /Base Builder Grant Program/, state);
 });
 
 test('9.7 the copy table: plain words, no em dash, no raise', () => {
   const lines = [
-    STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x'),
-    STATE_COPY.not_counted.ask('https://x'), SHIP_ASK, MOMENT_ASK, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk('earnkit.com/a'),
-    momentHead({ week: 2 }), applyAsk('A', '$5,000', null),
+    STATE_COPY.signed_out.ask('https://x'), STATE_COPY.signed_out.retry(), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('https://x', false),
+    STATE_COPY.not_counted.ask('https://x', false), SHIP_ASK, MOMENT_ASK, INTRO_LINE, introWhat({ org: 'Base', amount: '$5,000', chain: 'Base' }), connectAsk('earnkit.com/a'),
+    mondayOpener('Maya', null), applyAsk('A', '$5,000', null),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('A'), v.ask('A')]),
   ].filter((l): l is string => l !== null);
   for (const l of lines) {
@@ -117,7 +116,7 @@ test('9.5b a held question in place of the install question: no link, no points 
 
 test('9.5c fix round 1: signed out, the sign-in question wins over a held one', () => {
   const out = benchReply(view({ state: 'signed_out', project: null, handle: null, link: 'https://earnkit.com/signin/AAAAAAAAAAAAAAAAAAAAAA', held: 'Did Recipes win anything in Base Builder Grants?' }));
-  assert.ok(out.endsWith('Done?'), out);
+  assert.ok(out.endsWith('Done with step 1?'), out);
   assert.doesNotMatch(out, /Did Recipes win/);
   oneQuestion(out);
 });

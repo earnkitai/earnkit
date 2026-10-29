@@ -5,7 +5,6 @@ import { PRIVATE_NAME, norm, shownProjects } from './page-data';
 import { COIN_PROGRAM } from './policy-constants';
 import { createDraft, recentDrafts, type DraftLimit, type DraftRow, type PostMoment, type RecentDraft } from './post-drafts';
 import { isMilestone, writePost, type PostInput } from './post-writer';
-import { pillCoin } from './raising';
 import { X_HOSTS, proofNamesBuilder, type ProofFetch } from './outcome-proof';
 import { SHARED_HOSTS } from './submit-hosts';
 import { checkUpdate, type OwnLinks } from './update-text';
@@ -24,7 +23,6 @@ import { lastFinishedMonday, mondayOfWeek } from './weeks';
  * | Accepted, funded or won (told) | the agent passes a public proof link it checked (owner ruling 3) | once a program | no proof, or proof on the builder's own site |
  * | Streak milestone | 4, 8, 12, 26, 52 weeks in a row | folds into the weekly | never a post of its own |
  * | Builder's news | tell update { text } | 24 hours | the text fails checkUpdate |
- * | Coin intro | the coin is launched and the page shows backing (raising.ts pillCoin; owner ruling 1) | once ever | a coin already introduced; launched over 14 days ago |
  * | Backing opened, applied, first users | none | | never a post |
  *
  * Besides these, one non-weekly moment kind is drafted at most once in 28 days (the builder's news excepted: its
@@ -55,7 +53,7 @@ export type MomentCandidate = {
 };
 export type Hold = 'drafted' | 'cooldown' | 'once' | 'same_kind';
 export type Skip =
-  | 'no_page' | 'no_project' | 'no_week' | 'no_facts' | 'nothing_to_say' | 'not_live' | 'not_up' | 'settling' | 'stale' | 'no_coin'
+  | 'no_page' | 'no_project' | 'no_week' | 'no_facts' | 'nothing_to_say' | 'not_live' | 'not_up' | 'settling' | 'stale'
   | 'no_program' | 'no_proof' | 'no_proof_source' | 'no_entry' | 'text';
 type Log = Pick<RecentDraft, 'moment' | 'moment_key' | 'created_at' | 'first_tap_at' | 'asked'>[];
 
@@ -342,22 +340,6 @@ export async function verifiedOutcomeCandidate(
   };
 }
 
-/** Owner ruling 1: the coin's one intro, once it is launched and the page shows backing (pillCoin). */
-export async function coinIntroCandidate(builderId: number, now: Date = new Date()): Promise<MomentCandidate | Skip> {
-  const p = await posterOf(builderId);
-  if (typeof p === 'string') return p;
-  if (!p.name) return 'no_project';
-  const c = await pillCoin(builderId);
-  if (!c) return 'no_coin';
-  // Fix round: only while the coin is news (within EVENT_FRESH_DAYS of its launch).
-  const [l] = await sql()<{ at: Date | null }[]>`SELECT coin_launched_at AS at FROM projects WHERE id = ${c.project_id}`;
-  if (!l?.at || now.getTime() - l.at.getTime() > EVENT_FRESH_DAYS * DAY) return 'stale';
-  return {
-    moment: 'coin_intro', momentKey: `coin_intro:${c.coin ?? `project:${c.project_id}`}`, projectKey: p.key, week: null, proofUrl: null,
-    input: { moment: 'coin_intro', name: p.name, symbol: c.symbol, weeks: p.weeksShipping }, card: { symbol: c.symbol },
-  };
-}
-
 /** The builder's own news (tell update { text }), checked as an update is. */
 export async function newsCandidate(builderId: number, text: unknown, now: Date): Promise<MomentCandidate | Skip> {
   const p = await posterOf(builderId);
@@ -376,7 +358,7 @@ export async function newsCandidate(builderId: number, text: unknown, now: Date)
 }
 
 /**
- * The one moment EarnKit offers a post for now, in order: an announced win, going live, the coin intro, last week
+ * The one moment EarnKit offers a post for now, in order: an announced win, going live, last week
  * (`weekly: false`: the events only, Task 6's share slot between Mondays). Null `moment` with each skipped moment's
  * reason (none to post).
  */
@@ -398,7 +380,6 @@ export async function offeredMoments(
   const found: (MomentCandidate | Skip)[] = [
     ...(await announcedWinCandidates(builderId, now)),
     await wentLiveCandidate(builderId, now),
-    await coinIntroCandidate(builderId, now),
     ...(o.weekly === false ? [] : [await weeklyCandidate(builderId, now)]),
   ];
   const skipped: (Skip | Hold)[] = [];

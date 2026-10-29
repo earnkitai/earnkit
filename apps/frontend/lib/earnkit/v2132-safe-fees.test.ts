@@ -279,3 +279,56 @@ test('v2.13.2 review 3 (M3): safe_index failing INDEX_FAILED_RUNS runs in a row 
 test('v2.13.2 fix 1 (concern 5): the fees_to_safe_eth label names both splits', () => {
   assert.equal(STATS_LABELS.fees_to_safe_eth, 'fees to the EarnKit Safe (ETH)');
 });
+
+// ---- v4.0 final review 3: the Safe's 60% of a builder token's fees is EarnKit revenue too.
+
+test('v4.0 final review 3: indexSafeFees books the Safe\'s deposit from a launched builder token; never one still unknown', db, async () => {
+  const bt = coin('d');
+  const btUnknown = coin('e');
+  const t1 = tx(100n, [store(1, C.safe, 60n), store(2, CREATOR, 40n), claimed(3, bt)]);
+  const t2 = tx(120n, [store(1, C.safe, 61n), claimed(2, btUnknown)]);
+  const f = safeChain([t1, t2], 200n + CONFIRMATIONS);
+  const ids: number[] = [];
+  try {
+    for (const [status, c] of [['launched', bt], ['unknown', btUnknown]] as const) {
+      const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v40-safe-${stamp}-${c}`}) RETURNING id`;
+      ids.push(id);
+      await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, coin_address) VALUES (${id}, ${`x-safe-${id}`}, ${status}, ${status === 'launched' ? c : null})`;
+    }
+    await withCoins(`v40-idx-${stamp}`, [], async () => {
+      assert.equal(bookedOf(await indexSafeFees({ rpc: f.rpc, chain: C, startBlock: 50n, log: () => {} })), 1);
+      assert.deepEqual((await safeRows([bt, btUnknown])).map((r) => ({ ...r })), [{ tx_hash: t1.hash.toLowerCase(), log_index: 1, coin: bt, amount_wei: '60' }]);
+    });
+  } finally {
+    await sql()`DELETE FROM safe_fees WHERE coin IN (${bt}, ${btUnknown})`;
+    if (ids.length > 0) await sql()`DELETE FROM builder_tokens WHERE builder_id IN ${sql()(ids)}`;
+  }
+});
+
+test('v4.0 final review 3: readStats counts the Safe\'s builder token fees, never a test installation\'s', db, async () => {
+  const bt = coin('8');
+  const btTest = coin('9');
+  const h = (n: number) => `0x${stamp.padStart(60, '0')}${(0xb0 + n).toString(16).padStart(4, '0')}`;
+  const Rollback = new Error('rollback');
+  const prevEnv = process.env.EARNKIT_TEST_INSTALLATIONS;
+  try {
+    await sql().begin('isolation level repeatable read', async (tx) => {
+      const [real] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v40-st-${stamp}-r`}) RETURNING id`;
+      const [testInst] = await tx<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v40-st-${stamp}-t`}) RETURNING id`;
+      process.env.EARNKIT_TEST_INSTALLATIONS = String(testInst.id);
+      await tx`INSERT INTO builder_tokens (builder_id, x_user_id, status, coin_address) VALUES
+        (${real.id}, ${`x-st-${real.id}`}, 'launched', ${bt}), (${testInst.id}, ${`x-st-${testInst.id}`}, 'launched', ${btTest})`;
+      const before = await readStats(new Date(), tx);
+      await tx`INSERT INTO safe_fees (tx_hash, log_index, coin, amount_wei, block_time) VALUES
+        (${h(1)}, 0, ${bt}, ${(6n * E18).toString()}, now()), (${h(2)}, 0, ${btTest}, ${(7n * E18).toString()}, now())`;
+      const after = await readStats(new Date(), tx);
+      assert.equal(Math.round((after.fees_to_safe_eth - before.fees_to_safe_eth) * 1e6) / 1e6, 6);
+      throw Rollback;
+    });
+  } catch (err) {
+    if (err !== Rollback) throw err;
+  } finally {
+    if (prevEnv === undefined) delete process.env.EARNKIT_TEST_INSTALLATIONS;
+    else process.env.EARNKIT_TEST_INSTALLATIONS = prevEnv;
+  }
+});

@@ -146,17 +146,13 @@ test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 da
   assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
 });
 
-test('(c) GTM W2: backing before apply: with both due, the backing offer shows (the Best fit still the money line); the next reply drafts', db, () =>
+test('(c) v4.0 Task 11: no backing offer before apply, even with EARNKIT_RAISING on and a week with code; the apply step drafts', db, () =>
   withEnv({ EARNKIT_RAISING: 'on', TOKENSFUN_DEPLOY_API_KEY: 'v31-best-key' }, async () => {
     const b = await builder('c', [ROLLING], { week: true });
     const f = await find(b);
-    assert.equal(kind(f), 'backing', show(f));
-    assert.match(show(f), /^I can launch \$KIT, a coin for Kit on Base\. [^\n]*Launch it\?$/m);
-    assert.equal(show(f).split('\n')[1], ROLLING_BEST, 'the Best fit is still the money line');
-    const next = await find(b);
-    assert.equal(kind(next), 'apply', show(next));
-    // v3.1 cold read: the unchanged standing isn't repeated, so the apply step leads.
-    assert.ok(`\n${show(next)}`.endsWith(applyEnd(ROLLING_TITLE, null)), show(next));
+    assert.equal(kind(f), 'apply', show(f));
+    assert.doesNotMatch(show(f), /I can launch|\bcoin/);
+    assert.ok(`\n${show(f)}`.endsWith(applyEnd(ROLLING_TITLE, null)), show(f));
   }));
 
 test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db, async () => {

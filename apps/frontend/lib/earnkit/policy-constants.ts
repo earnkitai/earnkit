@@ -18,9 +18,10 @@ export const GAS_WALLET_MIN_WEI_DEFAULT = 2_000_000_000_000_000n;
  * 50/40/10, the former bonus share to the Safe. A coin's split is fixed at its launch, so both exist
  * and recipients are read by slot from a coin with either one (bonus-ledger.ts feeRecipients); the
  * creator (slot 1) and MINI (slot 2) are the same slots in both. The same numbers as policy.ts
- * FEE_SPLIT_BPS and FEE_SPLIT_BPS_V213 (tests keep them equal).
+ * FEE_SPLIT_BPS and FEE_SPLIT_BPS_V213 (tests keep them equal). v4 (2026-10-28): Safe 60 / creator 40, no MINI slot
+ * (MINI's 10% ended); the creator is still slot 1.
  */
-export const EARNKIT_SPLITS_BPS = [[3000, 4000, 1000, 2000], [5000, 4000, 1000]] as const;
+export const EARNKIT_SPLITS_BPS = [[3000, 4000, 1000, 2000], [5000, 4000, 1000], [6000, 4000]] as const;
 /** v2.9 D16: v2.5's split, kept for the tests and the docs that name it. */
 export const EARNKIT_SPLIT_BPS = EARNKIT_SPLITS_BPS[0];
 

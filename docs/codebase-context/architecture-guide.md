@@ -353,6 +353,12 @@ Claude Code ──> programs/<slug>.json ──push to main──> deploy: pnpm 
     503 and GitHub emails the owner within the hour. Claims from before v2.8.1 got the migration's
     time (schema.sql backfill), so they alert at the first cron run 10+ minutes after the deploy.
     **Go-live step:** settle every existing `token_url = 'pending'` row with the runbook below.
+    v4: a builder token (`builder-token.ts`) whose launch answer was unclear (`status = 'unknown'`) or that is
+    still `'launching'` after 10 minutes (`stuckBuilderTokens`) is listed the same way, as
+    `builder-token:<builder id>` (alerting). Launched builder tokens' creators (`builder_tokens.wallet`) join
+    `claimForOthers`' creator claims with no locker read, claimed first (v4.0 final review 2). A launch the proof
+    dropped (no row) is retried by the same cron (`retryDroppedBuilderTokens`); one blocked on the owner is
+    `builder-token-blocked:<builder id>` (alerting).
   - Ticker checks for a proposal run in parallel batches of 4 (3 s each), so a proposal costs at
     most about 9 s.
 - **Runbook: a token stuck in `pending`.** A row with `token_url = 'pending'` means EarnKit sent a
@@ -2922,6 +2928,8 @@ A GitHub OAuth App with no scopes; its callback URL is `<EARNKIT_URL>/github/ver
 
 
 ## The token offer right after the match; only the token is skippable (v2.9 B10, B11, Task 6)
+
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
 
 _Superseded by v2.10 item 5: there is no first-reply offer; the token is pitched once, in the confirm line (see "One bonus line, the token at confirm, the deadline line"). The text below is kept as history._
 
@@ -6757,6 +6765,8 @@ numbers that prove it (backers and Earned). Four parts, in the order they were b
 
 ### Part 3: Backing (spec 5.3 Route 2)
 
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
+
 - **The word.** Builder text says Backing / backers / "Back <project>", never "community round", "raise" or
   "raising" (`fixtures/banned-words.ts BENCH_EXTRA` now bans "community round"). Internal names stay (`raising_at`,
   `RaisingPill`, `raisingEnabled`, `tell coin { raising }`).
@@ -7145,6 +7155,8 @@ The whole site on one flat system (spec 5.6, 5.8), seven tasks on `v3-power-user
   line. Task 6's Best fit joins that rule.
 
 ## v3.1 P0 Task 10 (spec 3.4, D1): the agent drafts, never submits; confirm only opens Backing
+
+_Retired in v4.0 (coin offers, Backing, the confirm tool; see "v4.0 Task 11" and "v4.0 overview" at the end). Kept as history._
 
 - The agent's tools are find, prepare (draft only, `draft-application.ts`), tell and score. `mcp.ts` registers
   `confirm` only while `raisingEnabled()` (EARNKIT_RAISING), with `CONFIRM_BACKING_DESCRIPTION` and a strict schema
@@ -8190,3 +8202,120 @@ related, no row without data, every row links to proof).
   Contracts are off without `ALCHEMY_API_KEY`. Alchemy cost per builder a day: at most 10 x 5 transfer pages, one
   funding page per proven wallet and chain, two eth_calls per uncounted source.
 
+## v4.0 Task 8: weekly nudges (nudges.ts)
+
+- At most one nudge per ISO week, claimed in `standing_seen.nudge_week` (the week's Monday) with one guarded UPDATE.
+  Preference: accepted or funded (the verified outcome post's link, once a program; a congratulation drafted this week
+  counts as the week's nudge and is not repeated), a users milestone crossed this week (10, 100, 1000 from `app_usage`,
+  once ever), a program closing within 3 days with a confirmed unsubmitted entry (the draft), nothing shipped by Friday
+  (Friday to Sunday UTC, streak 2 or more).
+- Only a ranked reply leads with it (`bench-find.ts benchView`, `bench-reply.ts benchReply`); the Monday block, post
+  offers, connect, setup step 3, the setup-done reply and held questions lead instead and the nudge waits unclaimed.
+- Fix round 1: a question-bearing nudge (closing, accepted or funded) owns the reply's one question: closing stores the
+  apply ask for its program (yes: prepare shows the draft), accepted stores `outcome_share` (yes: the post's link); no
+  other ask is made, claimed or stored. The Friday line ("Quiet week?" is rhetorical) and the milestone line sit beside
+  the ranked ask. A closing nudge for the submit step's own program replaces that held question. A newly told
+  acceptance or funding replies with the approved accepted line and counts as that week's nudge.
+- `stand-view.ts takeNews` now keeps every `standing_seen` key except the ones it owns (`NEWS_KEYS`: rank, at, people);
+  the old allow-list dropped v4 keys such as `token_offered`, `setup_asked`, `setup_done`.
+
+## v4.0 Task 11: the per-project coin offers are retired
+
+- Builder tokens (`builder-token.ts`, one per builder, at setup step 3) replaced the per-project coin offers. Deleted:
+  `coin-moments.ts`, `token-offers.ts`, `raising.ts`, `app/components/ui/RaisingPill.tsx` and their tests. The tables
+  (`coin_moments`, `token_offers`, `token_declines`, `projects.raising_at`) stay (append-only schema); nothing reads them.
+- MCP: `confirm` is never registered and `tools.confirm` is gone (with `confirmByProjectId`, `launch_token`,
+  `coinAnswer`, `tokenPitch`, `ConfirmInput`). An older agent's `tell coin { answer }` and `tell token: 'ask'` are still
+  accepted by the tell schema (undocumented) and answered as `tell move_up { kind: 'token' }`: a no is the builder
+  token's no (kept forever), a yes or an ask is "launch my token". `coin { raising }` changes nothing.
+- Entries never mint: `prepare_submission` offers no token (a ready draft ends "Ready to submit?"),
+  `confirm_entry`'s decision is always record-only, `record_submission` reports a skipped token (an entry made before
+  keeps reporting its own). The token-launch.ts launch functions remain but nothing in tools.ts calls them.
+- Backing is gone from every surface: the Backed filter and tag (`BenchFilter` is `{ chain, weekly }`; an old
+  `?backed=1` is ignored), the /terms Backing section, the landing and docs Backing lines, llms.txt's confirm line, the
+  profile/Bench/card `backing`/`coin`/`raising` fields, the builder JSON's `backing`, reply facts' `coin`, the coin
+  intro post moment and the backing, coin_publish, coin_wallet and backers_post asks (old stored asks are OLD_ASKS).
+  `EARNKIT_RAISING` is read nowhere (`raisingEnabled` removed). `/api/stats` keeps `backing_open`, `backers` and
+  `backers_after_post` at 0 (jenil.ai reads the keys).
+- The Monday email's new-backers line (`backers.ts newBackers`) counts the launched builder token's coin.
+- `v4-retire.test.ts`: no human string under lib/earnkit or app says "coin" (SQL and log tags aside); tell coin no is
+  the builder token's no; the tools expose no confirm.
+
+
+## v4 Task 12: the owner's Safe and gas emails
+
+- `safe-watch.ts safeWatch` runs in `runCron` after the weekly email (step `safe_watch`; no new cron). The Safe's WETH
+  and ETH on Base (bonusRpc, BASE_RPC_URL) priced with `cachedWethUsd`; at $5,000 or more one email to CONTACT_EMAIL
+  ("Your Safe holds $5,240", the Safe swap link, "send the USDC to your Coinbase account"), idempotency key
+  `safe_5k:<date>`. `owner_alerts` (kind, state, at): 'safe_5k' is 'sent' until a run sees it below ('below' re-arms).
+  No price, a failed read, no RESEND_API_KEY or a failed send leave the state unchanged ('skipped').
+- The gas lines of needs_owner ('bonus-ledger' when `bonusGasLow`, each 'deployer-gas:<chain>') also email the owner,
+  at most once a UTC day per line (`owner_alerts` 'gas:<line>', state = the date); the needs_owner lines stay.
+
+## v4.0 overview: builder tokens, setup, surfaces, the Monday reply (2026-10-28, design: v4-builder-tokens.md)
+
+Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12 (Safe and gas emails).
+
+- **Builder tokens (`builder-token.ts`, table `builder_tokens`).** One token per builder and per X account (`builder_id`
+  primary key, `x_user_id` unique; a row is the claim). Status `declined` | `launching` | `launched` | `unknown`. The
+  ticker comes from the X handle (`builderTicker`, tokens.fun checked: `ticker_check_down` is transient, `no_ticker`
+  lasting). Launch: Base only, Clanker v4 through tokens.fun, WETH pair, fees after Clanker's 20% split Safe 60 / builder
+  40 (`policy-constants.ts EARNKIT_SPLITS_BPS [6000, 4000]`; MINI's 10% ended, nothing claims for MINI). The whole feature
+  is behind `EARNKIT_BUILDER_TOKENS=on` (`builderTokensOn`), which stays off until tokens.fun v4.1 is live.
+- **Launch at the wallet proof.** `wallet-proof.ts walletPost` runs `launchOnProof` (not awaited, errors logged) when the
+  proof made the builder's first reward wallet (`ProveResult.first`), unless the builder said no. The token's creator
+  wallet is the proven wallet. A "launch my token" ask later (`tell move_up { kind: 'token' }`) launches the same way.
+- **Opt-out.** A no (to setup step 3, or an older agent's `tell coin { answer: 'no' }`) is `declineBuilderToken`: kept
+  forever, never asked again. Skipping the wallet skips the token. An older agent's `tell coin` / `tell token: 'ask'` is
+  mapped to `move_up { kind: 'token' }` (Task 11).
+- **Stuck or unknown.** The row is deleted again only when tokens.fun said it stopped before minting (`tokens.ts
+  outcomeOf` release). Any unclear answer stays `unknown` and is never retried. `stuckBuilderTokens` (unknown, or
+  `launching` over `STUCK_LAUNCH_MS`) puts `builder-token:<builder id>` in `needs_owner` (cron answers 503; not quiet).
+- **Dropped launch retry (final review 1).** The proof launches once, never awaited, so busy, the ticker check down, a
+  refusal or no `TOKENSFUN_DEPLOY_API_KEY` leave no row. `runCron` runs `builder-token.ts retryDroppedBuilderTokens` (no
+  new cron): builders with `standing_seen.token_offered`, an X account, a proven recipient wallet and no `builder_tokens`
+  row, flag on, at most `BUILDER_TOKEN_RETRIES_PER_RUN` (5) a run, never tried first then oldest offer
+  (`standing_seen.token_retry_at` rotates the rest). No API key, a 4xx refusal (not 429), `no_ticker` or `x_taken` sets
+  `standing_seen.token_blocked`; `blockedBuilderTokens` lists each as `builder-token-blocked:<builder id>` (alerting,
+  not quiet) on every run until a later try clears it. Busy and the ticker check down retry next run.
+- **Sponsored creator claims.** `bonus-ledger.ts claimForOthers` claims `claim(owner, WETH)` for each launched
+  `builder_tokens.wallet` first (final review 2: never starved behind project coins), then each launched project
+  token's creator (newest first, 10x gas, bounded slice). The FeeLocker pays the
+  owner, so EarnKit never holds the money; builders never claim and hear the amount in plain words.
+- **Setup steps 1-3.** Signed out: "1. Sign in with X, 2. Connect your code, 3. Add your wallet". Step 2 (`pickRepoAsk`) adds
+  the Lovable/Bolt line only without GitHub (`BenchView.noGithub`). Step 3 (`wallet-offer.ts walletSetupDue`: X claimed, step
+  2 done or `github_no`, no wallet, not asked) asks everyone for the wallet and, while `walletSetupToken`, tells them
+  signing launches their token; it is asked before every other ranked offer (`bench-find.ts benchView`).
+- **Setup-done reply.** `bench-find.ts setupDoneFor` (claimed once, `standing_seen.setup_done`, after the reply is built
+  so a failure never loses it) after the wallet answer (`afterStep3`): launched / on_its_way (a token row launching or
+  unknown: "Your token is on its way. I'll confirm it here soon." in place of the community line) / set / declined /
+  skipped lead (`SetupOutcome`), then "Here's what's open for you right now:"
+  and a `| Program | Up to | Closes |` table (at most 3, Best fit first), ending with the Best fit apply ask ("Want me to
+  draft it?"); no fit gives `noFitLine` and no ask.
+- **Per-surface rendering.** `reply-format.ts surfaceOf(client_name)` reads the caller's own installation client:
+  Grok Bot (and any unknown client) gets rich markdown (tables, bold); WhatsApp-style agents get plain "Label: value"
+  lines (`formatReply(text, 'plain')`). `mcp.ts run` applies it to every `show_to_builder`.
+- **The Monday reply and email.** `community.ts weekCommunityUsd` (creator `fee_claims` paid to the builder token's wallet,
+  this week and last, priced with `cachedWethUsd`) feeds `weekly-moment.ts mondayRows`: Shipping score ("82, up 4"),
+  Streak, "From your community" (hidden under $1; a cheer line at $100 or twice last week). `bench-reply.ts mondayReply`
+  renders it; `digest.ts digestWeek` sends the same lines as `mondayLines`. The week's post is one link; `SHARE_NOTE`
+  tells the agent to show `show_to_builder` exactly as given and never rewrite it.
+- **Nudges** (`nudges.ts`, Task 8): at most one per ISO week (`standing_seen.nudge_week`).
+- **Token card and post card.** `site-data.ts tokenCard` reads `builder_tokens` (launched only): symbol, Uniswap `tradeUrl`,
+  holders (`backers.ts`, which indexes launched builder tokens too, starting at the tx receipt's block, else at
+  `builder_tokens.created_at`), fees earned (`community.ts allTimeCommunityUsd`), 12 weeks of new holders, the X photo.
+  The post card pill reads "$SYMBOL · N holders" (from 5 holders). Words: "token", "holders", "Trade"; never "coin".
+- **`/api/builder-tokens` and `ref_source`.** `builder-tokens-json.ts`: launched tokens of claimed, visible builders with a
+  handle (coin, symbol, handle, name, photo, shipping, streak, page), cached 60 s, CORS for tokens.fun.
+  `?ref=tokensfun` on any page (`RefSourceMark`, `ref-cookie.ts REF_SOURCES`) stores `installations.ref_source`, never a
+  referring builder.
+- **Builder tokens in revenue and Earned (final review 3, 4, 9).** `indexSafeFees` books the Safe's deposits from launched
+  `builder_tokens.coin_address` too, and `stats.ts` `safe_fees_wei` counts them (never a test installation's), so
+  `fees_to_safe_eth` sees the Safe's 60%. `wallet-offer.ts walletChangeReply` adds `WALLET_COIN_FEES` for a launched
+  builder token as for a project coin. `earned.ts earnedUsd` adds the creator `fee_claims` paid to the builder token's
+  wallet (less any claim already in `creator_fees`), so Earned matches the Token card.
+- **Owner emails.** `owner-mail.ts` and `safe-watch.ts` (Task 12): `safe_watch` cron step, `owner_alerts` table.
+- **Retired in v4.0** (older sections above describe them as history): coin moments (`coin-moments.ts`), token offers
+  (`token-offers.ts`, the pitch at confirm, `launch_token`), raising / Backing (`raising.ts`, `EARNKIT_RAISING`, the Backed
+  filter, the terms section), the `confirm` tool, project coin launches (entries never mint), MINI's claims, launches on
+  Arc. The tables stay (append-only schema) and are read by nothing.

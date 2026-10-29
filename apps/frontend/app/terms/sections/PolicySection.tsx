@@ -2,13 +2,9 @@ import type { ReactNode } from 'react';
 import { Panel } from '../../components/common/Panel';
 import { INLINE_LINK } from '../../components/common/Button';
 import { X } from '../../lib/links';
-import { raisingEnabled } from '../../../lib/earnkit/builder-score-flag';
 import {
-  BACKING_POINTS,
-  BACKING_TITLE,
   CLANKER_CUT_PCT,
   CONTACT_EMAIL,
-  MINI_LINE,
   RECORD_STEPS,
   RECORDS_HISTORY,
   RECORDS_IP,
@@ -114,11 +110,10 @@ export default function PolicySection() {
 
         <Section title="Where token fees go">
           <p>
-            A project launches its token through EarnKit. The launch protocol keeps {CLANKER_CUT_PCT}% of trading fees.
-            The rest is split, paid in WETH on Base:
+            Your token launches on Base through EarnKit. The launch protocol keeps {CLANKER_CUT_PCT}% of trading fees.
+            The rest is split, paid in WETH:
           </p>
           <Table head={['Recipient', 'Share']} rows={feeTable()} />
-          <p>{MINI_LINE}.</p>
           <p>
             EarnKit&apos;s share goes to its Safe on Base:{' '}
             <a
@@ -133,13 +128,6 @@ export default function PolicySection() {
           <p>{SPLIT_KEPT_V213}</p>
         </Section>
 
-
-        {/* v3 Stage 2 (spec 5.3 Route 2): backing, only while EARNKIT_RAISING is on. */}
-        {raisingEnabled() ? (
-          <Section title={BACKING_TITLE}>
-            <List items={[...BACKING_POINTS]} />
-          </Section>
-        ) : null}
 
         <Section title="No affiliation">
           <p>

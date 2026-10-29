@@ -2,7 +2,6 @@ import { sql, type Db } from './db';
 import { testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
 import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
-import { raisingEnabled } from './builder-score-flag';
 import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fees';
 
 /**
@@ -90,15 +89,15 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   // opens from X are not public (anyone can inflate them); they stay on post_drafts for the owner.
   posts_drafted: 'posts for X EarnKit drafted (one-tap posts)',
   posts_tapped: 'of those, opened in X\'s composer from the reply\'s link at least once',
-  backers_after_post: 'new backers within 7 days of a post\'s first tap (correlation only; 0 while EARNKIT_RAISING is off)',
+  backers_after_post: 'retired with the per-project offers (always 0)',
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
   points_total: 'points awarded for approved weeks',
   applications: 'applications the builder told EarnKit about',
   accepted: 'of which accepted or funded (self-reported)',
-  backing_open: 'projects with backing open (0 while EARNKIT_RAISING is off)',
-  backers: 'distinct wallets that received an open backing\'s coin (0 while EARNKIT_RAISING is off)',
+  backing_open: 'retired with the per-project offers (always 0)',
+  backers: 'retired with the per-project offers (always 0)',
   earned_usd: 'earned by EarnKit builders: creator fees claimed plus announced prizes (USD)',
 };
 
@@ -159,10 +158,6 @@ type Row = {
   applications?: number;
   /** v3 Stage 2: of those, accepted or funded (self-reported). */
   accepted?: number;
-  /** v3 Stage 2: launched coins with backing open (raising_at set), no test installation's. */
-  backing_open?: number;
-  /** v3 Stage 2: distinct wallets that received those coins (coin_backers). */
-  backers?: number;
   /** v3 Stage 2: WETH claimed to the creator wallets of non-test coins (creator_fees). */
   creator_fees_wei?: string | null;
   /** v3 Stage 2: the WETH price earned_usd values creator_fees_wei at (fees.ts cachedWethUsd); null: unknown. */
@@ -184,7 +179,7 @@ type Row = {
  * (so a v2.5 coin's Safe share counts once, indexed or estimated, never both), plus the bonus money
  * routed to the Safe as before. Pure.
  */
-export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()): PublicStats {
+export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
   const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
@@ -213,17 +208,16 @@ export function statsFrom(r: Row, now = new Date(), raising = raisingEnabled()):
     shared: Number(r.shared ?? 0),
     posts_drafted: Number(r.posts_drafted ?? 0),
     posts_tapped: Number(r.posts_tapped ?? 0),
-    // Coin-facing, so 0 unless EARNKIT_RAISING is on (as backers).
-    backers_after_post: raising ? Number(r.backers_after_post ?? 0) : 0,
+    // v4.0 Task 11: retired with the per-project offers (the keys stay, for jenil.ai).
+    backers_after_post: 0,
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
     points_total: Number(r.points_total ?? 0),
     applications: Number(r.applications ?? 0),
     accepted: Number(r.accepted ?? 0),
-    // v3 Stage 2: coin-facing, so 0 unless EARNKIT_RAISING is on (the keys always stay, for jenil.ai).
-    backing_open: raising ? Number(r.backing_open ?? 0) : 0,
-    backers: raising ? Number(r.backers ?? 0) : 0,
+    backing_open: 0,
+    backers: 0,
     // v3 Stage 2 (spec 5.2): Earned over people, fees claimed (at the WETH price; none while it is unknown) plus announced prizes.
     earned_usd: Math.round((r.weth_usd ? wethToUsd(big(r.creator_fees_wei), r.weth_usd) : 0) + Number(r.builders_won_usd ?? 0)),
   };
@@ -282,9 +276,13 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
             WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
           AND NOT EXISTS (SELECT 1 FROM safe_fees f WHERE f.tx_hash = l.tx_hash AND f.coin = l.coin))::text AS bonus_unmatched_wei,
       -- v2.13.2 (2): the Safe's own deposits from EarnKit coins, both splits, never a test installation's coin.
+      -- v4.0 final review 3: and from launched builder tokens (the Safe's 60%), never a test installation's.
       (SELECT sum(f.amount_wei) FROM safe_fees f
         WHERE f.coin IN (SELECT coin_address FROM projects
-          WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false)))::text AS safe_fees_wei,
+          WHERE coin_address IS NOT NULL AND NOT COALESCE(installation_id = ANY(${ids}::int[]), false))
+          OR f.coin IN (SELECT lower(coin_address) FROM builder_tokens
+            WHERE status = 'launched' AND coin_address IS NOT NULL AND NOT (builder_id = ANY(${ids}::int[]))
+              AND NOT EXISTS (SELECT 1 FROM installations i WHERE COALESCE(i.builder_id, i.id) = builder_tokens.builder_id AND i.id = ANY(${ids}::int[]))))::text AS safe_fees_wei,
       -- Final review M2: never a test installation's coin (synthetic round-rest rows have no coin).
       (SELECT sum(amount_wei) FROM bonus_ledger WHERE destination = 'safe'
         AND NOT (coin IS NOT NULL AND coin IN (SELECT coin_address FROM projects
@@ -332,13 +330,6 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- v3.1 one-tap posts (design 5): the funnel on post_drafts, people only (never a test installation's group).
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE ${notTest(db, ids)})::int AS posts_drafted,
       (SELECT count(*) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id WHERE d.taps > 0 AND ${notTest(db, ids)})::int AS posts_tapped,
-      -- Backers EarnKit first saw within 7 days after a post's first tap, on the person's open backing (launched,
-      -- raising_at set), each (person, wallet) once; a pre-v3.1 row (first_seen_at 'epoch') never counts. Correlation only.
-      (SELECT count(DISTINCT (d.builder_id, b.wallet)) FROM post_drafts d JOIN builder_profiles p ON p.builder_id = d.builder_id
-        JOIN installations i ON COALESCE(i.builder_id, i.id) = d.builder_id
-        JOIN projects x ON x.installation_id = i.id AND x.token_status = 'launched' AND x.raising_at IS NOT NULL AND x.coin_address IS NOT NULL
-        JOIN coin_backers b ON b.coin = lower(x.coin_address) AND b.first_seen_at > d.first_tap_at AND b.first_seen_at <= d.first_tap_at + interval '7 days'
-        WHERE d.first_tap_at IS NOT NULL AND ${notTest(db, ids)})::int AS backers_after_post,
       -- v2.8 Part G, Ruling 30 (plan): announcement-sourced outcomes only (a self-report never
       -- counts), never a test installation's entry. Labelled: distinct entries with an announced
       -- result other than 'unknown' (Ruling C22: a partial list labels the rest 'unknown'). Won:
@@ -359,14 +350,7 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- installation's group), never a test installation's; accepted: of those, accepted or funded (self-reported).
       (${applicationsSql(db, ids, ['applied', 'accepted', 'funded', 'rejected'])})::int AS applications,
       (${applicationsSql(db, ids, ['accepted', 'funded'])})::int AS accepted,
-      -- v3 Stage 2 (spec 5.3 Route 2): open backings (launched, raising_at set) and their coins' distinct backers, never a
-      -- test installation's coin; creator fees claimed to each non-test coin's creator wallet (creator_fees).
-      -- v3 Stage 2 final review: never a test installation's group (testProject), as every other people stat.
-      (SELECT count(*) FROM projects p WHERE p.token_status = 'launched' AND p.raising_at IS NOT NULL
-        AND NOT ${testProject(db, ids)})::int AS backing_open,
-      (SELECT count(*) FROM coin_backers b WHERE b.coin IN (SELECT lower(p.coin_address) FROM projects p
-        WHERE p.coin_address IS NOT NULL AND p.token_status = 'launched' AND p.raising_at IS NOT NULL
-          AND NOT ${testProject(db, ids)}))::int AS backers,
+      -- v3 Stage 2: creator fees claimed to each non-test coin's creator wallet (creator_fees), never a test installation's group.
       (SELECT sum(f.amount_wei) FROM creator_fees f JOIN projects p ON lower(p.coin_address) = f.coin
         WHERE f.wallet = ${creatorWalletSql(db)} AND NOT ${testProject(db, ids)})::text AS creator_fees_wei`;
   // The WETH price only when there are claimed fees to value (fees.ts: cached, at most a short wait).

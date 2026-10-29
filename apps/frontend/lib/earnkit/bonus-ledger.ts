@@ -49,7 +49,8 @@ import { withScoringLock } from './scoring-lock';
  * 3. sweep: sends the WETH booked to the Safe, not yet swept, from the bonus wallet to the Safe when
  *    worth ≥ 10× its gas (the v2.4 idempotent payout: signed and stored before it is broadcast).
  * 4. claim_others (v2.9 D16): after the sweep, in at most OTHERS_CLAIM_MS, `claim(owner, WETH)` for
- *    MINI and each EarnKit token's creator when worth ≥ 10× its gas; the FeeLocker always pays the owner.
+ *    each EarnKit token's creator (and builder token's wallet) when worth ≥ 10× its gas; the FeeLocker always
+ *    pays the owner. MINI is not claimed since v4 (its 10% ended).
  * 5. the Safe index (v2.13.2): the Safe's own deposits from EarnKit coins, for /api/stats.
  * v2.13: coins launched after tokens.fun's split change have no bonus slot (Safe 50, creator 40,
  * MINI 10), so their fees reach the Safe by its own claim.
@@ -314,7 +315,7 @@ export async function bookDeposit(
     if (dep.coin) {
       const [p] = await tx<{ id: string }[]>`
         SELECT g.id FROM projects p JOIN programs g ON g.id = p.program_id WHERE p.coin_address = ${dep.coin}`;
-      reason = p ? `${p.id}: builder bonus off` : `${dep.coin} is not an EarnKit coin`;
+      reason = p ? `${p.id}: builder bonus off` : `${dep.coin} is not an EarnKit token`;
     }
     const inserted = await tx`
       INSERT INTO bonus_ledger (tx_hash, log_index, coin, round_key, destination, amount_wei, block_number, block_time)
@@ -500,7 +501,10 @@ export async function indexSafeFees(d: BonusDeps & { rpc: BonusRpc; chain: Bonus
       const found = [...byTx].flatMap(([hash, t]) => bonusDeposits(t.logs, safe, d.chain).map((x) => ({ hash, block: t.block, ...x })));
       const coins = [...new Set(found.map((x) => x.coin).filter((c): c is string => c !== null))];
       const ours = coins.length
-        ? new Set((await sql()<{ coin: string }[]>`SELECT lower(coin_address) AS coin FROM projects WHERE lower(coin_address) IN ${sql()(coins)}`).map((r) => r.coin))
+        // v4.0 final review 3: a launched builder token's Safe share (60%) is EarnKit's too.
+        ? new Set((await sql()<{ coin: string }[]>`
+            SELECT lower(coin_address) AS coin FROM projects WHERE lower(coin_address) IN ${sql()(coins)}
+            UNION SELECT lower(coin_address) FROM builder_tokens WHERE status = 'launched' AND lower(coin_address) IN ${sql()(coins)}`).map((r) => r.coin))
         : new Set<string>();
       for (const x of found) {
         if (!x.coin || !ours.has(x.coin)) continue;
@@ -676,7 +680,8 @@ export async function feeRecipients(coin: Hex, d: { rpc: BonusRpc; chain: BonusC
         console.error('[bonus] fee recipients of', coin, 'not read: its split is', bps.join('/'), 'not EarnKit\'s');
         break;
       }
-      const r: FeeRecipients = { creator: recipients[1] as Hex, mini: recipients[2] as Hex };
+      // v4 tokens (Safe 60 / creator 40) have no MINI slot.
+      const r: FeeRecipients = { creator: recipients[1] as Hex, mini: (recipients[2] as Hex | undefined) ?? null };
       // A failed cache write keeps the good read (it is read again next run).
       await sql()`UPDATE projects SET fee_recipients = ${sql().json(r)} WHERE coin_address = ${lower(coin)}`.catch((err: unknown) =>
         console.error('[bonus] fee recipients cache of', coin, err),
@@ -748,12 +753,13 @@ export async function claimFees(account: LocalAccount, d: BonusDeps & { rpc: Bon
 }
 
 /**
- * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for MINI and each launched EarnKit token's
- * creator (test installations' too: their fees are real), after the rounds and the sweep, within at
+ * Step 5 (v2.9 D16, fix round 1): `claim(owner, WETH)` for each launched EarnKit token's
+ * creator (test installations' too: their fees are real; v4: and each launched builder token's wallet), after the rounds and the sweep, within at
  * most OTHERS_CLAIM_MS (`othersMs`) of the run, so it never takes time from EarnKit's own payouts.
- * The FeeLocker always pays the owner, so EarnKit never holds the creator's or MINI's money; each
+ * The FeeLocker always pays the owner, so EarnKit never holds a creator's money; each
  * claim needs 10× its gas. Recipients: cached, else read (feeRecipients, at most
- * RECIPIENT_READS_PER_RUN), newest tokens first; MINI goes first, then the creators newest first.
+ * RECIPIENT_READS_PER_RUN), newest tokens first; the builder token wallets are claimed first (final review 2), then the
+ * creators newest first. MINI is never claimed since v4.
  * What the slice doesn't reach is 'next run'. An owner that is also the bonus wallet or the Safe is
  * claimed by claimFees (claimOwners: the first role wins).
  */
@@ -762,7 +768,13 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
   const tokens = await sql()<{ coin: Hex; fee_recipients: FeeRecipients | null }[]>`
     SELECT coin_address AS coin, fee_recipients FROM projects
     WHERE coin_address IS NOT NULL AND token_status = 'launched' ORDER BY id DESC`;
-  const known: FeeRecipients[] = [];
+  // v4 fix round 1: each launched builder token's creator is its builder's proven wallet (the creatorWallet it was
+  // launched with), so it is known without a locker read. v4.0 final review 2: claimed first (newest first), then the
+  // project tokens' creators, so builders' 40% never starves behind every project coin in the slice.
+  const builders = await sql()<{ wallet: Hex }[]>`
+    SELECT wallet FROM builder_tokens
+    WHERE status = 'launched' AND coin_address IS NOT NULL AND wallet IS NOT NULL ORDER BY created_at DESC, builder_id DESC`;
+  const known: FeeRecipients[] = builders.map((b) => ({ creator: b.wallet, mini: null }));
   const unread: Hex[] = [];
   let reads = 0;
   for (const t of tokens) {
@@ -773,11 +785,9 @@ export async function claimForOthers(account: LocalAccount, d: BonusDeps & { rpc
     }
   }
   if (unread.length > 0)
-    (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them, MINI falls back to policy.ts`);
-  // A read MINI recipient wins over the policy.ts fallback a failed read gives.
-  const fallback = lower(MINI_FEE_RECIPIENT);
-  const mini = known.find((r) => r.mini && r.mini !== fallback)?.mini ?? known.find((r) => r.mini)?.mini ?? null;
-  const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini });
+    (d.log ?? console.error)(`[bonus] fee recipients unread for ${unread.length} token(s) (${unread.join(', ')}); no creator claim for them`);
+  // v4 (2026-10-28): MINI's 10% ended; EarnKit no longer claims for MINI (the creators only).
+  const all = claimOwners({ bonus: lower(account.address) as Hex, safe: d.chain.safe, creators: known.map((r) => r.creator), mini: null });
   const others = [...all.filter((o) => o.role === 'mini'), ...all.filter((o) => o.role === 'creator')];
   const out: { owner: string; role: ClaimRole; result: string }[] = [];
   for (const { owner, role } of others) {

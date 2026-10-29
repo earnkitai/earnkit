@@ -1,8 +1,7 @@
-import { raisingEnabled } from '../../../lib/earnkit/builder-score-flag';
 import { STEPS, STEPS_TITLE } from '../../../lib/earnkit/site-copy';
 import { H2_SITE } from '../site/ui';
 
-/** The three line icons from the Landing board (24px grid): a plug, a rocket, two coins. */
+/** The three line icons from the Landing board (24px grid): a plug, a rocket, two rounds. */
 const ICONS: [string, string, string][] = [
   ['M12 22v-5', 'M9 8V2M15 8V2', 'M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z'],
   [
@@ -14,12 +13,10 @@ const ICONS: [string, string, string][] = [
 ];
 
 /**
- * "From commit to capital" (Landing board): Connect, Ship, Get funded on the step cards. The Get funded card adds
- * "Fans can back you with your coin." only while Backing is on (raisingEnabled). Every icon sits in the same
+ * "From commit to capital" (Landing board): Connect, Ship, Get funded on the step cards. Every icon sits in the same
  * 56px box and the title follows it at a fixed gap, so the three titles share one line whatever the text's length.
  */
 export default function Steps() {
-  const backing = raisingEnabled();
   return (
     <section id="how" aria-labelledby="how-title" className="flex flex-col gap-8">
       <h2 id="how-title" className={`${H2_SITE} px-2`}>
@@ -37,7 +34,7 @@ export default function Steps() {
               ))}
             </svg>
             <h3 className="ek-serif mt-8 text-[32px] leading-none md:text-[40px]">{s.title}</h3>
-            <p className="text-[16px] leading-normal text-s-step-text">{'backing' in s && backing ? `${s.text} ${s.backing}` : s.text}</p>
+            <p className="text-[16px] leading-normal text-s-step-text">{s.text}</p>
           </div>
         ))}
       </div>

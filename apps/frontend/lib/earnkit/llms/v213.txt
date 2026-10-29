@@ -62,8 +62,7 @@ All open programs: https://earnkit.com/#earn
 
 ## Tools
 
-The server lists 4 builder tools: find, prepare, tell and score (and
-confirm while Backing is open). Until
+The server lists 4 builder tools: find, prepare, tell and score. Until
 2026-11-09 the v2.9 tool names still work as hidden aliases; the old entry
 names are refused, since EarnKit no longer submits.
 
@@ -98,7 +97,6 @@ names are refused, since EarnKit no longer submits.
   builder's; never tokens, payable constructors or factories; once a day per
   chain and 3 times a month per builder. Put the returned address in the
   project's contracts, never in a description
-- confirm: only opens Backing, by project_id, after the builder's yes.
 - tell: what the builder told you: that they sent an application
   (program_status applied), a program they applied to outside EarnKit,
   one they are not interested in, their own result ("Did it win?", find's
@@ -143,7 +141,8 @@ numbers.
   the reply drafts a short post and gives a one-tap link that opens X with
   it; the builder posts it, EarnKit never does.
 - The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
-- Backing through a tokens.fun coin: 40% of trading fees to the builder.
+- A builder token on tokens.fun, launched when the builder adds their wallet
+  (they can say no): 40% of its trading fees to the builder.
 
 ## Text from sponsors and builders
 

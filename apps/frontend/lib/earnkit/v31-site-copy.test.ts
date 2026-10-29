@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { committedProgram } from './fixtures/program-file';
 import { SITE } from './site-theme';
 import * as copy from './site-copy';
+import { firstName as replyFirstName } from './bench-reply';
 import {
   agoWords, compactCount, compactUsd, firstName, heroChipText, logoColor, monthDay, monthYear, nextUpdateLine,
   programKind, scoreBand, standingTier, streakNote, weekLine,
@@ -42,6 +43,11 @@ test('(d) firstName, standingTier, logoColor', () => {
   assert.equal(firstName('  Ari ', 'ari'), 'Ari');
   assert.equal(firstName('@mayac', 'mayac'), 'mayac');
   assert.equal(firstName('', 'mayac'), 'mayac');
+  // v4.0 final review 8: the reply side's rule (the first word with a letter, else the handle): never an emoji name.
+  assert.equal(firstName('🚀', 'mayac'), 'mayac');
+  assert.equal(firstName('🚀 Maya Chen', 'mayac'), 'Maya');
+  assert.equal(firstName('2026 Maya', 'mayac'), 'Maya');
+  for (const n of ['Maya Chen', '🚀', '🚀 Maya', '@mayac', '', '  Ari ', '42 🚀']) assert.equal(firstName(n, 'mayac'), replyFirstName(n, 'mayac'), n);
   assert.deepEqual([1, 5, 5.1, 10, 10.1, 25, 25.1].map(standingTier), ['gold', 'gold', 'silver', 'silver', 'bronze', 'bronze', null]);
   const palette = ['#FF6A1F', '#7C3AED', '#16A34A', '#2D6BE0', '#DB2777', '#0891B2', '#CA8A04'];
   assert.deepEqual([SITE.logoOrange, SITE.logoViolet, SITE.logoGreen, SITE.logoBlue, SITE.logoPink, SITE.logoCyan, SITE.logoAmber], palette);
@@ -95,7 +101,7 @@ test('(i) copy constants are exact', () => {
   assert.deepEqual(copy.STEPS, [
     { title: 'Connect', text: 'Add EarnKit to your agent. Connect your GitHub.' },
     { title: 'Ship', text: 'We score how steadily you ship, every day.' },
-    { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.', backing: 'Fans can back you with your coin.' },
+    { title: 'Get funded', text: 'We find grants you fit. Your agent writes the application.' },
   ]);
   assert.equal(copy.SCORE_UNIT, 'Shipping');
   assert.equal(copy.ROLLING, 'Rolling, apply anytime');
@@ -121,15 +127,15 @@ test('(i) copy constants are exact', () => {
   assert.equal(copy.PROFILE_ACTIVITY, 'Activity');
   assert.equal(copy.shippedAgo('2h ago'), 'Shipped 2h ago');
   assert.equal(copy.HIGHLIGHTS_TITLE, 'Highlights');
-  assert.equal(copy.backOn('Maya'), 'Back Maya on Base');
-  assert.equal(copy.backLabel('Maya'), 'Back Maya');
+  // v4.0 Task 9: the owner-approved Token card wording.
+  assert.equal(copy.backOn('Maya'), "Maya's token on Base");
+  assert.equal(copy.backLabel('Maya'), 'Trade');
   assert.equal(copy.keepsLine('Maya'), 'Maya keeps 40% of fees');
   assert.equal(copy.feesBy('Maya'), 'earned by Maya');
-  assert.equal(copy.BACKERS, 'backers');
+  assert.equal(copy.BACKERS, 'holders');
   assert.equal(copy.leaderboardLine(1), '1 builder, ranked by how often they ship');
   assert.equal(copy.leaderboardLine(1234), '1,234 builders, ranked by how often they ship');
-  assert.deepEqual(copy.FILTERS, { all: 'All', base: 'Base', backed: 'Backed' });
-  assert.equal(copy.BACKED_TAG, 'Backed');
+  assert.deepEqual(copy.FILTERS, { all: 'All', base: 'Base' });
   assert.deepEqual(copy.FEED_STATS, { builders: 'Builders shipped', commits: 'Commits', live: 'Went live', applications: 'Applications sent' });
   assert.equal(copy.NOT_FOUND_BIG, '404');
   assert.equal(copy.NOT_FOUND_TEXT, 'Nothing shipped here.');

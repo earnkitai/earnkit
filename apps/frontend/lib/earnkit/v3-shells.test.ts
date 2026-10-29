@@ -108,7 +108,7 @@ test('T6.3 (GTM W4) the card: the v3.1 site tokens only, the blue hero (name, @h
   assert.equal(factsLine(['3 weeks in a row', 'Won Arc grants']), '3 weeks in a row · Won Arc grants');
   assert.match(html, />91<[\s\S]*?>Shipping score<|>Shipping score<[\s\S]*?>91</, 'the ring');
   assert.match(html, />#1<[\s\S]*?>of 40 builders</, 'the rank helper\'s line, split');
-  assert.match(html, />Backing open<[\s\S]*?>\$RCP<[\s\S]*?>14 backers</, 'Backing');
+  assert.match(html, />Token<[\s\S]*?>\$RCP<[\s\S]*?>14 holders</, 'v4.0 Task 9: the token tile says holders');
   assert.ok(html.includes('earnkit.com/maya_makes'), 'the URL');
   assert.doesNotMatch(html, /stroke-dasharray="[^"]*NaN/);
   // Every colour on the card is a SITE value.

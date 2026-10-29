@@ -12,7 +12,7 @@ import { STARTING_ON_BASE, type Highlight, type ProfileSite } from '../../lib/ea
  *   "Live at <host>") and up to two quiet facts under it ("Building since Mar 2025", from Highlights' consistency sub
  *   line, "6 weeks in a row").
  * - `tiles`: at most two big facts beside the hero, in order: the Shipping ring (only while ranked, with the rank line
- *   from rank.ts when the pool shows one), Backing (EARNKIT_RAISING on, the coin live; backers only from
+ *   from rank.ts when the pool shows one), the builder's token (site.token: launched; holders only from
  *   BACKERS_SHOWN_FROM), a win, the streak. v3.1 Highlights competence (2026-10-25): no commits tile, since the page
  *   no longer shows a commit count (owner: commit counts are trivia).
  * - No confirmed project: one calm line ("Getting started on Base" when the builder said yes to the Base walk-through,

@@ -28,7 +28,7 @@ const RANKED: ProfileData = {
   earned: { paid_usd: 340, waiting_usd: 0 }, points: 1200,
 };
 const NO_PROJECT: ProfileData = {
-  ...RANKED, backing: null, bench: null, rankListed: false, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0,
+  ...RANKED, bench: null, rankListed: false, line: null, score: null, why: null, target: null, originality: null, chainLines: [], project: null, log: [], streak: 0,
   grid: RANKED.grid.map((g) => ({ ...g, on: false })),
 };
 const CONFIRMING: ProfileData = { ...RANKED, project: { ...RANKED.project!, confirmed: false } };

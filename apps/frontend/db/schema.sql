@@ -1872,6 +1872,8 @@ ALTER TABLE person_wallets ADD COLUMN IF NOT EXISTS signals_checked_at timestamp
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_builder_id integer;
 ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_at timestamptz;
 CREATE INDEX IF NOT EXISTS installations_ref_builder ON installations (ref_builder_id) WHERE ref_builder_id IS NOT NULL;
+-- v4.0 Task 10: installs that came from a named source (tokens.fun: ?ref=tokensfun), never a builder; first one stays.
+ALTER TABLE installations ADD COLUMN IF NOT EXISTS ref_source text;
 -- One row per profile. The wallet is the reward recipient (newest recipient_at), else the newest proven one;
 -- funded_by_slug is another profile that proved the wallet's funder. Runs with the owner's rights, so earnkit_ro sees
 -- only these columns (no emails, tokens or IPs). installation_ids: test installs live in an env var SQL can't read.
@@ -2059,4 +2061,29 @@ CREATE TABLE IF NOT EXISTS builder_code_claims (
   verified_at timestamptz,
   created_at  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (code, builder_id)
+);
+
+-- v4 (2026-10-28): one token per builder and per X account (builder-token.ts). The row is the launch claim:
+-- 'declined' is the builder's no (kept forever), 'launching' the claim while tokens.fun mints, 'launched' the token,
+-- 'unknown' an answer that might have minted (never retried; the owner settles it).
+CREATE TABLE IF NOT EXISTS builder_tokens (
+  builder_id   integer PRIMARY KEY,
+  x_user_id    text NOT NULL UNIQUE,
+  status       text NOT NULL CHECK (status IN ('declined', 'launching', 'launched', 'unknown')),
+  name         text,
+  symbol       text,
+  wallet       text CHECK (wallet IS NULL OR wallet ~ '^0x[0-9a-f]{40}$'),
+  coin_address text UNIQUE CHECK (coin_address IS NULL OR coin_address ~ '^0x[0-9a-f]{40}$'),
+  tx_hash      text,
+  told_at      timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- v4 Task 12 (2026-10-28): the owner's emails (owner-mail.ts). 'safe_5k': 'sent' once the Safe crossed $5,000 (mailed),
+-- 'below' re-arms it; 'gas:<needs_owner line>': the UTC date (YYYY-MM-DD) that line last mailed (at most once a day).
+CREATE TABLE IF NOT EXISTS owner_alerts (
+  kind  text PRIMARY KEY,
+  state text,
+  at    timestamptz
 );

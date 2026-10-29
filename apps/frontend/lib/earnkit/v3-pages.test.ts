@@ -33,7 +33,7 @@ import type { BenchRow } from './bench-data';
 const html = (el: React.ReactElement) => renderToStaticMarkup(el);
 const text = (h: string) => h.replace(/<[^>]+>/g, ' ').replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
 const FRONTEND = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, backing: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week', streak: 0 };
+const ROW: BenchRow = { rank: 3, line: '#3 of 40 builders', points: 72, handle: 'maya_makes', name: 'Maya Chen', avatar: null, chains: ['base'], project: 'Recipe planner', best: '31 people this week', streak: 0 };
 
 // ---- (a) the leaderboard ------------------------------------------------------------------------
 
@@ -63,7 +63,7 @@ test('(a) the filter tabs: a SegTabs rail of links, 44px on a phone, the current
   assert.match(rail, /rounded-full p-1 bg-s-panel/);
   for (const a of rail.match(/<a [^>]*>/g) ?? []) assert.match(a, /\bmin-h-11\b/);
   assert.match(rail, /<a aria-current="page" class="[^"]*bg-s-light text-s-ink[^"]*" href="\/leaderboard">All<\/a>/);
-  assert.match(rail, /href="\/leaderboard\?backed=1"[^>]*>Backed</);
+  assert.doesNotMatch(rail, /backed=1|>Backed</, 'v4.0 Task 11: no Backed tab');
   assert.doesNotMatch(rail, /weekly=1|Shipping every week/, 'W3: no weekly tab');
 });
 

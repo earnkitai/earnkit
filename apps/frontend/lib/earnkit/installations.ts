@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isRefSource } from './ref-cookie';
 import type { ReportedRepo } from './match';
 import type { FitRepo } from './alerts';
 import { isWalletAddress, normalizeRepoUrl } from './campaigns';
@@ -141,6 +142,11 @@ export async function saveInstallation(token: string, clientKey?: string, shared
  * installations. Counted in owner_people.referred_installs; never shown publicly or used for anything else.
  */
 export async function noteReferral(id: number, handle: string): Promise<void> {
+  // v4.0 Task 10: a source (tokens.fun) is counted on its own column, never as a builder.
+  if (isRefSource(handle.toLowerCase())) {
+    await sql()`UPDATE installations SET ref_source = ${handle.toLowerCase()} WHERE id = ${id} AND ref_source IS NULL`;
+    return;
+  }
   await sql()`
     UPDATE installations i SET ref_builder_id = p.builder_id, ref_at = now()
     FROM builder_profiles p

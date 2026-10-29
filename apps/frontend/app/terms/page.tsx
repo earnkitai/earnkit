@@ -7,8 +7,8 @@ import RiskSection from './sections/RiskSection';
 import SponsorTermsSection from './sections/SponsorTermsSection';
 
 /**
- * v3 Stage 2: the Backing section reads EARNKIT_RAISING. The page is static and regenerated at run time every 10 minutes
- * (ISR reads the running server's env), so a flip shows within 10 minutes without a render per request.
+ * The page is static and regenerated at run time every 10 minutes
+ * (ISR), so a change shows within 10 minutes without a render per request.
  */
 export const revalidate = 600;
 

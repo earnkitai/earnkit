@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
+import { walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -72,6 +73,8 @@ async function rankedBuilder(x: string, name: string, repo: string, gh: number) 
   const key = `${x}${RUN}/${repo}`.toLowerCase();
   await mcpCall(a.ctx, 'find', { identity: { project: { name, repo: `https://github.com/${key}` } } });
   await installApp({ builderId: a.id, repoKey: key, login: `${x}${RUN}`, gh: fakeGitHub({ [key]: { id: gh, owner: `${x}${RUN}`, installation: gh } }) });
+  // v4.0: setup step 3 answered (this test is about another reply).
+  await walletOffered(a.id);
   return { ...a, key };
 }
 
@@ -110,11 +113,11 @@ test('R9: no user-visible copy says "Bench": app/ and lib/ strings, the reply co
   }
   assert.deepEqual(found, []);
   const copy = [
-    INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L'), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L'),
+    INTRO_LINE, STATE_COPY.signed_out.ask('L'), STATE_COPY.no_project.noApp(), STATE_COPY.no_project.ask('L', false), STATE_COPY.not_counted.stand('X'), STATE_COPY.not_counted.ask('L', false),
     ...Object.values(VARIANT_COPY).flatMap((v) => [v.stand('X'), v.ask('X')]),
   ];
   for (const c of copy) if (c !== null) assert.doesNotMatch(c, /bench/i, c);
-  assert.match(STATE_COPY.signed_out.ask('L'), /^Step 1 of 2: sign in with X \(one click\): L\nDone\?$/);
+  assert.match(STATE_COPY.signed_out.ask('L'), /^Setup takes about a minute:\n1\. Sign in with X: L\n2\. Connect your code\n3\. Add your wallet\n\nDone with step 1\?$/);
   const llms = readFileSync(join(FRONTEND, 'lib/earnkit/llms/v213.txt'), 'utf8');
   assert.match(llms, /^## The leaderboard$/m);
   assert.match(llms, /https:\/\/earnkit\.com\/leaderboard/);
@@ -127,7 +130,7 @@ test('R17, R18 fix 1, R11 (v3.1 Task 8): a leaderboard row shows the Shipping sc
   const name = 'Maximiliana Alexandrovna Montgomery-Featherstonehaugh';
   const project = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const html = renderToStaticMarkup(React.createElement(BenchRowItem, {
-    r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, backing: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
+    r: { rank: 3, line: '#3 of 12 builders', points: 72, handle: 'maxi', name, avatar: null, chains: [], project, best: '3 weeks in a row', streak: 0 },
     ranked: true,
   }));
   // Clarity batch: the number carries a visible, quiet "Shipping" caption (was screen-reader only).

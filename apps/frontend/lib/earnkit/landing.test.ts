@@ -173,7 +173,7 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
   assert.equal(t('colosseum-worlds-fair').prize_note, 'up to $30,000 per winner');
   assert.equal(t('monad-metropolis').prize, '$250K+ in prizes');
   assert.equal(t('arc-microgrants').prize, '10,000 USDC pool');
-  assert.equal(t('circle-developer-grants').prize, '$200K in grants');
+  assert.equal(t('circle-developer-grants').prize, '$135K in grants');
   // Review #1: grant programs say "per grant", with the stated range; hackathons keep "per winner".
   assert.equal(t('circle-developer-grants').prize_note, '$5K–$100K per grant');
   assert.equal(t('arc-microgrants').prize_note, '500 USDC per grant');

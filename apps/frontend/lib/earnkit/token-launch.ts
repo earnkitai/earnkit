@@ -43,6 +43,7 @@ import {
   tokenLaunchesAvailable,
   tryAgainAfter,
   xProfileUrl,
+  type LaunchChain,
   type TokenOutcome,
   type TokenStatus,
 } from './tokens';
@@ -497,7 +498,7 @@ async function runTokenFlow(
     installationId: number;
     choice: 'skip' | Choice | undefined;
     confirmed: boolean;
-    chain: 'base' | 'robinhood' | 'arbitrum';
+    chain: LaunchChain;
     /** Ruling 22: the wallet given with this entry (validated), before the entry's own (never a remembered one, Ruling 30). */
     givenWallet?: string | null;
     /** v2.8.1 fix round 1: the agent checking back after "launching": a read, never a launch. */
@@ -730,7 +731,7 @@ async function runTokenFlow(
 async function ownProject(store: FlowStore, projectId: number, installationId: number) {
   const project = await store.load(projectId);
   if (!project || project.installation_id !== installationId)
-    throw new LaunchError(`No project ${projectId} recorded by you. Pass the project_id tell coin returned; a sent application is recorded with tell program_status applied.`);
+    throw new LaunchError(`No project ${projectId} recorded by you. Pass the entry's project_id; a sent application is recorded with tell program_status applied.`);
   return project;
 }
 
@@ -992,7 +993,7 @@ export const LaunchTokenInput = TokenChoice.extend({
   project_id: z.number().int().positive().optional(),
   /** Required for a launch; a skip (decision 'skip') launches nothing. */
   builder_confirmed: z.literal(true).optional(),
-  chain: z.enum(['base', 'robinhood', 'arbitrum']).default('base'),
+  chain: z.enum(['base']).default('base'),
   /** A new live link (e.g. the old one 404s). */
   live_url: z.string().optional(),
   /** A repo link for an entry recorded without one; a recorded repo never changes (record a new entry). */

@@ -160,11 +160,11 @@ test('(e) the weekly moment still shows the week after', db, async () => {
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts)
       VALUES (${me.id}, ${me.key}, '2026-10-12', ${sql().json({ checked: true, shipped_code: { n: 1 } } as never)})`;
     const s = show(await mcpCall(ctx(me.id), 'find', {}));
-    // Task 16 step 7 (v3.1 streak fix: the weeks EarnKit checked commits for count, so the weekly moment names the run: "Week 4 done."; one ranked builder: "on EarnKit").
-    // v3.1 cold read (owner-approved): "Week 4 done:" then the summary, never "You're on EarnKit.".
-    assert.ok(s.startsWith('Week 4 done:\n'), s);
+    // Task 16 step 7 (v3.1 streak fix: the weeks EarnKit checked commits for count); v4.0 Task 7: the Monday block names the run.
+    assert.ok(s.startsWith('Your week is ready, '), s);
+    assert.match(s, /\n\| Streak \| 4 weeks \|\n/, s);
     assert.doesNotMatch(s, /Make your shipping log public/);
-    assert.match(s, /\nLook right\?$/);
+    assert.match(s, /\n\nLooks right\?$/);
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }
@@ -181,7 +181,7 @@ test('(e2) same week as the connect yes: the next find never asks about the week
   assert.match(show(await mcpCall(ctx(me.id), 'tell', { move_up: { kind: 'connect', project_key: me.key, answer: 'yes' } })), /^You're live: /);
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
-  assert.doesNotMatch(s, /Make your shipping log public|Week \d+ done|Last week done|Look right\?/, s);
+  assert.doesNotMatch(s, /Make your shipping log public|Your week is ready|Looks right\?/, s);
   assert.match(s, RANKED_END, s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'qualify');
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, isoWeekOf(new Date()), 'the week is claimed');
