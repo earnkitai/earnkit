@@ -38,7 +38,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { EXISTING_NOT_TOKEN, EXISTING_TAKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { EXISTING_NOT_TOKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -1816,8 +1816,8 @@ async function takeTokenAsk(id: number): Promise<{ setup: boolean } | null> {
 /**
  * v4.4: tell token { existing }: the builder already has a token. Recorded (recordExistingToken: status 'existing', the
  * offer ends forever): the recorded line, and when it answers the setup offer (the stored ask's setup), that line then
- * the setup-done reply (outcome 'existing'). Not a token on Base (or not an address) or held by another builder: its
- * line, and the stored ask stays, so the next answer (another address, or "skip": the token's no) still answers it. A
+ * the setup-done reply (outcome 'existing'). Not a token on Base (or not an address): its line, and the stored ask
+ * stays, so the next answer (another address, or "skip": the token's no) still answers it. A
  * token already launching, launched or unknown: its state, unchanged. Never throws.
  */
 export async function tokenExisting(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'builderTokenDeps'>, address: string): Promise<Reply> {
@@ -1825,9 +1825,9 @@ export async function tokenExisting(ctx: Pick<ToolContext, 'installationId' | 'o
   const now = new Date();
   try {
     const r = await recordExistingToken(id, address, { isToken: ctx.builderTokenDeps?.isToken });
-    if (r === 'not_token' || r === 'taken') {
+    if (r === 'not_token') {
       const asked = (await benchAsked(id, {}))?.kind === 'token';
-      return { show_to_builder: r === 'taken' ? EXISTING_TAKEN : EXISTING_NOT_TOKEN, ...(asked && { move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } }) };
+      return { show_to_builder: EXISTING_NOT_TOKEN, ...(asked && { move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } }) };
     }
     if (r === 'no_x') return { show_to_builder: TOKEN_CANT };
     const t = await takeTokenAsk(id);

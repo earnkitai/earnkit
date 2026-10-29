@@ -1013,7 +1013,7 @@ apps/frontend/
                                proposed (C6), else "ticker not checked for duplicates"; titleCase
     token-offers.ts            DELETED in v4.0 Task 11 (token_offers and token_declines stay in the schema, read by nothing).
     builder-token.ts(+test)    v4.0 (2026-10-28): the builder token, one per builder and per X account (builder_tokens: builder_id PK,
-                               x_user_id UNIQUE, status declined|launching|launched|unknown, name, symbol, wallet, coin_address UNIQUE,
+                               x_user_id UNIQUE, status declined|launching|launched|unknown|existing, name, symbol, wallet, coin_address (v4.4: unique WHERE status <> 'existing'),
                                tx_hash, told_at, created_at, updated_at). builderTokensOn (EARNKIT_BUILDER_TOKENS === 'on', off by
                                default until tokens.fun v4.1 is live), builderToken, declineBuilderToken (a no is kept forever; 'no_x' /
                                'x_taken'), builderTicker (TickerPick: a ticker from the X handle, tokens.fun checked; 'ticker_check_down' /
@@ -1034,8 +1034,9 @@ apps/frontend/
                                skip with no row removes token_offered (token_skipped). Tests v42-legacy-offer.test.ts, v4-setup.test.ts
                                v4.4 Task 2: status 'existing' (the builder's own token, named: coin_address only, no wallet; schema.sql
                                -- v4.4 rebuilds builder_tokens_status_check). recordExistingToken(builderId, address, { isToken }) ->
-                               recorded | not_token | taken (another row's coin_address) | has_token (launching/launched/unknown, unchanged)
-                               | no_x; a declined row becomes existing. baseTokenCheck (alchemy.ts isToken; revert = no, failed read = null,
+                               recorded | not_token | has_token (launching/launched/unknown, unchanged)
+                               | no_x; a declined row becomes existing. Fix round 1: coin_address unique only WHERE status <> 'existing'
+                               (index builder_tokens_coin_address_launch), so a claim never blocks another builder or a launch. baseTokenCheck (alchemy.ts isToken; revert = no, failed read = null,
                                accepted; Alchemy off accepted). launchBuilderToken returns exists for it; the retry never selects it; every
                                launch reader filters status 'launched'. Tests v44-setup-order.test.ts
     token-answers.ts           v4.2 Task 1: the token answer in each state. tokenAnswerState (row, handle, communityUsd, walletStepOpen,
@@ -1047,7 +1048,7 @@ apps/frontend/
                                the wallet only (bench-reply.ts walletSetupAsk(project, link); walletSetupToken gone); its sign is followed by
                                setupOffer (setupTokenOffer, stored ask { kind 'token', setup: true }); the answer is setupDoneFor's reply
                                (SetupOutcome launched|on_its_way|declined|existing). tell token { existing } -> bench-find.ts tokenExisting
-                               (existingTokenLine, EXISTING_NOT_TOKEN, EXISTING_TAKEN in bench-reply.ts; TOKEN_ASK_NOTE names it)
+                               (existingTokenLine, EXISTING_NOT_TOKEN in bench-reply.ts; TOKEN_ASK_NOTE names it)
     community.ts               v4.0 Task 7/9: weekCommunityUsd(builderId, weekStart, now, price) = this week's and last week's creator
                                fee_claims paid to the builder token's wallet, priced with cachedWethUsd ({0,0} with no token, wallet or
                                price); allTimeCommunityUsd (the Token card's "fees earned"). Tests v4-weekly.test.ts, v4-token-card.test.ts

@@ -2074,7 +2074,7 @@ CREATE TABLE IF NOT EXISTS builder_tokens (
   name         text,
   symbol       text,
   wallet       text CHECK (wallet IS NULL OR wallet ~ '^0x[0-9a-f]{40}$'),
-  coin_address text UNIQUE CHECK (coin_address IS NULL OR coin_address ~ '^0x[0-9a-f]{40}$'),
+  coin_address text CHECK (coin_address IS NULL OR coin_address ~ '^0x[0-9a-f]{40}$'),
   tx_hash      text,
   told_at      timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -2083,6 +2083,11 @@ CREATE TABLE IF NOT EXISTS builder_tokens (
 -- v4.4 (2026-10-29): 'existing', the builder's own token named in answer to the token offer (builder-token.ts recordExistingToken).
 ALTER TABLE builder_tokens DROP CONSTRAINT IF EXISTS builder_tokens_status_check;
 ALTER TABLE builder_tokens ADD CONSTRAINT builder_tokens_status_check CHECK (status IN ('declined', 'launching', 'launched', 'unknown', 'existing'));
+-- v4.4 Task 2 fix round 1: an 'existing' address is the builder's unverified claim and grants nothing, so it never blocks
+-- anyone: coin_address is unique only among the other rows (EarnKit's launches). Replaces the column's plain UNIQUE.
+ALTER TABLE builder_tokens DROP CONSTRAINT IF EXISTS builder_tokens_coin_address_key;
+CREATE UNIQUE INDEX IF NOT EXISTS builder_tokens_coin_address_launch ON builder_tokens (coin_address)
+  WHERE status <> 'existing' AND coin_address IS NOT NULL;
 
 -- v4 Task 12 (2026-10-28): the owner's emails (owner-mail.ts). 'safe_5k': 'sent' once the Safe crossed $5,000 (mailed),
 -- 'below' re-arms it; 'gas:<needs_owner line>': the UTC date (YYYY-MM-DD) that line last mailed (at most once a day).

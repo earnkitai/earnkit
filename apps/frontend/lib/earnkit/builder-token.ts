@@ -89,15 +89,17 @@ export type ExistingTokenDeps = {
   /** The Base read (tests fake it). Default: baseTokenCheck through Alchemy, or null (accepted) while Alchemy is off. */
   isToken?: (address: string) => Promise<boolean | null>;
 };
-export type ExistingTokenResult = 'recorded' | 'not_token' | 'taken' | 'has_token' | 'no_x';
+export type ExistingTokenResult = 'recorded' | 'not_token' | 'has_token' | 'no_x';
 
 /**
  * v4.4: the builder already has a token: `address` (0x and 40 hex, else 'not_token') is recorded as their row, status
  * 'existing' with its lowercase coin_address, so the offer ends forever (tokenOfferDue needs no row) and nothing ever
  * launches for them. A row already launching, launched or unknown is unchanged ('has_token', before any read); a declined
  * row (or an earlier existing one) becomes this one. The address must be a token on Base (deps.isToken; a read failure
- * or Alchemy off accepts it). 'taken': another builder's row holds that address. 'no_x': no claimed X account, or one
- * another builder's row holds (nothing written). Throws on a database error.
+ * or Alchemy off accepts it). Fix round 1: the address is the builder's unverified claim and grants nothing, so it
+ * never blocks anyone: any number of builders may name the same one, and an EarnKit launch of it is never refused
+ * (coin_address is unique only among non-'existing' rows, builder_tokens_coin_address_launch). 'no_x': no claimed X
+ * account, or one another builder's row holds (nothing written). Throws on a database error.
  */
 export async function recordExistingToken(builderId: number, address: string, deps: ExistingTokenDeps = {}): Promise<ExistingTokenResult> {
   const coin = address.trim().toLowerCase();
@@ -118,8 +120,8 @@ export async function recordExistingToken(builderId: number, address: string, de
     // The row changed to launching (or another status) since it was read: unchanged.
     return r ? 'recorded' : 'has_token';
   } catch (err) {
-    const e = err as { code?: string; constraint_name?: string };
-    if (e.code === '23505') return e.constraint_name === 'builder_tokens_coin_address_key' ? 'taken' : 'no_x';
+    // The only unique key an 'existing' row can meet is x_user_id: the X account is held by another builder's row.
+    if ((err as { code?: string }).code === '23505') return 'no_x';
     throw err;
   }
 }

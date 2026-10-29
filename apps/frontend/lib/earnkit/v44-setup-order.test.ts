@@ -377,7 +377,6 @@ const addr = () => `0x${hex(20)}`;
 const mixed = (a: string) => `0x${a.slice(2, 22).toUpperCase()}${a.slice(22)}`;
 const recordedLine = (a: string) => `Got it. I've noted ${shortWallet(a.toLowerCase())} as your token, and I won't offer one again.`;
 const NOT_TOKEN = "That address isn't a token on Base. Paste your token's contract address, or say skip.";
-const TAKEN = 'That token is already linked to another EarnKit builder. Paste a different address, or say skip.';
 const existingText = (a: string) => `Your token is ${shortWallet(a.toLowerCase())}. EarnKit didn't launch it, so its fees aren't claimed here.`;
 const row = async (id: number) => (await sql()<{ status: string; coin_address: string | null; wallet: string | null }[]>`
   SELECT status, coin_address, wallet FROM builder_tokens WHERE builder_id = ${id}`)[0] ?? null;
@@ -452,17 +451,30 @@ test('T2 (b) a "skip" after a bad address declines it as the setup offer\'s no',
   assert.equal((await row(b.id))?.status, 'declined');
 });
 
-test('T2 (c) a token already linked to another builder is "taken"; nothing is written and the ask stays', db, async () => {
+test('T2 fix round 1: two builders may note the same existing address; it never blocks an EarnKit launch of it', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
-  const other = await offered('xc1');
   const a = addr();
-  fakeIsToken(other, [a]);
-  assert.ok(show(await mcpCall(other.ctx, 'tell', { token: { existing: a } })).startsWith(recordedLine(a)));
-  const b = await offered('xc2');
-  fakeIsToken(b, [a]);
-  assert.equal(show(await mcpCall(b.ctx, 'tell', { token: { existing: a.toUpperCase().replace('0X', '0x') } })), TAKEN);
-  assert.equal(await row(b.id), null);
-  assert.equal(((await seen(b.id)).bench_ask as { kind: string }).kind, 'token');
+  const one = await offered('xc1');
+  fakeIsToken(one, [a]);
+  assert.ok(show(await mcpCall(one.ctx, 'tell', { token: { existing: a } })).startsWith(recordedLine(a)));
+  const two = await offered('xc2');
+  fakeIsToken(two, [a]);
+  const s = show(await mcpCall(two.ctx, 'tell', { token: { existing: a.toUpperCase().replace('0X', '0x') } }));
+  assert.ok(s.startsWith(`${recordedLine(a)}\n\nYou're all set, Maya.`), s);
+  assert.deepEqual(await row(one.id), { status: 'existing', coin_address: a.toLowerCase(), wallet: null });
+  assert.deepEqual(await row(two.id), { status: 'existing', coin_address: a.toLowerCase(), wallet: null });
+  // An EarnKit launch row for the same address is never refused at the database (the claims grant nothing).
+  const launchId = 900_000_000 + Math.floor(Math.random() * 90_000_000);
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, symbol, coin_address)
+    VALUES (${launchId}, ${`v44fr1-${launchId}`}, 'launched', 'REAL', ${a.toLowerCase()})`;
+  // Launches stay unique among themselves.
+  await assert.rejects(sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status, coin_address)
+    VALUES (${launchId + 1}, ${`v44fr1-${launchId + 1}`}, 'launching', ${a.toLowerCase()})`, (e: { code?: string }) => e.code === '23505');
+  // A third builder still notes it after the launch.
+  const three = await offered('xc3');
+  fakeIsToken(three, [a]);
+  assert.ok(show(await mcpCall(three.ctx, 'tell', { token: { existing: a } })).startsWith(recordedLine(a)));
+  await sql()`DELETE FROM builder_tokens WHERE builder_id = ${launchId}`;
 });
 
 test('T2 (d) a launched builder\'s { existing } is unchanged (has_token): the live state, no Base read', db, async () => {

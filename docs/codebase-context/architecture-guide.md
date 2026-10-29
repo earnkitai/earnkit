@@ -8484,9 +8484,11 @@ Task 2: `tell token: { existing: '<address>' }` (mcp.ts and tools.ts: `'ask'` or
 `bench-find.ts tokenExisting` -> `builder-token.ts recordExistingToken`: lowercased 0x40 hex, a Base check
 (`baseTokenCheck`, alchemy.ts `isToken`'s two reads; a revert is no, a failed read or Alchemy off accepts), then a
 `builder_tokens` row with status `existing` and `coin_address` (no wallet, no symbol). A declined (or earlier existing)
-row becomes it; launching/launched/unknown is unchanged (`has_token`: the state text); another builder's `coin_address`
-is `taken`. Recorded: "Got it. I've noted <short> as your token, and I won't offer one again." and, answering the setup
-offer, then the setup-done reply (outcome `existing`, lead "You're all set, <first>."). Not a token or taken: its line and
+row becomes it; launching/launched/unknown is unchanged (`has_token`: the state text). Fix round 1: the address is an
+unverified claim that grants nothing, so it never blocks anyone: `coin_address` is unique only among non-existing rows
+(partial index `builder_tokens_coin_address_launch`, replacing the column UNIQUE), so any number of builders may name
+the same address and an EarnKit launch of it is never refused. Recorded: "Got it. I've noted <short> as your token, and I won't offer one again." and, answering the setup
+offer, then the setup-done reply (outcome `existing`, lead "You're all set, <first>."). Not a token: its line and
 the stored ask stays (another address, or "skip" = the token's no). An existing row ends every offer (`tokenOfferDue`
 needs no row), `launchBuilderToken` returns `exists` for it, `retryDroppedBuilderTokens` never selects it, and every
 reader that shows or counts a launch reads `status = 'launched'` (`/api/builder-tokens`, stats, token card, backers,

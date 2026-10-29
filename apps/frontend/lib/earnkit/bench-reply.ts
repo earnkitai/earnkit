@@ -215,8 +215,6 @@ export const TOKEN_NO_LINE = 'Got it.';
 export const existingTokenLine = (short: string) => `Got it. I've noted ${short} as your token, and I won't offer one again.`;
 /** v4.4: the address they named is not a token on Base (or not an address); the stored token ask stays. */
 export const EXISTING_NOT_TOKEN = "That address isn't a token on Base. Paste your token's contract address, or say skip.";
-/** v4.4: another EarnKit builder's row already holds that token; the stored token ask stays. */
-export const EXISTING_TAKEN = 'That token is already linked to another EarnKit builder. Paste a different address, or say skip.';
 /**
  * v4.2 Task 6 (F11): the one-time token offer for an earlier builder with a proven wallet and no token row. The lead is a
  * statement; the question ends the reply (and follows the explainer when the builder asked about their token).
