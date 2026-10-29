@@ -151,10 +151,10 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 1
   assert.equal(prep.reply?.agent_note, DRAFT_NOTE);
   // The block's lines, by rule.
   assert.deepEqual(
-    shipLogBlock({ score: 72, rank: '#3 of 40 builders', why: 'You shipped 3 weeks in a row.', streak: 3, live: 'https://kit.app/', page: 'earnkit.com/lee' }),
+    shipLogBlock({ score: 72, rank: '#3 of 40 builders', why: 'You shipped 3 weeks in a row.', streak: 3, live: 'https://kit.app/', page: 'earnkit.com/lee', usedBy: null, revenue: null }),
     ['From your ship log:', 'Shipping 72 · #3 of 40 builders', 'You shipped 3 weeks in a row.', '3 weeks in a row', 'Live: https://kit.app/', 'Page: earnkit.com/lee'],
   );
-  assert.deepEqual(shipLogBlock({ score: null, rank: null, why: null, streak: 1, live: null, page: 'earnkit.com/lee' }), ['From your ship log:', 'Page: earnkit.com/lee']);
+  assert.deepEqual(shipLogBlock({ score: null, rank: null, why: null, streak: 1, live: null, page: 'earnkit.com/lee', usedBy: null, revenue: null }), ['From your ship log:', 'Page: earnkit.com/lee']);
 });
 
 test('(c) no is remembered 30 days', db, async () => {

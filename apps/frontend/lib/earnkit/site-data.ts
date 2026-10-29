@@ -199,9 +199,7 @@ export type UsageRow = { source: 'contracts' | 'builder_code'; users: number; re
  * file the code is in only while `repoPrefix` (the public main repo's page) starts it, else none. Never a wallet. Pure.
  */
 export function usedByOf(rows: UsageRow[], repoPrefix: string | null): Highlight | null {
-  const best = rows
-    .filter((r) => Number.isInteger(r.users) && r.users >= USED_MIN)
-    .sort((a, b) => b.users - a.users || (a.source === 'contracts' ? -1 : 1))[0];
+  const best = bestUsage(rows);
   if (!best) return null;
   const n = best.users;
   const p = Math.round((100 * Math.min(Math.max(best.returning, 0), n)) / n);
@@ -217,12 +215,24 @@ export function usedByOf(rows: UsageRow[], repoPrefix: string | null): Highlight
     ...(href && { href }),
   };
 }
-async function usedByItem(builderId: number, repoPrefix: string | null, now: Date): Promise<Highlight | null> {
-  const rows = await sql()<UsageRow[]>`
+/**
+ * The Used by source shown (v4.5 Task 3: also the drafts' and replies' usage line): the source with more people, from
+ * USED_MIN (they overlap, never summed; a tie keeps contracts), or null. Pure.
+ */
+export function bestUsage(rows: UsageRow[]): UsageRow | null {
+  return rows
+    .filter((r) => Number.isInteger(r.users) && r.users >= USED_MIN)
+    .sort((a, b) => b.users - a.users || (a.source === 'contracts' ? -1 : 1))[0] ?? null;
+}
+/** The newest app_usage row of each source no older than USED_STALE_DAYS (a stopped read is hidden). */
+export async function usageRows(builderId: number, now: Date): Promise<UsageRow[]> {
+  return [...await sql()<UsageRow[]>`
     SELECT DISTINCT ON (source) source, users, "returning" AS returning, capped, href, chains FROM app_usage
     WHERE builder_id = ${builderId} AND day >= ${now.toISOString().slice(0, 10)}::date - ${USED_STALE_DAYS}::int
-    ORDER BY source, day DESC`;
-  return usedByOf(rows, repoPrefix);
+    ORDER BY source, day DESC`];
+}
+async function usedByItem(builderId: number, repoPrefix: string | null, now: Date): Promise<Highlight | null> {
+  return usedByOf(await usageRows(builderId, now), repoPrefix);
 }
 
 /**

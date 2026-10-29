@@ -15,6 +15,16 @@ import { AlchemyNetworkOff, BASE_USDC, contractFlows, type AlchemyCall } from '.
 import { USED_CONTRACTS, USED_PAGES } from './used-by';
 import { contractsRevenue, latestRevenue, revenueDue, runRevenue } from './revenue';
 import { runCron } from './cron';
+import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts, type ShipLogFacts } from './ship-log-facts';
+import { replyFacts } from './reply-facts';
+import { builderJson } from './builder-json';
+import { profileData } from './bench-data';
+import { USED_MIN, USED_STALE_DAYS, highlights, profileSite } from './site-data';
+import { readStats } from './stats';
+import { feedWeeks } from './feed';
+import { committedProgram } from './fixtures/program-file';
+import { ProgramFile } from './program-file';
+import { upsertProgram } from './programs';
 
 /** v4.5 Task 1: Hardhat Ignition deploy files are contract clues (never a GitHub or Alchemy read: fakes only). */
 appEnv();
@@ -389,4 +399,125 @@ test('latestRevenue: the newest row no older than USED_STALE_DAYS with usd above
   assert.deepEqual(await latestRevenue(b.id, NOW), { usd: 300, capped: false });
   await put('2026-10-28', 0);
   assert.equal(await latestRevenue(b.id, NOW), null, 'the newest is pass-through: no fallback to an older row');
+});
+
+// ---------------------------------------------------------------------------------------------- Task 3: drafts and replies
+
+const BLOCK = { score: null, rank: null, why: null, streak: 3, live: 'https://kit.app/', page: 'earnkit.com/lee', usedBy: null, revenue: null } as const;
+const USED = (users: number) => `Used by ${users} people in the last 30 days, verified onchain`;
+const PAID = (usd: string) => `${usd} paid into its contracts by outside wallets in the last 30 days, verified onchain`;
+
+test('3.1 shipLogBlock: the traction lines after the streak and before Live, by rule', () => {
+  const lines = (o: Partial<ShipLogFacts>) => shipLogBlock({ ...BLOCK, ...o });
+  const around = (...mid: string[]) => ['From your ship log:', '3 weeks in a row', ...mid, 'Live: https://kit.app/', 'Page: earnkit.com/lee'];
+  assert.deepEqual(lines({}), around());
+  // Usage only (returning under 2).
+  assert.deepEqual(lines({ usedBy: { users: 240, returning: 1, capped: false } }), around(USED(240)));
+  // Usage plus returning.
+  assert.deepEqual(lines({ usedBy: { users: 240, returning: 60, capped: false } }), around(USED(240), '60 came back in a second week'));
+  // Usage plus revenue; whole dollars, en-US grouping.
+  assert.deepEqual(lines({ usedBy: { users: 1500, returning: 0, capped: false }, revenue: { usd: 1240.99, capped: false } }), around(USED(1500).replace('1500', '1,500'), PAID('$1,240')));
+  // Capped values.
+  assert.deepEqual(lines({ usedBy: { users: 1000, returning: 2, capped: true }, revenue: { usd: 12_345, capped: true } }), around('Used by 1,000+ people in the last 30 days, verified onchain', '2 came back in a second week', PAID('$12,345+')));
+  // Revenue without usage shows; the returning line never without the usage line.
+  assert.deepEqual(lines({ revenue: { usd: 100, capped: false } }), around(PAID('$100')));
+  // Under thresholds: none.
+  assert.deepEqual(lines({ usedBy: { users: 9, returning: 9, capped: false }, revenue: { usd: 99.99, capped: false } }), around());
+  for (const l of lines({ usedBy: { users: 240, returning: 60, capped: true }, revenue: { usd: 5000, capped: true } }))
+    assert.doesNotMatch(l, /—|\?|coin|points|[\u{1F300}-\u{1FAFF}]/u, l);
+  assert.match(SHIP_LOG_NOTE, / Use the verified onchain numbers in traction answers as given\.$/);
+});
+
+/** A claimed person (find.ts person) with today's (or `day`'s) app_usage rows and app_revenue row. */
+async function traced(o: { usage?: [source: 'contracts' | 'builder_code', users: number, returning: number, capped?: boolean][]; usd?: number; capped?: boolean; day?: string; hidden?: boolean } = {}) {
+  rn++;
+  const key = `tr${process.pid}o${rn}/kit${rn}`;
+  const handle = `tr${process.pid % 10000}x${rn}`;
+  const id = await findPerson({ projects: [{ key, name: `Kit ${rn}`, confirmed: true }], main: key, claimed: handle });
+  if (o.hidden) await sql()`UPDATE builder_profiles SET hidden = true WHERE builder_id = ${id}`;
+  const day = o.day ?? new Date().toISOString().slice(0, 10);
+  for (const [source, users, returning, capped] of o.usage ?? [])
+    await sql()`INSERT INTO app_usage (builder_id, source, day, users, "returning", capped, href, chains)
+      VALUES (${id}, ${source}, ${day}, ${users}, ${returning}, ${capped ?? false}, null, ${['base']}::text[])`;
+  if (o.usd !== undefined)
+    await sql()`INSERT INTO app_revenue (builder_id, day, usd, inbound_usd, outbound_usd, capped, contracts) VALUES (${id}, ${day}, ${o.usd}, ${o.usd}, 0, ${o.capped ?? false}, 1)`;
+  return { id, key, handle };
+}
+
+test('3.2 shipLogFacts and replyFacts: the larger fresh source (never summed), revenue from $100; stale or under thresholds none', dbTest, async () => {
+  const now = new Date();
+  const b = await traced({ usage: [['contracts', 240, 60], ['builder_code', 300, 0]], usd: 1240.75 });
+  const f = (await shipLogFacts(b.id, now))!;
+  assert.deepEqual([f.usedBy, f.revenue], [{ users: 300, returning: 0, capped: false }, { usd: 1240, capped: false }]);
+  assert.ok(shipLogBlock(f).includes(USED(300)) && shipLogBlock(f).includes(PAID('$1,240')));
+  const r = await replyFacts({ installationId: b.id, sharedClient: false }, now);
+  assert.deepEqual([r.used_by_30d, r.revenue_30d_usd], [300, 1240]);
+  // A tie keeps contracts (and its returning).
+  const tie = await traced({ usage: [['builder_code', 50, 0], ['contracts', 50, 7, true]] });
+  assert.deepEqual((await shipLogFacts(tie.id, now))!.usedBy, { users: 50, returning: 7, capped: true });
+  // Stale (older than USED_STALE_DAYS): none, in both.
+  const stale = await traced({ usage: [['contracts', 240, 60]], usd: 5000, day: new Date(now.getTime() - (USED_STALE_DAYS + 1) * DAY).toISOString().slice(0, 10) });
+  assert.deepEqual([(await shipLogFacts(stale.id, now))!.usedBy, (await shipLogFacts(stale.id, now))!.revenue], [null, null]);
+  const rs = await replyFacts({ installationId: stale.id, sharedClient: false }, now);
+  assert.ok(!('used_by_30d' in rs) && !('revenue_30d_usd' in rs));
+  // Under thresholds: none.
+  const under = await traced({ usage: [['contracts', USED_MIN - 1, 5]], usd: 99.99 });
+  const fu = (await shipLogFacts(under.id, now))!;
+  assert.deepEqual([fu.usedBy, fu.revenue], [null, null]);
+  assert.deepEqual(shipLogBlock(fu).filter((l) => /verified onchain|came back/.test(l)), []);
+  const ru = await replyFacts({ installationId: under.id, sharedClient: false }, now);
+  assert.ok(!('used_by_30d' in ru) && !('revenue_30d_usd' in ru));
+  // Pass-through (usd 0): none.
+  assert.equal((await shipLogFacts((await traced({ usd: 0 })).id, now))!.revenue, null);
+});
+
+test('3.3 a drafted application (prepare) carries the lines, a hidden page\'s too (Review Focus 5)', dbTest, async () => {
+  const base = committedProgram('base-builder-grants');
+  const pid = `v45-tr-${process.pid}-draft`;
+  await upsertProgram(ProgramFile.parse({ ...base, id: pid, title: `Traction ${process.pid}`, ends_at: new Date(Date.now() + 20 * DAY).toISOString(), status: 'active' }));
+  try {
+    const reqs = base.submission_requirements as { key: string; type: string; options?: string[] }[];
+    const answers = Object.fromEntries(reqs.map((r) => [r.key, r.type === 'url' ? 'https://kit.app/demo' : r.type === 'email' ? 'lee@kit.app' : r.options ? r.options[0] : 'Kit lets fans tip creators on Base.']));
+    for (const hidden of [false, true]) {
+      const b = await traced({ usage: [['contracts', 240, 60]], usd: 1240, hidden });
+      const ctx = { installationId: b.id, ownInstallationId: b.id, sharedClient: false };
+      const project = { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' };
+      // The first call hands the agent ship_log to draft from; the drafted one keeps it (the form is the shown draft).
+      for (const args of [{ program_id: pid, project }, { program_id: pid, project, answers, coach_asked: true }]) {
+        const prep = await mcpCall(ctx, 'prepare', args);
+        const log = prep.reply?.ship_log as ShipLogFacts;
+        assert.deepEqual([log?.usedBy, log?.revenue], [{ users: 240, returning: 60, capped: false }, { usd: 1240, capped: false }], `${hidden ? 'hidden' : 'public'}: ${prep.text}`);
+        const block = shipLogBlock(log);
+        for (const l of [USED(240), '60 came back in a second week', PAID('$1,240')]) assert.ok(block.includes(l), l);
+        assert.ok(!String(prep.reply?.show_to_builder ?? '').includes('paid into'), 'never shown on the form link');
+      }
+      const r = await replyFacts({ installationId: b.id, sharedClient: false });
+      assert.deepEqual([r.used_by_30d, r.revenue_30d_usd], [240, 1240], hidden ? 'hidden' : 'public');
+    }
+  } finally {
+    await sql()`DELETE FROM programs WHERE id = ${pid}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`);
+  }
+});
+
+test('3.4 privacy: builder.json, the page data, /api/stats and the feed never carry revenue (serialized)', dbTest, async () => {
+  const now = new Date();
+  const b = await traced({ usage: [['contracts', 240, 60]], usd: 5000 });
+  // The private documents have it (a control: the seeded row is read).
+  assert.equal((await replyFacts({ installationId: b.id, sharedClient: false }, now)).revenue_30d_usd, 5000);
+  const d = (await profileData(b.id, now))!;
+  const outputs: Record<string, unknown> = {
+    builderJson: await builderJson(b.handle, now),
+    profileData: d,
+    profileSite: await profileSite(b.id, d, now, { only: [b.id] }),
+    highlights: await highlights(b.id, d, now),
+    stats: await readStats(now),
+    feed: await feedWeeks(now, { only: [b.id] }),
+  };
+  assert.ok(outputs.builderJson, 'the page is public');
+  assert.ok(JSON.stringify(outputs.highlights).includes('Used by 240 people'), 'usage is public (as before)');
+  for (const [name, out] of Object.entries(outputs)) {
+    const s = JSON.stringify(out);
+    assert.ok(!s.includes('5,000') && !s.includes('5000'), `${name} carries the dollars`);
+    assert.doesNotMatch(s, /revenue|paid into its contracts/i, name);
+  }
 });

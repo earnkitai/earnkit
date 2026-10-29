@@ -8495,3 +8495,20 @@ reader that shows or counts a launch reads `status = 'launched'` (`/api/builder-
 fee claims) or the row's `wallet` (null here), so it is never presented as an EarnKit launch. `tokenAnswerText`:
 "Your token is <short>. EarnKit didn't launch it, so its fees aren't claimed here." (v4.5 reads its `coin_address` as a
 contract the builder named.) Tests: `v44-setup-order.test.ts`.
+
+## v4.5: verified traction in drafts and replies (2026-10-29, plan: v4.5-plan.md)
+
+v4.5 in one paragraph. Task 1: Hardhat Ignition deploy files (`ignition/deployments/chain-<id>/deployed_addresses.json`
+plus the journal's sender per future id) are contract clues (`discovery-clues.ts ignitionClues`, Base and Arc only),
+proven the same way as Foundry and Hardhat clues (`contractOwnership`, unchanged: a contract named in constants or a
+README never counts). Task 2: `revenue.ts runRevenue`, the cron's daily step after Used by, reads what outside wallets
+paid (ETH and Base USDC, `alchemy.ts contractFlows`) into the builder's newest counted Base contracts (`used-by.ts
+contractsOf`, never a token, never v4.4's `existing` token claims) over 30 days, with `contractsUsage`'s exclusions
+(own wallets, deployers, wallets they funded). Pass-through is judged per contract: outbound to outside addresses at
+least half its inbound adds nothing. One `app_revenue` row per builder and UTC day; a failed read stores nothing.
+Task 3: `ship-log-facts.ts tractionFacts` gives the drafts' ship log (`shipLogFacts`, `shipLogBlock`) and
+`reply-facts.ts replyFacts` (`used_by_30d`, `revenue_30d_usd`) the verified numbers: usage as the page's Used by row
+picks it (`site-data.ts usageRows` + `bestUsage`, shared with `usedByOf`), revenue from `latestRevenue` from $100
+(whole dollars, "+" when capped). A hidden page still gets both in its own drafts and replies. Revenue is private:
+`builder-json.ts`, `site-data.ts`, `app/[handle]`, `/api/stats` and the feed never read `app_revenue`
+(`v45-traction.test.ts` 3.4 checks the serialized outputs). Tests: `v45-traction.test.ts`.
