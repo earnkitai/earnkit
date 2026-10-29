@@ -133,7 +133,7 @@ test('no wallet and no step open: the explainer and a signing link; wallet prove
   const w = await builder('wal', true);
   // v4.2 Task 6: a wallet and never offered is the earlier builder: the explainer then the one-time offer question (stored as the ask).
   const q = await mcpCall(w.ctx, 'tell', { token: 'ask' });
-  assert.equal(show(q), `${TOKEN_EXPLAINER}\n\nAlready have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?`);
+  assert.equal(show(q), `${TOKEN_EXPLAINER}\n\nIf you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?`);
   assert.equal((q.reply?.move_up as { kind: string }).kind, 'token');
   assert.equal(await storedAsk(w.id), 'token');
   assert.equal(w.calls.length, 0);

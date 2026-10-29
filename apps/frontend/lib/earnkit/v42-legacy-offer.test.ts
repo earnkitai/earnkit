@@ -50,7 +50,7 @@ const on = async (fn: () => Promise<void>) => {
 
 test('the offer copy is exact, the statement then the question last, no em dash or "coin"', () => {
   // v4.4: the opt-out ("already have one, or skip") before the question, which ends the reply.
-  assert.equal(TOKEN_OFFER, "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?");
+  assert.equal(TOKEN_OFFER, "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?");
   assert.equal(TOKEN_OFFER, `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`);
   assert.doesNotMatch(TOKEN_OFFER, /—|coin/i);
 });

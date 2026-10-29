@@ -536,20 +536,31 @@ test('(a) pre-v4.4 in-flight: signed on the page, token launched: the next find 
   assert.equal((yes.reply?.lead as { program_id?: string } | undefined)?.program_id, ROLLING, JSON.stringify(yes.reply));
 });
 
-test('(a) signed with tokens off: the neutral "You\'re all set", no token claim', db, async () => {
-  const b = await (async () => {
-    try {
-      process.env.EARNKIT_BUILDER_TOKENS = 'off';
-      return await fitted('n', [ROLLING]);
-    } finally {
-      process.env.EARNKIT_BUILDER_TOKENS = 'on';
-    }
-  })();
+test('(a) signed with tokens off: the neutral "You\'re all set", no token claim (v4.4: tokens on, the offer first: v44-setup-order.test.ts)', db, async () => {
+  try {
+    process.env.EARNKIT_BUILDER_TOKENS = 'off';
+    const b = await fitted('n', [ROLLING]);
+    assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal(await tokenRow(b.id), null);
+    const s = show(await mcpCall(b.ctx, 'find', {}));
+    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  } finally {
+    process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  }
+});
+
+test('(a) v4.4: signed with tokens on (no token sentence): the next find is the setup offer, then its no is setup done', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('n4', [ROLLING]);
   assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
   await new Promise((r) => setTimeout(r, 100));
-  assert.equal(await tokenRow(b.id), null);
-  const s = show(await mcpCall(b.ctx, 'find', {}));
-  assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  const offer = await mcpCall(b.ctx, 'find', {});
+  assert.match(show(offer), /^Done\. Your payouts go to 0x\S+\.\n\nOne optional thing: [\s\S]+\n\nWant it live\?$/, show(offer));
+  assert.equal(kindOf(offer), 'token');
+  const no = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } }));
+  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(b.tf.calls.length, 0);
 });
 
 test('(b) a no to the token: "No problem, no token." with the table, right away', db, async () => {

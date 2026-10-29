@@ -536,6 +536,13 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
   // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
   if (!o.more && !held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
+    // v4.4 fix round 1: a wallet signed for step 3 (settled 'set': a wallet, no token row) and the offer due: the same
+    // setup offer as the tell path (afterStep3), in place of setup done; its answer is the setup-done reply.
+    const offer = (await setupOutcome(id))?.outcome === 'set' ? await setupOffer(id, now, await provenWallet(id).catch(() => null)) : null;
+    if (offer) {
+      const view: BenchView = { state, variant, project, rank: null, streak, target: null, handle, link: null, fund: [], due: [], ask: { kind: 'token', project_key: null, line: '' }, held: null, setupDone: offer.show_to_builder };
+      return { view, fields: { move_up: offer.move_up, ...standingFields(streak) } };
+    }
     const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null }, o.own);
     if (done) {
       const ask: BenchView['ask'] = done.move_up
@@ -1771,11 +1778,18 @@ async function afterStep3(id: number, answer: WalletAnswer, now: Date, own: numb
   // v4.4: the wallet signed for step 3 and the one token offer is due (tokens on, no row, never offered, never an owner
   // test installation): the done line and the offer, stored as the token ask with `setup`, so its answer (yes or no)
   // is the setup-done reply (benchMoveUp). A builder shown v4.0's token sentence (token_offered) is never offered again.
-  if (signed && step3 && wallet && (await tokenOfferDue(id)) && (await takeTokenOffer(id, now))) {
-    await storeAsk(id, { kind: 'token', key: null, at: now.toISOString(), setup: true });
-    return { show_to_builder: setupTokenOffer(shortWallet(wallet)), move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
-  }
-  return (await setupDoneFor(id, now, null, own)) ?? r;
+  const offer = signed && step3 ? await setupOffer(id, now, wallet ?? null) : null;
+  return offer ?? (await setupDoneFor(id, now, null, own)) ?? r;
+}
+/**
+ * v4.4: the one token offer that follows setup step 3's sign (afterStep3 on the tell path, benchView on find), when due
+ * (tokenOfferDue) and claimed here (takeTokenOffer): the done line and the offer, stored as the token ask with `setup`.
+ * Null otherwise. Never throws.
+ */
+async function setupOffer(id: number, now: Date, wallet: string | null): Promise<{ show_to_builder: string; move_up: { kind: 'token'; project_key: null; agent_note: string } } | null> {
+  if (!wallet || !(await tokenOfferDue(id)) || !(await takeTokenOffer(id, now))) return null;
+  await storeAsk(id, { kind: 'token', key: null, at: now.toISOString(), setup: true });
+  return { show_to_builder: setupTokenOffer(shortWallet(wallet)), move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
 }
 /**
  * v4.0 setup step 3's answer (its kind, or a kindless tell its stored ask names): "done" is the wallet's yes. v4.4: a no

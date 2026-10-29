@@ -208,7 +208,7 @@ export const walletSetupAsk = (project: string | null, link: string) =>
  */
 export const setupTokenOffer = (short: string) =>
   `Done. Your payouts go to ${short}.\n\nOne optional thing: your own token, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. ` +
-  "Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?";
+  "If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?";
 /** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
 export const TOKEN_NO_LINE = 'Got it.';
 /**
@@ -216,7 +216,7 @@ export const TOKEN_NO_LINE = 'Got it.';
  * statement; the question ends the reply (and follows the explainer when the builder asked about their token).
  */
 export const TOKEN_OFFER_LEAD = "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you.";
-export const TOKEN_OFFER_QUESTION = "Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?";
+export const TOKEN_OFFER_QUESTION = "If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?";
 export const TOKEN_OFFER = `${TOKEN_OFFER_LEAD} ${TOKEN_OFFER_QUESTION}`;
 /** v4.0 approved copy 4 ("Skipped the wallet"), its first sentence (Task 5 adds what's open). */
 export const WALLET_SETUP_SKIPPED = "No worries, add it whenever you're ready.";

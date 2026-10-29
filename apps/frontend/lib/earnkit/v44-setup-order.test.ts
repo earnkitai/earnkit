@@ -14,6 +14,7 @@ import { TOKEN_OFFER, TOKEN_OFFER_LEAD, setupDoneLead, setupTokenOffer, walletSe
 import { tokenOfferDue } from './wallet-offer';
 import { walletLink, walletMessage, walletPost } from './wallet-proof';
 import { tradeUrl } from './builder-token';
+import type { ReaderDeps } from './source-readers';
 import { shortWallet } from './entry-text';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
@@ -50,16 +51,15 @@ test('(a) step 3, the setup offer and the ranked offer, word for word', () => {
   assert.equal(walletSetupAsk(null, L),
     `One last step.\n\n**Step 3 of 3:** add your wallet. It's where grant money and builder campaign payouts get paid. One signature, no fee: ${L}\n\nDone?`);
   assert.equal(setupTokenOffer('0x12ab…cd34'),
-    "Done. Your payouts go to 0x12ab…cd34.\n\nOne optional thing: your own token, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?");
+    "Done. Your payouts go to 0x12ab…cd34.\n\nOne optional thing: your own token, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?");
   assert.equal(TOKEN_OFFER,
-    "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. Already have a token, or rather skip? Just say so and I won't ask again.\n\nWant it live?");
+    "One new thing: your token can go live today, so people who believe in your work can back it. 40% of every trade's fee goes to you, claimed for you. If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?");
   assert.equal(setupDoneLead('Maya', 'existing'), `You're all set, Maya.\n\n${OPEN}`);
   for (const s of [walletSetupAsk('MealMate', L), walletSetupAsk(null, L), setupTokenOffer('0x12ab…cd34'), TOKEN_OFFER]) {
     assert.doesNotMatch(s, /coin|points|—|\p{Extended_Pictographic}/u, s);
-    // The question is the last line (the approved offer copy also says "Already have a token, or rather skip?" as its
-    // opt-out, a rhetorical line before the one question).
+    // Exactly one question, the last line.
+    assert.equal((s.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, s);
     assert.match(s.split('\n').at(-1)!, /\?$/, s);
-    assert.equal((s.replace(/https?:\/\/\S+/g, '').replace('Already have a token, or rather skip?', '').match(/\?/g) ?? []).length, 1, s);
   }
   assert.doesNotMatch(walletSetupAsk('MealMate', L), /token/i);
 });
@@ -86,6 +86,11 @@ function repoFits(key: string): RepoFit[] {
     verdicts: [{ program_id: ROLLING, program: ROLLING, status: 'likely' as const, missing: [], effort: 'none' as const, note: null }],
   }];
 }
+/** The score refresh's readers, faked offline and quiet: every read answers empty (no network, nothing logged). */
+const quietReader: ReaderDeps = {
+  gh: async <T>() => [] as T, ghGraphql: async <T>() => ({}) as T, probe: async () => ({ status: 404 }), fetchText: async () => '', json: async <T>() => ({}) as T,
+  contractOrigin: async () => ({}) as never, walletCreations: async () => [], now: new Date(), ghSpent: () => false,
+};
 let n = 0;
 /** A ranked builder "Maya Lin" (the Kit repo proven by the App, fitting Base Builder Grants), shown step 3. */
 async function fitted(tag: string) {
@@ -100,7 +105,7 @@ async function fitted(tag: string) {
   const tf = fakeTokensFun();
   const ctx = {
     installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits: repoFits(key) })) as never,
-    tokenDeps: { check: async () => true }, builderTokenDeps: tf.deps,
+    tokenDeps: { check: async () => true }, builderTokenDeps: tf.deps, readerDeps: quietReader,
   } as Ctx;
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   const gid = 50_000 + Math.floor(Math.random() * 40_000);
@@ -287,5 +292,81 @@ test('(h) Review Focus 5: a kindless yes after the setup offer launches it and i
   assert.equal(kindOf(b.r), 'token');
   const s = show(await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'yes' } }));
   assert.equal(b.tf.calls.length, 1);
-  assert.ok(s.startsWith(`You're all set, Maya. Your token is live, so your community can back what you're building: ${tradeUrl(b.tf.coin)}`), s);
+  assert.ok(s.startsWith(`You're all set, Maya. Your token is live, so your community can back what you're building: ${tradeUrl(b.tf.coin)}\n\n${OPEN}`), s);
+  assert.match(s, /\| Program \| Up to \| Closes \|/, s);
+  // The token ask is answered: the stored ask is now setup done's (apply), never the token offer.
+  assert.notEqual((await seen(b.id)).bench_ask && ((await seen(b.id)).bench_ask as { kind: string }).kind, 'token');
+  assert.doesNotMatch(show(await mcpCall(b.ctx, 'find', {})), /You're all set|Want it live\?/);
+  assert.equal(b.tf.calls.length, 1);
+});
+
+test('(h) a kindless no after the setup offer declines it and is the setup-done reply', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('hn');
+  const s = show(await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'no' } }));
+  assert.ok(s.startsWith(`No problem, no token. ${OPEN}`), s);
+  assert.match(s, /\| Program \| Up to \| Closes \|/, s);
+  assert.equal(await tokenRow(b.id), 'declined');
+  assert.notEqual(((await seen(b.id)).bench_ask as { kind?: string } | undefined)?.kind, 'token');
+  assert.doesNotMatch(show(await mcpCall(b.ctx, 'find', {})), /No problem, no token|Want it live\?/);
+  assert.equal(b.tf.calls.length, 0);
+});
+
+test('fix round 1 (B): signed on the page, then find (no tell): the same setup offer; its yes is the setup-done reply', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await fitted('fb');
+  const wallet = await signOn(b, b.step);
+  const r = await mcpCall(b.ctx, 'find', {});
+  assert.equal(show(r), setupTokenOffer(shortWallet(wallet.toLowerCase())));
+  assert.equal(kindOf(r), 'token');
+  const ask = (await seen(b.id)).bench_ask as { kind: string; setup?: boolean };
+  assert.equal(ask.kind, 'token');
+  assert.equal(ask.setup, true);
+  assert.equal(b.tf.calls.length, 0);
+  const yes = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
+  assert.equal(b.tf.calls.length, 1);
+  assert.ok(yes.startsWith(`You're all set, Maya. Your token is live, so your community can back what you're building: ${tradeUrl(b.tf.coin)}\n\n${OPEN}`), yes);
+  assert.doesNotMatch(show(await mcpCall(b.ctx, 'find', {})), /You're all set|Want it live\?/);
+});
+
+test('fix round 1 (B): tokens off, signed on the page, then find: setup done directly', db, async () => {
+  try {
+    process.env.EARNKIT_BUILDER_TOKENS = 'off';
+    const b = await fitted('fo');
+    await signOn(b, b.step);
+    const r = await mcpCall(b.ctx, 'find', {});
+    assert.ok(show(r).startsWith(`You're all set, Maya.\n\n${OPEN}`), show(r));
+    assert.equal(kindOf(r), 'apply');
+  } finally {
+    process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  }
+});
+
+test('fix round 1 (C): a find between the setup offer and its answer is setup done; the offer counts as shown and never repeats', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('fc');
+  assert.equal(kindOf(b.r), 'token');
+  const f = await mcpCall(b.ctx, 'find', {});
+  assert.ok(show(f).startsWith(`You're all set, Maya.\n\n${OPEN}`), show(f));
+  assert.equal(kindOf(f), 'apply');
+  assert.equal(await tokenOfferDue(b.id), false);
+  for (let i = 0; i < 4; i++) {
+    const s = show(await mcpCall(b.ctx, 'find', {}));
+    assert.ok(!s.includes('Want it live?') && !s.includes("You're all set"), s);
+  }
+  assert.equal(b.tf.calls.length, 0);
+  assert.equal(await tokenRow(b.id), null);
+});
+
+test('fix round 1 (D): a yes whose launch fails with no token row is the try-later line; setup done on the next find', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('fd');
+  // tokens.fun's ticker check is down: nothing is written.
+  (b.ctx as { builderTokenDeps?: unknown }).builderTokenDeps = { fetch: b.tf.deps.fetch, check: async () => null };
+  const s = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
+  assert.equal(s, "That didn't go through this time. Ask me again in a few minutes.");
+  assert.equal(await tokenRow(b.id), null);
+  assert.equal(b.tf.calls.length, 0);
+  const next = show(await mcpCall(b.ctx, 'find', {}));
+  assert.ok(next.startsWith(`You're all set, Maya.\n\n${OPEN}`), next);
 });
