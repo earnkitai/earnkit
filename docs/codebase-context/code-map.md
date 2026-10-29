@@ -2584,3 +2584,10 @@ Bench reply, no table on nudge or step 3, never setup-done; the old present.ts p
 shown programs); `bench-find.ts` `alsoOpen`, `standingFields` (find fields: `streak`, `standing`, `rank_lines` only when non-empty, no
 `points_total`); `reply-facts.ts` no points facts; `stand-text.ts` `ANSWER_FIRST_NOTE` (no points or rank list, points answer).
 Tests: `v43-first-answer.test.ts`.
+
+v4.5 verified traction (2026-10-29): `discovery-clues.ts ignitionClues` (Task 1, Hardhat Ignition deployed_addresses +
+journal sender); `revenue.ts` (Task 2: `contractsRevenue`, `runRevenue` the cron's daily step, `latestRevenue`, per-contract
+pass-through `passesThrough`; `app_revenue` in schema.sql; private, never public; v4.4 `existing` token claims are never
+a source); `site-data.ts usageRows`/`bestUsage` (Used by's read and pick, shared); `ship-log-facts.ts tractionFacts`,
+`REVENUE_MIN`, the usage, came-back and revenue lines in `shipLogBlock`; `reply-facts.ts` `used_by_30d`,
+`revenue_30d_usd`. Tests: `v45-traction.test.ts`.

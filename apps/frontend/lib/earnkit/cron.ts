@@ -37,6 +37,7 @@ import { githubAppEnabled } from './github-app';
 import { runBuilderCodes } from './builder-codes-check';
 import { backfillContractOrigins } from './contract-origins';
 import { runUsedBy } from './used-by';
+import { runRevenue } from './revenue';
 import type { AlchemyCall } from './alchemy';
 import { peopleSignals } from './people-signals';
 import type { ContractOrigin } from './source-readers';
@@ -121,6 +122,8 @@ export type CronDeps = {
   contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
   /** v3.1 Used by: the step's Alchemy calls, CDP fetch and builders (tests); with `only`, the step runs only when given. */
   usedBy?: { callFor?: (network: string) => AlchemyCall; fetch?: typeof fetch; only?: number[]; limit?: number };
+  /** v4.5 Task 2: the revenue read's Alchemy calls, ETH price and builders (tests); with `only`, the step runs only when given. */
+  revenue?: { callFor?: (network: string) => AlchemyCall; only?: number[]; limit?: number; price?: (now: number) => Promise<number | null> };
   /** v4 Task 12: the Safe watch's reads, price and mailer (tests); with `only`, the step runs only when given. */
   safeWatch?: SafeWatchDeps;
   /** v4 Task 12: the gas-low email's mailer (tests); with `only`, the gas emails go only when given. */
@@ -448,6 +451,17 @@ export async function runCron(
       usedBy = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v4.5 Task 2: what outside wallets paid into each Bench-confirmed builder's own Base contracts in the last 30 days
+  // (revenue.ts: Alchemy, each builder once a UTC day, at most USED_PER_RUN a run), right after used by, in its own slice.
+  let revenue: Awaited<ReturnType<typeof runRevenue>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.revenue) {
+    try {
+      revenue = await runRevenue(now, { ...deps.revenue, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] revenue', err instanceof Error ? err.name : 'error');
+      revenue = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v3.1 owner people view: GitHub account ages and wallet histories for the owner's private view (people-signals.ts;
   // once a UTC day, capped, free), after the email, in its own slice. Full runs only (a scoped test run skips it).
   let people: Awaited<ReturnType<typeof peopleSignals>> | { step: 'error'; note: string } | undefined;
@@ -566,6 +580,7 @@ export async function runCron(
     ...(builderCodes && { builder_codes: builderCodes }),
     ...(origins && { contract_origins: origins }),
     ...(usedBy && { used_by: usedBy }),
+    ...(revenue && { revenue }),
     ...(people && { people_signals: people }),
     ...(builderTokenRetry && { builder_token_retry: builderTokenRetry }),
     needs_owner,

@@ -40,14 +40,14 @@ export type Usage = { users: number; returning: number; capped: boolean; href: s
  */
 const tally = (weeks: Map<string, Set<string>>) => ({ users: weeks.size, returning: [...weeks.values()].filter((w) => w.size >= 2).length });
 
-type Contract = { chain: string; address: string; deployer: string | null; counted: boolean; at: Date | null };
+export type Contract = { chain: string; address: string; deployer: string | null; counted: boolean; at: Date | null };
 
 /**
  * The contracts read for the builder: their wallet_contracts rows with counts (a proven wallet's own creations, not a
  * token and used) and their verified contract sources ("<chain>:0x...") on a WALLET_CHAINS chain, one row per contract
  * (a counted one wins), newest first (creation time, else when the source was verified).
  */
-async function contractsOf(builderId: number): Promise<Contract[]> {
+export async function contractsOf(builderId: number): Promise<Contract[]> {
   const rows = await sql()<Contract[]>`
     SELECT c.chain, c.address, c.wallet AS deployer, true AS counted, c.created_at AS at
     FROM wallet_contracts c JOIN person_wallets w ON w.wallet = c.wallet
@@ -80,7 +80,7 @@ async function contractsOf(builderId: number): Promise<Contract[]> {
 export async function contractsUsage(builderId: number, now: Date, callFor: (network: string) => AlchemyCall): Promise<Usage | null> {
   const all = await contractsOf(builderId);
   if (all.length === 0) return null;
-  const proven = (await sql()<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${builderId}`).map((r) => r.wallet.toLowerCase());
+  const proven = await provenWallets(builderId);
   const since = now.getTime() - USED_DAYS * DAY_MS;
   // Each chain on its own: a network not enabled is skipped, any other failure fails the whole read.
   const perChain = <T>(f: (chain: string, call: AlchemyCall) => Promise<T>) =>
@@ -96,18 +96,13 @@ export async function contractsUsage(builderId: number, now: Date, callFor: (net
     }));
   // 1. Per chain, its newest contracts that are not tokens (at most USED_CONTRACTS each), and who the proven wallets funded.
   const firsts = await perChain(async (chain, call) => {
-    const kept: Contract[] = [];
-    for (const c of all.filter((x) => x.chain === chain)) {
-      if (kept.length >= USED_CONTRACTS) break;
-      if (c.counted || !(await isToken(c.address, call))) kept.push(c);
-    }
-    const funded = new Set<string>();
-    if (kept.length > 0) for (const w of proven) for (const a of await fundedBy(w, call)) funded.add(a);
+    const kept = await keptOn(all, chain, call);
+    const funded = kept.length > 0 ? await fundedOf(proven, call) : new Set<string>();
     return { chain, kept, funded };
   });
   const on = firsts.filter((r): r is NonNullable<typeof r> => r !== null);
   // 2. USED_CONTRACTS per builder: the newest across chains (all is newest first, so its order decides).
-  const chosen = all.filter((c) => on.some((r) => r.kept.includes(c))).slice(0, USED_CONTRACTS);
+  const chosen = newestChosen(all, on.map((r) => r.kept));
   if (chosen.length === 0) return null;
   // 3. Their senders in the last USED_DAYS, one contract at a time within a chain.
   const reads = (await perChain(async (chain, call) => {
@@ -119,8 +114,7 @@ export async function contractsUsage(builderId: number, now: Date, callFor: (net
   const perContract: { chain: string; address: string; n: number }[] = [];
   let capped = false;
   // Anti-farming, across chains (one person, one address everywhere): proven wallets, deployers, wallets they funded.
-  const excluded = new Set([...proven, ...on.flatMap((r) => [...r.funded])]);
-  for (const c of chosen) if (c.deployer) excluded.add(c.deployer.toLowerCase());
+  const excluded = excludedOf(proven, on.map((r) => r.funded), chosen);
   for (const { c, sends, capped: cut } of reads) {
     if (cut) capped = true;
     const who = new Set<string>();
@@ -137,6 +131,46 @@ export async function contractsUsage(builderId: number, now: Date, callFor: (net
   return { ...tally(weeks), capped, href: busiest ? explorerHref(busiest.chain, busiest.address) : null, chains: [...new Set(used.map((p) => p.chain))] };
 }
 
+/**
+ * v4.5 (shared by contractsUsage and revenue.ts contractsRevenue, so the two reads count the same contracts and
+ * exclude the same wallets): the builder's proven wallets (person_wallets), lowercase.
+ */
+export async function provenWallets(builderId: number): Promise<string[]> {
+  return (await sql()<{ wallet: string }[]>`SELECT wallet FROM person_wallets WHERE builder_id = ${builderId}`).map((r) => r.wallet.toLowerCase());
+}
+
+/**
+ * v4.5 shared: `chain`'s newest contracts of `all` (contractsOf, newest first) that are not tokens (a counted
+ * wallet_contracts row already left tokens out; a verified source is asked, alchemy.ts isToken), at most USED_CONTRACTS.
+ */
+export async function keptOn(all: Contract[], chain: string, call: AlchemyCall): Promise<Contract[]> {
+  const kept: Contract[] = [];
+  for (const c of all.filter((x) => x.chain === chain)) {
+    if (kept.length >= USED_CONTRACTS) break;
+    if (c.counted || !(await isToken(c.address, call))) kept.push(c);
+  }
+  return kept;
+}
+
+/** v4.5 shared: the wallets the proven wallets sent ETH to on one chain (alchemy.ts fundedBy, one page each). */
+export async function fundedOf(proven: string[], call: AlchemyCall): Promise<Set<string>> {
+  const funded = new Set<string>();
+  for (const w of proven) for (const a of await fundedBy(w, call)) funded.add(a);
+  return funded;
+}
+
+/** v4.5 shared: the newest USED_CONTRACTS across chains of the per-chain `kept` lists (`all`'s order decides). Pure. */
+export function newestChosen(all: Contract[], kept: Contract[][]): Contract[] {
+  return all.filter((c) => kept.some((k) => k.includes(c))).slice(0, USED_CONTRACTS);
+}
+
+/** v4.5 shared, anti-farming: the proven wallets, every wallet they funded, and each chosen contract's deployer. Pure. */
+export function excludedOf(proven: string[], funded: Iterable<string>[], chosen: Contract[]): Set<string> {
+  const excluded = new Set([...proven, ...funded.flatMap((f) => [...f])]);
+  for (const c of chosen) if (c.deployer) excluded.add(c.deployer.toLowerCase());
+  return excluded;
+}
+
 /** Stores one source's numbers for the builder's UTC day (a second read the same day replaces them). */
 async function store(builderId: number, source: 'contracts' | 'builder_code', now: Date, u: Usage) {
   const returning = Math.min(u.returning, u.users);
@@ -148,7 +182,7 @@ async function store(builderId: number, source: 'contracts' | 'builder_code', no
 }
 
 /** Bench-confirmed builders (their one project confirmed, main-project.ts benchConfirmedSql), `only` limiting them. */
-const confirmedSql = (only?: number[]) => {
+export const confirmedSql = (only?: number[]) => {
   const db = sql();
   return db`
     SELECT p.builder_id FROM builder_profiles p

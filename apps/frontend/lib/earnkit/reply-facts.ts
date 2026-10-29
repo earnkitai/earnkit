@@ -5,6 +5,7 @@ import { BENCH_VERIFIED, HERO_TITLE, STEPS } from './site-copy';
 import { DOCS_SCORE } from './docs-copy';
 import { shortWallet, siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
+import { tractionFacts } from './ship-log-facts';
 import { provenWallet } from './wallet-proof';
 
 /**
@@ -21,6 +22,10 @@ export type ReplyFacts = {
   wallet?: string;
   earned?: { usd: number };
   applications?: { program: string; status: string }[];
+  /** v4.5 Task 3: people who used the builder's app in the last 30 days, verified onchain (the ship log's usage line's rules). */
+  used_by_30d?: number;
+  /** v4.5 Task 3: whole dollars outside wallets paid into the builder's contracts in the last 30 days (the revenue line's rules). Private. */
+  revenue_30d_usd?: number;
   about: Record<string, string>;
 };
 
@@ -62,8 +67,8 @@ async function personal(ctx: { installationId: number; ownInstallationId?: numbe
 
 /**
  * The facts for this caller: `about` always; the builder's own page, rank, streak, last shipped week (as the page
- * shows it: bench-data.ts profileData's visibility rules), proven reward wallet (short), Earned and applications
- * only for a signed-in builder with a page. Never throws: a failed read leaves its keys out (logged).
+ * shows it: bench-data.ts profileData's visibility rules), proven reward wallet (short), Earned, applications and
+ * (v4.5 Task 3, hidden page or not) verified usage and revenue only for a signed-in builder with a page. Never throws: a failed read leaves its keys out (logged).
  */
 export async function replyFacts(ctx: { installationId: number; ownInstallationId?: number; sharedClient?: boolean }, now: Date = new Date()): Promise<ReplyFacts> {
   const about = aboutFacts();
@@ -73,12 +78,17 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     const d = await profileData(id, now);
     if (!d) return { about };
     const db = sql();
-    const [[prof], wallet, statuses] = await Promise.all([
+    const [[prof], wallet, statuses, traction] = await Promise.all([
       db<{ hidden: boolean; bound: boolean }[]>`SELECT hidden, x_user_id IS NOT NULL AS bound FROM builder_profiles WHERE builder_id = ${id}`,
       provenWallet(id),
       db<{ program: string; status: string }[]>`
         SELECT g.title AS program, s.status FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs g ON g.id = s.program_id
         WHERE COALESCE(i.builder_id, i.id) = ${id} AND s.login = '' AND s.status <> 'not_interested' ORDER BY s.at DESC`,
+      // v4.5 Task 3: a failed traction read leaves its keys out, never the rest.
+      tractionFacts(id, now).catch((err: unknown) => {
+        console.error('[reply facts] traction', err instanceof Error ? err.name : 'error');
+        return null;
+      }),
     ]);
     const facts: ReplyFacts = {
       page: { url: `${siteUrl()}${pagePath(d.handle)}`, public: Boolean(prof && !prof.hidden && prof.bound) },
@@ -95,6 +105,8 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     const apps = statuses.map((s) => ({ program: s.program, status: s.status }));
     for (const g of d.project?.programs ?? []) if (g.won && !apps.some((a) => a.program === g.title)) apps.push({ program: g.title, status: 'won' });
     facts.applications = apps;
+    if (traction?.usedBy) facts.used_by_30d = traction.usedBy.users;
+    if (traction?.revenue) facts.revenue_30d_usd = traction.revenue.usd;
     return facts;
   } catch (err) {
     console.error('[reply facts]', err instanceof Error ? err.name : 'error');

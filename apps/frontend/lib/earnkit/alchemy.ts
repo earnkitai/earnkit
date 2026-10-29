@@ -9,7 +9,7 @@ import { WALLET_CHAINS, type WalletChain, type WalletContract } from './wallet-c
  */
 export const alchemyOn = (env: Record<string, string | undefined> = process.env) => Boolean(env.ALCHEMY_API_KEY?.trim());
 
-type Transfer = { hash?: string; from?: string; to?: string | null; metadata?: { blockTimestamp?: string } };
+type Transfer = { hash?: string; from?: string; to?: string | null; metadata?: { blockTimestamp?: string }; rawContract?: { value?: string | null; address?: string | null } };
 type TransferPage = { transfers?: Transfer[]; pageKey?: string };
 export type AlchemyCall = <T>(method: string, params: unknown[]) => Promise<T>;
 
@@ -268,12 +268,57 @@ export async function contractSends(address: string, call: AlchemyCall, since: n
   return { sends, capped: true };
 }
 
+/** v4.5 revenue: USDC on Base (6 decimals), the one token read as money. */
+export const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+/** One value transfer to or from a contract: the other side (lowercase), its time (epoch ms) and exact amount (wei or USDC units). */
+export type Flow = { peer: string; at: number; raw: bigint };
+const RAW = /^0x[0-9a-f]{1,64}$/i;
+
+/**
+ * v4.5 revenue (2026-10-29): the value `address` received (`dir` 'in', toAddress) or sent ('out', fromAddress) since
+ * `since` (epoch ms), newest first, pages of 1000 until one is older than `since`, at most `pages` pages. `kind` 'eth':
+ * categories external and internal, zero values left out; 'usdc': erc20 transfers of BASE_USDC only. The amount is
+ * rawContract.value (hex, exact), never the float `value`; a transfer without a parseable amount, a peer or a time is
+ * skipped. `capped`: the last page allowed still had newer ones after it, so the sums are floors.
+ */
+export async function contractFlows(address: string, call: AlchemyCall, since: number, pages: number, dir: 'in' | 'out', kind: 'eth' | 'usdc'): Promise<{ flows: Flow[]; capped: boolean }> {
+  const flows: Flow[] = [];
+  const side = dir === 'in' ? { toAddress: address } : { fromAddress: address };
+  const what = kind === 'eth' ? { category: ['external', 'internal'], excludeZeroValue: true } : { category: ['erc20'], contractAddresses: [BASE_USDC] };
+  let pageKey: string | undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = await transfers(call, { ...side, ...what, order: 'desc', maxCount: '0x3e8', ...(pageKey && { pageKey }) });
+    for (const t of page.transfers ?? []) {
+      const at = Date.parse(t.metadata?.blockTimestamp ?? '');
+      if (!Number.isFinite(at)) continue;
+      if (at < since) return { flows, capped: false };
+      const peer = dir === 'in' ? t.from : t.to;
+      const raw = t.rawContract?.value;
+      if (typeof peer !== 'string' || !/^0x[0-9a-f]{40}$/i.test(peer) || typeof raw !== 'string' || !RAW.test(raw)) continue;
+      if (kind === 'usdc' && t.rawContract?.address && t.rawContract.address.toLowerCase() !== BASE_USDC) continue;
+      flows.push({ peer: peer.toLowerCase(), at, raw: BigInt(raw) });
+    }
+    pageKey = page.pageKey;
+    if (!pageKey) return { flows, capped: false };
+  }
+  return { flows, capped: true };
+}
+
 /**
  * v3.1 Used by (anti-farming): the wallets `wallet` sent ETH to (alchemy_getAssetTransfers fromAddress, category
  * external, value above zero, newest first, one page of 1000), lowercase. A wallet the builder funded is not a user.
  */
 export async function fundedBy(wallet: string, call: AlchemyCall): Promise<Set<string>> {
   const page = await transfers(call, { fromAddress: wallet, excludeZeroValue: true, order: 'desc', maxCount: '0x3e8' });
+  return new Set((page.transfers ?? []).map((t) => (typeof t.to === 'string' ? t.to.toLowerCase() : '')).filter((a) => /^0x[0-9a-f]{40}$/.test(a)));
+}
+
+/**
+ * v4.5 final review I1: the wallets `wallet` sent Base USDC to (erc20, BASE_USDC only, value above zero, newest first,
+ * one page of 1000), lowercase. The revenue read's funded set takes these with fundedBy's ETH ones.
+ */
+export async function usdcFundedBy(wallet: string, call: AlchemyCall): Promise<Set<string>> {
+  const page = await transfers(call, { fromAddress: wallet, category: ['erc20'], contractAddresses: [BASE_USDC], excludeZeroValue: true, order: 'desc', maxCount: '0x3e8' });
   return new Set((page.transfers ?? []).map((t) => (typeof t.to === 'string' ? t.to.toLowerCase() : '')).filter((a) => /^0x[0-9a-f]{40}$/.test(a)));
 }
 
