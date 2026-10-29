@@ -399,7 +399,9 @@ test('programUpdates: sponsored ones counted, closing soon by name, nothing on a
     { ...tiny, closes_in_days: 1 },
     { ...sponsored, is_new: true },
   ];
-  assert.deepEqual(programUpdates(cards, false), ['1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  // v4.3 Task 2 fix round 1 (F6): each update carries the program it names.
+  assert.deepEqual(programUpdates(cards, false).map((u) => u.text), ['1 new sponsored campaign', 'Tiny Bounty closes in 1 day']);
+  assert.deepEqual(programUpdates(cards, false).map((u) => u.program_id), [null, tiny.id]);
   assert.deepEqual(programUpdates(cards, true), []);
 });
 

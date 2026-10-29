@@ -10,7 +10,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen } from './bench-find';
 import {
-  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
+  QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_SENTENCE, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -353,4 +353,88 @@ test('v4.3 Task 2, the old path: an update for a program in the table is dropped
     updates: programUpdates(cards.slice(0, 5), false), projectName: 'EarnKit',
   });
   assert.doesNotMatch(only, /Updates:|doesn't fit/, only);
+});
+
+// ---- v4.3 Task 2 fix round 1 ----
+
+test('fix round 1 (R3): with the full list, a nudge-owned reply and step 3 get no table', () => {
+  const project = { key: 'maya/kit', name: 'Kit', confirmed: true, live: true, weeks: 3 };
+  const v = { state: 'ranked', variant: null, project, link: null, handle: 'maya' } as const;
+  const table = '| Program |\n|---|\n| A |';
+  const nudged: BenchView = {
+    ...v, rank: null, streak: 3, target: null, fund: [], due: [], held: null, standingShown: true,
+    nudge: 'Arc Microgrants closes Nov 1. Want me to draft it?', nudgeOwns: true,
+    ask: { kind: 'apply', project_key: 'maya/kit', line: '', program_id: 'arc-microgrants' },
+  };
+  const plainNudge = benchReply(nudged);
+  assert.equal(benchReply({ ...nudged, fullTable: table }), plainNudge);
+  assert.doesNotMatch(plainNudge, /\| Program \|/);
+  assert.equal(plainNudge.split('?').length - 1, 1, plainNudge);
+  const step3: BenchView = {
+    ...v, rank: null, streak: 3, target: null, fund: [], due: [], held: null,
+    ask: { kind: 'wallet_setup', project_key: 'maya/kit', line: 'Step 3 of 3: add your reward wallet. Done?' },
+  };
+  assert.equal(benchReply({ ...step3, fullTable: table }), 'Step 3 of 3: add your reward wallet. Done?');
+  assert.equal(benchReply({ ...step3, state: 'not_counted', fullTable: table }), benchReply({ ...step3, state: 'not_counted' }));
+});
+
+test('fix round 1 (F5): a signed-out scoring builder\'s find {more: true} keeps the present.ts tables, never "doesn\'t fit" above them', db, async () => {
+  await start();
+  const t = `ek_v43faso_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c = (await connectInstallation(t))!;
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits: [] })) as never };
+  const input = { more: true, identity: { project: { name: 'Kit', repo: 'https://github.com/someone/kit' } } };
+  const r = await mcpCall(ctx, 'find', input);
+  const s = show(r);
+  assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+  assert.doesNotMatch(s, /doesn't fit|EarnKit gets you paid for building/, s);
+  assert.equal(r.reply?.move_up, undefined);
+  const [{ a }] = await sql()<{ a: unknown }[]>`SELECT standing_seen->'bench_ask' AS a FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(a, null);
+});
+
+test('fix round 1 (F5): a signed-in builder whose project is not counted keeps the present.ts tables with find {more: true}', db, async () => {
+  await start();
+  const t = `ek_v43fanc_${RUN}_${Math.random().toString(36).slice(2)}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const c0 = (await connectInstallation(t))!;
+  const handle = `fanc${RUN}`.slice(0, 15);
+  assert.ok((await attachToX(c0.own, { id: `97nc${RUN}`, username: handle, name: 'Nc Builder', avatar: null }, new Date())).ok);
+  const c = (await connectInstallation(t))!;
+  await walletOffered(c.id);
+  const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, codesFetch: fakeGitHub({}) as typeof fetch, matchProjects: (async () => ({ checked: 1, scored: 1, fits: [] })) as never };
+  const input = { identity: { project: { name: 'Kit', repo: `https://github.com/${handle}/kit` } } };
+  await mcpCall(ctx, 'find', input);
+  const r = await mcpCall(ctx, 'find', { ...input, more: true });
+  const s = show(r);
+  assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+  assert.doesNotMatch(s, /doesn't fit|isn't counted/, s);
+  assert.equal(r.reply?.move_up, undefined);
+});
+
+test('fix round 1 (F3): find {more: true} never claims the setup-done reply; the next find {} shows it', db, async () => {
+  await start();
+  const { c, ctx } = await ownerBuilder('s');
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'setup_done' - 'wallet_link_at') || jsonb_build_object('setup_asked', now()::text) WHERE builder_id = ${c.id}`;
+  const s = show(await mcpCall(ctx, 'find', { more: true }));
+  assert.match(s, /\| Program \| Amount \| Difficulty \| Ends \|/, s);
+  assert.doesNotMatch(s, /You're all set|No worries/, s);
+  const [{ done }] = await sql()<{ done: boolean }[]>`SELECT COALESCE(standing_seen ? 'setup_done', false) AS done FROM builder_profiles WHERE builder_id = ${c.id}`;
+  assert.equal(done, false);
+  const next = show(await mcpCall(ctx, 'find', {}));
+  assert.match(next, /^No worries, add it whenever you're ready\./, next);
+});
+
+test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word for word, no table', db, async () => {
+  await start();
+  const { c, ctx } = await ownerBuilder('w');
+  // Step 3 not answered yet (ownerBuilder marks it answered).
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'wallet_asked' - 'wallet_link_at' - 'setup_asked' WHERE builder_id = ${c.id}`;
+  const r = await mcpCall(ctx, 'find', { more: true });
+  const s = show(r);
+  assert.equal((r.reply?.move_up as { kind: string }).kind, 'wallet_setup', s);
+  const link = s.match(/no fee: (\S+)/)?.[1] ?? '';
+  assert.equal(s, walletSetupAsk('EarnKit', link, s.includes(TOKEN_SENTENCE)));
+  assert.doesNotMatch(s, /\| Program \|/, s);
 });

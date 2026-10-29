@@ -138,7 +138,7 @@ export type FirstMessage = {
    */
   alerts: string[];
   /** Program news (programUpdates: closing soon, new non-campaign programs): in the body, never an alert. */
-  updates?: string[];
+  updates?: (string | ProgramUpdate)[];
   campaigns: CampaignRow[];
   /** Open programs that aren't EarnKit campaigns (curated and sponsored). */
   cards: Card[];
@@ -285,19 +285,21 @@ export const youCould = (repos: YourRepos | null, githubGiven: boolean) => repos
  * finding 3: new curated programs are the alerts' news only (newProgramLines, Ruling 10: fit or
  * Easy, at most 3), so a program is never announced twice in one reply. Pure.
  */
-export function programUpdates(cards: Card[], firstCheck: boolean): string[] {
+export function programUpdates(cards: Card[], firstCheck: boolean): ProgramUpdate[] {
   if (firstCheck) return [];
   const named = cards.filter((c) => !c.sponsored);
   const sponsoredNew = cards.filter((c) => c.sponsored && c.is_new).length;
   return [
     ...(sponsoredNew > 0
-      ? [`${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`]
+      ? [{ text: `${sponsoredNew} new sponsored campaign${sponsoredNew === 1 ? '' : 's'}`, program_id: null }]
       : []),
     ...named
       .filter((c) => c.closes_in_days != null)
-      .map((c) => `${c.title} ${soon(c.closes_in_days!)}`),
+      .map((c) => ({ text: `${c.title} ${soon(c.closes_in_days!)}`, program_id: c.id })),
   ];
 }
+/** v4.3 Task 2 fix round 1 (F6): one program update and the program it names (null: none, a sponsored count). */
+export type ProgramUpdate = { text: string; program_id: string | null };
 
 /** A markdown table; "|" is escaped and line breaks folded so a cell can't break it. Pure; exported for tests. */
 export function table(head: string[], rows: string[][]) {
@@ -948,8 +950,11 @@ export function presentFirstMessage(given: FirstMessage): string {
   // After the tables, so the reply never starts with it: news, not an alert (I7).
   // v4.3 Task 2: an update naming a program already in a table above is dropped (the table shows its deadline);
   // "Updates:" only while entries remain.
-  const tabled = [...(m.repos && 'error' in m.repos ? [] : rows.map((r) => r.card)), ...shown];
-  const updates = (m.updates ?? []).filter((u) => !tabled.some((c) => c.closes_in_days != null && u === `${c.title} ${soon(c.closes_in_days)}`));
+  // Fix round 1 (F6): matched by the program's id, never by its words.
+  const tabled = new Set([...(m.repos && 'error' in m.repos ? [] : rows.map((r) => r.card.id)), ...shown.map((c) => c.id)]);
+  const updates = (m.updates ?? [])
+    .filter((u) => typeof u === 'string' || u.program_id === null || !tabled.has(u.program_id))
+    .map((u) => (typeof u === 'string' ? u : u.text));
   if (updates.length) sections.push(`Updates: ${updates.join('; ')}.`);
 
   // The one closing offer.

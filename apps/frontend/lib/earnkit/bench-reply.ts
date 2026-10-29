@@ -755,7 +755,8 @@ export function benchReply(v: BenchView): string {
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
   // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
   if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
-    return withTable(paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]), v.fullTable, '');
+    // v4.3 Task 2 fix round 1 (R3): the nudge's question leads, so no table (the question stays the one ask).
+    return paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
@@ -791,8 +792,8 @@ function withTable(reply: string, table: string | null | undefined, ask: string)
 
 /** The ranked state's reply (benchReply); with the full list (fullTable), the table before the question. Pure. */
 function rankedReply(v: BenchView, name: string, ask: string): string {
-  // The qualify reply carries the table in place of "Also open" (rankedBody).
-  if (!v.held && v.ask.kind === 'qualify' && v.qualify) return rankedBody(v, name, ask);
+  // The qualify reply carries the table in place of "Also open" (rankedBody); fix round 1 (R3): step 3 stays word for word.
+  if (!v.held && ((v.ask.kind === 'qualify' && v.qualify) || v.ask.kind === 'wallet_setup')) return rankedBody(v, name, ask);
   return withTable(rankedBody(v, name, ask), v.fullTable, ask);
 }
 

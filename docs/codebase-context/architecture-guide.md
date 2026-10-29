@@ -8430,3 +8430,9 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
 - Tests: `v43-first-answer.test.ts` (owner `find {more: true}` byte for byte, the stored ask and its yes, eight days on
   no "Updates:"; table before the question in a ship reply; a shared client's `more` has no "doesn't fit"; the old path's
   update filter). Updated pins: `present.test.ts` (I3 noFit, Ruling 28 x2, I7 updates) and `match-projects.test.ts` 2.9.
+- **Fix round 1.** With `more`: no table on a nudge-owned reply or on the wallet_setup step 3 reply (bench-find leaves
+  `fullTable` unset; rankedReply also skips it for wallet_setup), so the question stays last and step 3 word for word.
+  benchView takes `more` and skips the setup-done branch, so `setup_done` stays unclaimed for the next plain find.
+  `benchFind` reads `signedOut` once, at the top, and a signed-out `more` returns null before `coveredRead`.
+  `programUpdates` returns `ProgramUpdate { text, program_id }` (FirstMessage.updates accepts strings too); the
+  tabled-program filter matches by id.

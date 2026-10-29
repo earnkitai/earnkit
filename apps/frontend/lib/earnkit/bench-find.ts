@@ -446,6 +446,8 @@ type ViewIn = {
   reach?: AgentReach;
   /** v3.1 cold read: score (the builder asked where they stand): the standing line is always shown. */
   alwaysStanding?: boolean;
+  /** v4.3 Task 2 fix round 1 (F3): find {more: true}: the one-time setup-done reply is left for the next plain find. */
+  more?: boolean;
   /** v3.1 cold read: what find's own match read of the one project (a Base deploy, a live link), for Base's steps. */
   known?: { onBase: boolean; live: boolean };
 };
@@ -522,7 +524,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const handle = read.base.claimed ? read.base.handle : null;
   // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
   // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
-  if (!held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
+  if (!o.more && !held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
     const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null }, o.own);
     if (done) {
       const ask: BenchView['ask'] = done.move_up
@@ -1057,13 +1059,12 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const id = ctx.installationId;
   const now = a.first.now;
   const own = ctx.ownInstallationId ?? id;
+  // v4.3 Task 2: the full list is the Bench's only in the ranked state (signed in, the one project counted); fix round
+  // 1 (F4): signed out is read once, and a signed-out "show more" returns before the covered read.
+  const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
+  if (a.more && signedOut) return null;
   const read = await coveredRead(id, own, now, await benchRead(id, own, now));
-  // v4.3 Task 2: the full list is the Bench's only in the ranked state (signed in, the one project counted).
-  if (a.more) {
-    const out = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
-    const counted = Boolean(read.row?.confirmed);
-    if (out || !(read.row || read.main) || !counted) return null;
-  }
+  if (a.more && !read.row?.confirmed) return null;
   const live = await liveOf(id, read, now, (a.start ?? Date.now()) + REPLY_WAIT_MS - Date.now());
   const m = { cards: a.cards, repos: a.repos, entries: a.myEntries, now };
   const entered = enteredIds(m);
@@ -1092,7 +1093,6 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
   const rows = shownRows.filter((r) => !r.card.investment);
   const leadFit = fits.find((f) => !f.investment);
   const applies: Fit[] = can.map(fitOf);
-  const signedOut = a.signedOut ?? (await signedOutNow(id, own).catch(() => true));
   // Fix round 1: signed out, the sign-in question wins; the submission step waits for the bind too.
   const submit = a.ask || signedOut ? undefined : submitStep(m);
   // A17: a results question, else a submission step, is the one question (never a money line).
@@ -1118,9 +1118,11 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
     : undefined;
   const { view, fields } = await benchView({
     id, now, read, own, signedOut, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
-    codesFetch: ctx.codesFetch, known,
+    codesFetch: ctx.codesFetch, known, more: a.more,
   });
-  if (a.more && view.state === 'ranked') view.fullTable = fullProgramTable(m, entered);
+  // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
+  if (a.more && view.state === 'ranked' && !view.setupDone && !(view.nudgeOwns && view.nudge) && view.ask.kind !== 'wallet_setup')
+    view.fullTable = fullProgramTable(m, entered);
   const taken = view.variant === 'taken';
   const lead = Boolean((leadFit && !submit && !taken) || submit);
   // Every reply asks one question now, so news never carries a card offer of its own. R10: the news (a move up

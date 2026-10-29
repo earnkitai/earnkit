@@ -683,7 +683,8 @@ apps/frontend/
                                submitted: tokens.fun asked, never the starter), I1, M6; journey 11.7 (real program files)
                                Fix round 2: own public tokens.fun and my_commits_90d: 5 asked; the 6-day tipjar never
     present.ts(+test)          v4.3 Task 2: fullProgramTable (every shown card, ranked find {more: true}); layout returns rest;
-                               the more path drops noFitLine above the shown table and updates naming a tabled program.
+                               the more path drops noFitLine above the shown table and updates naming a tabled program (by id: programUpdates
+                               returns ProgramUpdate { text, program_id }, fix round 1).
                                scoring and clarity R12 fix 1: byDeadline (find's and score's one fit order: soonest
                                ends_at, rolling last, then award, then id). v2.11 T7: FreshOn, FirstMessage.fresh, freshLead (the short reply's no-repo lead when
                                nothing else leads; context line + fresh lead), Card.winners_per_round.
