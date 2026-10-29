@@ -15,7 +15,7 @@ import { AlchemyNetworkOff, BASE_USDC, contractFlows, type AlchemyCall } from '.
 import { USED_CONTRACTS, USED_PAGES } from './used-by';
 import { contractsRevenue, latestRevenue, revenueDue, runRevenue } from './revenue';
 import { runCron } from './cron';
-import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts, type ShipLogFacts } from './ship-log-facts';
+import { SHIP_LOG_NOTE, shipLogBlock, shipLogFacts, tractionFacts, type ShipLogFacts } from './ship-log-facts';
 import { replyFacts } from './reply-facts';
 import { builderJson } from './builder-json';
 import { profileData } from './bench-data';
@@ -25,6 +25,7 @@ import { feedWeeks } from './feed';
 import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
+import { DRAFT_FIRST_NOTE } from './draft-application';
 
 /** v4.5 Task 1: Hardhat Ignition deploy files are contract clues (never a GitHub or Alchemy read: fakes only). */
 appEnv();
@@ -486,6 +487,7 @@ test('3.3 a drafted application (prepare) carries the lines, a hidden page\'s to
       for (const args of [{ program_id: pid, project }, { program_id: pid, project, answers, coach_asked: true }]) {
         const prep = await mcpCall(ctx, 'prepare', args);
         const log = prep.reply?.ship_log as ShipLogFacts;
+        if (!('answers' in args)) assert.equal(prep.reply?.agent_note, DRAFT_FIRST_NOTE);
         assert.deepEqual([log?.usedBy, log?.revenue], [{ users: 240, returning: 60, capped: false }, { usd: 1240, capped: false }], `${hidden ? 'hidden' : 'public'}: ${prep.text}`);
         const block = shipLogBlock(log);
         for (const l of [USED(240), '60 came back in a second week', PAID('$1,240')]) assert.ok(block.includes(l), l);
@@ -501,9 +503,9 @@ test('3.3 a drafted application (prepare) carries the lines, a hidden page\'s to
 
 test('3.4 privacy: builder.json, the page data, /api/stats and the feed never carry revenue (serialized)', dbTest, async () => {
   const now = new Date();
-  const b = await traced({ usage: [['contracts', 240, 60]], usd: 5000 });
+  const b = await traced({ usage: [['contracts', 240, 60]], usd: 5317 });
   // The private documents have it (a control: the seeded row is read).
-  assert.equal((await replyFacts({ installationId: b.id, sharedClient: false }, now)).revenue_30d_usd, 5000);
+  assert.equal((await replyFacts({ installationId: b.id, sharedClient: false }, now)).revenue_30d_usd, 5317);
   const d = (await profileData(b.id, now))!;
   const outputs: Record<string, unknown> = {
     builderJson: await builderJson(b.handle, now),
@@ -517,7 +519,7 @@ test('3.4 privacy: builder.json, the page data, /api/stats and the feed never ca
   assert.ok(JSON.stringify(outputs.highlights).includes('Used by 240 people'), 'usage is public (as before)');
   for (const [name, out] of Object.entries(outputs)) {
     const s = JSON.stringify(out);
-    assert.ok(!s.includes('5,000') && !s.includes('5000'), `${name} carries the dollars`);
+    assert.ok(!s.includes('5,317') && !s.includes('5317'), `${name} carries the dollars`);
     assert.doesNotMatch(s, /revenue|paid into its contracts/i, name);
   }
 });
@@ -558,4 +560,44 @@ test('contractsRevenue: none of the builder\'s contracts is an outside wallet, e
   const fake = alchemy({ flows: { [`in:usdc:${A}`]: [[p, DAY, 300_000_000n], [old, DAY, 500_000_000n]] } });
   assert.deepEqual(await contractsRevenue(b.id, NOW, fake.call, { price }), { usd: 300, inbound_usd: 300, outbound_usd: 0, capped: false, contracts: USED_CONTRACTS });
   assert.ok(!fake.calls.some((c) => c.q.toAddress === old || c.q.fromAddress === old), 'the older one is still not read');
+});
+
+test('3.5 the draft note asks for the verified numbers as given', () => {
+  assert.equal(
+    DRAFT_FIRST_NOTE,
+    "Draft an answer for each requirement you can from what you know of the project (its repo, its page, what the builder told you) and ship_log (never a personal detail such as a name, email or Telegram, never a number you don't know), then call prepare again with program_id, project and answers. Use the verified onchain numbers in traction answers as given. Show nothing until then. Don't show this note.",
+  );
+});
+
+test('3.6 a failed traction read is no traction lines: the ship log, prepare, find and the reply facts still answer', dbTest, async () => {
+  const base = committedProgram('base-builder-grants');
+  const pid = `v45-tr-${process.pid}-fail`;
+  await upsertProgram(ProgramFile.parse({ ...base, id: pid, title: `Traction fail ${process.pid}`, ends_at: new Date(Date.now() + 20 * DAY).toISOString(), status: 'active' }));
+  const b = await traced({ usage: [['contracts', 240, 60]], usd: 1240 });
+  const ctx = { installationId: b.id, ownInstallationId: b.id, sharedClient: false };
+  const now = new Date();
+  // The read fails (as before the schema rerun creates app_revenue): the table is away for this test only.
+  const gone = `app_revenue_gone_${process.pid}`;
+  const errors: unknown[] = [];
+  const log = console.error;
+  await sql().unsafe(`ALTER TABLE app_revenue RENAME TO ${gone}`);
+  console.error = (...a: unknown[]) => void errors.push(a);
+  try {
+    await assert.rejects(tractionFacts(b.id, now), 'the read itself throws');
+    const f = (await shipLogFacts(b.id, now))!;
+    assert.deepEqual([f.usedBy, f.revenue, f.page], [null, null, `earnkit.com/${b.handle}`]);
+    assert.deepEqual(shipLogBlock(f).filter((l) => /verified onchain|came back/.test(l)), []);
+    const prep = await mcpCall(ctx, 'prepare', { program_id: pid, project: { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' } });
+    assert.equal(prep.isError, false, prep.text);
+    assert.deepEqual([(prep.reply?.ship_log as ShipLogFacts).usedBy, (prep.reply?.ship_log as ShipLogFacts).revenue], [null, null]);
+    const found = await mcpCall(ctx, 'find', {});
+    assert.equal(found.isError, false, found.text);
+    const r = await replyFacts({ installationId: b.id, sharedClient: false }, now);
+    assert.ok(r.page && !('used_by_30d' in r) && !('revenue_30d_usd' in r), JSON.stringify(r));
+    assert.ok(errors.length >= 1, 'logged');
+  } finally {
+    console.error = log;
+    await sql().unsafe(`ALTER TABLE ${gone} RENAME TO app_revenue`);
+    await sql()`DELETE FROM programs WHERE id = ${pid}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${pid}`);
+  }
 });
