@@ -193,13 +193,14 @@ async function linkGiven(builderId: number, now: Date): Promise<void> {
 /**
  * v4.2: after a reward wallet signed, the token's state in the same reply: `launched` when this sign made it (its row
  * began after the link was given: the trade link and the page line, for the one "Done." line), else the state's copy
- * (`line`: already live, or on its way). Null when the builder has no token row (declined or never offered). Never throws.
+ * (`line`: already live, or on its way). Null when the builder has no token row (declined or never offered) or named their own (existing). Never throws.
  */
 async function signedToken(builderId: number, now: Date, linkAt: Date): Promise<{ line: string; launched: { trade: string; page: string | null } | null } | null> {
   try {
     const [t] = await sql()<{ status: string; fresh: boolean }[]>`
       SELECT status, created_at >= ${linkAt} AS fresh FROM builder_tokens WHERE builder_id = ${builderId}`;
-    if (!t || t.status === 'declined') return null;
+    // v4.4: a token the builder named (existing) has nothing a sign changes, as a no.
+    if (!t || t.status === 'declined' || t.status === 'existing') return null;
     const state = await tokenAnswerState(builderId, now);
     // "Done." only when this sign made the token; a wallet change on a live token is the Live copy.
     const addr = t.status === 'launched' && t.fresh ? state.token?.coin_address ?? null : null;

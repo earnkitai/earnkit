@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, legacyCoinAnswer, tokenAsk, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -198,7 +198,7 @@ export type ToolContext = {
   /** v3.1 Task 7: test injection only: the fetch the background Builder Codes check reads GitHub with. */
   codesFetch?: typeof fetch;
   /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check ("launch my token"). */
-  builderTokenDeps?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null> };
+  builderTokenDeps?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null>; isToken?: (address: string) => Promise<boolean | null> };
 };
 
 /**
@@ -2450,8 +2450,9 @@ export const TellToolInput = z
       .refine((c) => c.answer !== undefined || c.raising !== undefined, { message: 'Pass answer, or raising.' })
       .optional(),
     // Scoring and clarity R8: the builder asked about a token. Only then is the coin or community-round line
-    // offered (bench-find.ts tokenAsk); find and score never offer it.
-    token: z.literal('ask').optional(),
+    // offered (bench-find.ts tokenAsk); find and score never offer it. v4.4: { existing } names the token the builder
+    // already has (bench-find.ts tokenExisting); any string is taken, and one that isn't an address is the not-a-token line.
+    token: z.union([z.literal('ask'), z.object({ existing: z.string().max(100) }).strict()]).optional(),
     // Launch ready L2: the repo the builder wants ranked instead (owner/repo or its GitHub URL; bench-find.ts rankAnswer).
     main_project: z.string().max(300).optional(),
     // v3.1 wallet proof: the builder wants their rewards sent to another wallet (or to add one): a fresh signing link.
@@ -2752,6 +2753,8 @@ export const tools = {
       // the builder token's offer (legacyCoinAnswer), else "Okay."; coin { raising } changes nothing.
       // v4.2 final review 7: beside a move_up answer, the token is answered as a statement (one question per reply).
       if (token === 'ask') replies.push(await tokenAsk(ctx, { statement: Boolean(move_up) }));
+      // v4.4: the builder already has a token: recorded, and the offer ends forever.
+      else if (token) replies.push(await tokenExisting(ctx, token.existing));
       if (coin) replies.push((coin.answer && (await legacyCoinAnswer(ctx, coin.answer))) || { show_to_builder: NOTED_LINE });
       // v2.13 spec 3: the ship log (ctx.installationId is already the group root).
       if (update || updates) {

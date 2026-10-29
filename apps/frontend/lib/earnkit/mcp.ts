@@ -428,7 +428,11 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
             })
             .strict()
             .optional(),
-          token: z.literal('ask').optional(),
+          // v4.4: the builder already has a token (bench-find.ts tokenExisting): recorded, and the offer ends forever.
+          token: z
+            .union([z.literal('ask'), z.object({ existing: z.string().max(100) }).strict()])
+            .optional()
+            .describe("the builder says they already have a token: { existing: '<its address>' }"),
           // v2.13: the ship log.
           update: z
             .object({

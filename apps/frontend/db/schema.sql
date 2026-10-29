@@ -2065,11 +2065,12 @@ CREATE TABLE IF NOT EXISTS builder_code_claims (
 
 -- v4 (2026-10-28): one token per builder and per X account (builder-token.ts). The row is the launch claim:
 -- 'declined' is the builder's no (kept forever), 'launching' the claim while tokens.fun mints, 'launched' the token,
--- 'unknown' an answer that might have minted (never retried; the owner settles it).
+-- 'unknown' an answer that might have minted (never retried; the owner settles it). v4.4: 'existing' a token the
+-- builder already had and named (coin_address; EarnKit never launched it, so no wallet, never listed or counted as launched).
 CREATE TABLE IF NOT EXISTS builder_tokens (
   builder_id   integer PRIMARY KEY,
   x_user_id    text NOT NULL UNIQUE,
-  status       text NOT NULL CHECK (status IN ('declined', 'launching', 'launched', 'unknown')),
+  status       text NOT NULL CHECK (status IN ('declined', 'launching', 'launched', 'unknown', 'existing')),
   name         text,
   symbol       text,
   wallet       text CHECK (wallet IS NULL OR wallet ~ '^0x[0-9a-f]{40}$'),
@@ -2079,6 +2080,9 @@ CREATE TABLE IF NOT EXISTS builder_tokens (
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
+-- v4.4 (2026-10-29): 'existing', the builder's own token named in answer to the token offer (builder-token.ts recordExistingToken).
+ALTER TABLE builder_tokens DROP CONSTRAINT IF EXISTS builder_tokens_status_check;
+ALTER TABLE builder_tokens ADD CONSTRAINT builder_tokens_status_check CHECK (status IN ('declined', 'launching', 'launched', 'unknown', 'existing'));
 
 -- v4 Task 12 (2026-10-28): the owner's emails (owner-mail.ts). 'safe_5k': 'sent' once the Safe crossed $5,000 (mailed),
 -- 'below' re-arms it; 'gas:<needs_owner line>': the UTC date (YYYY-MM-DD) that line last mailed (at most once a day).

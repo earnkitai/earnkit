@@ -38,7 +38,7 @@ import {
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
-import { TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, setupTokenOffer, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
+import { EXISTING_NOT_TOKEN, EXISTING_TAKEN, TOKEN_OFFER, TOKEN_OFFER_QUESTION, TOKEN_ON_ITS_WAY, WALLET_SETUP_SKIPPED, existingTokenLine, setupTokenOffer, displayName, firstName, isStep2, setupDoneReply, type ProgramRow, type SetupOutcome } from './bench-reply';
 import { targetIn, weeklyTarget } from './weekly-target';
 import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, momentDue, momentSummary, momentPlace, momentReady, openShare, takeMoment, weekNumber } from './weekly-moment';
 import { isoWeekOf } from './weeks';
@@ -57,7 +57,7 @@ import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
 import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
 import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, takeTokenOffer, tokenOfferDue } from './wallet-offer';
-import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
+import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, recordExistingToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
 import { provenWallet } from './wallet-proof';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
@@ -1413,13 +1413,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   // v4.0: the builder said no to their token (kept forever), or asked to launch it.
   if (m.kind === 'token') {
     // v4.4: the answer to the offer that followed step 3's sign (the stored ask's setup) is the setup-done reply.
-    const [t] = await sql()<{ setup: boolean }[]>`
-      UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'bench_ask'
-      FROM (SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id} FOR UPDATE) o
-      WHERE p.builder_id = ${id} AND o.ask->>'kind' = 'token' RETURNING COALESCE((o.ask->>'setup')::boolean, false) AS setup`.catch((err: unknown) => {
-      logged('clear token ask')(err);
-      return [];
-    });
+    const t = await takeTokenAsk(id);
     const r = await tokenAnswer(ctx, id, m.answer, now, ownTokenYes);
     if (t?.setup && (await builderToken(id).catch(() => null))) return (await setupDoneFor(id, now, null, ctx.ownInstallationId ?? id)) ?? r;
     return afterStep3(id, r, now, ctx.ownInstallationId ?? id);
@@ -1623,7 +1617,8 @@ export const TOKEN_CANT = "I can't set up a token for this account. Reach out at
 export function tokenLine(r: LaunchResult): string | null {
   switch (r.result) {
     case 'launched': return `Done. Your token is live: ${tradeUrl(r.coin_address)}`;
-    case 'exists': return r.status === 'declined' ? TOKEN_STAYS_OFF : r.status === 'launched' ? null : TOKEN_ON_ITS_WAY;
+    // v4.4: a token the builder named (existing) has a row, so its state text is the caller's, as a live one's.
+    case 'exists': return r.status === 'declined' ? TOKEN_STAYS_OFF : r.status === 'launched' || r.status === 'existing' ? null : TOKEN_ON_ITS_WAY;
     case 'unknown': return TOKEN_ON_ITS_WAY;
     case 'busy': case 'ticker_check_down': case 'released': return TOKEN_TRY_LATER;
     case 'x_taken': case 'no_ticker': return TOKEN_CANT;
@@ -1803,7 +1798,48 @@ async function setupAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
   return token ? tokenAnswer(ctx, id, 'no', now) : answerWallet(id, 'no', now);
 }
 /** v4.0 Task 11 fix round 1: the stored ask that a builder's yes to the token launches (kind 'token'). */
-export const TOKEN_ASK_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'token', project_key: null, answer }. Don't show this note.";
+export const TOKEN_ASK_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'token', project_key: null, answer }. If they already have a token, call tell with token: { existing: '<its address>' } (ask for the address if they didn't give it). Don't show this note.";
+/**
+ * v4.4: clears a stored token ask (kind 'token') and says whether it was the setup offer's (`setup`, the offer that
+ * followed step 3's sign). Null: no token ask was stored, or a database error (logged). Never throws.
+ */
+async function takeTokenAsk(id: number): Promise<{ setup: boolean } | null> {
+  const [t] = await sql()<{ setup: boolean }[]>`
+    UPDATE builder_profiles p SET standing_seen = p.standing_seen - 'bench_ask'
+    FROM (SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${id} FOR UPDATE) o
+    WHERE p.builder_id = ${id} AND o.ask->>'kind' = 'token' RETURNING COALESCE((o.ask->>'setup')::boolean, false) AS setup`.catch((err: unknown) => {
+    logged('clear token ask')(err);
+    return [];
+  });
+  return t ?? null;
+}
+/**
+ * v4.4: tell token { existing }: the builder already has a token. Recorded (recordExistingToken: status 'existing', the
+ * offer ends forever): the recorded line, and when it answers the setup offer (the stored ask's setup), that line then
+ * the setup-done reply (outcome 'existing'). Not a token on Base (or not an address) or held by another builder: its
+ * line, and the stored ask stays, so the next answer (another address, or "skip": the token's no) still answers it. A
+ * token already launching, launched or unknown: its state, unchanged. Never throws.
+ */
+export async function tokenExisting(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'builderTokenDeps'>, address: string): Promise<Reply> {
+  const id = ctx.installationId;
+  const now = new Date();
+  try {
+    const r = await recordExistingToken(id, address, { isToken: ctx.builderTokenDeps?.isToken });
+    if (r === 'not_token' || r === 'taken') {
+      const asked = (await benchAsked(id, {}))?.kind === 'token';
+      return { show_to_builder: r === 'taken' ? EXISTING_TAKEN : EXISTING_NOT_TOKEN, ...(asked && { move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } }) };
+    }
+    if (r === 'no_x') return { show_to_builder: TOKEN_CANT };
+    const t = await takeTokenAsk(id);
+    if (r === 'has_token') return { show_to_builder: await tokenAnswerFor(id, now) };
+    const line = existingTokenLine(shortWallet(address.trim().toLowerCase()));
+    const done = t?.setup ? await setupDoneFor(id, now, null, ctx.ownInstallationId ?? id) : null;
+    return done ? { ...done, show_to_builder: `${line}\n\n${done.show_to_builder}` } : { show_to_builder: line };
+  } catch (err) {
+    logged('token existing')(err);
+    return { show_to_builder: TOKEN_TRY_LATER };
+  }
+}
 /**
  * v4.2 Task 1: tell token 'ask' ANSWERS the builder's token question and never launches one (only the builder's own
  * yes, tell move_up kind 'token', does): live (the trade link and what it earns), kept off, on its way, or no token yet
@@ -1821,7 +1857,7 @@ export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>, o: { st
     if (o.statement) {
       if (!builderTokensOn() && !(await builderToken(id))) return { show_to_builder: NOTED_LINE };
       const state = await tokenAnswerState(id, now);
-      return { show_to_builder: state.walletStepOpen ? TOKEN_EXPLAINER : tokenAnswerText(state) };
+      return { show_to_builder: state.walletStepOpen && state.token?.status !== 'existing' ? TOKEN_EXPLAINER : tokenAnswerText(state) };
     }
     if (!(await builderToken(id)) && (await walletSetupDue(id, now))) {
       const step = await walletStep(id, now);
@@ -1868,7 +1904,7 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
       const r = await declineBuilderToken(id);
       // A stale token ask must not carry a later bare yes back over this no.
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
-      return { show_to_builder: r === 'launched' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
+      return { show_to_builder: r === 'launched' || r === 'existing' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
     }
     // Final review 1: the yes is what token_offered records (the legacy offer's show never sets it), so a launch this
     // yes starts and drops is retried by the hourly cron, and a wallet proven later launches it.

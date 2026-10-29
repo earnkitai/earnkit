@@ -211,6 +211,12 @@ export const setupTokenOffer = (short: string) =>
   "If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?";
 /** v4.0: the builder said no to their token (tell move_up kind 'token', answer 'no'). */
 export const TOKEN_NO_LINE = 'Got it.';
+/** v4.4: the builder's own token, recorded (tell token { existing }; bench-find.ts tokenExisting). `short`: shortWallet. Pure. */
+export const existingTokenLine = (short: string) => `Got it. I've noted ${short} as your token, and I won't offer one again.`;
+/** v4.4: the address they named is not a token on Base (or not an address); the stored token ask stays. */
+export const EXISTING_NOT_TOKEN = "That address isn't a token on Base. Paste your token's contract address, or say skip.";
+/** v4.4: another EarnKit builder's row already holds that token; the stored token ask stays. */
+export const EXISTING_TAKEN = 'That token is already linked to another EarnKit builder. Paste a different address, or say skip.';
 /**
  * v4.2 Task 6 (F11): the one-time token offer for an earlier builder with a proven wallet and no token row. The lead is a
  * statement; the question ends the reply (and follows the explainer when the builder asked about their token).

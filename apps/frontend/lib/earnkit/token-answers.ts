@@ -23,6 +23,8 @@ export const TOKEN_AFTER_WALLET = 'You can turn it on once your wallet is added.
 /** Final review 2: a statement, no question (a yes to it would answer nothing). */
 export const TOKEN_OFF = 'Your token is off. Say launch my token anytime to turn it on.';
 export const tokenSignLine = (link: string) => `Sign with your wallet and it goes live: ${link}`;
+/** v4.4: the state text for a token the builder already had (builder_tokens status 'existing'). Pure. */
+export const existingTokenText = (coin: string) => `Your token is ${shortWallet(coin.toLowerCase())}. EarnKit didn't launch it, so its fees aren't claimed here.`;
 /** The just-launched reply's page line. Pure. */
 export const tokenPageLine = (handle: string) => `It's on your page too: ${siteUrl()}/${handle}`;
 
@@ -64,6 +66,8 @@ export function tokenAnswerText(s: TokenAnswerState, opts: TokenAnswerOpts = {})
       s.communityUsd > 0 ? `So far: ${usd(s.communityUsd)}.` : null,
     ].filter(Boolean).join('\n');
   }
+  // v4.4: the builder's own token, named (recordExistingToken): never claimed here.
+  if (t?.status === 'existing' && t.coin_address) return existingTokenText(t.coin_address);
   if (t) return TOKEN_ON_ITS_WAY;
   if (s.walletStepOpen) return `${TOKEN_EXPLAINER}\n\n${s.tokenOffered ? TOKEN_GOES_LIVE_ON_SIGN : TOKEN_AFTER_WALLET}`;
   if (!s.hasWallet) return s.signLink ? `${TOKEN_EXPLAINER}\n\n${tokenSignLine(s.signLink)}` : TOKEN_EXPLAINER;

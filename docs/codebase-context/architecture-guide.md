@@ -8285,8 +8285,8 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   owner, so EarnKit never holds the money; builders never claim and hear the amount in plain words.
 - **Setup steps 1-3.** Signed out: "1. Sign in with X, 2. Connect your code, 3. Add your wallet". Step 2 (`pickRepoAsk`) adds
   the Lovable/Bolt line only without GitHub (`BenchView.noGithub`). Step 3 (`wallet-offer.ts walletSetupDue`: X claimed, step
-  2 done or `github_no`, no wallet, not asked) asks everyone for the wallet and, while `walletSetupToken`, tells them
-  signing launches their token; it is asked before every other ranked offer (`bench-find.ts benchView`).
+  2 done or `github_no`, no wallet, not asked) asks everyone for the wallet (v4.4: the wallet only; the token offer
+  follows its sign, see the v4.4 section); it is asked before every other ranked offer (`bench-find.ts benchView`).
 - **Setup-done reply.** `bench-find.ts setupDoneFor` (claimed once, `standing_seen.setup_done`, after the reply is built
   so a failure never loses it) after the wallet answer (`afterStep3`): launched / on_its_way (a token row launching or
   unknown: "Your token is on its way. I'll confirm it here soon." in place of the community line) / set / declined /
@@ -8466,3 +8466,30 @@ answers "where do I stand" from. `ANSWER_FIRST_NOTE` no longer lists points, ran
 points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` and the
 internal ledger stay (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
 R10 (absent, not `[]`) and `v31-answerable.test.ts` (no points in facts or about).
+
+## v4.4: setup order and "I already have a token" (2026-10-29)
+
+Setup step 3 (`bench-reply.ts walletSetupAsk(project, link)`) asks for the wallet only ("It's where grant money and
+builder campaign payouts get paid."), never names the token and never sets `standing_seen.token_offered`, so the proof
+launches nothing; `walletSetupToken` and the step-3 token sentence are gone, and its plain no is the wallet skip. Once the
+wallet is signed for step 3 (the tell path `afterStep3`, or the next find in `benchView` when setup settled `set`), the one
+token offer follows when due (`bench-find.ts setupOffer`: `tokenOfferDue` + `takeTokenOffer`; tokens on, no row, never an
+owner test installation): `setupTokenOffer(short)` ("Done. Your payouts go to <wallet>." + the optional token + "Want it
+live?"), stored as `{ kind: 'token', key: null, at, setup: true }`. Its answer (`benchMoveUp` kind `token`, or a kindless
+yes/no, via `takeTokenAsk`) is the setup-done reply with the outcome (`launched`, `on_its_way`, `declined`). Builders shown
+v4.0's sentence (`token_offered` set) keep it: their sign still launches, the hourly retry still covers them, no second
+offer. A step-3 skip shows no offer; a wallet proven later gets the ranked `TOKEN_OFFER` once. `TOKEN_OFFER_QUESTION` is
+"If you already have a token or would rather skip it, just say so and I won't ask again.\n\nWant it live?".
+Task 2: `tell token: { existing: '<address>' }` (mcp.ts and tools.ts: `'ask'` or `{ existing }`) runs
+`bench-find.ts tokenExisting` -> `builder-token.ts recordExistingToken`: lowercased 0x40 hex, a Base check
+(`baseTokenCheck`, alchemy.ts `isToken`'s two reads; a revert is no, a failed read or Alchemy off accepts), then a
+`builder_tokens` row with status `existing` and `coin_address` (no wallet, no symbol). A declined (or earlier existing)
+row becomes it; launching/launched/unknown is unchanged (`has_token`: the state text); another builder's `coin_address`
+is `taken`. Recorded: "Got it. I've noted <short> as your token, and I won't offer one again." and, answering the setup
+offer, then the setup-done reply (outcome `existing`, lead "You're all set, <first>."). Not a token or taken: its line and
+the stored ask stays (another address, or "skip" = the token's no). An existing row ends every offer (`tokenOfferDue`
+needs no row), `launchBuilderToken` returns `exists` for it, `retryDroppedBuilderTokens` never selects it, and every
+reader that shows or counts a launch reads `status = 'launched'` (`/api/builder-tokens`, stats, token card, backers,
+fee claims) or the row's `wallet` (null here), so it is never presented as an EarnKit launch. `tokenAnswerText`:
+"Your token is <short>. EarnKit didn't launch it, so its fees aren't claimed here." (v4.5 reads its `coin_address` as a
+contract the builder named.) Tests: `v44-setup-order.test.ts`.

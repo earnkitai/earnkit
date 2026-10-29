@@ -370,3 +370,160 @@ test('fix round 1 (D): a yes whose launch fails with no token row is the try-lat
   const next = show(await mcpCall(b.ctx, 'find', {}));
   assert.ok(next.startsWith(`You're all set, Maya.\n\n${OPEN}`), next);
 });
+
+// ---- v4.4 Task 2: "I already have a token" ends the offer and records it
+
+const addr = () => `0x${hex(20)}`;
+const mixed = (a: string) => `0x${a.slice(2, 22).toUpperCase()}${a.slice(22)}`;
+const recordedLine = (a: string) => `Got it. I've noted ${shortWallet(a.toLowerCase())} as your token, and I won't offer one again.`;
+const NOT_TOKEN = "That address isn't a token on Base. Paste your token's contract address, or say skip.";
+const TAKEN = 'That token is already linked to another EarnKit builder. Paste a different address, or say skip.';
+const existingText = (a: string) => `Your token is ${shortWallet(a.toLowerCase())}. EarnKit didn't launch it, so its fees aren't claimed here.`;
+const row = async (id: number) => (await sql()<{ status: string; coin_address: string | null; wallet: string | null }[]>`
+  SELECT status, coin_address, wallet FROM builder_tokens WHERE builder_id = ${id}`)[0] ?? null;
+/** The fake Base read: true for the addresses in `tokens` (lowercased), false otherwise; every call kept. */
+function fakeIsToken(b: B, tokens: string[], answer?: boolean | null) {
+  const asked: string[] = [];
+  (b.ctx as { builderTokenDeps?: unknown }).builderTokenDeps = {
+    ...b.tf.deps,
+    isToken: async (a: string) => { asked.push(a); return answer !== undefined ? answer : tokens.map((t) => t.toLowerCase()).includes(a.toLowerCase()); },
+  };
+  return asked;
+}
+
+test('T2 (a) after the setup offer, { existing } records it: the recorded line then setup done; the offer never returns', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xa');
+  const a = addr();
+  const asked = fakeIsToken(b, [a]);
+  const r = await mcpCall(b.ctx, 'tell', { token: { existing: mixed(a) } });
+  const s = show(r);
+  assert.ok(s.startsWith(`${recordedLine(a)}\n\nYou're all set, Maya.\n\n${OPEN}`), s);
+  assert.match(s, /\| Program \| Up to \| Closes \|/, s);
+  assert.doesNotMatch(s, /Want it live\?|coin|points|—/, s);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(await row(b.id), { status: 'existing', coin_address: a.toLowerCase(), wallet: null });
+  assert.notEqual(((await seen(b.id)).bench_ask as { kind?: string } | undefined)?.kind, 'token');
+  assert.equal(await tokenOfferDue(b.id), false);
+  for (let i = 0; i < 4; i++) {
+    const f = show(await mcpCall(b.ctx, 'find', {}));
+    assert.ok(!f.includes(TOKEN_OFFER_LEAD) && !f.includes('Want it live?') && !f.includes("You're all set"), f);
+  }
+  // tell token 'ask' answers the state, never offers.
+  const ask = show(await mcpCall(b.ctx, 'tell', { token: 'ask' }));
+  assert.equal(ask, existingText(a));
+  // A later yes never launches over it.
+  const yes = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } }));
+  assert.equal(yes, existingText(a));
+  assert.equal(b.tf.calls.length, 0);
+  assert.equal((await row(b.id))?.status, 'existing');
+});
+
+test('T2 (b) Review Focus 4: not a token (or malformed), then a valid one: the second answer records it', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xb');
+  const bad = addr();
+  const good = addr();
+  const asked = fakeIsToken(b, [good]);
+  const r1 = await mcpCall(b.ctx, 'tell', { token: { existing: 'not an address' } });
+  assert.equal(show(r1), NOT_TOKEN);
+  assert.equal(asked.length, 0);
+  const r2 = await mcpCall(b.ctx, 'tell', { token: { existing: bad } });
+  assert.equal(show(r2), NOT_TOKEN);
+  assert.equal(asked.length, 1);
+  assert.equal(await row(b.id), null);
+  // The stored ask stays the setup offer, so the next answer still answers it.
+  const ask = (await seen(b.id)).bench_ask as { kind: string; setup?: boolean };
+  assert.equal(ask.kind, 'token');
+  assert.equal(ask.setup, true);
+  const s = show(await mcpCall(b.ctx, 'tell', { token: { existing: good } }));
+  assert.ok(s.startsWith(`${recordedLine(good)}\n\nYou're all set, Maya.`), s);
+  assert.equal((await row(b.id))?.status, 'existing');
+  assert.equal(b.tf.calls.length, 0);
+});
+
+test('T2 (b) a "skip" after a bad address declines it as the setup offer\'s no', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xk');
+  fakeIsToken(b, []);
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { token: { existing: addr() } })), NOT_TOKEN);
+  const s = show(await mcpCall(b.ctx, 'tell', { move_up: { project_key: null, answer: 'no' } }));
+  assert.ok(s.startsWith(`No problem, no token. ${OPEN}`), s);
+  assert.equal((await row(b.id))?.status, 'declined');
+});
+
+test('T2 (c) a token already linked to another builder is "taken"; nothing is written and the ask stays', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const other = await offered('xc1');
+  const a = addr();
+  fakeIsToken(other, [a]);
+  assert.ok(show(await mcpCall(other.ctx, 'tell', { token: { existing: a } })).startsWith(recordedLine(a)));
+  const b = await offered('xc2');
+  fakeIsToken(b, [a]);
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { token: { existing: a.toUpperCase().replace('0X', '0x') } })), TAKEN);
+  assert.equal(await row(b.id), null);
+  assert.equal(((await seen(b.id)).bench_ask as { kind: string }).kind, 'token');
+});
+
+test('T2 (d) a launched builder\'s { existing } is unchanged (has_token): the live state, no Base read', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xd');
+  await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } });
+  assert.equal((await row(b.id))?.status, 'launched');
+  const asked = fakeIsToken(b, []);
+  const s = show(await mcpCall(b.ctx, 'tell', { token: { existing: addr() } }));
+  assert.ok(s.startsWith(`Your token is live: ${tradeUrl(b.tf.coin)}`), s);
+  assert.equal(asked.length, 0);
+  assert.deepEqual(await row(b.id), { status: 'launched', coin_address: b.tf.coin.toLowerCase(), wallet: (await row(b.id))!.wallet });
+});
+
+test('T2 a declined builder who later names their token: the no becomes existing; a Base read failure accepts it', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xn');
+  await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } });
+  assert.equal((await row(b.id))?.status, 'declined');
+  const a = addr();
+  fakeIsToken(b, [], null);
+  assert.equal(show(await mcpCall(b.ctx, 'tell', { token: { existing: a } })), recordedLine(a));
+  assert.deepEqual(await row(b.id), { status: 'existing', coin_address: a.toLowerCase(), wallet: null });
+  // Alchemy off (no key, no fake): accepted too.
+  const key = process.env.ALCHEMY_API_KEY;
+  delete process.env.ALCHEMY_API_KEY;
+  try {
+    const c = await offered('xo');
+    (c.ctx as { builderTokenDeps?: unknown }).builderTokenDeps = c.tf.deps;
+    const a2 = addr();
+    assert.ok(show(await mcpCall(c.ctx, 'tell', { token: { existing: a2 } })).startsWith(recordedLine(a2)));
+    assert.equal((await row(c.id))?.status, 'existing');
+  } finally {
+    if (key !== undefined) process.env.ALCHEMY_API_KEY = key;
+  }
+});
+
+test('T2 baseTokenCheck: both reads answer is true, a revert is false, a failed read is null', async () => {
+  const { baseTokenCheck } = await import('./builder-token');
+  const { AlchemyReverted } = await import('./alchemy');
+  const word = `0x${'0'.repeat(63)}1`;
+  assert.equal(await baseTokenCheck(addr(), (async () => word) as never), true);
+  assert.equal(await baseTokenCheck(addr(), (async () => '0x') as never), false);
+  assert.equal(await baseTokenCheck(addr(), (async () => { throw new AlchemyReverted('eth_call'); }) as never), false);
+  assert.equal(await baseTokenCheck(addr(), (async () => { throw new Error('Alchemy eth_call returned 500'); }) as never), null);
+});
+
+test('T2 (e) /api/builder-tokens never lists an existing row; (f) launchBuilderToken and the hourly retry never deploy for one', db, async () => {
+  process.env.EARNKIT_BUILDER_TOKENS = 'on';
+  const b = await offered('xe');
+  const a = addr();
+  fakeIsToken(b, [a]);
+  await mcpCall(b.ctx, 'tell', { token: { existing: a } });
+  assert.equal((await row(b.id))?.status, 'existing');
+  const { builderTokensJson } = await import('./builder-tokens-json');
+  const listed = await builderTokensJson(new Date());
+  assert.ok(!listed.some((t) => t.coin.toLowerCase() === a.toLowerCase() || t.handle === b.handle), JSON.stringify(listed));
+  const { launchBuilderToken, retryDroppedBuilderTokens } = await import('./builder-token');
+  assert.deepEqual(await launchBuilderToken(b.id, b.tf.deps), { result: 'exists', status: 'existing' });
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_offered', now()::text) WHERE builder_id = ${b.id}`;
+  assert.equal((await retryDroppedBuilderTokens(new Date(), { ...b.tf.deps, only: [b.id] })).tried, 0);
+  assert.equal(b.tf.calls.length, 0);
+  assert.equal((await row(b.id))?.status, 'existing');
+});
