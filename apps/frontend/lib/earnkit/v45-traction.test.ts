@@ -202,6 +202,12 @@ test('contractFlows: in and out, ETH (external and internal, no zero values) and
     { from: p, to: C, metadata: { blockTimestamp: iso(DAY) }, rawContract: { value: '0x10' } },
   ] })) as AlchemyCall;
   assert.deepEqual((await contractFlows(C, bad, since, 1, 'in', 'eth')).flows, [{ peer: p, at: NOW.getTime() - DAY, raw: 16n }]);
+  // An erc20 transfer of another token is never money, even if the filter let it through.
+  const other = (async () => ({ transfers: [
+    { from: p, to: C, metadata: { blockTimestamp: iso(DAY) }, rawContract: { value: '0x64', address: addr() } },
+    { from: q, to: C, metadata: { blockTimestamp: iso(DAY) }, rawContract: { value: '0x65', address: BASE_USDC.toUpperCase().replace('0X', '0x') } },
+  ] })) as AlchemyCall;
+  assert.deepEqual((await contractFlows(C, other, since, 1, 'in', 'usdc')).flows, [{ peer: q, at: NOW.getTime() - DAY, raw: 101n }]);
 });
 
 test('contractsRevenue: ETH and USDC from outside wallets summed at the price; the builder\'s own wallets, the deployer and wallets they funded never pay (Review Focus 3); outbound to them is not pass-through', dbTest, async () => {
@@ -257,6 +263,33 @@ test('contractsRevenue: pass-through (outbound to outside addresses at least hal
   assert.equal(await latestRevenue(b.id, NOW), null, 'drafts skip it');
 });
 
+test('contractsRevenue: pass-through is judged per contract; a router never adds its inbound, nor hides a revenue contract\'s', dbTest, async () => {
+  const b = await builder();
+  const shop = await made(b.wallets[0], 'base', 10);
+  const router = await made(b.wallets[0], 'base', 20);
+  const [p, q, r] = [addr(), addr(), addr()];
+  // A big router (forwards ~100%) next to a $300 revenue contract: usd is the shop's $300 only.
+  const big = alchemy({ flows: {
+    [`in:usdc:${shop}`]: [[p, DAY, 300_000_000n]],
+    [`in:usdc:${router}`]: [[q, DAY, 10_000_000_000n]],
+    [`out:usdc:${router}`]: [[r, DAY, 9_990_000_000n]],
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, big.call, { price }), { usd: 300, inbound_usd: 10_300, outbound_usd: 9_990, capped: false, contracts: 2 });
+  // A small router next to a big revenue contract: the router's $100 is not added.
+  const small = alchemy({ flows: {
+    [`in:usdc:${shop}`]: [[p, DAY, 10_000_000_000n]],
+    [`in:eth:${router}`]: [[q, DAY, ETH / 20n]],
+    [`out:eth:${router}`]: [[r, DAY, ETH / 20n]],
+  } });
+  assert.deepEqual(await contractsRevenue(b.id, NOW, small.call, { price }), { usd: 10_000, inbound_usd: 10_100, outbound_usd: 100, capped: false, contracts: 2 });
+  // Both pass through: usd 0.
+  const both = alchemy({ flows: {
+    [`in:usdc:${shop}`]: [[p, DAY, 1_000_000_000n]], [`out:usdc:${shop}`]: [[r, DAY, 600_000_000n]],
+    [`in:usdc:${router}`]: [[q, DAY, 1_000_000_000n]], [`out:usdc:${router}`]: [[r, DAY, 1_000_000_000n]],
+  } });
+  assert.equal((await contractsRevenue(b.id, NOW, both.call, { price }))!.usd, 0);
+});
+
 test('contractsRevenue: token contracts and contracts the builder has not proven are never read; no counted Base contract is null', dbTest, async () => {
   const b = await builder();
   const coin = addr();
@@ -300,7 +333,7 @@ test('a failed read stores nothing, no zero row (Review Focus 4); an unknown pri
   const log = console.error;
   console.error = (...a: unknown[]) => void errors.push(a);
   try {
-    assert.deepEqual(await runRevenue(NOW, { deadline: Date.now() + 5000, only: [b.id], callFor: failing.callFor, price }), { due: 1, read: 0 });
+    assert.deepEqual(await runRevenue(NOW, { deadline: Date.now() + 5000, only: [b.id], callFor: failing.callFor, price }), { due: 1, stored: 0 });
   } finally {
     console.error = log;
   }
@@ -310,10 +343,10 @@ test('a failed read stores nothing, no zero row (Review Focus 4); an unknown pri
   const fine = alchemy({ flows: good });
   const day2 = new Date(NOW.getTime() + DAY);
   assert.equal(await contractsRevenue(b.id, day2, fine.call, { price: async () => null }), null);
-  assert.deepEqual(await runRevenue(day2, { deadline: Date.now() + 5000, only: [b.id], callFor: fine.callFor, price: async () => null }), { due: 1, read: 0 });
+  assert.deepEqual(await runRevenue(day2, { deadline: Date.now() + 5000, only: [b.id], callFor: fine.callFor, price: async () => null }), { due: 1, stored: 0 });
   assert.equal(fine.calls.length, 0, 'nothing read without a price');
   assert.deepEqual(await rows(b.id), []);
-  assert.deepEqual(await runRevenue(new Date(day2.getTime() + 3_600_000), { deadline: Date.now() + 5000, only: [b.id], callFor: fine.callFor, price }), { due: 1, read: 1 });
+  assert.deepEqual(await runRevenue(new Date(day2.getTime() + 3_600_000), { deadline: Date.now() + 5000, only: [b.id], callFor: fine.callFor, price }), { due: 1, stored: 1 });
   assert.deepEqual((await rows(b.id)).map((x) => [x.day, x.usd]), [['2026-10-30', 500]]);
   await sql()`DELETE FROM app_revenue WHERE builder_id = ${b.id}`;
   // Base not enabled: nothing.
@@ -335,15 +368,15 @@ test('runRevenue: off without Alchemy; each due builder (a counted Base contract
   assert.deepEqual(await revenueDue(NOW, { only }), [b.id]);
   assert.deepEqual(await runRevenue(NOW, { deadline: Date.now() + 5000, only, price }), { step: 'off' });
   const fake = alchemy({ flows: { [`in:usdc:${C}`]: [[addr(), DAY, 1_240_000_000n]] } });
-  assert.deepEqual(await runRevenue(NOW, { deadline: Date.now() + 5000, only, callFor: fake.callFor, price }), { due: 1, read: 1 });
+  assert.deepEqual(await runRevenue(NOW, { deadline: Date.now() + 5000, only, callFor: fake.callFor, price }), { due: 1, stored: 1 });
   const reads = fake.calls.length;
   assert.deepEqual(await rows(b.id), [{ day: '2026-10-29', usd: 1240, inbound_usd: 1240, outbound_usd: 0, capped: false, contracts: 1 }]);
-  assert.deepEqual(await runRevenue(new Date(NOW.getTime() + 3_600_000), { deadline: Date.now() + 5000, only, callFor: fake.callFor, price }), { due: 0, read: 0 });
+  assert.deepEqual(await runRevenue(new Date(NOW.getTime() + 3_600_000), { deadline: Date.now() + 5000, only, callFor: fake.callFor, price }), { due: 0, stored: 0 });
   assert.equal(fake.calls.length, reads, 'nothing read again the same day');
   assert.deepEqual(await latestRevenue(b.id, NOW), { usd: 1240, capped: false });
   // The cron's step (scoped by `only`), the next day.
   const r = await runCron({ now: new Date(NOW.getTime() + DAY), only: ['none'], deps: { revenue: { callFor: fake.callFor, only, price } } });
-  assert.deepEqual(r.revenue, { due: 1, read: 1 });
+  assert.deepEqual(r.revenue, { due: 1, stored: 1 });
   assert.deepEqual((await rows(b.id)).map((x) => x.day), ['2026-10-29', '2026-10-30']);
 });
 
