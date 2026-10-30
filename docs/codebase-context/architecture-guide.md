@@ -8521,7 +8521,10 @@ v4.6 Stripe key store (the ownership rule stops casual misuse only; a cooperatin
 so wallet links and Stripe links never open each other's page). The key is checked with read-only GETs through an injectable
 `StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
 (`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
-keys are refused before any call.
+keys are refused before any call. v4.7.1 T3: after the reads and the ownership rule, `checkKey` probes write access with
+bodiless POSTs to `/v1/refunds` and `/v1/payouts` (`StripeCall`'s optional `method`); both must be 403 (no permission). A 400
+(the key has write access, and the call fails on missing params, so nothing is created) is refused with `STRIPE_TEXT.writeAccess`.
+Any other answer or a failed call is refused as unreachable (fail closed). Nothing is stored on refusal. The daily read never probes.
 
 - **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
   (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/
