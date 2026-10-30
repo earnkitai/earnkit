@@ -19,7 +19,7 @@ export const acceptedNudge = (program: string, link: string) => `You got into ${
 export const milestoneNudge = (project: string, n: number, program: string | null) =>
   `${project} just passed ${n.toLocaleString('en-US')} users. That's real traction${program ? `, and it makes your ${program} application a lot stronger.` : '.'}`;
 export const closingNudge = (program: string, day: string) => `Heads up, ${program} closes ${day}. Your draft is ready. Want to send it?`;
-export const fridayNudge = (streak: number) => `Quiet week? No stress. Ship anything small by Sunday and your ${streak}-week streak stays alive.`;
+export const fridayNudge = (streak: number) => `Quiet week, no stress. Ship anything small by Sunday and your ${streak}-week streak stays alive.`;
 
 /** A post's short link (post-reply.ts shortLink's form; not imported, post-reply.ts imports this file). Pure. */
 const postLink = (handle: string, code: string) => `${siteUrl()}${pagePath(handle)}/post/${code}`;
@@ -46,8 +46,8 @@ export type NudgeIn = {
 /**
  * A due nudge. `ask`: the question the line asks and owns (the reply's one ask, bench-find.ts): closing, the apply
  * ask for its program (its yes shows the draft to send); accepted or funded, the share ask for its post. The Friday
- * line's "Quiet week?" is rhetorical and the milestone line asks nothing, so neither has one. `title`: closing's
- * program (its deadline line is dropped from the reply).
+ * line and the milestone line ask nothing (v4.7.1 final review: the Friday line has no question mark, so a reply has one
+ * "?"), so neither has one. `title`: closing's program (its deadline line is dropped from the reply).
  */
 export type NudgePick = {
   kind: NudgeKind; line: string | null; keep: Record<string, unknown>;

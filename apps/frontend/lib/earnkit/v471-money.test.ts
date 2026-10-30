@@ -19,6 +19,7 @@ import {
 } from './bench-reply';
 import { CHECK_FITS_ASK_NOTE, CHECK_FITS_NOTE, checkNeedsNote, openNowGrants } from './bench-find';
 import type { Card } from './present';
+import { fridayNudge } from './nudges';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 
@@ -147,8 +148,31 @@ test('pure: no fit, the open grants lead every non-money ask and the quiet reply
     const next = benchReply(ranked({ fund: [base, fit], openNow: OPEN, pitch: { ...fit, title: 'Arc Grants' }, standingShown: false, ...o }));
     assert.ok(next.includes(qualifyLine({ ...fit, title: 'Arc Grants' })) && !next.includes('You qualify for the Base Builder'), next);
   }
-  // Replies that showed the fit line before v4.7.1 keep it (ship), applied or not.
-  assert.equal(benchReply(ranked({ fund: [base], openNow: OPEN, pitch: null })), benchReply(ranked({ fund: [base] })));
+  // Final review (R6 on every ranked reply): the ship, check-in and quiet replies never pitch the applied fit either;
+  // the open grants instead, and one question at most.
+  for (const ask of [
+    { kind: 'ship' as const, project_key: P.key, line: SHIP_ASK },
+    { kind: 'checkin' as const, project_key: P.key, line: CHECKIN_ASK },
+    { kind: 'none' as const, project_key: P.key, line: '' },
+  ]) {
+    const s = benchReply(ranked({ fund: [base], best: { ...base, program_id: 'base-builder-grants', why: 'x', codes: null }, openNow: OPEN, pitch: null, ask }));
+    assert.doesNotMatch(s, /You qualify for the Base Builder Grant Program/, s);
+    assert.ok(s.includes('Open now:'), s);
+    assert.ok((s.match(/\?/g) ?? []).length <= 1, s);
+    // Absent pitch (money first, a pure caller): v4.7's fit line, word for word.
+    assert.ok(benchReply(ranked({ fund: [base], openNow: OPEN, ask })).includes(qualifyLine(base)));
+  }
+  // Final review: money above the Friday nudge (no question mark of its own), so the reply asks exactly one question.
+  for (const ask of [{ kind: 'ship' as const, project_key: P.key, line: SHIP_ASK }, { kind: 'checkin' as const, project_key: P.key, line: CHECKIN_ASK }]) {
+    const s = benchReply(ranked({ fund: [base], openNow: OPEN, pitch: null, nudge: fridayNudge(6), ask }));
+    const ps = s.split('\n\n');
+    assert.deepEqual(ps.slice(0, 2), [openNowLine(OPEN), fridayNudge(6)], s);
+    assert.equal((s.match(/\?/g) ?? []).length, 1, s);
+    assert.ok(s.endsWith(ask.line), s);
+  }
+  // A fit pitched: its fit line (in the standing paragraph) still goes above the nudge.
+  const fitNudge = benchReply(ranked({ fund: [fit], pitch: fit, nudge: fridayNudge(6), standingText: 'Score 77 · #3 of 40 builders.' })).split('\n\n');
+  assert.ok(fitNudge[0].includes(qualifyLine(fit)) && fitNudge[1] === fridayNudge(6), fitNudge.join('|'));
   // A held question never gets the open grants.
   assert.doesNotMatch(benchReply(ranked({ openNow: OPEN, held: 'Did Kit win?' })), /Open now/);
 });

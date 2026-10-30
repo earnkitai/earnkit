@@ -181,7 +181,9 @@ test('(d) a program the builder already applied to is never asked', db, async ()
   // An older round's rejection: the program still fits, but the builder told EarnKit about it.
   await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, round_label) VALUES (${b.id}, '', ${p.id}, 'rejected', 'an older round')`;
   const s = show(await find(b));
-  assert.match(s, new RegExp(`You qualify for the ${p.title}, up to`), s);
+  // v4.7.1 final review (R6): a program the builder told EarnKit about is never pitched either: the open grants instead.
+  assert.doesNotMatch(s, new RegExp(`You qualify for the ${p.title}`), s);
+  assert.match(s, /^Open now: /, s);
   assert.doesNotMatch(s, /I can draft it/, s);
   // Applied this round (through tell): the program is hidden and never asked.
   const q = await dated('d2', 20);

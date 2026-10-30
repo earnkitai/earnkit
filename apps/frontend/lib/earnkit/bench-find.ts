@@ -782,10 +782,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
     openNow: openNow.map(({ id: _id, ...g }) => g),
     // Fix round 2 (R6): the fit moneyPara may pitch: the first shown fit not applied to nor drafted (null: none).
-    pitch: (() => {
+    // v4.7.1 final review: every ranked reply's fit line (moneyLine) follows it too; left out while money first applies
+    // (undefined), so a moneyFirst builder's fit replies stay v4.7's word for word.
+    ...(!moneyFirst && { pitch: (() => {
       const f = pitching ? realFits.slice(0, 3).find((x) => !noPitch.has(x.program_id)) : undefined;
       return f ? { kind: 'fits' as const, title: f.title, amount: f.amount, when: f.when, ...(f.bar && { bar: f.bar }) } : null;
-    })(),
+    })() }),
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));

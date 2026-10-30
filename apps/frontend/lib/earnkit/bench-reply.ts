@@ -813,10 +813,11 @@ export function stateAsk(
 }
 
 /**
- * Ranked: the money line: the Best fit, else the first fit, else the upcoming program.
+ * Ranked: the money line: the fit benchView pitches (v4.7.1 final review, R6: null, none: never an applied or drafted
+ * fit); absent (moneyFirst, a pure caller), the Best fit, else the first fit; else the upcoming program.
  */
 function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }): string | null {
-  const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
+  const fit = v.pitch !== undefined ? v.pitch : (v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits'));
   if (fit) return qualifyLine(fit);
   const u = o.upcoming ? v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming') : undefined;
   return u ? upcomingLine(u.title, u.prize, u.note) : null;
@@ -827,9 +828,14 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
  */
 const standingOf = (v: BenchView, name: string) =>
   v.standingText === undefined ? standingLine(name, v.rank, v.streak, v.earned ?? 0) : v.standingText || `${name} is on EarnKit.`;
-/** v4.7.1 T1: the open grants paragraph, only with no fit line (moneyLine's fit), so a fit's reply stays v4.7's. Pure. */
+/**
+ * v4.7.1 T1: the open grants paragraph, only with no fit line (moneyLine's fit), so a fit's reply stays v4.7's. Final
+ * review (R6): a pitch of null (every fit applied or drafted) shows it too. Pure.
+ */
 const openNowOf = (v: BenchView) =>
-  v.held || v.best || v.fund.some((f) => f.kind === 'fits') ? null : openNowLine(v.openNow);
+  v.held ? null
+    : v.pitch === null ? openNowLine(v.openNow)
+    : v.pitch || v.best || v.fund.some((f) => f.kind === 'fits') ? null : openNowLine(v.openNow);
 /**
  * v4.7.1 T1 fix round 1: the money for a reply shape that shows no moneyLine (wallet, token, new repo, the Monday block,
  * a post, connect without a Best fit): the fit line (a builder whose fits are all drafted or applied), else the open
@@ -891,7 +897,15 @@ export function benchReply(v: BenchView): string {
   if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
     // v4.3 Task 2 fix round 1 (R3): the nudge's question leads, so no table (the question stays the one ask).
     return paras(...lead.map((l) => [l]), [v.standingShown === false || v.standingLed ? null : standingOf(v, name), ...v.due]);
-  return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
+  const body = rankedReply(v, name, ask);
+  // v4.7.1 final review: money above the nudge: when the reply's first paragraph says the money (the open grants, the
+  // fit line), a non-owning nudge goes right after it; the notice stays on top.
+  const nudge = v.state === 'ranked' && v.nudge ? v.nudge : null;
+  const [first, ...rest] = body.split('\n\n');
+  const says = [openNowOf(v), moneyPara(v), moneyLine(v)].filter((m): m is string => Boolean(m));
+  if (nudge && rest.length > 0 && says.some((m) => first.includes(m)))
+    return paras(...[notice, first, nudge].filter((l): l is string => Boolean(l)).map((l) => [l])) + '\n\n' + rest.join('\n\n');
+  return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + body : body;
 }
 
 /**

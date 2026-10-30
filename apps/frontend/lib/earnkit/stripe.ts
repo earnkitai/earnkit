@@ -17,10 +17,10 @@ import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
  * shows only GET /v1/accounts/{id}. We call /v1/account (it returns our own id) and name that permission "Account" in
  * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes the reads.
  *
- * v4.7.1 T3: a key must also be unable to move money. After the reads, checkKey POSTs /v1/refunds and /v1/payouts with
- * no parameters: a restricted key without that Write permission gets 403 (permission error); a key with it gets 400
- * (refunds need a charge or payment_intent, payouts an amount and currency), so nothing is ever created. Both must be
- * 403. A 400 is refused as write access; any other answer or a failed call is refused as "try again" (fail closed).
+ * v4.7.1 T3: a key must also be unable to move money. After the reads, checkKey POSTs /v1/refunds, /v1/payouts and
+ * (final review) /v1/transfers with no parameters: a restricted key without that Write permission gets 403 (permission
+ * error); a key with it gets 400 (refunds need a charge or payment_intent, payouts an amount and currency, transfers an
+ * amount, currency and destination), so nothing is ever created. All three must be 403. A 400 is refused as write access; any other answer or a failed call is refused as "try again" (fail closed).
  */
 export const STRIPE_PURPOSE = 'stripe';
 /** `method` defaults to GET; only checkKey's write probes pass 'POST', and never with a body. */
@@ -114,7 +114,7 @@ export type CheckResult = { ok: true; accountId: string; host: string } | { ok: 
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 /**
- * Runs the four reads, the ownership rule, then the two write probes. A 401 is a rejected key, a 403 names the missing
+ * Runs the four reads, the ownership rule, then the three write probes. A 401 is a rejected key, a 403 names the missing
  * permission, anything else (a thrown call, 5xx, an odd answer) is "try again". On the probes a 403 is the pass, a 400
  * is write access, anything else is "try again". Nothing here returns or logs the key.
  */
@@ -153,7 +153,8 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
     if (r.status !== 200) return { ok: false, line: STRIPE_TEXT.unreachable };
   }
   // v4.7.1 T3: the key must not move money. Each probe is a POST with no params; only a 403 passes (see the header).
-  for (const path of ['/v1/refunds', '/v1/payouts'] as const) {
+  // v4.7.1 final review: transfers too (a Connect platform key could move money to a connected account).
+  for (const path of ['/v1/refunds', '/v1/payouts', '/v1/transfers'] as const) {
     const r = await get(path, 'POST');
     if (!r) return { ok: false, line: STRIPE_TEXT.unreachable };
     if (r.status === 400) return { ok: false, line: STRIPE_TEXT.writeAccess };
