@@ -265,7 +265,8 @@ test('5.1 v2.14, App off: a repo is not counted yet, with no install link and no
     const r = await find(id, named(key, uniq('jenil')), NO_MATCH);
     // v3.1 cold read: never "<Project> isn't counted yet.": the reply is the step alone.
     assert.equal(STATE_COPY.not_counted.stand('Secret'), null);
-    assert.equal(r.show_to_builder.split('\n')[0], 'Want me to suggest one small thing to ship in Secret this week?', r.show_to_builder);
+    // v4.7: the why line is its own paragraph just before the question.
+    assert.equal(r.show_to_builder, 'Programs fund builders who ship every week.\n\nWant me to suggest one small thing to ship in Secret this week?', r.show_to_builder);
     // v2.14 A15: the App off: one small thing to ship, no install link.
     assert.equal(r.move_up?.kind, 'suggest');
     assert.equal(r.proof, undefined);

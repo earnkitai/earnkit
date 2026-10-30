@@ -59,7 +59,8 @@ test('9.3 variants of not counted: taken, copy, a link only, the App off', () =>
     ['app_off', null, 'Want me to suggest one small thing to ship in Recipes this week?'],
   ] as const) {
     const out = benchReply(view({ state: 'not_counted', variant, project: p }));
-    assert.equal(out, stand ? `${stand}\n${question}` : question, variant);
+    // v4.7: the suggest ask's why line is its own paragraph just before the question.
+    assert.equal(out, variant === 'app_off' ? `Programs fund builders who ship every week.\n\n${question}` : stand ? `${stand}\n${question}` : question, variant);
     oneQuestion(out, false);
   }
 });

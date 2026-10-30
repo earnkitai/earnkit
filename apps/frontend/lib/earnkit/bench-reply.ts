@@ -200,6 +200,8 @@ export const shipWhy = (streak: number) =>
 export const CHECKIN_WHY = 'A Monday check-in keeps your drafts current before deadlines.';
 export const SHARE_WHY = 'Builders who share wins get noticed by programs.';
 export const POST_WHY = 'A post with real numbers is what reviewers read.';
+/** v4.7: the suggest ask's why (a project not counted yet, so no score or streak). */
+export const SUGGEST_WHY = 'Programs fund builders who ship every week.';
 /**
  * v4.7 T4 (ruling R1: the server instructions are full, so this rides on every move_up that carries a why): the
  * agent answers "why" from move_up.why, never inventing a reason.
@@ -825,7 +827,10 @@ export function benchReply(v: BenchView): string {
   if (v.state === 'not_counted') {
     if (step2 && !v.variant) return paras(hi, [notice, money, ...v.due, ask]);
     // GTM W2: a link-only project's step 2 (Lovable, Bolt) names the account too.
-    return paras(hi, [v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due, ask]);
+    // v4.7: the suggest ask's why is its own paragraph just before the question.
+    const sWhy = !v.held && v.ask.kind === 'suggest' ? SUGGEST_WHY : null;
+    const body = [v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due];
+    return sWhy ? paras(hi, body, [sWhy], [ask]) : paras(hi, [...body, ask]);
   }
   // v4.0 Task 8: the week's nudge leads the ranked reply.
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
@@ -925,6 +930,7 @@ export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'target' | 'qualify
     case 'checkin': return CHECKIN_WHY;
     case 'share': return SHARE_WHY;
     case 'post': return POST_WHY;
+    case 'suggest': return SUGGEST_WHY;
     case 'qualify': return v.qualify ? `${qualifyHead(v.qualify)} ${qualifyGap(v.project?.name ?? '', v.qualify)}` : null;
     case 'apply': {
       if (v.nudgeOwns && v.nudge) return v.nudge.replace(/\s*[^.?!]*\?\s*$/, '').trim() || null;

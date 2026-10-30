@@ -15,7 +15,7 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import {
-  ASKS_HINT, CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, applyAsk, applyWhy, askWhy, benchReply,
+  ASKS_HINT, CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, SUGGEST_WHY, applyAsk, applyWhy, askWhy, benchReply,
   qualifyGap, qualifyHead, setupDoneReply, shipWhy, type BenchView, type QualifyOffer,
 } from './bench-reply';
 import { WHY_NOTE, setupDoneFor, whyNote, withWhy } from './bench-find';
@@ -234,4 +234,22 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
     if (m.kind === 'qualify') await mcpCall(b.ctx, 'tell', { move_up: { kind: 'qualify', project_key: m.project_key, answer: 'no' } });
   }
   assert.ok([...seen].some((k) => ['ship', 'checkin', 'share', 'post'].includes(k)), [...seen].join(','));
+});
+
+test('suggest: its why line just before the question; move_up.why is it (no score or streak)', () => {
+  assert.equal(SUGGEST_WHY, 'Programs fund builders who ship every week.');
+  assert.doesNotMatch(SUGGEST_WHY, /score|streak|\?|—/i);
+  const ask = 'Want me to suggest one small thing to ship in Kit this week?';
+  const v: BenchView = {
+    state: 'not_counted', variant: 'app_off', project: P, rank: null, streak: 0, target: null, handle: 'maya', link: null,
+    fund: [], due: [], ask: { kind: 'suggest', project_key: P.key, line: ask }, held: null,
+  };
+  const out = benchReply(v);
+  whyThenAsk(out, SUGGEST_WHY, ask);
+  assert.equal(askWhy(v), SUGGEST_WHY);
+  const m = withWhy({ kind: 'suggest', project_key: P.key, agent_note: "Do it. Don't show this note." }, askWhy(v));
+  assert.equal(m.why, SUGGEST_WHY);
+  assert.ok(m.agent_note.includes(WHY_NOTE));
+  // A held question takes the ask's place: no why line.
+  assert.doesNotMatch(benchReply({ ...v, held: 'Did Kit win anything?' }), new RegExp(SUGGEST_WHY));
 });
