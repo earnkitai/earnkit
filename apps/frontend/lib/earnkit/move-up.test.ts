@@ -134,7 +134,9 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);
   const lines = s.split('\n');
-  assert.match(lines[0], /^Kit · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
+  // v4.7.1 T1: the standing is v4.7's paragraph (the page's score and rank), never "Kit · #1 of 10 builders".
+  assert.match(lines[0], /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
+  assert.equal(lines[0], r.standing, s);
   // v3.1 F4: no why sentence in the reply (the page keeps it); Task 16: no page line, no list of fits.
   assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks|Your page|Ways to get funded/, s);
   assert.match(lines[1], FIT_LINE, s);

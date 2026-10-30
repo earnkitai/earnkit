@@ -1,5 +1,5 @@
 import { after, test } from 'node:test';
-import { walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
 import { connectAsk } from './connect-moment';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -75,7 +75,8 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
-  assert.match(String(r.reply?.show_to_builder), /^Notes · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
+  // v4.7.1 T1: the standing paragraph ("Score 0 · #1 of 10 builders. ..."), never "Notes · #1 of 10 builders".
+  assert.match(String(r.reply?.show_to_builder), /^Score 0 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. /m);
 });
 
 /** A person who named `key` and installed the App on it through the setup URL (appSetup, proveByApp). */
@@ -126,6 +127,8 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // L5: this week has code ("Done this week"): the plain points line. v4.3: the qualify reply carries no ship line, so
   // Base's grant steps are declined here and the ranked step is the ship step.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('declined', jsonb_build_object(${`qualify:${key}`}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${p.id}`;
+  // v4.7.1 T1: with no fit, check_fits comes once before the ship step (v471-money.test.ts); asked already here.
+  await checkFitsAsked(p.id);
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
   // v4.7 T4: the ship ask carries its why line in place of the ship line.
   assert.ok(next.endsWith('\nShip code this week.') || /\nShipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.\n\n[^\n]*\?$/.test(next), next);

@@ -8586,3 +8586,12 @@ the digest's unsubscribe link and headers. Agents are told to call find at the s
 instructions' first line; ruling R1 keeps them under 800 characters by dropping the move_up and score lines, which
 the tool descriptions carry).
 
+v4.7.1 money always shows (Task 1, 2026-10-30). The owner's dogfood: with no fit and Base's steps declined, "what can I
+earn" led with a Monday check-in and no money; a second find said "EarnKit · 6 weeks in a row". Now a ranked reply with
+no unapplied fit opens with "Open now: {title}, {amount}, {when}." for up to two open grants (bench-find.ts
+`openNowGrants`: grants only, soonest deadline first, rolling last), before any non-money ask (connect, the Monday block,
+a post, the check-in, wallet, token, new repo, titles, ship) and on the quiet reply too; a builder with a fit hears
+v4.7's reply word for word. With no fit and no qualify due, the ask is `check_fits` once ("Want me to check what Kit
+would need for Arc Microgrants?", its why "None of these fit Kit on what EarnKit can see yet."), never naming Base's
+grant; its yes runs find and reads that program's requirements. Ranked replies show v4.7's standing paragraph in place
+of `standingLine`, under the same changed-only key (`status_seen` still holds the old line, so nothing re-shows).

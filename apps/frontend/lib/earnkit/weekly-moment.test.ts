@@ -27,6 +27,11 @@ const SHIP_WHY_RE = /Shipping this week (keeps your \d+-week streak|starts your 
 const TARGET_WHY = (t: string) => new RegExp(`\n\n${t.replace(/[.#]/g, '\\$&')}\n\n${RANKED_ASK_RE.source}$`);
 import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
+/** v4.7.1 T1 (money always shows): the open grants paragraph before the why, checked here, then set aside for the Monday copy. */
+const noOpen = (s: string) => {
+  assert.match(s, /\n\nOpen now: [^\n]+\.\n\nBuilders who share wins/, s);
+  return s.replace(/\n\nOpen now: [^\n]+(?=\n\n)/, '');
+};
 
 /**
  * Launch ready L5 (one weekly target) and L6 (one weekly moment), with L9's approvals, through the real MCP layer
@@ -64,7 +69,7 @@ async function builder(tag: string, name: string, ages: number[]) {
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v3 Stage 1 Task 5: past the connect offer (answered once), so last week's row is the weekly moment's (v3-connect.test.ts).
   // v4.3: a no to Base's grant steps (within DECLINE_MS of every clock here), so the ranked step is the ship step.
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' } }, projects: [{ key, name: 'App', confirmed: true }] });
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: '2026-10-01T00:00:00.000Z' }, check_fits_asked: '2026-10-01T00:00:00.000Z' }, projects: [{ key, name: 'App', confirmed: true }] });
   await sql()`UPDATE builder_profiles SET x_name = ${name} WHERE builder_id = ${id}`;
   await setWeeks(id, ages);
   return { id, key, handle };
@@ -103,7 +108,8 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // v4.3: Base's grant steps declined (builder()), so the ship step is the question; v4.7 T4: led by its why line.
-  assert.match(s, new RegExp(`^App · #2 of 10 builders${TARGET_WHY('Ship code this week to pass #1.').source}`), s);
+  // v4.7.1 T1: no fit, so the open grants lead; the standing is v4.7's paragraph, never "App · #2 of 10 builders".
+  assert.match(s, new RegExp(`^Open now: [^\\n]+\\n\\nScore \\d+ · #2 of 10 builders\\. [^\\n]+${TARGET_WHY('Ship code this week to pass #1.').source}`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
@@ -182,7 +188,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
   // one-tap link; no points shown (owner ruling 5), though the yes still earns them.
   const link = links(s)[0]!;
   assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}/post/[a-z2-7]{10}$`));
-  assert.equal(s, [
+  assert.equal(noOpen(s), [
     // v4.0 Task 7 (approved copy 5): the Monday block, the post link, "Looks right?".
     'Your week is ready, Maya. You shipped this week. Nice work.',
     '',
@@ -247,7 +253,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link.
-  assert.equal(s, `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
   assert.doesNotMatch(s, /Secret launch/);
 
   // The yes, with no ship-log row for last week (removed here): one is made holding only the approval (it shows nowhere).
@@ -285,7 +291,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
   const s = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.equal(s, `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
+  assert.equal(noOpen(s), `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nBuilders who share wins get noticed by programs.\n\nLooks right?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);
   // Rewritten after the reply: the yes still binds the text the reply showed, never the new one.

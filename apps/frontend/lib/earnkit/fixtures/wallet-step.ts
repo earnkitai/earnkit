@@ -10,6 +10,14 @@ export async function walletOffered(builderId: number): Promise<void> {
 }
 
 /**
+ * v4.7.1 T1: marks the ranked check_fits ask as asked already (standing_seen.check_fits_asked), for a test about another
+ * ranked step of a builder with no fit (v471-money.test.ts covers check_fits itself). The open grants still lead.
+ */
+export async function checkFitsAsked(builderId: number): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('check_fits_asked', now()::text) WHERE builder_id = ${builderId}`;
+}
+
+/**
  * v3.1 wallet proof security follow-up: the page's X sign-in for `token` as X user `xId`, as a browser does it
  * (walletXStart, then the X callback with a fake X), returning the browser's X-check cookie ("name=value") or null.
  */

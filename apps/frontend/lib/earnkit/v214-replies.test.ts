@@ -76,7 +76,8 @@ test('9.10 state 3, a project without the App: the install link; then state 4 on
   assert.match(s, /Done\?$/);
   await installApp({ builderId: a.id, repoKey: key, login: `bo${RUN}`, gh: fakeGitHub({ [key]: { id: 5001, owner: `bo${RUN}`, installation: 501 } }) });
   const four = rule((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(four, new RegExp(`Kit (is on the leaderboard: |· )(#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)`));
+  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
+  assert.match(four, new RegExp(`(?:Kit is on the leaderboard: |Score \\d+ · )(#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)`));
 });
 
 test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line carries the streak', db, async () => {

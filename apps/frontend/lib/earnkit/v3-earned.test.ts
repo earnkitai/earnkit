@@ -355,7 +355,9 @@ test('(d) the profile shows Earned as the third number and the waiting line; the
 
   // v4.0 Task 11: no coin intro post and no backing line; the stand line carries Earned.
   const r = show(await find(b));
-  assert.match(standLine(r), / · \$200 earned$/, r);
+  // v4.7.1 T1: the reply's standing is v4.7's paragraph (prizes won, not token fees); Earned stays in the JSON below.
+  assert.match(r, /^Score \d+\. 1 week shipping\. No grants won yet\.$/m, r);
+  assert.equal(standLine(r), '', 'no old stand line');
   assert.doesNotMatch(r, /Backing|backers|\bcoin/i, r);
   assert.ok(links(r).length <= 1, r);
   assert.ok(questions(r) <= 1, r);
@@ -395,7 +397,8 @@ test('(e) v4.0 Task 11: no backing anywhere, flag on or off (the stats keys stay
     const html = renderToStaticMarkup(React.createElement(BenchProfileView, { data: d, site: await profileSite(b.id, d, new Date()), page: 1 }));
     assert.doesNotMatch(html, /data-ek-earned|backers|Backing|data-ek-back|data-ek-token/i);
     const r = show(await find(b));
-    assert.match(standLine(r), / · \$340 earned$/, r);
+    // v4.7.1 T1: the standing paragraph names the prize won.
+    assert.match(r, /\$340 won so far\./, r);
     assert.doesNotMatch(r, /backing|backers/i, r);
     const j = (await builderJson(b.handle, new Date()))!;
     assert.equal('backing' in j, true);

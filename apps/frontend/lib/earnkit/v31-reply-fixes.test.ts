@@ -239,7 +239,12 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
   // Answered once.
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), 'Okay.');
-  // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
+  // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question. v4.7.1 T1: with
+  // no fit, check_fits comes once first (the open grants lead, never naming Base's grant), then the ship step.
+  const cf = await mcpCall(ctx, 'find', {});
+  assert.equal((cf.reply?.move_up as { kind: string }).kind, 'check_fits', show(cf));
+  assert.match(show(cf), /^Open now: /);
+  assert.doesNotMatch(show(cf).split('\n').at(-1)!, /Base Builder/);
   const next = await mcpCall(ctx, 'find', {});
   const n = rule(show(next));
   assert.ok(n.includes('Want me to suggest one small thing to ship?'), n);

@@ -321,7 +321,8 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       // v4.0: setup step 3 answered (this test is about another reply).
       await walletOffered(id);
       const r3 = await find(id, {}, NO_MATCH);
-      assert.match(r3.show_to_builder, /^Earnkit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, r3.show_to_builder);
+      // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
+      assert.match(r3.show_to_builder, /^(?:Earnkit is on the leaderboard: |Score \d+ · )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, r3.show_to_builder);
       const [live] = await sql()<{ ranked: boolean }[]>`SELECT ranked FROM builder_live WHERE builder_id = ${id}`;
       assert.equal(live?.ranked, true, 'the project ranks');
       // Readings: the daily read and the live refresh read the private repo with the installation token.

@@ -328,7 +328,10 @@ test('a ranked main project with no commits in 8 weeks: one light nudge, remembe
   const r = await mcpCall(ctx as never, 'find', {});
   const s = rule(show(r));
   // v3.1 cold read: the standing line was shown by the reply before (unchanged since), so the nudge alone.
-  assert.equal(s, NEW_REPO_ASK, 'a light nudge: no money line, no points');
+  // v4.7.1 T1 (money always shows): no fit, so the open grants closing soonest lead the light nudge (no points).
+  const [money, ...rest] = show(r).split('\n\n');
+  assert.match(money, /^Open now: [^\n]+\.$/, s);
+  assert.equal(rest.join('\n\n'), NEW_REPO_ASK, 'a light nudge after the money, no points');
   assert.deepEqual(r.reply?.move_up, { kind: 'new_repo', project_key: key, agent_note: NEW_REPO_NOTE });
   const yes = await mcpCall(ctx as never, 'tell', { move_up: { kind: 'new_repo', project_key: key, answer: 'yes' } });
   assert.equal(yes.reply?.agent_note, NEW_REPO_YES_NOTE);

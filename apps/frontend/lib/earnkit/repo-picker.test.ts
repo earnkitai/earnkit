@@ -309,11 +309,15 @@ test('L2.9 tell main_project switches to another App-proven repo, even a confirm
   });
   assert.equal((await setup(await pickerLink(p.ctx), p.login, inst, gh)).res.status, 200);
   assert.equal(await mainProjectOf(p.id), b);
-  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Beta (is on the leaderboard:|·) /m, 'confirmed and ranked');
+  // v4.7.1 T1: the standing paragraph's rank, never the old name line.
+  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^(?:Beta is on the leaderboard:|Score \d+ ·) /m, 'confirmed and ranked');
   const sw = await mcpCall(p.ctx, 'tell', { main_project: `https://github.com/${a}` });
   assert.equal(sw.reply?.show_to_builder, `EarnKit now ranks github.com/${a}.`);
   assert.equal(await mainProjectOf(p.id), a);
-  assert.match(String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder), /^Alpha (is on the leaderboard:|·) /m);
+  // v4.7.1 T1: the standing paragraph (its rank) says Alpha is ranked; the step names it.
+  const switched = String((await mcpCall(p.ctx, 'find', {})).reply?.show_to_builder);
+  assert.match(switched, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, switched);
+  assert.match(switched, /\bAlpha\b/, switched);
   const same = await mcpCall(p.ctx, 'tell', { main_project: a });
   assert.equal(same.reply?.show_to_builder, `EarnKit already ranks github.com/${a}.`);
   // A repo this person never proved: nothing changes, and that repo's own install link is offered (fix round 1, M5).

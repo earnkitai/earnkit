@@ -2650,3 +2650,11 @@ nothing); T4 `bench-reply.ts` why lines (`askWhy`, `move_up.why`, `ASKS_HINT`); 
 `alert_mail_sent`), `digest.ts` (new ask, reply_to, standing on top), `best-fit.ts` (`openFitsFor`, `standingFor`),
 `cron.ts` (`alert_mail` step), `mcp.ts` (session-start instruction; ruling R1 dropped the move_up and score lines),
 `llms/v213.txt`. Tests: `v47-numbers`, `v47-standing`, `v47-money-first`, `v47-why` (T4's), `v47-reach-out`.
+
+v4.7.1 Task 1 (money always shows): `bench-find.ts` `openNowGrants` (up to two open grants, soonest deadline first,
+rolling last) sets `view.openNow` in a ranked reply with no unapplied fit; the ranked `check_fits` ask (once,
+`standing_seen.check_fits_asked` via `takeOnce`; after a still-due qualify, ahead of checkin/wallet/token/new_repo/titles/
+ship; never names Base's grant; its yes `checkNeedsNote`). `bench-reply.ts` `openNowLine`, `checkFitsWhy`, `checkNeedsAsk`,
+`shortTitle`; rankedBody leads every non-money ask and the quiet reply with the open grants (a fit's reply unchanged);
+`standingText` (standing.ts `standingParagraph`) replaces `standingLine` in replies (the line stays the change key);
+`askWhy` is null for `none`. Fixture `fixtures/wallet-step.ts checkFitsAsked`. Tests: `v471-money.test.ts`.

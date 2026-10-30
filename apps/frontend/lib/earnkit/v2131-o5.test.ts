@@ -178,7 +178,12 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
     assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
     assert.equal(q.move_up?.kind, 'qualify');
     await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
+    // v4.7.1 T1 (money always shows): the next find leads with the open grants and asks check_fits once; then the ship step.
+    const cf = await find(id, {}, NO_MATCH);
+    assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
+    assert.match(cf.show_to_builder, /^Open now: /);
     const r = await find(id, {}, NO_MATCH);
+    assert.match(r.show_to_builder, /^Open now: /);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
     assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
@@ -262,7 +267,8 @@ test('O5 P2 (reversed in v2.13.4, v3.1 F3): the reply names the rank from RANK_M
     await padPool(9);
     const r = await find(id, {}, NO_MATCH);
     // Task 16: the standing line names the rank ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
-    assert.match(r.show_to_builder, /^Hello-World · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m, r.show_to_builder);
+    // v4.7.1 T1: the standing paragraph names the rank (never "Hello-World · #1 of 10 builders").
+    assert.match(r.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. /m, r.show_to_builder);
     assert.ok((r.show_to_builder.match(/https?:\/\//g) ?? []).length <= 1, 'no second link');
     assert.equal((r.show_to_builder.replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1, 'one question');
     assert.ok(endsOnRankedStep(r.show_to_builder), r.show_to_builder);
