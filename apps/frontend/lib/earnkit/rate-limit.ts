@@ -79,7 +79,7 @@ export const LIMITS = {
   walletPage: { limit: 120, windowSeconds: 3_600 },
   /** v4.6: views of the Stripe connect page, per client IP (light). */
   stripePage: { limit: 120, windowSeconds: 3_600 },
-  /** v4.6: POST /connect/stripe (each try calls Stripe up to four times), per client IP and per builder. */
+  /** v4.6: POST /connect/stripe/key (each try calls Stripe up to four times), per client IP and per builder. */
   stripeConnect: { limit: 10, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },

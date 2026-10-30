@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { PILL_BLUE } from '../../components/site/ui';
 import type { STRIPE_TEXT } from '../../../lib/earnkit/stripe';
 
-/** v4.6: the paste step. A same-origin POST to /connect/stripe; the key is cleared from the field once sent. */
+/** v4.6: the paste step. A same-origin POST to /connect/stripe/key; the key is cleared from the field once sent. */
 export default function StripeForm({ token, text }: { token: string; text: typeof STRIPE_TEXT }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
@@ -20,7 +20,7 @@ export default function StripeForm({ token, text }: { token: string; text: typeo
     setBusy(true);
     setStatus('');
     try {
-      const r = await fetch('/connect/stripe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: token, key }) });
+      const r = await fetch('/connect/stripe/key', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: token, key }) });
       if (field.current) field.current.value = '';
       const j = (await r.json()) as { line?: string };
       if (r.ok) {
