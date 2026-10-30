@@ -1,6 +1,6 @@
 import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { walletOffered } from './fixtures/wallet-step';
+import { moneyStepDone, walletOffered } from './fixtures/wallet-step';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
@@ -581,6 +581,8 @@ test('final review F3: find {more: true} never shows or claims a due token offer
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   try {
     await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c.id}, now())`;
+    // v4.7 T3 (token after money): the offer waits for one application.
+    await moneyStepDone(c.id);
     assert.equal(await tokenOfferDue(c.id), true);
     const r = await mcpCall(ctx, 'find', { more: true });
     const s = show(r);

@@ -745,7 +745,7 @@ test('v4.0 final review 1: runCron retries a dropped builder token launch; a 4xx
     const [{ id }] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash) VALUES (${`v4-retry-cron-${Math.random()}`}) RETURNING id`;
     ids.push(id);
     await sql()`INSERT INTO builder_profiles (builder_id, slug, x_user_id, x_handle, x_name, standing_seen)
-      VALUES (${id}, ${`retry-cron-${id}`}, ${`x-retry-${id}`}, ${`maya_${id}`}, 'Maya Patel', jsonb_build_object('token_offered', '2026-10-01T00:00:00.000Z'))`;
+      VALUES (${id}, ${`retry-cron-${id}`}, ${`x-retry-${id}`}, ${`maya_${id}`}, 'Maya Patel', jsonb_build_object('token_offered', '2026-10-01T00:00:00.000Z', 'token_yes', '2026-10-01T00:00:00.000Z'))`;
     await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${id.toString(16).padStart(40, '0')}`}, ${id}, now())`;
     return id;
   };

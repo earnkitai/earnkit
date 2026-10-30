@@ -229,7 +229,8 @@ test('(e) mcpCall find for a ranked builder whose kept match holds both: the rep
     // company with a full-time team (Alliance) is never offered unprompted, so the apply step is Base's.
     assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, 'base-builder-grants', s);
     assert.equal(named(s, [ALLIANCE_TITLE, BASE_TITLE]), BASE_TITLE, s);
-    assert.match(s, /\nBase Builder Grant Program is still open, up to \$5,000\. I can draft it in a minute\.\nWant me to\?$/, s);
+    // v4.7 T3 (money first): the money alone.
+    assert.match(s, /^Base Builder Grant Program is still open, up to \$5,000\. I can draft it in a minute\.\nWant me to\?$/, s);
     assert.doesNotMatch(s, /Alliance/, s);
     assert.ok(links(s).length <= 1, s);
     assert.equal(questions(s), 1, s);

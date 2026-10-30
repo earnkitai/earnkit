@@ -2157,3 +2157,6 @@ CREATE TABLE IF NOT EXISTS fx_rates (
 
 -- v4.7 T1: a program's IANA time zone (program file tz), when its summary's suffix doesn't name it; null otherwise.
 ALTER TABLE programs ADD COLUMN IF NOT EXISTS tz text;
+
+-- v4.7 T3: the program's application asks for revenue or traction (program file wants_revenue): a ready draft offers the Stripe connect once.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS wants_revenue boolean NOT NULL DEFAULT false;

@@ -388,6 +388,11 @@ export const ProgramFile = z
      */
     tz: z.string().min(1).refine(isTimeZone, 'tz: an IANA time zone like "America/Los_Angeles"').optional(),
     /**
+     * v4.7 T3: the application asks for revenue or traction (its questions or criteria), so a ready draft offers the
+     * builder's read-only Stripe connect once (tools.ts prepare). Leave out otherwise.
+     */
+    wants_revenue: z.boolean().optional(),
+    /**
      * v3 Stage 2: `upcoming` is listed (the card reads "Not open yet") but never a fit, an entry or
      * counted in the money total; it needs `opens_note`. v3.1 (D2): `unlisted` (off-thesis) keeps
      * its row for old entries, but nothing lists, matches, counts or guides it; its file follows the

@@ -127,6 +127,8 @@ export type ProgramRow = {
   ends_at: Date | null;
   /** v4.7 T1 (program file tz): the program's IANA zone, or null. Optional for older fixtures. */
   tz?: string | null;
+  /** v4.7 T3 (program file wants_revenue): a ready draft offers the Stripe connect once. Optional for older fixtures. */
+  wants_revenue?: boolean;
   /** v3 Stage 2: `upcoming` is listed (Not open yet), never a fit, an entry or in the money total. */
   status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
@@ -752,6 +754,8 @@ export async function upsertProgram(
       ends_at: p.ends_at,
       // v4.7 T1: the file is the source of truth (a removed tz clears the column).
       tz: p.tz ?? null,
+      // v4.7 T3: the file is the source of truth (a removed flag clears the column).
+      wants_revenue: p.wants_revenue === true,
       status: p.status,
       // v3 Stage 2: the file is the source of truth (a removed note clears the column).
       opens_note: p.opens_note ?? null,

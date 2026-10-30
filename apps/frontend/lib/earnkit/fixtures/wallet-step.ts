@@ -31,3 +31,13 @@ export async function walletXSignIn(token: string, xId: string): Promise<string 
   const set = back?.headers.getSetCookie().find((c) => c.startsWith('__Host-ekwx-') && !/Max-Age=0/.test(c));
   return set ? set.split(';')[0] : null;
 }
+
+/**
+ * v4.7 T3 (token after money): the token offer waits for one application or draft (wallet-offer.ts tokenOfferDue). For a
+ * test about the offer itself: one application told (builder_program_status applied) to a committed program that is
+ * not open yet (base-batches-005: upcoming, never a fit, no results question), so no open fit or reply line changes.
+ */
+export async function moneyStepDone(builderId: number, programId = 'base-batches-005'): Promise<void> {
+  await sql()`INSERT INTO builder_program_status (installation_id, program_id, login, status) VALUES (${builderId}, ${programId}, '', 'applied')
+    ON CONFLICT DO NOTHING`;
+}

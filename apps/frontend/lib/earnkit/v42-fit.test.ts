@@ -121,7 +121,8 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
     || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${c.id}`;
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const lead = (r.lead as { program_id: string } | undefined)?.program_id;
-  const money = String(r.show_to_builder).split('\n')[1];
+  // v4.7 T3 (money first): an open fit asked once is asked again, so the reply is the money alone: its first line.
+  const money = String(r.show_to_builder).split('\n')[0];
   assert.ok(money.includes('Soon Fund'), `the money line names the closing program: ${r.show_to_builder}`);
   assert.equal(lead, closing, 'lead follows the money line');
   const sc = (await mcpCall({ ...ctx }, 'score', {})).reply!;

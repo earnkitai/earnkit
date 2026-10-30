@@ -73,8 +73,10 @@ test('8.7 a confirmed, claimed, ranked project: the ship step with its fit (Task
     await padPool(9);
     const p = await avalanche();
     const id = await person({ main: `mayaf${RUN}/recipes`, claimed: `mf${RUN}`, ranked: true, score: 60, projects: [{ key: `mayaf${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 6 }] });
-    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here, so the step is to ship.
-    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${id}`;
+    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here. v4.7 T3: an
+    // open fit asked once is asked again (money first), so it is declined too, and the step is to ship.
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text),
+      'declined', jsonb_build_object(${`apply:${p.id}`}::text, now()::text)) WHERE builder_id = ${id}`;
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     assert.match(r.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
     // R12: the fit with its award (Task 16: the money line).
@@ -130,8 +132,10 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
     const p = await avalanche();
     const key = `mayan${RUN}/recipes`;
     const id = await person({ main: key, claimed: `mn${RUN}`, projects: [{ key, name: 'Recipe planner', confirmed: true }] });
-    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here, so the step is to ship.
-    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${id}`;
+    // v3.1 spec 3.2: a rolling fit is first offered as a draft (v31-best-fit.test.ts); marked asked here. v4.7 T3: an
+    // open fit asked once is asked again (money first), so it is declined too, and the step is to ship.
+    await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text),
+      'declined', jsonb_build_object(${`apply:${p.id}`}::text, now()::text)) WHERE builder_id = ${id}`;
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
     // R8: the ranked step, to ship.

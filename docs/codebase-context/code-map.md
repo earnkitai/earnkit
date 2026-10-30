@@ -1034,8 +1034,8 @@ apps/frontend/
                                'no_ticker'), launchBuilderToken (the row is the claim; tokens.ts outcomeOf: released only on a pre-mint
                                refusal, else 'unknown' and never retried; Base only, Safe 60 / builder 40), stuckBuilderTokens (unknown, or
                                launching > STUCK_LAUNCH_MS: runCron lists builder-token:<builder id> in needs_owner, never quiet), tradeUrl
-                               (Uniswap on Base). Launched by wallet-proof.ts launchOnProof when the proof made the builder's first reward
-                               wallet (ProveResult.first), unless declined. Creator fees: bonus-ledger.ts claimForOthers claims for each
+                               (Uniswap on Base). Launched only from the builder's yes (v4.7 T3: wallet-proof.ts launchOnProof is gone;
+                               the retry needs standing_seen.token_yes, set by bench-find.ts markTokenYes). Creator fees: bonus-ledger.ts claimForOthers claims for each
                                launched row's wallet (sponsored claims, first). Final review 1: retryDroppedBuilderTokens (runCron: offered,
                                proven recipient wallet, no row, flag on; BUILDER_TOKEN_RETRIES_PER_RUN 5 a run, never tried first then oldest
                                offer, standing_seen.token_retry_at; no API key / 4xx / no_ticker / x_taken set standing_seen.token_blocked),
@@ -1993,7 +1993,7 @@ apps/frontend/
                                link once; EOA locally; replacing a recipient needs wallet_x_checks), walletPageState,
                                walletXStart, walletXSignedIn (sets the __Host-ekwx- browser cookie), walletTokenCookie, walletXCookie, walletPost.
                                v4.0 Task 4: ProveResult.first (a fresh proof that made the first reward wallet); walletPost then runs
-                               launchOnProof (builder-token.ts, not awaited, errors logged) so the token launches at the proof
+                               launchOnProof (v4.7 T3: deleted; a proof never launches a token)
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
                                state: wallet_link_at), walletChangeReply (v4.0 final review 4: WALLET_COIN_FEES also for a launched
                                builder token), takeWalletNotice, WALLET_NOTE.
@@ -2622,3 +2622,11 @@ v4.6 Task 2 (daily Stripe read): `stripe.ts` adds `stripeRevenue` (30-day net fr
 v4.6 Task 3 (drafts, replies, the ask): `ship-log-facts.ts` (`stripe` in `ShipLogFacts`/`tractionFacts`, the Stripe line in `shipLogBlock`), `reply-facts.ts`
 (`stripe_30d_usd`, `stripe_mrr_usd`), `stripe.ts` (`stripeAskDue`, `STRIPE_DECLINED_KEY`), `bench-reply.ts` (`stripeAsk`, copy, `stateAsk` kind `stripe`),
 `bench-find.ts` (claims the ask, its yes), `tools.ts`/`mcp.ts` (`tell { stripe }`, `stripeReply`); tests in `v46-stripe.test.ts`.
+
+v4.7 Task 3 (the first reply is money only): `bench-find.ts` (`again`/`applyPickOf`: an open unapplied fit is asked again,
+the quieter asks wait; `apply_yes`; no Stripe in the reply order; `markTokenYes` sets `token_yes`), `bench-reply.ts` (apply
+reply is the money alone; `stripeDraftLine`, `stripeDraftNote`; `stripeAsk`/`STRIPE_ASK_NOTE` removed), `stripe.ts`
+(`takeStripeDraftLink`), `tools.ts draftWithSteps` (the draft's Stripe note), `program-file.ts`/`programs.ts`
+(`wants_revenue`, column in schema.sql), `wallet-offer.ts tokenOfferDue` (applicationCounts gate, `asked`),
+`wallet-proof.ts` (no launch), `builder-token.ts retryDroppedBuilderTokens` (`token_yes`), `llms/v213.txt`,
+`fixtures/wallet-step.ts moneyStepDone`. Tests: `v47-money-first.test.ts`.

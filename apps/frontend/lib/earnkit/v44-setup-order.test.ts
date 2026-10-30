@@ -12,6 +12,7 @@ import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { TOKEN_OFFER, TOKEN_OFFER_LEAD, setupDoneLead, setupTokenOffer, walletSetupAsk } from './bench-reply';
 import { tokenOfferDue } from './wallet-offer';
+import { moneyStepDone } from './fixtures/wallet-step';
 import { walletLink, walletMessage, walletPost } from './wallet-proof';
 import { tradeUrl } from './builder-token';
 import type { ReaderDeps } from './source-readers';
@@ -22,7 +23,8 @@ import type { RepoFit } from './present';
 /**
  * v4.4 Task 1 (docs/design-docs-and-implementation-plans/v4.4-plan.md): setup step 3 asks for the wallet only (never sets
  * token_offered, so the proof launches nothing); the one token offer follows the step-3 sign, and its answer is the
- * setup-done reply. Builders shown v4.0's token sentence keep their launch. tokens.fun is faked.
+ * setup-done reply. tokens.fun is faked. v4.7 T3: no proof launches a token (v4.0's launch on the sign is gone, for
+ * builders shown v4.0's token sentence too), and the offer waits for one application (`fitted` has one: moneyStepDone).
  */
 appEnv();
 process.env.X_CLIENT_ID = 'cid';
@@ -93,7 +95,7 @@ const quietReader: ReaderDeps = {
 };
 let n = 0;
 /** A ranked builder "Maya Lin" (the Kit repo proven by the App, fitting Base Builder Grants), shown step 3. */
-async function fitted(tag: string) {
+async function fitted(tag: string, o: { applied?: boolean } = {}) {
   n++;
   const t = `ek_v44_${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -114,6 +116,8 @@ async function fitted(tag: string) {
   (ctx as { codesFetch?: typeof fetch }).codesFetch = gh as typeof fetch;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
+  // v4.7 T3 (token after money): the offer these tests follow waits for one application.
+  if (o.applied !== false) await moneyStepDone(c.id);
   const r = await mcpCall(ctx, 'find', {});
   const step = show(r);
   assert.match(step, /\*\*Step 3 of 3:\*\* add your wallet\./, step);
@@ -234,19 +238,19 @@ test('(e) an owner test installation never gets the setup offer', db, async () =
   }
 });
 
-test('(f) Review Focus 1: a builder shown v4.0\'s token sentence (token_offered) still launches on the sign; no second offer', db, async () => {
+test('(f) v4.7 T3 (Review Focus 4): a builder shown v4.0\'s token sentence (token_offered) launches nothing on the sign; no second offer', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('f');
   // As v4.0's step 3 left it: the token sentence shown with the wallet ask.
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('token_offered', now()::text) WHERE builder_id = ${b.id}`;
   await signOn(b, b.step);
-  assert.equal(await settled(b.id), 'launched');
-  assert.equal(b.tf.calls.length, 1);
+  assert.equal(await tokenRow(b.id), null);
+  assert.equal(b.tf.calls.length, 0);
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'yes' } });
   const s = show(r);
-  assert.ok(s.startsWith(`You're all set, Maya. Your token is live, so your community can back what you're building: ${tradeUrl(b.tf.coin)}`), s);
-  assert.doesNotMatch(s, /Want it live\?|One optional thing/, s);
-  assert.equal(b.tf.calls.length, 1);
+  assert.ok(s.startsWith("You're all set, Maya.\n\n"), s);
+  assert.doesNotMatch(s, /Want it live\?|One optional thing|Your token is live/, s);
+  assert.equal(b.tf.calls.length, 0);
 });
 
 test('(f) a builder mid v4.0 step 3: a plain no is still the token\'s no (the wallet step stays open)', db, async () => {
@@ -278,6 +282,10 @@ test('(g) Review Focus 2: a step-3 skip shows no offer; a wallet proven later ge
   assert.match(done, /^Done\. Your rewards now go to /, done);
   assert.doesNotMatch(done, /One optional thing|Want it live\?/, done);
   assert.equal(await tokenOfferDue(b.id), true);
+  // v4.7 T3 (money first): while Base Builder Grants is open and unapplied, its ask comes first and the offer waits.
+  const first = await mcpCall(b.ctx, 'find', {});
+  assert.equal(kindOf(first), 'apply', show(first));
+  await mcpCall(b.ctx, 'tell', { submitted: { program_id: ROLLING } });
   // Then the ranked offer, once, in a quiet reply.
   const replies: string[] = [];
   for (let i = 0; i < 6; i++) replies.push(show(await mcpCall(b.ctx, 'find', {})));

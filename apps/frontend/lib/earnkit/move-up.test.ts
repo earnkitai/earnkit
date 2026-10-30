@@ -125,9 +125,11 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
   // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product
   // repo (v3-apply.test.ts (h)); v3.1 spec 3.2: else a rolling fit is. Every program is marked asked here, so the step is
-  // the ranked one on any date (the Best fit still leads).
+  // the ranked one on any date (the Best fit still leads). v4.7 T3: an open fit asked once is asked again (money
+  // first), so each is declined here (kept away DECLINE_MS) for the ranked step.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
+    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs),
+      'declined', (SELECT jsonb_object_agg('apply:' || id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
   const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19']) };
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);

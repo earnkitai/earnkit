@@ -36,7 +36,7 @@ export type BenchAskKind = 'sign_in' | 'start' | 'pick_repo' | 'install_app' | '
   | 'closest' | 'check_fits'
   /** v4.2 Task 6: `token`, the one-time token offer for a builder who set up before v4 (a wallet, no token row, never offered). */
   | 'token'
-  /** v4.6 Task 3: `stripe`, the one-time Stripe connect ask (a no is permanent). */
+  /** v4.6 Task 3: `stripe`, the one-time Stripe connect ask (a no is permanent). v4.7 T3: no reply asks it now; a stored one still answers. */
   | 'stripe';
 /** `program_id`: the program an `apply` ask is about (its no is kept under it, never the project). */
 export type BenchAsk = { kind: BenchAskKind; project_key: string | null; line: string; program_id?: string };
@@ -513,17 +513,20 @@ export function redraftLine(why: 'limit' | 'only', link: string): string {
 }
 
 /**
- * v4.6 Task 3: the one-time Stripe ask (two lines, the question last), the connect reply, the disconnect reply and the
- * rule for the agent. The link is the connect page's (stripe.ts stripeLink); no key or account id is ever in a reply.
+ * v4.6 Task 3: the connect reply, the disconnect reply and the rule for the agent. The link is the connect page's
+ * (stripe.ts stripeLink); no key or account id is ever in a reply. v4.7 T3: the one-time ask left the reply order;
+ * it is one line on a draft for a program that wants revenue (stripeDraftLine, tools.ts prepare).
  */
 export const stripeConnectLine = (link: string) => `Connect Stripe read-only here: ${link}`;
-export const stripeAsk = (link: string, name: string) => `${stripeConnectLine(link)}\nWant grant drafts to show ${name}'s Stripe revenue?`;
+/** v4.7 T3 (exact copy): the draft's Stripe line, a statement. Pure. */
+export const stripeDraftLine = (link: string) => `Connect Stripe read-only so this draft can show verified revenue: ${link}`;
 export const STRIPE_DISCONNECTED = 'Stripe disconnected. EarnKit deleted the key.';
 export const STRIPE_NOT_CONNECTED = "Stripe isn't connected.";
 export const STRIPE_NO_LINK = "Stripe connecting isn't available right now.";
 export const STRIPE_NEVER_KEY =
   "Never ask the builder for a Stripe key in chat. If they paste one, tell them to use the link instead and not to repeat it. Don't show this note.";
-export const STRIPE_ASK_NOTE = `A yes or no to the question: call tell with move_up: { kind: 'stripe', project_key: null, answer }. ${STRIPE_NEVER_KEY}`;
+/** v4.7 T3: the draft's agent note line: the Stripe line, shown once beside the draft (never a question of its own). */
+export const stripeDraftNote = (link: string) => `Show the builder this line once, under the draft and above its question: "${stripeDraftLine(link)}" ${STRIPE_NEVER_KEY}`;
 
 /** v2.13.1 O2 fix round 1 (ruling 3): another person holds the repo, or it is a copy. */
 export const OTHER_PROJECT_ASK = 'Want to use a different project?';
@@ -639,7 +642,10 @@ export type ApplyPick = { program_id: string; title: string; amount: string | nu
  * Each state's one next step (A16; signed out with no link: the retry). Ranked, in order: the connect weeks' question
  * (`connect`), the drafted application (`apply`; v3.1 spec 3.2: money to the builder first), the weekly moment's question once a week (L6, `share`), the optional wallet step once
  * (`wallet`, v3.1 wallet proof), a private repo's titles
- * question once (`titles`), Base's grant steps with no fit (`qualify`), else the ship step. Pure.
+ * question once (`titles`), Base's grant steps with no fit (`qualify`), else the ship step. v4.7 T3 (money first):
+ * benchView passes `apply` for an open fit not applied to on every reply until it is (asked again after the first
+ * time), so the check-in, wallet, token, new-repo, titles and ship asks wait; there is no Stripe ask here (it rides on
+ * a draft, tools.ts). Pure.
  */
 export function stateAsk(
   v: Pick<BenchView, 'state' | 'variant' | 'project' | 'link'> & {
@@ -671,8 +677,6 @@ export function stateAsk(
     walletSetup?: { link: string; project: string | null } | null;
     /** v4.2 Task 6: the one-time token offer is due (wallet-offer.ts tokenOfferDue), in a quiet ranked reply. */
     tokenOffer?: boolean;
-    /** v4.6 Task 3: the one-time Stripe ask is due (stripe.ts stripeAskDue): the connect link, in a quiet ranked reply. */
-    stripe?: string | null;
     /** v4.3 fix round 1 (R1): the agent has no folder of the code (agentReach hosted): the qualify question asks for the steps. */
     hosted?: boolean;
   },
@@ -713,8 +717,6 @@ export function stateAsk(
   // until the share slot).
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.apply) return { kind: 'apply', project_key: key, program_id: v.apply.program_id, line: applyAsk(v.apply.title, v.apply.amount, v.apply.when) };
-  // v4.6 Task 3: the one-time Stripe ask, after the application and before the weekly moment.
-  if (v.state === 'ranked' && v.stripe) return { kind: 'stripe', project_key: null, line: stripeAsk(v.stripe, name) };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
   // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
@@ -854,7 +856,9 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   const ship = shipLine(v.target);
   // A reply with nothing else to say still says where the builder stands (never an empty reply); the ship line alone is no reply either.
   const orStanding = (lines: (string | null | undefined)[]) => (v.standingLed || lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
-  if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, nag ? shipLine(null) : null, ask]));
+  // v4.7 T3 (money first): the apply reply is the money alone: the deadlines, then the fit's amount, deadline and the
+  // one step (applyAsk); no standing or ship line in front of it (the standing fact still carries where they stand).
+  if (!v.held && v.ask.kind === 'apply') return paras([...v.due, ask]);
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).
   if (!v.held && (v.ask.kind === 'wallet' || v.ask.kind === 'token' || v.ask.kind === 'new_repo')) return paras(orStanding([standing, ...v.due, ask]));

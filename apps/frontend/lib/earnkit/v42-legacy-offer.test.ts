@@ -16,6 +16,7 @@ import { TOKEN_ASK_NOTE } from './bench-find';
 import { TOKEN_EXPLAINER } from './token-answers';
 import { tokenOfferDue } from './wallet-offer';
 import { retryDroppedBuilderTokens } from './builder-token';
+import { moneyStepDone } from './fixtures/wallet-step';
 
 /**
  * v4.2 Task 6 (F11): a builder who set up before v4 (a proven wallet, no token row, never offered) hears the token offer
@@ -69,7 +70,7 @@ test('the offer yields to every other ranked question and to setup step 3, and c
 });
 
 /** A signed-in builder whose one project is ranked through the App (pool of 13), with a proven wallet, as one who set up before v4. */
-async function legacy(tag: string, o: { wallet?: boolean } = {}) {
+async function legacy(tag: string, o: { wallet?: boolean; applied?: boolean } = {}) {
   const t = `ek_v42lo${tag}_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
   const c0 = (await connectInstallation(t))!;
@@ -97,6 +98,8 @@ async function legacy(tag: string, o: { wallet?: boolean } = {}) {
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   if (o.wallet !== false) await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c.id}, now())`;
+  // v4.7 T3 (token after money): the offer waits for one application; these builders have one unless `applied` is false.
+  if (o.applied !== false) await moneyStepDone(c.id);
   return { c, ctx, key, handle, calls };
 }
 const start = async () => {
@@ -178,6 +181,12 @@ test('never in setup, never off, never for a test installation, never over a tok
   const has = await legacy('h');
   await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${has.c.id}, x_user_id, 'declined' FROM builder_profiles WHERE builder_id = ${has.c.id}`;
   assert.equal(await tokenOfferDue(has.c.id), false);
+  // v4.7 T3: no application or draft yet: not due, and no find shows it.
+  const early = await legacy('e', { applied: false });
+  assert.equal(await tokenOfferDue(early.c.id), false);
+  assert.equal(await findOffer(early, 3), null);
+  await moneyStepDone(early.c.id);
+  assert.equal(await tokenOfferDue(early.c.id), true, 'after the first application');
   // Tokens off.
   const off = await legacy('o');
   delete process.env.EARNKIT_BUILDER_TOKENS;

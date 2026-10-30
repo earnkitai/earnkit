@@ -106,8 +106,8 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   const b = await builder('a', [p.id, far.id]);
   const f = await find(b);
   const s = show(f);
-  // Task 16 step 5: the dated fit within 30 days (never the 45-day one), its question, the points line.
-  assert.equal(s, `Kit is on EarnKit.\nShip code this week.\n${applyAsk(p.title, '$5,000', p.when)}`);
+  // Task 16 step 5: the dated fit within 30 days (never the 45-day one), its question. v4.7 T3: the money alone.
+  assert.equal(s, applyAsk(p.title, '$5,000', p.when));
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(s, /—/);
@@ -115,10 +115,11 @@ test('(a) a fit closing in 20 days makes the apply ask the step, once', db, asyn
   assert.deepEqual([move.kind, move.project_key], ['apply', b.key]);
   assert.match(move.agent_note, /kind: 'apply'/);
   assert.ok((await seen(b.id)).apply_asked && (((await seen(b.id)).apply_asked as Record<string, string>)[p.id]), 'asked once is remembered');
-  // Asked once: the next reply's step is the weekly target again, and the 45-day program is never asked.
+  // v4.7 T3 (money first): asked once is remembered, yet the open fit is asked again (never the weekly step while it is
+  // unapplied), and the 45-day program is never asked.
   const again = await find(b);
-  assert.doesNotMatch(show(again), /I can draft it/, show(again));
-  assert.notEqual((again.reply?.move_up as { kind: string }).kind, 'apply');
+  assert.equal(show(again), applyAsk(p.title, '$5,000', p.when));
+  assert.equal((again.reply?.move_up as { kind: string }).kind, 'apply');
 });
 
 test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 16 step 6)', db, async () => {

@@ -178,9 +178,10 @@ const freshCoins = () => {
   }) as unknown as typeof fetch;
   return { f, calls };
 };
+/** A builder who said yes to their token (v4.7 T3: token_yes, the retry's mark, beside token_offered). */
 async function offered(at: string, o: { wallet?: boolean } = {}) {
   const b = await builder(o);
-  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('token_offered', ${at}::text) WHERE builder_id = ${b.id}`;
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('token_offered', ${at}::text, 'token_yes', ${at}::text) WHERE builder_id = ${b.id}`;
   return b;
 }
 
@@ -189,15 +190,19 @@ test('retryDroppedBuilderTokens: launches an offered, proven builder with no tok
   const declined = await offered('2026-10-01T00:00:00.000Z');
   await declineBuilderToken(declined.id);
   const unoffered = await builder();
+  // v4.7 T3: v4.0's step-3 sentence set token_offered with no yes: never retried.
+  const sentence = await builder();
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_build_object('token_offered', '2026-10-01T00:00:00.000Z') WHERE builder_id = ${sentence.id}`;
   const noWallet = await offered('2026-10-01T00:00:00.000Z', { wallet: false });
   const t = fakeTokensFun(200, { success: true, tokenAddress: coin() });
-  const out = await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [due.id, declined.id, unoffered.id, noWallet.id] });
+  const out = await retryDroppedBuilderTokens(new Date(), { fetch: t.f, check: free, only: [due.id, declined.id, unoffered.id, sentence.id, noWallet.id] });
   assert.deepEqual(out, { tried: 1, launched: 1, blocked: [] });
   assert.equal(t.calls.length, 1);
   assert.equal(t.calls[0].creatorWallet, due.wallet);
   assert.equal((await builderToken(due.id))?.status, 'launched');
   assert.equal((await builderToken(declined.id))?.status, 'declined');
   assert.equal(await builderToken(unoffered.id), null);
+  assert.equal(await builderToken(sentence.id), null);
   assert.equal(await builderToken(noWallet.id), null);
   // Off: nothing is tried.
   process.env.EARNKIT_BUILDER_TOKENS = 'off';

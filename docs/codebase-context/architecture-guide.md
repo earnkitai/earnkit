@@ -8263,8 +8263,10 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   lasting). Launch: Base only, Clanker v4 through tokens.fun, WETH pair, fees after Clanker's 20% split Safe 60 / builder
   40 (`policy-constants.ts EARNKIT_SPLITS_BPS [6000, 4000]`; MINI's 10% ended, nothing claims for MINI). The whole feature
   is behind `EARNKIT_BUILDER_TOKENS=on` (`builderTokensOn`), which stays off until tokens.fun v4.1 is live.
-- **Launch at the wallet proof.** `wallet-proof.ts walletPost` runs `launchOnProof` (not awaited, errors logged) when the
-  proof made the builder's first reward wallet (`ProveResult.first`), unless the builder said no. The token's creator
+- **Launch at the wallet proof (retired in v4.7 T3).** v4.0 had `wallet-proof.ts walletPost` run `launchOnProof` when the
+  proof made the builder's first reward wallet; v4.7 deleted it: a proof never launches a token, even with v4.0's
+  `token_offered`. A token launches only from the builder's yes (`tokenAnswer`), and the hourly retry only for a builder
+  with that yes (`standing_seen.token_yes`). The token's creator
   wallet is the proven wallet. A "launch my token" ask later (`tell move_up { kind: 'token' }`) launches the same way.
 - **Opt-out.** A no (to setup step 3, or an older agent's `tell coin { answer: 'no' }`) is `declineBuilderToken`: kept
   forever, never asked again. Skipping the wallet skips the token. An older agent's `tell coin` / `tell token: 'ask'` is
@@ -8546,3 +8548,17 @@ own standing line and connect standing are left out. Fix round 1: it leads only 
 Monday block or a post offer; signed out, or a shared client that is no person (`personal`, replyFacts' gate), the standing is
 the weeks only and nothing is read. find keeps its changed-only standing line; the fact is there whenever it has a part.
 Agent guidance is in SCORE_DESCRIPTION and FIND_DESCRIPTION_BENCH (ruling R1: the server instructions stay at 795).
+
+v4.7 the first reply is money only (Task 3): in a ranked reply with an open fit not applied to (benchView `open`: not told,
+entered, hidden or declined), the ask is that fit's `apply`: claimed once a program (`claimApply`), and after that asked
+again (`again`, unclaimed) wherever the check-in, wallet, token, new-repo, titles or ship ask would have gone; those wait
+until no open fit is unapplied. Setup step 3, connect, owning nudges, hot posts, the Monday moment and event posts keep
+their places. A program the builder said yes to drafting (`standing_seen.apply_yes`) is never asked again. The apply
+reply is the money alone (`rankedBody`: the deadline lines, then `applyAsk`; no standing or ship line, so `status_seen`
+and `nag_week` are not marked by it). The Stripe ask left the reply order (no `stripe` in `stateAsk`; a stored v4.6 ask
+still answers): `tools.ts draftWithSteps` adds one agent-note line (`stripeDraftNote`, the exact line `stripeDraftLine`)
+to a shown draft for a program whose file says `wants_revenue: true` (base-builder-grants, circle-developer-grants,
+colosseum-worlds-fair), claimed once with `stripe.ts takeStripeDraftLink` (`stripeAskDue`, `stripe_asked` /
+`stripe_reoffered`); never on a shared client or the build path. `tokenOfferDue` also needs applied + drafts >= 1
+(`standing.ts applicationCounts`), except when the builder asked (`tell token 'ask'`: `{ asked: true }`). Wallet proofs
+launch nothing (above). llms.txt: the token is offered after the first application. Tests: `v47-money-first.test.ts`.

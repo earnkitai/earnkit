@@ -34,7 +34,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
-  TOKEN_NO_LINE, STRIPE_ASK_NOTE, STRIPE_NEVER_KEY, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
+  TOKEN_NO_LINE, STRIPE_NEVER_KEY, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -61,7 +61,7 @@ import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWallet
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, recordExistingToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
 import { provenWallet } from './wallet-proof';
-import { stripeAskDue, stripeLink } from './stripe';
+import { stripeLink } from './stripe';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
 
@@ -200,6 +200,8 @@ export type Seen = StandSeen & {
   qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
   apply_asked?: Record<string, string>;
+  /** v4.7 T3: the programs the builder said yes to drafting ({ [program_id]: iso }): never asked again (they hold the draft). */
+  apply_yes?: Record<string, string>;
   /** 2026-10-23 Base onboarding: when the builder said no to step 2 (no GitHub, or not connecting now). */
   github_no?: string;
   /** When the Base walk-through offer was shown (asked once). */
@@ -619,8 +621,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
   const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
+  // v4.7 T3 (money first): an open fit not applied to (`open`: not told, entered, hidden or declined) asked once already
+  // is asked again in place of the quieter asks, so the check-in, the wallet step, the token, the new-repo nudge, titles
+  // and the ship step wait until no open fit is unapplied. Never claimed (asked once a program stays claimApply's); never
+  // a program the builder said yes to drafting (apply_yes: the draft is in their hands, its send is theirs).
+  const unasked = open.find((f) => !read.seen.apply_yes?.[f.program_id]);
+  const again = !apply && !owns && !askMoment && !walletSetup && !connect && !hot && !moment && !event && unasked ? applyPickOf(unasked) : null;
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
-  const quiet = !owns && rankedFree && project !== null && !held && !connect && !apply && !moment && !event;
+  const quiet = !owns && rankedFree && project !== null && !held && !connect && !apply && !again && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
@@ -635,14 +643,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.2 Task 6 (F11): the one-time token offer for an earlier builder, in a quiet reply (never beside another question,
   // never during setup: step 3 is not due); claimed below only once this reply carries it.
   const tokenOffer = quiet && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
-  // v4.6 Task 3: the one-time Stripe ask (a quiet ranked reply, nothing else asked; no link, no ask), claimed once it is carried.
-  const stripeUrl = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null ? stripeLink(id, now) : null;
-  const stripeDue = stripeUrl ? await stripeAskDue(id, read.seen).catch(logged('stripe due')) : null;
-  const stripe = stripeUrl && stripeDue && (await takeOnce(id, stripeDue === 'first' ? 'stripe_asked' : 'stripe_reoffered', now)) ? stripeUrl : null;
-  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && !stripe && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  // v4.7 T3: the Stripe ask left the reply order: it rides on a draft for a program that wants revenue (tools.ts prepare).
+  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !stripe && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !checkin && !wallet && !tokenOffer && !stripe && !newRepo && !titles && realFits.length === 0
+  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known })
     : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
@@ -668,7 +673,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const linkOnly = project !== null && LINK_KEY.test(project.key);
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, stripe, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply: apply ?? again, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
     ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
@@ -687,7 +692,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v3.1 one-tap posts: an event's post stored its own ask (post-reply.ts: the moment, so a yes redrafts it).
   const stored = held || finalAsk.kind === 'post' || finalAsk.kind === 'none' ? null : {
     kind: finalAsk.kind, key: finalAsk.project_key,
-    ...(apply && finalAsk.kind === 'apply' && { program_id: apply.program_id, ...(apply.repo && { repo: apply.repo }) }),
+    ...(asks.apply && finalAsk.kind === 'apply' && { program_id: asks.apply.program_id, ...(asks.apply.repo && { repo: asks.apply.repo }) }),
     ...(nudgeAsk?.kind === 'apply' && { program_id: nudgeAsk.program_id }),
     ...(nudgeAsk?.kind === 'outcome_share' && { link: nudgeAsk.link }),
     // v4.3: the first step and the name the question used, so its yes is answered as asked (Builder Codes: added here;
@@ -737,12 +742,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (ranked && project) {
     const standKey = standingLine(project.name, view.rank, streak, view.earned ?? 0);
     // The connect reply says the same facts in its own words ("Kit is on the leaderboard: #1 of 13 builders, ...").
-    const carries = held !== null || !['share', 'post'].includes(finalAsk.kind);
+    // v4.7 T3: the apply reply is the money alone (no standing line), so it carries none either.
+    const carries = held !== null || !['share', 'post', 'apply'].includes(finalAsk.kind);
     view.standingShown = o.alwaysStanding === true || read.seen.status_seen !== standKey;
     const week = isoWeekOf(now);
     view.nagShown = read.seen.nag_week !== week;
     // Fix round 2: an owning nudge's reply shows no points line, so the week's line is not marked shown.
-    const nags = !held && !owns && view.nagShown && ['apply', 'ship', 'none'].includes(finalAsk.kind);
+    // v4.7 T3: the apply reply says no ship line, so only the ship and quiet replies mark it.
+    const nags = !held && !owns && view.nagShown && ['ship', 'none'].includes(finalAsk.kind);
     const keep: Record<string, unknown> = {
       ...(carries && { status_seen: standKey }),
       ...(nags && { nag_week: week }),
@@ -754,7 +761,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'stripe' ? STRIPE_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
@@ -828,7 +835,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done' | 'stripe_asked' | 'stripe_reoffered', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -914,8 +921,11 @@ async function openCandidates<F extends Pick<Fit, 'program_id'>>(id: number, fit
 async function claimApply(id: number, seen: Seen, open: Fit[], now: Date): Promise<(ApplyPick & { repo?: string }) | null> {
   const pick = open.find((f) => !seen.apply_asked?.[f.program_id]);
   if (!pick || !(await takeApplyAsk(id, pick.program_id, now))) return null;
-  return { program_id: pick.program_id, title: pick.title, amount: pick.amount, when: pick.ends_at ? pick.when.replace(/^closes /, '') : null, ...(pick.repo && { repo: pick.repo }) };
+  return applyPickOf(pick);
 }
+/** The apply ask's pick for a fit: its deadline's day ("Nov 18"), null when rolling. Pure. */
+const applyPickOf = (f: Fit): ApplyPick & { repo?: string } =>
+  ({ program_id: f.program_id, title: f.title, amount: f.amount, when: f.ends_at ? f.when.replace(/^closes /, '') : null, ...(f.repo && { repo: f.repo }) });
 /** The apply ask for `programId`, claimed once a program (standing_seen.apply_asked, one guarded UPDATE). Never throws. */
 async function takeApplyAsk(id: number, programId: string, now: Date): Promise<boolean> {
   const [taken] = await sql()`
@@ -1561,7 +1571,12 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v4.2 Task 5: the closing-soon nudge's yes ("Your draft is ready. Want to send it?"): the entry's ready kit with its link.
       const ready = asked.program_id ? await readyDraft(id, asked.program_id).catch(() => null) : null;
       if (ready) return ready;
-      // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched).
+      // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched). v4.7 T3: the yes is
+      // kept (apply_yes), so money first never asks to draft it again.
+      if (asked.program_id)
+        await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
+            COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || jsonb_build_object(${asked.program_id}::text, ${now.toISOString()}::text))
+          WHERE builder_id = ${id}`.catch(logged('apply yes'));
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -1897,8 +1912,9 @@ export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>, o: { st
     }
     if (!builderTokensOn() && !(await builderToken(id))) return { show_to_builder: NOTED_LINE };
     // v4.2 Task 6: an earlier builder (a wallet, no token row, never offered) hears the explainer and the offer, once; the offer is the
-    // stored ask, so a following yes or no answers it. Otherwise the state's text alone.
-    const offer = (await tokenOfferDue(id)) && (await takeTokenOffer(id, now));
+    // stored ask, so a following yes or no answers it. Otherwise the state's text alone. v4.7 T3: the builder asked, so
+    // the offer needs no application first (tokenOfferDue asked).
+    const offer = (await tokenOfferDue(id, { asked: true })) && (await takeTokenOffer(id, now));
     if (!offer) {
       const state = await tokenAnswerState(id, now);
       // Final review 2: this answer asks nothing, so only the ask it shows is answerable: none. The stored ask is
@@ -1962,11 +1978,13 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
 
 /**
  * Final review 1: the builder's yes to their token (standing_seen.token_offered; token_skipped, a wallet skip's mark,
- * cleared). Never throws.
+ * cleared). v4.7 T3: and token_yes, the only mark the hourly retry launches on (v4.0's step-3 sentence also set
+ * token_offered, without a yes). Never throws.
  */
 async function markTokenYes(id: number, now: Date): Promise<void> {
   await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'token_skipped')
-      || jsonb_build_object('token_offered', COALESCE(standing_seen->>'token_offered', ${now.toISOString()}::text))
+      || jsonb_build_object('token_offered', COALESCE(standing_seen->>'token_offered', ${now.toISOString()}::text),
+        'token_yes', COALESCE(standing_seen->>'token_yes', ${now.toISOString()}::text))
     WHERE builder_id = ${id}`.catch(logged('token yes'));
 }
 

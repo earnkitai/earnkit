@@ -106,16 +106,17 @@ test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
   const v = ranked({ rank: '#1 of 13 builders', best: BASE });
   v.ask = stateAsk({ ...v, apply });
   const out = benchReply(v);
+  // v4.7 T3 (money first): the money alone, no standing or ship line in front of it.
   assert.equal(out, [
-    'Recipe planner · #1 of 13 builders · 4 weeks in a row',
-    'Ship code this week.',
     'Base Builder Grant Program is still open, up to $5,000. I can draft it in a minute.',
     'Want me to?',
   ].join('\n'));
   oneAsk(out);
-  // A dated program says when it closes; under RANK_MIN_POOL the standing has no rank.
+  // A dated program says when it closes.
   assert.equal(applyAsk('Apply X', '$5,000', 'Nov 18'), 'Apply X closes Nov 18, up to $5,000. I can draft it in a minute.\nWant me to?');
-  assert.equal(benchReply({ ...v, rank: null }).split('\n')[0], 'Recipe planner · 4 weeks in a row');
+  assert.equal(benchReply({ ...v, rank: null }), out);
+  // A deadline line goes first (it is money too), then the ask.
+  assert.equal(benchReply({ ...v, due: ['Recipe Grants closes Nov 3.'] }), `Recipe Grants closes Nov 3.\n${out}`);
 });
 
 test('Task 16: the ship, backing and held steps keep the layout: standing, money, the one question, the points line', () => {

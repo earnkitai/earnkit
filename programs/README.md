@@ -57,6 +57,9 @@ program is never closed under it either.
      `null` for rolling programs.
    - `tz` (optional): the organizer's IANA time zone ("Asia/Kolkata") when the summary doesn't end in
      ET, PT, CT, UTC or GMT. The site and replies show `ends_at`'s day in this zone.
+   - `wants_revenue` (optional): `true` when the application asks for revenue, usage or traction
+     (a question like "How does your product make money today?" or a business-plan criterion). A ready
+     draft for it offers the builder's read-only Stripe connect, once. Leave it out otherwise.
    - `starts_at`: for new-work-only programs, the start of the build window (matching
      checks commit dates against it). Otherwise `null` unless stated.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
