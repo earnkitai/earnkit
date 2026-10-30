@@ -67,7 +67,9 @@ The server lists 4 builder tools: find, prepare, tell and score. Until
 names are refused, since EarnKit no longer submits.
 
 - find: "What can I earn?" in one answer, money first: where the builder
-  stands and the programs their project fits, with one question. Pass
+  stands and the programs their project fits, with one question. Call
+  find at the start of every session, before the builder asks, and
+  whenever they ask about money, grants or where they stand. Pass
   identity.project, the one project the agent is in (name, a few plain
   words on what it is, repo from the git remote, live link), and
   identity.github_login; never ask the builder for them. Follow every

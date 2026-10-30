@@ -192,10 +192,12 @@ export const TOOL_DESCRIPTIONS = toolDescriptions(true, true);
  * 800 characters with the safety lines.
  */
 export const BENCH_INSTRUCTION_LINES = [
-  'Call find first. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
-  'A yes or no to the question goes to tell move_up.',
-  'Call score when they ask where they stand.',
-  'Never name tools, fields or files to the builder, or invent personal details.',
+  // v4.7 T5 (exact copy): EarnKit speaks first; the agent calls find at session start, before the builder asks. Ruling R1:
+  // under 800 with it, so "Call score when they ask where they stand." (the score description carries it) and "A yes or
+  // no to the question goes to tell move_up." (find's and tell's descriptions carry it) are dropped, and the last line's
+  // "to the builder" is implied.
+  'Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
+  'Never name tools, fields or files, or invent personal details.',
 ];
 
 export function serverInstructions() {

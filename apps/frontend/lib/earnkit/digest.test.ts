@@ -172,7 +172,7 @@ test('digestEnabled: only with RESEND_API_KEY; the default sender', () => {
   assert.equal(digestEnabled({ RESEND_API_KEY: 're_x' }), false);
   assert.equal(digestEnabled({ RESEND_API_KEY: 're_x', EARNKIT_AUTH_SECRET: 's' }), true);
   assert.equal(DIGEST_FROM_DEFAULT, 'EarnKit <digest@earnkit.com>');
-  assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
+  assert.equal(EMAIL_QUESTION, 'Want deadline alerts and a Monday summary by email? Reply with the address.'); // v4.7 T5
 });
 
 test('cleanEmail: a plain address only', () => {

@@ -4,6 +4,7 @@ import { FINAL_GRACE_MS, REVIEW_MS, type CampaignConfig, type EarnKitCampaign } 
 import { scoreCampaignEntries, type ScoreDeps, type ScoreRow } from './campaign-score';
 import { FEE_TTL_MS, launchedCreatorWallets, refreshFees } from './fees';
 import { digestEnabled, sendDigests, type Mailer } from './digest';
+import { runAlertMail, type AlertEvent } from './alert-mail';
 import { gasAlerts, ownerGasMail } from './owner-mail';
 import { safeWatch, type SafeWatchDeps } from './safe-watch';
 import { usageChecks, type UsageDeps } from './events';
@@ -106,6 +107,8 @@ export type CronDeps = {
   hosting?: { r2?: R2; only?: string[] };
   /** v2.9 E19: the weekly email's mailer and installations (tests); with `only`, the step runs only when given. */
   digest?: { mail?: Mailer; only?: number[] };
+  /** v4.7 T5: the alert emails' mailer, events and builders (tests); with `only`, the step runs only when given. */
+  alertMail?: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; force?: boolean };
   /**
    * v2.10 fix round 1: the cleanup step (expired sign-in links over a day old, public repo reads past
    * their 7 days), at most `limit` rows each a run; with `only`, the step runs only when given.
@@ -407,6 +410,17 @@ export async function runCron(
       digest = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v4.7 T5: the alert emails, once a day at ALERT_HOUR_UTC (runAlertMail decides), right after the digest: they use
+  // only the Resend room left once every digest still due this week is counted. Off as the digest is.
+  let alertMail: Awaited<ReturnType<typeof runAlertMail>> | { step: 'error'; note: string } | undefined;
+  if (digestEnabled() && (!opts.only || deps.alertMail !== undefined)) {
+    try {
+      alertMail = await runAlertMail(now, { ...deps.alertMail, budgetMs: Math.max(0, Math.min(60_000, deadline - Date.now())) });
+    } catch (err) {
+      console.error('[cron] alert mail', err instanceof Error ? err.name : 'error');
+      alertMail = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v4 Task 12: one email to the owner when the Safe holds $5,000 or more (safe-watch.ts; two free reads and the cached price).
   let safe: Awaited<ReturnType<typeof safeWatch>> | 'error' | undefined;
   if (!opts.only || deps.safeWatch) {
@@ -586,6 +600,7 @@ export async function runCron(
     fee_wallets: fees,
     ...(hosting && { hosting }),
     ...(digest && { digest }),
+    ...(alertMail && { alert_mail: alertMail }),
     ...(safe && { safe_watch: safe }),
     ...(cleanup && { cleanup }),
     ...(deployer && Object.keys(deployer.deployer_gas).length > 0 && { deployer_gas: deployer.deployer_gas }),

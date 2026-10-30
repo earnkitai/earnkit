@@ -132,6 +132,7 @@ const NOT_IDENTIFYING = new Set([
   'installations.client_key', // a hash of the OAuth client id
   'builder_profiles.github_basis', // v2.12.1: how the login was proven (signin, app, ...)
   'builder_sources.gh_owner_type', // v2.13.1: User or Organization
+  'alert_mail_sent.event_key', // v4.7 T5: 'accepted:<program>', 'closing:<program>:<date>' or 'new:<program>'; the row is deleted with page data (BUILDER_TABLES)
   'stripe_connections.sealed_key', // v4.6: ciphertext of a Stripe read key; holds no login or wallet, and the row is deleted with page data (BUILDER_TABLES); never printed
 ]);
 
@@ -227,6 +228,7 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
     // v4.6 F1: the Stripe key (ciphertext) and the 30-day figure are page data, deleted with the builder.
     await db`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${id}, 'sealed-ciphertext', ${`acct_${login}-${t}`}, 'x.example')`;
     await db`INSERT INTO stripe_revenue (builder_id, day, net_usd, mrr_usd, payers, top_share, shown, capped) VALUES (${id}, current_date, 100, 0, 3, 0.3, true, false)`;
+    await db`INSERT INTO alert_mail_sent (builder_id, event_key) VALUES (${id}, 'new:v47-redact')`;
     // Scoring and clarity R3: the main project's Originality row; its nearest list names the other person's repo.
     const other = login === X ? Y : X;
     await db`INSERT INTO project_embeddings (project_key, builder_id, originality, nearest, checked_at)
@@ -243,25 +245,25 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
   const profile = async (id: number) =>
     (await db<Record<string, unknown>[]>`SELECT x_user_id, x_name, x_avatar_url, reported_github, base_builder_code, github_basis, identity, x_handle, fallback_handle
       FROM builder_profiles WHERE builder_id = ${id}`)[0];
-  const tables = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_embeddings', 'stripe_connections', 'stripe_revenue'];
+  const tables = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_embeddings', 'stripe_connections', 'stripe_revenue', 'alert_mail_sent'];
   const count = async (id: number) => Promise.all(tables.map(async (tb) => (await db`SELECT 1 FROM ${db(tb)} WHERE builder_id = ${id}`).length));
   try {
     const dry = run('--login', X);
     assert.equal(dry.code, 0, dry.err);
-    assert.match(dry.out, /Page data that --apply will clear or delete \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0, stripe_connections: 1, stripe_revenue: 1\)/);
-    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1, 1, 1, 1]);
+    assert.match(dry.out, /Page data that --apply will clear or delete \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0, stripe_connections: 1, stripe_revenue: 1, alert_mail_sent: 1\)/);
+    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1, 1, 1, 1, 1]);
     assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
 
     const wOnly = run('--wallet', wallet, '--apply');
     assert.equal(wOnly.code, 0, wOnly.err);
     assert.doesNotMatch(wOnly.out, /Page data/);
-    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1, 1, 1, 1], 'a --wallet-only run deletes nothing');
+    assert.deepEqual(await count(idX), [1, 1, 1, 1, 1, 1, 1, 1, 1], 'a --wallet-only run deletes nothing');
     assert.equal((await profile(idX)).x_user_id, `xu-${X}`);
     assert.equal(await boundTo(X), 1);
 
     const r = run('--login', X, '--apply');
     assert.equal(r.code, 0, r.err);
-    assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0, stripe_connections: 1, stripe_revenue: 1\)/);
+    assert.match(r.out, /Page data cleared or deleted \(page profiles: 1, claim_codes: 1, person_wallets: 1, builder_projects: 1, x_oauth_states: 1, coin_moments: 1, project_updates: 0, project_embeddings: 1, post_drafts: 0, stripe_connections: 1, stripe_revenue: 1, alert_mail_sent: 1\)/);
     const px = await profile(idX);
     for (const k of ['x_user_id', 'x_name', 'x_avatar_url', 'reported_github', 'base_builder_code', 'github_basis', 'x_handle', 'fallback_handle']) assert.equal(px[k], null, k);
     assert.equal(await boundTo(X), 0, 'v2.14: its installations are unbound from the X account');
@@ -270,11 +272,11 @@ test('12.4 --login clears that person\'s page data (dry run says so first), anot
     assert.equal(await links(Y), 1, "another person's link stays");
     assert.deepEqual(px.identity, {});
     assert.doesNotMatch(r.out + r.err, /sealed-ciphertext/, 'the sealed key is never printed');
-    assert.deepEqual(await count(idX), [0, 0, 0, 0, 0, 0, 0, 0]);
+    assert.deepEqual(await count(idX), [0, 0, 0, 0, 0, 0, 0, 0, 0]);
     const py = await profile(idY);
     assert.equal(py.x_user_id, `xu-${Y}`);
     assert.deepEqual(py.identity, { a: 1 });
-    assert.deepEqual(await count(idY), [1, 1, 1, 1, 1, 1, 1, 1]);
+    assert.deepEqual(await count(idY), [1, 1, 1, 1, 1, 1, 1, 1, 1]);
     // The other person's Originality nearest list no longer names X's repo.
     assert.deepEqual((await db<{ nearest: unknown }[]>`SELECT nearest FROM project_embeddings WHERE builder_id = ${idY}`)[0].nearest, []);
   } finally {

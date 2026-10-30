@@ -1513,6 +1513,14 @@ apps/frontend/
                                backers via backers.ts newBackers) leads the body, above the week.
                                v4.0 Task 7: digestWeek's lines are mondayLines (weekly-moment.ts: Shipping score, Streak, From your
                                community from community.ts weekCommunityUsd)
+                               v4.7 T5: EMAIL_QUESTION asks for deadline alerts and the Monday summary; resendMailer
+                               sends reply_to CONTACT_EMAIL; DigestFacts.standing (best-fit.ts standingFor, shown with
+                               standingLeads) is the body's top paragraph; digestFrom exported for alert-mail.ts
+    alert-mail.ts              v4.7 T5: the alert emails. alertEvents (accepted outcome post > closing fit or draft
+                               within DEADLINE_DAYS via deadline.ts closeDay > new fit via alerts.ts alertFit),
+                               alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail at ALERT_HOUR_UTC
+                               17: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
+                               every digest still due). Tests: v47-reach-out.test.ts
     best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
     builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
@@ -2630,3 +2638,11 @@ reply is the money alone; `stripeDraftLine`, `stripeDraftNote`; `stripeAsk`/`STR
 (`wants_revenue`, column in schema.sql), `wallet-offer.ts tokenOfferDue` (applicationCounts gate, `asked`),
 `wallet-proof.ts` (no launch), `builder-token.ts retryDroppedBuilderTokens` (`token_yes`), `llms/v213.txt`,
 `fixtures/wallet-step.ts moneyStepDone`. Tests: `v47-money-first.test.ts`.
+
+v4.7 (reach out, 2026-10-30), all five tasks: T1 `deadline.ts` (`closeDay`, program `tz`; site tiles and replies share
+one close day); T2 `standing.ts` (the `standing` fact and paragraph in find and score); T3 `bench-find.ts` money first
+(`again`, `apply_yes`, the Stripe line moved to drafts, `tokenOfferDue` after the first application, proofs launch
+nothing); T4 `bench-reply.ts` why lines (`askWhy`, `move_up.why`, `ASKS_HINT`); T5 `alert-mail.ts` (alert emails,
+`alert_mail_sent`), `digest.ts` (new ask, reply_to, standing on top), `best-fit.ts` (`openFitsFor`, `standingFor`),
+`cron.ts` (`alert_mail` step), `mcp.ts` (session-start instruction; ruling R1 dropped the move_up and score lines),
+`llms/v213.txt`. Tests: `v47-numbers`, `v47-standing`, `v47-money-first`, `v47-why` (T4's), `v47-reach-out`.

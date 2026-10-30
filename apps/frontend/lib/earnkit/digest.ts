@@ -1,6 +1,6 @@
 import { brandShell } from './brand-page';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { bestFitFor } from './best-fit';
+import { bestFitFor, standingFor } from './best-fit';
 import { newBackers } from './backers';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
@@ -16,6 +16,8 @@ import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
 import { firstName } from './bench-reply';
 import { weekUrl } from './week-links';
+import { CONTACT_EMAIL } from './policy';
+import { standingLeads, standingParagraph } from './standing';
 
 /**
  * v2.9 E19: the weekly email, opt-in only. Asked once per installation (Ruling 13; v3 Stage 1: in the first
@@ -40,9 +42,10 @@ export const DIGEST_FROM_DEFAULT = 'EarnKit <digest@earnkit.com>';
 /** On only with RESEND_API_KEY and EARNKIT_AUTH_SECRET (every email's unsubscribe link is signed with it). */
 export const digestEnabled = (env: Record<string, string | undefined> = process.env): boolean =>
   Boolean(env.RESEND_API_KEY?.trim() && env.EARNKIT_AUTH_SECRET);
-const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
+export const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
-export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the address.';
+/** v4.7 T5 (exact copy): one subscription now carries the deadline alerts (alert-mail.ts) and the Monday summary. */
+export const EMAIL_QUESTION = 'Want deadline alerts and a Monday summary by email? Reply with the address.';
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
@@ -104,6 +107,8 @@ export function digestDue(s: DigestState, now: Date): boolean {
 /** Last week's moment: its lines (weekly-moment.ts mondayLines, v4.0 Task 7), standing (the subject) and the two signed links. */
 export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
 export type DigestFacts = {
+  /** v4.7 T5: the builder's standing paragraph (standing.ts standingParagraph), the email's top section; only with a score or a streak part (standingLeads). */
+  standing?: string;
   week: DigestWeek | null;
   /** The person's X handle, when claimed. */
   handle: string | null;
@@ -151,7 +156,7 @@ export function cleanName(name: string, fallback: string): string {
 const ASK_LINE = 'Ask your agent "What can I earn?" to start.';
 
 /**
- * The email: the money lines first (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
+ * The email: v4.7 T5: the builder's standing paragraph on top (never on its own: it never makes an email), then the money lines (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
  * week while it is unconfirmed), then new programs, wins and the builder's deadlines; null when there are no money
  * lines, no week and all three are empty (money lines alone still send, as "Your EarnKit week"). Every
  * builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
@@ -179,7 +184,7 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
   // "one yes away" always says where the yes goes (never read as the week's Looks right link).
   const sections = lines.length > 0 ? lines.join('\n') : null;
   const closer = !sections && f.money.length > 0 ? ASK_LINE : null;
-  return { subject, text: [f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
+  return { subject, text: [f.standing, f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
 }
 
 const mac = (k: SubKey, secret: string) =>
@@ -244,7 +249,7 @@ export class MailError extends Error {
   }
 }
 
-/** Resend's API (POST /emails, 10 s). Never logs the address or the key. */
+/** Resend's API (POST /emails, 10 s). v4.7 T5: replies go to CONTACT_EMAIL (digest@ is no inbox). Never logs the address or the key. */
 export const resendMailer =
   (key: string): Mailer =>
   async (m) => {
@@ -253,7 +258,7 @@ export const resendMailer =
       res = await fetch(RESEND_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': m.idempotencyKey },
-        body: JSON.stringify({ from: m.from, to: [m.to], subject: m.subject, text: m.text, headers: m.headers }),
+        body: JSON.stringify({ from: m.from, to: [m.to], reply_to: CONTACT_EMAIL, subject: m.subject, text: m.text, headers: m.headers }),
         signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
         redirect: 'error',
       });
@@ -459,6 +464,9 @@ async function moneyLines(person: number, now: Date): Promise<{ lines: string[];
 export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise<DigestFacts> {
   const { person, ...moment } = await digestWeek(s, now, db);
   if (moment.pending) return { ...moment, money: [], newPrograms: [], wins: [], deadlines: [] };
+  // v4.7 T5: the person's full standing on top (the email goes only to them; none on a shared client or a per-login subscription).
+  const stand = person === null ? null : await standingFor(person, now);
+  const standing = stand && standingLeads(stand) ? standingParagraph(stand) : '';
   const since = s.last_sent_at ?? s.opted_in_at ?? now;
   const week = new Date(now.getTime() + 7 * DAY);
   const ids = testInstallationIds();
@@ -536,6 +544,7 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
     .slice(0, MAX_LINES);
   return {
     ...moment,
+    ...(standing && { standing }),
     money: money.lines,
     newPrograms,
     wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),

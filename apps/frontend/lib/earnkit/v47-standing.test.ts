@@ -93,7 +93,8 @@ test('the descriptions cover where do I stand, under 800 characters; the instruc
   assert.match(SCORE_DESCRIPTION, /first paragraph \(standing\) answers it/);
   assert.match(FIND_DESCRIPTION_BENCH, /answer from standing/);
   for (const d of [SCORE_DESCRIPTION, FIND_DESCRIPTION_BENCH, SERVER_INSTRUCTIONS]) assert.ok(d.length < 800, String(d.length));
-  assert.ok(SERVER_INSTRUCTIONS.includes('Call score when they ask where they stand.'));
+  // v4.7 T5 (ruling R1): the session-start line covers where they stand; the score line was folded into it.
+  assert.ok(SERVER_INSTRUCTIONS.includes('whenever they ask about money, grants or where they stand.'));
 });
 
 /** A ranked, listed builder at `score` (a Shipping row), with a confirmed repo project (fixtures/find.ts person). */

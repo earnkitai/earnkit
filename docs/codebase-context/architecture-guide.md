@@ -8566,3 +8566,19 @@ colosseum-worlds-fair), claimed once with `stripe.ts takeStripeDraftLink` (`stri
 `stripe_reoffered`); never on a shared client or the build path. `tokenOfferDue` also needs applied + drafts >= 1
 (`standing.ts applicationCounts`), except when the builder asked (`tell token 'ask'`: `{ asked: true }`). Wallet proofs
 launch nothing (above). llms.txt: the token is offered after the first application. Tests: `v47-money-first.test.ts`.
+
+v4.7 EarnKit speaks first (all tasks, 2026-10-30). The owner: "EarnKit never messages me." v4.7 makes EarnKit say
+the money and the next step without being asked. T1: one close day everywhere (deadline.ts `closeDay`, the program's
+own zone). T2: every find and score reply carries where the builder stands (`standing`). T3: the first ranked reply
+with an open fit is that fit's money ask alone; the token offer waits for the first application. T4: every ask carries
+its why. T5: email is the push channel. One opted-in subscription (digest.ts, asked with "Want deadline alerts and a
+Monday summary by email?") gets the Monday summary, now topped by the standing paragraph (best-fit.ts `standingFor`),
+and at most one alert email a UTC day (alert-mail.ts `runAlertMail`, cron step `alert_mail` at ALERT_HOUR_UTC 17):
+the highest unsent event of accepted (an outcome post with proof) > closing (a fit or a draft within DEADLINE_DAYS) >
+new fit (`alertFit` on the remembered repos). Each event is mailed once ever (`alert_mail_sent`, written in the send's
+transaction under an advisory lock, so a failed send stores nothing and two runs never double-send). Alerts use only
+the Resend day and month room left after every digest still due this week. Every email has reply_to CONTACT_EMAIL and
+the digest's unsubscribe link and headers. Agents are told to call find at the start of every session (the
+instructions' first line; ruling R1 keeps them under 800 characters by dropping the move_up and score lines, which
+the tool descriptions carry).
+

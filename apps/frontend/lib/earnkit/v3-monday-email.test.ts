@@ -159,8 +159,8 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     const m = sent[0]!;
     // v3.1 F3: one ranked builder (under RANK_MIN_POOL): no rank in the subject or the moment.
     assert.equal(m.subject, 'Your week on EarnKit: Shipping 40');
-    // v4.0 Task 7: the Monday block as plain lines.
-    assert.ok(m.text.startsWith('Your week is ready, '), m.text);
+    // v4.0 Task 7: the Monday block as plain lines (v4.7 T5: under the builder's standing paragraph).
+    assert.match(m.text, /^Score \d+\. [^\n]*\n\nYour week is ready, /, m.text);
     assert.match(m.text, /\nShipping score: 40\n/);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
     // v4.0 Task 7: the greeting may use the builder's own handle (no X name), which this fixture shares with the repo owner.
@@ -281,13 +281,13 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
     await sql()`UPDATE project_updates SET facts = facts || '{"checked": true}'::jsonb WHERE builder_id = ${me.id} AND week = ${LAST}`;
     const later = await sendDigests(new Date(MONDAY + 3_600_000), { mail, only: [me.id] });
     assert.equal(later.sent, 1);
-    assert.match(sent[0]!.text, /^Your week is ready, /);
+    assert.match(sent[0]!.text, /^(?:Score \d+\. [^\n]*\n\n)?Your week is ready, /);
   }),
 );
 
 test('(f) the connect yes asks for the address once; tell weekly_email yes with an address subscribes', db, () =>
   withEnv(ON, async () => {
-    assert.equal(EMAIL_QUESTION, 'Want the Monday summary by email? Reply with the address.');
+    assert.equal(EMAIL_QUESTION, 'Want deadline alerts and a Monday summary by email? Reply with the address.'); // v4.7 T5
     assert.equal(EMAIL_ON, 'Done. Your summary comes every Monday.');
     await freshBoard();
     const me = await builder('mef');
