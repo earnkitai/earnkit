@@ -453,3 +453,24 @@ export async function latestStripe(builderId: number, now: Date): Promise<{ usd:
     ORDER BY day DESC LIMIT 1`;
   return r && r.shown && r.usd >= REVENUE_MIN ? { usd: r.usd, mrr: r.mrr, capped: r.capped } : null;
 }
+
+/** The key a no is kept under in standing_seen.declined (bench-reply.ts benchStepKey('stripe', null)); a stripe no is permanent. */
+export const STRIPE_DECLINED_KEY = 'stripe:*';
+/**
+ * Whether the one-time Stripe ask is due: 'first' (a builder with a verified site, no connection, never asked, never said
+ * no), 'reoffer' (the connection is broken and not re-offered yet; a no still wins), else null. A no never expires
+ * (unlike the other asks' DECLINE_MS). Claimed by the caller (standing_seen.stripe_asked / stripe_reoffered). Throws on a database error.
+ */
+export async function stripeAskDue(
+  builderId: number,
+  seen: { declined?: Record<string, string>; stripe_asked?: string; stripe_reoffered?: string },
+): Promise<'first' | 'reoffer' | null> {
+  if (seen.declined?.[STRIPE_DECLINED_KEY]) return null;
+  const [r] = await sql()<{ site: boolean; state: string | null }[]>`
+    SELECT EXISTS (SELECT 1 FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'site' AND state = 'verified') AS site,
+      (SELECT state FROM stripe_connections WHERE builder_id = ${builderId}) AS state`;
+  if (!r?.site) return null;
+  if (r.state === 'broken') return seen.stripe_reoffered ? null : 'reoffer';
+  if (r.state === null) return seen.stripe_asked ? null : 'first';
+  return null;
+}

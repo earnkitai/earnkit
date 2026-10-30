@@ -541,6 +541,8 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   await advanceRefreshGuard(id, 61_000);
   // v2.13.3 review (I1): the community round needs the repo read public (the cheap read's public_at).
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${id} AND kind = 'repo'`;
+  // v4.6 Task 3: the builder has a verified site, so the one-time Stripe ask would take the quiet slot; this journey is about the ship and qualify steps.
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('stripe_asked', now()::text) WHERE builder_id = ${id}`;
   const r2 = await call('find', {}, ctx(id));
   assert.match(r2.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)( · \d+ weeks? in a row)?$/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.

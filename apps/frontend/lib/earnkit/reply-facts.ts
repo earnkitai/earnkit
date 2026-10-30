@@ -5,7 +5,7 @@ import { BENCH_VERIFIED, HERO_TITLE, STEPS } from './site-copy';
 import { DOCS_SCORE } from './docs-copy';
 import { shortWallet, siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
-import { tractionFacts } from './ship-log-facts';
+import { REVENUE_MIN, tractionFacts } from './ship-log-facts';
 import { provenWallet } from './wallet-proof';
 
 /**
@@ -26,6 +26,10 @@ export type ReplyFacts = {
   used_by_30d?: number;
   /** v4.5 Task 3: whole dollars outside wallets paid into the builder's contracts in the last 30 days (the revenue line's rules). Private. */
   revenue_30d_usd?: number;
+  /** v4.6 Task 3: whole dollars received through Stripe in the last 30 days (the ship log line's rules). Private. */
+  stripe_30d_usd?: number;
+  /** v4.6 Task 3: whole dollars of active subscriptions a month, from REVENUE_MIN (the ship log line's rules). Private. */
+  stripe_mrr_usd?: number;
   about: Record<string, string>;
 };
 
@@ -107,6 +111,10 @@ export async function replyFacts(ctx: { installationId: number; ownInstallationI
     facts.applications = apps;
     if (traction?.usedBy) facts.used_by_30d = traction.usedBy.users;
     if (traction?.revenue) facts.revenue_30d_usd = traction.revenue.usd;
+    if (traction?.stripe) {
+      facts.stripe_30d_usd = traction.stripe.usd;
+      if (traction.stripe.mrr >= REVENUE_MIN) facts.stripe_mrr_usd = traction.stripe.mrr;
+    }
     return facts;
   } catch (err) {
     console.error('[reply facts]', err instanceof Error ? err.name : 'error');

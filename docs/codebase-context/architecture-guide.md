@@ -8527,3 +8527,11 @@ keys are refused before any call.
   Payers come from `/v1/charges` (fingerprint, else customer, else email); charges whose email is the builder's `digest_subscriptions.email` are dropped
   with their balance transaction. `shown` = at least 3 payers and top share at most 50%. Any failure stores nothing; the page cap stores `capped`.
   `latestStripe` returns fresh (`USED_STALE_DAYS`), shown rows of at least `REVENUE_MIN`. The key appears in no log, note or error (only error names are logged).
+- **Drafts, replies and the Stripe ask (v4.6 Task 3).** `tractionFacts` adds `stripe` (`latestStripe`, whole dollars); `shipLogBlock` prints
+  `$N received through Stripe in the last 30 days, verified from Stripe` (plus `, $M a month in subscriptions` from `REVENUE_MIN`, `+` only on the 30-day
+  figure) right after the onchain revenue line, and `replyFacts` carries `stripe_30d_usd` / `stripe_mrr_usd`. Private like v4.5: not in builder.json, page
+  data, `/api/stats` or the feed (tested). The one-time ask (`stateAsk` kind `stripe`, after `apply`, before `share`) fires in a quiet ranked reply
+  (same gates as the token offer) for a builder with a verified `site` source and no connection (`stripeAskDue`; claimed in `standing_seen.stripe_asked`);
+  its no is `declined['stripe:*']` and never expires (unlike the 30-day DECLINE_MS); a `broken` connection re-offers once (`stripe_reoffered`). No
+  `stripeLink` (no secret) means no ask. `tell { stripe: 'connect' | 'disconnect' }` works any time; disconnect deletes the key row and the stored
+  `stripe_revenue` rows. Every Stripe reply and note tells the agent never to ask for a key in chat.

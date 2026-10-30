@@ -155,6 +155,7 @@ export const TELL_DESCRIPTION_BENCH =
   'updates: { titles }: show or hide a private repo\'s commit titles. ' +
   'main_project: owner/repo to rank instead. ' +
   "wallet: 'change' to add or change a wallet. " +
+  "stripe: 'connect' or 'disconnect' when they ask; never ask for a key in chat. " +
   'builder_code: their Base Builder Code. ' +
   'move_up: their answer, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
   'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
@@ -405,6 +406,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
           // v3.1 wallet proof: a fresh signing link for a new reward wallet.
           wallet: z.string().max(100).optional().describe("'change' (or the address they named) when they want to add a wallet or send their rewards to a different one"),
+          stripe: z.enum(['connect', 'disconnect']).optional().describe("'connect' for a read-only Stripe link, 'disconnect' to delete the key, when they ask; never ask them for a key in chat"),
           builder_code: z.string().max(100).optional().describe('The Base Builder Code they named (lowercase letters, digits, underscores)'),
           move_up: z
             .object({
