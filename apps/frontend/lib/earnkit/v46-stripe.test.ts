@@ -10,6 +10,10 @@ import {
   stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
 } from './stripe';
 import { upgradeOf, upgradeToken, walletLink, walletPageState } from './wallet-proof';
+import { STRIPE_PAGES, StripeAuthError, latestStripe, runStripeRevenue, stripeRevenue } from './stripe';
+import { usdRate } from './fx';
+import { runCron } from './cron';
+import { REVENUE_MIN } from './ship-log-facts';
 import { RESERVED_ROUTES } from './reserved-routes';
 import StripeForm from '../../app/connect/stripe/StripeForm';
 
@@ -252,4 +256,239 @@ test('page and form: the exact copy, a masked text field, the key goes nowhere b
   assert.deepEqual(STRIPE_TEXT.steps[1], 'Give it Read on Balance transactions, Charges, Subscriptions and Account. Nothing else.');
   assert.equal(STRIPE_TEXT.saved, 'Connected. Your next grant draft shows your Stripe revenue once it reaches $100 in 30 days.');
   assert.ok(RESERVED_ROUTES.has('connect'));
+});
+
+// ---------------------------------------------------------------------------------------------- Task 2: the daily Stripe read
+const DAYMS = 86_400_000;
+const rate1 = async (c: string) => (c === 'usd' ? 1 : c === 'eur' ? 1.1 : null);
+type Bt = { id: string; type: string; reporting_category?: string; amount: number; currency?: string };
+type Ch = { id: string; amount: number; status?: string; refunded?: boolean; currency?: string; balance_transaction: string; customer?: string | null; email?: string | null; fp?: string | null };
+type Sub = { status?: string; items: { quantity?: number; unit_amount: number | null; interval: string; interval_count?: number; currency?: string }[] };
+const bt = (id: string, type: string, amount: number, extra: Partial<Bt> = {}): Bt => ({ id, type, amount, currency: 'usd', ...extra });
+const chg = (n: number, amount: number, o: Partial<Ch> = {}): Ch => ({ id: `ch_${n}`, amount, balance_transaction: `bt_c${n}`, customer: `cus_${n}`, ...o });
+/** A paginating Stripe fake: honors limit and starting_after; `fail` lets a path answer a status or throw. */
+function stripeFake(d: { bts?: Bt[]; charges?: Ch[]; subs?: Sub[]; fail?: Record<string, number | 'throw'> }) {
+  const calls: string[] = [];
+  const f = (async (path: string, key: string) => {
+    calls.push(path);
+    const [p, qs] = path.split('?');
+    const q = new URLSearchParams(qs);
+    const fail = d.fail?.[p];
+    if (fail === 'throw') throw new Error(`boom with ${key}`);
+    if (typeof fail === 'number') return { status: fail, body: { error: { message: `bad ${key}` } } };
+    const page = <T extends { id?: string }>(all: T[]) => {
+      const after = q.get('starting_after');
+      const from = after ? all.findIndex((x) => x.id === after) + 1 : 0;
+      const slice = all.slice(from, from + Number(q.get('limit') ?? 10));
+      return { status: 200, body: { data: slice, has_more: from + slice.length < all.length } };
+    };
+    if (p === '/v1/balance_transactions') return page(d.bts ?? []);
+    if (p === '/v1/charges')
+      return page((d.charges ?? []).map((c) => ({
+        id: c.id, amount: c.amount, status: c.status ?? 'succeeded', refunded: c.refunded ?? false, currency: c.currency ?? 'usd', balance_transaction: c.balance_transaction,
+        customer: c.customer ?? null, billing_details: { email: c.email ?? null }, payment_method_details: { card: { fingerprint: c.fp ?? null } },
+      })));
+    if (p === '/v1/subscriptions')
+      return page((d.subs ?? []).map((s, i) => ({
+        id: `sub_${i}`, status: s.status ?? 'active',
+        items: { data: s.items.map((it) => ({ quantity: it.quantity ?? 1, price: { unit_amount: it.unit_amount, currency: it.currency ?? 'usd', recurring: { interval: it.interval, interval_count: it.interval_count ?? 1 } } })) },
+      })));
+    return { status: 200, body: { id: 'acct_x', business_profile: { url: null } } };
+  }) as StripeCall & { calls: string[] };
+  f.calls = calls;
+  return f;
+}
+const five = (): Ch[] => [1, 2, 3, 4, 5].map((n) => chg(n, 20_000));
+const fiveBts = (): Bt[] => [1, 2, 3, 4, 5].map((n) => bt(`bt_c${n}`, 'charge', 20_000));
+
+test('stripeRevenue: charges minus refunds minus a dispute, a reversal back in; fees are not subtracted; window and paging params', dbTest, async () => {
+  const call = stripeFake({
+    bts: [...fiveBts(), bt('r1', 'refund', -3_000), bt('r2', 'payment_refund', -1_000), bt('d1', 'adjustment', -5_000, { reporting_category: 'dispute' }),
+      bt('d2', 'adjustment', 5_000, { reporting_category: 'dispute_reversal' }), bt('d3', 'adjustment', -2_000, { reporting_category: 'dispute' }),
+      bt('p', 'payout', -50_000), bt('f', 'stripe_fee', -500), bt('a', 'adjustment', 700, { reporting_category: 'other_adjustment' }), bt('pm', 'payment', 4_000)],
+    charges: five(),
+  });
+  const r = await stripeRevenue(KEY, NOW, call, rate1);
+  // 5 x 200 + 40 payment - 30 - 10 - 50 + 50 - 20 = 980
+  assert.deepEqual(r, { net_usd: 980, mrr_usd: 0, payers: 5, top_share: 0.2, capped: false });
+  const first = call.calls[0];
+  assert.match(first, /^\/v1\/balance_transactions\?/);
+  assert.match(first, /limit=100/);
+  assert.match(first, new RegExp(`created%5Bgte%5D=${Math.floor(NOW.getTime() / 1000) - 30 * 86_400}|created\\[gte\\]=${Math.floor(NOW.getTime() / 1000) - 30 * 86_400}`));
+  assert.ok(call.calls.every((c) => c.startsWith('/v1/')));
+});
+
+test('stripeRevenue: a net below zero is clamped at 0; EUR converts at the rate; no rate stores nothing', dbTest, async () => {
+  const neg = await stripeRevenue(KEY, NOW, stripeFake({ bts: [bt('r', 'refund', -9_000)], charges: [] }), rate1);
+  assert.equal(neg?.net_usd, 0);
+  const eur = stripeFake({ bts: [1, 2, 3].map((n) => bt(`bt_c${n}`, 'charge', 10_000, { currency: 'eur' })), charges: [1, 2, 3].map((n) => chg(n, 10_000, { currency: 'eur' })) });
+  assert.equal((await stripeRevenue(KEY, NOW, eur, rate1))?.net_usd, 330);
+  const gbp = stripeFake({ bts: [bt('x', 'charge', 10_000, { currency: 'gbp' })], charges: [] });
+  assert.equal(await stripeRevenue(KEY, NOW, gbp, rate1), null);
+});
+
+test('stripeRevenue: MRR for monthly, yearly, weekly; trialing, canceled and past_due do not count; quantity; metered skipped', dbTest, async () => {
+  const subs: Sub[] = [
+    { items: [{ unit_amount: 2_000, interval: 'month' }] }, // 20
+    { items: [{ unit_amount: 12_000, interval: 'year' }] }, // 10
+    { items: [{ unit_amount: 100, interval: 'week', quantity: 3 }] }, // 3 * 52 / 12 = 13
+    { status: 'trialing', items: [{ unit_amount: 9_900, interval: 'month' }] },
+    { status: 'canceled', items: [{ unit_amount: 9_900, interval: 'month' }] },
+    { status: 'past_due', items: [{ unit_amount: 9_900, interval: 'month' }] },
+    { items: [{ unit_amount: null, interval: 'month' }] },
+  ];
+  const r = await stripeRevenue(KEY, NOW, stripeFake({ subs }), rate1);
+  assert.equal(r?.mrr_usd, 43);
+});
+
+test('stripeRevenue: payer rules, shown in the row; own digest email dropped with its balance transaction', dbTest, async () => {
+  const two = await stripeRevenue(KEY, NOW, stripeFake({ bts: [bt('bt_c1', 'charge', 20_000), bt('bt_c2', 'charge', 20_000)], charges: [chg(1, 20_000), chg(2, 20_000)] }), rate1);
+  assert.equal(two?.payers, 2);
+  const top = await stripeRevenue(KEY, NOW, stripeFake({
+    bts: [bt('bt_c1', 'charge', 70_000), ...[2, 3, 4].map((n) => bt(`bt_c${n}`, 'charge', 10_000))], charges: [chg(1, 70_000), ...[2, 3, 4].map((n) => chg(n, 10_000))],
+  }), rate1);
+  assert.deepEqual([top?.payers, top?.top_share], [4, 0.7]);
+  // The same payer via fingerprint (two customers), a refunded-in-full charge and a failed one are not payers.
+  const fp = await stripeRevenue(KEY, NOW, stripeFake({
+    bts: fiveBts(), charges: [chg(1, 20_000, { fp: 'f1' }), chg(2, 20_000, { fp: 'f1', customer: 'cus_other' }), chg(3, 20_000, { refunded: true }), chg(4, 20_000, { status: 'failed' }), chg(5, 20_000)],
+  }), rate1);
+  assert.equal(fp?.payers, 2);
+  const mail = await stripeRevenue(KEY, NOW, stripeFake({
+    bts: [...fiveBts(), bt('bt_cme', 'charge', 20_000)], charges: [...five(), chg(9, 20_000, { balance_transaction: 'bt_cme', email: 'Me@Example.com' })],
+  }), rate1, ['me@example.com']);
+  assert.deepEqual([mail?.net_usd, mail?.payers], [1000, 5]);
+});
+
+test('runStripeRevenue: stores the row (shown by the rule), once a UTC day, own email from the digest opt-in dropped', dbTest, async () => {
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  await sql()`INSERT INTO digest_subscriptions (installation_id, login, email) VALUES (${b}, 'me', 'me@example.com')`;
+  const call = stripeFake({
+    bts: [...fiveBts(), bt('bt_cme', 'charge', 90_000)], charges: [...five(), chg(9, 90_000, { balance_transaction: 'bt_cme', email: 'ME@example.com' })],
+  });
+  const opts = { deadline: Date.now() + 5000, call, rate: rate1, only: [b] };
+  assert.deepEqual(await runStripeRevenue(NOW, opts), { due: 1, stored: 1 });
+  const rows = await sql()`SELECT day::text, net_usd::float8 AS net, payers, shown, capped FROM stripe_revenue WHERE builder_id = ${b}`;
+  assert.deepEqual(rows.map((r) => ({ ...r })), [{ day: '2026-10-30', net: 1000, payers: 5, shown: true, capped: false }]);
+  const n = call.calls.length;
+  assert.deepEqual(await runStripeRevenue(new Date(NOW.getTime() + 3_600_000), opts), { due: 0, stored: 0 });
+  assert.equal(call.calls.length, n, 'nothing read again the same day');
+  assert.deepEqual(await latestStripe(b, NOW), { usd: 1000, mrr: 0, capped: false });
+});
+
+test('a refund on day 2 lowers day 2 (and the figure shown), day 1 stays', dbTest, async () => {
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const base = { deadline: Date.now() + 5000, rate: rate1, only: [b] };
+  await runStripeRevenue(NOW, { ...base, call: stripeFake({ bts: fiveBts(), charges: five() }) });
+  const d2 = new Date(NOW.getTime() + DAYMS);
+  await runStripeRevenue(d2, { ...base, call: stripeFake({ bts: [...fiveBts(), bt('r', 'refund', -30_000)], charges: five() }) });
+  const rows = await sql()`SELECT day::text, net_usd::float8 AS net FROM stripe_revenue WHERE builder_id = ${b} ORDER BY day`;
+  assert.deepEqual(rows.map((r) => ({ ...r })), [{ day: '2026-10-30', net: 1000 }, { day: '2026-10-31', net: 700 }]);
+  assert.equal((await latestStripe(b, d2))?.usd, 700);
+});
+
+test('latestStripe: shown only, USED_STALE_DAYS, REVENUE_MIN, capped passes through', dbTest, async () => {
+  const b = await builder(null);
+  const put = (day: string, net: number, shown: boolean, capped = false) =>
+    sql()`INSERT INTO stripe_revenue (builder_id, day, net_usd, mrr_usd, payers, top_share, shown, capped) VALUES (${b}, ${day}, ${net}, 7, 5, 0.2, ${shown}, ${capped})`;
+  assert.equal(await latestStripe(b, NOW), null);
+  await put('2026-10-30', 5000, false);
+  assert.equal(await latestStripe(b, NOW), null, 'not shown');
+  await sql()`DELETE FROM stripe_revenue WHERE builder_id = ${b}`;
+  await put('2026-10-30', REVENUE_MIN - 1, true);
+  assert.equal(await latestStripe(b, NOW), null, 'under the minimum');
+  await sql()`DELETE FROM stripe_revenue WHERE builder_id = ${b}`;
+  await put('2026-10-26', 5000, true, true);
+  assert.equal(await latestStripe(b, NOW), null, 'stale');
+  assert.deepEqual(await latestStripe(b, new Date('2026-10-29T10:00:00Z')), { usd: 5000, mrr: 7, capped: true });
+});
+
+test('failures store nothing; the page cap stores capped; 401 and 403 mark broken, once a day', dbTest, async () => {
+  assert.equal(await stripeRevenue(KEY, NOW, stripeFake({ fail: { '/v1/charges': 500 } }), rate1), null);
+  assert.equal(await stripeRevenue(KEY, NOW, stripeFake({ fail: { '/v1/subscriptions': 'throw' } }), rate1), null);
+  await assert.rejects(stripeRevenue(KEY, NOW, stripeFake({ fail: { '/v1/balance_transactions': 401 } }), rate1), StripeAuthError);
+  // The cap: STRIPE_PAGES pages of 100 with more to come.
+  const many = Array.from({ length: STRIPE_PAGES * 100 + 1 }, (_, i) => bt(`bt_c${i}`, 'charge', 100));
+  const big = stripeFake({ bts: many, charges: [] });
+  const r = await stripeRevenue(KEY, NOW, big, rate1);
+  assert.equal(r?.capped, true);
+  assert.equal(big.calls.filter((c) => c.startsWith('/v1/balance_transactions')).length, STRIPE_PAGES);
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const bad = stripeFake({ fail: { '/v1/balance_transactions': 403 } });
+  const opts = { deadline: Date.now() + 5000, call: bad, rate: rate1, only: [b] };
+  assert.deepEqual(await runStripeRevenue(NOW, opts), { due: 1, stored: 0 });
+  const [c] = await sql()`SELECT state, broken_at FROM stripe_connections WHERE builder_id = ${b}`;
+  assert.equal(c.state, 'broken');
+  assert.ok(c.broken_at);
+  assert.deepEqual(await runStripeRevenue(new Date(NOW.getTime() + DAYMS), opts), { due: 0, stored: 0 }, 'a broken connection is not read again');
+  assert.deepEqual((await sql()`SELECT 1 FROM stripe_revenue WHERE builder_id = ${b}`).length, 0);
+  // A failing (non-auth) read stores nothing and is not retried the same day.
+  const b2 = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b2}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const flaky = stripeFake({ fail: { '/v1/charges': 500 } });
+  const o2 = { deadline: Date.now() + 5000, call: flaky, rate: rate1, only: [b2] };
+  assert.deepEqual(await runStripeRevenue(NOW, o2), { due: 1, stored: 0 });
+  const n = flaky.calls.length;
+  await runStripeRevenue(new Date(NOW.getTime() + 3_600_000), o2);
+  assert.equal(flaky.calls.length, n);
+  assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b2}`)[0].state, 'ok');
+  assert.equal((await sql()`SELECT 1 FROM stripe_revenue WHERE builder_id = ${b2}`).length, 0);
+});
+
+test('disconnect, then the cron reads nothing; the cron step reports in its result', dbTest, async () => {
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const call = stripeFake({ bts: fiveBts(), charges: five() });
+  assert.equal(await disconnectStripe(b), true);
+  const r0 = await runCron({ now: NOW, only: ['none'], deps: { stripe: { call, rate: rate1, only: [b] } } });
+  assert.deepEqual(r0.stripe, { due: 0, stored: 0 });
+  assert.equal(call.calls.length, 0);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const r1 = await runCron({ now: NOW, only: ['none'], deps: { stripe: { call, rate: rate1, only: [b] } } });
+  assert.deepEqual(r1.stripe, { due: 1, stored: 1 });
+});
+
+test('the key never reaches the cron result, logs, errors or events, even when the call throws it', dbTest, async () => {
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const logs: string[] = [];
+  const keep = { e: console.error, l: console.log, w: console.warn };
+  const grab = (...a: unknown[]) => void logs.push(a.map((x) => (x instanceof Error ? `${x.name} ${x.message} ${x.stack}` : String(x))).join(' '));
+  console.error = grab; console.log = grab; console.warn = grab;
+  try {
+    let step = 0;
+    for (const fail of [{ '/v1/charges': 'throw' }, { '/v1/subscriptions': 500 }, { '/v1/balance_transactions': 401 }] as Record<string, number | 'throw'>[]) {
+      await sql()`UPDATE stripe_connections SET state = 'ok', broken_at = NULL WHERE builder_id = ${b}`;
+      await sql()`DELETE FROM stripe_revenue WHERE builder_id = ${b}`;
+      const r = await runCron({ now: new Date(NOW.getTime() + ++step * DAYMS), only: ['none'], deps: { stripe: { call: stripeFake({ fail: { ...fail } }), rate: rate1, only: [b] } } });
+      logs.push(JSON.stringify(r));
+    }
+    const thrown = await runStripeRevenue(new Date(NOW.getTime() + 40 * DAYMS), { deadline: Date.now() + 5000, call: stripeFake({ fail: { '/v1/account': 'throw', '/v1/charges': 'throw' } }), rate: rate1, only: [b] }).catch((e: unknown) => String(e));
+    logs.push(JSON.stringify(thrown));
+  } finally {
+    console.error = keep.e; console.log = keep.l; console.warn = keep.w;
+  }
+  assert.ok(logs.length > 0);
+  assert.ok(!logs.join('\n').includes(KEY), 'the key is in no output');
+  const ev = await sql()`SELECT count(*)::int AS n FROM events WHERE payload::text LIKE ${`%${KEY}%`}`.catch(() => [{ n: 0 }]);
+  assert.equal(ev[0].n, 0);
+});
+
+test('fx: USD is 1, a rate is cached per currency per day, no rate returns null and caches nothing', dbTest, async () => {
+  let n = 0;
+  const ok = async (url: string) => { n++; assert.match(url, /^https:\/\/api\.frankfurter\.app\/latest\?from=ZZZ&to=USD$/); return { status: 200, body: { rates: { USD: 1.25 } } }; };
+  assert.equal(await usdRate('usd', NOW, ok), 1);
+  await sql()`DELETE FROM fx_rates WHERE currency = 'ZZZ'`;
+  assert.equal(await usdRate('zzz', NOW, ok), 1.25);
+  assert.equal(await usdRate('ZZZ', NOW, ok), 1.25);
+  assert.equal(n, 1);
+  assert.equal(await usdRate('ZZZ', new Date(NOW.getTime() + DAYMS), ok), 1.25);
+  assert.equal(n, 2);
+  await sql()`DELETE FROM fx_rates WHERE currency = 'ZZZ'`;
+  assert.equal(await usdRate('ZZZ', NOW, async () => ({ status: 500, body: {} })), null);
+  assert.equal(await usdRate('ZZZ', NOW, async () => { throw new Error('net'); }), null);
+  assert.equal(await usdRate('zz', NOW, ok), null);
+  assert.equal((await sql()`SELECT 1 FROM fx_rates WHERE currency = 'ZZZ'`).length, 0);
 });

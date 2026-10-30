@@ -8520,3 +8520,10 @@ so wallet links and Stripe links never open each other's page). The key is check
 `StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
 (`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
 keys are refused before any call.
+
+- **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
+  (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/
+  `payment_refund`, disputes (`adjustment` + reporting_category `dispute`) minus, `dispute_reversal` plus; before Stripe fees; clamped at 0.
+  Payers come from `/v1/charges` (fingerprint, else customer, else email); charges whose email is the builder's `digest_subscriptions.email` are dropped
+  with their balance transaction. `shown` = at least 3 payers and top share at most 50%. Any failure stores nothing; the page cap stores `capped`.
+  `latestStripe` returns fresh (`USED_STALE_DAYS`), shown rows of at least `REVENUE_MIN`. The key appears in no log, note or error (only error names are logged).

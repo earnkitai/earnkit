@@ -38,6 +38,7 @@ import { runBuilderCodes } from './builder-codes-check';
 import { backfillContractOrigins } from './contract-origins';
 import { runUsedBy } from './used-by';
 import { runRevenue } from './revenue';
+import { runStripeRevenue, type StripeCall, type StripeRate } from './stripe';
 import type { AlchemyCall } from './alchemy';
 import { peopleSignals } from './people-signals';
 import type { ContractOrigin } from './source-readers';
@@ -122,6 +123,8 @@ export type CronDeps = {
   contractOrigins?: { origin?: (ref: string) => Promise<ContractOrigin>; only?: number[] };
   /** v3.1 Used by: the step's Alchemy calls, CDP fetch and builders (tests); with `only`, the step runs only when given. */
   usedBy?: { callFor?: (network: string) => AlchemyCall; fetch?: typeof fetch; only?: number[]; limit?: number };
+  /** v4.6 Task 2: the Stripe read's call, rate and builders (tests); with `only`, the step runs only when given. */
+  stripe?: { call?: StripeCall; rate?: StripeRate; only?: number[]; limit?: number };
   /** v4.5 Task 2: the revenue read's Alchemy calls, ETH price and builders (tests); with `only`, the step runs only when given. */
   revenue?: { callFor?: (network: string) => AlchemyCall; only?: number[]; limit?: number; price?: (now: number) => Promise<number | null> };
   /** v4 Task 12: the Safe watch's reads, price and mailer (tests); with `only`, the step runs only when given. */
@@ -462,6 +465,17 @@ export async function runCron(
       revenue = { step: 'error', note: STEP_FAILED };
     }
   }
+  // v4.6 Task 2: the daily Stripe read (stripe.ts): each connected builder once a UTC day, right after the onchain revenue
+  // read, in its own slice. A 401/403 marks the connection broken. Only counts are reported; the key is never in a note.
+  let stripe: Awaited<ReturnType<typeof runStripeRevenue>> | { step: 'error'; note: string } | undefined;
+  if (!opts.only || deps.stripe) {
+    try {
+      stripe = await runStripeRevenue(now, { ...deps.stripe, deadline: builderCodesSliceEnd(Date.now(), deadline) });
+    } catch (err) {
+      console.error('[cron] stripe', err instanceof Error ? err.name : 'error');
+      stripe = { step: 'error', note: STEP_FAILED };
+    }
+  }
   // v3.1 owner people view: GitHub account ages and wallet histories for the owner's private view (people-signals.ts;
   // once a UTC day, capped, free), after the email, in its own slice. Full runs only (a scoped test run skips it).
   let people: Awaited<ReturnType<typeof peopleSignals>> | { step: 'error'; note: string } | undefined;
@@ -581,6 +595,7 @@ export async function runCron(
     ...(origins && { contract_origins: origins }),
     ...(usedBy && { used_by: usedBy }),
     ...(revenue && { revenue }),
+    ...(stripe && { stripe }),
     ...(people && { people_signals: people }),
     ...(builderTokenRetry && { builder_token_retry: builderTokenRetry }),
     needs_owner,

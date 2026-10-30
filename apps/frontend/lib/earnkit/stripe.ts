@@ -1,6 +1,9 @@
 import { sql } from './db';
 import { siteUrl } from './entry-text';
-import { RateLimitError, clientIp, enforce } from './rate-limit';
+import { usdRate } from './fx';
+import { RateLimitError, clientIp, enforce, hit } from './rate-limit';
+import { REVENUE_MIN } from './ship-log-facts';
+import { USED_STALE_DAYS } from './site-data';
 import { open, seal } from './secret-box';
 import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
 
@@ -234,4 +237,195 @@ export async function stripePost(request: Request, deps: RouteDeps = {}): Promis
     return json({ ok: false, line: STRIPE_TEXT.failed }, 500);
   }
   return json({ ok: r.ok, line: r.line }, r.ok ? 200 : 400);
+}
+
+/**
+ * v4.6 Task 2: the daily read. Balance transaction names checked against docs.stripe.com/reports/balance-transaction-types
+ * (2026-10-30): `charge` (card) and `payment` (local methods) in; `refund` and `payment_refund` out; disputes and their
+ * reversals are both type `adjustment` (reporting_category `dispute` / `dispute_reversal`). `amount` is signed and
+ * before Stripe fees, so fees are not subtracted. Only GETs through the injected StripeCall; the key goes nowhere but there.
+ */
+export const STRIPE_PAGES = 10;
+export const STRIPE_PER_RUN = 25;
+const WINDOW_DAYS = 30;
+const PAYER_MIN = 3;
+const TOP_MAX = 0.5;
+/** A 401/403: the key no longer works. The only error the read throws on purpose (carries no key or Stripe text). */
+export class StripeAuthError extends Error {
+  constructor() {
+    super('stripe key rejected');
+    this.name = 'StripeAuthError';
+  }
+}
+class NoRate extends Error {}
+const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
+export type StripeRate = (currency: string) => Promise<number | null>;
+export type StripeRevenue = { net_usd: number; mrr_usd: number; payers: number; top_share: number; capped: boolean };
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
+const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** Every item of a list endpoint, STRIPE_PAGES pages of 100 at most (capped when more remain). Throws on any failure. */
+async function listAll(call: StripeCall, key: string, base: string): Promise<{ items: Record<string, unknown>[]; capped: boolean }> {
+  const items: Record<string, unknown>[] = [];
+  let after: string | null = null;
+  for (let page = 0; page < STRIPE_PAGES; page++) {
+    const r = await call(`${base}${after ? `&starting_after=${encodeURIComponent(after)}` : ''}`, key);
+    if (r.status === 401 || r.status === 403) throw new StripeAuthError();
+    const b = obj(r.body);
+    if (r.status !== 200 || !Array.isArray(b.data)) throw new Error('stripe: odd answer');
+    for (const x of b.data) items.push(obj(x));
+    if (b.has_more !== true) return { items, capped: false };
+    after = str(obj(b.data[b.data.length - 1]).id);
+    if (!after) throw new Error('stripe: no cursor');
+  }
+  return { items, capped: true };
+}
+
+/**
+ * The last 30 days of one account (Rules: net figure, MRR, currency, real customers). Null on any failed or partial read
+ * or a missing rate (nothing is stored then); throws StripeAuthError on a 401/403. `ownEmails` are lowercased addresses
+ * of the builder: their charges (and balance transactions) are dropped before the net and the payer count.
+ */
+export async function stripeRevenue(key: string, now: Date, call: StripeCall, rate: StripeRate, ownEmails: string[] = []): Promise<StripeRevenue | null> {
+  const since = Math.floor(now.getTime() / 1000) - WINDOW_DAYS * 86_400;
+  const rates = new Map<string, number>();
+  const usd = async (amount: number, currency: unknown) => {
+    const cur = (str(currency) ?? 'usd').toLowerCase();
+    let r = rates.get(cur);
+    if (r === undefined) {
+      const got = cur === 'usd' ? 1 : await rate(cur);
+      if (got === null || !Number.isFinite(got) || got <= 0) throw new NoRate();
+      rates.set(cur, (r = got));
+    }
+    return (amount / (ZERO_DECIMAL.has(cur) ? 1 : 100)) * r;
+  };
+  try {
+    const bts = await listAll(call, key, `/v1/balance_transactions?limit=100&created[gte]=${since}`);
+    const charges = await listAll(call, key, `/v1/charges?limit=100&created[gte]=${since}`);
+    const subs = await listAll(call, key, '/v1/subscriptions?limit=100&status=active');
+    const own = new Set(ownEmails.map((e) => e.trim().toLowerCase()).filter(Boolean));
+    // Charges: payers (real customers) and the builder's own, dropped.
+    const droppedBt = new Set<string>();
+    const paid = new Map<string, number>();
+    for (const c of charges.items) {
+      const email = str(obj(c.billing_details).email)?.trim().toLowerCase();
+      if (c.status !== 'succeeded') continue;
+      if (email && own.has(email)) {
+        const id = str(obj(c.balance_transaction).id) ?? str(c.balance_transaction);
+        if (id) droppedBt.add(id);
+        continue;
+      }
+      if (c.refunded === true) continue;
+      const card = obj(obj(c.payment_method_details).card);
+      const who = str(card.fingerprint) ?? str(c.customer) ?? email;
+      if (!who) continue;
+      paid.set(who, (paid.get(who) ?? 0) + (await usd(num(c.amount), c.currency)));
+    }
+    let net = 0;
+    for (const t of bts.items) {
+      const type = str(t.type);
+      const cat = str(t.reporting_category);
+      const a = Math.abs(num(t.amount));
+      let sign = 0;
+      if (type === 'charge' || type === 'payment') sign = droppedBt.has(String(t.id)) ? 0 : 1;
+      else if (type === 'refund' || type === 'payment_refund') sign = -1;
+      else if (type === 'adjustment' && cat === 'dispute') sign = -1;
+      else if (type === 'adjustment' && cat === 'dispute_reversal') sign = 1;
+      if (sign !== 0 && a > 0) net += sign * (await usd(a, t.currency));
+    }
+    let mrr = 0;
+    for (const s of subs.items) {
+      if (s.status !== 'active') continue;
+      for (const it of Array.isArray(obj(s.items).data) ? (obj(s.items).data as unknown[]) : []) {
+        const price = obj(obj(it).price);
+        const unit = price.unit_amount;
+        const rec = obj(price.recurring);
+        const per = ({ month: 1, year: 1 / 12, week: 52 / 12, day: 365 / 12 } as Record<string, number | undefined>)[str(rec.interval) ?? ''];
+        if (typeof unit !== 'number' || !Number.isFinite(unit) || per === undefined) continue;
+        const every = Math.max(1, num(rec.interval_count) || 1);
+        const qty = obj(it).quantity === undefined ? 1 : num(obj(it).quantity);
+        mrr += ((await usd(unit * qty, price.currency)) * per) / every;
+      }
+    }
+    const gross = [...paid.values()].reduce((x, y) => x + y, 0);
+    const top = gross > 0 ? Math.max(...paid.values()) / gross : 0;
+    const cents = (v: number) => Math.round(v * 100) / 100;
+    return {
+      net_usd: Math.max(0, cents(net)), mrr_usd: cents(mrr), payers: paid.size, top_share: Math.round(top * 10_000) / 10_000,
+      capped: bts.capped || charges.capped || subs.capped,
+    };
+  } catch (err) {
+    if (err instanceof StripeAuthError) throw err;
+    console.error('[stripe] read', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
+/** The builder's own addresses EarnKit holds (the digest opt-in email, over their installation(s)), lowercased. */
+async function ownEmails(builderId: number): Promise<string[]> {
+  const rows = await sql()<{ email: string }[]>`
+    SELECT DISTINCT lower(d.email) AS email FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
+    WHERE (i.builder_id = ${builderId} OR (i.id = ${builderId} AND i.builder_id IS NULL)) AND d.email IS NOT NULL`;
+  return rows.map((r) => r.email);
+}
+
+/** Connections in state 'ok' with no stripe_revenue row today: never read first, then the oldest; at most `limit`. */
+export async function stripeDue(now: Date, o: { limit?: number; only?: number[] } = {}): Promise<number[]> {
+  const today = now.toISOString().slice(0, 10);
+  const db = sql();
+  const rows = await db<{ builder_id: number }[]>`
+    SELECT c.builder_id FROM stripe_connections c
+    LEFT JOIN LATERAL (SELECT max(r.day) AS day FROM stripe_revenue r WHERE r.builder_id = c.builder_id) r ON true
+    WHERE c.state = 'ok' AND (r.day IS NULL OR r.day < ${today}::date) ${o.only ? db`AND c.builder_id IN ${db(o.only)}` : db``}
+    ORDER BY r.day NULLS FIRST, c.builder_id LIMIT ${o.limit ?? STRIPE_PER_RUN}`;
+  return rows.map((r) => r.builder_id);
+}
+
+/**
+ * The cron's daily step: each due connection once a UTC day (claimed before its reads, so a failing one waits a day),
+ * none started past `deadline`. A 401/403 marks it 'broken'; any other failure stores nothing. Only error names are logged.
+ */
+export async function runStripeRevenue(
+  now: Date,
+  o: { deadline: number; call?: StripeCall; rate?: StripeRate; only?: number[]; limit?: number },
+): Promise<{ due: number; stored: number }> {
+  const due = await stripeDue(now, o);
+  const day = now.toISOString().slice(0, 10);
+  const call = o.call ?? stripeFetch;
+  const rate = o.rate ?? ((c: string) => usdRate(c, now));
+  let stored = 0;
+  for (const id of due) {
+    if (Date.now() >= o.deadline) break;
+    if (!(await hit(`stripe:${id}:${day}`, 1, 86_400, now)).allowed) continue;
+    try {
+      const key = await stripeKey(id);
+      if (!key) continue;
+      const r = await stripeRevenue(key, now, call, rate, await ownEmails(id));
+      if (!r) continue;
+      const shown = r.payers >= PAYER_MIN && r.top_share <= TOP_MAX;
+      await sql()`
+        INSERT INTO stripe_revenue (builder_id, day, net_usd, mrr_usd, payers, top_share, shown, capped, read_at)
+        VALUES (${id}, ${day}, ${r.net_usd}, ${r.mrr_usd}, ${r.payers}, ${r.top_share}, ${shown}, ${r.capped}, ${now})
+        ON CONFLICT (builder_id, day) DO UPDATE SET net_usd = EXCLUDED.net_usd, mrr_usd = EXCLUDED.mrr_usd, payers = EXCLUDED.payers,
+          top_share = EXCLUDED.top_share, shown = EXCLUDED.shown, capped = EXCLUDED.capped, read_at = EXCLUDED.read_at`;
+      stored++;
+    } catch (err) {
+      if (err instanceof StripeAuthError) {
+        await sql()`UPDATE stripe_connections SET state = 'broken', broken_at = ${now} WHERE builder_id = ${id}`;
+      } else {
+        console.error('[stripe] run', err instanceof Error ? err.name : 'error');
+      }
+    }
+  }
+  return { due: due.length, stored };
+}
+
+/** The builder's newest stripe_revenue row no older than USED_STALE_DAYS, when shown and net >= REVENUE_MIN; else null. */
+export async function latestStripe(builderId: number, now: Date): Promise<{ usd: number; mrr: number; capped: boolean } | null> {
+  const today = now.toISOString().slice(0, 10);
+  const [r] = await sql()<{ usd: number; mrr: number; capped: boolean; shown: boolean }[]>`
+    SELECT net_usd::float8 AS usd, mrr_usd::float8 AS mrr, capped, shown FROM stripe_revenue
+    WHERE builder_id = ${builderId} AND day <= ${today}::date AND day >= ${today}::date - ${USED_STALE_DAYS}::int
+    ORDER BY day DESC LIMIT 1`;
+  return r && r.shown && r.usd >= REVENUE_MIN ? { usd: r.usd, mrr: r.mrr, capped: r.capped } : null;
 }
