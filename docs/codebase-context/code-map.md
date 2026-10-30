@@ -1515,7 +1515,8 @@ apps/frontend/
                                community from community.ts weekCommunityUsd)
                                v4.7 T5: EMAIL_QUESTION asks for deadline alerts and the Monday summary; resendMailer
                                sends reply_to CONTACT_EMAIL; DigestFacts.standing (best-fit.ts standingFor, shown with
-                               standingLeads) is the body's top paragraph; digestFrom exported for alert-mail.ts
+                               standingLeads) is the body's top paragraph (R16: then the week drops its Shipping score
+                               line and the subject its score); mailFooter (R17, both emails); digestFrom exported
     alert-mail.ts              v4.7 T5: the alert emails. alertEvents (accepted outcome post > closing fit or draft
                                within DEADLINE_DAYS via deadline.ts closeDay > new fit via alerts.ts alertFit),
                                alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail at ALERT_HOUR_UTC

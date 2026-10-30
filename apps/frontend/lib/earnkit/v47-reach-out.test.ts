@@ -151,7 +151,7 @@ test('one email a builder a day, the highest first; an event is never sent twice
   assert.equal(r1.sent, 1);
   assert.equal(sent[0].subject, 'You got into Base Batches');
   assert.equal(sent[0].to, `b${id}@example.com`);
-  assert.ok(sent[0].text.includes('\n\nUnsubscribe: https://earnkit.com/api/digest/unsubscribe?t='));
+  assert.ok(sent[0].text.includes('\n\nDeadline alerts and a Monday summary. Unsubscribe: https://earnkit.com/api/digest/unsubscribe?t='));
   assert.ok(sent[0].headers['List-Unsubscribe']?.startsWith('<https://earnkit.com/api/digest/unsubscribe?t='));
   assert.equal(sent[0].idempotencyKey, `alert-${id}-accepted:base-batches`);
   // Same day, a later run: nothing more.
@@ -263,6 +263,47 @@ test('alertEvents reads a closing entry (draft ready) and an accepted outcome po
   assert.equal((await alertEvents(id, now)).some((e) => e.kind === 'closing'), false);
 });
 
-test('the footer is the unsubscribe link and has no banned words', () => {
+test('the footer names both emails and has no banned words', () => {
   assert.doesNotMatch(alertFooter('https://earnkit.com/x'), BANNED);
+});
+
+test('alertEvents: a program opened within NEW_FIT_DAYS that a remembered repo fits is one new-fit event; an older one is none', { skip: db.skip }, async () => {
+  const now = new Date();
+  const tipjar = {
+    key: 'alice/tipjar', name: 'TipJar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
+    created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
+    product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+  };
+  const [i] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, fit_repos) VALUES (${`v47ro-new-${RUN}`}, ${sql().json([tipjar] as never)}) RETURNING id`;
+  const ids = [`v47-ro-${process.pid}-fresh`, `v47-ro-${process.pid}-old`];
+  const program = (id: string, title: string, opened: Date) => sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, chains, opened_at, ends_at, max_award_usd)
+    VALUES (${id}, 'o', ${title}, 'd', 'https://x', 'https://x', 'up to $10,000', 'up to $10,000', 'active', 'allowed', '{base}', ${opened},
+      ${new Date(now.getTime() + 20 * DAY)}, 10000)`;
+  await program(ids[0], `Fresh Grant ${RUN}`, new Date(now.getTime() - 2 * DAY));
+  await program(ids[1], `Old Grant ${RUN}`, new Date(now.getTime() - 30 * DAY));
+  const mine = (await alertEvents(i.id, now)).filter((e) => e.kind === 'new' && ids.some((id) => e.key === `new:${id}`));
+  assert.equal(mine.length, 1);
+  const e = mine[0] as Extract<AlertEvent, { kind: 'new' }>;
+  assert.equal(e.key, `new:${ids[0]}`);
+  assert.equal(e.program, `Fresh Grant ${RUN}`);
+  assert.equal(e.project, 'TipJar');
+  assert.equal(e.amount, '$10,000');
+  assert.match(e.when, /^closes [A-Z][a-z]{2} \d{1,2}$/);
+  assert.equal(alertBody(e).subject, `New: Fresh Grant ${RUN}, $10,000`);
+});
+
+test('R16: one score per email: with the standing on top, the week block and the subject carry none', () => {
+  const week = {
+    lines: ['Your week is ready, Maya. You shipped. Nice work.', '', 'Shipping score: 82, up 4', 'Streak: 5 weeks'],
+    standing: { score: 82, rank: 3, total: 40 }, approveUrl: 'https://earnkit.com/api/week?t=a', hideUrl: 'https://earnkit.com/api/week?t=h', approved: true,
+  };
+  const b = digestBody({ standing: 'Score 85 · #2 of 40 builders. 5 weeks shipping in a row.', week, handle: null, money: [], newPrograms: [], wins: [], deadlines: [] })!;
+  assert.equal(b.subject, 'Your week on EarnKit');
+  assert.equal((`${b.subject}\n${b.text}`.match(/\bScore \d+|Shipping (?:score: )?\d+/gi) ?? []).length, 1, b.text);
+  assert.ok(b.text.includes('Streak: 5 weeks'));
+  // No standing (a shared client's subscription): the week keeps its own score, still the only one.
+  const w = digestBody({ week, handle: null, money: [], newPrograms: [], wins: [], deadlines: [] })!;
+  assert.match(w.text, /Shipping score: 82, up 4/);
 });

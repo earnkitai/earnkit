@@ -50,7 +50,8 @@ export const EMAIL_QUESTION = 'Want deadline alerts and a Monday summary by emai
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
 export const WHICH_EMAIL = 'Which email should your Monday summary go to?';
-export const EMAIL_ON = 'Done. Your summary comes every Monday.';
+/** v4.7 T5 (R17): one subscription carries the alerts and the summary. */
+export const EMAIL_ON = "Done. You'll get deadline alerts and a Monday summary.";
 export const EMAIL_OFF = 'No weekly email.';
 export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
 /** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */
@@ -162,9 +163,11 @@ const ASK_LINE = 'Ask your agent "What can I earn?" to start.';
  * builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
  */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
+  // v4.7 T5 (R16): one score per email. With the standing on top (the page's live score), the week block drops its
+  // recorded "Shipping score" line and the subject its score.
   const week = f.week
     ? [
-        ...f.week.lines,
+        ...f.week.lines.filter((l) => !(f.standing && l.startsWith('Shipping score: '))),
         ...(f.week.postUrl ? [`Your post is ready to share: ${f.week.postUrl}`] : []),
         ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
       ].join('\n')
@@ -176,7 +179,7 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
   ];
   if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
-    ? `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
+    ? f.standing ? 'Your week on EarnKit' : `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
     : f.newPrograms[0]
       ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
       : 'Your EarnKit week';
@@ -218,6 +221,9 @@ export function unsubTarget(token: string, secret: string | undefined = process.
 
 export const unsubUrl = (target: number | SubKey) =>
   `${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(unsubToken(target))}`;
+
+/** v4.7 T5 (R17): every email's footer (the Monday summary's and the alerts'; one subscription carries both). Pure. */
+export const mailFooter = (url: string) => `Deadline alerts and a Monday summary. Unsubscribe: ${url}`;
 
 /** RFC 2369 and RFC 8058: every email's unsubscribe headers. */
 export const unsubHeaders = (target: number | SubKey): Record<string, string> => ({
@@ -621,7 +627,7 @@ export async function sendDigests(
           to: s.email,
           from,
           subject: body.subject,
-          text: `${body.text}\n\nOne email a week. Unsubscribe: ${url}`,
+          text: `${body.text}\n\n${mailFooter(url)}`,
           headers: unsubHeaders(target),
           idempotencyKey: idempotencyKey(target, start),
         });
@@ -684,8 +690,9 @@ const page = (body: string, status = 200) => new Response(brandShell(body), { st
 /** A one-line page: the line as the statement. */
 const linePage = (line: string, status = 200) => page(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`, status);
 
-export const UNSUB_CONFIRM = 'Stop the weekly EarnKit email?';
-export const UNSUB_DONE = 'Done. No more weekly emails.';
+/** v4.7 T5 (R17): one unsubscribe stops both the deadline alerts and the Monday summary. */
+export const UNSUB_CONFIRM = 'Stop deadline alerts and the Monday summary?';
+export const UNSUB_DONE = "Done. You won't get EarnKit emails any more.";
 export const UNSUB_BAD = 'This link is not valid.';
 
 const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';

@@ -158,10 +158,13 @@ test('(c) sendDigests mails the moment for a checked week', db, () =>
     assert.equal(r.sent, 1);
     const m = sent[0]!;
     // v3.1 F3: one ranked builder (under RANK_MIN_POOL): no rank in the subject or the moment.
-    assert.equal(m.subject, 'Your week on EarnKit: Shipping 40');
+    // v4.7 T5 (R16): the standing on top carries the one score, so the subject has none.
+    assert.equal(m.subject, 'Your week on EarnKit');
     // v4.0 Task 7: the Monday block as plain lines (v4.7 T5: under the builder's standing paragraph).
     assert.match(m.text, /^Score \d+\. [^\n]*\n\nYour week is ready, /, m.text);
-    assert.match(m.text, /\nShipping score: 40\n/);
+    // R16: one score figure per email: the standing's, never the week's "Shipping score" line.
+    assert.doesNotMatch(m.text, /Shipping score/);
+    assert.equal((`${m.subject}\n${m.text}`.match(/\bScore \d+|Shipping \d+/gi) ?? []).length, 1, m.text);
     assert.match(m.text, /\n\nLooks right: https:\/\/earnkit\.com\/api\/week\?t=\S+\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
     // v4.0 Task 7: the greeting may use the builder's own handle (no X name), which this fixture shares with the repo owner.
     assert.ok(!(m.text.match(/https:\/\/\S+/g) ?? []).some((u) => u.includes(me.key.split('/')[0]!)), 'no link names the repo');
@@ -288,7 +291,7 @@ test('(e) an unchecked week is pending: not sent, not considered', db, () =>
 test('(f) the connect yes asks for the address once; tell weekly_email yes with an address subscribes', db, () =>
   withEnv(ON, async () => {
     assert.equal(EMAIL_QUESTION, 'Want deadline alerts and a Monday summary by email? Reply with the address.'); // v4.7 T5
-    assert.equal(EMAIL_ON, 'Done. Your summary comes every Monday.');
+    assert.equal(EMAIL_ON, "Done. You'll get deadline alerts and a Monday summary.");
     await freshBoard();
     const me = await builder('mef');
     // Backfill-style weeks to confirm at connect.

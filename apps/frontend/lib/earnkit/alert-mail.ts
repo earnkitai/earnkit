@@ -3,7 +3,7 @@ import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgram
 import { awardAmount } from './bench-reply';
 import { openFitsFor } from './best-fit';
 import { closeDay } from './deadline';
-import { cleanName, digestFrom, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
+import { cleanName, digestFrom, mailFooter, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
 import { readFitRepos } from './installations';
 import { outcomeShareLine } from './nudges';
 import { COIN_PROGRAM } from './policy-constants';
@@ -64,8 +64,8 @@ export function alertBody(e: AlertEvent): { subject: string; text: string } {
   };
 }
 
-/** The unsubscribe footer: the digest's own link and headers (one subscription carries both emails), with no "One email a week.". */
-export const alertFooter = (url: string) => `Unsubscribe: ${url}`;
+/** The unsubscribe footer: the digest's own (digest.ts mailFooter, R17), with its link and headers (one subscription carries both emails). */
+export const alertFooter = mailFooter;
 
 type EntryRow = { program_id: string; ends_at: Date; application: { answers?: Record<string, unknown> } | null };
 type DraftRow = { program_id: string; title: string; code: string };

@@ -523,7 +523,7 @@ test('Ruling G21: on a shared install each login has its own subscription; one n
   try {
     const shared = { shared: true };
     const week = new Date(now.getTime() - 7 * DAY);
-    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'a@x.co' }, { ...shared, login: 'alice' }, week)).show_to_builder, 'Done. Your summary comes every Monday.');
+    assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'a@x.co' }, { ...shared, login: 'alice' }, week)).show_to_builder, "Done. You'll get deadline alerts and a Monday summary.");
     assert.equal((await saveWeeklyEmail(s.id, { answer: 'yes', email: 'b@x.co' }, { ...shared, login: 'Bob' }, week)).saved, true);
     assert.deepEqual(await rows(), [
       { login: 'alice', email: 'a@x.co', opted: true, unsub: false },
