@@ -104,6 +104,11 @@ test('the banner is heroChipText(statsFrom(...).open_money_usd) over the same ro
   const l = landingFrom(cards, stats, NOW);
   assert.ok(stats.open_money_usd > 0);
   assert.equal(l.open_chip, heroChipText(stats.open_money_usd));
+  // Fix round 1: the money line carries the same dollar figure as the chip.
+  const figure = (t: string | null) => /^\$[\d.,]+[KM]?/.exec(t ?? '')?.[0];
+  assert.ok(l.open_text && l.open_chip);
+  assert.equal(figure(l.open_text), figure(l.open_chip));
+  assert.equal(l.open_text, `${figure(l.open_chip)} in grants and prizes open`);
   assert.equal(heroChipText(105_000), '$105K in grants open now');
   assert.equal(heroChipText(0), null);
 });

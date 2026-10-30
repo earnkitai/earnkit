@@ -4,7 +4,7 @@ import { CHAIN_NAMES } from './match';
 import { byRelevance, daysLeftText, NO_CELL, type Card } from './present';
 import { eachLine, openCurated, openGrantsText, openMoneyWords } from './pool';
 import { getProgramRow, isOpen, listPrograms, NotFoundError } from './programs';
-import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
+import { readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 import { GUIDE_ID, guideProgramSql } from './guide-pages';
 import { carouselCards, type FeedCard } from './feed';
@@ -63,8 +63,8 @@ export type Tile = {
 /** Plain JSON only (Ruling 21 (plan), Review Focus 2): unstable_cache serializes it. */
 export type Landing = {
   /**
-   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants and prizes open" (openGrantsText(openMoneyUsd) of the
-   * tiles' programs, never an investment), or null when no program is open.
+   * v2.9 F21, v3 Stage 2: the money line, "$115K in grants and prizes open" (v4.7 T1 fix round 1: openGrantsText of
+   * stats.open_money_usd, the chip's figure), or null when no tile's program is open.
    */
   open_text: string | null;
   /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
@@ -99,8 +99,8 @@ export function statsLine(s: PublicStats): string | null {
 
 /**
  * The landing data from open program cards, Base first (`byRelevance`, v3 Stage 2), every one of them (v2.8 Ruling 20: no cap) (Ruling 21 (plan): curated programs only, never an
- * EarnKit or sponsor campaign) and the public stats. v2.9 F21: the hero
- * figure is moneyText(openMoneyUsd) of the same cards (/programs, the first reply and /api/stats show the same). Pure.
+ * EarnKit or sponsor campaign) and the public stats. v2.9 F21, v4.7 T1: the money
+ * line and the chip are stats.open_money_usd (/api/stats' figure: openMoneyUsd over every open curated program). Pure.
  */
 export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landing {
   // v3 Stage 2: Base first (byRelevance), upcoming programs last.
@@ -132,7 +132,8 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
     };
   });
   return {
-    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
+    // v4.7 T1 fix round 1 (one money figure): the line, the chip and /api/stats carry stats.open_money_usd.
+    open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(stats.open_money_usd ?? 0) : null,
     open_more: openMoneyWords(kept, now),
     // v4.7 T1 (one money figure): the banner is /api/stats' open_money_usd (statsFrom), not a sum of its own.
     open_chip: heroChipText(stats.open_money_usd ?? 0),

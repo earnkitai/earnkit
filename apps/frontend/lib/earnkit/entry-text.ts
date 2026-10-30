@@ -113,7 +113,7 @@ export function deadlineLabel(ends: Date, zone = 'UTC') {
     return `${shortDate(ends)}, ${clock} UTC`;
   }
   const t = zoneParts(ends, zone);
-  if (t.hour === 0 && t.minute === 0 && t.second === 0 && ends.getMilliseconds() === 0) return zoneParts(new Date(ends.getTime() - 1), zone).day;
+  if (t.hour === 0 && t.minute === 0 && t.second === 0 && ends.getUTCMilliseconds() === 0) return zoneParts(new Date(ends.getTime() - 1), zone).day;
   const clock = `${t.hour % 12 || 12}:${String(t.minute).padStart(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}`;
   return `${t.day}, ${clock} ${abbr}`;
 }

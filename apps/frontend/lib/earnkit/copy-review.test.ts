@@ -1320,7 +1320,8 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
   const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
-  const landing = landingFrom(cards, zero, now);
+  // v4.7 T1 fix round 1: the landing carries /api/stats' figure (open_money_usd over the same rows).
+  const landing = landingFrom(cards, { ...zero, open_money_usd: openMoneyUsd(cards, now) }, now);
   // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.
   assert.equal(landing.open_text, `${fig} in grants and prizes open`);
   assert.ok(pageText(React.createElement(ProgramCards, { tiles: landing.tiles, heading: 'h1', figure: landing.open_text })).includes(`${fig} in grants and prizes open`));
