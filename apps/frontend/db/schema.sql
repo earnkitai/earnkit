@@ -2116,3 +2116,17 @@ CREATE TABLE IF NOT EXISTS app_revenue (
   read_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (builder_id, day)
 );
+
+-- v4.6 (2026-10-30): verified Stripe revenue. One row per builder: the restricted read key, sealed (secret-box.ts, AES-GCM,
+-- purpose 'stripe'; never the plaintext, never an sk_live_ key), the Stripe account it belongs to and the website host
+-- Stripe lists for it (checked against the builder's verified sites at paste). One Stripe account counts for one builder.
+-- 'broken': a 401/403 on the daily read. Private: no route or page reads it.
+CREATE TABLE IF NOT EXISTS stripe_connections (
+  builder_id   integer PRIMARY KEY,
+  sealed_key   text NOT NULL,
+  account_id   text NOT NULL UNIQUE,
+  site_host    text NOT NULL,
+  state        text NOT NULL DEFAULT 'ok' CHECK (state IN ('ok','broken')),
+  connected_at timestamptz NOT NULL DEFAULT now(),
+  broken_at    timestamptz
+);

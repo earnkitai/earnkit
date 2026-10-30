@@ -8514,3 +8514,9 @@ picks it (`site-data.ts usageRows` + `bestUsage`, shared with `usedByOf`), reven
 (whole dollars, "+" when capped). A hidden page still gets both in its own drafts and replies. Revenue is private:
 `builder-json.ts`, `site-data.ts`, `app/[handle]`, `/api/stats` and the feed never read `app_revenue`
 (`v45-traction.test.ts` 3.4 checks the serialized outputs). Tests: `v45-traction.test.ts`.
+
+v4.6 Stripe key store: a builder pastes a live restricted Stripe key on `/connect/stripe` (link token purpose-bound to 'stripe',
+so wallet links and Stripe links never open each other's page). The key is checked with read-only GETs through an injectable
+`StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
+(`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
+keys are refused before any call.

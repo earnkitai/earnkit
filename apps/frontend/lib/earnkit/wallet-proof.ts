@@ -59,20 +59,24 @@ export const walletDoneLine = (wallet: string) =>
 export const walletContractsLine = (current: string) =>
   `Added for your contracts. Your rewards still go to ${shortWallet(current)}. To change that, ask your agent for a new link and sign in with X on it.`;
 
-const mac = (secret: string, s: string) => createHmac('sha256', secret).update(`upgrade:v1:${s}`).digest('base64url').slice(0, 22);
+/**
+ * v4.6: `purpose` binds a token to the page it opens ('upgrade' = the wallet page, unchanged; 'stripe' = the Stripe
+ * connect page). It is part of the HMAC input, so a token of one purpose never verifies as another.
+ */
+const mac = (secret: string, s: string, purpose = 'upgrade') => createHmac('sha256', secret).update(`${purpose}:v1:${s}`).digest('base64url').slice(0, 22);
 /**
  * A signed link token: the person, its expiry and (v3.1) a random part, so two links made in the same millisecond
  * are still two links (each is used once). Null without EARNKIT_AUTH_SECRET.
  */
-export function upgradeToken(builderId: number, now: Date, secret = process.env.EARNKIT_AUTH_SECRET): string | null {
+export function upgradeToken(builderId: number, now: Date, secret = process.env.EARNKIT_AUTH_SECRET, purpose = 'upgrade'): string | null {
   if (!secret) return null;
   const body = `${builderId}.${now.getTime() + UPGRADE_TTL_MS}.${randomBytes(6).toString('base64url')}`;
-  return `${body}.${mac(secret, body)}`;
+  return `${body}.${mac(secret, body, purpose)}`;
 }
-export function upgradeOf(token: string, now: Date, secret = process.env.EARNKIT_AUTH_SECRET): number | null {
+export function upgradeOf(token: string, now: Date, secret = process.env.EARNKIT_AUTH_SECRET, purpose = 'upgrade'): number | null {
   const m = /^(\d{1,10})\.(\d{13})\.([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]{22})$/.exec(token);
   if (!secret || !m) return null;
-  const want = Buffer.from(mac(secret, `${m[1]}.${m[2]}.${m[3]}`));
+  const want = Buffer.from(mac(secret, `${m[1]}.${m[2]}.${m[3]}`, purpose));
   const got = Buffer.from(m[4]);
   if (want.length !== got.length || !timingSafeEqual(want, got) || Number(m[2]) < now.getTime()) return null;
   return Number(m[1]);
