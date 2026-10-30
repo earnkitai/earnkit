@@ -44,7 +44,7 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
-import { readStanding, standingText, type Standing } from './standing';
+import { personal, readStanding, standingLeads, standingParagraph, streakOnly, type Standing } from './standing';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
@@ -439,6 +439,8 @@ type ViewIn = {
   own: number;
   /** Fix round 1: signedOutNow (state 1: the sign-in question always wins). */
   signedOut: boolean;
+  /** v4.7 T2 fix round 1 (R7): reply-facts.ts personal (a person, not a shared client without its own X account). */
+  personal: boolean;
   /** The one project's name before its first rescore wrote a row (identity's, else the repo's). */
   name: string | null;
   /** Programs the one project qualifies for (at most 3 are shown). */
@@ -489,7 +491,7 @@ async function codesFor(id: number, key: string, now: Date, f: typeof fetch | un
  * one next step (with the connect offer or the weekly moment it needs), stored for its yes, and the fields every Bench
  * reply carries: move_up, rank_lines, streak.
  */
-async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }> {
+async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
   const { id, now, read } = o;
   const row = read.row;
   // v2.13.4: a live link that loads counts as live for wording and fit (R3), and names the project as its site does.
@@ -539,8 +541,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const ranked = rankedState(state);
   const handle = read.base.claimed ? read.base.handle : null;
   // v4.7 T2: where the builder stands, in every reply's fields (the page's score and rank, wins, applications, the
-  // earliest fit deadline); a repo another person holds has no fits.
-  const stand = await readStanding(id, { lines: read.ranks, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
+  // earliest fit deadline); a repo another person holds has no fits. Fix round 1 (R7, replyFacts' gate): signed out,
+  // or a shared client that is no person, the weeks only and nothing read.
+  const stand = state === 'signed_out' || !o.personal
+    ? streakOnly(streak)
+    : await readStanding(id, { lines: read.ranks, parts: read.parts, streak, fits: (taken ? [] : o.fits).filter(realFit), cards: o.cards, now });
   // v4.0 Task 5: the first reply after setup step 3 settled (a wallet signed on the page, the agent never told) is the
   // setup-done reply, once, in place of the state's reply (so no other step is claimed unshown).
   if (!o.more && !held && handle !== null && state !== 'signed_out' && read.seen.setup_asked && !read.seen.setup_done) {
@@ -549,7 +554,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     const offer = (await setupOutcome(id))?.outcome === 'set' ? await setupOffer(id, now, await provenWallet(id).catch(() => null)) : null;
     if (offer) {
       const view: BenchView = { state, variant, project, rank: null, streak, target: null, handle, link: null, fund: [], due: [], ask: { kind: 'token', project_key: null, line: '' }, held: null, setupDone: offer.show_to_builder };
-      return { view, fields: { move_up: offer.move_up, ...standingFields(stand) } };
+      return { view, fields: { move_up: offer.move_up, ...standingFields(stand) }, stand };
     }
     const done = await setupDoneFor(id, now, { fits: taken ? [] : o.fits, skip: o.skip, seen: read.seen, key: project?.key ?? null, name: project?.name ?? null }, o.own);
     if (done) {
@@ -557,7 +562,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
         ? { kind: 'apply', project_key: done.move_up.project_key, line: '', program_id: done.program_id }
         : { kind: 'none', project_key: null, line: '' };
       const view: BenchView = { state, variant, project, rank: null, streak, target: null, handle, link: null, fund: [], due: [], ask, held: null, setupDone: done.show_to_builder };
-      return { view, fields: { ...(done.move_up && { move_up: done.move_up }), ...standingFields(stand) } };
+      return { view, fields: { ...(done.move_up && { move_up: done.move_up }), ...standingFields(stand) }, stand };
     }
   }
   // v4.0 setup step 3 (v4.4: the wallet only; the token offer follows its sign): once step 2 is done or answered no, in any signed-in
@@ -760,16 +765,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
     ...(rankLines.length > 0 && { rank_lines: rankLines }),
     ...standingFields(stand),
   };
-  return { view, fields };
+  return { view, fields, stand };
 }
 
 /**
  * v4.3: `streak` and the `standing` fact the agent answers "where do I stand" from (no points, no empty rank). v4.7 T2:
- * the whole standing (standing.ts standingText: the page's score and rank, the weeks, wins, applications, the next
- * deadline), in every reply. Pure.
+ * the whole standing (standing.ts standingParagraph: the page's score and rank, the weeks, wins, applications, the next
+ * deadline), in every reply; absent only with nothing to say (a streak-only standing at 0 weeks). Pure.
  */
-export function standingFields(s: Standing): { streak: number; standing: string } {
-  return { streak: s.streak, standing: standingText(s) };
+export function standingFields(s: Standing): { streak: number; standing?: string } {
+  const line = standingParagraph(s);
+  return { streak: s.streak, ...(line && { standing: line }) };
 }
 
 /**
@@ -1159,7 +1165,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
       }
     : undefined;
   const { view, fields } = await benchView({
-    id, now, read, own, signedOut, name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
+    id, now, read, own, signedOut, personal: await personal(ctx).catch(() => false), name, fits, applies, nudge, cards: a.cards, upcoming: a.upcoming ?? [], skip, held, due, live,
     codesFetch: ctx.codesFetch, known, more: a.more,
   });
   // Fix round 1 (R3): never on a nudge-owned reply or step 3 (their question stays last, step 3 word for word).
@@ -1204,7 +1210,7 @@ export async function benchFind(ctx: ToolContext, a: BenchFindArgs): Promise<Rep
  * (stand-view.ts scoreFits, at most 3, R12). One score_viewed event a minute (v2.12). Null without a
  * profile (score-tool.ts answers that).
  */
-export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'codesFetch'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
+export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'codesFetch' | 'sharedClient'>, now: Date, o: { reader?: ReaderDeps } = {}): Promise<Reply | null> {
   const id = ctx.installationId;
   const made = await ensureProfile(id, now);
   if (!made) return null;
@@ -1220,8 +1226,8 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const { applies, cards: shown, upcoming, skip } = await scoreApplies(id, read.main, now);
   const fits: Fit[] = fitLines(applies);
   const leadFit = fits.find((f) => !f.investment);
-  const { view, fields } = await benchView({
-    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), name: null, fits, applies, cards: shown, upcoming, skip, held: null,
+  const { view, fields, stand } = await benchView({
+    id, now, read, own, signedOut: await signedOutNow(id, own).catch(() => true), personal: await personal(ctx).catch(() => false), name: null, fits, applies, cards: shown, upcoming, skip, held: null,
     due: [], live, codesFetch: ctx.codesFetch, alwaysStanding: true,
   });
   await noteEvent('score_viewed', () => ({
@@ -1234,8 +1240,10 @@ export async function benchScore(ctx: Pick<ToolContext, 'installationId' | 'ownI
   const walletNews = await takeWalletNotice(id);
   if (view.state !== 'signed_out') view.notice = await takeTemplateNotice(id);
   // v4.7 T2: the builder asked where they stand, so the standing is the first paragraph (never signed out, where the
-  // sign-in step is the reply, nor setup step 3, said word for word).
-  view.standingLed = view.state !== 'signed_out' && !(view.ask.kind === 'wallet_setup' && !view.held);
+  // sign-in step is the reply, nor setup step 3, said word for word). Fix round 1: only with a score or a streak part
+  // (R5), and never over the Monday block or a post offer, which answer it themselves (R4).
+  const block = !view.held && ((view.ask.kind === 'share' && view.moment && view.handle) || (view.ask.kind === 'post' && view.post));
+  view.standingLed = view.state !== 'signed_out' && !(view.ask.kind === 'wallet_setup' && !view.held) && !block && standingLeads(stand) && Boolean(fields.standing);
   return {
     show_to_builder: [view.standingLed ? fields.standing : null, signedIn, walletNews, benchReply(view)].filter(Boolean).join('\n\n'),
     ...fields,

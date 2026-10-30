@@ -7,6 +7,7 @@ import { shortWallet, siteUrl } from './entry-text';
 import { pagePath } from './reserved-routes';
 import { REVENUE_MIN, tractionFacts } from './ship-log-facts';
 import { provenWallet } from './wallet-proof';
+import { personal } from './standing';
 
 /**
  * v3.1 answerable replies (spec section 1): the facts find and score carry so the agent can answer the builder's own
@@ -60,13 +61,6 @@ export function aboutFacts(): Record<string, string> {
     data: 'You can hide your page anytime (say hide my page).',
     ...askedFacts(),
   };
-}
-
-/** Whether the caller is a person: not a shared client, or a shared client whose own installation is bound to X. */
-async function personal(ctx: { installationId: number; ownInstallationId?: number; sharedClient?: boolean }): Promise<boolean> {
-  if (!ctx.sharedClient) return true;
-  const [r] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM installations WHERE id = ${ctx.ownInstallationId ?? ctx.installationId}`;
-  return Boolean(r?.x);
 }
 
 /**

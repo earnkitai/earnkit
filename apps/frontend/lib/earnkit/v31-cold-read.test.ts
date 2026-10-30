@@ -372,11 +372,8 @@ test('round 2: after the walk-through, its question stands until the Lovable pro
   assert.equal(asks(show(before)), LOVABLE_PROMPT_ASK);
   assert.equal((before.reply?.move_up as { kind: string }).kind, 'base_help');
   assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'base_help', project_key: null, answer: 'yes' } })), '');
-  for (const [i, r] of [await mcpCall(p.ctx, 'find', { agent_can_build: false }), await mcpCall(p.ctx, 'score', {})].entries()) {
-    // v4.7 T2: score leads with the standing paragraph.
-    const lead = i === 1 ? `${r.reply?.standing}\n\n` : '';
-    assert.ok(show(r).startsWith(lead), show(r));
-    const s = asks(show(r).slice(lead.length));
+  for (const r of [await mcpCall(p.ctx, 'find', { agent_can_build: false }), await mcpCall(p.ctx, 'score', {})]) {
+    const s = asks(show(r));
     const link = links(s)[0];
     assert.ok(link?.startsWith('https://earnkit.com/github/verify?n='), s);
     assert.equal(s, nextBuild(link!));

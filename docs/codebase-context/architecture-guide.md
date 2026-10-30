@@ -8536,11 +8536,13 @@ keys are refused before any call.
   `stripeLink` (no secret) means no ask. `tell { stripe: 'connect' | 'disconnect' }` works any time; disconnect deletes the key row and the stored
   `stripe_revenue` rows. Every Stripe reply and note tells the agent never to ask for a key in chat.
 
-v4.7 where you stand (Task 2): every find and score reply carries `standing` (standing.ts `standingText`): the page's own score and
+v4.7 where you stand (Task 2): every find and score reply carries `standing` (standing.ts `standingParagraph`): the page's own score and
 rank (`pageScore`, the rule bench-data `profileData` now calls, beside rankLines' `bench`: no rank under RANK_MIN_POOL, no score
 while unlisted), the weeks shipping, announced prizes won (earned.ts `prizesWonSql`, never a self-report; else "No grants won yet"),
 `applicationCounts` (submitted entries or a told "applied", one per program; drafts: an unsent entry with a real answer in an open
 program not applied to; Task 3's token gate reuses it) and the earliest open fit deadline (deadline.ts `closeDay`). `benchScore`
 sets `view.standingLed`: the standing is the score reply's first paragraph (not signed out, not setup step 3), and the reply's
-own standing line and connect standing are left out. find keeps its changed-only standing line; the fact is always there.
+own standing line and connect standing are left out. Fix round 1: it leads only with a score or a streak part, never over the
+Monday block or a post offer; signed out, or a shared client that is no person (`personal`, replyFacts' gate), the standing is
+the weeks only and nothing is read. find keeps its changed-only standing line; the fact is there whenever it has a part.
 Agent guidance is in SCORE_DESCRIPTION and FIND_DESCRIPTION_BENCH (ruling R1: the server instructions stay at 795).

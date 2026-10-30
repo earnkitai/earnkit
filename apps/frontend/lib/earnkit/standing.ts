@@ -14,7 +14,8 @@ import type { RankLines } from './bench-rank';
  * (earned.ts prizesWonSql); `applied` and `drafts` applicationCounts; `next` the earliest open deadline among the fits.
  */
 export type Standing = {
-  score: number | null; rank: string | null; streak: number; wonUsd: number; applied: number; drafts: number;
+  /** Fix round 1: null when unknown (a failed read, or a caller only the streak is said to): the part is left out. */
+  score: number | null; rank: string | null; streak: number; wonUsd: number | null; applied: number; drafts: number;
   next: { program: string; day: string } | null;
 };
 
@@ -26,33 +27,40 @@ export type Standing = {
 export const pageScore = (lines: Pick<RankLines, 'listed'>, live: { parts: unknown } | null | undefined): number | null =>
   lines.listed && live ? (storedShipping(live.parts)?.points ?? null) : null;
 
-/** v4.7 T2: the page's score for the builder, from builder_live (pageScore). Never throws: a failed read is null. */
-export async function pageScoreOf(builderId: number, lines: Pick<RankLines, 'listed'>): Promise<number | null> {
-  if (!lines.listed) return null;
-  const [live] = await sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${builderId}`.catch(() => []);
-  return pageScore(lines, live);
-}
-
 /** "1 application", "2 drafts". Pure. */
 const count = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 /**
  * v4.7 T2 (exact copy): the standing paragraph. Its parts, each only when true, joined with ". ": "Score 77 · #1 of 40
- * builders" ("Score 77" under RANK_MIN_POOL), the weeks shipping, "$5,000 won so far" (else "No grants won yet"),
- * "2 applications in, 1 draft ready", "Next: Base Builder Grants closes Nov 1". Never "points". Pure.
+ * builders" ("Score 77" under RANK_MIN_POOL), the weeks shipping, "$5,000 won so far" (else "No grants won yet"; no
+ * part while wins are unknown), "2 applications in, 1 draft ready", "Next: Base Builder Grants closes Nov 1". Never
+ * "points". Empty with no part. Fix round 1 (R6): standingParagraph, not winners.ts's standingText (bench-reply.ts already has a standingLine). Pure.
  */
-export function standingText(s: Standing): string {
+export function standingParagraph(s: Standing): string {
   const work = [s.applied > 0 ? `${count(s.applied, 'application')} in` : null, s.drafts > 0 ? `${count(s.drafts, 'draft')} ready` : null]
     .filter(Boolean).join(', ');
   const parts = [
     s.score !== null ? (s.rank ? `Score ${s.score} · ${s.rank}` : `Score ${s.score}`) : null,
     s.streak >= 1 ? (s.streak === 1 ? '1 week shipping' : `${s.streak} weeks shipping in a row`) : null,
-    s.wonUsd > 0 ? `${usd(Math.round(s.wonUsd))} won so far` : 'No grants won yet',
+    s.wonUsd === null ? null : s.wonUsd > 0 ? `${usd(Math.round(s.wonUsd))} won so far` : 'No grants won yet',
     work || null,
     s.next ? `Next: ${s.next.program} closes ${s.next.day}` : null,
   ];
-  return `${parts.filter(Boolean).join('. ')}.`;
+  const said = parts.filter(Boolean);
+  return said.length > 0 ? `${said.join('. ')}.` : '';
 }
+
+/**
+ * Fix round 1 (R5): the standing leads the score reply only with a score or a streak part ("No grants won yet" alone
+ * never leads; the fact still carries it). Pure.
+ */
+export const standingLeads = (s: Standing) => s.score !== null || s.streak >= 1;
+
+/**
+ * Fix round 1 (R7, replyFacts' gating): the standing for a caller that is no signed-in person of their own (signed out,
+ * or a shared client without its own X account): the weeks only, nothing read. Pure.
+ */
+export const streakOnly = (streak: number): Standing => ({ score: null, rank: null, streak, wonUsd: null, applied: 0, drafts: 0, next: null });
 
 type DeadlineCard = { id: string; title: string; summary: string; tz?: string | null; ends_at?: Date | string | null };
 
@@ -88,9 +96,11 @@ export async function applicationCounts(builderId: number): Promise<{ applied: n
         (pr.status = 'active' AND (pr.ends_at IS NULL OR pr.ends_at > now())) AS open, p.application
       FROM projects p JOIN programs pr ON pr.id = p.program_id JOIN installations i ON i.id = p.installation_id
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}`,
+    // Fix round 1: never a campaign or the coin program here either (the entries' rule).
     db<{ program_id: string }[]>`
-      SELECT DISTINCT s.program_id FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
-      WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status <> 'not_interested'`,
+      SELECT DISTINCT s.program_id FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs pr ON pr.id = s.program_id
+      WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status <> 'not_interested'
+        AND pr.campaign IS NULL AND s.program_id <> ${COIN_PROGRAM}`,
   ]);
   const applied = new Set([...told.map((t) => t.program_id), ...entries.filter((e) => e.submitted).map((e) => e.program_id)]);
   const drafts = new Set(
@@ -110,20 +120,20 @@ export async function wonUsdOf(builderId: number): Promise<number> {
 }
 
 /**
- * v4.7 T2: the builder's standing, read with the page's own rules: the rank lines (bench-rank rankLines, which find and
- * score already read), the streak, the fits and the cards. A failed read leaves its part out (wins: "No grants won
- * yet"), never the reply.
+ * v4.7 T2: the builder's standing, read with the page's own rules: the rank lines (bench-rank rankLines) and
+ * builder_live's parts (fix round 1: both as find and score already read them), the streak, the fits and the cards. A
+ * failed read leaves its part out (never "No grants won yet" for a failed wins read), never the reply.
  */
 export async function readStanding(
   builderId: number,
-  o: { lines: Pick<RankLines, 'listed' | 'bench'>; streak: number; fits: { program_id: string }[]; cards: DeadlineCard[]; now: Date },
+  o: { lines: Pick<RankLines, 'listed' | 'bench'>; parts: unknown; streak: number; fits: { program_id: string }[]; cards: DeadlineCard[]; now: Date },
 ): Promise<Standing> {
   const fail = (what: string) => (err: unknown) => {
     console.error(`[standing] ${what}`, err instanceof Error ? err.name : 'error');
     return null;
   };
-  const [score, wonUsd, counts] = await Promise.all([
-    pageScoreOf(builderId, o.lines),
+  const score = pageScore(o.lines, { parts: o.parts });
+  const [wonUsd, counts] = await Promise.all([
     wonUsdOf(builderId).catch(fail('won')),
     applicationCounts(builderId).catch(fail('applications')),
   ]);
@@ -131,9 +141,19 @@ export async function readStanding(
     score,
     rank: score !== null ? o.lines.bench : null,
     streak: o.streak,
-    wonUsd: wonUsd ?? 0,
+    wonUsd,
     applied: counts?.applied ?? 0,
     drafts: counts?.drafts ?? 0,
     next: nextDeadline(o.fits, o.cards, o.now),
   };
+}
+
+/**
+ * Whether the caller is a person: not a shared client, or a shared client whose own installation is bound to X.
+ * v4.7 T2 fix round 1 (R7): moved here from reply-facts.ts, so its facts and the standing read one gate.
+ */
+export async function personal(ctx: { installationId: number; ownInstallationId?: number; sharedClient?: boolean }): Promise<boolean> {
+  if (!ctx.sharedClient) return true;
+  const [r] = await sql()<{ x: string | null }[]>`SELECT x_user_id AS x FROM installations WHERE id = ${ctx.ownInstallationId ?? ctx.installationId}`;
+  return Boolean(r?.x);
 }

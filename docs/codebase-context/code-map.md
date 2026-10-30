@@ -370,12 +370,15 @@ apps/frontend/
                                closeDay (ends_at's day in that zone: the one close day for the site tiles and replies;
                                ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
                                Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
-    standing.ts                v4.7 T2: where the builder stands. Standing type; standingText (exact copy: "Score 77 · #1 of 40
+    standing.ts                v4.7 T2: where the builder stands. Standing type; standingParagraph (exact copy: "Score 77 · #1 of 40
                                builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next:
                                X closes Nov 1."); pageScore (the page's score rule, used by bench-data profileData too);
                                applicationCounts (R3: Task 3's token gate reuses it); wonUsdOf (earned.ts prizesWonSql);
-                               nextDeadline (deadline.ts closeDay over the fits); readStanding. bench-find benchView puts it in
-                               every find/score reply's fields (standingFields), and benchScore leads with it (view.standingLed).
+                               nextDeadline (deadline.ts closeDay over the fits); readStanding; personal (the person gate,
+                               shared with reply-facts.ts); streakOnly (signed out or a non-person shared client: the weeks
+                               only, nothing read); standingLeads. bench-find benchView puts it in every find/score reply's
+                               fields (standingFields), and benchScore leads with it (view.standingLed) only with a score or
+                               streak part and never over the Monday block or a post offer.
                                Tested in v47-standing.test.ts
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,

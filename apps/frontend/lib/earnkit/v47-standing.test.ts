@@ -10,9 +10,10 @@ import { dropRunPrograms } from './fixtures/programs-cleanup';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { profileData } from './bench-data';
-import { standingFields } from './bench-find';
+import { benchScore, standingFields } from './bench-find';
 import { RANK_MIN_POOL } from './rank';
-import { applicationCounts, nextDeadline, pageScore, standingText, wonUsdOf, type Standing } from './standing';
+import { applicationCounts, nextDeadline, pageScore, standingLeads, standingParagraph, streakOnly, wonUsdOf, type Standing } from './standing';
+import { saveInstallation, connectInstallation } from './installations';
 import { FIND_DESCRIPTION_BENCH, SCORE_DESCRIPTION, SERVER_INSTRUCTIONS } from './mcp';
 
 /**
@@ -36,20 +37,32 @@ const show = (r: R) => String(r.reply?.show_to_builder ?? '');
 
 test('a full standing, word for word', () => {
   const full: Standing = { score: 77, rank: '#1 of 40 builders', streak: 6, wonUsd: 5000, applied: 2, drafts: 1, next: { program: 'a16z CSX', day: 'Nov 1' } };
-  assert.equal(standingText(full), 'Score 77 · #1 of 40 builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next: a16z CSX closes Nov 1.');
-  assert.equal(standingText({ ...full, rank: 'Top 4% of builders', streak: 1, applied: 1, drafts: 3 }),
+  assert.equal(standingParagraph(full), 'Score 77 · #1 of 40 builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next: a16z CSX closes Nov 1.');
+  assert.equal(standingParagraph({ ...full, rank: 'Top 4% of builders', streak: 1, applied: 1, drafts: 3 }),
     'Score 77 · Top 4% of builders. 1 week shipping. $5,000 won so far. 1 application in, 3 drafts ready. Next: a16z CSX closes Nov 1.');
-  assert.deepEqual(standingFields(full), { streak: 6, standing: standingText(full) });
+  assert.deepEqual(standingFields(full), { streak: 6, standing: standingParagraph(full) });
 });
 
 test('each part only when true: no rank under the pool, no wins, no applications or drafts, no deadline', () => {
-  assert.equal(standingText({ ...BARE, score: 77 }), 'Score 77. No grants won yet.');
-  assert.equal(standingText(BARE), 'No grants won yet.');
-  assert.equal(standingText({ ...BARE, applied: 3 }), 'No grants won yet. 3 applications in.');
-  assert.equal(standingText({ ...BARE, drafts: 1 }), 'No grants won yet. 1 draft ready.');
-  assert.equal(standingText({ ...BARE, wonUsd: 1234.4, next: { program: 'Base', day: 'Nov 3' } }), '$1,234 won so far. Next: Base closes Nov 3.');
+  assert.equal(standingParagraph({ ...BARE, score: 77 }), 'Score 77. No grants won yet.');
+  assert.equal(standingParagraph(BARE), 'No grants won yet.');
+  assert.equal(standingParagraph({ ...BARE, applied: 3 }), 'No grants won yet. 3 applications in.');
+  assert.equal(standingParagraph({ ...BARE, drafts: 1 }), 'No grants won yet. 1 draft ready.');
+  assert.equal(standingParagraph({ ...BARE, wonUsd: 1234.4, next: { program: 'Base', day: 'Nov 3' } }), '$1,234 won so far. Next: Base closes Nov 3.');
   // A rank with no score never shows (the page shows neither).
-  assert.equal(standingText({ ...BARE, rank: '#1 of 40 builders' }), 'No grants won yet.');
+  assert.equal(standingParagraph({ ...BARE, rank: '#1 of 40 builders' }), 'No grants won yet.');
+  // Fix round 1: wins unknown (a failed read, or a streak-only caller): no wins part, never "No grants won yet".
+  assert.equal(standingParagraph({ ...BARE, wonUsd: null }), '');
+  assert.equal(standingParagraph({ ...BARE, score: 77, wonUsd: null }), 'Score 77.');
+  assert.equal(standingParagraph(streakOnly(6)), '6 weeks shipping in a row.');
+  assert.equal(standingParagraph(streakOnly(0)), '');
+});
+
+test('fix round 1 (R5): the standing leads only with a score or a streak part', () => {
+  assert.equal(standingLeads(BARE), false);
+  assert.equal(standingLeads({ ...BARE, wonUsd: 5000, applied: 2 }), false);
+  assert.equal(standingLeads({ ...BARE, score: 0 }), true);
+  assert.equal(standingLeads({ ...BARE, streak: 1 }), true);
 });
 
 test('pageScore: the stored Shipping number only while listed (the page\'s rule)', () => {
@@ -159,6 +172,10 @@ test('wins, applications and drafts: announced prizes only; one per program; rea
   await entry(ghost, { confirmed: true, answers: { pitch: '(pitch: answer for pitch)' } });
   await entry(closed, { confirmed: true, answers: { pitch: 'Real words.' } });
   await entry(told, { confirmed: true, answers: { pitch: 'Real words.' } });
+  // Fix round 1: a told "applied" for a campaign or the coin program never counts (as entries).
+  const camp = await mk('camp');
+  await sql()`UPDATE programs SET campaign = '{}'::jsonb WHERE id = ${camp}`;
+  await sql()`INSERT INTO builder_program_status (installation_id, program_id, status) VALUES (${b.id}, ${camp}, 'applied'), (${b.id}, ${'earnkit-coin'}, 'applied')`;
   assert.deepEqual(await applicationCounts(b.id), { applied: 2, drafts: 1 });
 
   // Wins: an announced prize counts, a self-report never does.
@@ -169,4 +186,44 @@ test('wins, applications and drafts: announced prizes only; one per program; rea
   const r = await mcpCall(b.ctx, 'score', {});
   assert.match(String(r.reply?.standing), /^Score 50(?: · [^.]+)?\. \$5,000 won so far\. 2 applications in, 1 draft ready\.$/);
   assert.equal(show(r).split('\n\n')[0], r.reply?.standing);
+});
+
+test('fix round 1 (R7): signed out, or a shared client that is no person: the weeks only, no score, rank, wins or applications', db, async () => {
+  await padPool(RANK_MIN_POOL);
+  const b = await ranked('stx', 66, 4);
+  const [{ id: won }] = await sql()<{ id: number }[]>`INSERT INTO projects (program_id, name, installation_id) VALUES ('base-builder-grants', 'App', ${b.id}) RETURNING id`;
+  await sql()`INSERT INTO entry_outcomes (project_id, program_id, round_label, result, prize_usd, basis) VALUES (${won}, 'base-builder-grants', 'rx', 'won', 700, 'announcement')`;
+  const full = await mcpCall(b.ctx, 'find', {});
+  assert.match(String(full.reply?.standing), /^Score 66 · .+\. 4 weeks shipping in a row\. \$700 won so far\. 1 application in\.$/);
+  // A shared client (one agent, many builders) whose own installation has no X account: never this builder's numbers.
+  const t = `ek_v47sh_${RUN}_${randomBytes(4).toString('hex')}`;
+  await saveInstallation(t, undefined, false, 'Claude Code');
+  const own = (await connectInstallation(t))!.own;
+  const shared = { ...b.ctx, ownInstallationId: own, sharedClient: true };
+  const r = await mcpCall(shared as never, 'find', {});
+  // The tools never reach the Bench for a shared client (find's hosted path, score's SCORE_SHARED); the Bench's own
+  // gate holds anyway: benchScore called directly says the weeks only.
+  assert.doesNotMatch(JSON.stringify(r.reply ?? {}), /Score 66|\$700|application in/);
+  const direct = await benchScore(shared as never, new Date());
+  assert.equal(direct?.standing, '4 weeks shipping in a row.');
+  assert.doesNotMatch(JSON.stringify(direct ?? {}), /Score 66|\$700|application in/);
+  // A shared client whose own installation is bound to X is that person (replyFacts' rule): the full standing.
+  await sql()`UPDATE installations SET x_user_id = ${`x${own}`} WHERE id = ${own}`;
+  assert.match(String((await benchScore(shared as never, new Date()))?.standing), /^Score 66 · .+\$700 won so far/);
+  // Signed out (X sign-in on, the profile's X claim removed): the weeks only.
+  await sql()`UPDATE builder_profiles SET x_user_id = NULL, x_handle = NULL WHERE builder_id = ${b.id}`;
+  const was = [process.env.X_CLIENT_ID, process.env.X_CLIENT_SECRET];
+  [process.env.X_CLIENT_ID, process.env.X_CLIENT_SECRET] = ['cid', 'sec'];
+  try {
+    for (const tool of ['find', 'score'] as const) {
+      const o = await mcpCall(b.ctx, tool, {});
+      assert.equal(o.reply?.standing, '4 weeks shipping in a row.', tool);
+      assert.doesNotMatch(String(o.reply?.show_to_builder), /Score 66|\$700|application in/, tool);
+    }
+  } finally {
+    for (const [k, v] of [['X_CLIENT_ID', was[0]], ['X_CLIENT_SECRET', was[1]]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });

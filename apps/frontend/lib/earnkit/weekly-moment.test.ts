@@ -231,10 +231,7 @@ test('L6.4 the moment through score, once per installation (another agent of the
   // round 1) promises no points, since its yes pays none (approveWeek awards only a week with facts).
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, titles)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, ${['Secret launch']}::text[])`;
-  // v4.7 T2: score leads with the standing paragraph (the page's score now), then the moment as before.
-  const sr = await mcpCall(ctx(me.id), 'score', {});
-  assert.match(String(sr.reply?.standing), /^Score \d+ · #1 of 10 builders\. /);
-  const s = show(sr).slice(`${sr.reply?.standing}\n\n`.length);
+  const s = show(await mcpCall(ctx(me.id), 'score', {}));
   // No commit weeks stored: "Last week done."; #1 of 10 the week before and now: "now #1" (no week before to hold).
   // Nothing worth a post (no facts): the page is the one link.
   assert.equal(s, `Your week is ready, Sam. You shipped this week. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nLooks right?`);
@@ -274,10 +271,7 @@ test('owner batch fix wave: the moment quotes the stored summary under the head 
   await pad('wmpy', 9, [plusDays(monday, 6)]);
   await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts, summary)
     VALUES (${me.id}, ${me.key}, ${monday}, ${sql().json({ checked: true } as never)}, 'Fixed the login loop.')`;
-  // v4.7 T2: score leads with the standing paragraph, then the moment as before.
-  const sr = await mcpCall(ctx(me.id), 'score', {});
-  assert.ok(show(sr).startsWith(`${sr.reply?.standing}\n\n`), show(sr));
-  const s = show(sr).slice(`${sr.reply?.standing}\n\n`.length);
+  const s = show(await mcpCall(ctx(me.id), 'score', {}));
   assert.equal(s, `Your week is ready, Sam. Fixed the login loop. Nice work.\n\n| | This week |\n|---|---|\n| Shipping score | 30 |\n\nYour page: https://earnkit.com/${me.handle}\n\nLooks right?`);
   assert.equal(links(s).length, 1);
   assert.equal(questions(s), 1);

@@ -448,7 +448,7 @@ test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word
 });
 
 // v4.7 T2: standing is the whole standing now (v47-standing.test.ts); its weeks part keeps these words.
-const bare = { score: null, rank: null, wonUsd: 0, applied: 0, drafts: 0, next: null };
+const bare = { score: null, rank: null, wonUsd: 0 as number | null, applied: 0, drafts: 0, next: null };
 test('v4.3 Task 3: standing has no weeks part for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
   assert.deepEqual(standingFields({ ...bare, streak: 0 }), { streak: 0, standing: 'No grants won yet.' });
   assert.deepEqual(standingFields({ ...bare, streak: 1 }), { streak: 1, standing: '1 week shipping. No grants won yet.' });
@@ -474,6 +474,7 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
     const streak = Number(reply.streak ?? 0);
     // v4.7 T2: the weeks part of the whole standing.
     if (streak >= 1) assert.ok(String(reply.standing).includes(streak === 1 ? '1 week shipping' : `${streak} weeks shipping in a row`), String(reply.standing));
+    else assert.doesNotMatch(String(reply.standing ?? ''), /week/, String(reply.standing));
     assert.doesNotMatch(String(reply.standing), /points/i);
   }
 });
@@ -518,7 +519,7 @@ test('v4.3 Task 3: under RANK_MIN_POOL, find and score carry no rank_lines and f
   }
 });
 
-test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and (v4.7 T2) a standing with no score', db, async () => {
+test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and no standing (v4.7 T2 fix round 1: signed out, the weeks only)', db, async () => {
   await start();
   const t = `ek_v43fan_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -527,7 +528,7 @@ test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no po
   const reply = r.reply as Record<string, unknown>;
   assert.equal(reply.points_total, undefined);
   assert.equal(reply.rank_lines, undefined);
-  assert.equal(reply.standing, 'No grants won yet.');
+  assert.equal(reply.standing, undefined);
 });
 
 // ---- v4.3 final review fixes ----
