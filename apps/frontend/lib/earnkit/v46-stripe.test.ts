@@ -262,8 +262,8 @@ test('page and form: the exact copy, a masked text field, the key goes nowhere b
 const DAYMS = 86_400_000;
 const rate1 = async (c: string) => (c === 'usd' ? 1 : c === 'eur' ? 1.1 : null);
 type Bt = { id: string; type: string; reporting_category?: string; amount: number; currency?: string };
-type Ch = { id: string; amount: number; status?: string; refunded?: boolean; currency?: string; balance_transaction: string; customer?: string | null; email?: string | null; fp?: string | null };
-type Sub = { status?: string; items: { quantity?: number; unit_amount: number | null; interval: string; interval_count?: number; currency?: string }[] };
+type Ch = { id: string; amount: number; status?: string; refunded?: boolean; currency?: string; balance_transaction: string; customer?: string | null; email?: string | null; fp?: string | null; ar?: number };
+type Sub = { status?: string; customer?: string; discount?: object | null; discounts?: object[]; items: { quantity?: number; unit_amount: number | null; interval: string; interval_count?: number; currency?: string }[] };
 const bt = (id: string, type: string, amount: number, extra: Partial<Bt> = {}): Bt => ({ id, type, amount, currency: 'usd', ...extra });
 const chg = (n: number, amount: number, o: Partial<Ch> = {}): Ch => ({ id: `ch_${n}`, amount, balance_transaction: `bt_c${n}`, customer: `cus_${n}`, ...o });
 /** A paginating Stripe fake: honors limit and starting_after; `fail` lets a path answer a status or throw. */
@@ -285,12 +285,12 @@ function stripeFake(d: { bts?: Bt[]; charges?: Ch[]; subs?: Sub[]; fail?: Record
     if (p === '/v1/balance_transactions') return page(d.bts ?? []);
     if (p === '/v1/charges')
       return page((d.charges ?? []).map((c) => ({
-        id: c.id, amount: c.amount, status: c.status ?? 'succeeded', refunded: c.refunded ?? false, currency: c.currency ?? 'usd', balance_transaction: c.balance_transaction,
+        id: c.id, amount: c.amount, status: c.status ?? 'succeeded', refunded: c.refunded ?? false, amount_refunded: c.ar ?? 0, currency: c.currency ?? 'usd', balance_transaction: c.balance_transaction,
         customer: c.customer ?? null, billing_details: { email: c.email ?? null }, payment_method_details: { card: { fingerprint: c.fp ?? null } },
       })));
     if (p === '/v1/subscriptions')
       return page((d.subs ?? []).map((s, i) => ({
-        id: `sub_${i}`, status: s.status ?? 'active',
+        id: `sub_${i}`, status: s.status ?? 'active', customer: s.customer ?? 'cus_1', discount: s.discount ?? null, discounts: s.discounts ?? [],
         items: { data: s.items.map((it) => ({ quantity: it.quantity ?? 1, price: { unit_amount: it.unit_amount, currency: it.currency ?? 'usd', recurring: { interval: it.interval, interval_count: it.interval_count ?? 1 } } })) },
       })));
     return { status: 200, body: { id: 'acct_x', business_profile: { url: null } } };
@@ -337,7 +337,7 @@ test('stripeRevenue: MRR for monthly, yearly, weekly; trialing, canceled and pas
     { status: 'past_due', items: [{ unit_amount: 9_900, interval: 'month' }] },
     { items: [{ unit_amount: null, interval: 'month' }] },
   ];
-  const r = await stripeRevenue(KEY, NOW, stripeFake({ subs }), rate1);
+  const r = await stripeRevenue(KEY, NOW, stripeFake({ subs, bts: fiveBts(), charges: five() }), rate1);
   assert.equal(r?.mrr_usd, 43);
 });
 
@@ -478,7 +478,7 @@ test('the key never reaches the cron result, logs, errors or events, even when t
 
 test('fx: USD is 1, a rate is cached per currency per day, no rate returns null and caches nothing', dbTest, async () => {
   let n = 0;
-  const ok = async (url: string) => { n++; assert.match(url, /^https:\/\/api\.frankfurter\.app\/latest\?from=ZZZ&to=USD$/); return { status: 200, body: { rates: { USD: 1.25 } } }; };
+  const ok = async (url: string) => { n++; assert.match(url, /^https:\/\/api\.frankfurter\.dev\/v1\/latest\?from=ZZZ&to=USD$/); return { status: 200, body: { rates: { USD: 1.25 } } }; };
   assert.equal(await usdRate('usd', NOW, ok), 1);
   await sql()`DELETE FROM fx_rates WHERE currency = 'ZZZ'`;
   assert.equal(await usdRate('zzz', NOW, ok), 1.25);
@@ -491,4 +491,53 @@ test('fx: USD is 1, a rate is cached per currency per day, no rate returns null 
   assert.equal(await usdRate('ZZZ', NOW, async () => { throw new Error('net'); }), null);
   assert.equal(await usdRate('zz', NOW, ok), null);
   assert.equal((await sql()`SELECT 1 FROM fx_rates WHERE currency = 'ZZZ'`).length, 0);
+});
+
+test('fix round 1 (I1): a USD balance with one AED-presented charge still stores a row; payer gross is the settled amount', dbTest, async () => {
+  const call = stripeFake({ bts: fiveBts(), charges: [...five().slice(0, 4), chg(5, 73_000, { currency: 'aed' })] });
+  const r = await stripeRevenue(KEY, NOW, call, rate1);
+  assert.deepEqual(r, { net_usd: 1000, mrr_usd: 0, payers: 5, top_share: 0.2, capped: false });
+});
+
+test('fix round 1 (M1): a payer refunded down to $1 loses its share', dbTest, async () => {
+  const charges = [chg(1, 10_000, { ar: 9_900 }), chg(2, 10_000), chg(3, 10_000)];
+  const bts = [1, 2, 3].map((n) => bt(`bt_c${n}`, 'charge', 10_000));
+  const r = await stripeRevenue(KEY, NOW, stripeFake({ bts, charges }), rate1);
+  assert.equal(r?.top_share, 0.4975); // 100 / 201
+  assert.equal(r?.payers, 3);
+});
+
+test('fix round 1 (I2): MRR needs a counted payer and no discount; no-rate items are skipped', dbTest, async () => {
+  const own = chg(9, 20_000, { balance_transaction: 'bt_cme', email: 'me@example.com', customer: 'cus_me' });
+  const subs: Sub[] = [
+    { customer: 'cus_1', items: [{ unit_amount: 2_000, interval: 'month' }] }, // counts: 20
+    { customer: 'cus_2', discounts: [{ coupon: 'free' }], items: [{ unit_amount: 500_000, interval: 'month' }] }, // 100% off
+    { customer: 'cus_3', discount: { coupon: 'x' }, items: [{ unit_amount: 500_000, interval: 'month' }] },
+    { customer: 'cus_unpaid', items: [{ unit_amount: 500_000, interval: 'year' }] }, // send_invoice, never paid
+    { customer: 'cus_me', items: [{ unit_amount: 500_000, interval: 'month' }] }, // the builder's own
+    { customer: 'cus_4', items: [{ unit_amount: 100_000, interval: 'month', currency: 'aed' }] }, // no rate: skipped, not fatal
+  ];
+  const r = await stripeRevenue(KEY, NOW, stripeFake({ subs, bts: [...fiveBts(), bt('bt_cme', 'charge', 20_000)], charges: [...five(), own] }), rate1, ['me@example.com']);
+  assert.equal(r?.mrr_usd, 20);
+  assert.equal(r?.payers, 5);
+});
+
+test('fix round 1 (M6): payment_reversal and payment_failure_refund subtract, refund_failure adds back', dbTest, async () => {
+  const r = await stripeRevenue(KEY, NOW, stripeFake({
+    bts: [...fiveBts(), bt('x1', 'payment_reversal', -4_000), bt('x2', 'payment_failure_refund', -3_000), bt('x3', 'refund_failure', 2_000), bt('r', 'refund', -2_000)],
+    charges: five(),
+  }), rate1);
+  assert.equal(r?.net_usd, 1000 - 40 - 30 + 20 - 20);
+});
+
+test('fix round 1 (M2): a sealed key that will not open marks the connection broken', dbTest, async () => {
+  const b = await builder(null);
+  const sealed = seal(KEY, 'stripe');
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${sealed.slice(0, -2) + 'AA'}, ${`acct_${hex()}`}, 'x.com')`;
+  const call = stripeFake({});
+  assert.deepEqual(await runStripeRevenue(NOW, { deadline: Date.now() + 5000, call, rate: rate1, only: [b] }), { due: 1, stored: 0 });
+  assert.equal(call.calls.length, 0);
+  const [c] = await sql()`SELECT state, broken_at FROM stripe_connections WHERE builder_id = ${b}`;
+  assert.equal(c.state, 'broken');
+  assert.ok(c.broken_at);
 });

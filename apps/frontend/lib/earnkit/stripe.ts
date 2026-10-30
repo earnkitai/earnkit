@@ -307,6 +307,8 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
     // Charges: payers (real customers) and the builder's own, dropped.
     const droppedBt = new Set<string>();
     const paid = new Map<string, number>();
+    const payerCustomers = new Set<string>();
+    const btById = new Map<string, Record<string, unknown>>(bts.items.map((t) => [String(t.id), t]));
     for (const c of charges.items) {
       const email = str(obj(c.billing_details).email)?.trim().toLowerCase();
       if (c.status !== 'succeeded') continue;
@@ -319,7 +321,14 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
       const card = obj(obj(c.payment_method_details).card);
       const who = str(card.fingerprint) ?? str(c.customer) ?? email;
       if (!who) continue;
-      paid.set(who, (paid.get(who) ?? 0) + (await usd(num(c.amount), c.currency)));
+      // Gross from the settled balance transaction (same currency and units as net), scaled by what was not refunded.
+      const t = btById.get(str(obj(c.balance_transaction).id) ?? str(c.balance_transaction) ?? '');
+      const amount = num(c.amount);
+      if (!t || amount <= 0) continue;
+      const kept = Math.max(0, amount - num(c.amount_refunded)) / amount;
+      paid.set(who, (paid.get(who) ?? 0) + (await usd(Math.abs(num(t.amount)), t.currency)) * kept);
+      const cus = str(c.customer) ?? str(obj(c.customer).id);
+      if (cus) payerCustomers.add(cus);
     }
     let net = 0;
     for (const t of bts.items) {
@@ -328,7 +337,8 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
       const a = Math.abs(num(t.amount));
       let sign = 0;
       if (type === 'charge' || type === 'payment') sign = droppedBt.has(String(t.id)) ? 0 : 1;
-      else if (type === 'refund' || type === 'payment_refund') sign = -1;
+      else if (type === 'refund' || type === 'payment_refund' || type === 'payment_reversal' || type === 'payment_failure_refund') sign = -1;
+      else if (type === 'refund_failure') sign = 1;
       else if (type === 'adjustment' && cat === 'dispute') sign = -1;
       else if (type === 'adjustment' && cat === 'dispute_reversal') sign = 1;
       if (sign !== 0 && a > 0) net += sign * (await usd(a, t.currency));
@@ -336,6 +346,10 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
     let mrr = 0;
     for (const s of subs.items) {
       if (s.status !== 'active') continue;
+      // Only a paying customer's undiscounted subscription counts (no 100%-off coupons, no unpaid invoices, never the builder's own).
+      const cus = str(s.customer) ?? str(obj(s.customer).id);
+      if (!cus || !payerCustomers.has(cus)) continue;
+      if (s.discount || (Array.isArray(s.discounts) && s.discounts.length > 0)) continue;
       for (const it of Array.isArray(obj(s.items).data) ? (obj(s.items).data as unknown[]) : []) {
         const price = obj(obj(it).price);
         const unit = price.unit_amount;
@@ -344,7 +358,11 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
         if (typeof unit !== 'number' || !Number.isFinite(unit) || per === undefined) continue;
         const every = Math.max(1, num(rec.interval_count) || 1);
         const qty = obj(it).quantity === undefined ? 1 : num(obj(it).quantity);
-        mrr += ((await usd(unit * qty, price.currency)) * per) / every;
+        try {
+          mrr += ((await usd(unit * qty, price.currency)) * per) / every;
+        } catch (err) {
+          if (!(err instanceof NoRate)) throw err; // MRR is not the gate: an item without a rate is skipped
+        }
       }
     }
     const gross = [...paid.values()].reduce((x, y) => x + y, 0);
@@ -399,7 +417,11 @@ export async function runStripeRevenue(
     if (!(await hit(`stripe:${id}:${day}`, 1, 86_400, now)).allowed) continue;
     try {
       const key = await stripeKey(id);
-      if (!key) continue;
+      if (!key) {
+        // A sealed key that no longer opens (a rotated secret) is as good as a rejected one: broken, so the ask re-offers.
+        await sql()`UPDATE stripe_connections SET state = 'broken', broken_at = ${now} WHERE builder_id = ${id}`;
+        continue;
+      }
       const r = await stripeRevenue(key, now, call, rate, await ownEmails(id));
       if (!r) continue;
       const shown = r.payers >= PAYER_MIN && r.top_share <= TOP_MAX;
