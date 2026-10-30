@@ -30,8 +30,6 @@ import { isRealAnswer } from './submission';
 export const NEW_FIT_DAYS = 7;
 /** An accepted or funded outcome post this recent is mailed (an older one was shown in the agent long ago). */
 export const ACCEPTED_DAYS = 7;
-/** Most builders one run considers (Resend's daily cap). */
-const RUN_MAX = 100;
 const SEND_BUDGET_MS = 60_000;
 const DAY = 86_400_000;
 
@@ -163,13 +161,13 @@ type SubRow = { builder_id: number; installation_id: number; email: string };
  * due this week (the digest takes priority), and the month also every opted-in subscription's next digest; a refused cap stops the run. The send runs in one transaction that locks
  * the builder (pg_advisory_xact_lock), re-checks today's and this event's rows and writes the sent row, so two runs
  * never send twice and a failed send stores nothing. A 429 stops (`capped`); a 401 or 403 is the account (`stopped`);
- * MAX_SEND_FAILURES failures in a row stop. Final review: the run takes at most RUN_MAX builders, the ones mailed
- * longest ago first (never mailed first, then builder_id), so builders past the first RUN_MAX are never starved.
- * `deps.only`, `deps.limit`: builders and a smaller RUN_MAX (tests).
+ * MAX_SEND_FAILURES failures in a row stop. Final review (R20): no candidate limit (the free-tier caps and the run's
+ * time budget bound the sends), the builders mailed longest ago first (never mailed first, then builder_id), so the time
+ * budget cuts fairly and no builder is starved. `deps.only`: builders (tests).
  */
 export async function runAlertMail(
   now: Date,
-  deps: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; budgetMs?: number; limit?: number } = {},
+  deps: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; budgetMs?: number } = {},
 ): Promise<{ sent: number; skipped: number; capped: boolean; stopped?: true }> {
   const out: { sent: number; skipped: number; capped: boolean; stopped?: true } = { sent: 0, skipped: 0, capped: false };
   const key = process.env.RESEND_API_KEY?.trim();
@@ -197,8 +195,7 @@ export async function runAlertMail(
         ${deps.only ? sql()`AND b.builder_id = ANY(${deps.only}::int[])` : sql()``}
       ORDER BY b.builder_id, b.opted_in_at DESC) c
     LEFT JOIN (SELECT builder_id, max(sent_at) AS last FROM alert_mail_sent GROUP BY builder_id) a ON a.builder_id = c.builder_id
-    ORDER BY a.last NULLS FIRST, c.builder_id
-    LIMIT ${deps.limit ?? RUN_MAX}`;
+    ORDER BY a.last NULLS FIRST, c.builder_id`;
   let failures = 0;
   for (const s of subs) {
     if (Date.now() >= deadline) break;

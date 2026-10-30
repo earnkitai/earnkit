@@ -246,7 +246,7 @@ test('final review R18: any cron run sends (no hour gate), at most one email a b
   assert.deepEqual(sent.map((m) => m.subject), ['Base Builder Grants closes Nov 1', 'New: Arc Grants, $10,000']);
 });
 
-test('final review: the run takes the builders mailed longest ago first (never mailed first), so none past the cap starves', { skip: db.skip }, async () => {
+test('final review (R20): no candidate limit; the builders mailed longest ago go first; builder #101 with an event gets its alert', { skip: db.skip }, async () => {
   await setDayUsed(T0, 0);
   const d = at(30);
   const [a, b, c] = [await subscriber(), await subscriber(), await subscriber()];
@@ -259,13 +259,16 @@ test('final review: the run takes the builders mailed longest ago first (never m
     return [closing({ key: `closing:order:${builderId}` })];
   };
   const { mail } = recorder();
-  const r = await runAlertMail(d, { mail, events, only: [a, b, c], limit: 2 });
-  assert.equal(r.sent, 2);
-  assert.deepEqual(order, [c, b]);
-  // The next day: a (mailed longest ago now) comes first.
-  order.length = 0;
-  await runAlertMail(new Date(d.getTime() + DAY), { mail, events, only: [a, b, c], limit: 1 });
-  assert.deepEqual(order, [a]);
+  assert.equal((await runAlertMail(d, { mail, events, only: [a, b, c] })).sent, 3);
+  assert.deepEqual(order, [c, b, a]);
+  // 100 never-mailed builders with nothing to say ahead of one with an event (the old limit was 100): it still gets its alert.
+  const quiet: number[] = [];
+  for (let i = 0; i < 100; i++) quiet.push(await subscriber());
+  const last = await subscriber();
+  const { sent, mail: m2 } = recorder();
+  const r = await runAlertMail(d, { mail: m2, events: async (id: number) => (id === last ? [closing()] : []), only: [...quiet, last] });
+  assert.equal(r.sent, 1);
+  assert.equal(sent[0].to, `b${last}@example.com`);
 });
 
 test('alertEvents reads a closing entry (draft ready) and an accepted outcome post', { skip: db.skip }, async () => {
