@@ -8214,7 +8214,7 @@ related, no row without data, every row links to proof).
   offers, connect, setup step 3, the setup-done reply and held questions lead instead and the nudge waits unclaimed.
 - Fix round 1: a question-bearing nudge (closing, accepted or funded) owns the reply's one question: closing stores the
   apply ask for its program (yes: prepare shows the draft), accepted stores `outcome_share` (yes: the post's link); no
-  other ask is made, claimed or stored. The Friday line ("Quiet week?" is rhetorical) and the milestone line sit beside
+  other ask is made, claimed or stored. The Friday line (v4.7.1: "Quiet week, no stress.", no question; it sits after the money paragraph) and the milestone line sit beside
   the ranked ask. A closing nudge for the submit step's own program replaces that held question. A newly told
   acceptance or funding replies with the approved accepted line and counts as that week's nudge.
 - `stand-view.ts takeNews` now keeps every `standing_seen` key except the ones it owns (`NEWS_KEYS`: rank, at, people);
