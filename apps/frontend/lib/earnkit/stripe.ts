@@ -15,16 +15,22 @@ import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
  * Stripe docs (checked 2026-10-30): a restricted key's GET /v1/account needs the Accounts read permission
  * (`connected_account_read`, Direct), which the dashboard files under Core, Accounts; docs.stripe.com/api/accounts/retrieve
  * shows only GET /v1/accounts/{id}. We call /v1/account (it returns our own id) and name that permission "Account" in
- * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes.
+ * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes the reads.
+ *
+ * v4.7.1 T3: a key must also be unable to move money. After the reads, checkKey POSTs /v1/refunds and /v1/payouts with
+ * no parameters: a restricted key without that Write permission gets 403 (permission error); a key with it gets 400
+ * (refunds need a charge or payment_intent, payouts an amount and currency), so nothing is ever created. Both must be
+ * 403. A 400 is refused as write access; any other answer or a failed call is refused as "try again" (fail closed).
  */
 export const STRIPE_PURPOSE = 'stripe';
-export type StripeCall = (path: string, key: string) => Promise<{ status: number; body: unknown }>;
+/** `method` defaults to GET; only checkKey's write probes pass 'POST', and never with a body. */
+export type StripeCall = (path: string, key: string, method?: 'GET' | 'POST') => Promise<{ status: number; body: unknown }>;
 
 export const STRIPE_TEXT = {
   title: 'Connect Stripe, read-only',
   steps: [
     'In Stripe, open Developers, API keys, and create a restricted key.',
-    'Give it Read on Balance transactions, Charges, Subscriptions and Account. Nothing else.',
+    'Give it read access only. Leave every Write permission off.',
     "Paste it here. EarnKit only reads, never shows the number publicly, and you can disconnect any time.",
   ],
   saved: 'Connected. Your next grant draft shows your Stripe revenue once it reaches $100 in 30 days.',
@@ -35,6 +41,7 @@ export const STRIPE_TEXT = {
   alreadyConnected: 'Stripe is already connected. Ask your agent to disconnect it first, then use a new link.',
   taken: 'That Stripe account is already connected to another builder.',
   rejected: "Stripe didn't accept that key. Check it and paste it again.",
+  writeAccess: 'This key can change your Stripe account. Make a restricted key with read access only, then paste it here.',
   unreachable: "Couldn't reach Stripe. Try again in a minute.",
   expired: 'This link has expired. Ask your agent for a new Stripe link.',
   busy: 'Too many tries from here. Try again in an hour.',
@@ -58,11 +65,18 @@ export function keyKind(key: string): KeyKind {
   return 'other';
 }
 
-/** The live call: GET https://api.stripe.com/v1/... with the key as a bearer. No redirects; 10 s; never throws the key. */
-export const stripeFetch: StripeCall = async (path, key) => {
+/**
+ * The live call: GET (or, for the write probes, a bodiless POST) https://api.stripe.com/v1/... with the key as a bearer.
+ * No redirects; 10 s; never throws the key.
+ */
+export const stripeFetch: StripeCall = async (path, key, method = 'GET') => {
   if (!path.startsWith('/v1/')) throw new Error('stripe: bad path');
   const r = await fetch(`https://api.stripe.com${path}`, {
-    method: 'GET', headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(10_000),
+    method, redirect: 'error', signal: AbortSignal.timeout(10_000),
+    // The probe's empty body is form-encoded (Stripe's request format), so a 400 can only mean missing params.
+    ...(method === 'POST'
+      ? { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' }
+      : { headers: { Authorization: `Bearer ${key}` } }),
   });
   return { status: r.status, body: await r.json().catch(() => null) };
 };
@@ -98,13 +112,14 @@ export type CheckResult = { ok: true; accountId: string; host: string } | { ok: 
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 /**
- * Runs the four reads and the ownership rule. A 401 is a rejected key, a 403 names the missing permission, anything
- * else (a thrown call, 5xx, an odd answer) is "try again". Nothing here returns or logs the key.
+ * Runs the four reads, the ownership rule, then the two write probes. A 401 is a rejected key, a 403 names the missing
+ * permission, anything else (a thrown call, 5xx, an odd answer) is "try again". On the probes a 403 is the pass, a 400
+ * is write access, anything else is "try again". Nothing here returns or logs the key.
  */
 export async function checkKey(builderId: number, key: string, call: StripeCall): Promise<CheckResult> {
-  const get = async (path: string): Promise<{ status: number; body: unknown } | null> => {
+  const get = async (path: string, method?: 'POST'): Promise<{ status: number; body: unknown } | null> => {
     try {
-      return await call(path, key);
+      return await (method ? call(path, key, method) : call(path, key));
     } catch (err) {
       console.error('[stripe] call', err instanceof Error ? err.name : 'error');
       return null;
@@ -133,6 +148,13 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
     if (r.status === 401) return { ok: false, line: STRIPE_TEXT.rejected };
     if (r.status === 403) return { ok: false, line: missingLine(what) };
     if (r.status !== 200) return { ok: false, line: STRIPE_TEXT.unreachable };
+  }
+  // v4.7.1 T3: the key must not move money. Each probe is a POST with no params; only a 403 passes (see the header).
+  for (const path of ['/v1/refunds', '/v1/payouts'] as const) {
+    const r = await get(path, 'POST');
+    if (!r) return { ok: false, line: STRIPE_TEXT.unreachable };
+    if (r.status === 400) return { ok: false, line: STRIPE_TEXT.writeAccess };
+    if (r.status !== 403) return { ok: false, line: STRIPE_TEXT.unreachable };
   }
   return { ok: true, accountId: acct.id, host };
 }
