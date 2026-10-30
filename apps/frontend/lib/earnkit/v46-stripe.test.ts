@@ -544,6 +544,15 @@ test('fix round 1 (M6): payment_reversal and payment_failure_refund subtract, re
   assert.equal(r?.net_usd, 1000 - 40 - 30 + 20 - 20);
 });
 
+test('F3: signed amounts are summed as Stripe sends them; a failed refund (positive) is never subtracted twice', dbTest, async () => {
+  const r = await stripeRevenue(KEY, NOW, stripeFake({
+    bts: [...fiveBts(), bt('r', 'payment_refund', -5_000), bt('rf', 'payment_refund', 5_000), bt('a', 'adjustment', 2_000, { reporting_category: 'refund_failure' }),
+      bt('d', 'adjustment', -3_000, { reporting_category: 'dispute' })],
+    charges: five(),
+  }), rate1);
+  assert.equal(r?.net_usd, 1000 - 50 + 50 + 20 - 30);
+});
+
 test('fix round 1 (M2): a sealed key that will not open marks the connection broken', dbTest, async () => {
   const b = await builder(null);
   const sealed = seal(KEY, 'stripe');
@@ -802,5 +811,7 @@ test('3.11 tell stripe:disconnect deletes the key row and the stored figures; th
 test('3.12 the agent is told never to take a key in chat (tell description, the ask note, the connect reply)', () => {
   assert.match(TELL_DESCRIPTION_BENCH, /stripe: 'connect' or 'disconnect'.*never ask for a key in chat/);
   assert.ok(TELL_DESCRIPTION_BENCH.length < 800);
+  // F2: a pasted key is never repeated or passed to a tool; the builder deletes it in Stripe and uses the link.
+  assert.match(TELL_DESCRIPTION_BENCH, /If they paste a Stripe key, don't repeat it or pass it to any tool; tell them to delete that key in Stripe and use the link/);
   for (const n of [STRIPE_ASK_NOTE, STRIPE_NEVER_KEY]) assert.match(n, /Never ask the builder for a Stripe key in chat\. If they paste one, tell them to use the link instead and not to repeat it/);
 });

@@ -13,7 +13,7 @@ import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
  * verified sites), then kept sealed (secret-box.ts). The key is never logged, returned, evented or put in an error.
  *
  * Stripe docs (checked 2026-10-30): a restricted key's GET /v1/account needs the Accounts read permission
- * (`connected_account_read`, Direct), which the dashboard files under Connect; docs.stripe.com/api/accounts/retrieve
+ * (`connected_account_read`, Direct), which the dashboard files under Core, Accounts; docs.stripe.com/api/accounts/retrieve
  * shows only GET /v1/accounts/{id}. We call /v1/account (it returns our own id) and name that permission "Account" in
  * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes.
  */
@@ -334,14 +334,15 @@ export async function stripeRevenue(key: string, now: Date, call: StripeCall, ra
     for (const t of bts.items) {
       const type = str(t.type);
       const cat = str(t.reporting_category);
-      const a = Math.abs(num(t.amount));
-      let sign = 0;
-      if (type === 'charge' || type === 'payment') sign = droppedBt.has(String(t.id)) ? 0 : 1;
-      else if (type === 'refund' || type === 'payment_refund' || type === 'payment_reversal' || type === 'payment_failure_refund') sign = -1;
-      else if (type === 'refund_failure') sign = 1;
-      else if (type === 'adjustment' && cat === 'dispute') sign = -1;
-      else if (type === 'adjustment' && cat === 'dispute_reversal') sign = 1;
-      if (sign !== 0 && a > 0) net += sign * (await usd(a, t.currency));
+      // Stripe's balance-transaction amount is signed: charges and a lost-dispute reversal arrive positive; refunds,
+      // reversals and disputes negative; a failed refund (refund_failure, or a payment_refund that returns funds) positive.
+      // Summing the signed amount means nothing is subtracted twice.
+      const a = num(t.amount);
+      let counts = false;
+      if (type === 'charge' || type === 'payment') counts = !droppedBt.has(String(t.id));
+      else if (type === 'refund' || type === 'payment_refund' || type === 'payment_reversal' || type === 'payment_failure_refund' || type === 'refund_failure') counts = true;
+      else if (type === 'adjustment' && (cat === 'dispute' || cat === 'dispute_reversal' || cat === 'refund_failure')) counts = true;
+      if (counts && a !== 0) net += await usd(a, t.currency);
     }
     let mrr = 0;
     for (const s of subs.items) {

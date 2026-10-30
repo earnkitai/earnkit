@@ -150,15 +150,15 @@ const prepareDescription = (buildOn: boolean) =>
  * instead; v3.1 Used by: builder_code, the Base Builder Code they named; under 800 characters (mcp.test.ts 5.11).
  */
 export const TELL_DESCRIPTION_BENCH =
-  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once they submitted on the program site; a shared agent adds project_id. " +
+  "What the builder told you; call it only with what they said. submitted: { program_id, external_submission_url? } once submitted; a shared agent adds project_id. " +
   'update: { text } adds their line to this week; { hide: "YYYY-MM-DD" } hides that week. ' +
-  'updates: { titles }: show or hide a private repo\'s commit titles. ' +
-  'main_project: owner/repo to rank instead. ' +
-  "wallet: 'change' to add or change a wallet. " +
-  "stripe: 'connect' or 'disconnect' when they ask; never ask for a key in chat. " +
+  'updates: { titles }: show or hide private commit titles. ' +
+  'main_project: owner/repo to rank. ' +
+  "wallet: 'change' to change a wallet. " +
+  "stripe: 'connect' or 'disconnect' when they ask; never ask for a key in chat. If they paste a Stripe key, don't repeat it or pass it to any tool; tell them to delete that key in Stripe and use the link. " +
   'builder_code: their Base Builder Code. ' +
-  'move_up: their answer, with its kind and project_key. profile (hide, show, delete), card (yes, skip): their answers. ' +
-  'program_status (applied, accepted, won and the rest), repo_facts, weekly_email: what they said; private.';
+  'move_up: their answer with its kind and project_key. profile (hide, show, delete), card (yes, skip). ' +
+  'program_status, repo_facts, weekly_email: what they said; private.';
 
 /** v2.12.1 T8: score's description. */
 export const SCORE_DESCRIPTION =
@@ -406,7 +406,7 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
           main_project: z.string().max(300).optional().describe('owner/repo (or its GitHub link) when they name another of their repos to rank'),
           // v3.1 wallet proof: a fresh signing link for a new reward wallet.
           wallet: z.string().max(100).optional().describe("'change' (or the address they named) when they want to add a wallet or send their rewards to a different one"),
-          stripe: z.enum(['connect', 'disconnect']).optional().describe("'connect' for a read-only Stripe link, 'disconnect' to delete the key, when they ask; never ask them for a key in chat"),
+          stripe: z.enum(['connect', 'disconnect']).optional().describe("'connect' for a read-only Stripe link, 'disconnect' to delete the key, when they ask; never ask them for a key in chat. If they paste a key, don't repeat it or pass it to any tool; tell them to delete it in Stripe and use the link"),
           builder_code: z.string().max(100).optional().describe('The Base Builder Code they named (lowercase letters, digits, underscores)'),
           move_up: z
             .object({
