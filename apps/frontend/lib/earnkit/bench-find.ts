@@ -14,7 +14,7 @@ import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { readFitRepos } from './installations';
 import { UPDATE_LINES, setShipTitles, takeTitlesAsk, titlesAskDue } from './updates';
-import { grantOf, qualifyOffer } from './base-qualify';
+import { grantOf, qualifyKeptAway, qualifyOffer } from './base-qualify';
 import { earnedUsd } from './earned';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
@@ -119,13 +119,15 @@ export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: 
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
-export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
+/** v4.7.1 T1 fix round 1: the shared stem of CHECK_FITS_NOTE and checkNeedsNote. */
+const CHECK_FITS_STEM = 'The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply.';
+export const CHECK_FITS_NOTE = `${CHECK_FITS_STEM} Don't show this note.`;
 /**
  * v4.7.1 T1: CHECK_FITS_NOTE for the ranked check_fits ask ("Want me to check what Kit would need for Arc Microgrants?"):
  * also read that program's requirements and list what the project would need. Pure.
  */
 export const checkNeedsNote = (program: string) =>
-  `${CHECK_FITS_NOTE.slice(0, -" Don't show this note.".length)} Then read ${program}'s requirements (its program page or the source find links) and list, in short plain lines, what the project would need to meet each one. ` +
+  `${CHECK_FITS_STEM} Then read ${program}'s requirements (its program page or the source find links) and list, in short plain lines, what the project would need to meet each one. ` +
   "Never tell them they qualify or that an application was sent. Don't show this note.";
 /**
  * Final review 3: the setup-done reply's own questions have their own kinds (closest: the closest program's one step;
@@ -664,16 +666,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
   // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
   const reach = o.reach ?? (await agentReach(o.own, id));
-  // v4.7.1 T1: Base's grant steps are read here (no claim), so a still-due qualify keeps its place and check_fits waits.
-  const qualifyDue = quiet && realFits.length === 0
-    ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known })
-    : null;
   // v4.7.1 T1: no fit and no qualify due: what the project would need for the first open grant, once a person, ahead of
   // the check-in, wallet, token, new-repo, titles and ship asks (standing_seen.check_fits_asked). Never Base's grant:
   // with no qualify due, its own steps were given, declined or told already.
   const needFor = openNow.find((g) => g.id !== BASE_GRANTS_ID) ?? null;
-  const checkFits = quiet && !more && !qualifyDue && realFits.length === 0 && needFor && !read.seen.check_fits_asked
-    && (await takeOnce(id, 'check_fits_asked', now)) ? needFor.title : null;
+  const qualifyIn = { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known };
+  const fitsCould = quiet && !more && realFits.length === 0 && needFor !== null && !read.seen.check_fits_asked;
+  // Fix round 1: a still-due qualify keeps its place, so check_fits reads it first, only while check_fits could be asked
+  // and the cheap checks (qualifyKeptAway: declined, answered, not shown) leave it possible; reused in qualify's own slot.
+  const early = fitsCould ? (qualifyKeptAway(project.key, qualifyIn) ? null : await qualifyOffer(id, project.key, qualifyIn)) : undefined;
+  const checkFits = fitsCould && !early && (await takeOnce(id, 'check_fits_asked', now)) ? needFor!.title : null;
   const checkin = quiet && !more && !checkFits && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
   const wallet = ((quiet && !checkin && !checkFits) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
@@ -685,7 +687,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const newRepo = quiet && !more && !checkFits && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
   const titles = quiet && !more && !checkFits && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = !checkin && !wallet && !tokenOffer && !newRepo && !titles ? qualifyDue : null;
+  const qualify = quiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
+    ? (early !== undefined ? early : await qualifyOffer(id, project.key, qualifyIn))
+    : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
 
   let fund: FundLine[] = [];
@@ -787,7 +791,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v3.1 cold read: the ranked standing line only when it changed since last shown (score always shows it: the builder
   // asked); the shipping points line at most once an ISO week. Each is remembered only when its reply carries it.
   if (ranked && project) {
-    const standKey = standingLine(project.name, view.rank, streak, view.earned ?? 0);
+    // v4.7.1 T1 fix round 1 (R5): the key holds the score too, so a new score shows the paragraph again (wins, drafts and
+    // the next deadline stay out of it, so it never re-shows every day).
+    const standKey = `${standingLine(project.name, view.rank, streak, view.earned ?? 0)}${stand.score !== null ? ` · score ${stand.score}` : ''}`;
     // The connect reply says the same facts in its own words ("Kit is on the leaderboard: #1 of 13 builders, ...").
     // v4.7 T3: the apply reply is the money alone (no standing line), so it carries none either.
     const carries = held !== null || !['share', 'post', 'apply'].includes(finalAsk.kind);

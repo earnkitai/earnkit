@@ -288,7 +288,8 @@ test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in ev
   await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project: { name: 'KitFlow', repo_url: `https://github.com/${b.key}` } }).catch(() => null);
   // v4.7 T2: score leads with the standing paragraph (no name). v4.7.1 T1: so does find's; its step carries the name.
   const s = show(await find(b));
-  assert.match(s, /\bKitFlow (needs|is|would need)\b/, s);
+  assert.match(s, /\. To qualify, KitFlow needs to add Builder Codes, /, s);
+  assert.equal(s.split('\n').at(-1), 'Want me to add Builder Codes to KitFlow?', s);
   // Security review: the name is used for an eligibility line only about the builder's own one project.
   assert.equal(await mainProjectNameFor(b.id, `https://github.com/${b.key}`), 'KitFlow');
   assert.equal(await mainProjectNameFor(b.id, 'someone/else'), null);

@@ -14,7 +14,8 @@ import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import {
-  CHECKIN_ASK, CHECKIN_WHY, SHIP_ASK, applyAsk, askWhy, benchReply, checkFitsWhy, checkNeedsAsk, openNowLine, stateAsk, type BenchView,
+  CHECKIN_ASK, CHECKIN_WHY, MOMENT_ASK, POST_ASK, POST_WHY, SHARE_WHY, SHIP_ASK, TOKEN_OFFER, applyAsk, askWhy, benchReply, checkFitsWhy, checkNeedsAsk, openNowLine,
+  qualifyLine, stateAsk, type BenchView, type MomentView,
 } from './bench-reply';
 import { CHECK_FITS_ASK_NOTE, CHECK_FITS_NOTE, checkNeedsNote, openNowGrants } from './bench-find';
 import type { Card } from './present';
@@ -60,7 +61,8 @@ const ranked = (o: Partial<BenchView> = {}): BenchView => ({
 test('exact copy: the open money paragraph and the check_fits ask', () => {
   assert.equal(
     openNowLine(OPEN),
-    'Open now: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Open now: Circle Developer Grants, $5,000 to $100,000 USDC grants, rolling.',
+    // Fix round 1 (R1): "Open now:" once, the grants joined.
+    'Open now: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Circle Developer Grants, $5,000 to $100,000 USDC grants, rolling.',
   );
   assert.equal(openNowLine(OPEN.slice(0, 1)), 'Open now: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1.');
   assert.equal(openNowLine([]), null);
@@ -115,6 +117,26 @@ test('pure: no fit, the open grants lead every non-money ask and the quiet reply
   for (const ask of [{ kind: 'ship' as const, project_key: P.key, line: SHIP_ASK }, { kind: 'none' as const, project_key: P.key, line: '' }]) {
     assert.equal(benchReply(ranked({ fund: [fit], openNow: OPEN, ask })), benchReply(ranked({ fund: [fit], ask })));
   }
+  // Fix round 1 (review 1): fits all drafted or applied (no unapplied fit): the shapes with no moneyLine of their own
+  // (wallet, token, new repo, the Monday block, a post) carry the fit line; with no fit, the open grants.
+  const moment: MomentView = { week: 3, place: null, rank: 1, summary: null, post: null, first: 'Maya', score: 50, change: null, community: { usd: 0, lastWeekUsd: 0 } };
+  const post = { head: 'Kit went live this week.', text: 'Kit is live.', link: 'https://earnkit.com/maya/post/abcdefghij' };
+  const shapes: Partial<BenchView>[] = [
+    { ask: { kind: 'wallet', project_key: P.key, line: 'Prove your Base wallet: https://earnkit.com/w\nDone?' } },
+    { ask: { kind: 'token', project_key: null, line: TOKEN_OFFER } },
+    { ask: { kind: 'new_repo', project_key: P.key, line: 'Working on something new? Connect that repo instead.' } },
+    { ask: { kind: 'share', project_key: P.key, line: MOMENT_ASK }, moment },
+    { ask: { kind: 'post', project_key: P.key, line: POST_ASK }, post },
+  ];
+  for (const o of shapes) {
+    const withFit = benchReply(ranked({ fund: [fit], openNow: OPEN, standingShown: false, ...o }));
+    assert.ok(withFit.includes(qualifyLine(fit)), withFit);
+    assert.doesNotMatch(withFit, /Open now/, withFit);
+    const noFit = benchReply(ranked({ openNow: OPEN, standingShown: false, ...o }));
+    assert.ok(noFit.includes(openNowLine(OPEN)!), noFit);
+    if (o.ask!.kind === 'share') assert.ok(noFit.endsWith(`${openNowLine(OPEN)}\n\n${SHARE_WHY}\n\n${MOMENT_ASK}`), noFit);
+    if (o.ask!.kind === 'post') assert.ok(noFit.endsWith(`${openNowLine(OPEN)}\n\n${POST_WHY}\n\n${POST_ASK}`), noFit);
+  }
   // A held question never gets the open grants.
   assert.doesNotMatch(benchReply(ranked({ openNow: OPEN, held: 'Did Kit win?' })), /Open now/);
 });
@@ -167,11 +189,23 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   const b = await builder('nf', []);
   const first = await find(b);
   const s = show(first);
-  const money = `Open now: ${a.title}, $5,000, ${a.when}. Open now: ${b2.title}, $5,000, ${b2.when}.`;
   const paras = s.split('\n\n');
-  assert.equal(paras[0], money, s);
+  // Fix round 1 (R3): other test files add open grants to the shared DB, so this checks the shape and its own two grants'
+  // order (soonest first), and names them exactly only when no other grant closes before them.
+  const money = paras[0];
+  assert.match(money, /^Open now: [^\n]+\.$/, s);
+  assert.equal(money.split('Open now:').length, 2, 'once (R1)');
+  const cellA = `${a.title}, $5,000, ${a.when}.`;
+  const cellB = `${b2.title}, $5,000, ${b2.when}.`;
+  if (money.includes(cellA) && money.includes(cellB)) assert.ok(money.indexOf(cellA) < money.indexOf(cellB), money);
+  const [{ sooner }] = await sql()<{ sooner: number }[]>`
+    SELECT count(*)::int AS sooner FROM programs WHERE status = 'active' AND ends_at > now() AND ends_at < ${new Date(Date.now() + 4 * 3_600_000)} AND id NOT IN (${a.id}, ${b2.id})`;
+  if (sooner === 0) {
+    assert.equal(money, `Open now: ${cellA} ${cellB}`, s);
+    assert.equal(paras.at(-1), checkNeedsAsk('Kit', a.title), s);
+  }
   assert.equal(paras.at(-2), checkFitsWhy('Kit'), s);
-  assert.equal(paras.at(-1), checkNeedsAsk('Kit', a.title), s);
+  assert.match(paras.at(-1)!, /^Want me to check what Kit would need for [^?]+\?$/, s);
   assert.equal(moveUp(first)?.kind, 'check_fits');
   assert.equal(moveUp(first)?.why, checkFitsWhy('Kit'));
   assert.ok(moveUp(first)?.agent_note.startsWith(CHECK_FITS_ASK_NOTE.replace(" Don't show this note.", '')));
@@ -180,12 +214,16 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   assert.equal((s.match(/\?/g) ?? []).length, 1, s);
   // The yes reads that program's requirements.
   const yes = await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'check_fits', project_key: b.key, answer: 'yes' } });
-  assert.equal(yes.reply?.agent_note, checkNeedsNote(a.title));
+  const named = /would need for ([^?]+)\?$/.exec(paras.at(-1)!)![1];
+  const note = String(yes.reply?.agent_note);
+  assert.ok(note.startsWith(CHECK_FITS_NOTE.replace(" Don't show this note.", '')), note);
+  assert.ok(note.includes(`${named}`) && /requirements/.test(note), note);
+  if (named === a.title) assert.equal(note, checkNeedsNote(a.title));
 
   // Once only: the next find asks something else, and still leads with the money.
   const second = await find(b);
   assert.notEqual(moveUp(second)?.kind, 'check_fits');
-  assert.ok(show(second).startsWith(money), show(second));
+  assert.match(show(second), /^Open now: /, show(second));
   if (moveUp(second)?.kind === 'checkin') assert.equal(show(second).split('\n\n').at(-2), CHECKIN_WHY);
 
   // The quiet reply (check-in answered, ship asked today): the money, no standing line, no why.
@@ -193,7 +231,7 @@ test('Review Focus 1: no fit, qualify declined, 2 open grants: money first, chec
   const quiet = await find(b);
   const q = show(quiet);
   assert.ok(q.includes('Open now:'), q);
-  assert.ok(q.startsWith(money), q);
+  assert.match(q, /^Open now: [^\n]+\.$/m, q);
   assert.doesNotMatch(q, /·/);
   assert.equal(moveUp(quiet)?.why, undefined);
   assert.doesNotMatch(q, BAD);

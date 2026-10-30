@@ -78,6 +78,9 @@ test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for w
     'Your post for X:',
     '"Kit is live. 8 weeks from first commit."',
     `Post it in one tap: ${tap1}`,
+    // v4.7.1 T1 fix round 1: the fit (applied to, so not money first) before the why: money in every ranked reply.
+    '',
+    'You qualify for the Base Builder Grant Program, up to $5,000.',
     // v4.7 T4: the post step's why, its own paragraph before the question.
     '',
     'A post with real numbers is what reviewers read.',

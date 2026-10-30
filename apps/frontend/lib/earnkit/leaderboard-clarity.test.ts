@@ -266,7 +266,8 @@ test('R11: a long project name is whole in the reply and on the leaderboard', db
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
   // v4.7.1 T1: the standing paragraph names no project; the reply's step names it whole.
-  assert.ok(s.includes(`${name} needs`) || s.includes(`${name} would need`) || s.includes(`${name} is`), s);
+  assert.ok(s.includes(`To qualify, ${name} needs to `), s);
+  assert.equal(s.split('\n').at(-1), `Want help putting ${name} on Base?`, s);
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });
