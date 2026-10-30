@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { open, seal } from './secret-box';
 import {
-  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, mismatchLine, registrable,
+  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, mismatchLine,
   stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
 } from './stripe';
 import { upgradeOf, upgradeToken, walletLink, walletPageState } from './wallet-proof';
@@ -69,13 +69,17 @@ test('keyKind and host matching', () => {
   assert.equal(keyKind('sk_test_x'), 'test');
   assert.equal(keyKind('pk_live_x'), 'other');
   assert.equal(keyKind('nope'), 'other');
-  assert.equal(registrable('app.foo.com'), 'foo.com');
-  assert.equal(registrable('a.foo.co.uk'), 'foo.co.uk');
-  assert.equal(registrable('a.vercel.app'), 'a.vercel.app');
-  assert.ok(hostMatches('app.foo.com', ['foo.com']));
-  assert.ok(hostMatches('foo.com', ['docs.foo.com']));
+  assert.ok(hostMatches('app.example.com', ['example.com']));
+  assert.ok(hostMatches('example.com', ['app.example.com']));
+  assert.ok(hostMatches('example.com', ['example.com']));
   assert.ok(!hostMatches('bar.com', ['foo.com']));
-  assert.ok(!hostMatches('bar.vercel.app', ['foo.vercel.app']), 'a shared hosting suffix is not one site');
+  assert.ok(!hostMatches('alice.up.railway.app', ['bob.up.railway.app']));
+  assert.ok(!hostMatches('bar.co.uk', ['foo.co.uk']));
+  assert.ok(!hostMatches('y.com.cn', ['x.com.cn']));
+  assert.ok(!hostMatches('up.railway.app', ['alice.vercel.app']));
+  assert.ok(!hostMatches('vercel.app', ['alice.vercel.app']), 'a shared suffix is never a parent');
+  assert.ok(!hostMatches('up.railway.app', ['alice.up.railway.app']));
+  assert.ok(!hostMatches('com', ['example.com']), 'a bare label is never a parent');
   assert.ok(!hostMatches('x.com', []));
 });
 
@@ -122,6 +126,13 @@ test('connect stores the key sealed; sk_live_ and test keys are never stored; a 
   assert.equal((await connectStripe(t, KEY + 'B', NOW, call)).ok, true);
   const [again] = await sql()`SELECT state, broken_at FROM stripe_connections WHERE builder_id = ${id}`;
   assert.deepEqual([again.state, again.broken_at], ['ok', null]);
+  // Key rotation for the same account updates the sealed key; a different account never replaces the connection.
+  const [before] = await sql()<{ sealed_key: string }[]>`SELECT sealed_key FROM stripe_connections WHERE builder_id = ${id}`;
+  assert.equal(await stripeKey(id), KEY + 'B');
+  const swap = await connectStripe(t, KEY + 'C', NOW, fake({ id: `acct_${hex()}`, url: 'https://store.example.com' }));
+  assert.deepEqual(swap, { ok: false, line: 'Stripe is already connected. Ask your agent to disconnect it first, then use a new link.' });
+  const [after_] = await sql()<{ sealed_key: string; account_id: string }[]>`SELECT sealed_key, account_id FROM stripe_connections WHERE builder_id = ${id}`;
+  assert.deepEqual([after_.sealed_key, after_.account_id], [before.sealed_key, acct], 'the old row is untouched');
   // Another builder on the same account is refused.
   const other = await builder('https://store.example.com');
   const r2 = await connectStripe(upgradeToken(other, NOW, undefined, 'stripe')!, KEY, NOW, call);
@@ -210,11 +221,13 @@ test('route: origin, no or expired token, bad body, a rate limit; the key never 
   }
 });
 
-test('page and form: the exact copy, a password field, the key goes nowhere but the POST', () => {
+test('page and form: the exact copy, a masked text field, the key goes nowhere but the POST', () => {
   const html = renderToStaticMarkup(React.createElement(StripeForm, { token: 'tok', text: STRIPE_TEXT }));
   assert.ok(html.includes('Connect Stripe, read-only'));
   for (const s of STRIPE_TEXT.steps) assert.ok(html.includes(s.replace(/'/g, '&#x27;')) || html.includes(s));
-  assert.ok(html.includes('type="password"'));
+  assert.ok(html.includes('type="text"') && !html.includes('type="password"'));
+  for (const a of ['data-1p-ignore', 'data-lpignore="true"', 'autoComplete="off"', 'spellCheck="false"', '-webkit-text-security:disc'])
+    assert.ok(html.toLowerCase().includes(a.toLowerCase()), a);
   const all = JSON.stringify(STRIPE_TEXT);
   assert.ok(!/[—–]/.test(all) && !/coin|points/i.test(all), 'no em dashes, no coin, no points');
   assert.deepEqual(STRIPE_TEXT.steps[1], 'Give it Read on Balance transactions, Charges, Subscriptions and Account. Nothing else.');

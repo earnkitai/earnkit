@@ -241,26 +241,37 @@ export type WalletPage =
       xHref: string | null;
     };
 
+/**
+ * v4.6: what both link pages (wallet, Stripe connect) start from: the optional per-IP rate check, the purpose-bound token,
+ * and the claimed X profile it names. `busy` is a RateLimitError from `rate`; `expired` is anything else wrong with the link.
+ */
+export type LinkPerson = { ok: true; id: number; handle: string } | { ok: false; why: 'busy' | 'expired' };
+export async function linkPerson(token: string, now: Date, purpose: string, rate?: () => Promise<unknown>): Promise<LinkPerson> {
+  try {
+    await rate?.();
+  } catch (err) {
+    if (err instanceof RateLimitError) return { ok: false, why: 'busy' };
+    throw err;
+  }
+  const id = upgradeOf(token, now, undefined, purpose);
+  if (id === null) return { ok: false, why: 'expired' };
+  const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
+  return p?.x_handle ? { ok: true, id, handle: p.x_handle } : { ok: false, why: 'expired' };
+}
+
 /** What the signing page shows for this link (expired, used, signing, X first). A busy client IP: the busy line. */
 export async function walletPageState(
   token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown>; xCookie?: (name: string) => string | null | undefined } = {},
 ): Promise<WalletPage> {
-  try {
-    await (o.limit ?? ((ip: string) => enforce('walletPage', ip, WALLET_TEXT.busy)))(o.ip ?? 'unknown');
-  } catch (err) {
-    if (err instanceof RateLimitError) return { kind: 'gone', line: WALLET_TEXT.busy };
-    throw err;
-  }
-  const id = upgradeOf(token, now);
-  if (id === null) return { kind: 'gone', line: WALLET_TEXT.expired };
-  const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
-  if (!p?.x_handle) return { kind: 'gone', line: WALLET_TEXT.expired };
+  const who = await linkPerson(token, now, 'upgrade', () => (o.limit ?? ((ip: string) => enforce('walletPage', ip, WALLET_TEXT.busy)))(o.ip ?? 'unknown'));
+  if (!who.ok) return { kind: 'gone', line: who.why === 'busy' ? WALLET_TEXT.busy : WALLET_TEXT.expired };
+  const { id, handle } = who;
   const [used] = await sql()`SELECT 1 FROM wallet_proof_uses WHERE use_hash = ${tokenUseKey(token)}`;
   if (used) return { kind: 'gone', line: WALLET_TEXT.used };
   const current = await provenWallet(id);
   const needX = current !== null && !(await xChecked(token, id, now, o.xCookie?.(walletXCookie(tokenUseKey(token)))));
   return {
-    kind: 'sign', token, handle: p.x_handle, message: walletMessage(p.x_handle, token), current, needX,
+    kind: 'sign', token, handle, message: walletMessage(handle, token), current, needX,
     xHref: needX && xSignInEnabled() ? `/claim/wallet/x?t=${encodeURIComponent(token)}` : null,
   };
 }

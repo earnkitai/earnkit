@@ -2,7 +2,7 @@ import { sql } from './db';
 import { siteUrl } from './entry-text';
 import { RateLimitError, clientIp, enforce } from './rate-limit';
 import { open, seal } from './secret-box';
-import { upgradeOf, upgradeToken } from './wallet-proof';
+import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
 
 /**
  * v4.6 verified Stripe revenue, Task 1: the key store and the connect page. A builder pastes a live restricted key with
@@ -29,6 +29,7 @@ export const STRIPE_TEXT = {
   testKey: "That's a test key. Paste a live restricted key.",
   notAKey: "That doesn't look like a Stripe key. Paste a live restricted key, it starts with rk_live_.",
   noSite: "Stripe lists no website for this account. Set your project's site in Stripe, Settings, Business details, then paste again.",
+  alreadyConnected: 'Stripe is already connected. Ask your agent to disconnect it first, then use a new link.',
   taken: 'That Stripe account is already connected to another builder.',
   rejected: "Stripe didn't accept that key. Check it and paste it again.",
   unreachable: "Couldn't reach Stripe. Try again in a minute.",
@@ -63,13 +64,12 @@ export const stripeFetch: StripeCall = async (path, key) => {
   return { status: r.status, body: await r.json().catch(() => null) };
 };
 
-// Hosting suffixes where a "registrable domain" is one label deeper: foo.vercel.app and bar.vercel.app are not the same site.
+// Hosting suffixes whose subdomains belong to different people: a Stripe host that IS one of these never matches a sibling.
 const SHARED_SUFFIXES = new Set([
   'github.io', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'up.railway.app', 'railway.app', 'herokuapp.com', 'fly.dev',
   'onrender.com', 'web.app', 'firebaseapp.com', 'surge.sh', 'replit.app', 'repl.co', 'glitch.me', 'lovable.app', 'webflow.io',
   'wixsite.com', 'carrd.co', 'framer.website', 'framer.app', 'streamlit.app', 'gitlab.io', 'vercel.dev', 'netlify.com', 'ngrok.app',
 ]);
-const TWO_PART_TLDS = new Set(['co.uk', 'org.uk', 'ac.uk', 'com.au', 'net.au', 'co.nz', 'co.jp', 'co.in', 'com.br', 'com.mx', 'co.za', 'com.sg', 'com.tr']);
 const hostOf = (v: string): string | null => {
   try {
     const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : `https://${v}`);
@@ -79,15 +79,17 @@ const hostOf = (v: string): string | null => {
     return null;
   }
 };
-/** The registrable domain of a host (a shared hosting suffix keeps one more label). Pure. */
-export function registrable(host: string): string {
-  const l = host.split('.');
-  for (const n of [3, 2]) if (l.length > n - 1 && SHARED_SUFFIXES.has(l.slice(-(n - 1)).join('.'))) return l.slice(-n).join('.');
-  if (l.length >= 3 && TWO_PART_TLDS.has(l.slice(-2).join('.'))) return l.slice(-3).join('.');
-  return l.slice(-2).join('.');
-}
-/** Whether Stripe's website host is one of the builder's verified site hosts, or a subdomain of the same registrable domain. Pure. */
-export const hostMatches = (stripeHost: string, siteHosts: string[]) => siteHosts.some((s) => s === stripeHost || registrable(s) === registrable(stripeHost));
+/**
+ * Exact-host ownership, no public-suffix guessing: the Stripe host equals a verified site host, is a subdomain of one,
+ * or (with at least two labels and not a shared hosting suffix) is a parent of one. Pure.
+ */
+export const hostMatches = (stripeHost: string, siteHosts: string[]) =>
+  siteHosts.some(
+    (s) =>
+      stripeHost === s ||
+      stripeHost.endsWith(`.${s}`) ||
+      (stripeHost.split('.').length >= 2 && !SHARED_SUFFIXES.has(stripeHost) && s.endsWith(`.${stripeHost}`)),
+  );
 
 export type CheckResult = { ok: true; accountId: string; host: string } | { ok: false; line: string };
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
@@ -135,19 +137,21 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
 export type ConnectResult = { ok: true; line: string } | { ok: false; line: string };
 /** Checks the kind, then the key, then stores it sealed (an upsert: pasting again replaces the key and clears 'broken'). */
 export async function connectStripe(token: string, key: string, now: Date, call: StripeCall = stripeFetch): Promise<ConnectResult> {
-  const id = upgradeOf(token, now, undefined, STRIPE_PURPOSE);
-  if (id === null) return { ok: false, line: STRIPE_TEXT.expired };
+  const who = await linkPerson(token, now, STRIPE_PURPOSE);
+  if (!who.ok) return { ok: false, line: STRIPE_TEXT.expired };
+  const id = who.id;
   const k = key.trim();
   const kind = keyKind(k);
   if (kind === 'secret') return { ok: false, line: STRIPE_TEXT.secretKey };
   if (kind === 'test') return { ok: false, line: STRIPE_TEXT.testKey };
   if (kind !== 'restricted' || k.length > 400 || !/^rk_live_[A-Za-z0-9_]+$/.test(k)) return { ok: false, line: STRIPE_TEXT.notAKey };
-  const [p] = await sql()`SELECT 1 FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
-  if (!p) return { ok: false, line: STRIPE_TEXT.expired };
   const c = await checkKey(id, k, call);
   if (!c.ok) return c;
   const [other] = await sql()`SELECT 1 FROM stripe_connections WHERE account_id = ${c.accountId} AND builder_id <> ${id}`;
   if (other) return { ok: false, line: STRIPE_TEXT.taken };
+  // A link may create a connection or rotate the key of the same account, never swap in a different account.
+  const [mine] = await sql()<{ account_id: string }[]>`SELECT account_id FROM stripe_connections WHERE builder_id = ${id}`;
+  if (mine && mine.account_id !== c.accountId) return { ok: false, line: STRIPE_TEXT.alreadyConnected };
   try {
     await sql()`
       INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, connected_at, broken_at)
@@ -184,18 +188,11 @@ export type StripePage = { kind: 'gone'; line: string } | { kind: 'connect'; tok
 export async function stripePageState(
   token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown> } = {},
 ): Promise<StripePage> {
-  try {
-    await (o.limit ?? ((ip: string) => enforce('stripePage', ip, STRIPE_TEXT.busy)))(o.ip ?? 'unknown');
-  } catch (err) {
-    if (err instanceof RateLimitError) return { kind: 'gone', line: STRIPE_TEXT.busy };
-    throw err;
-  }
-  const id = upgradeOf(token, now, undefined, STRIPE_PURPOSE);
-  if (id === null) return { kind: 'gone', line: STRIPE_TEXT.expired };
-  const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
-  if (!p?.x_handle) return { kind: 'gone', line: STRIPE_TEXT.expired };
+  const who = await linkPerson(token, now, STRIPE_PURPOSE, () => (o.limit ?? ((ip: string) => enforce('stripePage', ip, STRIPE_TEXT.busy)))(o.ip ?? 'unknown'));
+  if (!who.ok) return { kind: 'gone', line: who.why === 'busy' ? STRIPE_TEXT.busy : STRIPE_TEXT.expired };
+  const id = who.id;
   const [c] = await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`;
-  return { kind: 'connect', token, handle: p.x_handle, connected: Boolean(c) };
+  return { kind: 'connect', token, handle: who.handle, connected: Boolean(c) };
 }
 
 type RouteDeps = { limit?: (request: Request, builderId: number | null) => Promise<unknown>; call?: StripeCall; now?: Date };
