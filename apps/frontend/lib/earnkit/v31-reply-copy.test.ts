@@ -153,9 +153,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
 
   // The ship step: the Best fit, the one question, its points line (v3.1 cold read: the standing was just said in the
   // connect reply and hasn't changed, so it isn't repeated; the points line is this week's first).
+  // v4.7.1 final review (R6): Base's application is drafted now, so it is never pitched again: the open grants instead.
   const s8 = rule(show(await mcpCall(ctx, 'find', {})));
   assert.equal(s8, [
-    'You qualify for the Base Builder Grant Program, up to $5,000.',
+    'Open now: Circle Developer Grants, $5,000 to $100,000 USDC grants, rolling.',
     // v4.7 T4: the ship ask's why line in place of the points line, its own paragraph.
     '',
     'Shipping this week keeps your 4-week streak and lifts your score.',
@@ -193,6 +194,10 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     '\\| Streak \\| 4 weeks \\|',
     '',
     `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,
+    '',
+    // v4.7.1 T1 fix round 1: no unapplied fit, so the Monday block carries money before its why; fix round 2 (R6): Base's
+    // grant was drafted (the apply yes above), so never pitched: the open grants, without it.
+    'Open now: (?:(?!Base Builder)[^\\n])+',
     '',
     'Builders who share wins get noticed by programs\\.',
     '',

@@ -1459,7 +1459,7 @@ apps/frontend/
                                pool in a program's reward: "$840,000"/"$840K"/"10,000 USDC", its "+"),
                                v2.9 E20: wonLine ("Builders using EarnKit won $X", null at 0).
                                poolLine (a card's big line), poolTotal/poolTotalText (moneyText's formatter;
-                               poolTotal feeds the deprecated open_pools_usd/_plus; "+" when rounding drops value),
+                               poolTotal no longer feeds /api/stats (open_pools_* dropped in v4.7.1); "+" when rounding drops value),
                                statedPool (a row's pool), amountStated, isGrant, eachLine ("per grant" /
                                "per winner", "$5K–$100K per grant", "500 USDC per grant")
     stats.ts(+test)            v2.5 Task 9: readStats (one aggregate query) / statsFrom (pure):
@@ -1468,7 +1468,7 @@ apps/frontend/
                                launch-ready L9: activated, weekly_active and shared from the weekly moment's approvals
                                (approvedWeek: project_updates.facts.approved + approved_at; shared: approved_via 'share'; notTest);
                                open_money_usd (v2.9 F21: openMoneyUsd over the active rows, open_rows) +
-                               open_money_text (moneyText), v2.7.1 open_pools_usd + open_pools_plus (deprecated, still served, Ruling G23), programs_open,
+                               open_money_text (moneyText), (v4.7.1: open_pools_usd/_plus and points_total dropped from the JSON), programs_open,
                                bonus_programs_open (v2.6 Ruling 16 (plan): open programs with
                                builder_bonus AND campaign IS NULL, bonusOn's SQL twin),
                                coins_launched (token_status launched), fees_to_safe_eth (v2.5-split coins
@@ -2621,7 +2621,7 @@ a source); `site-data.ts usageRows`/`bestUsage` (Used by's read and pick, shared
 `revenue_30d_usd`. Tests: `v45-traction.test.ts`.
 
 v4.6 Task 1 (verified Stripe revenue, key store): `secret-box.ts` (`seal`/`open`, AES-256-GCM keyed from EARNKIT_AUTH_SECRET per
-purpose); `stripe.ts` (`StripeCall`, `keyKind`, `checkKey` with the ownership rule, `connectStripe`, `disconnectStripe`,
+purpose); `stripe.ts` (`StripeCall`, `keyKind`, `checkKey` with the ownership rule and the v4.7.1 write-access probes, `connectStripe`, `disconnectStripe`,
 `stripeKey`, `stripeLink`, `stripePageState`, `stripePost`; `stripe_connections` in schema.sql, private); `app/connect/stripe/` (page, StripeForm, `key/route.ts` POST)
 (page, StripeForm, POST at key/route.ts); `wallet-proof.ts upgradeToken/upgradeOf` take a `purpose` ('upgrade' wallet, 'stripe');
 `rate-limit.ts` `stripePage`/`stripeConnect`. Tests: `v46-stripe.test.ts`.
@@ -2650,3 +2650,11 @@ nothing); T4 `bench-reply.ts` why lines (`askWhy`, `move_up.why`, `ASKS_HINT`); 
 `alert_mail_sent`), `digest.ts` (new ask, reply_to, standing on top), `best-fit.ts` (`openFitsFor`, `standingFor`),
 `cron.ts` (`alert_mail` step), `mcp.ts` (session-start instruction; ruling R1 dropped the move_up and score lines),
 `llms/v213.txt`. Tests: `v47-numbers`, `v47-standing`, `v47-money-first`, `v47-why` (T4's), `v47-reach-out`.
+
+v4.7.1 Task 1 (money always shows): `bench-find.ts` `openNowGrants` (up to two open grants, soonest deadline first,
+rolling last) sets `view.openNow` in a ranked reply with no unapplied fit; the ranked `check_fits` ask (once,
+`standing_seen.check_fits_asked` via `takeOnce`; after a still-due qualify, ahead of checkin/wallet/token/new_repo/titles/
+ship; never names Base's grant; its yes `checkNeedsNote`). `bench-reply.ts` `openNowLine`, `checkFitsWhy`, `checkNeedsAsk`,
+`shortTitle`; rankedBody leads every non-money ask and the quiet reply with the open grants (a fit's reply unchanged);
+`standingText` (standing.ts `standingParagraph`) replaces `standingLine` in replies (the line stays the change key);
+`askWhy` is null for `none`. Fixture `fixtures/wallet-step.ts checkFitsAsked`. Tests: `v471-money.test.ts`.

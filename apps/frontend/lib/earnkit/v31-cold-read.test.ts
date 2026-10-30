@@ -240,7 +240,8 @@ test('the status line only when it changed, the points line once a week; score a
   const b = await builder('s', { wallet: true });
   const one = show(await find(b));
   clean(one);
-  assert.match(one, /^Kit is on EarnKit\./, one);
+  // v4.7.1 T1: the standing is v4.7's paragraph, never the old "Kit is on EarnKit." line while it has a part.
+  assert.match(one, /^Score \d+\. No grants won yet\./, one);
   // v4.3: with no fit, Base's grant reply (its money and gap, then its question); it carries no ship line.
   assert.match(one, /\nBase Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want [^\n]*\?$/, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
@@ -285,9 +286,10 @@ test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in ev
   const r = await tell(b, { repo_facts: [{ repo: b.key, mainnet_chains: ['base'], has_users: true }] });
   assert.equal(show(r), 'Noted: live on Base with users.');
   await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project: { name: 'KitFlow', repo_url: `https://github.com/${b.key}` } }).catch(() => null);
-  // v4.7 T2: score leads with the standing paragraph (no name), so find's standing line carries the name.
+  // v4.7 T2: score leads with the standing paragraph (no name). v4.7.1 T1: so does find's; its step carries the name.
   const s = show(await find(b));
-  assert.match(s, /^KitFlow is on EarnKit\./, s);
+  assert.match(s, /\. To qualify, KitFlow needs to add Builder Codes, /, s);
+  assert.equal(s.split('\n').at(-1), 'Want me to add Builder Codes to KitFlow?', s);
   // Security review: the name is used for an eligibility line only about the builder's own one project.
   assert.equal(await mainProjectNameFor(b.id, `https://github.com/${b.key}`), 'KitFlow');
   assert.equal(await mainProjectNameFor(b.id, 'someone/else'), null);

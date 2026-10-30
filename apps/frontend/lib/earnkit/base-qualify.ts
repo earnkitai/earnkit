@@ -80,6 +80,23 @@ export function qualifyPlan(grant: OpenGrant, st: Record<QualifyStep, Status>, h
 }
 
 /**
+ * v4.7.1 T1 fix round 1: the checks qualifyOffer makes before reading anything: Base Builder Grants not shown or with no
+ * award, or its question declined or answered within `declineMs`. True: no offer (nothing read, no GitHub). Pure.
+ */
+export function qualifyKeptAway(
+  key: string,
+  o: { cards: Card[]; skip: Set<string>; seen: Seen & { qualify_given?: Record<string, string> }; now: Date; declineMs: number },
+): boolean {
+  const card = o.cards.find((c) => c.id === BASE_GRANTS_ID);
+  if (!card || !showable(card, o.now, o.skip) || !grantOf(card)) return true;
+  // A no, or a yes (the steps were given: fix round 1), keeps the question away for declineMs.
+  const no = o.seen.declined?.[benchStepKey('qualify', key)];
+  if (no && o.now.getTime() - Date.parse(no) < o.declineMs) return true;
+  const given = o.seen.qualify_given?.[key.toLowerCase()];
+  return Boolean(given && o.now.getTime() - Date.parse(given) < o.declineMs);
+}
+
+/**
  * The offer for a ranked builder's one project `key` with no fit: Base Builder Grants open and shown (`cards`, not in
  * `skip`), with an award; not declined within `declineMs`; never a program the builder told EarnKit about. Null
  * otherwise or on a read error (the reply keeps the ship step). Never throws.
@@ -94,15 +111,9 @@ export async function qualifyOffer(
   },
 ): Promise<QualifyOffer | null> {
   try {
-    const card = o.cards.find((c) => c.id === BASE_GRANTS_ID);
-    if (!card || !showable(card, o.now, o.skip)) return null;
-    const grant = grantOf(card);
-    if (!grant) return null;
-    // A no, or a yes (the steps were given: fix round 1), keeps the question away for declineMs.
-    const no = o.seen.declined?.[benchStepKey('qualify', key)];
-    if (no && o.now.getTime() - Date.parse(no) < o.declineMs) return null;
-    const given = o.seen.qualify_given?.[key.toLowerCase()];
-    if (given && o.now.getTime() - Date.parse(given) < o.declineMs) return null;
+    if (qualifyKeptAway(key, o)) return null;
+    const card = o.cards.find((c) => c.id === BASE_GRANTS_ID)!;
+    const grant = grantOf(card)!;
     const [told] = await sql()`SELECT 1 FROM builder_program_status WHERE installation_id = ${id} AND program_id = ${BASE_GRANTS_ID} LIMIT 1`;
     if (told) return null;
     const [repos, rows] = await Promise.all([readFitRepos(id), openCuratedRows()]);

@@ -1729,8 +1729,8 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   "available", "total"), so a per-winner amount can't pass as a pool. Circle's `max_award_usd` is
   100000 and `min_award_usd` 5000 (additive `programs.min_award_usd`; must be stated in `reward`
   and below the max) ("$5,000 … up to $100,000 in USDC",
-  circle.com/grant), so the first message's per-winner total includes it. `/api/stats` adds
-  `open_pools_usd` and `open_pools_plus` (the same total and "+", `pool.ts` `poolTotal`/`statedPool`,
+  circle.com/grant), so the first message's per-winner total includes it. `/api/stats` added
+  `open_pools_usd` and `open_pools_plus` (dropped in v4.7.1; the same total and "+", `pool.ts` `poolTotal`/`statedPool`,
   over listPrograms' open rule, curated only); `open_money_usd` is unchanged. Spec: `v2.7.1-landing-simplify.md`.
 - The figure is formatted on the server (`landing.ts`) and passed to the client `Hero` as a string:
   client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
@@ -3311,8 +3311,8 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   card; with repos: over the rows the builder qualifies for) and `/api/stats` (`open_money_usd`,
   `open_money_text`) all call it. `readStats` reads the active rows as json (`open_rows`) and
   `statsFrom(r, now)` applies `openMoneyUsd`; the SQL sum is gone. The old pool-based figure
-  (`openFigure`) is removed. Ruling G23: `open_pools_usd`/`open_pools_plus` are still served,
-  labelled deprecated, so docs.earnkit.com never breaks; no page shows them. With the catalogue on
+  (`openFigure`) is removed. Ruling G23 kept `open_pools_usd`/`open_pools_plus` served, deprecated;
+  v4.7.1 dropped them from `/api/stats`; no page shows them. With the catalogue on
   2026-10-08 the figure is $1,170,500, shown "$1.1M+". Tests: stats 11.1/11.2, human-text and
   copy-review 11.3 (no "$1.3M", "1,170,500" or "1170500" in human or builder text; `openFigure` and
   `poolTotalText` imported only in pool.ts and its test; one fixture catalogue gives one figure on
@@ -3431,8 +3431,8 @@ but your own terminal.
 5. **`GAS_WALLET_MIN_WEI`.** Set at the Part 1 ship (Ruling G16, 0.0001 ETH). Raise it back toward
    the 0.002 ETH default once the payout wallet is topped up.
 6. **The docs money switch (optional, Ruling G23).** docs.earnkit.com may switch its live number
-   from `open_pools_usd`/`open_pools_plus` to `open_money_text`. The old fields are still served
-   (labelled deprecated), so nothing breaks if it waits.
+   from `open_pools_usd`/`open_pools_plus` to `open_money_text`. The old fields were dropped
+   from `/api/stats` in v4.7.1, so docs.earnkit.com must switch.
 7. **Test with throwaway repos:** one hosted site end to end (sign-in, upload, the badge, a takedown),
    and one weekly email to yourself (opt in, wait for Monday's run, unsubscribe from the email).
 
@@ -6665,7 +6665,7 @@ say yes, earn points, get the Monday email.
   do (via its `approved_via`). The profile
   showed `POINTS_PAGE_LINE` until the v3.1 site (the profile shows no points; owner 2026-10-21: points in agent replies
   only), replies carry points through v3.1 T16's lines (`bench-reply.ts POINTS_ON_*`, `connect-moment.ts pointsAddedLine`; v4.2 removed the ship step's `shipPointsLine` for `shipLine`),
-  and `/api/stats` returns `points_total`.
+  and `/api/stats` returned `points_total` (dropped in v4.7.1).
 - **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
   ranked reply after connect shows every unconfirmed, unhidden week with facts, newest first, at most 12
   (v3.1 T16 removed `CONNECT_HEAD` and the weeks list; see "v3.1 P0 Task 16" below), and asks `connectAsk(weeks, page)`
@@ -8214,7 +8214,7 @@ related, no row without data, every row links to proof).
   offers, connect, setup step 3, the setup-done reply and held questions lead instead and the nudge waits unclaimed.
 - Fix round 1: a question-bearing nudge (closing, accepted or funded) owns the reply's one question: closing stores the
   apply ask for its program (yes: prepare shows the draft), accepted stores `outcome_share` (yes: the post's link); no
-  other ask is made, claimed or stored. The Friday line ("Quiet week?" is rhetorical) and the milestone line sit beside
+  other ask is made, claimed or stored. The Friday line (v4.7.1: "Quiet week, no stress.", no question; it sits after the money paragraph) and the milestone line sit beside
   the ranked ask. A closing nudge for the submit step's own program replaces that held question. A newly told
   acceptance or funding replies with the approved accepted line and counts as that week's nudge.
 - `stand-view.ts takeNews` now keeps every `standing_seen` key except the ones it owns (`NEWS_KEYS`: rank, at, people);
@@ -8465,8 +8465,8 @@ updates for shown programs. Task 3: find and score replies carry no `points_tota
 (`reply-facts.ts` drops `points` and `about.points`); `rank_lines` is sent only when non-empty; `standing`
 (`bench-find.ts standingFields`: absent for 0 weeks, `1 week shipping`, `n weeks shipping in a row`) is the fact the agent
 answers "where do I stand" from. `ANSWER_FIRST_NOTE` no longer lists points, rank or how ranking works, and answers a
-points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` and the
-internal ledger stay (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
+points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` was dropped in v4.7.1; the
+internal ledger stays (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
 R10 (absent, not `[]`) and `v31-answerable.test.ts` (no points in facts or about).
 
 ## v4.4: setup order and "I already have a token" (2026-10-29)
@@ -8521,7 +8521,10 @@ v4.6 Stripe key store (the ownership rule stops casual misuse only; a cooperatin
 so wallet links and Stripe links never open each other's page). The key is checked with read-only GETs through an injectable
 `StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
 (`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
-keys are refused before any call.
+keys are refused before any call. v4.7.1 T3: after the reads and the ownership rule, `checkKey` probes write access with
+bodiless POSTs to `/v1/refunds` and `/v1/payouts` (`StripeCall`'s optional `method`); both must be 403 (no permission). A 400
+(the key has write access, and the call fails on missing params, so nothing is created) is refused with `STRIPE_TEXT.writeAccess`.
+Any other answer or a failed call is refused as unreachable (fail closed). Nothing is stored on refusal. The daily read never probes.
 
 - **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
   (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/
@@ -8586,3 +8589,12 @@ the digest's unsubscribe link and headers. Agents are told to call find at the s
 instructions' first line; ruling R1 keeps them under 800 characters by dropping the move_up and score lines, which
 the tool descriptions carry).
 
+v4.7.1 money always shows (Task 1, 2026-10-30). The owner's dogfood: with no fit and Base's steps declined, "what can I
+earn" led with a Monday check-in and no money; a second find said "EarnKit · 6 weeks in a row". Now a ranked reply with
+no unapplied fit opens with "Open now: {title}, {amount}, {when}." for up to two open grants (bench-find.ts
+`openNowGrants`: grants only, soonest deadline first, rolling last), before any non-money ask (connect, the Monday block,
+a post, the check-in, wallet, token, new repo, titles, ship) and on the quiet reply too; a builder with a fit hears
+v4.7's reply word for word. With no fit and no qualify due, the ask is `check_fits` once ("Want me to check what Kit
+would need for Arc Microgrants?", its why "None of these fit Kit on what EarnKit can see yet."), never naming Base's
+grant; its yes runs find and reads that program's requirements. Ranked replies show v4.7's standing paragraph in place
+of `standingLine`, under the same changed-only key (`status_seen` still holds the old line, so nothing re-shows).

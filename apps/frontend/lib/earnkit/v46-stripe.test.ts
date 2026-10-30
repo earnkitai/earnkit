@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { open, seal } from './secret-box';
 import {
-  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, mismatchLine,
-  stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
+  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, missingReadLine, mismatchLine,
+  stripeFetch, stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
 } from './stripe';
 import { upgradeOf, upgradeToken, walletLink, walletPageState } from './wallet-proof';
 import { STRIPE_PAGES, StripeAuthError, latestStripe, runStripeRevenue, stripeRevenue } from './stripe';
@@ -56,7 +56,13 @@ async function builder(site: string | null): Promise<number> {
 type Over = Partial<Record<string, { status: number; body?: unknown }>>;
 const fake = (acct: { id?: string; url?: string | null }, over: Over = {}): StripeCall & { calls: string[] } => {
   const calls: string[] = [];
-  const f = (async (path: string) => {
+  const f = (async (path: string, _key: string, method?: string) => {
+    // v4.7.1 T3: write probes are recorded and overridden as 'POST /v1/...'; by default a read-only key's 403.
+    if (method === 'POST') {
+      calls.push(`POST ${path}`);
+      const o = over[`POST ${path}`];
+      return { status: o?.status ?? 403, body: o?.body ?? { error: { type: 'invalid_request_error' } } };
+    }
     calls.push(path);
     const o = over[path.split('?')[0]];
     if (o) return { status: o.status, body: o.body ?? {} };
@@ -112,9 +118,11 @@ test('checkKey: ok; subdomain match; each missing permission; site mismatch; no 
   assert.equal(sub.ok, true);
   const c = fake({ url: 'https://myapp.com' });
   await checkKey(id, KEY, c);
-  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1']);
-  for (const [path, what] of [['/v1/account', 'Account'], ['/v1/balance_transactions', 'Balance transactions'], ['/v1/charges', 'Charges'], ['/v1/subscriptions', 'Subscriptions']] as const)
-    assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line: missingLine(what) });
+  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', 'POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers']);
+  for (const [path, line] of [['/v1/account', missingReadLine('account')], ['/v1/balance_transactions', missingReadLine('balance')], ['/v1/charges', missingLine('Charges')], ['/v1/subscriptions', missingLine('Subscriptions')]] as const)
+    assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line });
+  // v4.7.1 T3 fix 1: no invented permission label in builder copy.
+  assert.equal(missingReadLine('balance'), "This key can't read your balance. Give it read access only, then paste it again.");
   const m = fake({ url: 'https://friend.io' });
   assert.deepEqual(await checkKey(id, KEY, m), { ok: false, line: mismatchLine('friend.io') });
   assert.deepEqual(m.calls, ['/v1/account'], 'no more reads once ownership fails');
@@ -124,6 +132,72 @@ test('checkKey: ok; subdomain match; each missing permission; site mismatch; no 
   assert.deepEqual(await checkKey(id, KEY, boom), { ok: false, line: STRIPE_TEXT.unreachable });
   assert.equal((await checkKey(await builder(null), KEY, fake({ url: 'https://myapp.com' }))).ok, false, 'no verified site, no match');
   assert.equal(mismatchLine('friend.io'), "Stripe lists friend.io as this account's website, which isn't one of your projects. Set your project's site in Stripe, Settings, Business details, then paste again.");
+});
+
+test('v4.7.1 T3: write access is refused (400 on any probe); read-only (403 on all three) passes; any other answer fails closed and stores nothing', dbTest, async () => {
+  const id = await builder('https://probe.example.com');
+  const url = 'https://probe.example.com';
+  const write = 'This key can change your Stripe account. Make a restricted key with read access only, then paste it here.';
+  assert.equal(STRIPE_TEXT.writeAccess, write);
+  // Read-only: all three probes 403, accepted; the probes are exactly three bodiless POSTs, after the reads.
+  const seen: [string, string | undefined][] = [];
+  const base = fake({ url });
+  const spy: StripeCall = async (...a) => { seen.push([a[0], a[2]]); return base(...a); };
+  assert.equal((await checkKey(id, KEY, spy)).ok, true);
+  assert.deepEqual(seen.filter((s) => s[1] === 'POST').map((s) => s[0]), ['/v1/refunds', '/v1/payouts', '/v1/transfers']);
+  assert.ok(seen.filter((s) => s[1] !== 'POST').every((s) => s[1] === undefined || s[1] === 'GET'), 'reads stay GETs');
+  // Write access on refunds, on payouts only, on transfers only (final review), or on all: refused with the exact copy.
+  for (const over of [{ 'POST /v1/refunds': { status: 400 } }, { 'POST /v1/payouts': { status: 400 } }, { 'POST /v1/transfers': { status: 400 } },
+    { 'POST /v1/refunds': { status: 400 }, 'POST /v1/payouts': { status: 400 }, 'POST /v1/transfers': { status: 400 } }])
+    assert.deepEqual(await checkKey(id, KEY, fake({ url }, over)), { ok: false, line: write }, JSON.stringify(over));
+  // Any other status, or a thrown probe, fails closed with the generic copy.
+  for (const status of [500, 200, 401, 429])
+    for (const path of ['POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers'])
+      assert.deepEqual(await checkKey(id, KEY, fake({ url }, { [path]: { status } })), { ok: false, line: STRIPE_TEXT.unreachable }, `${path} ${status}`);
+  const probeBoom = (which: string): StripeCall => async (path, key, method) => {
+    if (method === 'POST' && path === which) throw new Error(`timeout ${key}`);
+    return fake({ url })(path, key, method);
+  };
+  for (const which of ['/v1/refunds', '/v1/payouts', '/v1/transfers']) assert.deepEqual(await checkKey(id, KEY, probeBoom(which)), { ok: false, line: STRIPE_TEXT.unreachable });
+  // Nothing stored on any refusal (connectStripe path), and the probes never run before the ownership check.
+  const t = upgradeToken(id, NOW, undefined, 'stripe')!;
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/payouts': { status: 400 } })), { ok: false, line: write });
+  // Final review: a key whose only write is transfers is refused, nothing stored.
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/transfers': { status: 400 } })), { ok: false, line: write });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/refunds': { status: 500 } })), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, probeBoom('/v1/payouts')), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`).length, 0, 'nothing stored');
+  const m = fake({ url: 'https://friend.io' });
+  await checkKey(id, KEY, m);
+  assert.ok(!m.calls.some((c) => c.startsWith('POST')), 'no probe once ownership fails');
+  // A read-only key then connects.
+  assert.equal((await connectStripe(t, KEY, NOW, fake({ url }))).ok, true);
+});
+
+test('v4.7.1 T3: stripeFetch POST is bodiless and form-encoded; GET is unchanged; no redirects; the key only as a bearer', async () => {
+  const seen: { url: string; init: RequestInit }[] = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    seen.push({ url: String(url), init });
+    return new Response(JSON.stringify({ error: {} }), { status: 403 });
+  }) as typeof fetch;
+  try {
+    assert.equal((await stripeFetch('/v1/refunds', KEY, 'POST')).status, 403);
+    assert.equal((await stripeFetch('/v1/charges?limit=1', KEY)).status, 403);
+  } finally {
+    globalThis.fetch = orig;
+  }
+  const [post, get] = seen;
+  assert.equal(post.url, 'https://api.stripe.com/v1/refunds');
+  assert.equal(post.init.method, 'POST');
+  assert.equal(post.init.body, '');
+  assert.equal(post.init.redirect, 'error');
+  assert.deepEqual(post.init.headers, { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' });
+  assert.equal(get.url, 'https://api.stripe.com/v1/charges?limit=1');
+  assert.equal(get.init.method, 'GET');
+  assert.equal(get.init.body, undefined);
+  assert.equal(get.init.redirect, 'error');
+  assert.deepEqual(get.init.headers, { Authorization: `Bearer ${KEY}` });
 });
 
 test('connect stores the key sealed; sk_live_ and test keys are never stored; a mismatch stores nothing; disconnect deletes', dbTest, async () => {
@@ -185,8 +259,9 @@ test('two concurrent pastes for different accounts: exactly one wins and the oth
   const t = upgradeToken(id, NOW, undefined, 'stripe')!;
   const a1 = `acct_${hex()}`;
   const a2 = `acct_${hex()}`;
-  const slow = (acct: string): StripeCall => async (path) => {
+  const slow = (acct: string): StripeCall => async (path, _key, method) => {
     await new Promise((r) => setTimeout(r, 20));
+    if (method === 'POST') return { status: 403, body: {} };
     return path === '/v1/account' ? { status: 200, body: { id: acct, business_profile: { url: 'https://race.example.com' } } } : { status: 200, body: { data: [] } };
   };
   const rs = await Promise.all([connectStripe(t, KEY + 'R1', NOW, slow(a1)), connectStripe(t, KEY + 'R2', NOW, slow(a2))]);
@@ -270,7 +345,7 @@ test('page and form: the exact copy, a masked text field, the key goes nowhere b
     assert.ok(html.toLowerCase().includes(a.toLowerCase()), a);
   const all = JSON.stringify(STRIPE_TEXT);
   assert.ok(!/[—–]/.test(all) && !/coin|points/i.test(all), 'no em dashes, no coin, no points');
-  assert.deepEqual(STRIPE_TEXT.steps[1], 'Give it Read on Balance transactions, Charges, Subscriptions and Account. Nothing else.');
+  assert.deepEqual(STRIPE_TEXT.steps[1], 'Give it read access only. Leave every Write permission off.');
   assert.equal(STRIPE_TEXT.saved, 'Connected. Your next grant draft shows your Stripe revenue once it reaches $100 in 30 days.');
   assert.ok(RESERVED_ROUTES.has('connect'));
 });
@@ -286,8 +361,8 @@ const chg = (n: number, amount: number, o: Partial<Ch> = {}): Ch => ({ id: `ch_$
 /** A paginating Stripe fake: honors limit and starting_after; `fail` lets a path answer a status or throw. */
 function stripeFake(d: { bts?: Bt[]; charges?: Ch[]; subs?: Sub[]; fail?: Record<string, number | 'throw'> }) {
   const calls: string[] = [];
-  const f = (async (path: string, key: string) => {
-    calls.push(path);
+  const f = (async (path: string, key: string, method?: string) => {
+    calls.push(method === 'POST' ? `POST ${path}` : path);
     const [p, qs] = path.split('?');
     const q = new URLSearchParams(qs);
     const fail = d.fail?.[p];
@@ -332,7 +407,7 @@ test('stripeRevenue: charges minus refunds minus a dispute, a reversal back in; 
   assert.match(first, /^\/v1\/balance_transactions\?/);
   assert.match(first, /limit=100/);
   assert.match(first, new RegExp(`created%5Bgte%5D=${Math.floor(NOW.getTime() / 1000) - 30 * 86_400}|created\\[gte\\]=${Math.floor(NOW.getTime() / 1000) - 30 * 86_400}`));
-  assert.ok(call.calls.every((c) => c.startsWith('/v1/')));
+  assert.ok(call.calls.every((c) => c.startsWith('/v1/')), 'v4.7.1 T3: only GETs, no write probe in the daily read');
 });
 
 test('stripeRevenue: a net below zero is clamped at 0; EUR converts at the rate; no rate stores nothing', dbTest, async () => {
@@ -385,6 +460,7 @@ test('runStripeRevenue: stores the row (shown by the rule), once a UTC day, own 
   });
   const opts = { deadline: Date.now() + 5000, call, rate: rate1, only: [b] };
   assert.deepEqual(await runStripeRevenue(NOW, opts), { due: 1, stored: 1 });
+  assert.ok(!call.calls.some((c) => c.startsWith('POST')), 'v4.7.1 T3: the daily run never probes');
   const rows = await sql()`SELECT day::text, net_usd::float8 AS net, payers, shown, capped FROM stripe_revenue WHERE builder_id = ${b}`;
   assert.deepEqual(rows.map((r) => ({ ...r })), [{ day: '2026-10-30', net: 1000, payers: 5, shown: true, capped: false }]);
   const n = call.calls.length;

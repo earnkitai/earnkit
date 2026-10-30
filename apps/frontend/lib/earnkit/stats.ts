@@ -1,7 +1,7 @@
 import { sql, type Db } from './db';
 import { testBuilderSql, testInstallationIds } from './installations';
 import { FEE_SPLIT_BPS } from './policy';
-import { openCurated, openGrantsText, openMoneyUsd, poolTotal, statedPool } from './pool';
+import { openCurated, openGrantsText, openMoneyUsd } from './pool';
 import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fees';
 
 /**
@@ -13,8 +13,6 @@ import { PRICE_WAIT_MS, cachedWethUsd, creatorWalletSql, wethToUsd } from './fee
 export const STATS_KEYS = [
   'open_money_usd',
   'open_money_text',
-  'open_pools_usd',
-  'open_pools_plus',
   'programs_open',
   'bonus_programs_open',
   'coins_launched',
@@ -34,7 +32,6 @@ export const STATS_KEYS = [
   'labelled_entries',
   'entries_won',
   'builders_won_usd',
-  'points_total',
   'applications',
   'accepted',
   'backing_open',
@@ -49,15 +46,15 @@ export const STATS_KEYS = [
  */
 export const WIN_RATE_MIN_LABELLED = 30;
 
-/** Every stat but `open_pools_plus` and `open_money_text` is a number. */
-export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_pools_plus' | 'open_money_text'>;
+/** Every stat but `open_money_text` is a number. */
+export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_money_text'>;
 /**
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
  * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
- * shows for it ("$115K in grants and prizes open", null when nothing is open). Ruling G23: `open_pools_usd` and `open_pools_plus` (the v2.7.1 source-stated pool total
- * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
+ * shows for it ("$115K in grants and prizes open", null when nothing is open). v4.7.1 T2: the old `open_pools_usd`/`open_pools_plus` (the v2.7.1 source-stated pool total
+ * and its "+") and `points_total` are no longer in the stats.
  */
-export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null; open_pools_plus: boolean };
+export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null };
 
 /** v2.9 F21: the one money figure; implemented in pool.ts (present.ts can't import this file). */
 export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoneyRow } from './pool';
@@ -71,8 +68,6 @@ export { moneyText, openGrantsText, openMoneyUsd, openMoneyWords, type OpenMoney
 export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   open_money_usd: 'open money: top prize per open program (USD)',
   open_money_text: 'open money, as shown',
-  open_pools_usd: 'open prize pools (USD, deprecated)',
-  open_pools_plus: 'some open programs publish no pool (deprecated)',
   programs_open: 'programs open',
   bonus_programs_open: 'programs with a builder bonus',
   coins_launched: 'tokens launched',
@@ -96,7 +91,6 @@ export const STATS_LABELS: Record<(typeof STATS_KEYS)[number], string> = {
   labelled_entries: 'entries with a published result',
   entries_won: 'entries that won',
   builders_won_usd: 'won by EarnKit builders (announced, USD)',
-  points_total: 'points awarded for approved weeks',
   applications: 'applications the builder told EarnKit about',
   accepted: 'of which accepted or funded (self-reported)',
   backing_open: 'retired with the per-project offers (always 0)',
@@ -124,8 +118,6 @@ type OpenRow = {
 
 type Row = {
   open_rows: OpenRow[] | null;
-  /** v2.7.1: each open curated program's pool_usd and reward (json, so pool_usd is a number). */
-  pool_rows: { pool_usd: string | number | null; reward: string }[] | null;
   programs_open: number;
   bonus_programs_open: number;
   coins_launched: number;
@@ -156,8 +148,6 @@ type Row = {
   labelled_entries: number;
   entries_won: number;
   builders_won_usd: string | null;
-  /** v3 Stage 1: points awarded to non-test people (builder_points). */
-  points_total?: string | number | null;
   /** v3 Stage 2: distinct (person, program) applications the builder told EarnKit about (builder_program_status). */
   applications?: number;
   /** v3 Stage 2: of those, accepted or funded (self-reported). */
@@ -187,7 +177,6 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
   const big = (v: string | null | undefined) => BigInt(v ?? '0');
   const estimate = (wei: bigint) => (wei * BigInt(FEE_SPLIT_BPS.earnkit)) / BigInt(FEE_SPLIT_BPS.bonus);
   const safeWei = big(r.safe_fees_wei) + estimate(big(r.bonus_unmatched_wei)) + big(r.bonus_to_safe_wei);
-  const pools = poolTotal((r.pool_rows ?? []).map((p) => statedPool(p.pool_usd, p.reward)));
   const date = (v: string | null) => (v ? new Date(v) : null);
   const openRows = (r.open_rows ?? []).map((p) => ({ ...p, max_award_usd: p.max_award_usd == null ? null : Number(p.max_award_usd), starts_at: date(p.starts_at), ends_at: date(p.ends_at) }));
   const openUsd = Math.round(openMoneyUsd(openRows, now));
@@ -195,8 +184,6 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     open_money_usd: openUsd,
     // v3 Stage 2: the landing's line ("$115K in grants and prizes open"), null when no curated program is open.
     open_money_text: openRows.some((p) => openCurated(p, now)) ? openGrantsText(openUsd) : null,
-    open_pools_usd: Math.round(pools.usd),
-    open_pools_plus: pools.plus,
     programs_open: Number(r.programs_open),
     // v2.14: there is no builder bonus; the key stays for jenil.ai.
     bonus_programs_open: 0,
@@ -218,7 +205,6 @@ export function statsFrom(r: Row, now = new Date()): PublicStats {
     labelled_entries: Number(r.labelled_entries),
     entries_won: Number(r.entries_won),
     builders_won_usd: Math.round(Number(r.builders_won_usd ?? 0)),
-    points_total: Number(r.points_total ?? 0),
     applications: Number(r.applications ?? 0),
     accepted: Number(r.accepted ?? 0),
     backing_open: 0,
@@ -258,9 +244,6 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- v2.9 F21: every active program; openMoneyUsd (statsFrom) keeps the open curated ones.
       (SELECT json_agg(json_build_object('max_award_usd', max_award_usd, 'investment', investment, 'status', status, 'campaign', campaign,
         'source', source, 'starts_at', starts_at, 'ends_at', ends_at)) FROM programs WHERE status = 'active') AS open_rows,
-      -- v2.7.1: the landing page's programs (listPrograms' open rule, curated only: no campaign).
-      (SELECT json_agg(json_build_object('pool_usd', pool_usd, 'reward', reward)) FROM programs
-        WHERE status = 'active' AND campaign IS NULL AND (ends_at IS NULL OR ${now} < ends_at)) AS pool_rows,
       (SELECT count(*) FROM open)::int AS programs_open,
       (SELECT count(*) FROM open WHERE builder_bonus AND campaign IS NULL)::int AS bonus_programs_open,
       -- v4.2 F18: launched project tokens plus launched builder tokens (never a test installation's builder).
@@ -353,9 +336,6 @@ export async function readStats(now = new Date(), db: Db = sql()): Promise<Publi
       -- v2.9 E20: the prizes of announced won or placed outcomes with a known prize (one per entry
       -- and round); never a self-report, never a test installation's entry.
       (${wonUsdSql(db, ids)})::text AS builders_won_usd,
-      -- v3 Stage 1: points awarded for approved weeks, people only (never a test installation's group).
-      (SELECT COALESCE(sum(bp.points), 0) FROM builder_points bp JOIN builder_profiles p ON p.builder_id = bp.builder_id
-        WHERE ${notTest(db, ids)})::text AS points_total,
       -- v3 Stage 2 (spec 5.3): applications the builder told EarnKit about, one per person and program (a person: the
       -- installation's group), never a test installation's; accepted: of those, accepted or funded (self-reported).
       (${applicationsSql(db, ids, ['applied', 'accepted', 'funded', 'rejected'])})::int AS applications,

@@ -14,7 +14,7 @@ import { REPLY_WAIT_MS, settleWithin } from './reply-wait';
 import { rankLines, type RankLines } from './bench-rank';
 import { readFitRepos } from './installations';
 import { UPDATE_LINES, setShipTitles, takeTitlesAsk, titlesAskDue } from './updates';
-import { grantOf, qualifyOffer } from './base-qualify';
+import { grantOf, qualifyKeptAway, qualifyOffer } from './base-qualify';
 import { earnedUsd } from './earned';
 import { NEEDS_LIVE_PRODUCT } from './guide';
 import { signInLink } from './x-link';
@@ -44,7 +44,7 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
-import { personal, readStanding, standingLeads, standingParagraph, streakOnly, type Standing } from './standing';
+import { personal, readStanding, standingLeads, standingParagraph, streakOnly, toldAppliedSql, type Standing } from './standing';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
@@ -119,7 +119,16 @@ export const APPLY_NOTE = "A yes or no to the question: call tell with move_up: 
 /** 2026-10-22: the titles question's note; a yes turns titles on (updates.ts setShipTitles). */
 export const TITLES_NOTE = "A yes or no to the question: call tell with move_up: { kind: 'titles', project_key, answer } (project_key as given here). Don't show this note.";
 /** v4.2 Task 10: the yes to "Want me to check which of these fits...": run the fit check. */
-export const CHECK_FITS_NOTE = "The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply. Don't show this note.";
+/** v4.7.1 T1 fix round 1: the shared stem of CHECK_FITS_NOTE and checkNeedsNote. */
+const CHECK_FITS_STEM = 'The builder said yes to checking which programs fit their project: call find now with the same identity, then show its reply.';
+export const CHECK_FITS_NOTE = `${CHECK_FITS_STEM} Don't show this note.`;
+/**
+ * v4.7.1 T1: CHECK_FITS_NOTE for the ranked check_fits ask ("Want me to check what Kit would need for Arc Microgrants?"):
+ * also read that program's requirements and list what the project would need. Pure.
+ */
+export const checkNeedsNote = (program: string) =>
+  `${CHECK_FITS_STEM} Then read ${program}'s requirements (its program page or the source find links) and list, in short plain lines, what the project would need to meet each one. ` +
+  "Never tell them they qualify or that an application was sent. Don't show this note.";
 /**
  * Final review 3: the setup-done reply's own questions have their own kinds (closest: the closest program's one step;
  * check_fits: check which programs fit), so their no is never a no to Base's grant steps (declined['qualify:<key>']).
@@ -234,6 +243,8 @@ export type Seen = StandSeen & {
   setup_done?: string;
   /** v4.7 T4: the setup-done reply's first-run line (ASKS_HINT) was said (once). */
   asks_hint?: string;
+  /** v4.7.1 T1: the ranked check_fits ask was asked (once a person, takeOnce). */
+  check_fits_asked?: string;
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -615,6 +626,12 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (silent.size > 0) await standAside(id, [...silent], now);
   const unapplied = open.filter((f) => !draftedRecently(read.seen, f.program_id, now) && !silent.has(f.program_id));
   const moneyFirst = unapplied.length > 0;
+  // v4.7.1 T1 (money always shows): ranked with no unapplied fit, the open grants closing soonest lead the reply.
+  // Fix round 2 (R6): never pitched: a program the builder told EarnKit they applied to (toldAppliedSql, v4.7's one rule)
+  // or holds a recent draft for (draftedRecently); left out of the open grants and of the fit line moneyPara shows.
+  const pitching = Boolean(ranked && project && !taken && !held && !moneyFirst);
+  const noPitch = pitching ? await notPitched(id, read.seen, now) : new Set<string>();
+  const openNow = pitching ? openNowGrants(o.cards, now, new Set([...o.skip, ...noPitch])) : [];
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
@@ -653,19 +670,29 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
   // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
   const reach = o.reach ?? (await agentReach(o.own, id));
-  const checkin = quiet && !more && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
-  const wallet = ((quiet && !checkin) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
+  // v4.7.1 T1: no fit and no qualify due: what the project would need for the first open grant, once a person, ahead of
+  // the check-in, wallet, token, new-repo, titles and ship asks (standing_seen.check_fits_asked). Never Base's grant:
+  // with no qualify due, its own steps were given, declined or told already.
+  const needFor = openNow.find((g) => g.id !== BASE_GRANTS_ID) ?? null;
+  const qualifyIn = { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known };
+  const fitsCould = quiet && !more && realFits.length === 0 && needFor !== null && !read.seen.check_fits_asked;
+  // Fix round 1: a still-due qualify keeps its place, so check_fits reads it first, only while check_fits could be asked
+  // and the cheap checks (qualifyKeptAway: declined, answered, not shown) leave it possible; reused in qualify's own slot.
+  const early = fitsCould ? (qualifyKeptAway(project.key, qualifyIn) ? null : await qualifyOffer(id, project.key, qualifyIn)) : undefined;
+  const checkFits = fitsCould && !early && (await takeOnce(id, 'check_fits_asked', now)) ? needFor!.title : null;
+  const checkin = quiet && !more && !checkFits && handle !== null && reach.schedules && !read.seen.checkin && checkinAskDue(read.seen, now) && (await takeCheckinAsk(id, now));
+  const wallet = ((quiet && !checkin && !checkFits) || (githubNo && !baseAsk)) && !more && handle !== null ? await walletOfferDue(id, now) : null;
   // 2026-10-23: a main project with no commits in STALE_WEEKS: one light nudge, claimed once.
   // Fix round: never within NEW_REPO_GRACE_DAYS of connecting it (its weeks may not be read yet).
   // v4.2 Task 6 (F11): the one-time token offer for an earlier builder, in a quiet reply (never beside another question,
   // never during setup: step 3 is not due); claimed below only once this reply carries it.
-  const tokenOffer = quiet && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
+  const tokenOffer = quiet && !more && !checkFits && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
   // v4.7 T3: the Stripe ask left the reply order: it rides on a draft for a program that wants revenue (tools.ts prepare).
-  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  const newRepo = quiet && !more && !checkFits && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const titles = quiet && !more && !checkFits && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
   const qualify = quiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
-    ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known })
+    ? (early !== undefined ? early : await qualifyOffer(id, project.key, qualifyIn))
     : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
 
@@ -690,7 +717,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const linkOnly = project !== null && LINK_KEY.test(project.key);
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply: apply ?? again, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply: apply ?? again, titles, qualify, checkFits, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
     ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
@@ -721,6 +748,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       qualify: { grant: qualify.grant, steps: qualify.steps, first: qualify.steps[0], name: project?.name ?? '', hosted: reach.hosted, codes_missing: qualify.missing.includes('codes') },
     }),
     ...((finalAsk.kind === 'wallet' || finalAsk.kind === 'wallet_setup') && { at: now.toISOString() }),
+    // v4.7.1 T1: the open grant the ranked check_fits ask named, so its yes reads that program's requirements.
+    ...(finalAsk.kind === 'check_fits' && checkFits && { program: checkFits }),
   };
   if (finalAsk.kind !== 'post') await sql()`
     UPDATE builder_profiles SET standing_seen = CASE WHEN ${stored === null} THEN COALESCE(standing_seen, '{}'::jsonb) - 'bench_ask'
@@ -751,6 +780,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
     noGithub, ask: finalAsk, held, best: shownBest && realFit(shownBest) ? shownBest : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
     also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
+    openNow: openNow.map(({ id: _id, ...g }) => g),
+    // Fix round 2 (R6): the fit moneyPara may pitch: the first shown fit not applied to nor drafted (null: none).
+    // v4.7.1 final review: every ranked reply's fit line (moneyLine) follows it too; left out while money first applies
+    // (undefined), so a moneyFirst builder's fit replies stay v4.7's word for word.
+    ...(!moneyFirst && { pitch: (() => {
+      const f = pitching ? realFits.slice(0, 3).find((x) => !noPitch.has(x.program_id)) : undefined;
+      return f ? { kind: 'fits' as const, title: f.title, amount: f.amount, when: f.when, ...(f.bar && { bar: f.bar }) } : null;
+    })() }),
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));
@@ -765,11 +802,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v3.1 cold read: the ranked standing line only when it changed since last shown (score always shows it: the builder
   // asked); the shipping points line at most once an ISO week. Each is remembered only when its reply carries it.
   if (ranked && project) {
-    const standKey = standingLine(project.name, view.rank, streak, view.earned ?? 0);
+    // v4.7.1 T1 fix round 1 (R5): the key holds the score too, so a new score shows the paragraph again (wins, drafts and
+    // the next deadline stay out of it, so it never re-shows every day).
+    const standKey = `${standingLine(project.name, view.rank, streak, view.earned ?? 0)}${stand.score !== null ? ` · score ${stand.score}` : ''}`;
     // The connect reply says the same facts in its own words ("Kit is on the leaderboard: #1 of 13 builders, ...").
     // v4.7 T3: the apply reply is the money alone (no standing line), so it carries none either.
     const carries = held !== null || !['share', 'post', 'apply'].includes(finalAsk.kind);
     view.standingShown = o.alwaysStanding === true || read.seen.status_seen !== standKey;
+    // v4.7.1 T1: the line shown is the standing paragraph; the old standing line stays the change key (stable, no reshow).
+    // "No grants won yet." alone is no standing (standingLeads' rule), so that reply says "Kit is on EarnKit." instead.
+    view.standingText = standingParagraph(standingLeads(stand) || (stand.wonUsd ?? 0) > 0 ? stand : { ...stand, wonUsd: null });
     const week = isoWeekOf(now);
     view.nagShown = read.seen.nag_week !== week;
     // Fix round 2: an owning nudge's reply shows no points line, so the week's line is not marked shown.
@@ -790,7 +832,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
-    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : BENCH_MOVE_UP_NOTE;
+    : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : finalAsk.kind === 'check_fits' ? CHECK_FITS_ASK_NOTE : BENCH_MOVE_UP_NOTE;
   const rankLines = ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [];
   const fields: Reply = {
     // v4.7 T4: every step with a why carries it (askWhy), so "why?" has EarnKit's own answer.
@@ -837,6 +879,34 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
     .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
 }
 
+/**
+ * v4.7.1 T1 fix round 2 (R6): the programs a ranked reply never pitches: told applied (standing.ts toldAppliedSql, the
+ * group's builder_program_status but not_interested) or drafted within DECLINE_MS (draftedRecently). A failed read: the
+ * drafts alone (never throws).
+ */
+async function notPitched(id: number, seen: Seen, now: Date): Promise<Set<string>> {
+  const db = sql();
+  const told = await db<{ program_id: string }[]>`SELECT program_id FROM (${toldAppliedSql(db, id)}) t`.catch((err: unknown) => {
+    logged('not pitched')(err);
+    return [];
+  });
+  const drafted = Object.keys(seen.apply_yes ?? {}).filter((p) => draftedRecently(seen, p, now));
+  return new Set([...told.map((t) => t.program_id), ...drafted]);
+}
+
+/**
+ * v4.7.1 T1: the ranked reply's open grants with no unapplied fit (bench-reply.ts openNowLine): alsoOpen's grants
+ * (none excluded), soonest deadline first, rolling ones last (byRelevance among equals), up to two. Pure.
+ */
+export function openNowGrants(cards: Card[], now: Date, skip: Set<string>): (AlsoOpen & { id: string })[] {
+  const at = (c: Card) => (fundWhen(c) === 'rolling' || !c.ends_at ? Infinity : new Date(c.ends_at).getTime());
+  return cards
+    .filter((c) => programKind(c).startsWith('grant') && showable(c, now, skip))
+    .sort((a, b) => at(a) - at(b) || byRelevance(a, b))
+    .slice(0, 2)
+    .map((c) => ({ id: c.id, title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
+}
+
 /** 2026-10-23 Base onboarding: Base Builder Grants is open and shown (the walk-through's last step drafts it). Pure. */
 export const baseGrantOpen = (cards: Card[], now: Date, skip: Set<string>) => cards.some((c) => c.id === BASE_GRANTS_ID && showable(c, now, skip));
 /**
@@ -861,7 +931,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done' | 'asks_hint', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done' | 'asks_hint' | 'check_fits_asked', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -1616,8 +1686,9 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
         };
       }
     case 'check_fits':
-      // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit.
-      return { show_to_builder: '', agent_note: CHECK_FITS_NOTE };
+      // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit. v4.7.1 T1:
+      // the ranked ask named an open grant (asked.program): the note adds reading its requirements.
+      return { show_to_builder: '', agent_note: asked.program ? checkNeedsNote(asked.program) : CHECK_FITS_NOTE };
     case 'closest':
       // v4.2 (setup done, final review 3's own kind): the closest program's one step, never a draft.
       if (!asked.program || !asked.step) return okay;
@@ -2004,10 +2075,18 @@ export async function tokenAsk(ctx: Pick<ToolContext, 'installationId'>, o: { st
  */
 export async function legacyCoinAnswer(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, answer: 'yes' | 'no'): Promise<Reply | null> {
   const asked = await benchAsked(ctx.installationId, {});
-  if (asked?.kind === 'token' || (asked?.kind === 'wallet_setup' && (await tokenOffered(ctx.installationId))))
-    return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
+  if (asked?.kind === 'token') return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
+  if (asked?.kind === 'wallet_setup' && (await tokenOffered(ctx.installationId))) {
+    // v4.7.1 T2: a no is still the token's no. A yes to v4.0's step 3 sentence launches nothing and offers nothing (the
+    // token_offered mark it needs also ends tokenOfferDue): it ends the old sentence, the ask cleared, no question.
+    if (answer === 'no') return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${ctx.installationId} AND standing_seen->'bench_ask'->>'kind' = 'wallet_setup'`.catch(logged('legacy token yes'));
+    return { show_to_builder: LEGACY_SETUP_DONE };
+  }
   return null;
 }
+/** v4.7.1 T2: the legacy yes to v4.0's step 3 sentence: a statement, no question. */
+const LEGACY_SETUP_DONE = 'Your setup is done.';
 /**
  * v4.0: tell move_up kind 'token'. A no is kept forever (declineBuilderToken; a token already on its way or live is
  * unchanged, and said so). A yes launches it now (launchBuilderToken, idempotent); without a reward wallet yet, the

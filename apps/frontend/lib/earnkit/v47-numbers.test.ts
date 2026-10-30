@@ -88,7 +88,7 @@ const card = (id: string, o: Partial<Card> = {}): Card => ({
 
 test('the landing tile day is closeDay: a16z reads "Closes Nov 1" (Review Focus 2)', () => {
   const a16z = card('a16z-speedrun', { summary: 'up to $1M · closes Nov 1, 11:59 PM PT', ends_at: ENDS, investment: true, any_chain: true, chains: [] });
-  const stats = statsFrom({ open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null }, NOW);
+  const stats = statsFrom({ open_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null }, NOW);
   const tile = landingFrom([a16z], stats, NOW).tiles.find((t) => t.id === 'a16z-speedrun')!;
   assert.equal(tile.when, 'Closes Nov 1');
   // programCard carries the file's tz onto the card.
@@ -100,7 +100,7 @@ test('the banner is heroChipText(statsFrom(...).open_money_usd) over the same ro
     max_award_usd: p.max_award_usd ?? null, investment: p.investment ?? false, status: p.status, campaign: p.campaign ?? null,
     source: 'file', starts_at: p.starts_at, ends_at: p.ends_at,
   }));
-  const stats = statsFrom({ open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null }, NOW);
+  const stats = statsFrom({ open_rows: rows, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null }, NOW);
   const cards = files().map((p) => card(p.id, { summary: p.summary, ends_at: p.ends_at ? new Date(p.ends_at) : null, max_award_usd: p.max_award_usd ?? null, investment: p.investment ?? false, status: p.status, chains: p.chains, any_chain: p.any_chain }));
   const l = landingFrom(cards, stats, NOW);
   assert.ok(stats.open_money_usd > 0);

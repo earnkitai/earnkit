@@ -16,8 +16,8 @@ import { readStats } from '@/lib/earnkit/stats';
  * (a claimed page, a repo proven by the EarnKit app and an approved week), `weekly_active` (activated people who
  * approved a week in the last 7 days) and `shared` (weeks approved from the share offer). stats.ts has the exact rules.
  * v2.9 F21: `open_money_usd` is the one money figure (stats.ts openMoneyUsd) and `open_money_text`
- * the text every page shows ("$1.1M+"). Ruling G23: `open_pools_usd`/`open_pools_plus` stay,
- * deprecated, so docs.earnkit.com never breaks. v2.8 Part G: `labelled_entries` (entries with
+ * the text every page shows ("$1.1M+"). v4.7.1 T2: `open_pools_usd`, `open_pools_plus`
+ * and `points_total` are gone from the JSON, so one open-money figure remains. v2.8 Part G: `labelled_entries` (entries with
  * a published result) and `entries_won` (won or placed), announcement-sourced only, never a
  * self-report or a test installation's entry. No win-rate claim until 30 labelled entries.
  * v2.9 E20: `builders_won_usd`, the prizes of announced won or placed outcomes (same exclusions).

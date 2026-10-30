@@ -48,7 +48,8 @@ async function builder(tag: string, ages: number[], last: number) {
   const key = `${tag}${RUN}/app`;
   const handle = `${tag}${RUN}`.slice(0, 15);
   // v4.3: a no to Base's grant steps (the qualify reply carries no ship line), so the ranked step is the ship step.
-  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() } }, projects: [{ key, name: 'App', confirmed: true }] });
+  // v4.7.1 T1: check_fits (no fit) asked already too.
+  const id = await person({ main: key, claimed: handle, ranked: true, seen: { connect_done: '2026-09-01T00:00:00.000Z', declined: { [`qualify:${key}`]: new Date().toISOString() }, check_fits_asked: new Date().toISOString() }, projects: [{ key, name: 'App', confirmed: true }] });
   const now = new Date();
   const s = computeScoreV2({ ships: [], commitWeeks: ages.map((i) => isoWeekOf(new Date(now.getTime() - i * 7 * DAY))) }, now);
   await sql()`UPDATE builder_live SET score = ${s.score}, parts = ${sql().json(s.parts as never)} WHERE builder_id = ${id}`;
@@ -71,7 +72,7 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
   // post to offer (v3.1 one-tap posts): the page is the one link.
-  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nLooks right\\?$`), s);
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nOpen now: [^\\n]+\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nLooks right\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');

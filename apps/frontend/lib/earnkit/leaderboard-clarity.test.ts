@@ -222,7 +222,8 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
   const ranked = (await mcpCall(a.ctx, 'find', {})).reply;
   const r1 = oneStatusOneStep(ranked);
   assert.match(r1, /Since you last checked: You moved up to (#[1-4] of \d+ builders|Top [\d.]+% of builders)\./, r1);
-  assert.match(r1, /^Newsy (· |is on the leaderboard: )(#[1-4] of \d+ builders|Top [\d.]+% of builders)/m);
+  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 0 · Top 14% of builders. ..."), never the old name line.
+  assert.match(r1, /^Score \d+ · (#[1-4] of \d+ builders|Top [\d.]+% of builders)/m);
   assert.ok((ranked?.rank_lines as string[]).length >= 1);
 
   // The repo's proof goes; builder_live.ranked stays true until the next rescore (read_at now: no refresh).
@@ -264,7 +265,9 @@ test('R11: a long project name is whole in the reply and on the leaderboard', db
   const name = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
-  assert.match(s, new RegExp(`^${name} (· |is on)`, 'm'), s);
+  // v4.7.1 T1: the standing paragraph names no project; the reply's step names it whole.
+  assert.ok(s.includes(`To qualify, ${name} needs to `), s);
+  assert.equal(s.split('\n').at(-1), `Want help putting ${name} on Base?`, s);
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });

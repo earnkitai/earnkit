@@ -130,6 +130,10 @@ test('O2 fix round 1 (ruling 3), R8: every state ends on one next step with a ye
     assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
     assert.equal(q.move_up?.kind, 'qualify');
     await tell(id, { kind: 'qualify', project_key: key, answer: 'no' });
+    // v4.7.1 T1 (money always shows): the open grants and check_fits once, then the ship question.
+    const cf = await find(id, {}, NO_MATCH);
+    assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
+    assert.equal(lastQ(cf.show_to_builder).length, 1);
     const r = await find(id, {}, NO_MATCH);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
     assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);

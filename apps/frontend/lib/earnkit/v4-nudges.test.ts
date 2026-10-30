@@ -71,7 +71,7 @@ const nudgeWeek = async (id: number) =>
   (await sql()<{ w: string | null }[]>`SELECT standing_seen->>'nudge_week' AS w FROM builder_profiles WHERE builder_id = ${id}`)[0]?.w ?? null;
 
 test('the four approved lines, word for word', () => {
-  assert.equal(fridayNudge(5), 'Quiet week? No stress. Ship anything small by Sunday and your 5-week streak stays alive.');
+  assert.equal(fridayNudge(5), 'Quiet week, no stress. Ship anything small by Sunday and your 5-week streak stays alive.');
   assert.equal(closingNudge('Arc Builders', 'Friday'), 'Heads up, Arc Builders closes Friday. Your draft is ready. Want to send it?');
   assert.equal(closingNudge('Arc Builders', 'today'), 'Heads up, Arc Builders closes today. Your draft is ready. Want to send it?');
   assert.equal(milestoneNudge('MealMate', 100, 'Base'), "MealMate just passed 100 users. That's real traction, and it makes your Base application a lot stronger.");
@@ -158,7 +158,7 @@ test('(c) a program closing within 3 days with a draft ready: the weekday, or to
 
 test('(d) nothing shipped by Friday: the streak line', db, async () => {
   const me = await builder('v4nq', { streak: 5 });
-  assert.equal(await nudgeFor(me.id, at(FRIDAY)), 'Quiet week? No stress. Ship anything small by Sunday and your 5-week streak stays alive.');
+  assert.equal(await nudgeFor(me.id, at(FRIDAY)), 'Quiet week, no stress. Ship anything small by Sunday and your 5-week streak stays alive.');
 });
 
 test('(e) two nudges due in one week: only one shows that week', db, async () => {
@@ -177,9 +177,9 @@ test('(f) the Friday rule: Friday to Sunday UTC only, and only with a streak of 
   const one = await builder('v4ns', { streak: 1 });
   assert.equal(await nudgeFor(one.id, at(FRIDAY)), null, 'a streak of 1');
   const sat = await builder('v4nu', { streak: 2 });
-  assert.equal(await nudgeFor(sat.id, at(FRIDAY + DAY)), 'Quiet week? No stress. Ship anything small by Sunday and your 2-week streak stays alive.');
+  assert.equal(await nudgeFor(sat.id, at(FRIDAY + DAY)), 'Quiet week, no stress. Ship anything small by Sunday and your 2-week streak stays alive.');
   const sun = await builder('v4nv', { streak: 2 });
-  assert.equal(await nudgeFor(sun.id, at(FRIDAY + 2 * DAY + 8 * 3600_000)), 'Quiet week? No stress. Ship anything small by Sunday and your 2-week streak stays alive.', 'Sunday 23:00 UTC');
+  assert.equal(await nudgeFor(sun.id, at(FRIDAY + 2 * DAY + 8 * 3600_000)), 'Quiet week, no stress. Ship anything small by Sunday and your 2-week streak stays alive.', 'Sunday 23:00 UTC');
   // Shipped this week: no nudge.
   const shipped = await builder('v4nx', { streak: 3 });
   await sql()`UPDATE builder_projects SET commit_weeks = array_append(commit_weeks, ${isoWeekOf(at(FRIDAY))}) WHERE builder_id = ${shipped.id}`;
@@ -193,7 +193,7 @@ test('the nudge leads a ranked find reply, once that week', db, async () => {
   await sql()`UPDATE builder_live SET computed_at = ${at(FRIDAY)}, read_at = ${at(FRIDAY)} WHERE builder_id = ${me.id}`;
   const ctx = { installationId: me.id, ownInstallationId: me.id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
   const first = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
-  assert.ok(first.startsWith('Quiet week? No stress. Ship anything small by Sunday and your 3-week streak stays alive.\n\n'), first);
+  assert.ok(first.startsWith('Quiet week, no stress. Ship anything small by Sunday and your 3-week streak stays alive.\n\n'), first);
   const again = String((await mcpCall(ctx, 'find', {})).reply?.show_to_builder ?? '');
   assert.doesNotMatch(again, /Quiet week/, again);
 });
@@ -271,7 +271,7 @@ test('fix round 1 (2): the Friday line is rhetorical: it leads beside the ranked
   const me = await fresh('v4ni', { streak: 3 });
   const r = await mcpCall(findCtx(me.id), 'find', {});
   const s = String(r.reply?.show_to_builder ?? '');
-  assert.ok(s.startsWith('Quiet week? No stress.'), s);
+  assert.ok(s.startsWith('Quiet week, no stress.'), s);
   assert.ok(r.reply?.move_up, 'the ranked ask stays');
 });
 

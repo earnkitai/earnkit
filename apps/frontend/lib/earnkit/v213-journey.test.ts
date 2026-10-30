@@ -544,7 +544,8 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v4.6 Task 3: the builder has a verified site, so the one-time Stripe ask would take the quiet slot; this journey is about the ship and qualify steps.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('stripe_asked', now()::text) WHERE builder_id = ${id}`;
   const r2 = await call('find', {}, ctx(id));
-  assert.match(r2.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)( · \d+ weeks? in a row)?$/m, r2.show_to_builder);
+  // v4.7.1 T1: the standing paragraph (the page's score, rank and weeks), never the old name line.
+  assert.match(r2.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks? shipping( in a row)?\.)?/m, r2.show_to_builder);
   // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
   assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);

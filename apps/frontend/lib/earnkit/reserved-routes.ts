@@ -6,7 +6,7 @@
  */
 export const RESERVED_ROUTES: ReadonlySet<string> = new Set([
   // app/ directories (components, fonts and lib have no page but are kept out of the handle space too)
-  '.well-known', 'admin', 'api', 'b', 'badge', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'connect', 'docs', 'feed', 'fonts', 'github', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
+  '.well-known', 'admin', 'api', 'b', 'badge', 'bench', 'bonus', 'campaigns', 'claim', 'components', 'connect', 'docs', 'feed', 'fonts', 'github', 'install', 'leaderboard', 'lib', 'mcp', 'oauth', 'p', 'programs', 'signin', 'terms', 'x',
   // app/ file routes and Next metadata names
   'favicon', 'sitemap', 'robots', 'manifest', 'icon', 'apple-icon', 'opengraph-image', 'twitter-image', '_next',
   // public/ (extension dropped)

@@ -78,7 +78,8 @@ test('8.7 a confirmed, claimed, ranked project: the ship step with its fit (Task
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text),
       'declined', jsonb_build_object(${`apply:${p.id}`}::text, now()::text)) WHERE builder_id = ${id}`;
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
-    assert.match(r.show_to_builder, /^Recipe planner · (#\d+ of \d+ builders?|Top [\d.]+% of builders)$/m);
+    // v4.7.1 T1: the standing paragraph, never "Recipe planner · #1 of 10 builders".
+    assert.match(r.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. /m);
     // R12: the fit with its award (Task 16: the money line).
     assert.match(r.show_to_builder, new RegExp(`^You qualify for the ${esc(p.title)}, up to \\$10,000\\.$`, 'm'));
     // R8: the one next step is to ship (owner ruling A's entry ask is gone); a no to it, then the same step (never the updates yes).

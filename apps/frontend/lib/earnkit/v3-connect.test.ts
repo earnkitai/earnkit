@@ -65,7 +65,10 @@ test('(a) first ranked find after connect offers the last weeks and the points (
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Under RANK_MIN_POOL (a fresh board), "on EarnKit"; no Best fit (no match); 3 weeks at CONNECT_POINTS each.
-  assert.equal(s, `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}`);
+  // v4.7.1 T1 (money always shows): with no fit, the open grants closing soonest lead the connect reply.
+  const [money, ...rest] = s.split('\n\n');
+  assert.match(money, /^Open now: [^\n]+\.$/, s);
+  assert.equal(rest.join('\n\n'), `App is on EarnKit: 3 weeks in a row.\n\n${connectAsk(`https://earnkit.com/${me.handle}`)}`);
   assert.doesNotMatch(s, /Secret launch/, 'a private repo shows facts only');
   assert.doesNotMatch(s, /Last week|Share your week|—/);
   assert.deepEqual(links(s), [`https://earnkit.com/${me.handle}`], 'the page is the one link');

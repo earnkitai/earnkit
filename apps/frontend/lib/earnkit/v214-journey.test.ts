@@ -176,7 +176,8 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
   await walletOffered(first.id);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16: ranked, with a rank on the standing line (no backfilled weeks here, so no connect offer).
-  assert.match(s, /^EarnKit (is on the leaderboard: |· )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/, s);
+  // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
+  assert.match(s, /^(?:EarnKit is on the leaderboard: |Score \d+ · )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, s);
 });
 
 test('12.5 acceptance 4: the next Monday the profile shows the week from its titles; nobody scheduled anything', db, async () => {

@@ -9,6 +9,11 @@ import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { setFeeSource } from './fees';
 import { periodKey } from './free-tier';
 import { CHEER_LINE, communityRow, mondayLines, mondayOpener, mondayRows } from './weekly-moment';
+/** v4.7.1 T1 (money always shows): the open grants paragraph before the why, checked here, then set aside for the Monday copy. */
+const noOpen = (s: string) => {
+  assert.match(s, /\n\nOpen now: [^\n]+\.\n\nBuilders who share wins/, s);
+  return s.replace(/\n\nOpen now: [^\n]+(?=\n\n)/, '');
+};
 import { weekCommunityUsd } from './community';
 import { MOMENT_ASK, mondayReply, type MomentView } from './bench-reply';
 import { formatReply } from './reply-format';
@@ -198,7 +203,7 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
   const link = links(s)[0] ?? '';
   assert.match(link, new RegExp(`^https://earnkit\\.com/${me.handle}(/post/[a-z2-7]{10})?$`), s);
   const share = link.includes('/post/') ? `Your post is ready to share: ${link}` : `Your page: ${link}`;
-  assert.equal(s, [
+  assert.equal(noOpen(s), [
     'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
     '',
     '| | This week |',

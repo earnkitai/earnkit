@@ -18,7 +18,7 @@ import { BASE_GRANTS_ID } from './builder-code';
 import {
   CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK, grantHook, liveNoGithub,
 } from './bench-reply';
-import { CHECKIN_MAX_ASKS, CHECKIN_NOTE, CHECKIN_YES_NOTE, checkinAskDue, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, openGrant } from './bench-find';
+import { CHECKIN_MAX_ASKS, CHECKIN_NOTE, CHECKIN_YES_NOTE, checkinAskDue, EMAIL_ASK_NOTE, NOT_ON_GITHUB_YET, openGrant, whyNote } from './bench-find';
 import { outcomeCongrats } from './post-reply';
 import { appliedLine } from './tools';
 import { reachOf } from './agent-reach';
@@ -178,7 +178,7 @@ async function ranked(tag: string, client: string, o: { seen?: Record<string, un
   await installApp({ builderId: p.id, repoKey: key, login: p.login, gh });
   await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${p.id} AND kind = 'repo'`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || ${sql().json({
-    connect_done: new Date().toISOString(), new_repo_asked: new Date().toISOString(), qualify_given: { [key]: new Date().toISOString() }, ...(o.seen ?? {}),
+    connect_done: new Date().toISOString(), new_repo_asked: new Date().toISOString(), check_fits_asked: new Date().toISOString(), qualify_given: { [key]: new Date().toISOString() }, ...(o.seen ?? {}),
   } as never)}::jsonb WHERE builder_id = ${p.id}`;
   return { ...p, ctx, key, gh, gid };
 }
@@ -187,9 +187,11 @@ test('hosted agent: the Monday check-in once (its routine in the note), notes ne
   const b = await ranked('h', 'Claude Code');
   // The agent says it can't build: no folder, and it can schedule (a hosted agent).
   const c1 = await mcpCall(b.ctx, 'find', { agent_can_build: false });
+  // v4.7.1 final review: one question even on a Friday (the Friday line has no question mark, below the money).
   const s1 = rule(show(c1));
   assert.equal(s1.split('\n').at(-1), CHECKIN_ASK);
-  assert.deepEqual([moveUp(c1)?.kind, moveUp(c1)?.agent_note], ['checkin', CHECKIN_NOTE]);
+  // v4.7 T4: the check-in always carries its why, so its note says to answer from it.
+  assert.deepEqual([moveUp(c1)?.kind, moveUp(c1)?.agent_note], ['checkin', whyNote(CHECKIN_NOTE)]);
   const yes = await tellMove(b.ctx, 'checkin', 'yes', b.key);
   assert.equal(show(yes), CHECKIN_ON);
   assert.equal(yes.reply?.agent_note, CHECKIN_YES_NOTE);
