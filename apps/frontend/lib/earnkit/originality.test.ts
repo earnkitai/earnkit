@@ -379,7 +379,8 @@ test('O9 shown: the profile carries "Originality N" once computed, never before;
   await originalityStep(NOW, { deadline: far(), only: [p.id], ghFetch: gh, embed: fakeEmbed() });
   const n = (await rowOf(k))!.originality!;
   const text = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(text, /^Kiln · .+ builders?( · .+)?$/m, text);
+  // v4.7 T2: score leads with the standing paragraph (the page's score and rank).
+  assert.match(text, /^Score \d+ · .+ builders?\. .+$/m, text);
   assert.doesNotMatch(text, /Originality/, text);
   assert.equal((await profileData(p.id, new Date()))!.originality, n);
 });

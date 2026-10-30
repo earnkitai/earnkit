@@ -71,14 +71,14 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
   // post to offer (v3.1 one-tap posts): the page is the one link.
-  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nLooks right\\?$`), s);
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nLooks right\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');
   assert.deepEqual((f.reply as { rank_lines?: string[] }).rank_lines ?? [], []);
   const sc = await mcpCall(ctx(me.id), 'score', {});
   const t = show(sc);
-  assert.match(t, /\nShip code this week\.(\n[^\n]*\?)?$/, t);
+  assert.match(t, /\n\nShipping this week starts your streak and lifts your score\.\n\n[^\n]*\?$/, t);
   assert.doesNotMatch(JSON.stringify(sc.reply), /#\d/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 1, total: 9 }), null);
 });
@@ -89,9 +89,11 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const s = show(f);
   // v4.0 Task 7: the Monday block (no rank); the rank stays on the standing line.
   assert.match(s.split('\n')[0], /^Your week is ready, /, s);
+  // v4.7 T2: score leads with the standing paragraph, the page's score and rank.
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(t, /^App · #3 of 10 builders/, t);
-  assert.match(t, /\nShip code this week to move toward #1\.(\n[^\n]*\?)?$/, t);
+  assert.match(t, /^Score \d+ · #3 of 10 builders\. /, t);
+  // v4.7 T4 fix round 0 (R13): the weekly rank target is the ship ask's why, its own paragraph before the question.
+  assert.match(t, /\n\nShip code this week to move toward #1\.\n\n[^\n]*\?$/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

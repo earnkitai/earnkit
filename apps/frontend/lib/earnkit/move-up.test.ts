@@ -125,9 +125,11 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // v3.1 F1: the open investments (any chain) are fits too, so find's match holds them as score's real matcher does.
   // v3 Stage 2 final review: one closing within 30 days (a16z speedrun, Alliance) is the apply step for this product
   // repo (v3-apply.test.ts (h)); v3.1 spec 3.2: else a rolling fit is. Every program is marked asked here, so the step is
-  // the ranked one on any date (the Best fit still leads).
+  // the ranked one on any date (the Best fit still leads). v4.7 T3: an open fit asked once is asked again (money
+  // first), so each is declined here (kept away DECLINE_MS) for the ranked step.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
-    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
+    || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs),
+      'declined', (SELECT jsonb_object_agg('apply:' || id, now()::text) FROM programs)) WHERE builder_id = ${a.id}`;
   const ctx = { ...a.ctx, matchProjects: matchFor(a.key, [...CLOSED, ...OPEN, extra.id, 'a16z-speedrun', 'alliance-all19']) };
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const s = String(r.show_to_builder);
@@ -136,7 +138,8 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // v3.1 F4: no why sentence in the reply (the page keeps it); Task 16: no page line, no list of fits.
   assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks|Your page|Ways to get funded/, s);
   assert.match(lines[1], FIT_LINE, s);
-  assert.equal(lines.length, 4, s);
+  // v4.7 T4: the ship ask's why is its own paragraph before the question.
+  assert.equal(lines.length, 6, s);
   assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'base-builder-grants', 'the lead is the first fit line (never an investment)');
   assert.ok(endsOnRankedStep(s), s);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);
@@ -148,8 +151,10 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // score: the same reply, its fits from the real matcher over what find saw (fit_repos), never a closed program.
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
-  assert.match(t, /^Kit · /m);
-  assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
+  // v4.7 T2: score leads with the standing paragraph (the page's score and rank), so no "Kit · " line of its own.
+  assert.ok(t.startsWith(`${sc.standing}\n\n`), t);
+  assert.doesNotMatch(t, /^Kit · /m);
+  assert.equal(t.split('\n')[2], lines[1], `score names the same Best fit: ${t}`);
   // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days); v3.1 cold read: the points
   // line was shown this week (find), so score leaves it out too (at most once an ISO week).
   assert.ok(!t.includes('?') && !/points/.test(t), t);

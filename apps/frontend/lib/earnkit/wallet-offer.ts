@@ -8,6 +8,7 @@ import { COIN_PROGRAM } from './policy-constants';
 import { builderTokensOn, tradeUrl } from './builder-token';
 import { tokenAnswerState, tokenAnswerText, tokenPageLine } from './token-answers';
 import { testBuilderSql } from './installations';
+import { applicationCounts } from './standing';
 
 /** v3.1 cold read: no wallet step within this many days of a fee wallet given for a coin. */
 export const FEE_WALLET_QUIET_DAYS = 7;
@@ -123,19 +124,26 @@ export async function walletSetupDue(builderId: number, now: Date): Promise<stri
  * v4.2 Task 6 (F11): the one-time token offer for a builder who set up before v4: tokens on, a claimed X account, a proven
  * wallet, no builder_tokens row (a no is kept forever) and never offered (standing_seen.token_offered, token_offer_legacy,
  * or token_skipped: final review 9's wallet skip after step 3's token sentence). Never for an owner
- * test installation (EARNKIT_TEST_INSTALLATIONS, as the stats). Nothing is claimed here (takeTokenOffer). Never throws.
+ * test installation (EARNKIT_TEST_INSTALLATIONS, as the stats). v4.7 T3 (token after money; ruling R3): and only once
+ * the builder has at least one application in or draft ready (standing.ts applicationCounts, the standing's own
+ * records) or a draft in their hands (fix round 1, R9: standing_seen.apply_yes, any program), so no offer comes before the money step; except `asked`: the builder asked about their token (tell token
+ * 'ask'), so the answer may carry the offer (it is never in front of the money). Nothing is claimed here (takeTokenOffer). Never throws.
  */
-export async function tokenOfferDue(builderId: number): Promise<boolean> {
+export async function tokenOfferDue(builderId: number, o: { asked?: boolean } = {}): Promise<boolean> {
   if (!builderTokensOn()) return false;
   try {
-    const [p] = await sql()<{ due: boolean }[]>`
+    const [p] = await sql()<{ due: boolean; drafted: boolean }[]>`
       SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL
         AND NOT COALESCE(standing_seen ?| array['token_offered', 'token_offer_legacy', 'token_skipped'], false)
         AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId})
         AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId})
-        AND NOT ${testBuilderSql(sql(), builderId)} AS due
+        AND NOT ${testBuilderSql(sql(), builderId)} AS due,
+        COALESCE(standing_seen->'apply_yes', '{}'::jsonb) <> '{}'::jsonb AS drafted
       FROM builder_profiles WHERE builder_id = ${builderId}`;
-    return p?.due === true;
+    if (p?.due !== true) return false;
+    if (o.asked || p.drafted) return true;
+    const n = await applicationCounts(builderId);
+    return n.applied + n.drafts >= 1;
   } catch (err) {
     logged('token offer due')(err);
     return false;
@@ -161,7 +169,7 @@ export async function takeTokenOffer(builderId: number, now: Date): Promise<bool
  * The wallet step, claimed once a person when its reply is built (one guarded UPDATE), its state started. v4.0 `setup`:
  * it is setup step 3 (standing_seen.wallet_setup, and setup_asked, kept: v4.0 Task 5's setup-done reply), so its skip is
  * step 3's. v4.4: step 3 asks for the wallet only and never sets standing_seen.token_offered, so the first wallet proof
- * launches nothing on its own (wallet-proof.ts launchOnProof); a builder shown v4.0's token sentence keeps their flag.
+ * launches nothing on its own; v4.7 T3: no wallet proof launches a token at all (wallet-proof.ts), not even with that flag.
  * Never throws.
  */
 export async function takeWalletAsk(builderId: number, now: Date, setup = false): Promise<boolean> {

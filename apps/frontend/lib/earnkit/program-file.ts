@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CAMPAIGN_KEYS, CampaignConfig } from './campaigns';
 import { earnkitTexts } from './campaign-text';
 import { CHAINS } from './match';
+import { isTimeZone } from './deadline';
 import { amountStated, poolStated } from './pool';
 import { STARTERS, type Starter } from './starters';
 import { apiPlatformOf, prefillKindOf, proofHostAllowed, urlHost } from './submit-hosts';
@@ -381,6 +382,16 @@ export const ProgramFile = z
     starts_at: z.string().datetime({ offset: true }).nullable(),
     /** null = rolling (no deadline), e.g. grant programs that review in cohorts. */
     ends_at: z.string().datetime({ offset: true }).nullable(),
+    /**
+     * v4.7 T1: the program's IANA time zone ("America/Los_Angeles"), when the summary's suffix (ET, PT, CT, UTC, GMT)
+     * doesn't name it. Its close day is ends_at in this zone (deadline.ts closeDay). Leave out otherwise.
+     */
+    tz: z.string().min(1).refine(isTimeZone, 'tz: an IANA time zone like "America/Los_Angeles"').optional(),
+    /**
+     * v4.7 T3: the application asks for revenue or traction (its questions or criteria), so a ready draft offers the
+     * builder's read-only Stripe connect once (tools.ts prepare). Leave out otherwise.
+     */
+    wants_revenue: z.boolean().optional(),
     /**
      * v3 Stage 2: `upcoming` is listed (the card reads "Not open yet") but never a fit, an entry or
      * counted in the money total; it needs `opens_note`. v3.1 (D2): `unlisted` (off-thesis) keeps

@@ -16,6 +16,7 @@ import { setupDoneFor, setupRows } from './bench-find';
 import { productOdds, productScore, traction, type Detection } from './match';
 import type { RepoFit } from './present';
 import { tokenOfferDue, walletSetupDue } from './wallet-offer';
+import { moneyStepDone } from './fixtures/wallet-step';
 import { provenWallet, upgradeToken, walletLink, walletMessage, walletPost } from './wallet-proof';
 import { declineBuilderToken, retryDroppedBuilderTokens } from './builder-token';
 
@@ -158,8 +159,8 @@ test('(d) the same-day repeat keeps its short form', db, async () => {
 });
 
 // ---- v4.0 Task 4: setup step 3, the launch on the wallet proof, the opt-out, "launch my token". v4.4: step 3 asks for
-// the wallet only (v44-setup-order.test.ts has the offer that follows the sign); the proof's launch is kept for builders
-// shown v4.0's token sentence (inFlight: standing_seen.token_offered), as these tests set it.
+// the wallet only (v44-setup-order.test.ts has the offer that follows the sign). v4.7 T3: the proof launches nothing,
+// even for builders shown v4.0's token sentence (inFlight: standing_seen.token_offered), as these tests set it.
 
 const step3 = (project: string, link: string) =>
   `${project} is connected. One last step.\n\n**Step 3 of 3:** add your wallet. It's where grant money and builder campaign payouts get paid. One signature, no fee: ${link}\n\nDone?`;
@@ -292,7 +293,7 @@ test('final review 9 (pre-v4.4 in-flight): skipping the wallet skips the token: 
   assert.equal(p.tf.calls.length, 1);
 });
 
-test('(c) pre-v4.4 in-flight: the proof on the wallet page launches the token, no tell call needed', db, async () => {
+test('(c) v4.7 T3 (Review Focus 4): pre-v4.4 in-flight, the proof on the wallet page launches nothing; only the builder\'s yes does', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('l');
@@ -301,7 +302,10 @@ test('(c) pre-v4.4 in-flight: the proof on the wallet page launches the token, n
   const signed = await signOn(p.handle, s, p.tf);
   assert.equal(signed.status, 200);
   assert.equal(signed.body.recipient, true);
-  assert.equal(await settled(p.id), 'launched');
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(await tokenRow(p.id), null);
+  assert.equal(p.tf.calls.length, 0);
+  assert.match(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } })), /^Done\. Your token is live: https:/);
   assert.equal(p.tf.calls.length, 1);
   assert.equal(p.tf.calls[0].creatorWallet, await provenWallet(p.id));
 });
@@ -317,7 +321,8 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
   assert.doesNotMatch(none, /doesn't fit/, none);
   // Matched, nothing fits: the Monday check-in (this client can schedule and was never asked), stored so a yes routes right.
-  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |\n\nWant me to check in here every Monday?'), none);
+  // v4.7 T4: the first-run line, then the check-in's why, each a paragraph before the question.
+  assert.ok(none.endsWith(`| Circle Developer Grants | $100,000 | Rolling |\n\n${ASKS}\n\nA Monday check-in keeps your drafts current before deadlines.\n\nWant me to check in here every Monday?`), none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
@@ -336,6 +341,8 @@ test('(e) a wallet change after the launch deploys nothing; a declined builder\'
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   await inFlight(p.id);
   await signOn(p.handle, s, p.tf);
+  // v4.7 T3: the proof launches nothing; the builder's yes launches it.
+  await mcpCall(p.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'yes' } });
   assert.equal(await settled(p.id), 'launched');
   await sql()`DELETE FROM builder_tokens WHERE builder_id = ${p.id}`.then(() => {}, () => {});
   // The row is the guard; even without it, a second proof is a change (never a first wallet), so nothing launches.
@@ -437,15 +444,16 @@ test('fix 3: an App-connected builder whose main project is not counted gets ste
   assert.equal(s, step3('Your code', linkOf(s)));
 });
 
-test('fix 4 (pre-v4.4 in-flight): a throwing side effect after the proof still launches the token', db, async () => {
+test('fix 4 (pre-v4.4 in-flight), v4.7 T3: a throwing side effect after the proof launches nothing either', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const p = await connected('se');
   const s = show(await mcpCall(p.ctx, 'find', { agent_can_build: false }));
   await inFlight(p.id);
   await assert.rejects(signOn(p.handle, s, p.tf, undefined, async () => { throw new Error('side effect down'); }));
-  assert.equal(await settled(p.id), 'launched');
-  assert.equal(p.tf.calls.length, 1);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(await tokenRow(p.id), null);
+  assert.equal(p.tf.calls.length, 0);
 });
 
 // ---- v4.0 Task 5: setup done (approved copy 4): the first reply after step 3 settles, with the open programs table.
@@ -455,6 +463,8 @@ const ROLLING_TITLE = 'Base Builder Grant Program';
 const OPEN = "Here's what's open for you right now:";
 const TABLE = `| Program | Up to | Closes |\n|---|---|---|\n| ${ROLLING_TITLE} | $5,000 | Rolling |`;
 const BEST_ASK = `${ROLLING_TITLE} looks like your best fit. Want me to draft it?`;
+/** v4.7 T4: the setup-done reply's first-run line, once, a statement before the question. */
+const ASKS = 'Ask me anytime: where do I stand, what can I apply to, or draft my application.';
 type Ctx = Parameters<typeof mcpCall>[0];
 const kindOf = (r: R) => (r.reply?.move_up as { kind?: string } | undefined)?.kind;
 function repoFits(key: string, programs: string[]): RepoFit[] {
@@ -518,18 +528,20 @@ test('setup done copy, word for word: the three leads, the neutral one, and the 
   ]);
 });
 
-test('(a) pre-v4.4 in-flight: signed on the page, token launched: the next find leads with "You\'re all set", the table and the draft question', db, async () => {
+test('(a) pre-v4.4 in-flight: signed on the page: the next find leads with "You\'re all set", the table and the draft question; v4.7 T3: no token launched', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const b = await fitted('a', [ROLLING]);
   await inFlight(b.id);
   assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
-  assert.equal(await settled(b.id), 'launched');
+  await new Promise((r) => setTimeout(r, 150));
+  // v4.7 T3 (Review Focus 4): the sign launches nothing, even with v4.0's token_offered.
+  assert.equal(await tokenRow(b.id), null);
+  assert.equal(b.tf.calls.length, 0);
   const r = await mcpCall(b.ctx, 'find', {});
   const s = show(r);
-  // v4.2: the sign that launched the token says so, with the trade link.
-  assert.match(s, /^You're all set, Maya\. Your token is live, so your community can back what you're building: https:\/\/\S+\n\n/, s);
-  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.match(s, /^You're all set, Maya\.\n\n/, s);
+  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   // The yes drafts it (the apply flow).
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: (r.reply?.move_up as { project_key: string }).project_key, answer: 'yes' } });
@@ -544,7 +556,7 @@ test('(a) signed with tokens off: the neutral "You\'re all set", no token claim 
     await new Promise((r) => setTimeout(r, 100));
     assert.equal(await tokenRow(b.id), null);
     const s = show(await mcpCall(b.ctx, 'find', {}));
-    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   } finally {
     process.env.EARNKIT_BUILDER_TOKENS = 'on';
   }
@@ -553,13 +565,15 @@ test('(a) signed with tokens off: the neutral "You\'re all set", no token claim 
 test('(a) v4.4: signed with tokens on (no token sentence): the next find is the setup offer, then its no is setup done', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('n4', [ROLLING]);
+  // v4.7 T3 (token after money): the offer waits for one application (v47-money-first.test.ts: none, no offer).
+  await moneyStepDone(b.id);
   assert.equal((await signOn(b.handle, b.step, b.tf)).status, 200);
   await new Promise((r) => setTimeout(r, 100));
   const offer = await mcpCall(b.ctx, 'find', {});
   assert.match(show(offer), /^Done\. Your payouts go to 0x\S+\.\n\nOne optional thing: [\s\S]+\n\nWant it live\?$/, show(offer));
   assert.equal(kindOf(offer), 'token');
   const no = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } }));
-  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(b.tf.calls.length, 0);
 });
 
@@ -567,7 +581,7 @@ test('(b) a no to the token: "No problem, no token." with the table, right away'
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('b', [ROLLING]);
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(show(r), `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   assert.equal(await tokenRow(b.id), 'declined');
 });
@@ -576,7 +590,7 @@ test('(c) skipped the wallet: "No worries, add it whenever you\'re ready." with 
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('c', [ROLLING]);
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), `No worries, add it whenever you're ready. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(show(r), `No worries, add it whenever you're ready. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
 });
 
@@ -613,12 +627,14 @@ test('final review 1: a token still launching or unknown is never told as live: 
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const b = await fitted('w', [ROLLING]);
   await inFlight(b.id);
+  // v4.7 T3: the sign launches nothing, so the row an unclear launch leaves (status unknown) is set here.
   const unclear = (async () => new Response(JSON.stringify({ error: 'Deployment status unknown' }), { status: 502 })) as unknown as typeof fetch;
   const tf = { f: unclear, calls: [], deps: { fetch: unclear, check: async () => true } };
+  await sql()`INSERT INTO builder_tokens (builder_id, x_user_id, status) SELECT ${b.id}, x_user_id, 'unknown' FROM builder_profiles WHERE builder_id = ${b.id}`;
   assert.equal((await signOn(b.handle, b.step, tf)).status, 200);
   assert.equal(await settled(b.id), 'unknown');
   const s = show(await mcpCall(b.ctx, 'find', {}));
-  assert.equal(s, `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(s, `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
 });
 
 test('final review 6: the setup-done reply is claimed only once it is built: a failure leaves it for the next reply', db, async () => {

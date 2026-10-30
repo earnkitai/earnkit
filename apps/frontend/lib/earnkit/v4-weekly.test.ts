@@ -209,6 +209,8 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
     '',
     share,
     '',
+    'Builders who share wins get noticed by programs.',
+    '',
     'Looks right?',
   ].join('\n'));
   assert.equal(links(s).length, 1);
@@ -229,18 +231,19 @@ test('(d, end to end) the Monday email carries the same facts as plain lines', d
     const r = await sendDigests(new Date(), { mail: async (m) => void sent.push(m), only: [me.id] });
     assert.equal(r.sent, 1);
     const m = sent[0]!;
-    assert.match(m.subject, /^Your week on EarnKit: Shipping 82/);
+    // v4.7 T5 (R16): the standing on top carries the one score; the subject and the week block carry none.
+    assert.equal(m.subject, 'Your week on EarnKit');
+    assert.match(m.text, /^Score \d+/);
     assert.ok(m.text.includes([
       'Your week is ready, Maya. You shipped the new meal planner. Nice work.',
       '',
-      'Shipping score: 82, up 4',
       'Streak: 5 weeks',
       'From your community: $46, already in your wallet',
       '',
       'Looks right: ',
     ].join('\n')), m.text);
     assert.match(m.text, /\nHide this week: https:\/\/earnkit\.com\/api\/week\?t=\S+/);
-    assert.match(m.text, /One email a week\. Unsubscribe: https:\/\/earnkit\.com\/api\/digest\/unsubscribe\?t=/);
+    assert.match(m.text, /Deadline alerts and a Monday summary\. Unsubscribe: https:\/\/earnkit\.com\/api\/digest\/unsubscribe\?t=/);
     assert.doesNotMatch(m.text, /MAYA|[Tt]oken\b|[Cc]oin|\|/);
   }),
 );

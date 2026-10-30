@@ -25,7 +25,7 @@ import { person as findPerson } from './fixtures/find';
 import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
-import { STRIPE_ASK_NOTE, STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, benchStepKey, stateAsk, stripeAsk } from './bench-reply';
+import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, benchStepKey, stateAsk, stripeDraftLine, stripeDraftNote } from './bench-reply';
 import { STRIPE_DECLINED_KEY, stripeAskDue } from './stripe';
 import { TELL_DESCRIPTION_BENCH } from './mcp';
 import { RESERVED_ROUTES } from './reserved-routes';
@@ -36,7 +36,10 @@ process.env.EARNKIT_URL = 'https://earnkit.com';
 (globalThis as { React?: typeof React }).React = React;
 const dbTest = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
-  if (process.env.DATABASE_URL) await sql().end();
+  if (!process.env.DATABASE_URL) return;
+  // v4.7 T3: the revenue program the draft-time tests made.
+  await sql()`DELETE FROM programs WHERE id = ${`v46-st-${process.pid}-ask`}`.catch(() => sql()`UPDATE programs SET status = 'closed' WHERE id = ${`v46-st-${process.pid}-ask`}`);
+  await sql().end();
 });
 const NOW = new Date('2026-10-30T10:00:00Z');
 const KEY = 'rk_live_SEEDEDsecretKEY123456';
@@ -692,98 +695,116 @@ test('3.4 privacy: builder.json, the page data, /api/stats and the feed never ca
   }
 });
 
-test('3.5 the ask: two lines, the question last; stateAsk puts it after apply and before share; no link, no ask', () => {
+test('3.5 v4.7 T3: the ask left the reply order (stateAsk never asks it); the draft line is a statement with the link', () => {
   const L = 'https://earnkit.com/connect/stripe?t=x';
-  assert.equal(stripeAsk(L, 'Kit'), `Connect Stripe read-only here: ${L}\nWant grant drafts to show Kit's Stripe revenue?`);
-  assert.doesNotMatch(stripeAsk(L, 'Kit'), /—|coin|points|\p{Extended_Pictographic}/u);
-  assert.equal((stripeAsk(L, 'Kit').replace(/https?:\/\/\S+/g, '').match(/\?/g) ?? []).length, 1);
-  const v = { state: 'ranked' as const, variant: null, project: { key: 'a/kit', name: 'Kit' } as never, link: null, handle: 'kit', stripe: L };
-  assert.deepEqual(stateAsk(v), { kind: 'stripe', project_key: null, line: stripeAsk(L, 'Kit') });
-  const apply = { program_id: 'p', title: 'Grant', amount: null, when: null };
-  assert.equal(stateAsk({ ...v, apply }).kind, 'apply', 'apply first');
-  assert.equal(stateAsk({ ...v, share: true }).kind, 'stripe', 'before share');
-  assert.notEqual(stateAsk({ ...v, stripe: null }).kind, 'stripe');
+  assert.equal(stripeDraftLine(L), `Connect Stripe read-only so this draft can show verified revenue: ${L}`);
+  assert.doesNotMatch(stripeDraftLine(L).replace(L, ''), /—|coin|points|\?|\p{Extended_Pictographic}/u);
+  const v = { state: 'ranked' as const, variant: null, project: { key: 'a/kit', name: 'Kit' } as never, link: null, handle: 'kit', stripe: L } as never;
+  assert.equal(stateAsk(v).kind, 'ship', 'no stripe kind: the ranked rest');
+  assert.equal(stateAsk({ ...(v as object), share: true } as never).kind, 'share');
   assert.equal(benchStepKey('stripe', null), STRIPE_DECLINED_KEY);
-  assert.match(STRIPE_ASK_NOTE, /move_up: \{ kind: 'stripe'/);
+  assert.ok(stripeDraftNote(L).includes(`"${stripeDraftLine(L)}"`));
 });
 
 const kindOf = (r: Awaited<ReturnType<typeof mcpCall>>) => (r.reply?.move_up as { kind?: string } | undefined)?.kind;
 const showOf = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.show_to_builder ?? '');
+const noteOf = (r: Awaited<ReturnType<typeof mcpCall>>) => String(r.reply?.agent_note ?? '');
 const seenOf = async (id: number) => (await sql()<{ s: Record<string, unknown> }[]>`SELECT standing_seen AS s FROM builder_profiles WHERE builder_id = ${id}`)[0].s;
 const ctxOf = (id: number) => ({ installationId: id, ownInstallationId: id, sharedClient: false });
-/** Finds until the Stripe ask shows (other once-only questions may come first), at most `max` times. */
-async function findStripe(id: number, max = 6) {
+/** v4.7 T3: a copy of Base Builder Grants (wants_revenue, the committed file's), open 20 days. */
+let draftProgram: { id: string; answers: Record<string, string> } | null = null;
+async function revenueProgram() {
+  if (draftProgram) return draftProgram;
+  const baseP = committedProgram('base-builder-grants');
+  const id = `v46-st-${process.pid}-ask`;
+  await upsertProgram(ProgramFile.parse({ ...baseP, id, title: `Stripe ask ${process.pid}`, ends_at: new Date(Date.now() + 20 * 86_400_000).toISOString(), status: 'active' }));
+  const reqs = baseP.submission_requirements as { key: string; type: string; options?: string[] }[];
+  const answers = Object.fromEntries(reqs.map((r) => [r.key, r.type === 'url' ? 'https://kit.app/demo' : r.type === 'email' ? 'lee@kit.app' : r.options ? r.options[0] : 'Kit lets fans tip creators on Base.']));
+  draftProgram = { id, answers };
+  return draftProgram;
+}
+/** v4.7 T3: the shown draft for the revenue program; returns the Stripe link its agent note offers, or null. */
+async function draftStripe(b: { id: number; key: string }): Promise<string | null> {
+  const p = await revenueProgram();
+  const r = await mcpCall(ctxOf(b.id), 'prepare', { program_id: p.id, project: { name: 'Kit', repo_url: `https://github.com/${b.key}`, live_url: 'https://kit.app' }, answers: p.answers, coach_asked: true });
+  assert.doesNotMatch(showOf(r), /Connect Stripe/, 'the line is in the note, never a question in the reply');
+  return /Connect Stripe read-only so this draft can show verified revenue: (https:\/\/earnkit\.com\/connect\/stripe\?t=\S+?)"/.exec(noteOf(r))?.[1] ?? null;
+}
+/** v4.7 T3: finds `max` times; true when any carried a Stripe ask (it never should). */
+async function findStripe(id: number, max = 4) {
   for (let i = 0; i < max; i++) {
     const r = await mcpCall(ctxOf(id), 'find', {});
-    if (kindOf(r) === 'stripe') return r;
+    if (kindOf(r) === 'stripe' || /connect\/stripe/.test(showOf(r))) return true;
   }
-  return null;
+  return false;
 }
 
-test('3.6 the ask fires once in a quiet ranked reply with the link; silence never re-asks; tell connect sends a fresh link', dbTest, async () => {
+test('3.6 v4.7 T3: the line rides on a draft once (stripe_asked); find never asks it; tell connect sends a fresh link', dbTest, async () => {
   const b = await stripey();
-  const r = await findStripe(b.id);
-  assert.ok(r, 'the ask shows');
-  assert.match(showOf(r!), /Connect Stripe read-only here: https:\/\/earnkit\.com\/connect\/stripe\?t=\S+\nWant grant drafts to show Kit \d+'s Stripe revenue\?$/);
-  assert.deepEqual(r!.reply?.move_up, { kind: 'stripe', project_key: null, agent_note: STRIPE_ASK_NOTE });
+  assert.equal(await findStripe(b.id), false, 'find never asks it now');
+  assert.equal((await seenOf(b.id)).stripe_asked, undefined);
+  assert.ok(await draftStripe(b), 'the first draft offers it');
   assert.equal(typeof (await seenOf(b.id)).stripe_asked, 'string');
-  assert.equal(await findStripe(b.id, 4), null, 'once');
+  assert.equal(await draftStripe(b), null, 'once');
   const c = await mcpCall(ctxOf(b.id), 'tell', { stripe: 'connect' });
   assert.match(showOf(c), /^Connect Stripe read-only here: https:\/\/earnkit\.com\/connect\/stripe\?t=\S+$/);
   assert.match(String(c.reply?.agent_note), /Never ask the builder for a Stripe key in chat/);
 });
 
-test('3.7 yes to the stored ask sends the link again; a no is permanent (never comes back, even past DECLINE_MS)', dbTest, async () => {
+test('3.7 a v4.6 stored ask still answers: yes sends the link again; a no is permanent (no draft offers it, even past DECLINE_MS)', dbTest, async () => {
+  const stored = (id: number) => sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+    || jsonb_build_object('stripe_asked', now()::text, 'bench_ask', jsonb_build_object('kind', 'stripe', 'key', null)) WHERE builder_id = ${id}`;
   const y = await stripey();
-  assert.ok(await findStripe(y.id));
+  await stored(y.id);
   const yes = await mcpCall(ctxOf(y.id), 'tell', { move_up: { kind: 'stripe', project_key: null, answer: 'yes' } });
   assert.match(showOf(yes), /^Connect Stripe read-only here: https:\/\/earnkit\.com\/connect\/stripe\?t=\S+$/);
   assert.match(String(yes.reply?.agent_note), /Never ask the builder for a Stripe key in chat/);
   const n = await stripey();
-  assert.ok(await findStripe(n.id));
+  await stored(n.id);
   await mcpCall(ctxOf(n.id), 'tell', { move_up: { kind: 'stripe', project_key: null, answer: 'no' } });
   const s = await seenOf(n.id);
   assert.equal(typeof (s.declined as Record<string, string>)[STRIPE_DECLINED_KEY], 'string');
   assert.equal(await stripeAskDue(n.id, s as never), null);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen - 'stripe_asked', '{declined}', jsonb_build_object(${STRIPE_DECLINED_KEY}::text, ${new Date(Date.now() - 400 * 86_400_000).toISOString()}::text)) WHERE builder_id = ${n.id}`;
   assert.equal(await stripeAskDue(n.id, (await seenOf(n.id)) as never), null);
-  assert.equal(await findStripe(n.id, 4), null);
+  assert.equal(await draftStripe(n), null);
 });
 
 test('3.8 who is asked: a verified site, no connection; a builder with no site, or connected, is not', dbTest, async () => {
   const none = await stripey({ site: null });
   assert.equal(await stripeAskDue(none.id, {}), null, 'no verified site');
-  assert.equal(await findStripe(none.id, 3), null);
+  assert.equal(await draftStripe(none), null);
   const b = await stripey();
   assert.equal(await stripeAskDue(b.id, {}), 'first');
   await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b.id}, 'x', ${`acct_${sn}${process.pid}`}, 'kit.app')`;
   assert.equal(await stripeAskDue(b.id, {}), null, 'connected');
+  assert.equal(await draftStripe(b), null);
   assert.equal(await stripeAskDue(b.id, { stripe_asked: 'x' }), null);
 });
 
-test('3.9 broken re-offers once, in the same store; declined stays untouched, and a no still wins', dbTest, async () => {
+test('3.9 broken re-offers once on a draft, in the same store; declined stays untouched, and a no still wins', dbTest, async () => {
   const b = await stripey();
   await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, broken_at) VALUES (${b.id}, 'x', ${`acct_b${sn}${process.pid}`}, 'kit.app', 'broken', now())`;
   assert.equal(await stripeAskDue(b.id, { stripe_asked: 'x' }), 'reoffer', 'even after the first ask');
-  const r = await findStripe(b.id);
-  assert.ok(r, 'the re-offer shows with the same copy');
-  assert.match(showOf(r!), /Connect Stripe read-only here: .+\nWant grant drafts to show Kit \d+'s Stripe revenue\?$/);
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('stripe_asked', now()::text) WHERE builder_id = ${b.id}`;
+  assert.ok(await draftStripe(b), 'the re-offer rides on the draft with the same line');
   const s = await seenOf(b.id);
   assert.equal(typeof s.stripe_reoffered, 'string');
   assert.equal(s.declined, undefined, 'declined untouched');
-  assert.equal(await findStripe(b.id, 4), null, 'after that, quiet');
+  assert.equal(await draftStripe(b), null, 'after that, quiet');
   const d = await stripey();
   await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, broken_at) VALUES (${d.id}, 'x', ${`acct_d${sn}${process.pid}`}, 'kit.app', 'broken', now())`;
   assert.equal(await stripeAskDue(d.id, { declined: { [STRIPE_DECLINED_KEY]: new Date().toISOString() } }), null);
 });
 
-test('3.10 with no secret there is no link: the ask never fires, and tell connect says so in plain words', dbTest, async () => {
+test('3.10 with no secret there is no link: no draft offers it, nothing is claimed, and tell connect says so in plain words', dbTest, async () => {
   const b = await stripey();
+  await revenueProgram();
   const was = process.env.EARNKIT_AUTH_SECRET;
   delete process.env.EARNKIT_AUTH_SECRET;
   try {
     assert.equal(stripeLink(b.id, new Date()), null);
-    assert.equal(await findStripe(b.id, 3), null);
+    assert.equal(await draftStripe(b), null);
     assert.equal(showOf(await mcpCall(ctxOf(b.id), 'tell', { stripe: 'connect' })), STRIPE_NO_LINK);
     assert.equal((await seenOf(b.id)).stripe_asked, undefined, 'nothing claimed');
   } finally {
@@ -808,10 +829,10 @@ test('3.11 tell stripe:disconnect deletes the key row and the stored figures; th
   assert.equal(showOf(await mcpCall(ctxOf(b.id), 'tell', { stripe: 'disconnect' })), STRIPE_NOT_CONNECTED);
 });
 
-test('3.12 the agent is told never to take a key in chat (tell description, the ask note, the connect reply)', () => {
+test('3.12 the agent is told never to take a key in chat (tell description, the draft note, the connect reply)', () => {
   assert.match(TELL_DESCRIPTION_BENCH, /stripe: 'connect' or 'disconnect'.*never ask for a key in chat/);
   assert.ok(TELL_DESCRIPTION_BENCH.length < 800);
   // F2: a pasted key is never repeated or passed to a tool; the builder deletes it in Stripe and uses the link.
   assert.match(TELL_DESCRIPTION_BENCH, /If they paste a Stripe key, don't repeat it or pass it to any tool; tell them to delete that key in Stripe and use the link/);
-  for (const n of [STRIPE_ASK_NOTE, STRIPE_NEVER_KEY]) assert.match(n, /Never ask the builder for a Stripe key in chat\. If they paste one, tell them to use the link instead and not to repeat it/);
+  for (const n of [stripeDraftNote('https://earnkit.com/connect/stripe?t=x'), STRIPE_NEVER_KEY]) assert.match(n, /Never ask the builder for a Stripe key in chat\. If they paste one, tell them to use the link instead and not to repeat it/);
 });

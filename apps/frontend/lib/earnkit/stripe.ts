@@ -475,3 +475,28 @@ export async function stripeAskDue(
   if (r.state === null) return seen.stripe_asked ? null : 'first';
   return null;
 }
+
+/**
+ * v4.7 T3: the Stripe line's link for a draft of a program that wants revenue (tools.ts prepare): when stripeAskDue
+ * holds, claimed once in one guarded UPDATE (standing_seen.stripe_asked; a broken connection's re-offer,
+ * stripe_reoffered), so a second draft offers nothing. Null otherwise: no link (no EARNKIT_AUTH_SECRET: nothing
+ * claimed), not due, already claimed, or a read error (logged). Never throws.
+ */
+export async function takeStripeDraftLink(builderId: number, now: Date): Promise<string | null> {
+  try {
+    const link = stripeLink(builderId, now);
+    if (!link) return null;
+    const [p] = await sql()<{ seen: Parameters<typeof stripeAskDue>[1] | null }[]>`
+      SELECT standing_seen AS seen FROM builder_profiles WHERE builder_id = ${builderId}`;
+    const due = p ? await stripeAskDue(builderId, p.seen ?? {}) : null;
+    if (!due) return null;
+    const key = due === 'first' ? 'stripe_asked' : 'stripe_reoffered';
+    const [taken] = await sql()`
+      UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
+      WHERE builder_id = ${builderId} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`;
+    return taken ? link : null;
+  } catch (err) {
+    console.error('[stripe] draft line', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}

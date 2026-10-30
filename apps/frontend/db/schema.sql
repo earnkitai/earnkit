@@ -2154,3 +2154,19 @@ CREATE TABLE IF NOT EXISTS fx_rates (
   usd      numeric NOT NULL CHECK (usd > 0),
   PRIMARY KEY (currency, day)
 );
+
+-- v4.7 T1: a program's IANA time zone (program file tz), when its summary's suffix doesn't name it; null otherwise.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS tz text;
+
+-- v4.7 T3: the program's application asks for revenue or traction (program file wants_revenue): a ready draft offers the Stripe connect once.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS wants_revenue boolean NOT NULL DEFAULT false;
+
+-- v4.7 T5: alert emails (alert-mail.ts), each event once per builder (the group root): 'accepted:<program>',
+-- 'closing:<program>:<close date>', 'new:<program>'. Written in the send's transaction, so a failed send stores nothing.
+CREATE TABLE IF NOT EXISTS alert_mail_sent (
+  builder_id integer NOT NULL,
+  event_key  text NOT NULL CHECK (length(event_key) <= 200),
+  sent_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (builder_id, event_key)
+);
+CREATE INDEX IF NOT EXISTS alert_mail_sent_day ON alert_mail_sent (builder_id, sent_at DESC);

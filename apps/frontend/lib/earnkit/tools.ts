@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -150,8 +150,8 @@ import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden } from './profiles';
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
-import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine } from './bench-reply';
-import { disconnectStripe, stripeLink } from './stripe';
+import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine, stripeDraftNote } from './bench-reply';
+import { disconnectStripe, stripeLink, takeStripeDraftLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
 import type { FieldKind } from './program-file';
@@ -2635,7 +2635,15 @@ async function draftWithSteps(
     return { program_id: prep.program_id, show_to_builder: step.line, deploy: step.deploy, agent_note: `${step.agent_note ?? ''} The draft failed: ${why} Call prepare again without deploy.`.trim() };
   }
   const shown = [join?.lead.join('\n'), step?.line, r.show_to_builder].filter((x): x is string => typeof x === 'string' && x.length > 0).join('\n\n');
-  const note = [r.agent_note, step?.agent_note, join?.noLive && BUILD_NO_LIVE_NOTE].filter((x): x is string => typeof x === 'string' && x.length > 0).join(' ');
+  // v4.7 T3: the Stripe ask left find's reply order: it rides on the shown draft (`draft`, never the first call's
+  // requirements) for a program that wants revenue (program file wants_revenue), once a person (stripe.ts
+  // takeStripeDraftLink: stripe_asked); never on a shared client or the build path (a fresh build has no revenue yet).
+  // v4.7 T3 fix round 1: a shown draft is a draft in the builder's hands (apply_yes), so find never offers to draft it
+  // again (bench-find.ts recordApplyYes, the apply yes's own record); not on a shared client (one client, many builders).
+  if (r.draft && !ctx.sharedClient) await recordApplyYes(ctx.installationId, prep.program_id, new Date());
+  const stripeUrl = r.draft && !join && !ctx.sharedClient && program.wants_revenue === true ? await takeStripeDraftLink(ctx.installationId, new Date()) : null;
+  const note = [r.agent_note, step?.agent_note, join?.noLive && BUILD_NO_LIVE_NOTE, stripeUrl && stripeDraftNote(stripeUrl)]
+    .filter((x): x is string => typeof x === 'string' && x.length > 0).join(' ');
   return { ...r, show_to_builder: shown, ...(step && { deploy: step.deploy }), ...(host && { host }), ...(note && { agent_note: note }) };
 }
 

@@ -420,7 +420,8 @@ test('O2.6 the server instructions (under 800), no old entry-and-token flow; fin
   {
     const on = serverInstructions();
     assert.ok(on.length < 800, String(on.length));
-    assert.ok(on.startsWith('Call find first. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.\nA yes or no to the question goes to tell move_up.\nCall score when they ask where they stand.\nNever name tools, fields or files to the builder'));
+    // v4.7 T5: the session-start line; ruling R1 keeps it under 800 (move_up and score's guidance live in their tools' descriptions).
+    assert.ok(on.startsWith('Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.\nNever name tools, fields or files, or invent personal details.'));
     assert.doesNotMatch(on, /launches the token|submits the entry|since_you_last_checked|prepare until ready/);
     for (const line of SAFETY_LINES) assert.ok(on.includes(line));
     assert.equal((await listed({})).instructions, on);

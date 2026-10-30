@@ -106,16 +106,17 @@ test('Task 16 step 5: ranked, no connect pending: the apply step', () => {
   const v = ranked({ rank: '#1 of 13 builders', best: BASE });
   v.ask = stateAsk({ ...v, apply });
   const out = benchReply(v);
+  // v4.7 T3 (money first): the money alone, no standing or ship line in front of it.
   assert.equal(out, [
-    'Recipe planner · #1 of 13 builders · 4 weeks in a row',
-    'Ship code this week.',
     'Base Builder Grant Program is still open, up to $5,000. I can draft it in a minute.',
     'Want me to?',
   ].join('\n'));
   oneAsk(out);
-  // A dated program says when it closes; under RANK_MIN_POOL the standing has no rank.
+  // A dated program says when it closes.
   assert.equal(applyAsk('Apply X', '$5,000', 'Nov 18'), 'Apply X closes Nov 18, up to $5,000. I can draft it in a minute.\nWant me to?');
-  assert.equal(benchReply({ ...v, rank: null }).split('\n')[0], 'Recipe planner · 4 weeks in a row');
+  assert.equal(benchReply({ ...v, rank: null }), out);
+  // A deadline line goes first (it is money too), then the ask.
+  assert.equal(benchReply({ ...v, due: ['Recipe Grants closes Nov 3.'] }), `Recipe Grants closes Nov 3.\n${out}`);
 });
 
 test('Task 16: the ship, backing and held steps keep the layout: standing, money, the one question, the points line', () => {
@@ -123,13 +124,17 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(ship, [
     'Recipe planner · #3 of 40 builders · 4 weeks in a row',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
+    // v4.7 T4: the ship ask's why line replaces the weekly ship line, its own paragraph before the question; fix round 0
+    // (R13): the weekly rank target is that why.
+    '',
     'Ship code this week to pass #2.',
+    '',
     SHIP_ASK,
   ].join('\n'));
   oneAsk(ship);
   // Done this week: the plain points line; no fit: the upcoming program, else no money line.
   const done = benchReply(ranked({ target: 'Done this week.', fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }] }));
-  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\nShip code this week.\n${SHIP_ASK}`);
+  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n\nShipping this week keeps your 4-week streak and lifts your score.\n\n${SHIP_ASK}`);
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
@@ -158,13 +163,15 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
     '',
     `Your post is ready to share: ${link}`,
     '',
+    'Builders who share wins get noticed by programs.',
+    '',
     'Looks right?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
   const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
-  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLooks right\?$/);
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nLooks right\?$/);
   oneAsk(none);
   assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
 });
@@ -173,14 +180,19 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   const link = 'https://earnkit.com/maya/post/abcdefghij';
   const post: EventPost = { head: 'Recipe planner went live this week.', text: 'Recipe planner is live. 9 weeks from first commit.', link };
   const v = ranked({ post });
-  v.ask = stateAsk({ ...v, post, apply: { program_id: 'p', title: 'P', amount: null, when: null } });
-  assert.deepEqual(v.ask, { kind: 'post', project_key: RECIPE.key, line: POST_ASK }, 'ahead of apply when benchView offers it');
+  // v4.7 T3 fix round 1 (R11): money first: the apply ask goes before a post; benchView offers a post only with no unapplied fit.
+  assert.equal(stateAsk({ ...v, post, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
+  v.ask = stateAsk({ ...v, post });
+  assert.deepEqual(v.ask, { kind: 'post', project_key: RECIPE.key, line: POST_ASK });
   const out = benchReply(v);
   assert.equal(out, [
     'Recipe planner went live this week.',
     'Your post for X:',
     '"Recipe planner is live. 9 weeks from first commit."',
     `Post it in one tap: ${link}`,
+    '',
+    'A post with real numbers is what reviewers read.',
+    '',
     'Want a different version?',
   ].join('\n'));
   oneAsk(out);

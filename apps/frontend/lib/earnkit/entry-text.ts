@@ -1,5 +1,6 @@
 import { payoutBy, prizeUsdEach, usd, type CampaignConfig } from './campaigns';
 import { shortDate } from './dates';
+import { closeDay, programZone, zoneAbbr, zoneParts } from './deadline';
 
 /** EarnKit's public origin for links in builder text. */
 export const siteUrl = () => (process.env.EARNKIT_URL ?? 'https://earnkit.com').replace(/\/$/, '');
@@ -55,15 +56,14 @@ export function summaryCloses(summary: string): string | null {
 const closesDay = (closes: string) => /^\w{3} \d{1,2}/.exec(closes)![0];
 
 /**
- * v2.10 item 2 (Pre-flight P1): the program's own close day ("Oct 14" from "closes Oct 14, 11:59 PM
- * ET"), never a UTC day that can read a day late; else ends_at's UTC day; null for a rolling program.
- * Pure.
+ * v2.10 item 2 (Pre-flight P1): the program's own close day, never a UTC day that can read a day late. v4.7 T1: ends_at
+ * in the program's zone (deadline.ts closeDay, the one source for the site and replies); the summary's "closes Oct 14,
+ * 11:59 PM ET" only without ends_at (the summary is free text, so ends_at wins); null for a rolling program. Pure.
  */
-export function closeDayOf(c: { summary: string; ends_at?: Date | null }): string | null {
+export function closeDayOf(c: { summary: string; tz?: string | null; ends_at?: Date | null }): string | null {
+  if (c.ends_at) return closeDay(c);
   const closes = summaryCloses(c.summary);
-  if (closes) return closesDay(closes);
-  if (c.summary.split(' · ').slice(1).includes('rolling')) return null;
-  return c.ends_at ? shortDate(c.ends_at) : null;
+  return closes ? closesDay(closes) : null;
 }
 
 /**
@@ -84,11 +84,11 @@ export const upToCell = (prize: string) => prize.replace(/^up to\s+/i, '');
  * "Oct 14, 11:59 PM ET" from the summary's "closes Oct 14, 11:59 PM ET" (v2.8.1 §C15: the program's
  * own time zone), "rolling", else ends_at as deadlineLabel shows it. Pure; exported for tests.
  */
-export function endsOf(c: { summary: string; ends_at?: Date | null }) {
+export function endsOf(c: { summary: string; tz?: string | null; ends_at?: Date | null }) {
   const closes = summaryCloses(c.summary);
   if (closes) return closes;
   if (c.summary.split(' · ').slice(1).includes('rolling')) return 'rolling';
-  return c.ends_at ? deadlineLabel(c.ends_at) : 'rolling';
+  return c.ends_at ? deadlineLabel(c.ends_at, programZone(c)) : 'rolling';
 }
 
 /**
@@ -100,13 +100,22 @@ export const deadlineDay = (ends: Date) =>
 
 /**
  * v2.8.1 §C15: a program deadline with no stated time zone: its time in UTC ("Oct 15, 3:59 AM UTC");
- * an end at 00:00 UTC (exclusive) stays its last day (deadlineDay). Pure.
+ * an end at 00:00 UTC (exclusive) stays its last day (deadlineDay). v4.7 T1: in the program's zone
+ * (deadline.ts programZone) with its short name ("Nov 1, 11:59 PM PT") when EarnKit knows one; an
+ * end at 00:00 there is likewise its last day. Pure.
  */
-export function deadlineLabel(ends: Date) {
-  if (ends.getTime() % DAY_MS === 0) return deadlineDay(ends);
-  const h = ends.getUTCHours();
-  const clock = `${h % 12 || 12}:${String(ends.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
-  return `${shortDate(ends)}, ${clock} UTC`;
+export function deadlineLabel(ends: Date, zone = 'UTC') {
+  const abbr = zoneAbbr(zone);
+  if (zone === 'UTC' || !abbr) {
+    if (ends.getTime() % DAY_MS === 0) return deadlineDay(ends);
+    const h = ends.getUTCHours();
+    const clock = `${h % 12 || 12}:${String(ends.getUTCMinutes()).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+    return `${shortDate(ends)}, ${clock} UTC`;
+  }
+  const t = zoneParts(ends, zone);
+  if (t.hour === 0 && t.minute === 0 && t.second === 0 && ends.getUTCMilliseconds() === 0) return zoneParts(new Date(ends.getTime() - 1), zone).day;
+  const clock = `${t.hour % 12 || 12}:${String(t.minute).padStart(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}`;
+  return `${t.day}, ${clock} ${abbr}`;
 }
 
 /**

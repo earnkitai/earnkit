@@ -114,7 +114,7 @@ async function coinBuilder(tag: string): Promise<B> {
 
 test('copy: the jargon lines and the answer note', () => {
   assert.equal(APPROVED_LINE, 'Thanks. Last week is on your page.');
-  assert.equal(EMAIL_ON, 'Done. Your summary comes every Monday.');
+  assert.equal(EMAIL_ON, "Done. You'll get deadline alerts and a Monday summary.");
   assert.equal(WHICH_EMAIL, 'Which email should your Monday summary go to?');
   assert.equal(pickRepoAgain('https://x.test/l'), "Connect your app's code so I can match it (read-only, one click): https://x.test/l\nDone?");
   rule(pickRepoAgain('https://x.test/l'));

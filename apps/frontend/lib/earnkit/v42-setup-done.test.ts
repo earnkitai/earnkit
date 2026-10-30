@@ -11,7 +11,7 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { NO_GITHUB_HINT, benchReply, closestAsk, pickRepoAgain, setupDoneLead, setupDoneReply, stateAsk, walletDone, type BenchProject, type BenchView } from './bench-reply';
-import { CLOSEST_NOTE, closestStep } from './bench-find';
+import { CLOSEST_NOTE, closestStep, whyNote } from './bench-find';
 import { formatReply } from './reply-format';
 import { reportedNameIn } from './project-name';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -146,7 +146,8 @@ test('final review 3: a no to the closest-program question is its own (never a n
     await mcpCall(ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'no' } });
     await mcpCall(ctx, 'find', { agent_can_build: false });
     const r = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'no' } });
-    assert.deepEqual(r.reply?.move_up, { kind: 'closest', project_key: null, agent_note: CLOSEST_NOTE });
+    // v4.7 T4: the closest question's own reason sentence is its why.
+    assert.deepEqual(r.reply?.move_up, { kind: 'closest', project_key: null, agent_note: whyNote(CLOSEST_NOTE), why: 'Base Builder Grant Program is the closest. It needs your code connected.' });
     const [{ k }] = await sql()<{ k: string }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${c.id}`;
     assert.equal(k, 'closest');
     if (kindless) {
@@ -175,13 +176,17 @@ const repoFacts = (key: string): RepoFit[] => {
   }];
 };
 
-test('F4 (pre-v4.4 in-flight, token sentence shown): the wallet "done" while step 3 is open is the setup-done reply (one message), with the trade link', db, async () => {
+test('F4 (pre-v4.4 in-flight, token sentence shown): the wallet "done" while step 3 is open is the setup-done reply (one message); v4.7 T3: the proof launched no token', db, async () => {
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   process.env.TOKENSFUN_DEPLOY_API_KEY = 'test';
   const { c, handle } = await signedIn('sg');
   const key = `${handle}/kit`;
   const coin = `0x${hex(20)}`;
-  const f = (async () => new Response(JSON.stringify({ success: true, tokenAddress: coin, txHash: '0xabc', chainId: 8453 }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as unknown as typeof fetch;
+  let deploys = 0;
+  const f = (async () => {
+    deploys++;
+    return new Response(JSON.stringify({ success: true, tokenAddress: coin, txHash: '0xabc', chainId: 8453 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }) as unknown as typeof fetch;
   const ctx = {
     installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits: repoFacts(key) })) as never,
     tokenDeps: { check: async () => true }, builderTokenDeps: { fetch: f, check: async () => true },
@@ -205,14 +210,14 @@ test('F4 (pre-v4.4 in-flight, token sentence shown): the wallet "done" while ste
     { limit: async () => {}, verify: (a) => verifyMessage({ address: a.address as `0x${string}`, message: a.message, signature: a.signature as `0x${string}` }), discover: async () => {}, builderToken: { fetch: f, check: async () => true } },
   );
   assert.equal(res.status, 200);
-  for (let i = 0; i < 50; i++) {
-    const [row] = await sql()<{ status: string }[]>`SELECT status FROM builder_tokens WHERE builder_id = ${c.id}`;
-    if (row && row.status !== 'launching') break;
-    await new Promise((r) => setTimeout(r, 20));
-  }
+  await new Promise((r) => setTimeout(r, 150));
+  // v4.7 T3 (Review Focus 4): proving a wallet launches nothing, even with v4.0's token_offered.
+  assert.equal(deploys, 0);
+  assert.equal((await sql()`SELECT 1 FROM builder_tokens WHERE builder_id = ${c.id}`).length, 0);
   const r = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: key, answer: 'yes' } });
   const s = show(r);
-  assert.ok(s.startsWith(`You're all set, Maya. Your token is live, so your community can back what you're building: ${tradeUrl(coin)}`), s);
+  assert.ok(s.startsWith("You're all set, Maya.\n\n"), s);
+  assert.ok(!s.includes(tradeUrl(coin)), s);
   assert.doesNotMatch(s, /Done\. Your rewards now go to/, s);
   assert.match(s, /\| Program \| Up to \| Closes \|/, s);
   assert.doesNotMatch(s, /doesn't fit|points/i, s);

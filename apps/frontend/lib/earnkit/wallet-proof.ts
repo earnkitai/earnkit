@@ -324,28 +324,11 @@ export async function walletXSignedIn(builderId: number, useHash: string, user: 
 
 type RouteDeps = {
   limit?: (request: Request) => Promise<unknown>; verify?: Verify; now?: Date; discover?: (builderId: number) => Promise<void>;
-  /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check (builder-token.ts). */
+  /** v4.0: test injection only: the builder token launch's tokens.fun fetch and ticker check. v4.7 T3: the proof launches nothing, so a test passes it to prove that. */
   builderToken?: { fetch?: typeof fetch; check?: (symbol: string) => Promise<boolean | null> };
   /** v4.0 fix round 1: test injection only: a side effect after the proof is written (ProveHooks.after). */
   afterProof?: (builderId: number) => Promise<void>;
 };
-/**
- * v4.0: the builder's token launches on their first reward wallet (setup step 3), unless they said no (a declined row is
- * returned untouched); never awaited by the proof's answer, and never throws (a failure is logged; "launch my token" or
- * the owner settles it). Fix round 1: only when the builder saw step 3's token sentence (standing_seen.token_offered);
- * otherwise only their own "launch my token" launches it.
- */
-async function launchOnProof(builderId: number, deps: RouteDeps['builderToken']): Promise<void> {
-  try {
-    const [p] = await sql()<{ offered: boolean }[]>`
-      SELECT COALESCE(standing_seen ? 'token_offered', false) AS offered FROM builder_profiles WHERE builder_id = ${builderId}`;
-    if (!p?.offered) return;
-    const { launchBuilderToken } = await import('./builder-token');
-    await launchBuilderToken(builderId, deps ?? {});
-  } catch (err) {
-    console.error('[wallet proof] token launch', err instanceof Error ? err.name : 'error');
-  }
-}
 /** The new wallet's discovery budget: it runs beside the reply, so the page shows it moments after signing. */
 export const PROOF_DISCOVER_MS = 20_000;
 /** The new wallet's discovery now (its first Base transaction, its contracts), then the page's caches. Never throws. */
@@ -379,12 +362,9 @@ export async function walletPost(request: Request, deps: RouteDeps = {}): Promis
   const xName = walletXCookie(tokenUseKey(b.t));
   const xSecret = cookieValue(request, xName);
   const builderId = upgradeOf(b.t, deps.now ?? new Date());
-  // v4.0: the first reward wallet launches the token, fired as soon as the proof is written (never awaited; fix round 1:
-  // before the proof's side effects, so a failing one never stops it).
+  // v4.7 T3: proving a wallet never launches a token (v4.0's launch on the first proof is gone, token_offered or not);
+  // a token launches only from the builder's yes to the token offer (bench-find.ts tokenAnswer).
   const r = await proveWallet({ token: b.t, wallet: b.wallet, signature: b.signature, xSecret }, deps.now ?? new Date(), deps.verify, {
-    onProven: (first) => {
-      if (first && builderId !== null) void launchOnProof(builderId, deps.builderToken);
-    },
     after: deps.afterProof,
   });
   if (!r.ok) return json({ line: r.line }, r.line === WALLET_TEXT.unchecked ? 503 : 400);

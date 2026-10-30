@@ -121,13 +121,17 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
     || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${c.id}`;
   const r = (await mcpCall(ctx, 'find', {})).reply!;
   const lead = (r.lead as { program_id: string } | undefined)?.program_id;
-  const money = String(r.show_to_builder).split('\n')[1];
+  // v4.7 T3 (money first): an open fit asked once is asked again, so the reply is the money alone: its first line.
+  const money = String(r.show_to_builder).split('\n')[0];
   assert.ok(money.includes('Soon Fund'), `the money line names the closing program: ${r.show_to_builder}`);
   assert.equal(lead, closing, 'lead follows the money line');
   const sc = (await mcpCall({ ...ctx }, 'score', {})).reply!;
   // Score's own matcher reads the same two programs (the fixture has chains base): its lead is its own money line's program.
-  assert.equal(String(sc.show_to_builder).split('\n')[1], money, 'score names the same program');
+  // v4.7 T2: score leads with the standing paragraph (in place of its own standing line), then the money line.
+  assert.ok(String(sc.show_to_builder).startsWith(`${sc.standing}\n\n`), String(sc.show_to_builder));
+  assert.equal(String(sc.show_to_builder).slice(`${sc.standing}\n\n`.length).split('\n')[0], money, 'score names the same program');
   assert.equal((sc.lead as { program_id: string } | undefined)?.program_id, closing, 'score lead is its money line program');
+  assert.match(String(sc.standing), /Next: Soon Fund closes /, 'the standing names the same next deadline');
 });
 
 // ---- F7: a submitted entry stays submitted

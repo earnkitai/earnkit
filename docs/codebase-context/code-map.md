@@ -366,6 +366,21 @@ apps/frontend/
     db.ts                      postgres.js pool (DATABASE_URL)
     dates.ts(+test)            formatDeadline: the one human date format ("Oct 6, 2026, 06:51 UTC");
                                machine fields stay ISO
+    deadline.ts                v4.7 T1: programZone (file tz, else the summary's ET/PT/CT/UTC/GMT suffix, else UTC),
+                               closeDay (ends_at's day in that zone: the one close day for the site tiles and replies;
+                               ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
+                               Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
+    standing.ts                v4.7 T2: where the builder stands. Standing type; standingParagraph (exact copy: "Score 77 · #1 of 40
+                               v4.7 final review: toldAppliedSql (group "applied" rule, applicationCounts and alert-mail.ts)
+                               builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next:
+                               X closes Nov 1."); pageScore (the page's score rule, used by bench-data profileData too);
+                               applicationCounts (R3: Task 3's token gate reuses it); wonUsdOf (earned.ts prizesWonSql);
+                               nextDeadline (deadline.ts closeDay over the fits); readStanding; personal (the person gate,
+                               shared with reply-facts.ts); streakOnly (signed out or a non-person shared client: the weeks
+                               only, nothing read); standingLeads. bench-find benchView puts it in every find/score reply's
+                               fields (standingFields), and benchScore leads with it (view.standingLed) only with a score or
+                               streak part and never over the Monday block or a post offer.
+                               Tested in v47-standing.test.ts
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
@@ -1020,8 +1035,8 @@ apps/frontend/
                                'no_ticker'), launchBuilderToken (the row is the claim; tokens.ts outcomeOf: released only on a pre-mint
                                refusal, else 'unknown' and never retried; Base only, Safe 60 / builder 40), stuckBuilderTokens (unknown, or
                                launching > STUCK_LAUNCH_MS: runCron lists builder-token:<builder id> in needs_owner, never quiet), tradeUrl
-                               (Uniswap on Base). Launched by wallet-proof.ts launchOnProof when the proof made the builder's first reward
-                               wallet (ProveResult.first), unless declined. Creator fees: bonus-ledger.ts claimForOthers claims for each
+                               (Uniswap on Base). Launched only from the builder's yes (v4.7 T3: wallet-proof.ts launchOnProof is gone;
+                               the retry needs standing_seen.token_yes, set by bench-find.ts markTokenYes). Creator fees: bonus-ledger.ts claimForOthers claims for each
                                launched row's wallet (sponsored claims, first). Final review 1: retryDroppedBuilderTokens (runCron: offered,
                                proven recipient wallet, no row, flag on; BUILDER_TOKEN_RETRIES_PER_RUN 5 a run, never tried first then oldest
                                offer, standing_seen.token_retry_at; no API key / 4xx / no_ticker / x_taken set standing_seen.token_blocked),
@@ -1184,7 +1199,8 @@ apps/frontend/
                                match-projects.ts cachedRepoChains; v2.9 T12 (G15 M1): canWin (tools.ts
                                alsoCanWin: alerts.ts repoCanWin over installations.ts readFitRepos, else
                                users said for "needs a live product"), testnet-only chains dropped
-    entry-text.ts(+test)       v2.10 item 2 (P1): closeDayOf (the program's own close day for "by")
+    entry-text.ts(+test)       v2.10 item 2 (P1): closeDayOf (the program's own close day for "by"; v4.7: deadline.ts
+                               closeDay when ends_at is set); deadlineLabel(ends, zone) names ET/PT/CT when known
                                confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                v2.10: enteredText's bonus is { line } (bonusLine, no board); tokenRow uses the confirm line's words;
                                COIN_FOOTNOTE, tokenFootnote, coinRow, walletLine, BONUS_MOVES removed; SKIP_TOKEN lives here.
@@ -1411,6 +1427,7 @@ apps/frontend/
                                v2.12 T15: PROFILES_TITLE, PROFILES_ANCHOR ('builder-profiles'), PROFILES_POINTS
                                (the /terms#builder-profiles copy; lawyer review before go-live)
     policy-constants.ts        v4.0: EARNKIT_SPLITS_BPS adds [6000, 4000] (Safe 60 / creator 40, no MINI slot); launches are Base only.
+                               v4.7 final review: DECLINE_MS (bench-find re-exports it) and draftedRecently (find and the alerts)
                                v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
                                GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
                                (policy.ts once imported bonus-payout/traction, which import bonus-ledger)
@@ -1498,7 +1515,17 @@ apps/frontend/
                                backers via backers.ts newBackers) leads the body, above the week.
                                v4.0 Task 7: digestWeek's lines are mondayLines (weekly-moment.ts: Shipping score, Streak, From your
                                community from community.ts weekCommunityUsd)
+                               v4.7 T5: EMAIL_QUESTION asks for deadline alerts and the Monday summary; resendMailer
+                               sends reply_to CONTACT_EMAIL; DigestFacts.standing (best-fit.ts standingFor, shown with
+                               standingLeads) is the body's top paragraph (R16: then the week drops its Shipping score
+                               line and the subject its score); mailFooter (R17, both emails); digestFrom exported
+    alert-mail.ts              v4.7 T5: the alert emails. alertEvents (accepted outcome post > closing fit or draft
+                               within DEADLINE_DAYS via deadline.ts closeDay > new fit via alerts.ts alertFit),
+                               alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail in every cron
+                               run, no hour gate; longest-unmailed builders first: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
+                               every digest still due). Tests: v47-reach-out.test.ts
     best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
+                               v4.7: openFitsFor (alert closing fits; final review R19 withoutSilentDeclines: only an explicit no drops one)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
     builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
     backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin;
@@ -1506,7 +1533,8 @@ apps/frontend/
                                v4.0 Task 9: indexBackers also indexes launched builder_tokens coins (start block from tx_hash's receipt,
                                else from builder_tokens.created_at, set when the claim starts and never after the mint; the token's
                                wallet counts as the creator, never a holder); a coin in both tables is read once
-    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd (v4.0 final review 9:
+    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), prizesWonSql (v4.7 T2: the
+                               announced-prize sum, shared with standing.ts), earnedUsd (v4.0 final review 9:
                                plus the creator fee_claims paid to the builder token's wallet, not already in creator_fees)
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost
@@ -1977,7 +2005,7 @@ apps/frontend/
                                link once; EOA locally; replacing a recipient needs wallet_x_checks), walletPageState,
                                walletXStart, walletXSignedIn (sets the __Host-ekwx- browser cookie), walletTokenCookie, walletXCookie, walletPost.
                                v4.0 Task 4: ProveResult.first (a fresh proof that made the first reward wallet); walletPost then runs
-                               launchOnProof (builder-token.ts, not awaited, errors logged) so the token launches at the proof
+                               launchOnProof (v4.7 T3: deleted; a proof never launches a token)
     wallet-offer.ts            v3.1 wallet proof: walletOfferDue, takeWalletAsk (claimed when shown), answerWallet (by
                                state: wallet_link_at), walletChangeReply (v4.0 final review 4: WALLET_COIN_FEES also for a launched
                                builder token), takeWalletNotice, WALLET_NOTE.
@@ -2606,3 +2634,19 @@ v4.6 Task 2 (daily Stripe read): `stripe.ts` adds `stripeRevenue` (30-day net fr
 v4.6 Task 3 (drafts, replies, the ask): `ship-log-facts.ts` (`stripe` in `ShipLogFacts`/`tractionFacts`, the Stripe line in `shipLogBlock`), `reply-facts.ts`
 (`stripe_30d_usd`, `stripe_mrr_usd`), `stripe.ts` (`stripeAskDue`, `STRIPE_DECLINED_KEY`), `bench-reply.ts` (`stripeAsk`, copy, `stateAsk` kind `stripe`),
 `bench-find.ts` (claims the ask, its yes), `tools.ts`/`mcp.ts` (`tell { stripe }`, `stripeReply`); tests in `v46-stripe.test.ts`.
+
+v4.7 Task 3 (the first reply is money only): `bench-find.ts` (`again`/`applyPickOf`: an open unapplied fit is asked again,
+the quieter asks wait; `apply_yes`; no Stripe in the reply order; `markTokenYes` sets `token_yes`), `bench-reply.ts` (apply
+reply is the money alone; `stripeDraftLine`, `stripeDraftNote`; `stripeAsk`/`STRIPE_ASK_NOTE` removed), `stripe.ts`
+(`takeStripeDraftLink`), `tools.ts draftWithSteps` (the draft's Stripe note), `program-file.ts`/`programs.ts`
+(`wants_revenue`, column in schema.sql), `wallet-offer.ts tokenOfferDue` (applicationCounts gate, `asked`),
+`wallet-proof.ts` (no launch), `builder-token.ts retryDroppedBuilderTokens` (`token_yes`), `llms/v213.txt`,
+`fixtures/wallet-step.ts moneyStepDone`. Tests: `v47-money-first.test.ts`.
+
+v4.7 (reach out, 2026-10-30), all five tasks: T1 `deadline.ts` (`closeDay`, program `tz`; site tiles and replies share
+one close day); T2 `standing.ts` (the `standing` fact and paragraph in find and score); T3 `bench-find.ts` money first
+(`again`, `apply_yes`, the Stripe line moved to drafts, `tokenOfferDue` after the first application, proofs launch
+nothing); T4 `bench-reply.ts` why lines (`askWhy`, `move_up.why`, `ASKS_HINT`); T5 `alert-mail.ts` (alert emails,
+`alert_mail_sent`), `digest.ts` (new ask, reply_to, standing on top), `best-fit.ts` (`openFitsFor`, `standingFor`),
+`cron.ts` (`alert_mail` step), `mcp.ts` (session-start instruction; ruling R1 dropped the move_up and score lines),
+`llms/v213.txt`. Tests: `v47-numbers`, `v47-standing`, `v47-money-first`, `v47-why` (T4's), `v47-reach-out`.

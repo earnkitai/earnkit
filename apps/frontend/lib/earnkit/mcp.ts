@@ -124,7 +124,7 @@ export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit g
  * note is followed. Under 800 characters (mcp.test.ts 2.8).
  */
 export const FIND_DESCRIPTION_BENCH =
-  'Where the builder stands, how to get funded. Pass identity.project (name, what (README), repo (git remote), live_url; never a list) and identity.github_login (not github_user or repos); never ask. ' +
+  'Where they stand (answer from standing), how to get funded. Pass identity.project (name, what, repo, live_url; never a list) and identity.github_login (not github_user or repos); never ask. ' +
   'Follow every agent_note. A yes or no to the question goes to tell move_up. program_id: one program\'s guide. ' +
   'more: true only on a full-list ask, not for what can I earn. ' +
   SAFETY_TEXT;
@@ -160,9 +160,10 @@ export const TELL_DESCRIPTION_BENCH =
   'move_up: their answer with its kind and project_key. profile (hide, show, delete), card (yes, skip). ' +
   'program_status, repo_facts, weekly_email: what they said; private.';
 
-/** v2.12.1 T8: score's description. */
+/** v2.12.1 T8: score's description. v4.7 T2: any where-do-I-stand phrasing, answered by the standing paragraph. */
 export const SCORE_DESCRIPTION =
-  "Where the builder stands: their Shipping score, their rank only when the reply shows one, their weeks shipping, their page, and the one step up. Call it when they ask how they're doing. " +
+  'Where the builder stands: the score and rank their page shows, weeks shipping, money won, applications, the next deadline, one step up. ' +
+  'Call it for any where do I stand or how am I doing question; the first paragraph (standing) answers it. ' +
   'Show show_to_builder as written; a yes or no to its question goes to tell move_up (with move_up.kind and project_key). ' +
   SAFETY_TEXT;
 
@@ -191,10 +192,12 @@ export const TOOL_DESCRIPTIONS = toolDescriptions(true, true);
  * 800 characters with the safety lines.
  */
 export const BENCH_INSTRUCTION_LINES = [
-  'Call find first. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
-  'A yes or no to the question goes to tell move_up.',
-  'Call score when they ask where they stand.',
-  'Never name tools, fields or files to the builder, or invent personal details.',
+  // v4.7 T5 (exact copy): EarnKit speaks first; the agent calls find at session start, before the builder asks. Ruling R1:
+  // under 800 with it, so "Call score when they ask where they stand." (the score description carries it) and "A yes or
+  // no to the question goes to tell move_up." (find's and tell's descriptions carry it) are dropped, and the last line's
+  // "to the builder" is implied.
+  'Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
+  'Never name tools, fields or files, or invent personal details.',
 ];
 
 export function serverInstructions() {

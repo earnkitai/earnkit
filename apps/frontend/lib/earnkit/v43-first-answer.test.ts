@@ -1,6 +1,6 @@
 import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { walletOffered } from './fixtures/wallet-step';
+import { moneyStepDone, walletOffered } from './fixtures/wallet-step';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
@@ -9,7 +9,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields, whyNote } from './bench-find';
 import { randomBytes } from 'node:crypto';
 import { tokenOfferDue } from './wallet-offer';
 import { isoWeekOf } from './weeks';
@@ -201,7 +201,8 @@ test("the owner's state through find: the approved copy, byte for byte; the yes 
   const { c, ctx, key } = await ownerBuilder('y');
   const r = await mcpCall(ctx, 'find', {});
   assert.equal(show(r), OWNER_COPY);
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // v4.7 T4: the qualify step's why is its own head and gap (the reply's first paragraph).
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: OWNER_COPY.split('\n')[0] });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), qualifyCodesYes('EarnKit'));
@@ -290,7 +291,8 @@ test("v4.3 Task 2: the owner's find {more: true}: head and gap, the full table, 
   assert.equal(s, [OWNER_COPY.split('\n')[0], '', FULL_TABLE, '', 'Want me to add Builder Codes to EarnKit?'].join('\n'));
   assert.doesNotMatch(s, /doesn't fit|Updates:|Also open|\d+ programs are open|Want the guide/);
   assert.equal(s.split('?').length - 1, 1, s);
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // v4.7 T4: the qualify step's why is its own head and gap (the reply's first paragraph).
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: OWNER_COPY.split('\n')[0] });
   // The stored ask is written, so the yes is answered as asked.
   const [{ a }] = await sql()<{ a: { kind: string; qualify?: { first?: string; name?: string } } | null }[]>`SELECT standing_seen->'bench_ask' AS a FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(a?.kind, 'qualify');
@@ -314,7 +316,8 @@ test('v4.3 Task 2: a ranked reply with the full list puts the table right before
   };
   const plain = benchReply(view);
   const full = benchReply({ ...view, fullTable: '| Program |\n|---|\n| A |' });
-  assert.equal(full, plain.replace('\nWant me to suggest one small thing to ship?', '\n\n| Program |\n|---|\n| A |\n\nWant me to suggest one small thing to ship?'));
+  // v4.7 T4: the ship ask's why paragraph stays before the table.
+  assert.equal(full, plain.replace('\n\nWant me to suggest one small thing to ship?', '\n\n| Program |\n|---|\n| A |\n\nWant me to suggest one small thing to ship?'));
   assert.ok(full.endsWith('\n\nWant me to suggest one small thing to ship?'), full);
   // No table: unchanged.
   assert.equal(benchReply({ ...view, fullTable: null }), plain);
@@ -447,16 +450,18 @@ test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word
   assert.doesNotMatch(s, /\| Program \|/, s);
 });
 
-test('v4.3 Task 3: standing is absent for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
-  assert.deepEqual(standingFields(0), { streak: 0 });
-  assert.deepEqual(standingFields(1), { streak: 1, standing: '1 week shipping' });
-  assert.deepEqual(standingFields(6), { streak: 6, standing: '6 weeks shipping in a row' });
+// v4.7 T2: standing is the whole standing now (v47-standing.test.ts); its weeks part keeps these words.
+const bare = { score: null, rank: null, wonUsd: 0 as number | null, applied: 0, drafts: 0, next: null };
+test('v4.3 Task 3: standing has no weeks part for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
+  assert.deepEqual(standingFields({ ...bare, streak: 0 }), { streak: 0, standing: 'No grants won yet.' });
+  assert.deepEqual(standingFields({ ...bare, streak: 1 }), { streak: 1, standing: '1 week shipping. No grants won yet.' });
+  assert.deepEqual(standingFields({ ...bare, streak: 6 }), { streak: 6, standing: '6 weeks shipping in a row. No grants won yet.' });
 });
 
-test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing, and answers points', () => {
+test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing (v4.7 T1: the score, never points)', () => {
   assert.doesNotMatch(ANSWER_FIRST_NOTE, /their points, rank|how ranking works/);
-  assert.match(ANSWER_FIRST_NOTE, /never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one/);
-  assert.ok(ANSWER_FIRST_NOTE.includes("EarnKit doesn't use points. It tracks the weeks you ship."));
+  assert.match(ANSWER_FIRST_NOTE, /Never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one/);
+  assert.ok(ANSWER_FIRST_NOTE.includes('The number is their score; never call it points.'));
 });
 
 test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lines only when non-empty; standing matches the streak', db, async () => {
@@ -470,7 +475,10 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
     assert.ok(!('points' in (((reply.facts as { about?: object })?.about) ?? {})), 'about carries no points');
     if ('rank_lines' in reply) assert.ok((reply.rank_lines as string[]).length > 0);
     const streak = Number(reply.streak ?? 0);
-    assert.equal(reply.standing, standingFields(streak).standing);
+    // v4.7 T2: the weeks part of the whole standing.
+    if (streak >= 1) assert.ok(String(reply.standing).includes(streak === 1 ? '1 week shipping' : `${streak} weeks shipping in a row`), String(reply.standing));
+    else assert.doesNotMatch(String(reply.standing ?? ''), /week/, String(reply.standing));
+    assert.doesNotMatch(String(reply.standing), /points/i);
   }
 });
 
@@ -483,12 +491,14 @@ async function streakBuilder(tag: string, streak: number) {
 
 test('v4.3 Task 3: standing through find and score for a real streak of 6, 1 and 0', db, async () => {
   await start();
-  for (const [tag, streak, want] of [['sa', 6, '6 weeks shipping in a row'], ['sb', 1, '1 week shipping'], ['sc', 0, undefined]] as const) {
+  // v4.7 T2: the weeks part of the whole standing (after the page's score and rank).
+  for (const [tag, streak, want] of [['sa', 6, '. 6 weeks shipping in a row. '], ['sb', 1, '. 1 week shipping. '], ['sc', 0, null]] as const) {
     const ctx = await streakBuilder(tag, streak);
     for (const tool of ['find', 'score'] as const) {
       const reply = (await mcpCall(ctx, tool, {})).reply as Record<string, unknown>;
       assert.equal(reply.streak, streak, `${tool} ${tag}`);
-      assert.equal(reply.standing, want, `${tool} ${tag}`);
+      if (want) assert.ok(String(reply.standing).includes(want), `${tool} ${tag}: ${reply.standing}`);
+      else assert.doesNotMatch(String(reply.standing), /week/, `${tool} ${tag}`);
       assert.ok(!('points_total' in reply));
     }
   }
@@ -512,7 +522,7 @@ test('v4.3 Task 3: under RANK_MIN_POOL, find and score carry no rank_lines and f
   }
 });
 
-test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and no standing', db, async () => {
+test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and no standing (v4.7 T2 fix round 1: signed out, the weeks only)', db, async () => {
   await start();
   const t = `ek_v43fan_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -574,6 +584,8 @@ test('final review F3: find {more: true} never shows or claims a due token offer
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   try {
     await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${c.id}, now())`;
+    // v4.7 T3 (token after money): the offer waits for one application.
+    await moneyStepDone(c.id);
     assert.equal(await tokenOfferDue(c.id), true);
     const r = await mcpCall(ctx, 'find', { more: true });
     const s = show(r);
@@ -609,7 +621,9 @@ test('final review F3 and F9: find {more: true} never drafts or shows a due even
     verdicts: [{ program_id: BASE_GRANTS_ID, program: BASE_GRANTS_ID, status: 'likely', missing: [], effort: 'none', note: null }],
   } as never];
   const ctx = { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
-  // Live 3 days ago: the went-live post is due (ahead of the apply step for 48 hours).
+  // Live 3 days ago: the went-live post is due. v4.7 T3 fix round 1 (R11): it waits behind an unapplied fit, so Base's
+  // grant is applied to here.
+  await mcpCall(ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`fp${id}`}, 'kit', ${key}, ${id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
   const drafts = async () => Number((await sql()<{ n: string }[]>`SELECT count(*) AS n FROM post_drafts WHERE builder_id = ${id}`)[0].n);

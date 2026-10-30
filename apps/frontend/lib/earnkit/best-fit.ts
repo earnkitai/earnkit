@@ -1,6 +1,10 @@
 import { sql } from './db';
-import { bestApplies, scoreApplies, signedOutNow, type Seen } from './bench-find';
+import { bestApplies, realFit, scoreApplies, signedOutNow, type Fit, type Seen } from './bench-find';
+import { rankLines } from './bench-rank';
 import { mainConfirmed } from './main-project';
+import type { Card } from './present';
+import { readStanding, type Standing } from './standing';
+import { streaksFor } from './streak';
 
 /**
  * v3.1 Task 12 (spec 3.3): the Best fit outside a reply (the Monday email's money line): the one project
@@ -24,6 +28,64 @@ export async function bestFitFor(builderId: number, now: Date): Promise<{ progra
     return best ? { program_id: best.program_id, title: best.title, ends_at: best.ends_at ? new Date(best.ends_at) : null } : null;
   } catch (err) {
     console.error('[best fit]', err instanceof Error ? err.name : 'error');
+    return null;
+  }
+}
+
+/**
+ * v4.7 final review (R19): `seen` without the apply declines that stood aside for silence (R12, bench-find.ts
+ * standAside: declined['apply:<id>'] written with the same time as apply_silent[<id>]). An explicit no (a later no
+ * rewrites the declined time) stays. Pure.
+ */
+export function withoutSilentDeclines(seen: Seen): Seen {
+  const silent = seen.apply_silent ?? {};
+  const declined = Object.fromEntries(
+    Object.entries(seen.declined ?? {}).filter(([k, at]) => !(k.startsWith('apply:') && silent[k.slice('apply:'.length)] === at)),
+  );
+  return { ...seen, declined };
+}
+
+/**
+ * v4.7 T5: the builder's open fits outside a reply (the alert emails' closing fits): the Best fit's list (bestApplies:
+ * never a program told about or declined), on the same gates as bestFitFor (signed in, the one project confirmed;
+ * otherwise no fits), with the open cards and what to skip (entered or hidden) as scoreApplies reads them. Final
+ * review (R19): a fit that stood aside for silence (withoutSilentDeclines) is still one; only an explicit no drops it.
+ * Empty on a read error. Never throws.
+ */
+export async function openFitsFor(builderId: number, now: Date): Promise<{ fits: Fit[]; cards: Card[]; skip: Set<string> }> {
+  try {
+    const [p] = await sql()<{ main: string | null; seen: unknown }[]>`
+      SELECT main_project_key AS main, standing_seen AS seen FROM builder_profiles WHERE builder_id = ${builderId}`;
+    const ranked = Boolean(p?.main) && !(await signedOutNow(builderId, builderId)) && (await mainConfirmed(builderId));
+    const { applies, cards, skip } = await scoreApplies(builderId, ranked ? p!.main : null, now);
+    const seen = withoutSilentDeclines((p?.seen && typeof p.seen === 'object' ? p.seen : {}) as Seen);
+    const fits = applies.length > 0 ? ((await bestApplies(builderId, applies, seen, skip, now)) ?? []) : [];
+    return { fits, cards, skip };
+  } catch (err) {
+    console.error('[best fit] open', err instanceof Error ? err.name : 'error');
+    return { fits: [], cards: [], skip: new Set() };
+  }
+}
+
+/**
+ * v4.7 T5: the builder's full standing outside a reply (the Monday email's top paragraph; the email goes only to the
+ * opted-in builder themself): standing.ts readStanding with the page's rank lines, builder_live's parts, streak.ts's
+ * streak and the one project's real fits (scoreApplies, as score reads them; none while unconfirmed). Null on a read
+ * error. Never throws.
+ */
+export async function standingFor(builderId: number, now: Date): Promise<Standing | null> {
+  try {
+    const [p] = await sql()<{ main: string | null }[]>`SELECT main_project_key AS main FROM builder_profiles WHERE builder_id = ${builderId}`;
+    const [lines, [live], lit, confirmed] = await Promise.all([
+      rankLines(builderId),
+      sql()<{ parts: unknown }[]>`SELECT parts FROM builder_live WHERE builder_id = ${builderId}`,
+      streaksFor([builderId], now).then((m) => m.get(builderId) ?? null),
+      p?.main ? mainConfirmed(builderId) : Promise.resolve(false),
+    ]);
+    const { applies, cards } = p?.main && confirmed ? await scoreApplies(builderId, p.main, now) : { applies: [] as Fit[], cards: [] };
+    return await readStanding(builderId, { lines, parts: live?.parts ?? null, streak: confirmed ? (lit?.streak ?? 0) : 0, fits: applies.filter(realFit), cards, now });
+  } catch (err) {
+    console.error('[best fit] standing', err instanceof Error ? err.name : 'error');
     return null;
   }
 }

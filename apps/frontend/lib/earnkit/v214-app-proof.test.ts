@@ -108,14 +108,16 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   assert.equal(reads[0].auth, 'Bearer ghs_fake_91');
   // v3 Stage 1 Task 5, Task 16 step 3: the first ranked reply after connect offers the backfilled weeks in one yes.
   const first = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.match(first, /^Ships is on the leaderboard: (#\d+ of \d+ builders?|Top [\d.]+% of builders), 3 weeks in a row\.\n\n/, first);
+  // v4.7 T2: score leads with the standing paragraph (the page's score and rank), so the connect reply's own standing is left out.
+  assert.match(first, /^Score 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. 3 weeks shipping in a row\. No grants won yet\.\n\n/, first);
+  assert.doesNotMatch(first, /is on the leaderboard/, first);
   // v3.1 cold read: the question names no week count (it never disagrees with the streak).
   const m = /\nMake your shipping log public on (https:\/\/earnkit\.com\/\S+) so grant teams can see it\?$/.exec(first);
   assert.ok(m && first.endsWith(connectAsk(m[1])) && !/points/.test(first), first);
   const r = await mcpCall(p.ctx, 'score', {});
   const text = String(r.reply?.show_to_builder);
-  // R16a: one ranked state; Task 16: the standing line carries the rank and the streak.
-  assert.match(text, /^Ships · (#\d+ of \d+ builders?|Top [\d.]+% of builders) · 3 weeks in a row$/m, text);
+  // R16a: one ranked state; Task 16: the standing line carries the rank and the streak (v4.7 T2: score's standing paragraph).
+  assert.match(text, /^Score 46 · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. 3 weeks shipping in a row\. No grants won yet\.$/m, text);
   assert.equal(r.reply?.streak, 3, 'the streak is still in the reply fields');
   // v3.1 F4: the why sentence stays on the page, never in the reply.
   assert.doesNotMatch(text, /Code in \d+ of the last 12 weeks/, text);
@@ -125,7 +127,8 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // Base's grant steps are declined here and the ranked step is the ship step.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('declined', jsonb_build_object(${`qualify:${key}`}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${p.id}`;
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.ok(next.endsWith('\nShip code this week.') || /\nShip code this week\.\n[^\n]*\?$/.test(next), next);
+  // v4.7 T4: the ship ask carries its why line in place of the ship line.
+  assert.ok(next.endsWith('\nShip code this week.') || /\nShipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.\n\n[^\n]*\?$/.test(next), next);
   assert.doesNotMatch(next, /Your code stays private/);
 });
 

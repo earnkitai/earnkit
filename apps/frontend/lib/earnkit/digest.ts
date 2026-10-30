@@ -1,6 +1,6 @@
 import { brandShell } from './brand-page';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { bestFitFor } from './best-fit';
+import { bestFitFor, standingFor } from './best-fit';
 import { newBackers } from './backers';
 import { alertFit, newProgramOf, type FitRepo, type NewProgramRow } from './alerts';
 import { hiddenIds, hiddenPrograms, type BuilderMemory } from './builder-memory';
@@ -16,6 +16,9 @@ import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
 import { firstName } from './bench-reply';
 import { weekUrl } from './week-links';
+import { CONTACT_EMAIL } from './policy';
+import { standingLeads, standingParagraph } from './standing';
+import { closeDay } from './deadline';
 
 /**
  * v2.9 E19: the weekly email, opt-in only. Asked once per installation (Ruling 13; v3 Stage 1: in the first
@@ -40,18 +43,21 @@ export const DIGEST_FROM_DEFAULT = 'EarnKit <digest@earnkit.com>';
 /** On only with RESEND_API_KEY and EARNKIT_AUTH_SECRET (every email's unsubscribe link is signed with it). */
 export const digestEnabled = (env: Record<string, string | undefined> = process.env): boolean =>
   Boolean(env.RESEND_API_KEY?.trim() && env.EARNKIT_AUTH_SECRET);
-const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
+export const digestFrom = () => process.env.DIGEST_FROM?.trim() || DIGEST_FROM_DEFAULT;
 
-export const EMAIL_QUESTION = 'Want the Monday summary by email? Reply with the address.';
+/** v4.7 T5 (exact copy): one subscription now carries the deadline alerts (alert-mail.ts) and the Monday summary. */
+export const EMAIL_QUESTION = 'Want deadline alerts and a Monday summary by email? Reply with the address.';
 /** What the agent does with the question (Ruling 13). */
 export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 /** A yes with no address EarnKit may use. */
 export const WHICH_EMAIL = 'Which email should your Monday summary go to?';
-export const EMAIL_ON = 'Done. Your summary comes every Monday.';
-export const EMAIL_OFF = 'No weekly email.';
-export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
-/** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */
-export const EMAIL_SIGN_IN = "The weekly email isn't available on this agent.";
+/** v4.7 T5 (R17): one subscription carries the alerts and the summary. */
+export const EMAIL_ON = "Done. You'll get deadline alerts and a Monday summary.";
+/** v4.7 T5 fix round 1: the no, the off and the hosted-agent lines name EarnKit emails (the alerts and the summary), not a weekly one. */
+export const EMAIL_OFF = 'No EarnKit emails.';
+export const EMAIL_UNAVAILABLE = 'EarnKit emails are not available yet.';
+/** Ruling G21: a hosted agent has no verified caller, so it can't keep an email subscription. */
+export const EMAIL_SIGN_IN = "EarnKit emails aren't available on this agent.";
 /** Send failures in a row that stop a run (a Resend outage never burns the day's slots). */
 export const MAX_SEND_FAILURES = 3;
 
@@ -104,6 +110,8 @@ export function digestDue(s: DigestState, now: Date): boolean {
 /** Last week's moment: its lines (weekly-moment.ts mondayLines, v4.0 Task 7), standing (the subject) and the two signed links. */
 export type DigestWeek = { lines: string[]; standing: WeekStanding; approveUrl: string; hideUrl: string; approved: boolean; postUrl?: string };
 export type DigestFacts = {
+  /** v4.7 T5: the builder's standing paragraph (standing.ts standingParagraph), the email's top section; only with a score or a streak part (standingLeads). */
+  standing?: string;
   week: DigestWeek | null;
   /** The person's X handle, when claimed. */
   handle: string | null;
@@ -111,13 +119,17 @@ export type DigestFacts = {
   pending?: true;
   /** v3.1 Task 12: the money lines above the week (the Best fit's draft, new backers); none on a shared client or a per-login subscription. */
   money: string[];
-  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null }[];
+  /** v4.7 final review (Review Focus 2): `summary` and `tz` read the close day in the program's own zone (deadline.ts closeDay). */
+  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null; summary?: string; tz?: string | null }[];
   wins: { name: string; program: string; prize_usd: number | null }[];
-  deadlines: { program: string; what: 'closes' | 'decision'; at: Date }[];
+  /** A close carries its program's `summary` and `tz` (closeDay); a decision date is a calendar date, read in UTC. */
+  deadlines: { program: string; what: 'closes' | 'decision'; at: Date; summary?: string; tz?: string | null }[];
 };
 
 const money = (usd: number | null) => (usd ? `$${usd.toLocaleString('en-US')}` : null);
 const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+/** v4.7 final review: a close day as the site and the replies show it (deadline.ts closeDay, the program's own zone). */
+const closes = (c: { at: Date; summary?: string; tz?: string | null }) => closeDay({ summary: c.summary ?? '', tz: c.tz, ends_at: c.at }) ?? day(c.at);
 
 /** The most characters of a builder-supplied name an email shows. */
 export const NAME_MAX = 40;
@@ -151,27 +163,29 @@ export function cleanName(name: string, fallback: string): string {
 const ASK_LINE = 'Ask your agent "What can I earn?" to start.';
 
 /**
- * The email: the money lines first (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
+ * The email: v4.7 T5: the builder's standing paragraph on top (never on its own: it never makes an email), then the money lines (v3.1 Task 12), then last week's moment (its lines, then Looks right and Hide this
  * week while it is unconfirmed), then new programs, wins and the builder's deadlines; null when there are no money
  * lines, no week and all three are empty (money lines alone still send, as "Your EarnKit week"). Every
  * builder-supplied name (a repo, a winning project) goes through cleanName. Pure.
  */
 export function digestBody(f: DigestFacts): { subject: string; text: string } | null {
+  // v4.7 T5 (R16): one score per email. With the standing on top (the page's live score), the week block drops its
+  // recorded "Shipping score" line and the subject its score.
   const week = f.week
     ? [
-        ...f.week.lines,
+        ...f.week.lines.filter((l) => !(f.standing && l.startsWith('Shipping score: '))),
         ...(f.week.postUrl ? [`Your post is ready to share: ${f.week.postUrl}`] : []),
         ...(f.week.approved ? [] : ['', `Looks right: ${f.week.approveUrl}`, `Hide this week: ${f.week.hideUrl}`]),
       ].join('\n')
     : null;
   const lines = [
-    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
+    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at })}` : ''}.`),
     ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
-    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? 'closes' : 'results due'} ${day(d.at)}.`),
+    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d)}` : `results due ${day(d.at)}`}.`),
   ];
   if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
-    ? `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
+    ? f.standing ? 'Your week on EarnKit' : `Your week on ${shareText(f.week.standing).slice('My week on '.length)}`
     : f.newPrograms[0]
       ? `New: ${f.newPrograms[0].title} fits ${cleanName(f.newPrograms[0].repo, 'your repo')}`
       : 'Your EarnKit week';
@@ -179,7 +193,7 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
   // "one yes away" always says where the yes goes (never read as the week's Looks right link).
   const sections = lines.length > 0 ? lines.join('\n') : null;
   const closer = !sections && f.money.length > 0 ? ASK_LINE : null;
-  return { subject, text: [f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
+  return { subject, text: [f.standing, f.money.join('\n'), week, sections && `${sections}\n\n${ASK_LINE}`, closer].filter(Boolean).join('\n\n') };
 }
 
 const mac = (k: SubKey, secret: string) =>
@@ -214,6 +228,9 @@ export function unsubTarget(token: string, secret: string | undefined = process.
 export const unsubUrl = (target: number | SubKey) =>
   `${siteUrl()}/api/digest/unsubscribe?t=${encodeURIComponent(unsubToken(target))}`;
 
+/** v4.7 T5 (R17): every email's footer (the Monday summary's and the alerts'; one subscription carries both). Pure. */
+export const mailFooter = (url: string) => `Deadline alerts and a Monday summary. Unsubscribe: ${url}`;
+
 /** RFC 2369 and RFC 8058: every email's unsubscribe headers. */
 export const unsubHeaders = (target: number | SubKey): Record<string, string> => ({
   'List-Unsubscribe': `<${unsubUrl(target)}>`,
@@ -244,7 +261,7 @@ export class MailError extends Error {
   }
 }
 
-/** Resend's API (POST /emails, 10 s). Never logs the address or the key. */
+/** Resend's API (POST /emails, 10 s). v4.7 T5: replies go to CONTACT_EMAIL (digest@ is no inbox). Never logs the address or the key. */
 export const resendMailer =
   (key: string): Mailer =>
   async (m) => {
@@ -253,7 +270,7 @@ export const resendMailer =
       res = await fetch(RESEND_URL, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'Idempotency-Key': m.idempotencyKey },
-        body: JSON.stringify({ from: m.from, to: [m.to], subject: m.subject, text: m.text, headers: m.headers }),
+        body: JSON.stringify({ from: m.from, to: [m.to], reply_to: CONTACT_EMAIL, subject: m.subject, text: m.text, headers: m.headers }),
         signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
         redirect: 'error',
       });
@@ -459,6 +476,9 @@ async function moneyLines(person: number, now: Date): Promise<{ lines: string[];
 export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise<DigestFacts> {
   const { person, ...moment } = await digestWeek(s, now, db);
   if (moment.pending) return { ...moment, money: [], newPrograms: [], wins: [], deadlines: [] };
+  // v4.7 T5: the person's full standing on top (the email goes only to them; none on a shared client or a per-login subscription).
+  const stand = person === null ? null : await standingFor(person, now);
+  const standing = stand && standingLeads(stand) ? standingParagraph(stand) : '';
   const since = s.last_sent_at ?? s.opted_in_at ?? now;
   const week = new Date(now.getTime() + 7 * DAY);
   const ids = testInstallationIds();
@@ -471,9 +491,9 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
   const [money, curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
     person === null ? Promise.resolve({ lines: [] as string[], best: null }) : moneyLines(person, now),
     s.shared || s.login
-      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date })[])
-      : db<(NewProgramRow & { opened_at: Date })[]>`
-          SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
+      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date; tz: string | null })[])
+      : db<(NewProgramRow & { opened_at: Date; tz: string | null })[]>`
+          SELECT id, title, summary, tz, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
             winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
             max_award_usd, existing_work, min_product_score, match_floor, match_precision
           FROM programs
@@ -495,8 +515,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
         AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)
       ORDER BY eo.prize_usd DESC NULLS LAST, eo.captured_at DESC
       LIMIT ${MAX_LINES}`,
-    db<{ program: string; at: Date }[]>`
-      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at
+    db<{ program: string; at: Date; summary: string; tz: string | null }[]>`
+      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at, pr.summary, pr.tz
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.ends_at > ${now} AND pr.ends_at <= ${week} ${own}
       ORDER BY pr.id`,
@@ -524,18 +544,19 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
       if (row.id === money.best) continue;
       const p = newProgramOf(row);
       const repo = alertFit(p, repos, skip, now);
-      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at });
+      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at, summary: row.summary, tz: row.tz });
       if (newPrograms.length >= MAX_LINES) break;
     }
   }
   const deadlines: DigestFacts['deadlines'] = [
-    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at })),
+    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at, summary: c.summary, tz: c.tz })),
     ...decisions.map((d) => ({ program: d.program, what: 'decision' as const, at: d.at })),
   ]
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .slice(0, MAX_LINES);
   return {
     ...moment,
+    ...(standing && { standing }),
     money: money.lines,
     newPrograms,
     wins: wins.map((w) => ({ name: w.name, program: w.program, prize_usd: w.prize_usd === null ? null : Number(w.prize_usd) })),
@@ -612,7 +633,7 @@ export async function sendDigests(
           to: s.email,
           from,
           subject: body.subject,
-          text: `${body.text}\n\nOne email a week. Unsubscribe: ${url}`,
+          text: `${body.text}\n\n${mailFooter(url)}`,
           headers: unsubHeaders(target),
           idempotencyKey: idempotencyKey(target, start),
         });
@@ -675,8 +696,9 @@ const page = (body: string, status = 200) => new Response(brandShell(body), { st
 /** A one-line page: the line as the statement. */
 const linePage = (line: string, status = 200) => page(`<p class="ek-line ek-first">${escapeHtml(line)}</p>`, status);
 
-export const UNSUB_CONFIRM = 'Stop the weekly EarnKit email?';
-export const UNSUB_DONE = 'Done. No more weekly emails.';
+/** v4.7 T5 (R17): one unsubscribe stops both the deadline alerts and the Monday summary. */
+export const UNSUB_CONFIRM = 'Stop deadline alerts and the Monday summary?';
+export const UNSUB_DONE = "Done. You won't get EarnKit emails any more.";
 export const UNSUB_BAD = 'This link is not valid.';
 
 const tokenOf = (request: Request) => new URL(request.url).searchParams.get('t') ?? '';

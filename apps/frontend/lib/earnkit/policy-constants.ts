@@ -37,3 +37,15 @@ export const COIN_PROGRAM = 'earnkit-coin';
 
 /** v3 Stage 2 (spec 5.3 Route 2): repos never offered backing (EarnKit's own; compared lowercase). */
 export const BACKING_EXCLUDED_REPOS = ['earnkitai/earnkit'] as const;
+
+/** A no keeps an ask away this long (standing_seen.declined). v4.7 final review: here so the alert emails read it without bench-find. */
+export const DECLINE_MS = 30 * 86_400_000;
+
+/**
+ * v4.7 T3 fix round 1 (final review: one rule for find and the alert emails): a draft for `programId` in the builder's
+ * hands within DECLINE_MS (standing_seen.apply_yes; an older one, the program still open and unapplied, is asked again). Pure.
+ */
+export const draftedRecently = (seen: { apply_yes?: Record<string, string> | null }, programId: string, now: Date): boolean => {
+  const at = seen.apply_yes?.[programId];
+  return typeof at === 'string' && now.getTime() - Date.parse(at) < DECLINE_MS;
+};

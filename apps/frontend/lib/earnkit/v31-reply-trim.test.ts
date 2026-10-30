@@ -76,7 +76,8 @@ test('(a) benchReply: the ranked reply is the standing, the question and the poi
     handle: 'maya', link: null, target: null, fund: [], due: [], ask: { kind: 'ship', project_key: 'maya/recipes', line: SHIP_ASK }, held: null,
   };
   const s = benchReply(v);
-  assert.equal(s, `Recipes is on EarnKit.\nShip code this week.\n${SHIP_ASK}`);
+  // v4.7 T4: the ship ask's why (no streak yet) in place of the ship line.
+  assert.equal(s, `Recipes is on EarnKit.\n\nShipping this week starts your streak and lifts your score.\n\n${SHIP_ASK}`);
   assert.ok(!s.includes(POINTS_LINE(100)), s);
 });
 

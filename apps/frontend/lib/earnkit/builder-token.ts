@@ -259,7 +259,8 @@ const onlySql = (only?: number[]) => (only ? sql()`AND p.builder_id IN ${sql()(o
  * account and a proven reward wallet, no builder_tokens row (a no, a launch and an unclear answer all have one), flag
  * on; at most BUILDER_TOKEN_RETRIES_PER_RUN a run, those not tried yet first, then the oldest offer (each try is kept as
  * standing_seen.token_retry_at, so one that keeps failing never starves the rest). launchBuilderToken's claim makes a
- * retry racing the proof's own launch safe. A result that needs the owner (`blocks`) is kept as
+ * retry racing a launch safe. v4.7 T3: only a builder's own yes (standing_seen.token_yes, bench-find.ts markTokenYes) is
+ * retried: v4.0's step-3 sentence set token_offered without one, and a wallet proof never launches a token. A result that needs the owner (`blocks`) is kept as
  * standing_seen.token_blocked (runCron lists it, blockedBuilderTokens) until a later try is not blocked; busy and the
  * ticker check down simply try again next run. No try starts past `deadline`. `only`: tests scope the builders.
  */
@@ -270,7 +271,7 @@ export async function retryDroppedBuilderTokens(
   if (!builderTokensOn()) return out;
   const rows = await sql()<{ builder_id: number }[]>`
     SELECT p.builder_id FROM builder_profiles p
-    WHERE p.standing_seen ? 'token_offered' AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
+    WHERE p.standing_seen ? 'token_offered' AND p.standing_seen ? 'token_yes' AND p.x_user_id IS NOT NULL AND p.x_handle IS NOT NULL
       AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = p.builder_id AND w.recipient_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = p.builder_id)
       ${onlySql(deps.only)}

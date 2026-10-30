@@ -11,7 +11,8 @@ import { COIN_PROGRAM } from './policy-constants';
 import { byPrize, type Card } from './present';
 import { listPrograms } from './programs';
 import { BENCH_CHAINS, rankLine, type BenchChain } from './rank';
-import { scoreWhy, storedShipping } from './score-v2';
+import { scoreWhy } from './score-v2';
+import { pageScore } from './standing';
 import { targetFor } from './weekly-target';
 import { earnPrize, earnWhen, showable } from './stand-view';
 import { fitWhy, whyFacts } from './bench-find';
@@ -292,7 +293,8 @@ export async function profileData(builderId: number, now: Date, o: { only?: numb
     line: lines.line,
     chainLines: lines.chains,
     // Only a Shipping row shows a number (an older row is unranked, so `scored` is false for it anyway).
-    score: scored ? (storedShipping(live.parts)?.points ?? null) : null,
+    // v4.7 T2: standing.ts pageScore, the one rule the find and score standing read too.
+    score: pageScore(lines, live),
     why: scored ? scoreWhy(live.parts, now) : null,
     target: scored ? await targetFor(builderId, live.parts, now, { only: o.only, voice: 'page' }) : null,
     originality: scored ? await readOriginality(builderId, p.main) : null,

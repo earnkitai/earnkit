@@ -104,8 +104,11 @@ test('v2.7 §1: tiles are curated programs sorted by prize; plain JSON (Review F
   assert.deepEqual(JSON.parse(JSON.stringify(l)), l);
 });
 
+/** v4.7 T1 fix round 1: the stats as /api/stats reads them over the same cards (open_money_usd = openMoneyUsd). */
+const statsOf = (cards: Card[]) => stats({ open_money_usd: openMoneyUsd(cards, now) });
+
 test('v2.7.1: each tile field; no pool means the per-winner amount is the big line', () => {
-  const l = landingFrom([monad, arc, base], stats(), now);
+  const l = landingFrom([monad, arc, base], statsOf([monad, arc, base]), now);
   const [m, b, a] = l.tiles;
   assert.deepEqual(m, {
     id: 'monad-metropolis',
@@ -145,11 +148,8 @@ test('v2.8 Ruling 20, 21 (plan): every open curated program is a tile (no cap); 
 test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown amounts keep the curated text', () => {
   const pooled = (c: Card, pool_usd: number, pool_line: string, pool_plus = false): Card => ({ ...c, pool_usd, pool_line, pool_plus });
   const circle: Card = { ...base, id: 'circle-developer-grants', title: 'Circle Developer Grants', summary: 'milestone-based USDC grants · rolling', max_award_usd: null };
-  const l = landingFrom(
-    [pooled(monad, 250000, '$250K+ in prizes', true), pooled(arc, 10000, '10,000 USDC pool'), base, circle, sponsored, campaign],
-    stats(),
-    now,
-  );
+  const all = [pooled(monad, 250000, '$250K+ in prizes', true), pooled(arc, 10000, '10,000 USDC pool'), base, circle, sponsored, campaign];
+  const l = landingFrom(all, statsOf(all), now);
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.deepEqual([t('monad-metropolis').prize, t('monad-metropolis').prize_note], ['$250K+ in prizes', 'up to $25,000 per winner']);
   assert.deepEqual([t('arc-microgrants').prize, t('arc-microgrants').prize_note], ['10,000 USDC pool', 'up to $500 per grant']);
@@ -157,7 +157,8 @@ test('v2.7.1: a pool is the big line, "up to $X per winner" under it; unknown am
   assert.deepEqual([t('circle-developer-grants').prize, t('circle-developer-grants').prize_note], ['milestone-based USDC grants', null]);
   // v2.9 F21: the top prizes, never the pools; the sponsor and EarnKit campaigns never count.
   assert.equal(l.open_text, '$30.5K in grants and prizes open');
-  assert.equal(landingFrom([pooled(arc, 10000, '10,000 USDC pool')], stats(), now).open_text, '$500 in grants and prizes open');
+  const one = [pooled(arc, 10000, '10,000 USDC pool')];
+  assert.equal(landingFrom(one, statsOf(one), now).open_text, '$500 in grants and prizes open');
 });
 
 test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open right now"', () => {
@@ -166,7 +167,7 @@ test('v2.9 F21: the real program files: the top prizes add up to "$160.5K open r
     const f = ProgramFile.parse(committedProgram(id));
     return { ...arc, id, title: f.title, reward: f.reward, max_award_usd: f.max_award_usd ?? null, min_award_usd: f.min_award_usd ?? null, ends_at: null, ...poolFacts({ ...f, pool_usd: f.pool_usd == null ? null : String(f.pool_usd), campaign: null }) };
   });
-  const l = landingFrom(cards, stats(), now);
+  const l = landingFrom(cards, statsOf(cards), now);
   assert.equal(l.open_text, '$160.5K in grants and prizes open');
   const t = (id: string) => l.tiles.find((x) => x.id === id)!;
   assert.equal(t('colosseum-worlds-fair').prize, '$840K in prizes');
@@ -316,7 +317,7 @@ test('v2.9 F21: the landing figure is moneyText(openMoneyUsd) of the same cards;
   const pooledMonad = { ...monad, pool_usd: 840000, pool_plus: true };
   const pooledArc = { ...arc, pool_usd: 10000 };
   const cards = [pooledMonad, pooledArc, sponsored, campaign, base];
-  const l = landingFrom(cards, stats(), now);
+  const l = landingFrom(cards, statsOf(cards), now);
   // v3 Stage 2: the same figure, as the landing's line ("$30.5K in grants and prizes open").
   assert.equal(l.open_text, `${moneyText(openMoneyUsd(cards, now))} in grants and prizes open`);
   assert.equal(l.open_text, '$30.5K in grants and prizes open');
@@ -466,8 +467,8 @@ test('12.9 the landing\'s parts never import the leaderboard page module (BenchV
   }
 });
 
-test('v3.1 GTM W3: the hero chip sums only the Base programs the Opportunities cards show beside it', () => {
+test('v4.7 T1: the hero chip is the stats figure (open_money_usd), never a sum of the cards beside it', () => {
   const many = Array.from({ length: 6 }, (_, i): Card => ({ ...base, id: `b${i}`, title: `Base grant ${i}`, max_award_usd: 1000 }));
-  const l = landingFrom(many, stats(), now);
-  assert.equal(l.open_chip, '$4K in Base grants open now');
+  assert.equal(landingFrom(many, stats({ open_money_usd: 6000 }), now).open_chip, '$6K in grants open now');
+  assert.equal(landingFrom(many, stats({ open_money_usd: 0 }), now).open_chip, null);
 });

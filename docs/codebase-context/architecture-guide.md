@@ -8263,8 +8263,10 @@ Task sections above this one: Task 8 (nudges), Task 11 (retired offers), Task 12
   lasting). Launch: Base only, Clanker v4 through tokens.fun, WETH pair, fees after Clanker's 20% split Safe 60 / builder
   40 (`policy-constants.ts EARNKIT_SPLITS_BPS [6000, 4000]`; MINI's 10% ended, nothing claims for MINI). The whole feature
   is behind `EARNKIT_BUILDER_TOKENS=on` (`builderTokensOn`), which stays off until tokens.fun v4.1 is live.
-- **Launch at the wallet proof.** `wallet-proof.ts walletPost` runs `launchOnProof` (not awaited, errors logged) when the
-  proof made the builder's first reward wallet (`ProveResult.first`), unless the builder said no. The token's creator
+- **Launch at the wallet proof (retired in v4.7 T3).** v4.0 had `wallet-proof.ts walletPost` run `launchOnProof` when the
+  proof made the builder's first reward wallet; v4.7 deleted it: a proof never launches a token, even with v4.0's
+  `token_offered`. A token launches only from the builder's yes (`tokenAnswer`), and the hourly retry only for a builder
+  with that yes (`standing_seen.token_yes`). The token's creator
   wallet is the proven wallet. A "launch my token" ask later (`tell move_up { kind: 'token' }`) launches the same way.
 - **Opt-out.** A no (to setup step 3, or an older agent's `tell coin { answer: 'no' }`) is `declineBuilderToken`: kept
   forever, never asked again. Skipping the wallet skips the token. An older agent's `tell coin` / `tell token: 'ask'` is
@@ -8535,3 +8537,52 @@ keys are refused before any call.
   its no is `declined['stripe:*']` and never expires (unlike the 30-day DECLINE_MS); a `broken` connection re-offers once (`stripe_reoffered`). No
   `stripeLink` (no secret) means no ask. `tell { stripe: 'connect' | 'disconnect' }` works any time; disconnect deletes the key row and the stored
   `stripe_revenue` rows. Every Stripe reply and note tells the agent never to ask for a key in chat.
+
+v4.7 where you stand (Task 2): every find and score reply carries `standing` (standing.ts `standingParagraph`): the page's own score and
+rank (`pageScore`, the rule bench-data `profileData` now calls, beside rankLines' `bench`: no rank under RANK_MIN_POOL, no score
+while unlisted), the weeks shipping, announced prizes won (earned.ts `prizesWonSql`, never a self-report; else "No grants won yet"),
+`applicationCounts` (submitted entries or a told "applied", one per program; drafts: an unsent entry with a real answer in an open
+program not applied to; Task 3's token gate reuses it) and the earliest open fit deadline (deadline.ts `closeDay`). `benchScore`
+sets `view.standingLed`: the standing is the score reply's first paragraph (not signed out, not setup step 3), and the reply's
+own standing line and connect standing are left out. Fix round 1: it leads only with a score or a streak part, never over the
+Monday block or a post offer; signed out, or a shared client that is no person (`personal`, replyFacts' gate), the standing is
+the weeks only and nothing is read. find keeps its changed-only standing line; the fact is there whenever it has a part.
+Agent guidance is in SCORE_DESCRIPTION and FIND_DESCRIPTION_BENCH (ruling R1: the server instructions stay at 795).
+
+v4.7 the first reply is money only (Task 3): in a ranked reply with an open fit not applied to (benchView `open`: not told,
+entered, hidden or declined), the ask is that fit's `apply`: claimed once a program (`claimApply`), and after that asked
+again (`again`, unclaimed). Fix round 1 (R8, R11): while one is left (`moneyFirst`), only setup step 3, connect and an
+owning nudge go ahead of it; event posts (hot ones too), the Monday moment, non-owning nudges and every quieter ask wait
+unclaimed, and `stateAsk` puts `apply` before `post`. A draft in the builder's hands (`standing_seen.apply_yes`, set by
+the apply yes and by a draft `draftWithSteps` returns, `recordApplyYes`) is not asked again for DECLINE_MS, and counts as
+the money step for the token offer. Fix round 2 (R12): each apply showing counts in `standing_seen.apply_unanswered`
+(reset by a yes or no); after `APPLY_UNANSWERED_MAX` (3) unanswered showings the program stands aside as a no would
+(`declined['apply:<id>']` for DECLINE_MS, marked `apply_silent`), so the other asks resume; it comes back after. The apply
+reply is the money alone (`rankedBody`: the deadline lines, then `applyAsk`; no standing or ship line, so `status_seen`
+and `nag_week` are not marked by it). The Stripe ask left the reply order (no `stripe` in `stateAsk`; a stored v4.6 ask
+still answers): `tools.ts draftWithSteps` adds one agent-note line (`stripeDraftNote`, the exact line `stripeDraftLine`)
+to a shown draft for a program whose file says `wants_revenue: true` (base-builder-grants, circle-developer-grants,
+colosseum-worlds-fair), claimed once with `stripe.ts takeStripeDraftLink` (`stripeAskDue`, `stripe_asked` /
+`stripe_reoffered`); never on a shared client or the build path. `tokenOfferDue` also needs applied + drafts >= 1
+(`standing.ts applicationCounts`), except when the builder asked (`tell token 'ask'`: `{ asked: true }`). Wallet proofs
+launch nothing (above). llms.txt: the token is offered after the first application. Tests: `v47-money-first.test.ts`.
+
+v4.7 EarnKit speaks first (all tasks, 2026-10-30). The owner: "EarnKit never messages me." v4.7 makes EarnKit say
+the money and the next step without being asked. T1: one close day everywhere (deadline.ts `closeDay`, the program's
+own zone). T2: every find and score reply carries where the builder stands (`standing`). T3: the first ranked reply
+with an open fit is that fit's money ask alone; the token offer waits for the first application. T4: every ask carries
+its why. T5: email is the push channel. One opted-in subscription (digest.ts, asked with "Want deadline alerts and a
+Monday summary by email?") gets the Monday summary, now topped by the standing paragraph (best-fit.ts `standingFor`),
+and at most one alert email a UTC day (alert-mail.ts `runAlertMail`, cron step `alert_mail` in every cron run, no hour gate: prod's cron runs
+about every 6 hours; the builders mailed longest ago go first):
+the highest unsent event of accepted (an outcome post with proof) > closing (a fit or a draft within DEADLINE_DAYS) >
+new fit (`alertFit` on the remembered repos). Each event is mailed once ever (`alert_mail_sent`, written in the send's
+transaction under an advisory lock, so a failed send stores nothing and two runs never double-send). Alerts use only
+the Resend day and month room left after every digest still due this week. Final review: "applied" is one group rule
+(standing.ts `toldAppliedSql`), "drafted" find's 30-day `draftedRecently` (policy-constants.ts), a fit set aside for
+silence still gets its closing alert (only an explicit no drops it), the Monday email's close days use `closeDay`, and a
+reply's lead names the program its apply ask asks. Every email has reply_to CONTACT_EMAIL and
+the digest's unsubscribe link and headers. Agents are told to call find at the start of every session (the
+instructions' first line; ruling R1 keeps them under 800 characters by dropping the move_up and score lines, which
+the tool descriptions carry).
+

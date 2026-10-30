@@ -112,25 +112,23 @@ const find = async (b: B) => keep(await mcpCall(b.ctx, 'find', {}));
 const tell = (b: B, args: Record<string, unknown>) => mcpCall(b.ctx, 'tell', args);
 /** Task 16: the money line a ranked reply names its Best fit with (after the apply step was asked). */
 const ROLLING_BEST = qualifyLine({ title: ROLLING_TITLE, amount: '$5,000', when: 'rolling' });
-/** Task 16 step 5: the apply step and its points line, the reply's end. */
-const applyEnd = (title: string, when: string | null) => `\nShip code this week.\n${applyAsk(title, '$5,000', when)}`;
+/** Task 16 step 5: the apply step, the reply's end. v4.7 T3 (money first): the whole reply, no ship line in front of it. */
+const applyEnd = (title: string, when: string | null) => applyAsk(title, '$5,000', when);
 
-test('(a) a rolling fit only: the rolling ask, once; then the Best fit is the money line', db, async () => {
+test('(a) a rolling fit only: the rolling ask; v4.7 T3: asked again while it is open and unapplied (money first)', db, async () => {
   assert.equal(ROLLING_BEST, `You qualify for the ${ROLLING_TITLE}, up to $5,000.`);
   assert.equal(applyAsk(ROLLING_TITLE, '$5,000', null), `${ROLLING_TITLE} is still open, up to $5,000. I can draft it in a minute.\nWant me to?`);
   assert.equal(applyAsk('Alliance ALL19', '$400,000 investment', 'Nov 18'), 'Alliance ALL19 closes Nov 18, up to $400,000 investment. I can draft it in a minute.\nWant me to?');
   const b = await builder('a', [ROLLING]);
   const f = await find(b);
   const s = show(f);
-  assert.ok(s.endsWith(applyEnd(ROLLING_TITLE, null)), s);
+  assert.equal(s, applyEnd(ROLLING_TITLE, null));
   assert.equal(kind(f), 'apply');
   assert.doesNotMatch(s, /—/);
-  // Once: the next reply names the Best fit as its money line, and asks the weekly step instead (v3.1 cold read: the
-  // standing line was just shown and hasn't changed, so the Best fit leads).
+  // v4.7 T3: the next reply puts the same money first again (never the weekly step while the fit is unapplied).
   const again = await find(b);
-  assert.equal(show(again).split('\n')[0], ROLLING_BEST, show(again));
-  assert.doesNotMatch(show(again), /I can draft it/);
-  assert.notEqual(kind(again), 'apply');
+  assert.equal(show(again), applyEnd(ROLLING_TITLE, null));
+  assert.equal(kind(again), 'apply');
 });
 
 test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 days does not', db, async () => {
@@ -140,7 +138,8 @@ test('(b) a fit closing in 20 days wins over a rolling one; one closing in 45 da
   const f = await find(b);
   const s = show(f);
   assert.ok(s.endsWith(applyEnd(soon.title, soon.when)), s);
-  assert.equal(show(await find(b)).split('\n')[0], qualifyLine({ title: soon.title, amount: '$5,000', when: `closes ${soon.when}` }));
+  // v4.7 T3: asked again, the same program (the 45-day one never).
+  assert.equal(show(await find(b)), applyEnd(soon.title, soon.when));
   const c = await builder('b2', [ROLLING, far.id]);
   const t = show(await find(c));
   assert.ok(t.endsWith(applyEnd(ROLLING_TITLE, null)), t);
@@ -163,8 +162,9 @@ test('(d) a no keeps the program off the ask (and the Best fit) for 30 days', db
   await unguard();
   const s = show(await find(b));
   assert.doesNotMatch(s, /I can draft it/, s);
-  // Still a fit: the money line names it (the first fit line), never as the ask (the unchanged standing isn't repeated).
-  assert.equal(s.split('\n')[0], ROLLING_BEST, s);
+  // Still a fit: the money line names it (the first fit line), never as the ask. v4.7 T3: the apply reply carried no
+  // standing line, so the standing leads here.
+  assert.ok(s.split('\n').includes(ROLLING_BEST), s);
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${ROLLING}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
     WHERE builder_id = ${b.id}`;
   await unguard();
@@ -199,11 +199,15 @@ test('(g) score names the same Best fit as find', db, async () => {
   const b = await builder('g', [ROLLING, p.id]);
   const f = show(await find(b));
   assert.ok(f.endsWith(applyEnd(p.title, p.when)), f);
-  // Every other open program asked already, so score's step is to ship and its money line is the Best fit.
+  // Every other open program asked already. v4.7 T3: the Best fit is still open and unapplied, so score asks it again.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
     || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${b.id}`;
-  const s = show(keep(await mcpCall(b.ctx, 'score', {})));
-  assert.equal(s.split('\n')[1], qualifyLine({ title: p.title, amount: '$5,000', when: `closes ${p.when}` }), s);
+  const r = keep(await mcpCall(b.ctx, 'score', {}));
+  const s = show(r);
+  // v4.7 T2: the standing paragraph leads, and its next deadline is the same program.
+  assert.ok(s.startsWith(`${r.reply?.standing}\n\n`), s);
+  assert.ok(String(r.reply?.standing).endsWith(`Next: ${p.title} closes ${p.when}.`), String(r.reply?.standing));
+  assert.ok(s.endsWith(`\n\n${applyEnd(p.title, p.when)}`), s);
 });
 
 test('(f) one https link and one question in every reply above', () => {

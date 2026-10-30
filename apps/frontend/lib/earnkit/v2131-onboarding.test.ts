@@ -96,8 +96,10 @@ test('O2.5 once claimed: find and score lead with the standing line (Task 16: th
     assert.doesNotMatch(f.show_to_builder, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence');
     assert.equal(f.show_to_builder.split('\n')[0], 'Recipe planner is on EarnKit.');
     assert.doesNotMatch(f.show_to_builder, /Your page/);
-    const s = (await tools.score({}, { installationId: id } as never)) as R;
+    // v4.7 T2 fix round 1 (R5): not ranked yet (no score, no streak), so the standing doesn't lead; the fact carries it.
+    const s = (await tools.score({}, { installationId: id } as never)) as R & { standing?: string };
     assert.equal(s.show_to_builder.split('\n')[0], 'Recipe planner is on EarnKit.');
+    assert.equal(s.standing, 'No grants won yet.');
   }),
 );
 

@@ -234,7 +234,7 @@ function wonLines(r: PastRound): string[] {
 
 /** v2.7 §2: the guide for one curated program. Pure. */
 export function programGuide(
-  p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status' | 'opens_note'>,
+  p: GuideFacts & Pick<ProgramRow, 'title' | 'summary' | 'ends_at' | 'status' | 'opens_note' | 'tz'>,
   now = new Date(),
 ): Guide {
   const past = p.ends_at !== null && p.ends_at <= now;
