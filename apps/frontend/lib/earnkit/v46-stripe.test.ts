@@ -6,8 +6,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
 import { open, seal } from './secret-box';
 import {
-  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, mismatchLine,
-  stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
+  STRIPE_TEXT, checkKey, connectStripe, disconnectStripe, hostMatches, keyKind, missingLine, missingReadLine, mismatchLine,
+  stripeFetch, stripeKey, stripeLink, stripePageState, stripePost, type StripeCall,
 } from './stripe';
 import { upgradeOf, upgradeToken, walletLink, walletPageState } from './wallet-proof';
 import { STRIPE_PAGES, StripeAuthError, latestStripe, runStripeRevenue, stripeRevenue } from './stripe';
@@ -119,8 +119,10 @@ test('checkKey: ok; subdomain match; each missing permission; site mismatch; no 
   const c = fake({ url: 'https://myapp.com' });
   await checkKey(id, KEY, c);
   assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', 'POST /v1/refunds', 'POST /v1/payouts']);
-  for (const [path, what] of [['/v1/account', 'Account'], ['/v1/balance_transactions', 'Balance transactions'], ['/v1/charges', 'Charges'], ['/v1/subscriptions', 'Subscriptions']] as const)
-    assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line: missingLine(what) });
+  for (const [path, line] of [['/v1/account', missingReadLine('account')], ['/v1/balance_transactions', missingReadLine('balance')], ['/v1/charges', missingLine('Charges')], ['/v1/subscriptions', missingLine('Subscriptions')]] as const)
+    assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line });
+  // v4.7.1 T3 fix 1: no invented permission label in builder copy.
+  assert.equal(missingReadLine('balance'), "This key can't read your balance. Give it read access only, then paste it again.");
   const m = fake({ url: 'https://friend.io' });
   assert.deepEqual(await checkKey(id, KEY, m), { ok: false, line: mismatchLine('friend.io') });
   assert.deepEqual(m.calls, ['/v1/account'], 'no more reads once ownership fails');
@@ -167,6 +169,32 @@ test('v4.7.1 T3: write access is refused (400 on either probe); read-only (403 o
   assert.ok(!m.calls.some((c) => c.startsWith('POST')), 'no probe once ownership fails');
   // A read-only key then connects.
   assert.equal((await connectStripe(t, KEY, NOW, fake({ url }))).ok, true);
+});
+
+test('v4.7.1 T3: stripeFetch POST is bodiless and form-encoded; GET is unchanged; no redirects; the key only as a bearer', async () => {
+  const seen: { url: string; init: RequestInit }[] = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = (async (url: string, init: RequestInit) => {
+    seen.push({ url: String(url), init });
+    return new Response(JSON.stringify({ error: {} }), { status: 403 });
+  }) as typeof fetch;
+  try {
+    assert.equal((await stripeFetch('/v1/refunds', KEY, 'POST')).status, 403);
+    assert.equal((await stripeFetch('/v1/charges?limit=1', KEY)).status, 403);
+  } finally {
+    globalThis.fetch = orig;
+  }
+  const [post, get] = seen;
+  assert.equal(post.url, 'https://api.stripe.com/v1/refunds');
+  assert.equal(post.init.method, 'POST');
+  assert.equal(post.init.body, '');
+  assert.equal(post.init.redirect, 'error');
+  assert.deepEqual(post.init.headers, { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/x-www-form-urlencoded' });
+  assert.equal(get.url, 'https://api.stripe.com/v1/charges?limit=1');
+  assert.equal(get.init.method, 'GET');
+  assert.equal(get.init.body, undefined);
+  assert.equal(get.init.redirect, 'error');
+  assert.deepEqual(get.init.headers, { Authorization: `Bearer ${KEY}` });
 });
 
 test('connect stores the key sealed; sk_live_ and test keys are never stored; a mismatch stores nothing; disconnect deletes', dbTest, async () => {

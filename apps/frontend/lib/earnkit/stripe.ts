@@ -53,6 +53,8 @@ export const STRIPE_TEXT = {
   disconnected: 'Stripe disconnected. EarnKit deleted the key.',
 } as const;
 export const missingLine = (what: string) => `This key can't read ${what}. Add Read on ${what} and paste it again.`;
+/** v4.7.1 T3: for a read with no sure dashboard label (balance, account), name the thing plainly; never invent a label. */
+export const missingReadLine = (thing: string) => `This key can't read your ${thing}. Give it read access only, then paste it again.`;
 export const mismatchLine = (host: string) =>
   `Stripe lists ${host} as this account's website, which isn't one of your projects. Set your project's site in Stripe, Settings, Business details, then paste again.`;
 
@@ -119,7 +121,7 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 export async function checkKey(builderId: number, key: string, call: StripeCall): Promise<CheckResult> {
   const get = async (path: string, method?: 'POST'): Promise<{ status: number; body: unknown } | null> => {
     try {
-      return await (method ? call(path, key, method) : call(path, key));
+      return await call(path, key, method);
     } catch (err) {
       console.error('[stripe] call', err instanceof Error ? err.name : 'error');
       return null;
@@ -128,7 +130,7 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
   const a = await get('/v1/account');
   if (!a) return { ok: false, line: STRIPE_TEXT.unreachable };
   if (a.status === 401) return { ok: false, line: STRIPE_TEXT.rejected };
-  if (a.status === 403) return { ok: false, line: missingLine('Account') };
+  if (a.status === 403) return { ok: false, line: missingReadLine('account') };
   const acct = obj(a.body);
   if (a.status !== 200 || typeof acct.id !== 'string' || !/^acct_[A-Za-z0-9]+$/.test(acct.id)) return { ok: false, line: STRIPE_TEXT.unreachable };
   // Ownership: the account's website is one of this builder's verified sites (a friend's account is refused, nothing stored).
@@ -138,15 +140,16 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
   const sites = await sql()<{ ref: string }[]>`SELECT ref FROM builder_sources WHERE builder_id = ${builderId} AND kind = 'site' AND state = 'verified'`;
   const hosts = sites.map((s) => hostOf(s.ref)).filter((h): h is string => h !== null);
   if (!hostMatches(host, hosts)) return { ok: false, line: mismatchLine(host) };
-  for (const [path, what] of [
-    ['/v1/balance_transactions?limit=1', 'Balance transactions'],
-    ['/v1/charges?limit=1', 'Charges'],
-    ['/v1/subscriptions?limit=1', 'Subscriptions'],
+  // Charges and Subscriptions are real dashboard labels; the balance read gets the plain line (v4.7.1 T3).
+  for (const [path, missing] of [
+    ['/v1/balance_transactions?limit=1', missingReadLine('balance')],
+    ['/v1/charges?limit=1', missingLine('Charges')],
+    ['/v1/subscriptions?limit=1', missingLine('Subscriptions')],
   ] as const) {
     const r = await get(path);
     if (!r) return { ok: false, line: STRIPE_TEXT.unreachable };
     if (r.status === 401) return { ok: false, line: STRIPE_TEXT.rejected };
-    if (r.status === 403) return { ok: false, line: missingLine(what) };
+    if (r.status === 403) return { ok: false, line: missing };
     if (r.status !== 200) return { ok: false, line: STRIPE_TEXT.unreachable };
   }
   // v4.7.1 T3: the key must not move money. Each probe is a POST with no params; only a 403 passes (see the header).
