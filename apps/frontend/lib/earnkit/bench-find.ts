@@ -202,6 +202,10 @@ export type Seen = StandSeen & {
   apply_asked?: Record<string, string>;
   /** v4.7 T3: the programs with a draft in the builder's hands ({ [program_id]: iso }: a yes to drafting, or prepare showed one): not asked again for DECLINE_MS. */
   apply_yes?: Record<string, string>;
+  /** v4.7 T3 fix round 2 (R12): the apply ask's showings with no answer since ({ [program_id]: n }); reset by a yes or no. */
+  apply_unanswered?: Record<string, number>;
+  /** v4.7 T3 fix round 2 (R12): the programs set aside for silence ({ [program_id]: iso }), beside their declined key. */
+  apply_silent?: Record<string, string>;
   /** 2026-10-23 Base onboarding: when the builder said no to step 2 (no GitHub, or not connecting now). */
   github_no?: string;
   /** When the Base walk-through offer was shown (asked once). */
@@ -600,7 +604,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // apply_yes, holds DECLINE_MS). While one is left, the reply's ask is its apply: only setup step 3, connect and an
   // owning nudge go ahead of it; the hot and other event posts, the Monday moment, non-owning nudges and every quieter
   // ask wait (each unclaimed) until none is left.
-  const unapplied = open.filter((f) => !draftedRecently(read.seen, f.program_id, now));
+  // Fix round 2 (R12): an apply ask shown APPLY_UNANSWERED_MAX times with no answer stands aside as a no would (declined
+  // for DECLINE_MS, marked apply_silent), so money first never starves the other asks; it comes back after DECLINE_MS.
+  const silent = new Set(open.filter((f) => (read.seen.apply_unanswered?.[f.program_id] ?? 0) >= APPLY_UNANSWERED_MAX).map((f) => f.program_id));
+  if (silent.size > 0) await standAside(id, [...silent], now);
+  const unapplied = open.filter((f) => !draftedRecently(read.seen, f.program_id, now) && !silent.has(f.program_id));
   const moneyFirst = unapplied.length > 0;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
@@ -635,7 +643,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
   // question); claimed below only once this reply carries it.
   // 2026-10-23 Base onboarding: after the GitHub no, the walk-through offer once (Base Builder Grants open: its last
-  // step drafts that application), then the wallet step once.
+  // step drafts that application), then the wallet step once. v4.7 T3 fix round 2: never ahead of money: githubNo needs
+  // the no-GitHub path (no project, or a link-only one: not ranked) and `open` (so moneyFirst) needs a ranked reply.
   const baseAsk = githubNo && handle !== null && !read.seen.base_asked && !read.seen.base_walk && baseGrantOpen(o.cards, now, o.skip) && (await takeBaseAsk(id, now));
   // GTM W2: the Monday check-in, once, on a client that can schedule, in the first quiet reply after setup.
   const reach = o.reach ?? (await agentReach(o.own, id));
@@ -687,6 +696,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (finalAsk.kind === 'token' && !(await takeTokenOffer(id, now))) finalAsk = stateAsk({ ...asks, tokenOffer: false, wallet: null });
   // v4.0: step 3 the same way (another reply claimed it first: this one asks the next step, or nothing).
   if (finalAsk.kind === 'wallet_setup' && !(await takeWalletAsk(id, now, true))) finalAsk = stateAsk({ ...asks, walletSetup: null, wallet: null });
+  // v4.7 T3 fix round 2 (R12): an apply ask shown (never an owning nudge's) counts one unanswered showing for its program.
+  if (finalAsk.kind === 'apply' && !held && !nudgeAsk && asks.apply) await countApplyShown(id, asks.apply.program_id);
   if (finalAsk.kind === 'ship' && !held) await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('ship_asked', ${now.toISOString()}::text)
     WHERE builder_id = ${id}`.catch(logged('ship asked'));
@@ -936,6 +947,34 @@ export async function recordApplyYes(id: number, programId: string, now: Date): 
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
       COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || jsonb_build_object(${programId}::text, ${now.toISOString()}::text))
     WHERE builder_id = ${id}`.catch(logged('apply yes'));
+}
+/** v4.7 T3 fix round 2 (R12): unanswered showings of one program's apply ask before it stands aside. */
+export const APPLY_UNANSWERED_MAX = 3;
+/** R12: one more unanswered showing of `programId`'s apply ask (standing_seen.apply_unanswered). Never throws. */
+async function countApplyShown(id: number, programId: string): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_unanswered}',
+      COALESCE(standing_seen->'apply_unanswered', '{}'::jsonb)
+        || jsonb_build_object(${programId}::text, COALESCE((standing_seen->'apply_unanswered'->>${programId})::int, 0) + 1))
+    WHERE builder_id = ${id}`.catch(logged('apply shown'));
+}
+/** R12: the apply ask for `programId` was answered: its count goes. Never throws. */
+async function resetApplyShown(id: number, programId: string): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{apply_unanswered}', (standing_seen->'apply_unanswered') - ${programId}::text)
+    WHERE builder_id = ${id} AND standing_seen->'apply_unanswered' ? ${programId}`.catch(logged('apply answered'));
+}
+/**
+ * R12: programs whose apply ask went unanswered APPLY_UNANSWERED_MAX times stand aside as a no would: declined
+ * ('apply:<id>', DECLINE_MS, the no's own key), marked apply_silent (silence, not a no), their counts cleared. Never throws.
+ */
+async function standAside(id: number, programIds: string[], now: Date): Promise<void> {
+  const at = now.toISOString();
+  const declined = Object.fromEntries(programIds.map((p) => [benchStepKey('apply', p), at]));
+  const silent = Object.fromEntries(programIds.map((p) => [p, at]));
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(jsonb_set(jsonb_set(COALESCE(standing_seen, '{}'::jsonb),
+        '{declined}', COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(declined as never)}::jsonb),
+        '{apply_silent}', COALESCE(standing_seen->'apply_silent', '{}'::jsonb) || ${sql().json(silent as never)}::jsonb),
+        '{apply_unanswered}', COALESCE(standing_seen->'apply_unanswered', '{}'::jsonb) - ${programIds}::text[])
+    WHERE builder_id = ${id}`.catch(logged('apply aside'));
 }
 /** v4.7 T3 fix round 1: a draft for `programId` within DECLINE_MS (an older one, the program still open and unapplied, is asked again). Pure. */
 const draftedRecently = (seen: Seen, programId: string, now: Date) => {
@@ -1498,6 +1537,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
   if (m.kind === 'weekly_email') return emailAnswer(id, m.answer);
   const asked = await benchAsked(id, m);
   if (!asked) return okay;
+  // v4.7 T3 fix round 2 (R12): a yes or no to the apply ask answers it: its unanswered showings start again.
+  if (asked.kind === 'apply' && asked.program_id) await resetApplyShown(id, asked.program_id);
   if (asked.kind === 'wallet') return afterStep3(id, await answerWallet(id, m.answer, now), now, ctx.ownInstallationId ?? id);
   if (asked.kind === 'wallet_setup') return afterStep3(id, await setupAnswer(ctx, id, m.answer, now), now, ctx.ownInstallationId ?? id);
   if (m.answer === 'no') {

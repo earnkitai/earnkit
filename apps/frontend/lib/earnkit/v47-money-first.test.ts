@@ -20,6 +20,7 @@ import { upsertProgram } from './programs';
 import { closeDayOf } from './entry-text';
 import { applyAsk, stateAsk, stripeDraftLine, stripeDraftNote, type BenchProject } from './bench-reply';
 import { tokenOfferDue } from './wallet-offer';
+import { APPLY_UNANSWERED_MAX } from './bench-find';
 import { upgradeToken, walletMessage, walletPost } from './wallet-proof';
 import { retryDroppedBuilderTokens } from './builder-token';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -118,8 +119,8 @@ test('Review Focus 3: the first ranked find leads with the open fit\'s amount an
   assert.ok(['apply', 'qualify'].includes(kind(r)!), String(kind(r)));
   assert.doesNotMatch(s, /Ship code this week|Stripe|token|check-in/i);
   // Fix round 1 (R11): every ranked find while the fit is open and unapplied asks it (no post, moment, stripe, token,
-  // check-in or ship ask in its place).
-  for (let i = 0; i < 4; i++) {
+  // check-in or ship ask in its place), up to APPLY_UNANSWERED_MAX showings (fix round 2: then it stands aside).
+  for (let i = 1; i < APPLY_UNANSWERED_MAX; i++) {
     const again = await find(b);
     assert.equal(kind(again), 'apply', show(again));
     assert.equal(show(again), applyAsk(p.title, '$5,000', p.when));
@@ -161,6 +162,33 @@ test('fix round 1: a draft prepare showed, or a yes to drafting, ends the re-ask
   const next = await find(c);
   assert.notEqual(kind(next), 'apply', show(next));
   assert.doesNotMatch(show(next), /I can draft it/);
+});
+
+test('fix round 2 (R12): three unanswered showings stand the apply ask aside for DECLINE_MS; then another ask shows; it comes back', db, async () => {
+  assert.equal(APPLY_UNANSWERED_MAX, 3);
+  const p = await program('u', { days: 20 });
+  const b = await builder('u', [p.id]);
+  for (let i = 0; i < 3; i++) assert.equal(kind(await find(b)), 'apply', `showing ${i + 1}`);
+  const fourth = await find(b);
+  assert.notEqual(kind(fourth), 'apply', show(fourth));
+  assert.doesNotMatch(show(fourth), /I can draft it/);
+  assert.ok(['ship', 'checkin', 'wallet', 'token', 'new_repo', 'titles', 'share', 'post', undefined].includes(kind(fourth)), `another ask resumes: ${kind(fourth)}`);
+  const s = await seen(b.id);
+  assert.equal(typeof (s.declined as Record<string, string>)[`apply:${p.id}`], 'string', 'set aside as a no would be');
+  assert.equal(typeof (s.apply_silent as Record<string, string>)[p.id], 'string', 'marked as silence');
+  assert.equal((s.apply_unanswered as Record<string, number>)[p.id], undefined, 'count cleared');
+  // 31 days later: it comes back.
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
+    WHERE builder_id = ${b.id}`;
+  assert.equal(kind(await find(b)), 'apply');
+  // An answer (here a no) resets the count.
+  const q = await program('v', { days: 20 });
+  const c = await builder('v', [q.id]);
+  await find(c);
+  await find(c);
+  assert.equal(((await seen(c.id)).apply_unanswered as Record<string, number>)[q.id], 2);
+  await mcpCall(c.ctx, 'tell', { move_up: { kind: 'apply', project_key: c.key, answer: 'no' } });
+  assert.equal(((await seen(c.id)).apply_unanswered as Record<string, number>)[q.id], undefined, 'answered: reset');
 });
 
 test('fix round 1 (R11): stateAsk puts the apply ask before an event post', () => {

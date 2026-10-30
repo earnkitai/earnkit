@@ -8555,7 +8555,9 @@ again (`again`, unclaimed). Fix round 1 (R8, R11): while one is left (`moneyFirs
 owning nudge go ahead of it; event posts (hot ones too), the Monday moment, non-owning nudges and every quieter ask wait
 unclaimed, and `stateAsk` puts `apply` before `post`. A draft in the builder's hands (`standing_seen.apply_yes`, set by
 the apply yes and by a draft `draftWithSteps` returns, `recordApplyYes`) is not asked again for DECLINE_MS, and counts as
-the money step for the token offer. The apply
+the money step for the token offer. Fix round 2 (R12): each apply showing counts in `standing_seen.apply_unanswered`
+(reset by a yes or no); after `APPLY_UNANSWERED_MAX` (3) unanswered showings the program stands aside as a no would
+(`declined['apply:<id>']` for DECLINE_MS, marked `apply_silent`), so the other asks resume; it comes back after. The apply
 reply is the money alone (`rankedBody`: the deadline lines, then `applyAsk`; no standing or ship line, so `status_seen`
 and `nag_week` are not marked by it). The Stripe ask left the reply order (no `stripe` in `stateAsk`; a stored v4.6 ask
 still answers): `tools.ts draftWithSteps` adds one agent-note line (`stripeDraftNote`, the exact line `stripeDraftLine`)
