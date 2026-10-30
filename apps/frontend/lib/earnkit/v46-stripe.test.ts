@@ -541,3 +541,31 @@ test('fix round 1 (M2): a sealed key that will not open marks the connection bro
   assert.equal(c.state, 'broken');
   assert.ok(c.broken_at);
 });
+
+test('fix round 2 (N1): with the secret unset nothing is read, claimed or broken; a rotated secret marks broken', dbTest, async () => {
+  const b = await builder(null);
+  await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+  const call = stripeFake({ bts: fiveBts(), charges: five() });
+  const opts = { deadline: Date.now() + 5000, call, rate: rate1, only: [b] };
+  const was = process.env.EARNKIT_AUTH_SECRET;
+  try {
+    delete process.env.EARNKIT_AUTH_SECRET;
+    const r = await runStripeRevenue(NOW, opts);
+    assert.equal(r.stored, 0);
+    assert.match(r.note ?? '', /EARNKIT_AUTH_SECRET/);
+    assert.ok(!JSON.stringify(r).includes(KEY));
+    assert.equal(call.calls.length, 0);
+    assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b}`)[0].state, 'ok');
+    // Back with the secret: the day was not claimed, so it reads now.
+    process.env.EARNKIT_AUTH_SECRET = was;
+    assert.deepEqual(await runStripeRevenue(NOW, opts), { due: 1, stored: 1 });
+    // A rotated (wrong) secret with the secret present: broken.
+    const b2 = await builder(null);
+    await sql()`INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host) VALUES (${b2}, ${seal(KEY, 'stripe')}, ${`acct_${hex()}`}, 'x.com')`;
+    process.env.EARNKIT_AUTH_SECRET = 'rotated-secret';
+    await runStripeRevenue(NOW, { ...opts, only: [b2] });
+    assert.equal((await sql()`SELECT state FROM stripe_connections WHERE builder_id = ${b2}`)[0].state, 'broken');
+  } finally {
+    process.env.EARNKIT_AUTH_SECRET = was;
+  }
+});

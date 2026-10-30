@@ -406,7 +406,9 @@ export async function stripeDue(now: Date, o: { limit?: number; only?: number[] 
 export async function runStripeRevenue(
   now: Date,
   o: { deadline: number; call?: StripeCall; rate?: StripeRate; only?: number[]; limit?: number },
-): Promise<{ due: number; stored: number }> {
+): Promise<{ due: number; stored: number; note?: string }> {
+  // Without the secret no key can be opened: skip the whole step (no claim, no state change) and say so.
+  if (!process.env.EARNKIT_AUTH_SECRET) return { due: 0, stored: 0, note: 'EARNKIT_AUTH_SECRET is not set, Stripe not read' };
   const due = await stripeDue(now, o);
   const day = now.toISOString().slice(0, 10);
   const call = o.call ?? stripeFetch;
