@@ -52,7 +52,7 @@ export type StatsNumberKey = Exclude<(typeof STATS_KEYS)[number], 'open_money_te
  * v2.9 F21: `open_money_usd` is the one money figure (openMoneyUsd: the top prize of every open
  * curated program, summed; v3 Stage 2: never an investment) and `open_money_text` the text every page
  * shows for it ("$115K in grants and prizes open", null when nothing is open). v4.7.1 T2: the old `open_pools_usd`/`open_pools_plus` (the v2.7.1 source-stated pool total
- * and its "+") are deprecated but still served, so docs.earnkit.com never breaks; nothing shows them.
+ * and its "+") and `points_total` are no longer in the stats.
  */
 export type PublicStats = Record<StatsNumberKey, number> & { open_money_text: string | null };
 
@@ -118,8 +118,6 @@ type OpenRow = {
 
 type Row = {
   open_rows: OpenRow[] | null;
-  /** v4.7.1 T2: no longer read (open_pools_* left the stats); old fixtures still pass it. */
-  pool_rows?: unknown;
   programs_open: number;
   bonus_programs_open: number;
   coins_launched: number;

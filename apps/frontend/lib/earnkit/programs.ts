@@ -99,7 +99,7 @@ export function perWinnerUsd(p: {
  */
 export function poolFacts(p: Pick<ProgramRow, 'pool_usd' | 'reward' | 'title' | 'campaign'>) {
   // programs:check refuses a pool its reward doesn't state; a row that slipped past counts as none
-  // (pool.ts statedPool, the same rule /api/stats' open_pools_usd uses).
+  // (pool.ts statedPool).
   const { pool_usd, plus } = p.campaign ? { pool_usd: null, plus: false } : statedPool(p.pool_usd, p.reward);
   if (pool_usd === null) return { pool_usd: null, pool_plus: false, pool_line: null };
   return { pool_usd, pool_plus: plus, pool_line: poolLine(pool_usd, poolStated(pool_usd, p.reward)!, p.title) };

@@ -94,7 +94,7 @@ export function eachLine(p: {
 
 /**
  * The pool total behind the hero's figure: the sum of the shown programs' pools, and "+" when any
- * of them has no pool or its source says "+". Shared with /api/stats (open_pools_usd/_plus). Pure.
+ * of them has no pool or its source says "+". No longer in /api/stats (v4.7.1). Pure.
  */
 export function poolTotal(pools: { pool_usd: number | null; plus: boolean }[]): { usd: number; plus: boolean } {
   return {

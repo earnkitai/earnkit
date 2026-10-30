@@ -11,7 +11,7 @@ holdBonusDbLock();
 const E18 = 10n ** 18n;
 
 const emptyRow = {
-  open_rows: null, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0,
+  open_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0,
   bonus_deposits_wei: null, bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, installs_used: 0, builders: 0,
   labelled_entries: 0, entries_won: 0, builders_won_usd: null,
 };

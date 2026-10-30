@@ -2075,26 +2075,15 @@ export async function legacyCoinAnswer(ctx: Pick<ToolContext, 'installationId' |
   const asked = await benchAsked(ctx.installationId, {});
   if (asked?.kind === 'token') return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
   if (asked?.kind === 'wallet_setup' && (await tokenOffered(ctx.installationId))) {
-    // v4.7.1 T2: a no is still the token's no. A yes to v4.0's step 3 sentence launches nothing (that sentence was no offer
-    // the v4.7 flow made): the normal token offer when it is due (tokenOfferDue, after the money step), answered fresh,
-    // else a statement that setup is done, no question.
+    // v4.7.1 T2: a no is still the token's no. A yes to v4.0's step 3 sentence launches nothing and offers nothing (the
+    // token_offered mark it needs also ends tokenOfferDue): it ends the old sentence, the ask cleared, no question.
     if (answer === 'no') return benchMoveUp(ctx, { kind: 'token', project_key: null, answer, via: 'coin' });
-    const id = ctx.installationId;
-    const now = new Date();
-    try {
-      if ((await tokenOfferDue(id)) && (await takeTokenOffer(id, now))) {
-        await storeAsk(id, { kind: 'token', key: null, at: now.toISOString() });
-        return { show_to_builder: TOKEN_OFFER, move_up: { kind: 'token', project_key: null, agent_note: TOKEN_ASK_NOTE } };
-      }
-      await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'wallet_setup'`;
-    } catch (err) {
-      logged('legacy token yes')(err);
-    }
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${ctx.installationId} AND standing_seen->'bench_ask'->>'kind' = 'wallet_setup'`.catch(logged('legacy token yes'));
     return { show_to_builder: LEGACY_SETUP_DONE };
   }
   return null;
 }
-/** v4.7.1 T2: the legacy yes to v4.0's step 3 sentence when no token offer is due: a statement, no question. */
+/** v4.7.1 T2: the legacy yes to v4.0's step 3 sentence: a statement, no question. */
 const LEGACY_SETUP_DONE = 'Your setup is done.';
 /**
  * v4.0: tell move_up kind 'token'. A no is kept forever (declineBuilderToken; a token already on its way or live is

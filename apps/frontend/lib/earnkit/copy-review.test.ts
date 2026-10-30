@@ -1333,7 +1333,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
     source: c.sponsored ? 'sponsor' : 'file', starts_at: null, ends_at: c.ends_at?.toISOString() ?? null,
   }));
   const stats = statsFrom({
-    open_rows: rows, pool_rows: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null,
+    open_rows: rows, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, bonus_deposits_wei: null,
     bonus_to_safe_wei: null, bonus_paid_wei: null, bonus_pools_wei: null, installs: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: null,
   }, now);
   assert.equal(stats.open_money_text, `${fig} in grants and prizes open`);

@@ -1729,8 +1729,8 @@ controller's C1–C16 in `.superpowers/sdd/v2.7-convert-and-guide-plan/progress.
   "available", "total"), so a per-winner amount can't pass as a pool. Circle's `max_award_usd` is
   100000 and `min_award_usd` 5000 (additive `programs.min_award_usd`; must be stated in `reward`
   and below the max) ("$5,000 … up to $100,000 in USDC",
-  circle.com/grant), so the first message's per-winner total includes it. `/api/stats` adds
-  `open_pools_usd` and `open_pools_plus` (the same total and "+", `pool.ts` `poolTotal`/`statedPool`,
+  circle.com/grant), so the first message's per-winner total includes it. `/api/stats` added
+  `open_pools_usd` and `open_pools_plus` (dropped in v4.7.1; the same total and "+", `pool.ts` `poolTotal`/`statedPool`,
   over listPrograms' open rule, curated only); `open_money_usd` is unchanged. Spec: `v2.7.1-landing-simplify.md`.
 - The figure is formatted on the server (`landing.ts`) and passed to the client `Hero` as a string:
   client components must not import `campaigns.ts`, which pulls viem and zod into the browser.
@@ -3311,8 +3311,8 @@ The v2.8.1 journeys (`v281-journey.test.ts`) still pass unchanged on Part 1.
   card; with repos: over the rows the builder qualifies for) and `/api/stats` (`open_money_usd`,
   `open_money_text`) all call it. `readStats` reads the active rows as json (`open_rows`) and
   `statsFrom(r, now)` applies `openMoneyUsd`; the SQL sum is gone. The old pool-based figure
-  (`openFigure`) is removed. Ruling G23: `open_pools_usd`/`open_pools_plus` are still served,
-  labelled deprecated, so docs.earnkit.com never breaks; no page shows them. With the catalogue on
+  (`openFigure`) is removed. Ruling G23 kept `open_pools_usd`/`open_pools_plus` served, deprecated;
+  v4.7.1 dropped them from `/api/stats`; no page shows them. With the catalogue on
   2026-10-08 the figure is $1,170,500, shown "$1.1M+". Tests: stats 11.1/11.2, human-text and
   copy-review 11.3 (no "$1.3M", "1,170,500" or "1170500" in human or builder text; `openFigure` and
   `poolTotalText` imported only in pool.ts and its test; one fixture catalogue gives one figure on
@@ -3431,8 +3431,8 @@ but your own terminal.
 5. **`GAS_WALLET_MIN_WEI`.** Set at the Part 1 ship (Ruling G16, 0.0001 ETH). Raise it back toward
    the 0.002 ETH default once the payout wallet is topped up.
 6. **The docs money switch (optional, Ruling G23).** docs.earnkit.com may switch its live number
-   from `open_pools_usd`/`open_pools_plus` to `open_money_text`. The old fields are still served
-   (labelled deprecated), so nothing breaks if it waits.
+   from `open_pools_usd`/`open_pools_plus` to `open_money_text`. The old fields were dropped
+   from `/api/stats` in v4.7.1, so docs.earnkit.com must switch.
 7. **Test with throwaway repos:** one hosted site end to end (sign-in, upload, the badge, a takedown),
    and one weekly email to yourself (opt in, wait for Monday's run, unsubscribe from the email).
 
@@ -6665,7 +6665,7 @@ say yes, earn points, get the Monday email.
   do (via its `approved_via`). The profile
   showed `POINTS_PAGE_LINE` until the v3.1 site (the profile shows no points; owner 2026-10-21: points in agent replies
   only), replies carry points through v3.1 T16's lines (`bench-reply.ts POINTS_ON_*`, `connect-moment.ts pointsAddedLine`; v4.2 removed the ship step's `shipPointsLine` for `shipLine`),
-  and `/api/stats` returns `points_total`.
+  and `/api/stats` returned `points_total` (dropped in v4.7.1).
 - **The connect moment (`connect-moment.ts`, `bench-find.ts`, `bench-reply.ts`, `weekly-moment.ts`).** The first
   ranked reply after connect shows every unconfirmed, unhidden week with facts, newest first, at most 12
   (v3.1 T16 removed `CONNECT_HEAD` and the weeks list; see "v3.1 P0 Task 16" below), and asks `connectAsk(weeks, page)`
@@ -8465,8 +8465,8 @@ updates for shown programs. Task 3: find and score replies carry no `points_tota
 (`reply-facts.ts` drops `points` and `about.points`); `rank_lines` is sent only when non-empty; `standing`
 (`bench-find.ts standingFields`: absent for 0 weeks, `1 week shipping`, `n weeks shipping in a row`) is the fact the agent
 answers "where do I stand" from. `ANSWER_FIRST_NOTE` no longer lists points, rank or how ranking works, and answers a
-points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` and the
-internal ledger stay (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
+points question with "EarnKit doesn't use points. It tracks the weeks you ship." `/api/stats` `points_total` was dropped in v4.7.1; the
+internal ledger stays (owner analytics). Tests: `v43-first-answer.test.ts`; updated pins: `leaderboard-clarity.test.ts`
 R10 (absent, not `[]`) and `v31-answerable.test.ts` (no points in facts or about).
 
 ## v4.4: setup order and "I already have a token" (2026-10-29)
