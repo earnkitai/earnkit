@@ -134,7 +134,7 @@ import { hideUpdate, postUpdate, setShipTitles } from './updates';
 import { enqueueDiscovery, localGitInput } from './discovery';
 import { benchIdentity, benchProject, identityInput, noteIdentity, projectKeyOf } from './identity-input';
 import { REPO_KEY, dropMainProject, fillGithubUser, mainProjectOf, setMainProject } from './main-project';
-import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
+import { APPLY_OUTCOME_NOTE, BENCH_OUTCOME_NOTE, benchFind, benchMoveUp, recordApplyYes, keepBenchMatch, legacyCoinAnswer, tokenAsk, tokenExisting, keptBenchMatch, mainProjectName, mainProjectNameFor, rankAnswer, rememberProjectName, signedOutNow } from './bench-find';
 import { CHAIN_EXPLAINED, CHAIN_NAMES, type Chain } from './chains';
 import { provenWallet } from './wallet-proof';
 import { walletChangeReply } from './wallet-offer';
@@ -2638,6 +2638,9 @@ async function draftWithSteps(
   // v4.7 T3: the Stripe ask left find's reply order: it rides on the shown draft (`draft`, never the first call's
   // requirements) for a program that wants revenue (program file wants_revenue), once a person (stripe.ts
   // takeStripeDraftLink: stripe_asked); never on a shared client or the build path (a fresh build has no revenue yet).
+  // v4.7 T3 fix round 1: a shown draft is a draft in the builder's hands (apply_yes), so find never offers to draft it
+  // again (bench-find.ts recordApplyYes, the apply yes's own record); not on a shared client (one client, many builders).
+  if (r.draft && !ctx.sharedClient) await recordApplyYes(ctx.installationId, prep.program_id, new Date());
   const stripeUrl = r.draft && !join && !ctx.sharedClient && program.wants_revenue === true ? await takeStripeDraftLink(ctx.installationId, new Date()) : null;
   const note = [r.agent_note, step?.agent_note, join?.noLive && BUILD_NO_LIVE_NOTE, stripeUrl && stripeDraftNote(stripeUrl)]
     .filter((x): x is string => typeof x === 'string' && x.length > 0).join(' ');

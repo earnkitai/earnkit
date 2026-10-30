@@ -61,11 +61,14 @@ async function kit(tag: string, ages = [1, 2, 3, 4, 5, 6, 7, 8]) {
   return { id, key, handle, ctx };
 }
 
-test('went live: ahead of the apply step for 48 hours, word for word; a different version; then the limit; then the apply step again', db, async () => {
+test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for word; a different version; then the limit; then quiet', db, async () => {
   const k = await kit('pl');
   // Live 3 days ago (settled a day ago: under 48 hours since it could be posted).
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`pl${k.id}`}, 'kit', ${k.key}, ${k.id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
+  // v4.7 T3 fix round 1 (R11): money first: while Base's grant is open and unapplied, its ask comes first and the post waits.
+  assert.equal(moveUp(await mcpCall(k.ctx, 'find', {}))?.kind, 'apply');
+  await mcpCall(k.ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
   const r1 = await mcpCall(k.ctx, 'find', {});
   const s1 = rule(show(r1));
   const tap1 = links(s1)[0]!;
@@ -77,7 +80,7 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
     `Post it in one tap: ${tap1}`,
     'Want a different version?',
   ].join('\n'));
-  assert.deepEqual([moveUp(r1)?.kind, moveUp(r1)?.project_key], ['post', k.key], 'before the apply step');
+  assert.deepEqual([moveUp(r1)?.kind, moveUp(r1)?.project_key], ['post', k.key], 'once no fit is unapplied');
   assert.match(moveUp(r1)!.agent_note, /Show the post text exactly as given\. Never rewrite it\./);
   // The card frozen with it: "Live" and the weeks it took.
   const d1 = (await draftByCode(tap1.split('/').pop()!))!;
@@ -104,11 +107,11 @@ test('went live: ahead of the apply step for 48 hours, word for word; a differen
   // Answered once: another yes is "Okay.".
   assert.equal(show(await mcpCall(k.ctx, 'tell', { move_up: { kind: 'post', project_key: k.key, answer: 'yes' } })), 'Okay.');
 
-  // Two days on, the live post was offered already: the apply step is back.
+  // Two days on, the live post was offered already: never again.
   mock.timers.setTime(WEDNESDAY + 2 * DAY);
   try {
     const r4 = await mcpCall(k.ctx, 'find', {});
-    assert.equal(moveUp(r4)?.kind, 'apply', show(r4));
+    assert.notEqual(moveUp(r4)?.kind, 'post', show(r4));
   } finally {
     mock.timers.setTime(WEDNESDAY);
   }
@@ -224,6 +227,8 @@ test('fix round: a different version only of the latest draft, within its 14 day
   const k = await kit('pr');
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`pr${k.id}`}, 'kit', ${k.key}, ${k.id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
+  // v4.7 T3 fix round 1 (R11): the post waits behind an unapplied fit, so Base's grant is applied to first.
+  await mcpCall(k.ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
   assert.equal(moveUp(await mcpCall(k.ctx, 'find', {}))?.kind, 'post');
   const [{ ask }] = await sql()<{ ask: unknown }[]>`SELECT standing_seen->'bench_ask' AS ask FROM builder_profiles WHERE builder_id = ${k.id}`;
   const reopen = () => sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb) WHERE builder_id = ${k.id}`;

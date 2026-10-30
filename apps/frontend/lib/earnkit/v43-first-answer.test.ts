@@ -618,7 +618,9 @@ test('final review F3 and F9: find {more: true} never drafts or shows a due even
     verdicts: [{ program_id: BASE_GRANTS_ID, program: BASE_GRANTS_ID, status: 'likely', missing: [], effort: 'none', note: null }],
   } as never];
   const ctx = { installationId: id, ownInstallationId: id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
-  // Live 3 days ago: the went-live post is due (ahead of the apply step for 48 hours).
+  // Live 3 days ago: the went-live post is due. v4.7 T3 fix round 1 (R11): it waits behind an unapplied fit, so Base's
+  // grant is applied to here.
+  await mcpCall(ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`fp${id}`}, 'kit', ${key}, ${id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
   const drafts = async () => Number((await sql()<{ n: string }[]>`SELECT count(*) AS n FROM post_drafts WHERE builder_id = ${id}`)[0].n);

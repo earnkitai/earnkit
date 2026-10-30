@@ -8551,9 +8551,11 @@ Agent guidance is in SCORE_DESCRIPTION and FIND_DESCRIPTION_BENCH (ruling R1: th
 
 v4.7 the first reply is money only (Task 3): in a ranked reply with an open fit not applied to (benchView `open`: not told,
 entered, hidden or declined), the ask is that fit's `apply`: claimed once a program (`claimApply`), and after that asked
-again (`again`, unclaimed) wherever the check-in, wallet, token, new-repo, titles or ship ask would have gone; those wait
-until no open fit is unapplied. Setup step 3, connect, owning nudges, hot posts, the Monday moment and event posts keep
-their places. A program the builder said yes to drafting (`standing_seen.apply_yes`) is never asked again. The apply
+again (`again`, unclaimed). Fix round 1 (R8, R11): while one is left (`moneyFirst`), only setup step 3, connect and an
+owning nudge go ahead of it; event posts (hot ones too), the Monday moment, non-owning nudges and every quieter ask wait
+unclaimed, and `stateAsk` puts `apply` before `post`. A draft in the builder's hands (`standing_seen.apply_yes`, set by
+the apply yes and by a draft `draftWithSteps` returns, `recordApplyYes`) is not asked again for DECLINE_MS, and counts as
+the money step for the token offer. The apply
 reply is the money alone (`rankedBody`: the deadline lines, then `applyAsk`; no standing or ship line, so `status_seen`
 and `nag_week` are not marked by it). The Stripe ask left the reply order (no `stripe` in `stateAsk`; a stored v4.6 ask
 still answers): `tools.ts draftWithSteps` adds one agent-note line (`stripeDraftNote`, the exact line `stripeDraftLine`)

@@ -117,12 +117,13 @@ test('Review Focus 3: the first ranked find leads with the open fit\'s amount an
   assert.equal(s, applyAsk(p.title, '$5,000', p.when));
   assert.ok(['apply', 'qualify'].includes(kind(r)!), String(kind(r)));
   assert.doesNotMatch(s, /Ship code this week|Stripe|token|check-in/i);
-  // The next finds still put the money first (the fit is still open and unapplied): no stripe, token, check-in or ship.
-  for (let i = 0; i < 3; i++) {
+  // Fix round 1 (R11): every ranked find while the fit is open and unapplied asks it (no post, moment, stripe, token,
+  // check-in or ship ask in its place).
+  for (let i = 0; i < 4; i++) {
     const again = await find(b);
-    assert.ok(['apply', 'share', 'post'].includes(kind(again)!), `${kind(again)}: ${show(again)}`);
+    assert.equal(kind(again), 'apply', show(again));
+    assert.equal(show(again), applyAsk(p.title, '$5,000', p.when));
     assert.doesNotMatch(JSON.stringify(again.reply), /"kind":"stripe"|connect\/stripe/);
-    if (kind(again) === 'apply') assert.ok(show(again).endsWith(applyAsk(p.title, '$5,000', p.when)), show(again));
   }
   assert.equal((await seen(b.id)).stripe_asked, undefined, 'find never claims the Stripe ask');
 });
@@ -135,6 +136,39 @@ test('the quieter asks wait while an open fit is unapplied, and come back once i
   const after = await find(b);
   assert.notEqual(kind(after), 'apply', show(after));
   assert.doesNotMatch(show(after), /I can draft it/);
+});
+
+test('fix round 1: a draft prepare showed, or a yes to drafting, ends the re-ask for that program; it comes back after DECLINE_MS', db, async () => {
+  const p = await program('d', { days: 20 });
+  const b = await builder('d', [p.id]);
+  assert.equal(kind(await find(b)), 'apply');
+  // A direct prepare (no apply ask answered) that shows the draft.
+  const prep = await prepare(b, p);
+  assert.ok(prep.reply?.draft, show(prep));
+  assert.equal(typeof ((await seen(b.id)).apply_yes as Record<string, string>)[p.id], 'string');
+  const after = await find(b);
+  assert.notEqual(kind(after), 'apply', show(after));
+  assert.doesNotMatch(show(after), /I can draft it/);
+  // 31 days later, still open and unapplied: asked again.
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['apply_yes', p.id]}::text[], to_jsonb(${new Date(Date.now() - 31 * DAY).toISOString()}::text))
+    WHERE builder_id = ${b.id}`;
+  assert.equal(kind(await find(b)), 'apply');
+  // The yes to the apply ask records it too.
+  const q = await program('e', { days: 20 });
+  const c = await builder('e', [q.id]);
+  assert.equal(kind(await find(c)), 'apply');
+  await mcpCall(c.ctx, 'tell', { move_up: { kind: 'apply', project_key: c.key, answer: 'yes' } });
+  const next = await find(c);
+  assert.notEqual(kind(next), 'apply', show(next));
+  assert.doesNotMatch(show(next), /I can draft it/);
+});
+
+test('fix round 1 (R11): stateAsk puts the apply ask before an event post', () => {
+  const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
+  const apply = { program_id: 'p', title: 'Grant', amount: '$5,000', when: 'Nov 18' };
+  const v = { state: 'ranked' as const, variant: null, project, link: null, handle: 'kit', apply, post: { kind: 'live' } as never };
+  assert.equal(stateAsk(v).kind, 'apply');
+  assert.equal(stateAsk({ ...v, apply: null }).kind, 'post');
 });
 
 test('stateAsk has no stripe kind: the ranked order goes apply, share, check-in, wallet, token, then the rest', () => {
@@ -188,6 +222,12 @@ test('tokenOfferDue is false with no application and true after one', db, async 
     assert.equal(await tokenOfferDue(b.id), false, 'no application or draft yet');
     await sql()`INSERT INTO builder_program_status (installation_id, program_id, login, status) VALUES (${b.id}, ${p.id}, '', 'applied')`;
     assert.equal(await tokenOfferDue(b.id), true, 'after one application');
+    // Fix round 1 (R9): a draft in their hands (apply_yes) is the money step too.
+    const d = await builder('t2', [p.id]);
+    await sql()`INSERT INTO person_wallets (wallet, builder_id, recipient_at) VALUES (${`0x${randomBytes(20).toString('hex')}`}, ${d.id}, now())`;
+    assert.equal(await tokenOfferDue(d.id), false);
+    await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('apply_yes', jsonb_build_object(${p.id}::text, now()::text)) WHERE builder_id = ${d.id}`;
+    assert.equal(await tokenOfferDue(d.id), true, 'after a draft-yes');
   } finally {
     delete process.env.EARNKIT_BUILDER_TOKENS;
   }

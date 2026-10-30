@@ -126,21 +126,22 @@ export async function walletSetupDue(builderId: number, now: Date): Promise<stri
  * or token_skipped: final review 9's wallet skip after step 3's token sentence). Never for an owner
  * test installation (EARNKIT_TEST_INSTALLATIONS, as the stats). v4.7 T3 (token after money; ruling R3): and only once
  * the builder has at least one application in or draft ready (standing.ts applicationCounts, the standing's own
- * records), so no offer comes before the money step; except `asked`: the builder asked about their token (tell token
+ * records) or a draft in their hands (fix round 1, R9: standing_seen.apply_yes, any program), so no offer comes before the money step; except `asked`: the builder asked about their token (tell token
  * 'ask'), so the answer may carry the offer (it is never in front of the money). Nothing is claimed here (takeTokenOffer). Never throws.
  */
 export async function tokenOfferDue(builderId: number, o: { asked?: boolean } = {}): Promise<boolean> {
   if (!builderTokensOn()) return false;
   try {
-    const [p] = await sql()<{ due: boolean }[]>`
+    const [p] = await sql()<{ due: boolean; drafted: boolean }[]>`
       SELECT x_user_id IS NOT NULL AND x_handle IS NOT NULL
         AND NOT COALESCE(standing_seen ?| array['token_offered', 'token_offer_legacy', 'token_skipped'], false)
         AND EXISTS (SELECT 1 FROM person_wallets w WHERE w.builder_id = ${builderId})
         AND NOT EXISTS (SELECT 1 FROM builder_tokens t WHERE t.builder_id = ${builderId})
-        AND NOT ${testBuilderSql(sql(), builderId)} AS due
+        AND NOT ${testBuilderSql(sql(), builderId)} AS due,
+        COALESCE(standing_seen->'apply_yes', '{}'::jsonb) <> '{}'::jsonb AS drafted
       FROM builder_profiles WHERE builder_id = ${builderId}`;
     if (p?.due !== true) return false;
-    if (o.asked) return true;
+    if (o.asked || p.drafted) return true;
     const n = await applicationCounts(builderId);
     return n.applied + n.drafts >= 1;
   } catch (err) {

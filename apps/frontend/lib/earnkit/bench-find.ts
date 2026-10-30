@@ -200,7 +200,7 @@ export type Seen = StandSeen & {
   qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
   apply_asked?: Record<string, string>;
-  /** v4.7 T3: the programs the builder said yes to drafting ({ [program_id]: iso }): never asked again (they hold the draft). */
+  /** v4.7 T3: the programs with a draft in the builder's hands ({ [program_id]: iso }: a yes to drafting, or prepare showed one): not asked again for DECLINE_MS. */
   apply_yes?: Record<string, string>;
   /** 2026-10-23 Base onboarding: when the builder said no to step 2 (no GitHub, or not connecting now). */
   github_no?: string;
@@ -596,11 +596,17 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const best: BestFit | null = open[0]
     ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes, ...(open[0].bar && { bar: open[0].bar }) }
     : null;
+  // v4.7 T3 (money first; fix round 1, R8 and R11): the open fits not applied to and not drafted (a yes to drafting,
+  // apply_yes, holds DECLINE_MS). While one is left, the reply's ask is its apply: only setup step 3, connect and an
+  // owning nudge go ahead of it; the hot and other event posts, the Monday moment, non-owning nudges and every quieter
+  // ask wait (each unclaimed) until none is left.
+  const unapplied = open.filter((f) => !draftedRecently(read.seen, f.program_id, now));
+  const moneyFirst = unapplied.length > 0;
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
   // v3.1 one-tap posts (design 6 ruling): went live or won, for 48 hours, before the apply step (a stale launch post is worthless).
-  const hot = rankedFree && !more && project && handle && !held && !connect ? await eventPost(id, handle, now, { hot: true }) : null;
+  const hot = rankedFree && !more && project && handle && !held && !connect && !moneyFirst ? await eventPost(id, handle, now, { hot: true }) : null;
   // v3 Stage 2 (spec 5.3), v3.1 R1: the drafted application, once a program, before (and in place of) the weekly moment.
   // v4.0 Task 8: this week's nudge (at most one), peeked here and claimed only when this reply shows it. It leads a
   // ranked reply only: never setup, the setup-done reply (returned above), a held question, connect, an event post or the Monday block (those lead, and the nudge waits unclaimed).
@@ -614,19 +620,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (standIn) held = null;
   const nudgeOk = standIn || Boolean(rankedFree && !more && project && handle && !held && !connect && !hot);
   const peek = !nudgeOk ? null : standIn ? o.nudge! : await pickNudge(id, now, { project: project!.name, best: best && realFit(best) ? best.title : null });
-  const askMoment = !standIn && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
+  const askMoment = !standIn && !moneyFirst && peek?.ask && peek.line ? await weeklyMoment(o.own, id, project!.key, handle!, row?.commit_weeks ?? [], now) : null;
   const owns = standIn || Boolean(peek?.ask && peek.line && !askMoment && (await claimNudge(id, now, peek.keep)));
-  const apply = !owns && !askMoment && !walletSetup && !connect && !hot && open.length > 0 ? await claimApply(id, read.seen, open, now) : null;
-  // Launch ready L6: the weekly moment, once a week per installation, never over a held question.
-  const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot && !apply ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
+  const apply = !owns && !askMoment && !walletSetup && !connect && !hot && moneyFirst ? await claimApply(id, read.seen, unapplied, now) : null;
+  // Launch ready L6: the weekly moment, once a week per installation, never over a held question. v4.7 T3: never over money.
+  const moment = askMoment ?? (!owns && !peek?.ask && rankedFree && !more && project && handle && !held && !connect && !hot && !apply && !moneyFirst ? await weeklyMoment(o.own, id, project.key, handle, row?.commit_weeks ?? [], now) : null);
   // v3.1 one-tap posts: the share slot between Mondays: an event's post (an announced win, going live, the coin's intro).
-  const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !apply && !moment ? await eventPost(id, handle, now, { hot: false }) : null);
-  // v4.7 T3 (money first): an open fit not applied to (`open`: not told, entered, hidden or declined) asked once already
-  // is asked again in place of the quieter asks, so the check-in, the wallet step, the token, the new-repo nudge, titles
-  // and the ship step wait until no open fit is unapplied. Never claimed (asked once a program stays claimApply's); never
-  // a program the builder said yes to drafting (apply_yes: the draft is in their hands, its send is theirs).
-  const unasked = open.find((f) => !read.seen.apply_yes?.[f.program_id]);
-  const again = !apply && !owns && !askMoment && !walletSetup && !connect && !hot && !moment && !event && unasked ? applyPickOf(unasked) : null;
+  const event = hot ?? (!owns && rankedFree && !more && project && handle && !held && !connect && !apply && !moment && !moneyFirst ? await eventPost(id, handle, now, { hot: false }) : null);
+  // v4.7 T3 (money first): an unapplied fit asked once already (claimApply asks once a program) is asked again, never
+  // claimed, in place of everything that waits above.
+  const again = !apply && !owns && !walletSetup && !connect && moneyFirst ? applyPickOf(unapplied[0]) : null;
   // 2026-10-22: then a private repo's titles question (once a person), then, with no fit, Base's grant steps.
   const quiet = !owns && rankedFree && project !== null && !held && !connect && !apply && !again && !moment && !event;
   // v3.1 wallet proof: the optional wallet step, once a person, in the first quiet reply after setup (never with another
@@ -713,8 +716,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   // v4.0 Task 8: a nudge with no question of its own (the milestone, the Friday line) leads a ranked reply beside its
   // ask, claimed now; never over the Monday block, a post offer or connect. Fix round 1 (ruling 4): the closing nudge
   // drops only its own program's deadline line.
+  // v4.7 T3 fix round 1 (R8): while money first applies, a non-owning nudge waits (unclaimed): nothing leads the money.
   const nudge = owns ? peek
-    : nudgeOk && peek && !peek.ask && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind) && (await claimNudge(id, now, peek.keep)) ? peek
+    : nudgeOk && !moneyFirst && peek && !peek.ask && !['share', 'post', 'connect', 'wallet_setup'].includes(finalAsk.kind) && (await claimNudge(id, now, peek.keep)) ? peek
     : null;
   // A congratulation this week (no line) counts as the week's nudge: claimed whenever it comes up.
   if (peek && !peek.line && nudgeOk) await claimNudge(id, now, peek.keep);
@@ -923,6 +927,21 @@ async function claimApply(id: number, seen: Seen, open: Fit[], now: Date): Promi
   if (!pick || !(await takeApplyAsk(id, pick.program_id, now))) return null;
   return applyPickOf(pick);
 }
+/**
+ * v4.7 T3: a draft in the builder's hands for `programId` (a yes to drafting it, or a draft prepare showed), kept in
+ * standing_seen.apply_yes, so money first never asks to draft it again; the token offer counts it as the money step
+ * (wallet-offer.ts tokenOfferDue). Never throws.
+ */
+export async function recordApplyYes(id: number, programId: string, now: Date): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
+      COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || jsonb_build_object(${programId}::text, ${now.toISOString()}::text))
+    WHERE builder_id = ${id}`.catch(logged('apply yes'));
+}
+/** v4.7 T3 fix round 1: a draft for `programId` within DECLINE_MS (an older one, the program still open and unapplied, is asked again). Pure. */
+const draftedRecently = (seen: Seen, programId: string, now: Date) => {
+  const at = seen.apply_yes?.[programId];
+  return typeof at === 'string' && now.getTime() - Date.parse(at) < DECLINE_MS;
+};
 /** The apply ask's pick for a fit: its deadline's day ("Nov 18"), null when rolling. Pure. */
 const applyPickOf = (f: Fit): ApplyPick & { repo?: string } =>
   ({ program_id: f.program_id, title: f.title, amount: f.amount, when: f.ends_at ? f.when.replace(/^closes /, '') : null, ...(f.repo && { repo: f.repo }) });
@@ -1573,10 +1592,7 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       if (ready) return ready;
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched). v4.7 T3: the yes is
       // kept (apply_yes), so money first never asks to draft it again.
-      if (asked.program_id)
-        await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
-            COALESCE(standing_seen->'apply_yes', '{}'::jsonb) || jsonb_build_object(${asked.program_id}::text, ${now.toISOString()}::text))
-          WHERE builder_id = ${id}`.catch(logged('apply yes'));
+      if (asked.program_id) await recordApplyYes(id, asked.program_id, now);
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -1954,8 +1970,9 @@ async function tokenAnswer(ctx: Pick<ToolContext, 'builderTokenDeps'>, id: numbe
       await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'bench_ask' WHERE builder_id = ${id} AND standing_seen->'bench_ask'->>'kind' = 'token'`.catch(logged('clear token ask'));
       return { show_to_builder: r === 'launched' || r === 'existing' ? await tokenAnswerFor(id, now) : r === 'launching' || r === 'unknown' ? TOKEN_ON_ITS_WAY : TOKEN_NO_LINE };
     }
-    // Final review 1: the yes is what token_offered records (the legacy offer's show never sets it), so a launch this
-    // yes starts and drops is retried by the hourly cron, and a wallet proven later launches it.
+    // Final review 1: the yes is what token_offered records (the legacy offer's show never sets it). v4.7 T3: with
+    // token_yes, a launch this yes starts and drops, or one waiting on a wallet proven later, is launched by the hourly
+    // retry (the proof itself never launches).
     if (builderTokensOn()) await markTokenYes(id, now);
     // v4.2: the builder's own yes after a no reopens it (only the builder's own yes; see ownYes).
     const reopened = ownYes && builderTokensOn() && (await reopenDeclinedToken(id));

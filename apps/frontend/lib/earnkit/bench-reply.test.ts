@@ -174,8 +174,10 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
   const link = 'https://earnkit.com/maya/post/abcdefghij';
   const post: EventPost = { head: 'Recipe planner went live this week.', text: 'Recipe planner is live. 9 weeks from first commit.', link };
   const v = ranked({ post });
-  v.ask = stateAsk({ ...v, post, apply: { program_id: 'p', title: 'P', amount: null, when: null } });
-  assert.deepEqual(v.ask, { kind: 'post', project_key: RECIPE.key, line: POST_ASK }, 'ahead of apply when benchView offers it');
+  // v4.7 T3 fix round 1 (R11): money first: the apply ask goes before a post; benchView offers a post only with no unapplied fit.
+  assert.equal(stateAsk({ ...v, post, apply: { program_id: 'p', title: 'P', amount: null, when: null } }).kind, 'apply');
+  v.ask = stateAsk({ ...v, post });
+  assert.deepEqual(v.ask, { kind: 'post', project_key: RECIPE.key, line: POST_ASK });
   const out = benchReply(v);
   assert.equal(out, [
     'Recipe planner went live this week.',
