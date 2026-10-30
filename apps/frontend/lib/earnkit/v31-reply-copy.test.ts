@@ -194,8 +194,9 @@ test('Task 16: the first-run journey, each reply word for word', db, async () =>
     '',
     `Your post is ready to share: ${tap.replace(/[.]/g, '\\.')}`,
     '',
-    // v4.7.1 T1 fix round 1: no unapplied fit, so the Monday block carries the fit line before its why.
-    'You qualify for the Base Builder Grant Program, up to \\$5,000\\.',
+    // v4.7.1 T1 fix round 1: no unapplied fit, so the Monday block carries money before its why; fix round 2 (R6): Base's
+    // grant was drafted (the apply yes above), so never pitched: the open grants, without it.
+    'Open now: (?:(?!Base Builder)[^\\n])+',
     '',
     'Builders who share wins get noticed by programs\\.',
     '',

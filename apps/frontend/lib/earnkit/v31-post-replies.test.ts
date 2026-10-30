@@ -72,15 +72,19 @@ test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for w
   const r1 = await mcpCall(k.ctx, 'find', {});
   const s1 = rule(show(r1));
   const tap1 = links(s1)[0]!;
+  // v4.7.1 T1 fix round 2 (R6): never "You qualify" for the program told applied; the open grants, without it.
+  assert.doesNotMatch(s1, /You qualify for the Base Builder Grant Program|Open now: [^\n]*Base Builder/, s1);
+  const openLine = s1.split('\n').find((l) => l.startsWith('Open now: '))!;
+  assert.ok(openLine, s1);
   assert.match(tap1, shortLink(k.handle));
   assert.equal(s1, [
     'Kit went live this week.',
     'Your post for X:',
     '"Kit is live. 8 weeks from first commit."',
     `Post it in one tap: ${tap1}`,
-    // v4.7.1 T1 fix round 1: the fit (applied to, so not money first) before the why: money in every ranked reply.
+    // v4.7.1 T1 fix round 2 (R6): Base's grant was told applied, so it is never pitched: the open grants instead.
     '',
-    'You qualify for the Base Builder Grant Program, up to $5,000.',
+    openLine,
     // v4.7 T4: the post step's why, its own paragraph before the question.
     '',
     'A post with real numbers is what reviewers read.',

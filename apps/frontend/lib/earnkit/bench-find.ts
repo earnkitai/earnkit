@@ -44,7 +44,7 @@ import { APPROVED_LINE, SHARE_NOTE, answerShare, lastWeekOf, markOffered, moment
 import { isoWeekOf } from './weeks';
 import { weekCommunityUsd } from './community';
 import { streaksFor } from './streak';
-import { personal, readStanding, standingLeads, standingParagraph, streakOnly, type Standing } from './standing';
+import { personal, readStanding, standingLeads, standingParagraph, streakOnly, toldAppliedSql, type Standing } from './standing';
 import { OUTCOME_SHARE_NOTE, claimNudge, outcomeShareLine, pickNudge, type NudgePick } from './nudges';
 import {
   CONNECT_DONE, CONNECT_NOTE, CONNECT_RETRY, answerConnect, backfillComplete, closeConnect, connectApplyAsk, connectDue, connectWeeks, openConnect,
@@ -627,7 +627,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   const unapplied = open.filter((f) => !draftedRecently(read.seen, f.program_id, now) && !silent.has(f.program_id));
   const moneyFirst = unapplied.length > 0;
   // v4.7.1 T1 (money always shows): ranked with no unapplied fit, the open grants closing soonest lead the reply.
-  const openNow = ranked && project && !taken && !held && !moneyFirst ? openNowGrants(o.cards, now, o.skip) : [];
+  // Fix round 2 (R6): never pitched: a program the builder told EarnKit they applied to (toldAppliedSql, v4.7's one rule)
+  // or holds a recent draft for (draftedRecently); left out of the open grants and of the fit line moneyPara shows.
+  const pitching = Boolean(ranked && project && !taken && !held && !moneyFirst);
+  const noPitch = pitching ? await notPitched(id, read.seen, now) : new Set<string>();
+  const openNow = pitching ? openNowGrants(o.cards, now, new Set([...o.skip, ...noPitch])) : [];
   // v3 Stage 1 (spec 5.1): the connect weeks, once a person, before (and in place of) this reply's weekly moment.
   // Task 16: the Best fit rides on the offer, so its yes offers to draft it.
   const connect = rankedFree && !more && project && handle && !held ? await connectMoment(id, project.key, now, open[0] ?? null) : null;
@@ -777,6 +781,11 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     noGithub, ask: finalAsk, held, best: shownBest && realFit(shownBest) ? shownBest : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
     also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
     openNow: openNow.map(({ id: _id, ...g }) => g),
+    // Fix round 2 (R6): the fit moneyPara may pitch: the first shown fit not applied to nor drafted (null: none).
+    pitch: (() => {
+      const f = pitching ? realFits.slice(0, 3).find((x) => !noPitch.has(x.program_id)) : undefined;
+      return f ? { kind: 'fits' as const, title: f.title, amount: f.amount, when: f.when, ...(f.bar && { bar: f.bar }) } : null;
+    })(),
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
   view.welcome = welcomeFits(view) && !read.seen.welcomed && (await takeOnce(id, 'welcomed', now));
@@ -866,6 +875,21 @@ export function alsoOpen(cards: Card[], now: Date, skip: Set<string>, not: strin
     .sort(byRelevance)
     .slice(0, 2)
     .map((c) => ({ title: c.title, amount: upToCell(prizeOf(c)), when: fundWhen(c) }));
+}
+
+/**
+ * v4.7.1 T1 fix round 2 (R6): the programs a ranked reply never pitches: told applied (standing.ts toldAppliedSql, the
+ * group's builder_program_status but not_interested) or drafted within DECLINE_MS (draftedRecently). A failed read: the
+ * drafts alone (never throws).
+ */
+async function notPitched(id: number, seen: Seen, now: Date): Promise<Set<string>> {
+  const db = sql();
+  const told = await db<{ program_id: string }[]>`SELECT program_id FROM (${toldAppliedSql(db, id)}) t`.catch((err: unknown) => {
+    logged('not pitched')(err);
+    return [];
+  });
+  const drafted = Object.keys(seen.apply_yes ?? {}).filter((p) => draftedRecently(seen, p, now));
+  return new Set([...told.map((t) => t.program_id), ...drafted]);
 }
 
 /**

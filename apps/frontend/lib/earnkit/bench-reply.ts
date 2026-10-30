@@ -684,6 +684,11 @@ export type BenchView = {
   standingText?: string;
   /** v4.7.1 T1: ranked with no unapplied fit: up to two open grants, soonest deadline first (bench-find.ts openNowGrants). */
   openNow?: AlsoOpen[];
+  /**
+   * v4.7.1 T1 fix round 2 (R6): the fit moneyPara pitches: the first shown fit not applied to nor drafted; null: none (the
+   * open grants instead). Absent (a pure caller): the Best fit, else the first fit line.
+   */
+  pitch?: Extract<FundLine, { kind: 'fits' }> | null;
   /** v3.1 cold read: the shipping points line is shown (at most once an ISO week); absent: shown. */
   nagShown?: boolean;
   /** v3.1 cold read: a live link with no GitHub (the builder said no once): its tool's GitHub steps (liveNoGithub). */
@@ -832,7 +837,7 @@ const openNowOf = (v: BenchView) =>
  */
 const moneyPara = (v: BenchView) => {
   if (v.held) return null;
-  const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
+  const fit = v.pitch !== undefined ? v.pitch : (v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits'));
   return fit ? qualifyLine(fit) : openNowLine(v.openNow);
 };
 /** v4.7.1 T1 fix round 1: the project's name as every ranked line says it (rankedBody, stateAsk and askWhy). Pure. */

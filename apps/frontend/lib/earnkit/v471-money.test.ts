@@ -137,6 +137,18 @@ test('pure: no fit, the open grants lead every non-money ask and the quiet reply
     if (o.ask!.kind === 'share') assert.ok(noFit.endsWith(`${openNowLine(OPEN)}\n\n${SHARE_WHY}\n\n${MOMENT_ASK}`), noFit);
     if (o.ask!.kind === 'post') assert.ok(noFit.endsWith(`${openNowLine(OPEN)}\n\n${POST_WHY}\n\n${POST_ASK}`), noFit);
   }
+  // Fix round 2 (R6): the fit told applied or drafted is never pitched (benchView's pitch null): the open grants instead.
+  const base = { kind: 'fits' as const, title: 'Base Builder Grant Program', amount: '$5,000', when: 'rolling' };
+  for (const o of shapes) {
+    const s = benchReply(ranked({ fund: [base], openNow: OPEN, pitch: null, standingShown: false, ...o }));
+    assert.doesNotMatch(s, /You qualify for the Base Builder Grant Program/, s);
+    assert.ok(s.includes(openNowLine(OPEN)!), s);
+    // The next fit not applied to is pitched instead.
+    const next = benchReply(ranked({ fund: [base, fit], openNow: OPEN, pitch: { ...fit, title: 'Arc Grants' }, standingShown: false, ...o }));
+    assert.ok(next.includes(qualifyLine({ ...fit, title: 'Arc Grants' })) && !next.includes('You qualify for the Base Builder'), next);
+  }
+  // Replies that showed the fit line before v4.7.1 keep it (ship), applied or not.
+  assert.equal(benchReply(ranked({ fund: [base], openNow: OPEN, pitch: null })), benchReply(ranked({ fund: [base] })));
   // A held question never gets the open grants.
   assert.doesNotMatch(benchReply(ranked({ openNow: OPEN, held: 'Did Kit win?' })), /Open now/);
 });
