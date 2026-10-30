@@ -33,7 +33,7 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  APPLY_WINDOW_DAYS, ASKS_HINT, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
   TOKEN_NO_LINE, STRIPE_NEVER_KEY, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
@@ -75,6 +75,17 @@ export { displayName };
 
 /** v3 Stage 1: the connect yes's line when no page handle could be read (a statement, no link). */
 const APPROVED_CONNECT = 'Done. Your weeks are posted.';
+/**
+ * v4.7 T4 (ruling R1: the server instructions are full, so this rides on every move_up that carries a why): the
+ * agent answers "why" from move_up.why, never inventing a reason.
+ */
+export const WHY_NOTE = 'If they ask why, answer from move_up.why.';
+/** v4.7 T4: a move_up with its why (and WHY_NOTE on its agent_note); with no why, as it is. Pure. */
+export const withWhy = <M extends { agent_note: string }>(m: M, why: string | null | undefined): M & { why?: string } =>
+  why ? { ...m, why, agent_note: whyNote(m.agent_note) } : m;
+/** v4.7 T4: WHY_NOTE on an agent note, before its closing "Don't show this note." (else at its end). Pure. */
+export const whyNote = (note: string) =>
+  note.endsWith(" Don't show this note.") ? `${note.slice(0, -" Don't show this note.".length)} ${WHY_NOTE} Don't show this note.` : `${note} ${WHY_NOTE}`;
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
@@ -229,6 +240,8 @@ export type Seen = StandSeen & {
   /** v4.0: setup step 3 was shown (wallet-offer.ts takeWalletAsk, setup), kept; Task 5: its setup-done reply was said (once). */
   setup_asked?: string;
   setup_done?: string;
+  /** v4.7 T4: the setup-done reply's first-run line (ASKS_HINT) was said (once). */
+  asks_hint?: string;
   /** v3.1 cold read: the standing line last shown (name, rank and streak), so it is shown again only when it changed. */
   status_seen?: string;
   /** v3.1 cold read: the ISO week the shipping points line was last shown (at most once a week). */
@@ -783,7 +796,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : finalAsk.kind === 'outcome_share' ? OUTCOME_SHARE_NOTE : BENCH_MOVE_UP_NOTE;
   const rankLines = ranked ? [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x)) : [];
   const fields: Reply = {
-    ...(!held && finalAsk.kind !== 'none' && { move_up: { kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note } }),
+    // v4.7 T4: every step with a why carries it (askWhy), so "why?" has EarnKit's own answer.
+    ...(!held && finalAsk.kind !== 'none' && { move_up: withWhy({ kind: finalAsk.kind, project_key: finalAsk.project_key, agent_note: note }, askWhy(view)) }),
     ...(rankLines.length > 0 && { rank_lines: rankLines }),
     ...standingFields(stand),
   };
@@ -850,7 +864,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done' | 'asks_hint', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -1755,7 +1769,7 @@ async function setupOutcome(id: number): Promise<{ outcome: SetupOutcome; first:
     : !p.open && p.token === null ? 'skipped' : null;
   return outcome ? { outcome, first: firstName(p.name, p.handle) } : null;
 }
-type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'closest' | 'check_fits' | 'checkin'; project_key: string | null; agent_note: string }; program_id?: string };
+type SetupDone = { show_to_builder: string; move_up?: { kind: 'apply' | 'closest' | 'check_fits' | 'checkin'; project_key: string | null; agent_note: string; why?: string }; program_id?: string };
 /**
  * v4.0 Task 5 (approved copy 4): the setup-done reply, when step 3 settled (setupOutcome), claimed once
  * (takeOnce 'setup_done'; final review 6: after the reply is built, so a failure never loses it). Exported for tests. The rows: the one project's real fits not told about (find's or score's fit lines; without
@@ -1816,9 +1830,12 @@ export async function setupDoneFor(
       } else if (!known && grants.length > 0) check = true;
     }
     const trade = settled.outcome === 'launched' ? await tokenTradeUrl(id) : null;
-    const show = setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest, check: check ? (g.name ?? 'your project') : null, noAsk: !best && !closest && !check });
+    const reply = (hint: string | null) =>
+      setupDoneReply(settled.first, settled.outcome, setupRows(rows), noFitLine(g.name), { trade, closest, check: check ? (g.name ?? 'your project') : null, noAsk: !best && !closest && !check, hint });
     // Final review 6: claimed last, once the reply is built (a failure above leaves it for the next reply).
     if (!(await takeOnce(id, 'setup_done', now))) return null;
+    // v4.7 T4: the first-run line, once (standing_seen.asks_hint), claimed with the reply that says it.
+    const show = reply(!g.seen.asks_hint && (await takeOnce(id, 'asks_hint', now)) ? ASKS_HINT : null);
     if (!best && check) {
       await storeAsk(id, { kind: 'check_fits', key: g.key });
       return { show_to_builder: show, move_up: { kind: 'check_fits', project_key: g.key, agent_note: CHECK_FITS_ASK_NOTE } };
@@ -1828,18 +1845,19 @@ export async function setupDoneFor(
       // Matched and nothing fits: the Monday check-in when it is due and the agent can schedule, else no question.
       if (rows.length > 0 && (await agentReach(own, id)).schedules && g.seen.checkin === undefined && checkinAskDue(g.seen, now) && (await takeCheckinAsk(id, now))) {
         await storeAsk(id, { kind: 'checkin', key: g.key });
-        return { show_to_builder: `${show}\n\n${CHECKIN_ASK}`, move_up: { kind: 'checkin', project_key: g.key, agent_note: CHECKIN_NOTE } };
+        // v4.7 T4: the check-in's why, the paragraph just before its question.
+        return { show_to_builder: `${show}\n\n${CHECKIN_WHY}\n\n${CHECKIN_ASK}`, move_up: withWhy({ kind: 'checkin' as const, project_key: g.key, agent_note: CHECKIN_NOTE }, CHECKIN_WHY) };
       }
       return { show_to_builder: show };
     }
     if (!best && closest && closestId) {
       // The closest program is a long shot: a yes gives the step it needs (the qualify flow), never a draft.
       await storeAsk(id, { kind: 'closest', key: g.key, program_id: closestId, program: closest.program, step: closest.step });
-      return { show_to_builder: show, move_up: { kind: 'closest', project_key: g.key, agent_note: CLOSEST_NOTE }, program_id: closestId };
+      return { show_to_builder: show, move_up: withWhy({ kind: 'closest' as const, project_key: g.key, agent_note: CLOSEST_NOTE }, closestWhy(closest.program, closest.step)), program_id: closestId };
     }
     await takeApplyAsk(id, best!.program_id, now);
     await storeAsk(id, { kind: 'apply', key: g.key, program_id: best!.program_id, ...(best!.repo && { repo: best!.repo }) });
-    return { show_to_builder: show, move_up: { kind: 'apply', project_key: g.key, agent_note: APPLY_NOTE }, program_id: best!.program_id };
+    return { show_to_builder: show, move_up: withWhy({ kind: 'apply' as const, project_key: g.key, agent_note: APPLY_NOTE }, bestFitWhy(best!.title)), program_id: best!.program_id };
   } catch (err) {
     logged('setup done')(err);
     return null;

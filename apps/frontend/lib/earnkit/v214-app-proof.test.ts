@@ -127,7 +127,8 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   // Base's grant steps are declined here and the ranked step is the ship step.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('declined', jsonb_build_object(${`qualify:${key}`}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${p.id}`;
   const next = String((await mcpCall(p.ctx, 'score', {})).reply?.show_to_builder);
-  assert.ok(next.endsWith('\nShip code this week.') || /\nShip code this week\.\n[^\n]*\?$/.test(next), next);
+  // v4.7 T4: the ship ask carries its why line in place of the ship line.
+  assert.ok(next.endsWith('\nShip code this week.') || /\nShipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.\n\n[^\n]*\?$/.test(next), next);
   assert.doesNotMatch(next, /Your code stays private/);
 });
 

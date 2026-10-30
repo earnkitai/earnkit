@@ -78,6 +78,10 @@ test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for w
     'Your post for X:',
     '"Kit is live. 8 weeks from first commit."',
     `Post it in one tap: ${tap1}`,
+    // v4.7 T4: the post step's why, its own paragraph before the question.
+    '',
+    'A post with real numbers is what reviewers read.',
+    '',
     'Want a different version?',
   ].join('\n'));
   assert.deepEqual([moveUp(r1)?.kind, moveUp(r1)?.project_key], ['post', k.key], 'once no fit is unapplied');

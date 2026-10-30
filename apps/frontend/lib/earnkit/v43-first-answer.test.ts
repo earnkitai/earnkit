@@ -9,7 +9,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields, whyNote } from './bench-find';
 import { randomBytes } from 'node:crypto';
 import { tokenOfferDue } from './wallet-offer';
 import { isoWeekOf } from './weeks';
@@ -201,7 +201,8 @@ test("the owner's state through find: the approved copy, byte for byte; the yes 
   const { c, ctx, key } = await ownerBuilder('y');
   const r = await mcpCall(ctx, 'find', {});
   assert.equal(show(r), OWNER_COPY);
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // v4.7 T4: the qualify step's why is its own head and gap (the reply's first paragraph).
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: OWNER_COPY.split('\n')[0] });
 
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), qualifyCodesYes('EarnKit'));
@@ -290,7 +291,8 @@ test("v4.3 Task 2: the owner's find {more: true}: head and gap, the full table, 
   assert.equal(s, [OWNER_COPY.split('\n')[0], '', FULL_TABLE, '', 'Want me to add Builder Codes to EarnKit?'].join('\n'));
   assert.doesNotMatch(s, /doesn't fit|Updates:|Also open|\d+ programs are open|Want the guide/);
   assert.equal(s.split('?').length - 1, 1, s);
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // v4.7 T4: the qualify step's why is its own head and gap (the reply's first paragraph).
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: OWNER_COPY.split('\n')[0] });
   // The stored ask is written, so the yes is answered as asked.
   const [{ a }] = await sql()<{ a: { kind: string; qualify?: { first?: string; name?: string } } | null }[]>`SELECT standing_seen->'bench_ask' AS a FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(a?.kind, 'qualify');
@@ -314,7 +316,8 @@ test('v4.3 Task 2: a ranked reply with the full list puts the table right before
   };
   const plain = benchReply(view);
   const full = benchReply({ ...view, fullTable: '| Program |\n|---|\n| A |' });
-  assert.equal(full, plain.replace('\nWant me to suggest one small thing to ship?', '\n\n| Program |\n|---|\n| A |\n\nWant me to suggest one small thing to ship?'));
+  // v4.7 T4: the ship ask's why paragraph stays before the table.
+  assert.equal(full, plain.replace('\n\nWant me to suggest one small thing to ship?', '\n\n| Program |\n|---|\n| A |\n\nWant me to suggest one small thing to ship?'));
   assert.ok(full.endsWith('\n\nWant me to suggest one small thing to ship?'), full);
   // No table: unchanged.
   assert.equal(benchReply({ ...view, fullTable: null }), plain);

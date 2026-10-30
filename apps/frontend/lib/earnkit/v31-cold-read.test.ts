@@ -147,7 +147,8 @@ const view = (o: Partial<BenchView> = {}): BenchView => ({
 
 test('status line and ship line: shown only when changed or once a week; a reply is never empty', () => {
   const STAND = 'Kit · #1 of 13 builders · 3 weeks in a row';
-  assert.equal(benchReply(view()), `${STAND}\nShip code this week.\nWant me to suggest one small thing to ship?`);
+  // v4.7 T4: the ship ask's why line takes the ship line's place (once a week, as it was), its own paragraph.
+  assert.equal(benchReply(view()), `${STAND}\n\nShipping this week keeps your 3-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?`);
   assert.equal(benchReply(view({ standingShown: false, nagShown: false })), 'Want me to suggest one small thing to ship?');
   // Nothing else to say: the standing, never an empty reply (and never the ship line alone).
   assert.equal(benchReply(view({ standingShown: false, nagShown: false, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);

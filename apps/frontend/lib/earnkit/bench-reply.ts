@@ -185,10 +185,23 @@ export const connectAsk = (page: string) => `Make your shipping log public on ${
  * v3 Stage 2, Task 16 step 5: the apply step's money and its one question; `when` is the deadline's day ("Nov 18"),
  * null for a rolling program. Pure.
  */
-export const applyAsk = (title: string, amount: string | null, when: string | null) =>
-  `${title} ${when ? `closes ${when}` : 'is still open'}${upTo(amount)}. I can draft it in a minute.\nWant me to?`;
+export const applyAsk = (title: string, amount: string | null, when: string | null) => `${applyWhy(title, amount, when)}\nWant me to?`;
+/** v4.7 T4: the apply step's own reason sentence (its move_up.why; no new line in the reply). Pure. */
+export const applyWhy = (title: string, amount: string | null, when: string | null) =>
+  `${title} ${when ? `closes ${when}` : 'is still open'}${upTo(amount)}. I can draft it in a minute.`;
 /** Task 16: the ranked ship step's one question (a yes: one small thing to ship, SHIP_STEP_NOTE). */
 export const SHIP_ASK = 'Want me to suggest one small thing to ship?';
+/**
+ * v4.7 T4 (exact copy, "Why lines"): each step's own short line, the paragraph just before its question, and the
+ * move_up.why the agent answers "why" from. The ship line counts the streak's weeks (none: it starts one). Pure.
+ */
+export const shipWhy = (streak: number) =>
+  streak > 0 ? `Shipping this week keeps your ${streak}-week streak and lifts your score.` : 'Shipping this week starts your streak and lifts your score.';
+export const CHECKIN_WHY = 'A Monday check-in keeps your drafts current before deadlines.';
+export const SHARE_WHY = 'Builders who share wins get noticed by programs.';
+export const POST_WHY = 'A post with real numbers is what reviewers read.';
+/** v4.7 T4 (exact copy): the setup-done reply's first-run line, a statement, said once (standing_seen.asks_hint). */
+export const ASKS_HINT = 'Ask me anytime: where do I stand, what can I apply to, or draft my application.';
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional step right after setup, offered once a person. Its one
  * question takes "done" (a yes: the proof is checked) or "skip" (a no: remembered, never asked again). Pure.
@@ -259,21 +272,25 @@ const cell = (s: string) => s.replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
 export const programsTable = (rows: ProgramRow[]) =>
   ['| Program | Up to | Closes |', '|---|---|---|', ...rows.map((r) => `| ${cell(r.program)} | ${cell(r.upTo)} | ${cell(r.closes)} |`)].join('\n');
 /** v4.0 approved copy 4: the one question, the first row's program (the apply ask: a yes drafts it). Pure. */
-export const bestFitAsk = (program: string) => `${program} looks like your best fit. Want me to draft it?`;
+export const bestFitAsk = (program: string) => `${bestFitWhy(program)} Want me to draft it?`;
+/** v4.7 T4: the setup-done questions' own reason sentences (their move_up.why; no new line). Pure. */
+export const bestFitWhy = (program: string) => `${program} looks like your best fit.`;
+export const closestWhy = (program: string, step: string) => `${program} is the closest. It needs ${step}.`;
 /**
  * v4.0 Task 5: the setup-done reply: the lead, the table and the draft question; with no open fit, the lead alone and
  * `noFit` (never an empty table). Pure.
  */
-export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean } = {}) =>
+export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean; hint?: string | null } = {}) =>
+  // v4.7 T4: the first-run line (`hint`, ASKS_HINT) is a statement before the question, so the question stays last.
   rows.length === 0
-    ? `${setupDoneLead(first, outcome, false, opts.trade)}\n\n${noFit}`
-    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows),
+    ? [setupDoneLead(first, outcome, false, opts.trade), noFit, opts.hint].filter((x): x is string => Boolean(x)).join('\n\n')
+    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows), opts.hint,
         opts.noAsk ? null : opts.closest ? closestAsk(opts.closest.program, opts.closest.step) : opts.check ? checkFitsAsk(opts.check) : bestFitAsk(rows[0].program)]
-        .filter((x) => x !== null).join('\n\n');
+        .filter((x): x is string => Boolean(x)).join('\n\n');
 /** v4.2 Task 10: fits not known yet: the question (a yes runs the fit check, find). Pure. */
 export const checkFitsAsk = (project: string) => `Want me to check which of these fits ${project}?`;
 /** v4.2: nothing fits now: the closest program, the one step it needs, and the offer to help. Pure. */
-export const closestAsk = (program: string, step: string) => `${program} is the closest. It needs ${step}. Want help with it?`;
+export const closestAsk = (program: string, step: string) => `${closestWhy(program, step)} Want help with it?`;
 /** Only when true: the Base Builder Code stays on the first wallet; a launched token's fees stay with its launch wallet. */
 export const WALLET_BUILDER_CODE = 'Your Base Builder Code stays on your first wallet.';
 export const WALLET_COIN_FEES = "Your token's fees keep going to the wallet it launched with.";
@@ -437,7 +454,7 @@ export const MOMENT_ASK = 'Looks right?';
  * "Label: value", reply-format.ts), the cheer under it when the community sent $100 or double last week, the post link
  * (no post: the page), then `ask`. Never names the token. Pure.
  */
-export function mondayReply(m: MomentView, page: string, ask: string): string {
+export function mondayReply(m: MomentView, page: string, ask: string, why: string | null = null): string {
   const facts = { score: m.score, change: m.change, streak: m.week, usd: m.community.usd, lastWeekUsd: m.community.lastWeekUsd };
   const table = ['| | This week |', '|---|---|', ...mondayRows(facts).map(([label, value]) => `| ${cell(label)} | ${cell(value)} |`)];
   return paras(
@@ -445,6 +462,8 @@ export function mondayReply(m: MomentView, page: string, ask: string): string {
     table,
     [communityRow(facts.usd, facts.lastWeekUsd)?.cheer ? CHEER_LINE : null],
     [m.post ? `Your post is ready to share: ${m.post.link}` : pageLine(page)],
+    // v4.7 T4: the share step's why, just before its question.
+    [why],
     [ask],
   );
 }
@@ -482,8 +501,9 @@ export const pageLine = (page: string) => `Your page: ${page}`;
 export const PROOF_ASK = "Send me a public link that shows it, like the program's post.";
 /** Final review 1: an outcome told for a program that lists no proof hosts or X accounts (no link could prove it). */
 export const OUTCOME_NOTED = 'Congrats. Saved.';
-/** The event reply: its head, the post block and `ask`, one block. Pure. */
-export const postReply = (e: EventPost, ask: string) => [e.head, ...postLines(e), ask].filter(Boolean).join('\n');
+/** The event reply: its head, the post block and `ask`, one block; v4.7 T4: a `why` is its own paragraph before `ask`. Pure. */
+export const postReply = (e: EventPost, ask: string, why: string | null = null) =>
+  why ? `${[e.head, ...postLines(e)].filter(Boolean).join('\n')}\n\n${why}\n\n${ask}` : [e.head, ...postLines(e), ask].filter(Boolean).join('\n');
 const theProgram = (p: string) => (/^the\s/i.test(p) ? p : `the ${p}`);
 /**
  * The event reply's head (design 6): "Tally went live this week." (else "Tally is live." when it went live over 7
@@ -845,8 +865,8 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
     // v4.0 Task 7: the Monday block; last week's post link, else the page (the reply's one https link).
-    return mondayReply(v.moment, `https://${pageUrl(v.handle)}`, ask);
-  if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask);
+    return mondayReply(v.moment, `https://${pageUrl(v.handle)}`, ask, SHARE_WHY);
+  if (!v.held && v.ask.kind === 'post' && v.post) return postReply(v.post, ask, POST_WHY);
   // v4.0 approved copy 3: setup step 3 is its own reply, word for word.
   if (!v.held && v.ask.kind === 'wallet_setup') return ask;
   const full = standingLine(name, v.rank, v.streak, v.earned ?? 0);
@@ -867,8 +887,33 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   // up to two other open grants, then the one question. No ship line and no money line; the standing (once shown) above.
   if (!v.held && v.ask.kind === 'qualify' && v.qualify)
     return paras([standing, ...v.due], [`${qualifyHead(v.qualify)} ${qualifyGap(name, v.qualify)}`], [v.fullTable ?? alsoLine(v.also ?? [])], [ask]);
-  const target = nag && !v.held && (v.ask.kind === 'ship' || v.ask.kind === 'none') ? ship : null;
+  // v4.7 T4: the ship ask's why line replaces the weekly ship line (still at most once an ISO week, nagShown); the
+  // quiet reply keeps the ship line. The check-in's why always shows. Each is its own paragraph before the question.
+  const target = nag && !v.held && v.ask.kind === 'none' ? ship : null;
+  const why = v.held ? null : v.ask.kind === 'ship' && nag ? shipWhy(v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
+  if (why) return paras(orStanding([standing, ...v.due, moneyLine(v), target]), [why], [ask]);
   return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
+}
+
+/**
+ * v4.7 T4: the why behind the reply's one question (move_up.why): the ship, check-in, share and post lines; for apply
+ * and qualify, their own reason sentence (applyWhy; the qualify head and gap); an owning nudge's apply, the nudge's
+ * statements. Null for the other asks. Pure.
+ */
+export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
+  switch (v.ask.kind) {
+    case 'ship': return shipWhy(v.streak);
+    case 'checkin': return CHECKIN_WHY;
+    case 'share': return SHARE_WHY;
+    case 'post': return POST_WHY;
+    case 'qualify': return v.qualify ? `${qualifyHead(v.qualify)} ${qualifyGap(v.project?.name ?? '', v.qualify)}` : null;
+    case 'apply': {
+      if (v.nudgeOwns && v.nudge) return v.nudge.replace(/\s*[^.?!]*\?\s*$/, '').trim() || null;
+      const [why, ...rest] = v.ask.line.split('\n');
+      return rest.length > 0 && why ? why : null;
+    }
+    default: return null;
+  }
 }
 
 /** "tip-jar" -> "Tip Jar". Pure. */

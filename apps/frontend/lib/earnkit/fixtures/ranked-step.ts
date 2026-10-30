@@ -1,5 +1,8 @@
 import { SHIP_ASK } from '../bench-reply';
 
+/** v4.7 T4: the ship ask's why line (bench-reply.ts shipWhy), its own paragraph just before the question. */
+export const SHIP_WHY = /^Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.$/;
+
 /** The ranked ship step's plain line (v4.2: no points), its lead the weekly target when it says to ship, else "Ship code this week". */
 export const RANKED_STEP = /^Ship code this week( to (hold|pass|move toward) #[\d,]+)?\.$/;
 
@@ -21,5 +24,6 @@ export const endsOnRankedStep = (s: string): boolean => {
   const lines = s.trimEnd().split('\n');
   // v4.3: the qualify reply carries no ship line: its question is its own paragraph, after the head (and Also open).
   if (QUALIFY_ASK.test(lines.at(-1) ?? '')) return lines.at(-2) === '' && lines.some((l) => QUALIFY_HEAD.test(l));
-  return lines.at(-1) === SHIP_ASK && RANKED_STEP.test(lines.at(-2) ?? '');
+  // v4.7 T4: the ship ask's why line replaced the ship line before the question (its own paragraph).
+  return lines.at(-1) === SHIP_ASK && lines.at(-2) === '' && SHIP_WHY.test(lines.at(-3) ?? '');
 };

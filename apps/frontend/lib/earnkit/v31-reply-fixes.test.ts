@@ -8,7 +8,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE, whyNote } from './bench-find';
 import {
   QUALIFY_CODES_NOTE, TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
@@ -230,7 +230,8 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   assert.match(lines[2], /^Also open: /);
   assert.equal(lines.at(-1), 'Want me to add Builder Codes to Kit?');
   assert.equal(lines.length, 5);
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
+  // v4.7 T4: the qualify step's why is its own head and gap.
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: lines[0] });
 
   // v4.3: Builder Codes first, so the yes is the doing: a statement with Base's guide, no question.
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });

@@ -209,6 +209,8 @@ test('(a, end to end) the Monday find: the spec block with the real score, strea
     '',
     share,
     '',
+    'Builders who share wins get noticed by programs.',
+    '',
     'Looks right?',
   ].join('\n'));
   assert.equal(links(s).length, 1);

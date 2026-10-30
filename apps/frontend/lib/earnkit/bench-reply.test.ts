@@ -124,13 +124,16 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(ship, [
     'Recipe planner · #3 of 40 builders · 4 weeks in a row',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
-    'Ship code this week to pass #2.',
+    // v4.7 T4: the ship ask's why line replaces the weekly ship line, its own paragraph before the question.
+    '',
+    'Shipping this week keeps your 4-week streak and lifts your score.',
+    '',
     SHIP_ASK,
   ].join('\n'));
   oneAsk(ship);
   // Done this week: the plain points line; no fit: the upcoming program, else no money line.
   const done = benchReply(ranked({ target: 'Done this week.', fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'Opens in 2027.' }] }));
-  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\nShip code this week.\n${SHIP_ASK}`);
+  assert.equal(done.split('\n').slice(1).join('\n'), `Base Batches 005: up to $100K, not open yet. Opens in 2027.\n\nShipping this week keeps your 4-week streak and lifts your score.\n\n${SHIP_ASK}`);
   // The Best fit hides the upcoming line; a fit that isn't the Best fit (dated, later) is named instead.
   assert.doesNotMatch(benchReply(ranked({ best: BASE, fund: [{ kind: 'upcoming', title: 'Base Batches 005', prize: 'up to $100K', note: 'x' }] })), /Base Batches/);
   assert.match(benchReply(ranked({ fund: [{ kind: 'fits', title: 'Later Grant', amount: '$10,000', when: 'closes Dec 30' }] })), /\nYou qualify for the Later Grant, up to \$10,000, closes Dec 30\.\n/);
@@ -159,13 +162,15 @@ test('Task 16 step 7, v4.0 Task 7: the weekly moment is the Monday block with la
     '',
     `Your post is ready to share: ${link}`,
     '',
+    'Builders who share wins get noticed by programs.',
+    '',
     'Looks right?',
   ].join('\n'));
   oneAsk(out);
   assert.doesNotMatch(out, /points|intent/);
   // Nothing new to say: the page is the one link.
   const none = benchReply({ ...v, moment: { week: 4, place: 'still', rank: 3, post: null, ...facts } });
-  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nLooks right\?$/);
+  assert.match(none, /\n\nYour page: https:\/\/earnkit\.com\/maya\n\nBuilders who share wins get noticed by programs\.\n\nLooks right\?$/);
   oneAsk(none);
   assert.doesNotMatch(benchReply({ ...v, moment: { week: 0, place: null, rank: 1, post: null, ...facts } }), /Streak/);
 });
@@ -184,6 +189,9 @@ test('v3.1 one-tap posts: an event\'s post (went live, won, the builder\'s news)
     'Your post for X:',
     '"Recipe planner is live. 9 weeks from first commit."',
     `Post it in one tap: ${link}`,
+    '',
+    'A post with real numbers is what reviewers read.',
+    '',
     'Want a different version?',
   ].join('\n'));
   oneAsk(out);

@@ -138,7 +138,8 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // v3.1 F4: no why sentence in the reply (the page keeps it); Task 16: no page line, no list of fits.
   assert.doesNotMatch(s, /No code in the last 12 weeks|Code in \d+ of the last 12 weeks|Your page|Ways to get funded/, s);
   assert.match(lines[1], FIT_LINE, s);
-  assert.equal(lines.length, 4, s);
+  // v4.7 T4: the ship ask's why is its own paragraph before the question.
+  assert.equal(lines.length, 6, s);
   assert.equal((r.lead as { program_id: string } | undefined)?.program_id, 'base-builder-grants', 'the lead is the first fit line (never an investment)');
   assert.ok(endsOnRankedStep(s), s);
   for (const id of CLOSED) assert.ok(!s.includes(committedProgram(id).title), `${id} is closed: ${s}`);

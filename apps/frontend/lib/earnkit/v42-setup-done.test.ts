@@ -11,7 +11,7 @@ import { fakeGitHub } from './fixtures/fake-github';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { NO_GITHUB_HINT, benchReply, closestAsk, pickRepoAgain, setupDoneLead, setupDoneReply, stateAsk, walletDone, type BenchProject, type BenchView } from './bench-reply';
-import { CLOSEST_NOTE, closestStep } from './bench-find';
+import { CLOSEST_NOTE, closestStep, whyNote } from './bench-find';
 import { formatReply } from './reply-format';
 import { reportedNameIn } from './project-name';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -146,7 +146,8 @@ test('final review 3: a no to the closest-program question is its own (never a n
     await mcpCall(ctx, 'tell', { move_up: { kind: 'pick_repo', project_key: null, answer: 'no' } });
     await mcpCall(ctx, 'find', { agent_can_build: false });
     const r = await mcpCall(ctx, 'tell', { move_up: { kind: 'wallet', project_key: null, answer: 'no' } });
-    assert.deepEqual(r.reply?.move_up, { kind: 'closest', project_key: null, agent_note: CLOSEST_NOTE });
+    // v4.7 T4: the closest question's own reason sentence is its why.
+    assert.deepEqual(r.reply?.move_up, { kind: 'closest', project_key: null, agent_note: whyNote(CLOSEST_NOTE), why: 'Base Builder Grant Program is the closest. It needs your code connected.' });
     const [{ k }] = await sql()<{ k: string }[]>`SELECT standing_seen->'bench_ask'->>'kind' AS k FROM builder_profiles WHERE builder_id = ${c.id}`;
     assert.equal(k, 'closest');
     if (kindless) {

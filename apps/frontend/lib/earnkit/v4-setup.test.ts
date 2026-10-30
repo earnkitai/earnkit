@@ -321,7 +321,8 @@ test('(d) a no to the token before the proof: the setup-done reply, then the pro
   assert.ok(none.startsWith(`No problem, no token. ${OPEN}\n\n| Program | Up to | Closes |`), none);
   assert.doesNotMatch(none, /doesn't fit/, none);
   // Matched, nothing fits: the Monday check-in (this client can schedule and was never asked), stored so a yes routes right.
-  assert.ok(none.endsWith('| Circle Developer Grants | $100,000 | Rolling |\n\nWant me to check in here every Monday?'), none);
+  // v4.7 T4: the first-run line, then the check-in's why, each a paragraph before the question.
+  assert.ok(none.endsWith(`| Circle Developer Grants | $100,000 | Rolling |\n\n${ASKS}\n\nA Monday check-in keeps your drafts current before deadlines.\n\nWant me to check in here every Monday?`), none);
   assert.equal((await signOn(p.handle, s, p.tf)).status, 200);
   assert.equal(await settled(p.id), 'declined');
   assert.equal(p.tf.calls.length, 0);
@@ -462,6 +463,8 @@ const ROLLING_TITLE = 'Base Builder Grant Program';
 const OPEN = "Here's what's open for you right now:";
 const TABLE = `| Program | Up to | Closes |\n|---|---|---|\n| ${ROLLING_TITLE} | $5,000 | Rolling |`;
 const BEST_ASK = `${ROLLING_TITLE} looks like your best fit. Want me to draft it?`;
+/** v4.7 T4: the setup-done reply's first-run line, once, a statement before the question. */
+const ASKS = 'Ask me anytime: where do I stand, what can I apply to, or draft my application.';
 type Ctx = Parameters<typeof mcpCall>[0];
 const kindOf = (r: R) => (r.reply?.move_up as { kind?: string } | undefined)?.kind;
 function repoFits(key: string, programs: string[]): RepoFit[] {
@@ -538,7 +541,7 @@ test('(a) pre-v4.4 in-flight: signed on the page: the next find leads with "You\
   const r = await mcpCall(b.ctx, 'find', {});
   const s = show(r);
   assert.match(s, /^You're all set, Maya\.\n\n/, s);
-  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(s.split('\n\n').slice(1).join('\n\n'), `${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   // The yes drafts it (the apply flow).
   const yes = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'apply', project_key: (r.reply?.move_up as { project_key: string }).project_key, answer: 'yes' } });
@@ -553,7 +556,7 @@ test('(a) signed with tokens off: the neutral "You\'re all set", no token claim 
     await new Promise((r) => setTimeout(r, 100));
     assert.equal(await tokenRow(b.id), null);
     const s = show(await mcpCall(b.ctx, 'find', {}));
-    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+    assert.equal(s, `You're all set, Maya.\n\n${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   } finally {
     process.env.EARNKIT_BUILDER_TOKENS = 'on';
   }
@@ -570,7 +573,7 @@ test('(a) v4.4: signed with tokens on (no token sentence): the next find is the 
   assert.match(show(offer), /^Done\. Your payouts go to 0x\S+\.\n\nOne optional thing: [\s\S]+\n\nWant it live\?$/, show(offer));
   assert.equal(kindOf(offer), 'token');
   const no = show(await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: null, answer: 'no' } }));
-  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(no, `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(b.tf.calls.length, 0);
 });
 
@@ -578,7 +581,7 @@ test('(b) a no to the token: "No problem, no token." with the table, right away'
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('b', [ROLLING]);
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'token', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(show(r), `No problem, no token. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
   assert.equal(await tokenRow(b.id), 'declined');
 });
@@ -587,7 +590,7 @@ test('(c) skipped the wallet: "No worries, add it whenever you\'re ready." with 
   process.env.EARNKIT_BUILDER_TOKENS = 'on';
   const b = await fitted('c', [ROLLING]);
   const r = await mcpCall(b.ctx, 'tell', { move_up: { kind: 'wallet', project_key: b.key, answer: 'no' } });
-  assert.equal(show(r), `No worries, add it whenever you're ready. ${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(show(r), `No worries, add it whenever you're ready. ${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
   assert.equal(kindOf(r), 'apply');
 });
 
@@ -631,7 +634,7 @@ test('final review 1: a token still launching or unknown is never told as live: 
   assert.equal((await signOn(b.handle, b.step, tf)).status, 200);
   assert.equal(await settled(b.id), 'unknown');
   const s = show(await mcpCall(b.ctx, 'find', {}));
-  assert.equal(s, `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}\n\n${TABLE}\n\n${BEST_ASK}`);
+  assert.equal(s, `You're all set, Maya. Your token is on its way. I'll confirm it here soon.\n\n${OPEN}\n\n${TABLE}\n\n${ASKS}\n\n${BEST_ASK}`);
 });
 
 test('final review 6: the setup-done reply is claimed only once it is built: a failure leaves it for the next reply', db, async () => {
