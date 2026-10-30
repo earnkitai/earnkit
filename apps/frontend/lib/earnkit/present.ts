@@ -37,6 +37,8 @@ export type Card = {
   tag: string | null;
   each_time: string[];
   ends_at?: Date | null;
+  /** v4.7 T1 (program file tz): the program's IANA zone, or null (deadline.ts programZone reads the summary then). */
+  tz?: string | null;
   /** Opened since the builder's last check. */
   is_new?: boolean;
   /** Whole days until the deadline, when it's 3 or fewer. */

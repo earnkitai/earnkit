@@ -70,33 +70,21 @@ test('(c) landingFrom: the chip from the committed files, a pooled hackathon, an
   const files = (await listPrograms()).filter((c) => ['base-builder-grants', 'circle-developer-grants'].includes(c.id));
   assert.equal(files.length, 2);
   assert.ok(files.find((c) => c.id === 'circle-developer-grants')!.pool_usd, 'Circle states a pool and is still a grant');
-  const fromFiles = landingFrom(files, stats, NOW);
-  // Install fixes (owner, chip honesty): the chip counts only programs open to Base builders; Circle is Arc only.
-  assert.equal(fromFiles.open_chip, '$5K in Base grants open now');
+  // v4.7 T1 (one money figure): the chip is /api/stats' open_money_usd, the same figure as the money line.
+  const fromFiles = landingFrom(files, { ...stats, open_money_usd: 105000 }, NOW);
+  assert.equal(fromFiles.open_chip, '$105K in grants open now');
+  assert.equal(landingFrom(files, stats, NOW).open_chip, null, 'no stats figure: no chip');
   assert.equal(fromFiles.open_text, '$105K in grants and prizes open', 'the money line still sums every open program');
   assert.deepEqual(fromFiles.tiles.map((t) => [t.id, t.kind]).sort(), [['base-builder-grants', 'grant'], ['circle-developer-grants', 'grant, in USDC']]);
-  // A pooled hackathon (prize text, pool) on Base reads "and prizes", and its tile is a hackathon, never a grant.
+  // A pooled hackathon (prize text, pool) is a hackathon tile, never a grant.
   const hack = card('hack', { max_award_usd: 20000, pool_usd: 200000, reward: '$200K in prizes' });
   const withHack = landingFrom([...files, hack], stats, NOW);
-  assert.equal(withHack.open_chip, '$25K in Base grants and prizes open now');
   assert.equal(withHack.tiles.find((t) => t.id === 'hack')!.kind, 'hackathon');
   const base = card('base-builder-grants', { max_award_usd: 5000, reward: 'up to $5,000' });
   const circle = card('circle-developer-grants', { max_award_usd: 100000, chains: ['arc'], reward: 'milestone-based USDC grants', pool_usd: 200000 });
-  assert.equal(landingFrom([base, circle], stats, NOW).open_chip, '$5K in Base grants open now');
-  // An any-chain program is open to Base builders, so it counts; an Arc-only hackathon never sets "and prizes".
-  const anyChain = card('any', { max_award_usd: 10000, chains: [], any_chain: true });
-  const arcHack = card('arc-hack', { max_award_usd: 20000, chains: ['arc'], in_person: true });
-  assert.equal(landingFrom([base, circle, anyChain, arcHack], stats, NOW).open_chip, '$15K in Base grants open now');
-  const inPerson = card('hack2', { max_award_usd: 20000, in_person: true });
-  assert.equal(landingFrom([base, circle, inPerson], stats, NOW).open_chip, '$25K in Base grants and prizes open now');
-  // Nothing open to Base builders: no chip, even with an Arc program open.
-  assert.equal(landingFrom([circle], stats, NOW).open_chip, null);
-  assert.equal(landingFrom([], stats, NOW).open_chip, null);
-  assert.equal(landingFrom([card('upcoming-one', { max_award_usd: 5000, status: 'upcoming' })], stats, NOW).open_chip, null);
-  // An unlisted program is neither a tile nor in the chip.
+  // An unlisted program is not a tile.
   const hidden = landingFrom([base, card('gone', { max_award_usd: 90000, in_person: true, status: 'unlisted' })], stats, NOW);
   assert.deepEqual(hidden.tiles.map((t) => t.id), ['base-builder-grants']);
-  assert.equal(hidden.open_chip, '$5K in Base grants open now');
   const l = landingFrom([
     base,
     card('colosseum', { max_award_usd: 400000, ends_at: new Date('2026-11-18T23:59:00Z'), chains: ['base'] }),

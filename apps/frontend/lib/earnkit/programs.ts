@@ -125,6 +125,8 @@ export type ProgramRow = {
   reward: string;
   starts_at: Date | null;
   ends_at: Date | null;
+  /** v4.7 T1 (program file tz): the program's IANA zone, or null. Optional for older fixtures. */
+  tz?: string | null;
   /** v3 Stage 2: `upcoming` is listed (Not open yet), never a fit, an entry or in the money total. */
   status: 'active' | 'closed' | 'upcoming' | 'unlisted';
   /** v3 Stage 2: when and how an upcoming program opens (one line), or null. Optional for older fixtures. */
@@ -253,6 +255,7 @@ export async function listPrograms() {
       | 'fresh_build'
       | 'agent_completable'
       | 'pitch'
+      | 'tz'
     > & {
       sponsor_url: string | null;
       sponsor_wallet: string | null;
@@ -264,7 +267,7 @@ export async function listPrograms() {
       p.opened_at, p.submission_requirements, p.ideas, p.submission_proof, p.builder_bonus,
       p.logo, p.past_rounds, p.focus, p.best_bet, p.difficulty_override, p.winners_per_round,
       p.chains, p.any_chain, p.investment, p.needs_repo, p.needs_contract, p.rules, p.token_policy, p.starts_at,
-      p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
+      p.match_precision, p.submission_url, p.status, p.opens_note, p.in_person, p.fresh_build, p.agent_completable, p.pitch, p.tz, sc.sponsor_url, sc.sponsor_wallet, sc.state AS sponsor_state
     FROM programs p LEFT JOIN sponsor_campaigns sc ON sc.program_id = p.id
     WHERE p.status IN ('active', 'upcoming') AND (p.ends_at IS NULL OR p.ends_at > now())
       ${archiveFlag('SPONSOR_CAMPAIGNS') ? db`` : db`AND (p.campaign->>'kind') IS DISTINCT FROM 'sponsor'`}
@@ -354,7 +357,7 @@ export function programCard(
     | 'difficulty_override'
     | 'winners_per_round'
     | 'rules'
-  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null },
+  > & { status?: ProgramRow['status']; opens_note?: string | null; in_person?: boolean; token_policy?: TokenPolicy; starts_at?: Date | null; match_precision?: string | null; submission_url?: string | null; fresh_build?: { starter: string } | null; agent_completable?: boolean; pitch?: { who: string; for: string } | null; tz?: string | null },
   tracks: string[],
   /** A sponsor campaign's identity (sponsor-verify.ts); unverified when not given. */
   identity: SponsorIdentity = UNVERIFIED,
@@ -382,6 +385,8 @@ export function programCard(
         : p.summary,
     tag: p.tag,
     ends_at: p.ends_at,
+    // v4.7 T1: the close day reads ends_at in this zone (deadline.ts closeDay).
+    tz: p.tz ?? null,
     created_at: p.created_at,
     // Sponsor campaigns aren't checked against a source (the escrow backs them): no claim.
     verified_at: p.source === 'sponsor' ? null : p.verified_at,
@@ -745,6 +750,8 @@ export async function upsertProgram(
       campaign: p.campaign ? tx.json(p.campaign) : null,
       starts_at: p.starts_at,
       ends_at: p.ends_at,
+      // v4.7 T1: the file is the source of truth (a removed tz clears the column).
+      tz: p.tz ?? null,
       status: p.status,
       // v3 Stage 2: the file is the source of truth (a removed note clears the column).
       opens_note: p.opens_note ?? null,

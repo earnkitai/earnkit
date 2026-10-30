@@ -366,6 +366,10 @@ apps/frontend/
     db.ts                      postgres.js pool (DATABASE_URL)
     dates.ts(+test)            formatDeadline: the one human date format ("Oct 6, 2026, 06:51 UTC");
                                machine fields stay ISO
+    deadline.ts                v4.7 T1: programZone (file tz, else the summary's ET/PT/CT/UTC/GMT suffix, else UTC),
+                               closeDay (ends_at's day in that zone: the one close day for the site tiles and replies;
+                               ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
+                               Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
@@ -1184,7 +1188,8 @@ apps/frontend/
                                match-projects.ts cachedRepoChains; v2.9 T12 (G15 M1): canWin (tools.ts
                                alsoCanWin: alerts.ts repoCanWin over installations.ts readFitRepos, else
                                users said for "needs a live product"), testnet-only chains dropped
-    entry-text.ts(+test)       v2.10 item 2 (P1): closeDayOf (the program's own close day for "by")
+    entry-text.ts(+test)       v2.10 item 2 (P1): closeDayOf (the program's own close day for "by"; v4.7: deadline.ts
+                               closeDay when ends_at is set); deadlineLabel(ends, zone) names ET/PT/CT when known
                                confirmTable, enteredTable, keyTable, tokenRow (hasBonus: v2.5 §3,
                                v2.10: enteredText's bonus is { line } (bonusLine, no board); tokenRow uses the confirm line's words;
                                COIN_FOOTNOTE, tokenFootnote, coinRow, walletLine, BONUS_MOVES removed; SKIP_TOKEN lives here.

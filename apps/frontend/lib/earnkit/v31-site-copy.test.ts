@@ -66,9 +66,10 @@ test('(e) metal pill, avatar and logo tokens carry the board values', () => {
 });
 
 test('(f) heroChipText, streakNote, weekLine, monthDay, monthYear', () => {
-  assert.equal(heroChipText(5_000, false), '$5K in Base grants open now');
-  assert.equal(heroChipText(25_000, true), '$25K in Base grants and prizes open now');
-  assert.equal(heroChipText(0, true), null);
+  // v4.7 T1: one figure (stats open_money_usd), "in grants open now".
+  assert.equal(heroChipText(5_000), '$5K in grants open now');
+  assert.equal(heroChipText(25_000), '$25K in grants open now');
+  assert.equal(heroChipText(0), null);
   assert.equal(streakNote(1, 1), 'Week 2 starts Monday');
   assert.equal(streakNote(3, 9), 'Code in 9 of 12 weeks');
   assert.equal(streakNote(0, 4), 'Code in 4 of 12 weeks');
@@ -159,11 +160,11 @@ test('(copy) every exported string and every function output has no banned punct
   for (const [name, v] of Object.entries(copy)) {
     if (typeof v !== 'function') { walk(v); continue; }
     for (const s of samples[name] ?? []) {
-      const args = name === 'agoWords' ? [new Date(now.getTime() - 7200e3), now] : name === 'firstName' ? [s, 'mayac'] : name === 'heroChipText' ? [s, true] : name === 'streakNote' ? [s, 9] : [s];
+      const args = name === 'agoWords' ? [new Date(now.getTime() - 7200e3), now] : name === 'firstName' ? [s, 'mayac'] : name === 'heroChipText' ? [s] : name === 'streakNote' ? [s, 9] : [s];
       walk((v as (...a: unknown[]) => unknown)(...args));
     }
   }
-  walk(heroChipText(105_000, false));
+  walk(heroChipText(105_000));
   assert.ok(out.length > 60, `swept ${out.length} strings`);
   const rules: [string, RegExp][] = [
     ['em dash', /—/], ['en dash', /–/], ['emoji', /\p{Extended_Pictographic}/u],

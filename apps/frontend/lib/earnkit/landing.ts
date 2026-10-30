@@ -8,7 +8,8 @@ import { openMoneyUsd, readStats, wonLine, type PublicStats } from './stats';
 import { sql } from './db';
 import { GUIDE_ID, guideProgramSql } from './guide-pages';
 import { carouselCards, type FeedCard } from './feed';
-import { ROLLING, compactUsd, heroChipText, isPrizeProgram, monthDay, programKind } from './site-copy';
+import { ROLLING, compactUsd, heroChipText, programKind } from './site-copy';
+import { closeDay } from './deadline';
 
 /** v3 Stage 2: the tiles' order (present.ts, so bench-find shares it). */
 export { byRelevance };
@@ -68,7 +69,7 @@ export type Landing = {
   open_text: string | null;
   /** v3 Stage 2: what the total leaves out, "Plus 2 accelerators and 1 hackathon." (openMoneyWords), or null. */
   open_more: string | null;
-  /** v3.1 site: the hero chip, "$5K in Base grants open now" (site-copy heroChipText over openToBase), null when none is open. */
+  /** v3.1 site: the hero chip, "$105K in grants open now" (v4.7 T1: site-copy heroChipText of stats.open_money_usd), null when none is open. */
   open_chip: string | null;
   tiles: Tile[];
   /** v2.7.1: "312 agents earning", or null below the threshold. */
@@ -90,9 +91,6 @@ export const oneEach = <C extends { handle: string }>(cards: C[]): C[] => cards.
 export const LANDING_PROGRAMS = 4;
 /** The open tiles the landing shows, in the tiles' own (byRelevance) order. Pure. */
 export const landingPrograms = (tiles: Tile[]): Tile[] => tiles.filter((t) => t.status === 'active').slice(0, LANDING_PROGRAMS);
-
-/** A program a Base builder can enter: its chains include Base, or it is open to any chain (byRelevance's first two reaches). Pure. */
-export const openToBase = (c: Pick<Card, 'chains' | 'any_chain'>): boolean => (c.chains ?? []).includes('base') || c.any_chain === true;
 
 /** v2.7.1: the one short line under the hero, only once there is something to show: installs from 100. Null otherwise. */
 export function statsLine(s: PublicStats): string | null {
@@ -128,20 +126,16 @@ export function landingFrom(cards: Card[], stats: PublicStats, now: Date): Landi
       in_person: c.in_person === true,
       kind: programKind(c),
       big: perWinner > 0 ? compactUsd(perWinner) : null,
-      when: c.status === 'upcoming' ? 'Not open yet' : c.ends_at ? `Closes ${monthDay(new Date(c.ends_at))}` : ROLLING,
+      // v4.7 T1: the day in the program's zone (deadline.ts closeDay), the day the replies say ("Nov 1", never UTC's Nov 2).
+      when: c.status === 'upcoming' ? 'Not open yet' : closeDay(c) ? `Closes ${closeDay(c)}` : ROLLING,
       organizer: c.organizer?.trim() || c.title,
     };
   });
-  // Install fixes (owner, chip honesty): the chip counts only programs open to Base builders. It says "and prizes" when a
-  // program it sums is a prize or hackathon by kind (in person, or prize text); a pool alone never is (Circle's grants).
-  // v3.1 GTM W3 (the one money rule): the chip sums only the cards the Opportunities section shows beside it
-  // (landingPrograms: the first LANDING_PROGRAMS open ones), never programs a visitor can't see there.
-  const onBase = kept.filter((c) => c.status !== 'upcoming').slice(0, LANDING_PROGRAMS).filter(openToBase);
-  const prizes = onBase.some((c) => openCurated(c, now) && (c.max_award_usd ?? 0) > 0 && isPrizeProgram(c));
   return {
     open_text: kept.some((c) => openCurated(c, now)) ? openGrantsText(openMoneyUsd(kept, now)) : null,
     open_more: openMoneyWords(kept, now),
-    open_chip: heroChipText(openMoneyUsd(onBase, now), prizes),
+    // v4.7 T1 (one money figure): the banner is /api/stats' open_money_usd (statsFrom), not a sum of its own.
+    open_chip: heroChipText(stats.open_money_usd ?? 0),
     tiles,
     stats_line: statsLine(stats),
     won_line: wonLine(stats.builders_won_usd),

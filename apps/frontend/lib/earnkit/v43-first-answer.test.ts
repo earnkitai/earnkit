@@ -453,10 +453,10 @@ test('v4.3 Task 3: standing is absent for 0 weeks, "1 week shipping" for 1, "n w
   assert.deepEqual(standingFields(6), { streak: 6, standing: '6 weeks shipping in a row' });
 });
 
-test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing, and answers points', () => {
+test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing (v4.7 T1: the score, never points)', () => {
   assert.doesNotMatch(ANSWER_FIRST_NOTE, /their points, rank|how ranking works/);
-  assert.match(ANSWER_FIRST_NOTE, /never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one/);
-  assert.ok(ANSWER_FIRST_NOTE.includes("EarnKit doesn't use points. It tracks the weeks you ship."));
+  assert.match(ANSWER_FIRST_NOTE, /Never say there is no rank or that EarnKit doesn't give one; mention a rank only if rank_lines or facts.rank has one/);
+  assert.ok(ANSWER_FIRST_NOTE.includes('The number is their score; never call it points.'));
 });
 
 test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lines only when non-empty; standing matches the streak', db, async () => {

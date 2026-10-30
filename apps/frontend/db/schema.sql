@@ -2154,3 +2154,6 @@ CREATE TABLE IF NOT EXISTS fx_rates (
   usd      numeric NOT NULL CHECK (usd > 0),
   PRIMARY KEY (currency, day)
 );
+
+-- v4.7 T1: a program's IANA time zone (program file tz), when its summary's suffix doesn't name it; null otherwise.
+ALTER TABLE programs ADD COLUMN IF NOT EXISTS tz text;

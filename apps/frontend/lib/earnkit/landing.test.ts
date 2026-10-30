@@ -466,8 +466,8 @@ test('12.9 the landing\'s parts never import the leaderboard page module (BenchV
   }
 });
 
-test('v3.1 GTM W3: the hero chip sums only the Base programs the Opportunities cards show beside it', () => {
+test('v4.7 T1: the hero chip is the stats figure (open_money_usd), never a sum of the cards beside it', () => {
   const many = Array.from({ length: 6 }, (_, i): Card => ({ ...base, id: `b${i}`, title: `Base grant ${i}`, max_award_usd: 1000 }));
-  const l = landingFrom(many, stats(), now);
-  assert.equal(l.open_chip, '$4K in Base grants open now');
+  assert.equal(landingFrom(many, stats({ open_money_usd: 6000 }), now).open_chip, '$6K in grants open now');
+  assert.equal(landingFrom(many, stats({ open_money_usd: 0 }), now).open_chip, null);
 });

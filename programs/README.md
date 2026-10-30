@@ -55,6 +55,8 @@ program is never closed under it either.
      `"needs a live product"` when it only suits builders who already shipped.
    - `ends_at`: ISO 8601 with timezone, converted from the organizer's timezone.
      `null` for rolling programs.
+   - `tz` (optional): the organizer's IANA time zone ("Asia/Kolkata") when the summary doesn't end in
+     ET, PT, CT, UTC or GMT. The site and replies show `ends_at`'s day in this zone.
    - `starts_at`: for new-work-only programs, the start of the build window (matching
      checks commit dates against it). Otherwise `null` unless stated.
    - `existing_work`: `allowed`, `new_work_only`, or `unknown` if the source doesn't say.
