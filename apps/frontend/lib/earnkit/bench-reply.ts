@@ -200,6 +200,23 @@ export const shipWhy = (streak: number) =>
 export const CHECKIN_WHY = 'A Monday check-in keeps your drafts current before deadlines.';
 export const SHARE_WHY = 'Builders who share wins get noticed by programs.';
 export const POST_WHY = 'A post with real numbers is what reviewers read.';
+/**
+ * v4.7 T4 (ruling R1: the server instructions are full, so this rides on every move_up that carries a why): the
+ * agent answers "why" from move_up.why, never inventing a reason.
+ */
+export const WHY_NOTE = 'If they ask why, answer from move_up.why.';
+/** v4.7 T4: WHY_NOTE on an agent note, before its closing "Don't show this note." (else at its end). Pure. */
+export const whyNote = (note: string) =>
+  note.endsWith(" Don't show this note.") ? `${note.slice(0, -" Don't show this note.".length)} ${WHY_NOTE} Don't show this note.` : `${note} ${WHY_NOTE}`;
+/** v4.7 T4: a move_up with its why (and WHY_NOTE on its agent_note); with no why, as it is. Pure. */
+export const withWhy = <M extends { agent_note: string }>(m: M, why: string | null | undefined): M & { why?: string } =>
+  why ? { ...m, why, agent_note: whyNote(m.agent_note) } : m;
+/**
+ * v4.7 T4 fix round 0 (R13): the ship ask's why: the weekly rank target when there is one ("Ship code this week to
+ * hold #1.", the more specific reason), else the streak line. Pure.
+ */
+export const shipWhyOf = (target: string | null | undefined, streak: number) =>
+  target?.startsWith('Ship code this week to ') ? target : shipWhy(streak);
 /** v4.7 T4 (exact copy): the setup-done reply's first-run line, a statement, said once (standing_seen.asks_hint). */
 export const ASKS_HINT = 'Ask me anytime: where do I stand, what can I apply to, or draft my application.';
 /**
@@ -887,11 +904,13 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   // up to two other open grants, then the one question. No ship line and no money line; the standing (once shown) above.
   if (!v.held && v.ask.kind === 'qualify' && v.qualify)
     return paras([standing, ...v.due], [`${qualifyHead(v.qualify)} ${qualifyGap(name, v.qualify)}`], [v.fullTable ?? alsoLine(v.also ?? [])], [ask]);
-  // v4.7 T4: the ship ask's why line replaces the weekly ship line (still at most once an ISO week, nagShown); the
-  // quiet reply keeps the ship line. The check-in's why always shows. Each is its own paragraph before the question.
+  // v4.7 T4: the ship ask's why line replaces the weekly ship line; fix round 0 (R14): on every ship ask (already at
+  // most once in SHIP_ASK_DAYS), and (R13) the weekly rank target is that why when there is one. The quiet reply keeps
+  // the ship line. The check-in's why always shows. Each is its own paragraph before the question.
   const target = nag && !v.held && v.ask.kind === 'none' ? ship : null;
-  const why = v.held ? null : v.ask.kind === 'ship' && nag ? shipWhy(v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
-  if (why) return paras(orStanding([standing, ...v.due, moneyLine(v), target]), [why], [ask]);
+  const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
+  // The why and its question are something to say, so no standing is added for them (orStanding).
+  if (why) return paras([standing, ...v.due, moneyLine(v), target], [why], [ask]);
   return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
 }
 
@@ -900,9 +919,9 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
  * and qualify, their own reason sentence (applyWhy; the qualify head and gap); an owning nudge's apply, the nudge's
  * statements. Null for the other asks. Pure.
  */
-export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
+export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'target' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
   switch (v.ask.kind) {
-    case 'ship': return shipWhy(v.streak);
+    case 'ship': return shipWhyOf(v.target, v.streak);
     case 'checkin': return CHECKIN_WHY;
     case 'share': return SHARE_WHY;
     case 'post': return POST_WHY;

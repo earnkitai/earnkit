@@ -149,7 +149,8 @@ test('status line and ship line: shown only when changed or once a week; a reply
   const STAND = 'Kit · #1 of 13 builders · 3 weeks in a row';
   // v4.7 T4: the ship ask's why line takes the ship line's place (once a week, as it was), its own paragraph.
   assert.equal(benchReply(view()), `${STAND}\n\nShipping this week keeps your 3-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?`);
-  assert.equal(benchReply(view({ standingShown: false, nagShown: false })), 'Want me to suggest one small thing to ship?');
+  // v4.7 T4 fix round 0 (R14): the ship ask's why on every ship ask, the weekly line or not.
+  assert.equal(benchReply(view({ standingShown: false, nagShown: false })), 'Shipping this week keeps your 3-week streak and lifts your score.\n\nWant me to suggest one small thing to ship?');
   // Nothing else to say: the standing, never an empty reply (and never the ship line alone).
   assert.equal(benchReply(view({ standingShown: false, nagShown: false, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), STAND);
   assert.equal(benchReply(view({ standingShown: false, nagShown: true, ask: { kind: 'none', project_key: 'kit/kit', line: '' } })), `${STAND}\nShip code this week.`);

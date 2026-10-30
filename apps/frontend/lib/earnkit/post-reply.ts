@@ -1,7 +1,7 @@
 import type { ProofFetch } from './outcome-proof';
 import { sql } from './db';
 import { siteUrl } from './entry-text';
-import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, eventHead, postReply, redraftLine, type EventPost, type PostOffer } from './bench-reply';
+import { NEWS_ASK, OUTCOME_NOTED, POST_ASK, POST_WHY, eventHead, postReply, redraftLine, withWhy, type EventPost, type PostOffer } from './bench-reply';
 import { draftByCode, recentDrafts, rewordDraft, type DraftRow } from './post-drafts';
 import { writePost } from './post-writer';
 import { checkUpdate } from './update-text';
@@ -142,8 +142,9 @@ async function draftedReply(id: number, c: MomentCandidate, asked: boolean, now:
   const head = o.head ?? eventHead(c, now);
   await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head, moment: c });
   return {
-    show_to_builder: postReply({ head, ...offerOf(handle, d.draft) }, askOf(c)),
-    move_up: { kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE },
+    // v4.7 T4 fix round 0 (R15): a reply ending with the post ask carries its why line, as find's does.
+    show_to_builder: postReply({ head, ...offerOf(handle, d.draft) }, askOf(c), askOf(c) === POST_ASK ? POST_WHY : null),
+    move_up: withWhy({ kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE }, askOf(c) === POST_ASK ? POST_WHY : null),
   };
 }
 
@@ -293,8 +294,8 @@ export async function redraftAnswer(id: number, ask: { key: string | null; code?
   if (d?.ok) {
     await storePostAsk(id, { kind: 'post', key: c.projectKey, code: d.draft.code, head: ask.head, moment: c });
     return {
-      show_to_builder: postReply({ head: ask.head, ...offerOf(handle, d.draft) }, POST_ASK),
-      move_up: { kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE },
+      show_to_builder: postReply({ head: ask.head, ...offerOf(handle, d.draft) }, POST_ASK, POST_WHY),
+      move_up: withWhy({ kind: 'post', project_key: c.projectKey, agent_note: POST_NOTE }, POST_WHY),
     };
   }
   const why = d && !d.ok && d.reason === 'no_post' ? 'only' : 'limit';

@@ -1,7 +1,10 @@
 import { SHIP_ASK } from '../bench-reply';
 
-/** v4.7 T4: the ship ask's why line (bench-reply.ts shipWhy), its own paragraph just before the question. */
-export const SHIP_WHY = /^Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.$/;
+/**
+ * v4.7 T4: the ship ask's why line (bench-reply.ts shipWhyOf), its own paragraph just before the question: fix round 0
+ * (R13), the weekly rank target when there is one, else the streak line.
+ */
+export const SHIP_WHY = /^(Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score|Ship code this week to (hold|pass|move toward) #[\d,]+)\.$/;
 
 /** The ranked ship step's plain line (v4.2: no points), its lead the weekly target when it says to ship, else "Ship code this week". */
 export const RANKED_STEP = /^Ship code this week( to (hold|pass|move toward) #[\d,]+)?\.$/;

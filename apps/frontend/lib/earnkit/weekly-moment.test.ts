@@ -23,6 +23,8 @@ const unseen = (id: number) => sql()`UPDATE builder_profiles SET standing_seen =
 const quiet = (id: number) => sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'nag_week' - 'status_seen') || jsonb_build_object('ship_asked', now()::text) WHERE builder_id = ${id}`;
 /** v4.7 T4: the ship ask's why line, its own paragraph before the question. */
 const SHIP_WHY_RE = /Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\./;
+/** v4.7 T4 fix round 0 (R13): the weekly rank target is the ship ask's why when there is one. */
+const TARGET_WHY = (t: string) => new RegExp(`\n\n${t.replace(/[.#]/g, '\\$&')}\n\n${RANKED_ASK_RE.source}$`);
 import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
 
@@ -101,7 +103,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // v4.3: Base's grant steps declined (builder()), so the ship step is the question; v4.7 T4: led by its why line.
-  assert.match(s, new RegExp(`^App · #2 of 10 builders\n\n${SHIP_WHY_RE.source}\n\n${RANKED_ASK_RE.source}$`), s);
+  assert.match(s, new RegExp(`^App · #2 of 10 builders${TARGET_WHY('Ship code this week to pass #1.').source}`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
@@ -138,7 +140,7 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   await freshBoard();
   const top = await builder('wttop', 'Top', [1, 2]);
   await pad('wtpb', 9);
-  assert.match(show(await mcpCall(ctx(top.id), 'find', {})), new RegExp(`\n\n${SHIP_WHY_RE.source}\n\n${RANKED_ASK_RE.source}$`));
+  assert.match(show(await mcpCall(ctx(top.id), 'find', {})), TARGET_WHY('Ship code this week to hold #1.'));
   await quiet(top.id);
   const t = show(await mcpCall(ctx(top.id), 'score', {}));
   assert.match(t, /\nShip code this week to hold #1\.$/, t);
@@ -228,7 +230,7 @@ test('L6.3 the weekly moment (Task 16 step 7): the week, the rank, the points, a
     await unseen(me.id);
     const again = show(await mcpCall(ctx(me.id), tool, {}));
     assert.doesNotMatch(again, /Your week is ready|A post for X/, `${tool}: ${again}`);
-    assert.match(again, new RegExp(`\n\n${SHIP_WHY_RE.source}\n\n${RANKED_ASK_RE.source}$`), again);
+    assert.match(again, TARGET_WHY('Ship code this week to move toward #1.'), again);
   }
 });
 
@@ -351,7 +353,7 @@ test('L6.5 the moment waits for the weekly job: Monday 10:00 UTC with no checked
     await pad('wmpc', 9, [plusDays(monday, 6)]);
     const early = show(await mcpCall(ctx(me.id), 'find', {}));
     assert.doesNotMatch(early, /Your week is ready|A post for X/, early);
-    assert.match(early, new RegExp(`\n\n${SHIP_WHY_RE.source}\n\n${RANKED_ASK_RE.source}$`), early);
+    assert.match(early, TARGET_WHY('Ship code this week to hold #1.'), early);
     assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null, 'the week is not claimed');
     mock.timers.setTime(Date.parse('2026-10-05T16:00:00Z'));
     const late = show(await mcpCall(ctx(me.id), 'find', {}));

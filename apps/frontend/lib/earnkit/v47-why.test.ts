@@ -75,15 +75,19 @@ test('the exact why lines', () => {
 });
 
 test('ship: its why line, streak 6 and streak 0, just before the question (in place of the weekly ship line)', () => {
-  const six = benchReply(ranked({ target: 'Ship code this week to hold #1.' }));
+  const six = benchReply(ranked());
   whyThenAsk(six, 'Shipping this week keeps your 6-week streak and lifts your score.', SHIP_ASK);
   assert.doesNotMatch(six, /Ship code this week/, six);
   const zero = benchReply(ranked({ streak: 0 }));
   whyThenAsk(zero, 'Shipping this week starts your streak and lifts your score.', SHIP_ASK);
-  // At most once an ISO week (nagShown, as the ship line was): the question alone after that.
-  const later = benchReply(ranked({ nagShown: false }));
-  assert.doesNotMatch(later, /Shipping this week/, later);
-  assert.ok(later.endsWith(SHIP_ASK), later);
+  // Fix round 0 (R13): a weekly rank target is the why (the more specific reason), said once; the plain ship line is not.
+  const aim = ranked({ target: 'Ship code this week to hold #1.' });
+  whyThenAsk(benchReply(aim), 'Ship code this week to hold #1.', SHIP_ASK);
+  assert.equal(askWhy(aim), 'Ship code this week to hold #1.');
+  assert.equal(benchReply(aim).split('Ship code this week').length - 1, 1);
+  assert.equal(askWhy(ranked({ target: 'Ship code this week.' })), shipWhy(6));
+  // Fix round 0 (R14): on every ship ask (already at most once in 7 days), the weekly ship line shown or not.
+  whyThenAsk(benchReply(ranked({ nagShown: false })), shipWhy(6), SHIP_ASK);
   // The quiet reply (the ship question asked within its days) keeps the weekly ship line, with no question.
   const quiet = benchReply(ranked({ ask: { kind: 'none', project_key: P.key, line: '' }, target: 'Ship code this week to hold #1.' }));
   assert.ok(quiet.endsWith('\nShip code this week to hold #1.'), quiet);
@@ -218,8 +222,8 @@ test('through find: every move_up with an ask in Exact copy carries its why (and
     if (!m) continue;
     seen.add(m.kind);
     if (m.kind === 'ship') {
-      assert.match(m.why ?? '', /^Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.$/);
-      if (s.includes('Shipping this week')) whyThenAsk(s, m.why!, SHIP_ASK);
+      assert.match(m.why ?? '', /^(Shipping this week (keeps your \d+-week streak|starts your streak) and lifts your score|Ship code this week to (hold|pass|move toward) #[\d,]+)\.$/);
+      whyThenAsk(s, m.why!, SHIP_ASK);
     } else if (visible[m.kind]) {
       assert.equal(m.why, visible[m.kind]);
       assert.equal(s.split('\n\n').at(-2), m.why, s);

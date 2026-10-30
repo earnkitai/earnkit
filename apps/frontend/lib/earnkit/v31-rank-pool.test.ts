@@ -92,8 +92,8 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   // v4.7 T2: score leads with the standing paragraph, the page's score and rank.
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
   assert.match(t, /^Score \d+ · #3 of 10 builders\. /, t);
-  // v4.7 T4: the ship ask's why line takes the weekly target's place (the rank stays in the standing paragraph).
-  assert.match(t, /\n\nShipping this week (keeps your \d+-week streak|starts your streak) and lifts your score\.\n\n[^\n]*\?$/, t);
+  // v4.7 T4 fix round 0 (R13): the weekly rank target is the ship ask's why, its own paragraph before the question.
+  assert.match(t, /\n\nShip code this week to move toward #1\.\n\n[^\n]*\?$/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });
 

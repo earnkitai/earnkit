@@ -124,9 +124,10 @@ test('Task 16: the ship, backing and held steps keep the layout: standing, money
   assert.equal(ship, [
     'Recipe planner · #3 of 40 builders · 4 weeks in a row',
     'You qualify for the Base Builder Grant Program, up to $5,000.',
-    // v4.7 T4: the ship ask's why line replaces the weekly ship line, its own paragraph before the question.
+    // v4.7 T4: the ship ask's why line replaces the weekly ship line, its own paragraph before the question; fix round 0
+    // (R13): the weekly rank target is that why.
     '',
-    'Shipping this week keeps your 4-week streak and lifts your score.',
+    'Ship code this week to pass #2.',
     '',
     SHIP_ASK,
   ].join('\n'));

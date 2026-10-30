@@ -102,6 +102,10 @@ test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for w
     'Your post for X:',
     '"8 weeks from first commit, Kit is live."',
     `Post it in one tap: ${tap2}`,
+    // v4.7 T4 fix round 0 (R15): the redraft carries the post why too.
+    '',
+    'A post with real numbers is what reviewers read.',
+    '',
     'Want a different version?',
   ].join('\n'));
   // Again: one asked draft a day, so the post they have stays.
@@ -225,6 +229,22 @@ test('owner ruling 3: an acceptance told without a proof link asks for one; with
   const other = await kit('pq');
   const unnamed = await mcpCall({ ...other.ctx, proofFetch: (async () => '<p>October recipients: Kit.</p>') as ProofFetch }, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'accepted', proof_url: proof }] });
   assert.equal(show(unnamed), askProof);
+}));
+
+test('v4.7 T4 fix round 0 (R15): a win told with its proof: the post, then the post why line, then its question; move_up.why', db, () => withProofHosts(['docs.base.org/get-started/'], async () => {
+  const kk = await kit('pw');
+  const k = { ...kk, ctx: { ...kk.ctx, proofFetch: namesHandle(kk.handle) } };
+  const proof = 'https://docs.base.org/get-started/grant-recipients-october';
+  // A win is told on an entry.
+  await sql()`INSERT INTO projects (program_id, name, installation_id, submitted_at) VALUES (${BASE_GRANTS_ID}, 'Kit', ${k.id}, now())`;
+  const r = await mcpCall(k.ctx, 'tell', { program_status: [{ program_id: BASE_GRANTS_ID, status: 'won', proof_url: proof }] });
+  const s = rule(show(r));
+  assert.match(s, /\nPost it in one tap: \S+\n\nA post with real numbers is what reviewers read\.\n\nWant a different version\?$/, s);
+  assert.equal(s.split('?').length - 1, 1, s);
+  const m = moveUp(r) as { kind: string; agent_note: string; why?: string } | undefined;
+  assert.equal(m?.kind, 'post');
+  assert.equal(m?.why, 'A post with real numbers is what reviewers read.');
+  assert.match(m!.agent_note, /If they ask why, answer from move_up\.why\./);
 }));
 
 test('fix round: a different version only of the latest draft, within its 14 days', db, async () => {

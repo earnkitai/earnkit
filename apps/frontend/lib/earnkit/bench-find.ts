@@ -33,7 +33,7 @@ import { noteIdentity, projectKeyOf, type IdentityProject } from './identity-inp
 import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
-  APPLY_WINDOW_DAYS, ASKS_HINT, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
+  APPLY_WINDOW_DAYS, ASKS_HINT, withWhy, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
   TOKEN_NO_LINE, STRIPE_NEVER_KEY, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
@@ -75,17 +75,8 @@ export { displayName };
 
 /** v3 Stage 1: the connect yes's line when no page handle could be read (a statement, no link). */
 const APPROVED_CONNECT = 'Done. Your weeks are posted.';
-/**
- * v4.7 T4 (ruling R1: the server instructions are full, so this rides on every move_up that carries a why): the
- * agent answers "why" from move_up.why, never inventing a reason.
- */
-export const WHY_NOTE = 'If they ask why, answer from move_up.why.';
-/** v4.7 T4: a move_up with its why (and WHY_NOTE on its agent_note); with no why, as it is. Pure. */
-export const withWhy = <M extends { agent_note: string }>(m: M, why: string | null | undefined): M & { why?: string } =>
-  why ? { ...m, why, agent_note: whyNote(m.agent_note) } : m;
-/** v4.7 T4: WHY_NOTE on an agent note, before its closing "Don't show this note." (else at its end). Pure. */
-export const whyNote = (note: string) =>
-  note.endsWith(" Don't show this note.") ? `${note.slice(0, -" Don't show this note.".length)} ${WHY_NOTE} Don't show this note.` : `${note} ${WHY_NOTE}`;
+// v4.7 T4: the why note helpers live in bench-reply.ts (post-reply.ts uses them too); re-exported here.
+export { WHY_NOTE, whyNote, withWhy } from './bench-reply';
 export const BENCH_MOVE_UP_NOTE = 'A yes or no to the question: call tell with move_up: { kind, project_key, answer } (kind and project_key as given here). Do the steps it returns yourself; never ask the builder to edit files.';
 /**
  * R8: the ranked state's step, "Ship this week to climb.": a yes is one small, real thing to ship this week
