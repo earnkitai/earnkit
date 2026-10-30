@@ -1,15 +1,15 @@
 import { sql } from './db';
 import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgramRow } from './alerts';
 import { awardAmount, benchStepKey } from './bench-reply';
-import { DECLINE_MS } from './bench-find';
 import { openFitsFor } from './best-fit';
 import { closeDay } from './deadline';
 import { cleanName, digestFrom, mailFooter, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
 import { readFitRepos } from './installations';
 import { outcomeShareLine } from './nudges';
-import { COIN_PROGRAM } from './policy-constants';
+import { COIN_PROGRAM, DECLINE_MS, draftedRecently } from './policy-constants';
 import { shortLink } from './post-reply';
 import { fundWhen } from './stand-view';
+import { toldAppliedSql } from './standing';
 import { freeTierRoom, takeFreeTier } from './free-tier';
 import { isRealAnswer } from './submission';
 
@@ -19,14 +19,13 @@ import { isRealAnswer } from './submission';
  * not mailed before: accepted (an outcome post, nudges.ts acceptedNudge's source) > closing (a fit or a draft closing
  * within DEADLINE_DAYS, deadline.ts closeDay) > new fit (a program opened in the last NEW_FIT_DAYS that one of the
  * builder's remembered repos could really win, alerts.ts alertFit). Each event goes once ever, keyed in
- * `alert_mail_sent (builder_id, event_key)`, written in the send's transaction (a failed send stores nothing). Daily from
- * the cron at ALERT_HOUR_UTC, after the Monday digest's hour, with what is left of Resend's day and month caps after the
- * digests still due this week (free-tier.ts; the digest takes priority). Off without RESEND_API_KEY or
+ * `alert_mail_sent (builder_id, event_key)`, written in the send's transaction (a failed send stores nothing). From any
+ * cron run (final review R18: prod's "hourly" cron really runs about every 6 hours, so an hour gate could miss the
+ * day), at most once per builder a UTC day, with what is left of Resend's day and month caps after the digests still
+ * due this week (free-tier.ts; the digest takes priority). Off without RESEND_API_KEY or
  * EARNKIT_AUTH_SECRET, as digestEnabled. Plain text, money first: no revenue, keys, wallets, points or coins.
  */
 
-/** The alerts' UTC hour: the cron's hourly run in this hour sends them (after DIGEST_HOUR_UTC, 16). */
-export const ALERT_HOUR_UTC = 17;
 /** A program opened this many days ago or less is a new fit. */
 export const NEW_FIT_DAYS = 7;
 /** An accepted or funded outcome post this recent is mailed (an older one was shown in the agent long ago). */
@@ -65,17 +64,15 @@ export function alertBody(e: AlertEvent): { subject: string; text: string } {
   };
 }
 
-/** The unsubscribe footer: the digest's own (digest.ts mailFooter, R17), with its link and headers (one subscription carries both emails). */
-export const alertFooter = mailFooter;
-
 type EntryRow = { program_id: string; ends_at: Date; application: { answers?: Record<string, unknown> } | null };
 type DraftRow = { program_id: string; title: string; code: string };
 
 /**
  * v4.7 T5: the builder's (the group root's) alert events now, every kind, unsent or not (runAlertMail filters). Closing:
- * an entry not submitted (nudges.ts closingPick's rule, never one told applied) or an open fit (best-fit.ts openFitsFor),
- * its program closing within DEADLINE_DAYS; `draft` when a real answer is stored or the builder has the draft in hand
- * (standing_seen.apply_yes). Accepted: an accepted or funded outcome post with its proof (post-reply.ts outcomePost)
+ * an entry not submitted (nudges.ts closingPick's rule, never one told applied anywhere in the group: standing.ts
+ * toldAppliedSql, final review) or an open fit (best-fit.ts openFitsFor; final review R19: a fit set aside for silence
+ * still closes, only an explicit no drops it), its program closing within DEADLINE_DAYS; `draft` when a real answer is
+ * stored or the builder has the draft in hand within DECLINE_MS (policy-constants.ts draftedRecently, find's rule). Accepted: an accepted or funded outcome post with its proof (post-reply.ts outcomePost)
  * from the last ACCEPTED_DAYS, with the builder's X handle for its link. New fit: a curated program opened in the last
  * NEW_FIT_DAYS that one of the remembered repos (installations.fit_repos) could really win (alerts.ts alertFit: never
  * entered, hidden, or under 3 days left). Keys: 'accepted:<program>', 'closing:<program>:<close date>', 'new:<program>'.
@@ -95,7 +92,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND pr.status = 'active' AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}
         AND p.confirmed_at IS NOT NULL AND p.submission_confirmed_at IS NULL AND p.submission_proof_ok_at IS NULL
         AND pr.ends_at > ${now} AND pr.ends_at <= ${soon}
-        AND NOT EXISTS (SELECT 1 FROM builder_program_status s WHERE s.installation_id = p.installation_id AND s.program_id = p.program_id AND s.status = 'applied')
+        AND p.program_id NOT IN (${toldAppliedSql(sql(), builderId)})
       ORDER BY p.program_id, p.id DESC`.catch(fail('entries', [] as EntryRow[])),
     sql()<{ handle: string | null; drafted: Record<string, string> | null; declined: Record<string, string> | null }[]>`
       SELECT x_handle AS handle, standing_seen->'apply_yes' AS drafted, standing_seen->'declined' AS declined
@@ -110,9 +107,10 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
     readFitRepos(builderId).catch(fail('repos', [] as Awaited<ReturnType<typeof readFitRepos>>)),
   ]);
   const handle = profile[0]?.handle ?? null;
-  const drafted = profile[0]?.drafted ?? {};
+  const drafted = { apply_yes: profile[0]?.drafted ?? {} };
   // Fix round 1 (minor 6): a program the builder said no to (or let stand aside unanswered, R12) within DECLINE_MS, as
-  // find's applyCandidates reads it, never arrives as a new fit.
+  // find's applyCandidates reads it, never arrives as a new fit. (Final review R19: a closing alert drops only an
+  // explicit no; openFitsFor keeps the silent ones.)
   const declined = profile[0]?.declined ?? {};
   const saidNo = (id: string) => {
     const at = declined[benchStepKey('apply', id)];
@@ -126,12 +124,12 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
   const closing = new Map<string, { ends: Date; draft: boolean }>();
   for (const e of entries) {
     const real = Object.values(e.application?.answers ?? {}).some((a) => typeof a === 'string' && isRealAnswer(a));
-    closing.set(e.program_id, { ends: e.ends_at, draft: real || Boolean(drafted[e.program_id]) });
+    closing.set(e.program_id, { ends: e.ends_at, draft: real || draftedRecently(drafted, e.program_id, now) });
   }
   for (const f of open.fits) {
     if (!f.ends_at || closing.has(f.program_id)) continue;
     const ends = new Date(f.ends_at);
-    if (ends > now && ends <= soon) closing.set(f.program_id, { ends, draft: Boolean(drafted[f.program_id]) });
+    if (ends > now && ends <= soon) closing.set(f.program_id, { ends, draft: draftedRecently(drafted, f.program_id, now) });
   }
   for (const [id, c] of [...closing].sort((a, b) => a[1].ends.getTime() - b[1].ends.getTime())) {
     const card = cards.get(id);
@@ -159,44 +157,48 @@ export const alertIdempotencyKey = (builderId: number, eventKey: string) => `ale
 type SubRow = { builder_id: number; installation_id: number; email: string };
 
 /**
- * v4.7 T5: the cron's daily alert step. Runs only in the ALERT_HOUR_UTC hour (`deps.force`: tests). For each builder
- * (the group root) with an opted-in, subscribed, own subscription (never a per-login one), no unbound hosted member and
+ * v4.7 T5: the cron's alert step, in every cron run (final review R18: no hour gate). For each builder (the group root) with an opted-in, subscribed, own subscription (never a per-login one), no unbound hosted member and
  * no unsubscribed row anywhere in the group (fix round 1), and no alert mailed this UTC day: the events (`deps.events`, default alertEvents) minus those mailed before, the highest
  * (pickAlert), then one email. Room first: the day's and the month's caps must hold this email plus every digest still
  * due this week (the digest takes priority), and the month also every opted-in subscription's next digest; a refused cap stops the run. The send runs in one transaction that locks
  * the builder (pg_advisory_xact_lock), re-checks today's and this event's rows and writes the sent row, so two runs
  * never send twice and a failed send stores nothing. A 429 stops (`capped`); a 401 or 403 is the account (`stopped`);
- * MAX_SEND_FAILURES failures in a row stop. `deps.only`: builders (tests).
+ * MAX_SEND_FAILURES failures in a row stop. Final review: the run takes at most RUN_MAX builders, the ones mailed
+ * longest ago first (never mailed first, then builder_id), so builders past the first RUN_MAX are never starved.
+ * `deps.only`, `deps.limit`: builders and a smaller RUN_MAX (tests).
  */
 export async function runAlertMail(
   now: Date,
-  deps: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; budgetMs?: number; force?: boolean } = {},
+  deps: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; budgetMs?: number; limit?: number } = {},
 ): Promise<{ sent: number; skipped: number; capped: boolean; stopped?: true }> {
   const out: { sent: number; skipped: number; capped: boolean; stopped?: true } = { sent: 0, skipped: 0, capped: false };
   const key = process.env.RESEND_API_KEY?.trim();
   const mail = deps.mail ?? (key ? resendMailer(key) : null);
   if (!mail || !process.env.EARNKIT_AUTH_SECRET) return out;
-  if (!deps.force && now.getUTCHours() !== ALERT_HOUR_UTC) return out;
   const events = deps.events ?? alertEvents;
   const deadline = Date.now() + (deps.budgetMs ?? SEND_BUDGET_MS);
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const from = digestFrom();
+  // Final review: one row a builder (its newest opt-in), then the builders mailed longest ago first (never first).
   const subs = await sql()<SubRow[]>`
-    SELECT DISTINCT ON (b.builder_id) b.builder_id, b.installation_id, b.email
-    FROM (SELECT COALESCE(i.builder_id, i.id) AS builder_id, d.installation_id, d.email, d.opted_in_at
-          FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
-          WHERE d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL AND d.email IS NOT NULL AND d.login = '') b
-    WHERE NOT EXISTS (SELECT 1 FROM alert_mail_sent a WHERE a.builder_id = b.builder_id AND a.sent_at >= ${today})
-      -- Fix round 1 (C2's group rule, as installations.ts sharedGroup): the alerts read the whole group, so a group with
-      -- any unbound hosted member gets none.
-      AND NOT EXISTS (SELECT 1 FROM installations s WHERE (s.id = b.builder_id OR s.builder_id = b.builder_id)
-        AND s.shared_client AND s.x_user_id IS NULL)
-      -- Fix round 1 (minor 1): one unsubscribe anywhere in the group stops the person's alerts.
-      AND NOT EXISTS (SELECT 1 FROM digest_subscriptions u JOIN installations j ON j.id = u.installation_id
-        WHERE COALESCE(j.builder_id, j.id) = b.builder_id AND u.unsubscribed_at IS NOT NULL)
-      ${deps.only ? sql()`AND b.builder_id = ANY(${deps.only}::int[])` : sql()``}
-    ORDER BY b.builder_id, b.opted_in_at DESC
-    LIMIT ${RUN_MAX}`;
+    SELECT c.builder_id, c.installation_id, c.email FROM (
+      SELECT DISTINCT ON (b.builder_id) b.builder_id, b.installation_id, b.email
+      FROM (SELECT COALESCE(i.builder_id, i.id) AS builder_id, d.installation_id, d.email, d.opted_in_at
+            FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
+            WHERE d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL AND d.email IS NOT NULL AND d.login = '') b
+      WHERE NOT EXISTS (SELECT 1 FROM alert_mail_sent a WHERE a.builder_id = b.builder_id AND a.sent_at >= ${today})
+        -- Fix round 1 (C2's group rule, as installations.ts sharedGroup): the alerts read the whole group, so a group with
+        -- any unbound hosted member gets none.
+        AND NOT EXISTS (SELECT 1 FROM installations s WHERE (s.id = b.builder_id OR s.builder_id = b.builder_id)
+          AND s.shared_client AND s.x_user_id IS NULL)
+        -- Fix round 1 (minor 1): one unsubscribe anywhere in the group stops the person's alerts.
+        AND NOT EXISTS (SELECT 1 FROM digest_subscriptions u JOIN installations j ON j.id = u.installation_id
+          WHERE COALESCE(j.builder_id, j.id) = b.builder_id AND u.unsubscribed_at IS NOT NULL)
+        ${deps.only ? sql()`AND b.builder_id = ANY(${deps.only}::int[])` : sql()``}
+      ORDER BY b.builder_id, b.opted_in_at DESC) c
+    LEFT JOIN (SELECT builder_id, max(sent_at) AS last FROM alert_mail_sent GROUP BY builder_id) a ON a.builder_id = c.builder_id
+    ORDER BY a.last NULLS FIRST, c.builder_id
+    LIMIT ${deps.limit ?? RUN_MAX}`;
   let failures = 0;
   for (const s of subs) {
     if (Date.now() >= deadline) break;
@@ -235,7 +237,7 @@ export async function runAlertMail(
         to: s.email,
         from,
         subject: body.subject,
-        text: `${body.text}\n\n${alertFooter(unsubUrl(target))}`,
+        text: `${body.text}\n\n${mailFooter(unsubUrl(target))}`,
         headers: unsubHeaders(target),
         idempotencyKey: alertIdempotencyKey(s.builder_id, pick.key),
       });

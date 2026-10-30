@@ -63,6 +63,7 @@ import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnsw
 import { provenWallet } from './wallet-proof';
 import { stripeLink } from './stripe';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
+import { DECLINE_MS, draftedRecently } from './policy-constants';
 export { displayName };
 
 /**
@@ -174,8 +175,8 @@ export const APPLY_YES_NOTE = (id: string) => `Call prepare with program_id "${i
 /** v3 Stage 2: find's held apply-outcome question (14 days after the deadline) is the reply's last line. */
 export const APPLY_OUTCOME_NOTE =
   "show_to_builder ends with the outcome question for this application. Their answer: call tell with program_status: this program_id and their status (applied, accepted, funded or rejected). If they don't know yet, call nothing. For accepted, funded or won, open a public page that shows it (the program's X post or results page) and pass its link as proof_url. Don't show this note.";
-/** A no keeps an ask away this long (standing_seen.declined). */
-export const DECLINE_MS = 30 * 86_400_000;
+/** A no keeps an ask away this long (standing_seen.declined). v4.7 final review: policy-constants.ts holds it; re-exported here. */
+export { DECLINE_MS };
 /** v2.14 T4 (leaked authorize URL): the first reply after an X bind names the account, so a wrong one is noticed. */
 export const signedInLine = (handle: string) => `Signed in as @${handle}.`;
 
@@ -601,9 +602,9 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
     : [];
   // v3.1 Task 7: Base Builder Grants' Builder Codes answer (the stored one; a check for the draft starts in the background).
   const codes = open[0]?.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null;
-  const best: BestFit | null = open[0]
-    ? { program_id: open[0].program_id, title: open[0].title, amount: open[0].amount, when: open[0].when, why: open[0].why, codes, ...(open[0].bar && { bar: open[0].bar }) }
-    : null;
+  const bestOf = (f: Fit, c: string | null): BestFit =>
+    ({ program_id: f.program_id, title: f.title, amount: f.amount, when: f.when, why: f.why, codes: c, ...(f.bar && { bar: f.bar }) });
+  const best: BestFit | null = open[0] ? bestOf(open[0], codes) : null;
   // v4.7 T3 (money first; fix round 1, R8 and R11): the open fits not applied to and not drafted (a yes to drafting,
   // apply_yes, holds DECLINE_MS). While one is left, the reply's ask is its apply: only setup step 3, connect and an
   // owning nudge go ahead of it; the hot and other event posts, the Monday moment, non-owning nudges and every quieter
@@ -739,11 +740,16 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
   if (peek && !peek.line && nudgeOk) await claimNudge(id, now, peek.keep);
   const due = nudge?.kind === 'closing' && nudge.title ? o.due.filter((l) => !l.startsWith(`${nudge.title} closes `)) : o.due;
 
+  // v4.7 final review: the money line and the lead (view.best) name the program the apply ask asks: money first may ask a
+  // fit after open[0] (open[0] drafted already, or asked once), never two programs in one reply.
+  const askedId = finalAsk.kind === 'apply' ? finalAsk.program_id : undefined;
+  const asked = askedId && askedId !== best?.program_id ? open.find((f) => f.program_id === askedId) : undefined;
+  const shownBest = asked ? bestOf(asked, asked.program_id === BASE_GRANTS_ID && project ? await codesFor(id, project.key, now, o.codesFetch) : null) : best;
   const view: BenchView = {
     state, variant, project, rank: ranked ? read.ranks.bench : null, streak, target, earned: earned?.paid_usd ?? 0, handle, link, fund, due,
     nudge: nudge?.line ?? null, nudgeOwns: owns,
     // GTM W2 (value before the ask): the open grant also leads step 2 (no project, or a repo not counted yet).
-    noGithub, ask: finalAsk, held, best: best && realFit(best) ? best : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
+    noGithub, ask: finalAsk, held, best: shownBest && realFit(shownBest) ? shownBest : null, connect, moment, open: state !== 'ranked' ? openGrant(o.cards, now, o.skip) : null, qualify, post: event,
     also: qualify && finalAsk.kind === 'qualify' ? alsoOpen(o.cards, now, o.skip, qualify.program_id) : [],
   };
   // v3.1 cold read: "You're in, @maya." only on the first reply after sign-in (claimed once, when this reply can say it).
@@ -981,11 +987,6 @@ async function standAside(id: number, programIds: string[], now: Date): Promise<
         '{apply_unanswered}', COALESCE(standing_seen->'apply_unanswered', '{}'::jsonb) - ${programIds}::text[])
     WHERE builder_id = ${id}`.catch(logged('apply aside'));
 }
-/** v4.7 T3 fix round 1: a draft for `programId` within DECLINE_MS (an older one, the program still open and unapplied, is asked again). Pure. */
-const draftedRecently = (seen: Seen, programId: string, now: Date) => {
-  const at = seen.apply_yes?.[programId];
-  return typeof at === 'string' && now.getTime() - Date.parse(at) < DECLINE_MS;
-};
 /** The apply ask's pick for a fit: its deadline's day ("Nov 18"), null when rolling. Pure. */
 const applyPickOf = (f: Fit): ApplyPick & { repo?: string } =>
   ({ program_id: f.program_id, title: f.title, amount: f.amount, when: f.ends_at ? f.when.replace(/^closes /, '') : null, ...(f.repo && { repo: f.repo }) });

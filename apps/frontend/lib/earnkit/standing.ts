@@ -1,4 +1,4 @@
-import { sql } from './db';
+import { sql, type Db } from './db';
 import { usd } from './campaigns';
 import { closeDay } from './deadline';
 import { prizesWonSql } from './earned';
@@ -82,6 +82,15 @@ export function nextDeadline(fits: { program_id: string }[], cards: DeadlineCard
 }
 
 /**
+ * v4.7 final review (one rule for "applied"): the programs the builder (the installation group, COALESCE(builder_id,
+ * id)) told EarnKit they applied to (builder_program_status, any status but not_interested: applied, accepted, funded,
+ * rejected), as a fragment selecting program_id. applicationCounts and the alert emails (alert-mail.ts) read it.
+ */
+export const toldAppliedSql = (db: Db, builderId: number) => db`
+  SELECT s.program_id FROM builder_program_status s JOIN installations i ON i.id = s.installation_id
+  WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status <> 'not_interested'`;
+
+/**
  * v4.7 T2 (ruling R3: Task 3's token gate reads the same): the builder's programs applied to, and drafts ready, one per
  * program, across the installation group (COALESCE(builder_id, id)), never a campaign or the coin program. Applied: an
  * entry submitted (projects.ts openEntries' rule) or a program the builder told EarnKit they applied to
@@ -98,9 +107,8 @@ export async function applicationCounts(builderId: number): Promise<{ applied: n
       WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND pr.campaign IS NULL AND p.program_id <> ${COIN_PROGRAM}`,
     // Fix round 1: never a campaign or the coin program here either (the entries' rule).
     db<{ program_id: string }[]>`
-      SELECT DISTINCT s.program_id FROM builder_program_status s JOIN installations i ON i.id = s.installation_id JOIN programs pr ON pr.id = s.program_id
-      WHERE COALESCE(i.builder_id, i.id) = ${builderId} AND s.login = '' AND s.status <> 'not_interested'
-        AND pr.campaign IS NULL AND s.program_id <> ${COIN_PROGRAM}`,
+      SELECT DISTINCT t.program_id FROM (${toldAppliedSql(db, builderId)}) t JOIN programs pr ON pr.id = t.program_id
+      WHERE pr.campaign IS NULL AND t.program_id <> ${COIN_PROGRAM}`,
   ]);
   const applied = new Set([...told.map((t) => t.program_id), ...entries.filter((e) => e.submitted).map((e) => e.program_id)]);
   const drafts = new Set(

@@ -657,7 +657,7 @@ export type BenchView = {
   noGithub?: boolean;
   /** v3.1 cold read: the ranked standing line is shown (it changed since last seen); absent: shown. */
   standingShown?: boolean;
-  /** v4.7 T2: the score reply leads with the standing paragraph (standing.ts standingText), so no standing line here. */
+  /** v4.7 T2: the score reply leads with the standing paragraph (standing.ts standingParagraph), so no standing line here. */
   standingLed?: boolean;
   /** v3.1 cold read: the shipping points line is shown (at most once an ISO week); absent: shown. */
   nagShown?: boolean;

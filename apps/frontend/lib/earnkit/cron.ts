@@ -410,8 +410,9 @@ export async function runCron(
       digest = { step: 'error', note: STEP_FAILED };
     }
   }
-  // v4.7 T5: the alert emails, once a day at ALERT_HOUR_UTC (runAlertMail decides), right after the digest: they use
-  // only the Resend room left once every digest still due this week is counted. Off as the digest is.
+  // v4.7 T5: the alert emails, in every run (final review R18: prod's "hourly" cron runs about every 6 hours, so no hour
+  // gate; runAlertMail sends at most one a builder a UTC day), right after the digest: they use only the Resend room
+  // left once every digest still due this week is counted. Off as the digest is.
   let alertMail: Awaited<ReturnType<typeof runAlertMail>> | { step: 'error'; note: string } | undefined;
   if (digestEnabled() && (!opts.only || deps.alertMail !== undefined)) {
     try {

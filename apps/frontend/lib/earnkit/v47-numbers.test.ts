@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { closeDay, programZone } from './deadline';
+import { digestBody } from './digest';
 import { closeDayOf, deadlineLabel, endsOf, summaryCloses } from './entry-text';
 import { landingFrom } from './landing';
 import { ProgramFile } from './program-file';
@@ -118,4 +119,21 @@ test('ANSWER_FIRST_NOTE: no points sentence but the never-call-it rule', () => {
   assert.doesNotMatch(ANSWER_FIRST_NOTE, /doesn't use points/);
   const pointSentences = ANSWER_FIRST_NOTE.split(/(?<=[.;])\s+/).filter((s) => /\bpoints\b/.test(s));
   assert.deepEqual(pointSentences, ['never call it points.']);
+});
+
+test('final review (Review Focus 2): the Monday email reads a close in the program zone: 11:59 PM PT Nov 1 is "closes Nov 1"', () => {
+  const at = new Date('2026-11-02T07:59:59Z');
+  const summary = 'up to $50,000 · closes Nov 1, 11:59 PM PT';
+  const b = digestBody({
+    week: null, handle: null, money: [], wins: [],
+    newPrograms: [{ title: 'A16z Speedrun', repo: 'kit', prize_usd: 50000, ends_at: at, summary, tz: null }],
+    deadlines: [
+      { program: 'A16z Speedrun', what: 'closes', at, summary, tz: null },
+      { program: 'Zoned', what: 'closes', at, summary: 'up to $5,000', tz: 'America/Los_Angeles' },
+    ],
+  })!;
+  assert.match(b.text, /New: A16z Speedrun fits kit, \$50,000, closes Nov 1\./);
+  assert.match(b.text, /Your A16z Speedrun: closes Nov 1\./);
+  assert.match(b.text, /Your Zoned: closes Nov 1\./);
+  assert.doesNotMatch(b.text, /Nov 2/);
 });

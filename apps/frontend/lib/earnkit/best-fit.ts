@@ -33,10 +33,24 @@ export async function bestFitFor(builderId: number, now: Date): Promise<{ progra
 }
 
 /**
+ * v4.7 final review (R19): `seen` without the apply declines that stood aside for silence (R12, bench-find.ts
+ * standAside: declined['apply:<id>'] written with the same time as apply_silent[<id>]). An explicit no (a later no
+ * rewrites the declined time) stays. Pure.
+ */
+export function withoutSilentDeclines(seen: Seen): Seen {
+  const silent = seen.apply_silent ?? {};
+  const declined = Object.fromEntries(
+    Object.entries(seen.declined ?? {}).filter(([k, at]) => !(k.startsWith('apply:') && silent[k.slice('apply:'.length)] === at)),
+  );
+  return { ...seen, declined };
+}
+
+/**
  * v4.7 T5: the builder's open fits outside a reply (the alert emails' closing fits): the Best fit's list (bestApplies:
  * never a program told about or declined), on the same gates as bestFitFor (signed in, the one project confirmed;
- * otherwise no fits), with the open cards and what to skip (entered or hidden) as scoreApplies reads them. Empty on a
- * read error. Never throws.
+ * otherwise no fits), with the open cards and what to skip (entered or hidden) as scoreApplies reads them. Final
+ * review (R19): a fit that stood aside for silence (withoutSilentDeclines) is still one; only an explicit no drops it.
+ * Empty on a read error. Never throws.
  */
 export async function openFitsFor(builderId: number, now: Date): Promise<{ fits: Fit[]; cards: Card[]; skip: Set<string> }> {
   try {
@@ -44,7 +58,7 @@ export async function openFitsFor(builderId: number, now: Date): Promise<{ fits:
       SELECT main_project_key AS main, standing_seen AS seen FROM builder_profiles WHERE builder_id = ${builderId}`;
     const ranked = Boolean(p?.main) && !(await signedOutNow(builderId, builderId)) && (await mainConfirmed(builderId));
     const { applies, cards, skip } = await scoreApplies(builderId, ranked ? p!.main : null, now);
-    const seen = (p?.seen && typeof p.seen === 'object' ? p.seen : {}) as Seen;
+    const seen = withoutSilentDeclines((p?.seen && typeof p.seen === 'object' ? p.seen : {}) as Seen);
     const fits = applies.length > 0 ? ((await bestApplies(builderId, applies, seen, skip, now)) ?? []) : [];
     return { fits, cards, skip };
   } catch (err) {

@@ -2,8 +2,8 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { ALERT_HOUR_UTC, alertBody, alertEvents, alertFooter, pickAlert, runAlertMail, type AlertEvent } from './alert-mail';
-import { digestBody, EMAIL_QUESTION, resendMailer, type DigestFacts, type Mailer } from './digest';
+import { alertBody, alertEvents, pickAlert, runAlertMail, type AlertEvent } from './alert-mail';
+import { digestBody, EMAIL_QUESTION, mailFooter, resendMailer, type DigestFacts, type Mailer } from './digest';
 import { periodKey } from './free-tier';
 import { SERVER_INSTRUCTIONS } from './mcp';
 import { CONTACT_EMAIL } from './policy';
@@ -114,8 +114,8 @@ test('the Monday digest leads with the standing paragraph; the standing alone ne
 // ---- the run (database) ----
 
 const RUN = `${process.pid}-${randomBytes(3).toString('hex')}`;
-/** A Tuesday at ALERT_HOUR_UTC, far from other files' days (each file has its own database anyway). */
-const T0 = new Date(Date.UTC(2031, 0, 7, ALERT_HOUR_UTC, 5));
+/** A Tuesday at 17:05 UTC, far from other files' days (each file has its own database anyway). */
+const T0 = new Date(Date.UTC(2031, 0, 7, 17, 5));
 const at = (days: number) => new Date(T0.getTime() + days * DAY);
 
 /** An installation (its own builder) with an opted-in subscription, not due a digest this week unless `digestDue`. */
@@ -147,7 +147,7 @@ test('one email a builder a day, the highest first; an event is never sent twice
   const id = await subscriber();
   const events = fixed([fresh(), closing(), accepted()]);
   const { sent, mail } = recorder();
-  const r1 = await runAlertMail(at(0), { mail, events, only: [id], force: true });
+  const r1 = await runAlertMail(at(0), { mail, events, only: [id] });
   assert.equal(r1.sent, 1);
   assert.equal(sent[0].subject, 'You got into Base Batches');
   assert.equal(sent[0].to, `b${id}@example.com`);
@@ -155,11 +155,11 @@ test('one email a builder a day, the highest first; an event is never sent twice
   assert.ok(sent[0].headers['List-Unsubscribe']?.startsWith('<https://earnkit.com/api/digest/unsubscribe?t='));
   assert.equal(sent[0].idempotencyKey, `alert-${id}-accepted:base-batches`);
   // Same day, a later run: nothing more.
-  assert.equal((await runAlertMail(new Date(at(0).getTime() + 30 * 60_000), { mail, events, only: [id], force: true })).sent, 0);
+  assert.equal((await runAlertMail(new Date(at(0).getTime() + 30 * 60_000), { mail, events, only: [id] })).sent, 0);
   // Next days: closing, then new, then nothing (each event once).
-  await runAlertMail(at(1), { mail, events, only: [id], force: true });
-  await runAlertMail(at(2), { mail, events, only: [id], force: true });
-  assert.equal((await runAlertMail(at(3), { mail, events, only: [id], force: true })).sent, 0);
+  await runAlertMail(at(1), { mail, events, only: [id] });
+  await runAlertMail(at(2), { mail, events, only: [id] });
+  assert.equal((await runAlertMail(at(3), { mail, events, only: [id] })).sent, 0);
   assert.deepEqual(sent.map((m) => m.subject), ['You got into Base Batches', 'Base Builder Grants closes Nov 1', 'New: Arc Grants, $10,000']);
   assert.deepEqual(await sentRows(id), ['accepted:base-batches', 'closing:base-builder-grants:2026-11-01', 'new:arc-grants']);
 });
@@ -173,8 +173,8 @@ test('two runs at once send one email', { skip: db.skip }, async () => {
     await mail(m);
   };
   const [a, b] = await Promise.all([
-    runAlertMail(at(0), { mail: slow, events: fixed([closing()]), only: [id], force: true }),
-    runAlertMail(at(0), { mail: slow, events: fixed([closing()]), only: [id], force: true }),
+    runAlertMail(at(0), { mail: slow, events: fixed([closing()]), only: [id] }),
+    runAlertMail(at(0), { mail: slow, events: fixed([closing()]), only: [id] }),
   ]);
   assert.equal(a.sent + b.sent, 1);
   assert.equal(sent.length, 1);
@@ -184,7 +184,7 @@ test('an unsubscribed address gets nothing', { skip: db.skip }, async () => {
   await setDayUsed(T0, 0);
   const id = await subscriber({ unsubscribed: true });
   const { sent, mail } = recorder();
-  assert.equal((await runAlertMail(at(0), { mail, events: fixed([accepted()]), only: [id], force: true })).sent, 0);
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([accepted()]), only: [id] })).sent, 0);
   assert.equal(sent.length, 0);
   assert.deepEqual(await sentRows(id), []);
 });
@@ -196,17 +196,17 @@ test('the day budget holds after the digest: every digest still due keeps its sl
   const { sent, mail } = recorder();
   // 99 used today, one digest still due: 99 + 1 alert + 1 digest would cross 100.
   await setDayUsed(d, 99);
-  const r = await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true });
+  const r = await runAlertMail(d, { mail, events: fixed([closing()]), only: [id] });
   assert.equal(r.sent, 0);
   assert.equal(r.capped, true);
   // The digest went: the last slot is the alert's.
   await sql()`UPDATE digest_subscriptions SET last_sent_at = ${d} WHERE installation_id = ${due}`;
-  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id] })).sent, 1);
   const [u] = await sql()<{ used: number }[]>`SELECT used FROM free_tier_usage WHERE name = 'resendDay' AND period = ${periodKey('day', d)}`;
   assert.equal(u.used, 100);
   // Full: nothing more, for anyone.
   const other = await subscriber();
-  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [other], force: true })).capped, true);
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [other] })).capped, true);
   assert.equal(sent.length, 1);
 });
 
@@ -216,20 +216,56 @@ test('a failed send stores no sent row; the next run sends it', { skip: db.skip 
   const failing: Mailer = async () => {
     throw new Error('boom');
   };
-  const r = await runAlertMail(at(0), { mail: failing, events: fixed([closing()]), only: [id], force: true });
+  const r = await runAlertMail(at(0), { mail: failing, events: fixed([closing()]), only: [id] });
   assert.equal(r.sent, 0);
   assert.deepEqual(await sentRows(id), []);
   const { sent, mail } = recorder();
-  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id] })).sent, 1);
   assert.equal(sent[0].subject, 'Base Builder Grants closes Nov 1');
 });
 
-test('outside ALERT_HOUR_UTC, and without RESEND_API_KEY and no mailer, nothing runs', { skip: db.skip }, async () => {
+test('without RESEND_API_KEY and no mailer, nothing runs', { skip: db.skip }, async () => {
+  const id = await subscriber();
+  assert.equal((await runAlertMail(T0, { events: fixed([closing()]), only: [id] })).sent, 0);
+  assert.deepEqual(await sentRows(id), []);
+});
+
+test('final review R18: any cron run sends (no hour gate), at most one email a builder a UTC day', { skip: db.skip }, async () => {
+  await setDayUsed(T0, 0);
   const id = await subscriber();
   const { sent, mail } = recorder();
-  assert.equal((await runAlertMail(new Date(T0.getTime() - 3_600_000), { mail, events: fixed([closing()]), only: [id] })).sent, 0);
-  assert.equal((await runAlertMail(T0, { events: fixed([closing()]), only: [id], force: true })).sent, 0);
-  assert.equal(sent.length, 0);
+  // prod's runs land near 00:58, 07:04, 14:06 and 20:16 UTC: the first sends, the rest of that UTC day do not.
+  const day = Date.UTC(2031, 0, 20);
+  const runs = [[0, 58], [7, 4], [14, 6], [20, 16]].map(([h, m]) => new Date(day + h * 3_600_000 + m * 60_000));
+  const events = fixed([closing(), fresh()]);
+  const sends = [];
+  for (const r of runs) sends.push((await runAlertMail(r, { mail, events, only: [id] })).sent);
+  assert.deepEqual(sends, [1, 0, 0, 0]);
+  // The next UTC day's first run (00:58) sends the next event.
+  assert.equal((await runAlertMail(new Date(day + DAY + 58 * 60_000), { mail, events, only: [id] })).sent, 1);
+  assert.deepEqual(sent.map((m) => m.subject), ['Base Builder Grants closes Nov 1', 'New: Arc Grants, $10,000']);
+});
+
+test('final review: the run takes the builders mailed longest ago first (never mailed first), so none past the cap starves', { skip: db.skip }, async () => {
+  await setDayUsed(T0, 0);
+  const d = at(30);
+  const [a, b, c] = [await subscriber(), await subscriber(), await subscriber()];
+  // a mailed 2 days ago, b 5 days ago, c never: c, then b, then a.
+  await sql()`INSERT INTO alert_mail_sent (builder_id, event_key, sent_at) VALUES
+    (${a}, 'old:a', ${new Date(d.getTime() - 2 * DAY)}), (${b}, 'old:b', ${new Date(d.getTime() - 5 * DAY)})`;
+  const order: number[] = [];
+  const events = async (builderId: number) => {
+    order.push(builderId);
+    return [closing({ key: `closing:order:${builderId}` })];
+  };
+  const { mail } = recorder();
+  const r = await runAlertMail(d, { mail, events, only: [a, b, c], limit: 2 });
+  assert.equal(r.sent, 2);
+  assert.deepEqual(order, [c, b]);
+  // The next day: a (mailed longest ago now) comes first.
+  order.length = 0;
+  await runAlertMail(new Date(d.getTime() + DAY), { mail, events, only: [a, b, c], limit: 1 });
+  assert.deepEqual(order, [a]);
 });
 
 test('alertEvents reads a closing entry (draft ready) and an accepted outcome post', { skip: db.skip }, async () => {
@@ -258,13 +294,34 @@ test('alertEvents reads a closing entry (draft ready) and an accepted outcome po
   assert.equal(alertBody(acc!).subject, `You got into ${p.title}`);
   assert.match(alertBody(acc!).text, /Your post is ready to share: https:\/\/earnkit\.com\/.+\/post\/abcdefghij$/);
   assert.equal(pickAlert(events)?.kind, 'accepted');
-  // A told "applied" leaves the closing entry out.
-  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${id}, '', ${pid}, 'applied', now())`;
-  assert.equal((await alertEvents(id, now)).some((e) => e.kind === 'closing'), false);
+  // Final review (one rule for "applied", standing.ts toldAppliedSql): a told "applied" on another installation of the
+  // group leaves the closing entry out.
+  const [m] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`v47ro-told-${RUN}-${id}`}, ${id}) RETURNING id`;
+  await sql()`INSERT INTO builder_program_status (installation_id, login, program_id, status, at) VALUES (${m.id}, '', ${pid}, 'applied', now())`;
+  assert.equal((await alertEvents(id, now)).some((e) => e.kind === 'closing' && e.key.startsWith(`closing:${pid}:`)), false);
+});
+
+test('final review: a closing entry\'s draft is find\'s rule: a draft in hand within 30 days (apply_yes), never an older one', { skip: db.skip }, async () => {
+  const now = new Date();
+  const base = committedProgram('base-builder-grants');
+  const ends = new Date(now.getTime() + 2 * DAY);
+  const pid = `v47-ro-${process.pid}-drafted`;
+  await upsertProgram(ProgramFile.parse({ ...base, id: pid, title: `Drafted ${RUN}`, summary: 'up to $5,000', ends_at: ends.toISOString(), status: 'active' }));
+  const id = await subscriber();
+  // No real stored answer: only apply_yes can make it a draft.
+  await sql()`INSERT INTO projects (program_id, name, installation_id, confirmed_at) VALUES (${pid}, 'kit', ${id}, now())`;
+  const yes = (at: Date) => sql()`
+    INSERT INTO builder_profiles (builder_id, slug, standing_seen) VALUES (${id}, ${`v47rd${id}`}, ${sql().json({ apply_yes: { [pid]: at.toISOString() } } as never)})
+    ON CONFLICT (builder_id) DO UPDATE SET standing_seen = EXCLUDED.standing_seen`;
+  const draft = async () => (await alertEvents(id, now)).find((e) => e.kind === 'closing' && e.key.startsWith(`closing:${pid}:`)) as Extract<AlertEvent, { kind: 'closing' }> | undefined;
+  await yes(new Date(now.getTime() - 31 * DAY));
+  assert.equal((await draft())?.draft, false);
+  await yes(new Date(now.getTime() - DAY));
+  assert.equal((await draft())?.draft, true);
 });
 
 test('the footer names both emails and has no banned words', () => {
-  assert.doesNotMatch(alertFooter('https://earnkit.com/x'), BANNED);
+  assert.doesNotMatch(mailFooter('https://earnkit.com/x'), BANNED);
 });
 
 test('alertEvents: a program opened within NEW_FIT_DAYS that a remembered repo fits is one new-fit event; an older one is none', { skip: db.skip }, async () => {
@@ -313,11 +370,11 @@ test('fix round 1: a group with an unbound hosted member gets no alert (C2, shar
   const id = await subscriber();
   await sql()`INSERT INTO installations (token_hash, shared_client, builder_id) VALUES (${`v47ro-host-${RUN}-${id}`}, true, ${id})`;
   const { sent, mail } = recorder();
-  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 0);
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id] })).sent, 0);
   assert.equal(sent.length, 0);
   // Bound to X, the hosted member is a person: the group gets its alert.
   await sql()`UPDATE installations SET x_user_id = ${`x-${RUN}-${id}`} WHERE builder_id = ${id}`;
-  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id] })).sent, 1);
 });
 
 test('fix round 1: an unsubscribe anywhere in the group stops the person\'s alerts', { skip: db.skip }, async () => {
@@ -327,7 +384,7 @@ test('fix round 1: an unsubscribe anywhere in the group stops the person\'s aler
   await sql()`INSERT INTO digest_subscriptions (installation_id, login, email, asked_at, opted_in_at, unsubscribed_at)
     VALUES (${m.id}, '', 'other@example.com', now(), ${new Date('2026-10-01')}, ${new Date('2026-10-03')})`;
   const { sent, mail } = recorder();
-  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 0);
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id] })).sent, 0);
   assert.equal(sent.length, 0);
 });
 
@@ -341,9 +398,9 @@ test('fix round 1: the month keeps room for next Monday\'s digests (every opted-
   // Exactly the alert plus every subscription's next digest would cross 3,000 by one.
   await sql()`INSERT INTO free_tier_usage (name, period, used) VALUES ('resendMonth', ${periodKey('month', d)}, ${3000 - n})`;
   const { mail } = recorder();
-  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true })).capped, true);
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id] })).capped, true);
   await sql()`UPDATE free_tier_usage SET used = ${3000 - n - 1} WHERE name = 'resendMonth'`;
-  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id] })).sent, 1);
 });
 
 test('fix round 1: a program declined within 30 days never arrives as a new fit', { skip: db.skip }, async () => {

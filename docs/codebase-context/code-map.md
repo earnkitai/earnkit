@@ -371,6 +371,7 @@ apps/frontend/
                                ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
                                Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
     standing.ts                v4.7 T2: where the builder stands. Standing type; standingParagraph (exact copy: "Score 77 · #1 of 40
+                               v4.7 final review: toldAppliedSql (group "applied" rule, applicationCounts and alert-mail.ts)
                                builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next:
                                X closes Nov 1."); pageScore (the page's score rule, used by bench-data profileData too);
                                applicationCounts (R3: Task 3's token gate reuses it); wonUsdOf (earned.ts prizesWonSql);
@@ -1426,6 +1427,7 @@ apps/frontend/
                                v2.12 T15: PROFILES_TITLE, PROFILES_ANCHOR ('builder-profiles'), PROFILES_POINTS
                                (the /terms#builder-profiles copy; lawyer review before go-live)
     policy-constants.ts        v4.0: EARNKIT_SPLITS_BPS adds [6000, 4000] (Safe 60 / creator 40, no MINI slot); launches are Base only.
+                               v4.7 final review: DECLINE_MS (bench-find re-exports it) and draftedRecently (find and the alerts)
                                v2.9 D16, D17: MINI_FEE_RECIPIENT (Ruling 17, confirmed read-only),
                                GAS_WALLET_MIN_WEI_DEFAULT, EARNKIT_SPLIT_BPS (slot order); a leaf so bonus-ledger.ts can import them
                                (policy.ts once imported bonus-payout/traction, which import bonus-ledger)
@@ -1519,10 +1521,11 @@ apps/frontend/
                                line and the subject its score); mailFooter (R17, both emails); digestFrom exported
     alert-mail.ts              v4.7 T5: the alert emails. alertEvents (accepted outcome post > closing fit or draft
                                within DEADLINE_DAYS via deadline.ts closeDay > new fit via alerts.ts alertFit),
-                               alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail at ALERT_HOUR_UTC
-                               17: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
+                               alertBody (exact copy), pickAlert, runAlertMail (cron step alert_mail in every cron
+                               run, no hour gate; longest-unmailed builders first: one email a builder a UTC day, each event once in alert_mail_sent, Resend room after
                                every digest still due). Tests: v47-reach-out.test.ts
     best-fit.ts                v3.1 Task 12: bestFitFor, the Best fit outside a reply (bench-find.ts scoreApplies + bestApplies)
+                               v4.7: openFitsFor (alert closing fits; final review R19 withoutSilentDeclines: only an explicit no drops one)
     ship-log-facts.ts          v3 Stage 2: shipLogFacts/shipLogBlock/SHIP_LOG_NOTE, the ship log's facts in prepare's draft
     builder-json.ts            v3 Stage 2: builderJson/builderResponse/builderPreflight, the public builder JSON
     backers.ts                 v3 Stage 2: indexBackers (coin_backers from pool-side Transfers), backersOf/backersOfCoin;

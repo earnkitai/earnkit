@@ -18,6 +18,7 @@ import { firstName } from './bench-reply';
 import { weekUrl } from './week-links';
 import { CONTACT_EMAIL } from './policy';
 import { standingLeads, standingParagraph } from './standing';
+import { closeDay } from './deadline';
 
 /**
  * v2.9 E19: the weekly email, opt-in only. Asked once per installation (Ruling 13; v3 Stage 1: in the first
@@ -118,13 +119,17 @@ export type DigestFacts = {
   pending?: true;
   /** v3.1 Task 12: the money lines above the week (the Best fit's draft, new backers); none on a shared client or a per-login subscription. */
   money: string[];
-  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null }[];
+  /** v4.7 final review (Review Focus 2): `summary` and `tz` read the close day in the program's own zone (deadline.ts closeDay). */
+  newPrograms: { title: string; repo: string; prize_usd: number | null; ends_at: Date | null; summary?: string; tz?: string | null }[];
   wins: { name: string; program: string; prize_usd: number | null }[];
-  deadlines: { program: string; what: 'closes' | 'decision'; at: Date }[];
+  /** A close carries its program's `summary` and `tz` (closeDay); a decision date is a calendar date, read in UTC. */
+  deadlines: { program: string; what: 'closes' | 'decision'; at: Date; summary?: string; tz?: string | null }[];
 };
 
 const money = (usd: number | null) => (usd ? `$${usd.toLocaleString('en-US')}` : null);
 const day = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+/** v4.7 final review: a close day as the site and the replies show it (deadline.ts closeDay, the program's own zone). */
+const closes = (c: { at: Date; summary?: string; tz?: string | null }) => closeDay({ summary: c.summary ?? '', tz: c.tz, ends_at: c.at }) ?? day(c.at);
 
 /** The most characters of a builder-supplied name an email shows. */
 export const NAME_MAX = 40;
@@ -174,9 +179,9 @@ export function digestBody(f: DigestFacts): { subject: string; text: string } | 
       ].join('\n')
     : null;
   const lines = [
-    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${day(p.ends_at)}` : ''}.`),
+    ...f.newPrograms.map((p) => `New: ${p.title} fits ${cleanName(p.repo, 'your repo')}${money(p.prize_usd) ? `, ${money(p.prize_usd)}` : ''}${p.ends_at ? `, closes ${closes({ ...p, at: p.ends_at })}` : ''}.`),
     ...f.wins.map((w) => `Won: ${cleanName(w.name, 'An EarnKit builder')} in ${w.program}${money(w.prize_usd) ? `, ${money(w.prize_usd)}` : ''}.`),
-    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? 'closes' : 'results due'} ${day(d.at)}.`),
+    ...f.deadlines.map((d) => `Your ${d.program}: ${d.what === 'closes' ? `closes ${closes(d)}` : `results due ${day(d.at)}`}.`),
   ];
   if (lines.length === 0 && !week && f.money.length === 0) return null;
   const subject = f.week
@@ -486,9 +491,9 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
   const [money, curated, fit, entered, told, said, wins, closing, decisions] = await Promise.all([
     person === null ? Promise.resolve({ lines: [] as string[], best: null }) : moneyLines(person, now),
     s.shared || s.login
-      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date })[])
-      : db<(NewProgramRow & { opened_at: Date })[]>`
-          SELECT id, title, summary, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
+      ? Promise.resolve([] as (NewProgramRow & { opened_at: Date; tz: string | null })[])
+      : db<(NewProgramRow & { opened_at: Date; tz: string | null })[]>`
+          SELECT id, title, summary, tz, chains, any_chain, opened_at, past_rounds, focus, best_bet, difficulty_override,
             winners_per_round, tag, each_time, submission_requirements, rules, investment, ends_at, starts_at, campaign,
             max_award_usd, existing_work, min_product_score, match_floor, match_precision
           FROM programs
@@ -510,8 +515,8 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
         AND NOT COALESCE(p.installation_id = ANY(${ids}::int[]), false)
       ORDER BY eo.prize_usd DESC NULLS LAST, eo.captured_at DESC
       LIMIT ${MAX_LINES}`,
-    db<{ program: string; at: Date }[]>`
-      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at
+    db<{ program: string; at: Date; summary: string; tz: string | null }[]>`
+      SELECT DISTINCT ON (pr.id) pr.title AS program, pr.ends_at AS at, pr.summary, pr.tz
       FROM projects p JOIN programs pr ON pr.id = p.program_id
       WHERE p.installation_id = ${id} AND p.program_id <> ${COIN_PROGRAM} AND pr.ends_at > ${now} AND pr.ends_at <= ${week} ${own}
       ORDER BY pr.id`,
@@ -539,12 +544,12 @@ export async function digestFacts(s: SubRow, now: Date, db: Db = sql()): Promise
       if (row.id === money.best) continue;
       const p = newProgramOf(row);
       const repo = alertFit(p, repos, skip, now);
-      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at });
+      if (repo) newPrograms.push({ title: p.title, repo: repo.name, prize_usd: p.max_award_usd, ends_at: p.ends_at, summary: row.summary, tz: row.tz });
       if (newPrograms.length >= MAX_LINES) break;
     }
   }
   const deadlines: DigestFacts['deadlines'] = [
-    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at })),
+    ...closing.map((c) => ({ program: c.program, what: 'closes' as const, at: c.at, summary: c.summary, tz: c.tz })),
     ...decisions.map((d) => ({ program: d.program, what: 'decision' as const, at: d.at })),
   ]
     .sort((a, b) => a.at.getTime() - b.at.getTime())

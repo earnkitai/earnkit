@@ -21,6 +21,7 @@ import { closeDayOf } from './entry-text';
 import { applyAsk, stateAsk, stripeDraftLine, stripeDraftNote, type BenchProject } from './bench-reply';
 import { tokenOfferDue } from './wallet-offer';
 import { APPLY_UNANSWERED_MAX } from './bench-find';
+import { alertEvents } from './alert-mail';
 import { upgradeToken, walletMessage, walletPost } from './wallet-proof';
 import { retryDroppedBuilderTokens } from './builder-token';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -191,6 +192,35 @@ test('fix round 2 (R12): three unanswered showings stand the apply ask aside for
   assert.equal(((await seen(c.id)).apply_unanswered as Record<string, number>)[q.id], undefined, 'answered: reset');
 });
 
+test('final review: the lead and the money line name the program the apply ask asks (the first fit drafted already)', db, async () => {
+  const p1 = await program('l1', { days: 10 });
+  const p2 = await program('l2', { days: 20 });
+  const b = await builder('l', [p1.id, p2.id]);
+  // A draft of the first fit in hand: money first asks the second.
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{apply_yes}',
+      jsonb_build_object(${p1.id}::text, ${new Date().toISOString()}::text)) WHERE builder_id = ${b.id}`;
+  const r = await find(b);
+  assert.equal(kind(r), 'apply', show(r));
+  assert.equal(((await seen(b.id)).bench_ask as { program_id?: string }).program_id, p2.id);
+  assert.equal((r.reply?.lead as { program_id?: string } | undefined)?.program_id, p2.id);
+  assert.ok(show(r).startsWith(`${p2.title} closes ${p2.when}`), show(r));
+});
+
+test('final review R19: a fit set aside for silence still gets its closing alert; an explicit no drops it', db, async () => {
+  const p = await program('s', { days: 2 });
+  const b = await builder('s', [p.id]);
+  for (let i = 0; i < APPLY_UNANSWERED_MAX; i++) assert.equal(kind(await find(b)), 'apply');
+  await find(b);
+  const s = await seen(b.id);
+  assert.equal(typeof (s.apply_silent as Record<string, string>)[p.id], 'string', 'stood aside for silence');
+  const closingFor = async () => (await alertEvents(b.id, new Date())).some((e) => e.kind === 'closing' && e.key.startsWith(`closing:${p.id}:`));
+  assert.equal(await closingFor(), true);
+  // An explicit no (a later no rewrites the declined time): no closing alert.
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, ${['declined', `apply:${p.id}`]}::text[], to_jsonb(${new Date(Date.now() + 1000).toISOString()}::text))
+    WHERE builder_id = ${b.id}`;
+  assert.equal(await closingFor(), false);
+});
+
 test('fix round 1 (R11): stateAsk puts the apply ask before an event post', () => {
   const project: BenchProject = { key: 'kit/kit', name: 'Kit', confirmed: true, live: false, weeks: 4 };
   const apply = { program_id: 'p', title: 'Grant', amount: '$5,000', when: 'Nov 18' };
@@ -296,8 +326,8 @@ test('Review Focus 4: proving a wallet with token_offered set (v4.0\'s step 3) l
   }
 });
 
-test('llms.txt says the token is offered after the first application, never on adding a wallet', () => {
+test('llms.txt says the token is offered once they have applied or drafted an application, never on adding a wallet', () => {
   const txt = readFileSync(join(__dirname, 'llms', 'v213.txt'), 'utf8');
   assert.doesNotMatch(txt, /adds their wallet/);
-  assert.ok(txt.includes('A builder token on tokens.fun, offered after their first application (they can say no): 40% of its trading fees to the builder.'));
+  assert.ok(txt.includes("A builder token on tokens.fun, offered once they've applied or drafted an application (they can say no): 40% of its trading fees to the builder."));
 });

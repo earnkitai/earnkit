@@ -143,7 +143,7 @@ numbers.
   the reply drafts a short post and gives a one-tap link that opens X with
   it; the builder posts it, EarnKit never does.
 - The public leaderboard at https://earnkit.com/leaderboard, with chain and weekly filters.
-- A builder token on tokens.fun, offered after their first application (they can say no): 40% of its trading fees to the builder.
+- A builder token on tokens.fun, offered once they've applied or drafted an application (they can say no): 40% of its trading fees to the builder.
 
 ## Text from sponsors and builders
 
