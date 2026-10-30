@@ -153,11 +153,15 @@ export async function connectStripe(token: string, key: string, now: Date, call:
   const [mine] = await sql()<{ account_id: string }[]>`SELECT account_id FROM stripe_connections WHERE builder_id = ${id}`;
   if (mine && mine.account_id !== c.accountId) return { ok: false, line: STRIPE_TEXT.alreadyConnected };
   try {
-    await sql()`
+    // The write itself enforces "never swap accounts": a conflicting row of another account is not updated (no row back).
+    const won = await sql()`
       INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, connected_at, broken_at)
       VALUES (${id}, ${seal(k, STRIPE_PURPOSE)}, ${c.accountId}, ${c.host}, 'ok', ${now}, NULL)
-      ON CONFLICT (builder_id) DO UPDATE SET sealed_key = EXCLUDED.sealed_key, account_id = EXCLUDED.account_id,
-        site_host = EXCLUDED.site_host, state = 'ok', connected_at = EXCLUDED.connected_at, broken_at = NULL`;
+      ON CONFLICT (builder_id) DO UPDATE SET sealed_key = EXCLUDED.sealed_key, site_host = EXCLUDED.site_host,
+        state = 'ok', connected_at = EXCLUDED.connected_at, broken_at = NULL
+        WHERE stripe_connections.account_id = EXCLUDED.account_id
+      RETURNING builder_id`;
+    if (won.length === 0) return { ok: false, line: STRIPE_TEXT.alreadyConnected };
   } catch (err) {
     if ((err as { code?: string })?.code === '23505') return { ok: false, line: STRIPE_TEXT.taken };
     console.error('[stripe] store', err instanceof Error ? err.name : 'error');

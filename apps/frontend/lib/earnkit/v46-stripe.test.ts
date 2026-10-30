@@ -159,6 +159,25 @@ test('connect stores the key sealed; sk_live_ and test keys are never stored; a 
   assert.equal(await disconnectStripe(id), false);
 });
 
+test('two concurrent pastes for different accounts: exactly one wins and the other is told it is already connected', dbTest, async () => {
+  const id = await builder('https://race.example.com');
+  const t = upgradeToken(id, NOW, undefined, 'stripe')!;
+  const a1 = `acct_${hex()}`;
+  const a2 = `acct_${hex()}`;
+  const slow = (acct: string): StripeCall => async (path) => {
+    await new Promise((r) => setTimeout(r, 20));
+    return path === '/v1/account' ? { status: 200, body: { id: acct, business_profile: { url: 'https://race.example.com' } } } : { status: 200, body: { data: [] } };
+  };
+  const rs = await Promise.all([connectStripe(t, KEY + 'R1', NOW, slow(a1)), connectStripe(t, KEY + 'R2', NOW, slow(a2))]);
+  assert.equal(rs.filter((r) => r.ok).length, 1);
+  const lost = rs.find((r) => !r.ok)!;
+  assert.equal(lost.line, STRIPE_TEXT.alreadyConnected);
+  const winner = rs[0].ok ? [a1, KEY + 'R1'] : [a2, KEY + 'R2'];
+  const [row] = await sql()<{ account_id: string }[]>`SELECT account_id FROM stripe_connections WHERE builder_id = ${id}`;
+  assert.equal(row.account_id, winner[0]);
+  assert.equal(await stripeKey(id), winner[1], 'the stored key is the winner\'s');
+});
+
 test('purpose-bound links: a wallet link never opens the Stripe page and a Stripe link never opens the wallet page', dbTest, async () => {
   const id = await builder(null);
   const st = upgradeToken(id, NOW, undefined, 'stripe')!;
