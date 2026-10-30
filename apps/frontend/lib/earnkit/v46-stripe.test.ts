@@ -225,7 +225,7 @@ test('route: origin, no or expired token, bad body, a rate limit; the key never 
     const ip = `10.46.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
     const post = (body: unknown, o: { origin?: string; ip?: string; call?: StripeCall } = {}) =>
       stripePost(
-        new Request('https://earnkit.com/connect/stripe', { method: 'POST', headers: { 'content-type': 'application/json', origin: o.origin ?? 'https://earnkit.com', 'x-real-ip': o.ip ?? ip }, body: typeof body === 'string' ? body : JSON.stringify(body) }),
+        new Request('https://earnkit.com/connect/stripe/key', { method: 'POST', headers: { 'content-type': 'application/json', origin: o.origin ?? 'https://earnkit.com', 'x-real-ip': o.ip ?? ip }, body: typeof body === 'string' ? body : JSON.stringify(body) }),
         { now, call: o.call },
       );
     const outs: string[] = [];

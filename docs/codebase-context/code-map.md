@@ -2594,8 +2594,8 @@ a source); `site-data.ts usageRows`/`bestUsage` (Used by's read and pick, shared
 
 v4.6 Task 1 (verified Stripe revenue, key store): `secret-box.ts` (`seal`/`open`, AES-256-GCM keyed from EARNKIT_AUTH_SECRET per
 purpose); `stripe.ts` (`StripeCall`, `keyKind`, `checkKey` with the ownership rule, `connectStripe`, `disconnectStripe`,
-`stripeKey`, `stripeLink`, `stripePageState`, `stripePost`; `stripe_connections` in schema.sql, private); `app/connect/stripe/`
-(page, StripeForm, POST route); `wallet-proof.ts upgradeToken/upgradeOf` take a `purpose` ('upgrade' wallet, 'stripe');
+`stripeKey`, `stripeLink`, `stripePageState`, `stripePost`; `stripe_connections` in schema.sql, private); `app/connect/stripe/` (page, StripeForm, `key/route.ts` POST)
+(page, StripeForm, POST at key/route.ts); `wallet-proof.ts upgradeToken/upgradeOf` take a `purpose` ('upgrade' wallet, 'stripe');
 `rate-limit.ts` `stripePage`/`stripeConnect`. Tests: `v46-stripe.test.ts`.
 
 v4.6 Task 2 (daily Stripe read): `stripe.ts` adds `stripeRevenue` (30-day net from balance transactions, MRR, payers/top share from charges),

@@ -206,7 +206,7 @@ type RouteDeps = { limit?: (request: Request, builderId: number | null) => Promi
 const json = (body: { line: string; ok: boolean }, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
 
-/** POST /connect/stripe ({ t, key }): same origin, rate limited per IP and per builder; answers { ok, line } only. */
+/** POST /connect/stripe/key ({ t, key }): same origin, rate limited per IP and per builder; answers { ok, line } only. */
 export async function stripePost(request: Request, deps: RouteDeps = {}): Promise<Response> {
   const now = deps.now ?? new Date();
   if (request.headers.get('origin') !== new URL(siteUrl()).origin) return json({ ok: false, line: STRIPE_TEXT.failed }, 403);
