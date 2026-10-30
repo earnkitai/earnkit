@@ -77,6 +77,10 @@ export const LIMITS = {
   walletProof: { limit: 20, windowSeconds: 3_600 },
   /** v3.1 wallet proof: views of the signing page and its X sign-in start, per client IP (light). */
   walletPage: { limit: 120, windowSeconds: 3_600 },
+  /** v4.6: views of the Stripe connect page, per client IP (light). */
+  stripePage: { limit: 120, windowSeconds: 3_600 },
+  /** v4.6: POST /connect/stripe (each try calls Stripe up to four times), per client IP and per builder. */
+  stripeConnect: { limit: 10, windowSeconds: 3_600 },
   /** v2.9 final review I2: POST /api/host/upload, per client IP (each read can be 25 MB). */
   hostUpload: { limit: 10, windowSeconds: 3_600 },
   /** GET /oauth/authorize, per client IP. */

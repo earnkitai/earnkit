@@ -8514,3 +8514,24 @@ picks it (`site-data.ts usageRows` + `bestUsage`, shared with `usedByOf`), reven
 (whole dollars, "+" when capped). A hidden page still gets both in its own drafts and replies. Revenue is private:
 `builder-json.ts`, `site-data.ts`, `app/[handle]`, `/api/stats` and the feed never read `app_revenue`
 (`v45-traction.test.ts` 3.4 checks the serialized outputs). Tests: `v45-traction.test.ts`.
+
+v4.6 Stripe key store (the ownership rule stops casual misuse only; a cooperating account holder can set the website): a builder pastes a live restricted Stripe key on `/connect/stripe` (link token purpose-bound to 'stripe',
+so wallet links and Stripe links never open each other's page). The key is checked with read-only GETs through an injectable
+`StripeCall`, must belong to an account whose website is one of the builder's verified sites, and is stored sealed
+(`secret-box.ts`) in `stripe_connections`. The key is never logged, returned, evented or stored in plaintext; `sk_live_` and test
+keys are refused before any call.
+
+- **Daily Stripe read (v4.6 Task 2).** After `runRevenue`, the cron reads each `stripe_connections` row in state `ok` at most once a UTC day
+  (rate-limit claim `stripe:<id>:<day>`, own slice via `builderCodesSliceEnd`). Net = balance transactions `charge`/`payment` minus `refund`/
+  `payment_refund`, disputes (`adjustment` + reporting_category `dispute`) minus, `dispute_reversal` plus; before Stripe fees; clamped at 0.
+  Payers come from `/v1/charges` (fingerprint, else customer, else email); charges whose email is the builder's `digest_subscriptions.email` are dropped
+  with their balance transaction. `shown` = at least 3 payers and top share at most 50%. Any failure stores nothing; the page cap stores `capped`.
+  `latestStripe` returns fresh (`USED_STALE_DAYS`), shown rows of at least `REVENUE_MIN`. The key appears in no log, note or error (only error names are logged).
+- **Drafts, replies and the Stripe ask (v4.6 Task 3).** `tractionFacts` adds `stripe` (`latestStripe`, whole dollars); `shipLogBlock` prints
+  `$N received through Stripe in the last 30 days, verified from Stripe` (plus `, $M a month in subscriptions` from `REVENUE_MIN`, `+` only on the 30-day
+  figure) right after the onchain revenue line, and `replyFacts` carries `stripe_30d_usd` / `stripe_mrr_usd`. Private like v4.5: not in builder.json, page
+  data, `/api/stats` or the feed (tested). The one-time ask (`stateAsk` kind `stripe`, after `apply`, before `share`) fires in a quiet ranked reply
+  (same gates as the token offer) for a builder with a verified `site` source and no connection (`stripeAskDue`; claimed in `standing_seen.stripe_asked`);
+  its no is `declined['stripe:*']` and never expires (unlike the 30-day DECLINE_MS); a `broken` connection re-offers once (`stripe_reoffered`). No
+  `stripeLink` (no secret) means no ask. `tell { stripe: 'connect' | 'disconnect' }` works any time; disconnect deletes the key row and the stored
+  `stripe_revenue` rows. Every Stripe reply and note tells the agent never to ask for a key in chat.

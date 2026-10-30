@@ -59,20 +59,24 @@ export const walletDoneLine = (wallet: string) =>
 export const walletContractsLine = (current: string) =>
   `Added for your contracts. Your rewards still go to ${shortWallet(current)}. To change that, ask your agent for a new link and sign in with X on it.`;
 
-const mac = (secret: string, s: string) => createHmac('sha256', secret).update(`upgrade:v1:${s}`).digest('base64url').slice(0, 22);
+/**
+ * v4.6: `purpose` binds a token to the page it opens ('upgrade' = the wallet page, unchanged; 'stripe' = the Stripe
+ * connect page). It is part of the HMAC input, so a token of one purpose never verifies as another.
+ */
+const mac = (secret: string, s: string, purpose = 'upgrade') => createHmac('sha256', secret).update(`${purpose}:v1:${s}`).digest('base64url').slice(0, 22);
 /**
  * A signed link token: the person, its expiry and (v3.1) a random part, so two links made in the same millisecond
  * are still two links (each is used once). Null without EARNKIT_AUTH_SECRET.
  */
-export function upgradeToken(builderId: number, now: Date, secret = process.env.EARNKIT_AUTH_SECRET): string | null {
+export function upgradeToken(builderId: number, now: Date, secret = process.env.EARNKIT_AUTH_SECRET, purpose = 'upgrade'): string | null {
   if (!secret) return null;
   const body = `${builderId}.${now.getTime() + UPGRADE_TTL_MS}.${randomBytes(6).toString('base64url')}`;
-  return `${body}.${mac(secret, body)}`;
+  return `${body}.${mac(secret, body, purpose)}`;
 }
-export function upgradeOf(token: string, now: Date, secret = process.env.EARNKIT_AUTH_SECRET): number | null {
+export function upgradeOf(token: string, now: Date, secret = process.env.EARNKIT_AUTH_SECRET, purpose = 'upgrade'): number | null {
   const m = /^(\d{1,10})\.(\d{13})\.([A-Za-z0-9_-]{8})\.([A-Za-z0-9_-]{22})$/.exec(token);
   if (!secret || !m) return null;
-  const want = Buffer.from(mac(secret, `${m[1]}.${m[2]}.${m[3]}`));
+  const want = Buffer.from(mac(secret, `${m[1]}.${m[2]}.${m[3]}`, purpose));
   const got = Buffer.from(m[4]);
   if (want.length !== got.length || !timingSafeEqual(want, got) || Number(m[2]) < now.getTime()) return null;
   return Number(m[1]);
@@ -237,26 +241,37 @@ export type WalletPage =
       xHref: string | null;
     };
 
+/**
+ * v4.6: what both link pages (wallet, Stripe connect) start from: the optional per-IP rate check, the purpose-bound token,
+ * and the claimed X profile it names. `busy` is a RateLimitError from `rate`; `expired` is anything else wrong with the link.
+ */
+export type LinkPerson = { ok: true; id: number; handle: string } | { ok: false; why: 'busy' | 'expired' };
+export async function linkPerson(token: string, now: Date, purpose: string, rate?: () => Promise<unknown>): Promise<LinkPerson> {
+  try {
+    await rate?.();
+  } catch (err) {
+    if (err instanceof RateLimitError) return { ok: false, why: 'busy' };
+    throw err;
+  }
+  const id = upgradeOf(token, now, undefined, purpose);
+  if (id === null) return { ok: false, why: 'expired' };
+  const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
+  return p?.x_handle ? { ok: true, id, handle: p.x_handle } : { ok: false, why: 'expired' };
+}
+
 /** What the signing page shows for this link (expired, used, signing, X first). A busy client IP: the busy line. */
 export async function walletPageState(
   token: string, now: Date, o: { ip?: string; limit?: (ip: string) => Promise<unknown>; xCookie?: (name: string) => string | null | undefined } = {},
 ): Promise<WalletPage> {
-  try {
-    await (o.limit ?? ((ip: string) => enforce('walletPage', ip, WALLET_TEXT.busy)))(o.ip ?? 'unknown');
-  } catch (err) {
-    if (err instanceof RateLimitError) return { kind: 'gone', line: WALLET_TEXT.busy };
-    throw err;
-  }
-  const id = upgradeOf(token, now);
-  if (id === null) return { kind: 'gone', line: WALLET_TEXT.expired };
-  const [p] = await sql()<{ x_handle: string | null }[]>`SELECT x_handle FROM builder_profiles WHERE builder_id = ${id} AND x_user_id IS NOT NULL`;
-  if (!p?.x_handle) return { kind: 'gone', line: WALLET_TEXT.expired };
+  const who = await linkPerson(token, now, 'upgrade', () => (o.limit ?? ((ip: string) => enforce('walletPage', ip, WALLET_TEXT.busy)))(o.ip ?? 'unknown'));
+  if (!who.ok) return { kind: 'gone', line: who.why === 'busy' ? WALLET_TEXT.busy : WALLET_TEXT.expired };
+  const { id, handle } = who;
   const [used] = await sql()`SELECT 1 FROM wallet_proof_uses WHERE use_hash = ${tokenUseKey(token)}`;
   if (used) return { kind: 'gone', line: WALLET_TEXT.used };
   const current = await provenWallet(id);
   const needX = current !== null && !(await xChecked(token, id, now, o.xCookie?.(walletXCookie(tokenUseKey(token)))));
   return {
-    kind: 'sign', token, handle: p.x_handle, message: walletMessage(p.x_handle, token), current, needX,
+    kind: 'sign', token, handle, message: walletMessage(handle, token), current, needX,
     xHref: needX && xSignInEnabled() ? `/claim/wallet/x?t=${encodeURIComponent(token)}` : null,
   };
 }

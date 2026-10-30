@@ -150,6 +150,8 @@ import { SKIPPED_LINE, cardYes } from './share';
 import { SHARED_PROFILE_NOTE, deleteAsk, ensureProfile, setFallback, setHidden } from './profiles';
 import { xSignInEnabled } from './builder-score-flag';
 import { sql } from './db';
+import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, stripeConnectLine } from './bench-reply';
+import { disconnectStripe, stripeLink } from './stripe';
 import { projectKey, readBank, saveApplication, saveBank } from './answer-bank';
 import { rootOf } from './identity';
 import type { FieldKind } from './program-file';
@@ -2401,6 +2403,18 @@ async function prepareBuild(input: Record<string, unknown>, ctx: ToolContext): P
 
 const Loose = z.record(z.string(), z.unknown());
 
+/** v4.6 Task 3: tell { stripe }. connect: the ask's link line, fresh (plain words when the link can't be made); disconnect: the key row and the stored figures are deleted. */
+async function stripeReply(builderId: number, what: 'connect' | 'disconnect', now: Date): Promise<Reply> {
+  if (what === 'connect') {
+    const link = stripeLink(builderId, now);
+    return { show_to_builder: link ? stripeConnectLine(link) : STRIPE_NO_LINK, agent_note: STRIPE_NEVER_KEY };
+  }
+  const had = await disconnectStripe(builderId);
+  // The stored figures go with the key: a disconnected builder's drafts stop showing Stripe revenue at once.
+  await sql()`DELETE FROM stripe_revenue WHERE builder_id = ${builderId}`;
+  return { show_to_builder: had ? STRIPE_DISCONNECTED : STRIPE_NOT_CONNECTED };
+}
+
 /** v3.1 Used by: tell builder_code's replies (one short sentence each). */
 export const BUILDER_CODE_SAVED = 'Saved. Your Builder Code counts once its payout wallet is one you proved.';
 export const BUILDER_CODE_INVALID = 'That is not a Builder Code: lowercase letters, digits and underscores only.';
@@ -2457,6 +2471,8 @@ export const TellToolInput = z
     main_project: z.string().max(300).optional(),
     // v3.1 wallet proof: the builder wants their rewards sent to another wallet (or to add one): a fresh signing link.
     wallet: z.string().max(100).optional(),
+    // v4.6 Task 3: connect (a fresh read-only link) or disconnect Stripe, any time.
+    stripe: z.enum(['connect', 'disconnect']).optional(),
     // v3.1 Used by: a Base Builder Code the builder named, a candidate until the registry pays a wallet they proved.
     builder_code: z.string().max(100).optional(),
     // v2.13: this week's update (or hide one week), and the weekly-posting yes.
@@ -2725,12 +2741,12 @@ export const tools = {
   tell: async (input: unknown, ctx: ToolContext) => {
     // v2.12.1 T8: x_handle is no longer taken with the flag on (the page's handle is the X claim's);
     // it is ignored.
-    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, wallet, builder_code, ...rest } = TellToolInput.parse(input ?? {});
+    const { submitted, profile, x_handle, card, move_up, coin, token, update, updates, main_project, wallet, builder_code, stripe, ...rest } = TellToolInput.parse(input ?? {});
     void x_handle;
     const statements = defined(rest);
     const replies: Reply[] = [];
     // v2.12 spec 8: "hide" and "show". v2.12.1 T8: the card and the move-up answers.
-    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code))
+    if (ctx.sharedClient && (profile || card || move_up || coin || token || update || updates || main_project || wallet || builder_code || stripe))
       replies.push({ show_to_builder: '', agent_note: SHARED_PROFILE_NOTE });
     else {
       // Owner ruling 2026-10-24: "delete my data" is only offered a hidden page.
@@ -2744,6 +2760,8 @@ export const tools = {
       // v3.1 wallet proof: a fresh signing link; the wallet proven with it becomes the reward recipient.
       // Any value: agents send the address the builder named as often as 'change'.
       if (wallet?.trim()) replies.push(await walletChangeReply(ctx.installationId, new Date()));
+      // v4.6 Task 3: Stripe connect (a fresh link) or disconnect (the key row and the figures are deleted). No key or account id in any reply.
+      if (stripe) replies.push(await stripeReply(ctx.installationId, stripe, new Date()));
       // v3.1 Used by (security review): a code they named is only a candidate; it counts once Base's registry pays a
       // wallet they proved (used-by.ts verifyCodes, daily).
       if (builder_code !== undefined)

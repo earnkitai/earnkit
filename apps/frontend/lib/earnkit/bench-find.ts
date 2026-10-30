@@ -34,7 +34,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, BASE_START_ASK, CHECKIN_ASK, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
-  TOKEN_NO_LINE, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
+  TOKEN_NO_LINE, STRIPE_ASK_NOTE, STRIPE_NEVER_KEY, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type ApplyPick, type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -60,6 +60,7 @@ import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWallet
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, recordExistingToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
 import { provenWallet } from './wallet-proof';
+import { stripeAskDue, stripeLink } from './stripe';
 import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 export { displayName };
 
@@ -191,6 +192,9 @@ export type Seen = StandSeen & {
     /** v4.4 (kind 'token'): the offer that followed setup step 3's sign; its answer is the setup-done reply. */
     setup?: boolean;
   };
+  /** v4.6 Task 3: when the Stripe ask was shown (once) and when a broken connection was re-offered (once). */
+  stripe_asked?: string;
+  stripe_reoffered?: string;
   /** Fix round 1: when the qualify steps were given ({ [lowercase project key]: iso }); held back DECLINE_MS. */
   qualify_given?: Record<string, string>;
   /** v3 Stage 2: the programs the apply step was shown for ({ [program_id]: iso }): asked once a program. */
@@ -622,10 +626,14 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   // v4.2 Task 6 (F11): the one-time token offer for an earlier builder, in a quiet reply (never beside another question,
   // never during setup: step 3 is not due); claimed below only once this reply carries it.
   const tokenOffer = quiet && !more && !checkin && !wallet && !walletSetup && handle !== null && (await tokenOfferDue(id));
-  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
+  // v4.6 Task 3: the one-time Stripe ask (a quiet ranked reply, nothing else asked; no link, no ask), claimed once it is carried.
+  const stripeUrl = quiet && !more && !checkin && !wallet && !tokenOffer && handle !== null ? stripeLink(id, now) : null;
+  const stripeDue = stripeUrl ? await stripeAskDue(id, read.seen).catch(logged('stripe due')) : null;
+  const stripe = stripeUrl && stripeDue && (await takeOnce(id, stripeDue === 'first' ? 'stripe_asked' : 'stripe_reoffered', now)) ? stripeUrl : null;
+  const newRepo = quiet && !more && !checkin && !wallet && !tokenOffer && !stripe && handle !== null && !read.seen.new_repo_asked && staleRepo(row?.commit_weeks ?? [], now)
     && !(await connectedSince(id, project.key, now)) && (await takeOnce(id, 'new_repo_asked', now));
-  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
-  const qualify = quiet && !checkin && !wallet && !tokenOffer && !newRepo && !titles && realFits.length === 0
+  const titles = quiet && !more && !checkin && !wallet && !tokenOffer && !stripe && !newRepo && handle !== null && (await titlesAskDue(id, project.key, now)) && (await takeTitlesAsk(id, now));
+  const qualify = quiet && !checkin && !wallet && !tokenOffer && !stripe && !newRepo && !titles && realFits.length === 0
     ? await qualifyOffer(id, project.key, { cards: o.cards, skip: o.skip, seen: read.seen, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known })
     : null;
   const link = state === 'signed_out' ? signIn : noCode ? pick : state === 'ranked' ? null : install;
@@ -651,7 +659,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const linkOnly = project !== null && LINK_KEY.test(project.key);
   const tool = (project && builtWith(project.key)) ?? builtWith(read.liveUrl);
   const noGithub = Boolean(read.seen.github_no) || linkOnly || tool === 'lovable' || tool === 'bolt';
-  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
+  const asks = { state, variant, project, link, handle, share: Boolean(moment), connect, noGithub, walletSetup, apply, titles, qualify, post: event, githubNo, baseAsk, newRepo, tokenOffer, stripe, checkin, shipAsked, appDone, liveTool, walk, hosted: reach.hosted };
   const nudgeAsk = owns && peek?.ask ? peek.ask : null;
   let finalAsk: BenchView['ask'] = nudgeAsk
     ? { kind: nudgeAsk.kind, project_key: project!.key, line: '', ...(nudgeAsk.kind === 'apply' && { program_id: nudgeAsk.program_id }) }
@@ -737,7 +745,7 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply }>
   const note = finalAsk.kind === 'ship' ? (reach.hosted ? SHIP_STEP_NOTE_HOSTED : SHIP_STEP_NOTE) : finalAsk.kind === 'checkin' ? CHECKIN_NOTE : finalAsk.kind === 'share' ? SHARE_NOTE : finalAsk.kind === 'connect' ? CONNECT_NOTE : finalAsk.kind === 'apply' ? APPLY_NOTE
     : finalAsk.kind === 'start' ? START_NOTE : finalAsk.kind === 'pick_repo' ? PICK_REPO_NOTE
     : finalAsk.kind === 'install_app' ? INSTALL_APP_NOTE : finalAsk.kind === 'titles' ? TITLES_NOTE : finalAsk.kind === 'qualify' ? QUALIFY_NOTE
-    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
+    : finalAsk.kind === 'post' ? POST_NOTE : finalAsk.kind === 'wallet' ? WALLET_NOTE : finalAsk.kind === 'token' ? TOKEN_ASK_NOTE : finalAsk.kind === 'stripe' ? STRIPE_ASK_NOTE : finalAsk.kind === 'wallet_setup' ? walletSetupNote()
     : finalAsk.kind === 'base_start' ? BASE_START_NOTE
     : finalAsk.kind === 'next_step' ? NEXT_STEP_NOTE : finalAsk.kind === 'new_repo' ? NEW_REPO_NOTE
     : finalAsk.kind === 'base_help' ? BASE_HELP_NOTE
@@ -806,7 +814,7 @@ async function connectedSince(id: number, key: string, now: Date): Promise<boole
   return Boolean(r?.at) && now.getTime() - new Date(r!.at!).getTime() < NEW_REPO_GRACE_DAYS * 86_400_000;
 }
 /** A once-guard in standing_seen (`key`: an ISO time), claimed in one guarded UPDATE. Never throws. */
-async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done', now: Date): Promise<boolean> {
+async function takeOnce(id: number, key: 'base_asked' | 'new_repo_asked' | 'welcomed' | 'setup_done' | 'stripe_asked' | 'stripe_reoffered', now: Date): Promise<boolean> {
   const [taken] = await sql()`
     UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object(${key}::text, ${now.toISOString()}::text)
     WHERE builder_id = ${id} AND NOT COALESCE(standing_seen ? ${key}, false) RETURNING 1`.catch((err: unknown) => {
@@ -1289,7 +1297,7 @@ const RETIRED_ASKS = ['updates', 'post_update'] as const;
  */
 const OLD_ASKS = ['build', 'grants', 'grants_later', 'enter', 'coin', 'raise', 'go_live', 'backing', 'coin_publish', 'coin_wallet', 'backers_post'] as const;
 /** v2.14 spec 4: the asks answered once (cleared before the yes runs). */
-const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'titles', 'qualify', 'closest', 'check_fits', 'post', 'new_repo', 'outcome_share', ...RETIRED_ASKS, ...OLD_ASKS];
+const TAKEN_ONCE: readonly string[] = ['sign_in', 'start', 'pick_repo', 'install_app', 'other_project', 'repo_behind', 'ship', 'suggest', 'apply', 'titles', 'qualify', 'closest', 'check_fits', 'post', 'new_repo', 'outcome_share', 'stripe', ...RETIRED_ASKS, ...OLD_ASKS];
 /** Fix round: asks a tell with no `kind` is routed to by the stored question (their own paths below). */
 const KINDLESS_ROUTED: readonly string[] = ['pick_repo', 'base_start', 'next_step', 'new_repo', 'base_help', 'checkin', 'wallet_setup', 'token'];
 
@@ -1483,6 +1491,11 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
     case 'titles':
       // 2026-10-22: the titles question's yes turns titles on (the tell updates { titles: true } path).
       return setShipTitles(id, { titles: true }, now);
+    case 'stripe': {
+      // v4.6 Task 3: the yes sends the link again (a fresh 30-minute token); never a key or an account id.
+      const link = stripeLink(id, now);
+      return { show_to_builder: link ? stripeConnectLine(link) : STRIPE_NO_LINK, agent_note: STRIPE_NEVER_KEY };
+    }
     case 'qualify':
       // 2026-10-22: the steps the question was asked with (the program's rules, the ones not known met). Fix round 1:
       // the yes is remembered (qualify_given), so the next replies move on to the ship step for DECLINE_MS.

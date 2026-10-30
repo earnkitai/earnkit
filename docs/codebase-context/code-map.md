@@ -2591,3 +2591,18 @@ pass-through `passesThrough`; `app_revenue` in schema.sql; private, never public
 a source); `site-data.ts usageRows`/`bestUsage` (Used by's read and pick, shared); `ship-log-facts.ts tractionFacts`,
 `REVENUE_MIN`, the usage, came-back and revenue lines in `shipLogBlock`; `reply-facts.ts` `used_by_30d`,
 `revenue_30d_usd`. Tests: `v45-traction.test.ts`.
+
+v4.6 Task 1 (verified Stripe revenue, key store): `secret-box.ts` (`seal`/`open`, AES-256-GCM keyed from EARNKIT_AUTH_SECRET per
+purpose); `stripe.ts` (`StripeCall`, `keyKind`, `checkKey` with the ownership rule, `connectStripe`, `disconnectStripe`,
+`stripeKey`, `stripeLink`, `stripePageState`, `stripePost`; `stripe_connections` in schema.sql, private); `app/connect/stripe/`
+(page, StripeForm, POST route); `wallet-proof.ts upgradeToken/upgradeOf` take a `purpose` ('upgrade' wallet, 'stripe');
+`rate-limit.ts` `stripePage`/`stripeConnect`. Tests: `v46-stripe.test.ts`.
+
+v4.6 Task 2 (daily Stripe read): `stripe.ts` adds `stripeRevenue` (30-day net from balance transactions, MRR, payers/top share from charges),
+`runStripeRevenue` (once per UTC day, `stripeDue`, 401/403 marks `broken`), `latestStripe`, `STRIPE_PAGES`; `fx.ts` `usdRate` (Frankfurter, cached in
+`fx_rates`); `stripe_revenue` and `fx_rates` in schema.sql (private); `cron.ts` runs the step after `runRevenue` (`deps.stripe`, result key `stripe`).
+
+
+v4.6 Task 3 (drafts, replies, the ask): `ship-log-facts.ts` (`stripe` in `ShipLogFacts`/`tractionFacts`, the Stripe line in `shipLogBlock`), `reply-facts.ts`
+(`stripe_30d_usd`, `stripe_mrr_usd`), `stripe.ts` (`stripeAskDue`, `STRIPE_DECLINED_KEY`), `bench-reply.ts` (`stripeAsk`, copy, `stateAsk` kind `stripe`),
+`bench-find.ts` (claims the ask, its yes), `tools.ts`/`mcp.ts` (`tell { stripe }`, `stripeReply`); tests in `v46-stripe.test.ts`.

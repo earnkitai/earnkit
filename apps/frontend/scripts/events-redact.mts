@@ -167,7 +167,7 @@ const NAMED_COLUMNS: [string, string][] = [
   ['post_drafts', 'proof_url'],
 ];
 /** v2.12.1: a person's page data, keyed by builder_id (the profile's group root). Cleared with --apply. */
-const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings', 'post_drafts'] as const;
+const BUILDER_TABLES = ['claim_codes', 'person_wallets', 'builder_projects', 'x_oauth_states', 'coin_moments', 'project_updates', 'project_embeddings', 'post_drafts', 'stripe_connections', 'stripe_revenue'] as const;
 const NAMED_ARRAYS: [string, string][] = [['installations', 'repos']];
 
 const { values } = (() => {
