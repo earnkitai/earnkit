@@ -148,8 +148,10 @@ test('R8, R12, R16a through find and score (Task 16): the standing line, one mon
   // score: the same reply, its fits from the real matcher over what find saw (fit_repos), never a closed program.
   const sc = (await mcpCall(a.ctx, 'score', {})).reply!;
   const t = String(sc.show_to_builder);
-  assert.match(t, /^Kit · /m);
-  assert.equal(t.split('\n')[1], lines[1], `score names the same Best fit: ${t}`);
+  // v4.7 T2: score leads with the standing paragraph (the page's score and rank), so no "Kit · " line of its own.
+  assert.ok(t.startsWith(`${sc.standing}\n\n`), t);
+  assert.doesNotMatch(t, /^Kit · /m);
+  assert.equal(t.split('\n')[2], lines[1], `score names the same Best fit: ${t}`);
   // GTM W2: the ship question was just asked (find), so score asks nothing (once in 7 days); v3.1 cold read: the points
   // line was shown this week (find), so score leaves it out too (at most once an ISO week).
   assert.ok(!t.includes('?') && !/points/.test(t), t);

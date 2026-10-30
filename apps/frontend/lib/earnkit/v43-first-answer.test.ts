@@ -447,10 +447,12 @@ test('fix round 1 (F5): find {more: true} with step 3 due: the step 3 reply word
   assert.doesNotMatch(s, /\| Program \|/, s);
 });
 
-test('v4.3 Task 3: standing is absent for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
-  assert.deepEqual(standingFields(0), { streak: 0 });
-  assert.deepEqual(standingFields(1), { streak: 1, standing: '1 week shipping' });
-  assert.deepEqual(standingFields(6), { streak: 6, standing: '6 weeks shipping in a row' });
+// v4.7 T2: standing is the whole standing now (v47-standing.test.ts); its weeks part keeps these words.
+const bare = { score: null, rank: null, wonUsd: 0, applied: 0, drafts: 0, next: null };
+test('v4.3 Task 3: standing has no weeks part for 0 weeks, "1 week shipping" for 1, "n weeks shipping in a row" for more', () => {
+  assert.deepEqual(standingFields({ ...bare, streak: 0 }), { streak: 0, standing: 'No grants won yet.' });
+  assert.deepEqual(standingFields({ ...bare, streak: 1 }), { streak: 1, standing: '1 week shipping. No grants won yet.' });
+  assert.deepEqual(standingFields({ ...bare, streak: 6 }), { streak: 6, standing: '6 weeks shipping in a row. No grants won yet.' });
 });
 
 test('v4.3 Task 3: the answer-first note drops points and rank, answers where they stand from standing (v4.7 T1: the score, never points)', () => {
@@ -470,7 +472,9 @@ test('v4.3 Task 3: a find reply carries no points_total or points fact; rank_lin
     assert.ok(!('points' in (((reply.facts as { about?: object })?.about) ?? {})), 'about carries no points');
     if ('rank_lines' in reply) assert.ok((reply.rank_lines as string[]).length > 0);
     const streak = Number(reply.streak ?? 0);
-    assert.equal(reply.standing, standingFields(streak).standing);
+    // v4.7 T2: the weeks part of the whole standing.
+    if (streak >= 1) assert.ok(String(reply.standing).includes(streak === 1 ? '1 week shipping' : `${streak} weeks shipping in a row`), String(reply.standing));
+    assert.doesNotMatch(String(reply.standing), /points/i);
   }
 });
 
@@ -483,12 +487,14 @@ async function streakBuilder(tag: string, streak: number) {
 
 test('v4.3 Task 3: standing through find and score for a real streak of 6, 1 and 0', db, async () => {
   await start();
-  for (const [tag, streak, want] of [['sa', 6, '6 weeks shipping in a row'], ['sb', 1, '1 week shipping'], ['sc', 0, undefined]] as const) {
+  // v4.7 T2: the weeks part of the whole standing (after the page's score and rank).
+  for (const [tag, streak, want] of [['sa', 6, '. 6 weeks shipping in a row. '], ['sb', 1, '. 1 week shipping. '], ['sc', 0, null]] as const) {
     const ctx = await streakBuilder(tag, streak);
     for (const tool of ['find', 'score'] as const) {
       const reply = (await mcpCall(ctx, tool, {})).reply as Record<string, unknown>;
       assert.equal(reply.streak, streak, `${tool} ${tag}`);
-      assert.equal(reply.standing, want, `${tool} ${tag}`);
+      if (want) assert.ok(String(reply.standing).includes(want), `${tool} ${tag}: ${reply.standing}`);
+      else assert.doesNotMatch(String(reply.standing), /week/, `${tool} ${tag}`);
       assert.ok(!('points_total' in reply));
     }
   }
@@ -512,7 +518,7 @@ test('v4.3 Task 3: under RANK_MIN_POOL, find and score carry no rank_lines and f
   }
 });
 
-test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and no standing', db, async () => {
+test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no points_total and (v4.7 T2) a standing with no score', db, async () => {
   await start();
   const t = `ek_v43fan_${RUN}_${Math.random().toString(36).slice(2)}`;
   await saveInstallation(t, undefined, false, 'Claude Code');
@@ -521,7 +527,7 @@ test('v4.3 Task 3: a not-yet-counted builder (no rank) gets no rank_lines, no po
   const reply = r.reply as Record<string, unknown>;
   assert.equal(reply.points_total, undefined);
   assert.equal(reply.rank_lines, undefined);
-  assert.equal(reply.standing, undefined);
+  assert.equal(reply.standing, 'No grants won yet.');
 });
 
 // ---- v4.3 final review fixes ----

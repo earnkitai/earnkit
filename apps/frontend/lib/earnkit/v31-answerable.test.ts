@@ -185,7 +185,11 @@ test('the connect pitch: in full once a day, then its link and question alone', 
   assert.match(first, /\*\*Step 2 of 3:\*\* connect your app's code on GitHub so I can match you to the right programs\./);
   assert.doesNotMatch(first, /Lovable or Bolt/);
   for (const tool of ['find', 'score'] as const) {
-    const again = rule(show(await mcpCall(p.ctx, tool, {})));
+    const r = await mcpCall(p.ctx, tool, {});
+    // v4.7 T2: score leads with the standing paragraph.
+    const lead = tool === 'score' ? `${r.reply?.standing}\n\n` : '';
+    assert.ok(show(r).startsWith(lead), show(r));
+    const again = rule(show(r).slice(lead.length));
     assert.equal(again, pickRepoAgain(links(again)[0]!), tool);
   }
   // The next day: the full pitch again.

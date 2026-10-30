@@ -126,8 +126,11 @@ test('F6: the lead is the money line\'s program (closing soonest), not the first
   assert.equal(lead, closing, 'lead follows the money line');
   const sc = (await mcpCall({ ...ctx }, 'score', {})).reply!;
   // Score's own matcher reads the same two programs (the fixture has chains base): its lead is its own money line's program.
-  assert.equal(String(sc.show_to_builder).split('\n')[1], money, 'score names the same program');
+  // v4.7 T2: score leads with the standing paragraph (in place of its own standing line), then the money line.
+  assert.ok(String(sc.show_to_builder).startsWith(`${sc.standing}\n\n`), String(sc.show_to_builder));
+  assert.equal(String(sc.show_to_builder).slice(`${sc.standing}\n\n`.length).split('\n')[0], money, 'score names the same program');
   assert.equal((sc.lead as { program_id: string } | undefined)?.program_id, closing, 'score lead is its money line program');
+  assert.match(String(sc.standing), /Next: Soon Fund closes /, 'the standing names the same next deadline');
 });
 
 // ---- F7: a submitted entry stays submitted

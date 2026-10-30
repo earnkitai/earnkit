@@ -617,6 +617,8 @@ export type BenchView = {
   noGithub?: boolean;
   /** v3.1 cold read: the ranked standing line is shown (it changed since last seen); absent: shown. */
   standingShown?: boolean;
+  /** v4.7 T2: the score reply leads with the standing paragraph (standing.ts standingText), so no standing line here. */
+  standingLed?: boolean;
   /** v3.1 cold read: the shipping points line is shown (at most once an ISO week); absent: shown. */
   nagShown?: boolean;
   /** v3.1 cold read: a live link with no GitHub (the builder said no once): its tool's GitHub steps (liveNoGithub). */
@@ -790,7 +792,7 @@ export function benchReply(v: BenchView): string {
   // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
   if (v.state === 'ranked' && v.nudge && v.nudgeOwns && !v.held)
     // v4.3 Task 2 fix round 1 (R3): the nudge's question leads, so no table (the question stays the one ask).
-    return paras(...lead.map((l) => [l]), [v.standingShown === false ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
+    return paras(...lead.map((l) => [l]), [v.standingShown === false || v.standingLed ? null : standingLine(name, v.rank, v.streak, v.earned ?? 0), ...v.due]);
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + rankedReply(v, name, ask) : rankedReply(v, name, ask);
 }
 
@@ -834,7 +836,8 @@ function rankedReply(v: BenchView, name: string, ask: string): string {
 function rankedBody(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
-      [connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
+      // v4.7 T2: the score reply's standing paragraph already said the rank and the weeks.
+      [v.standingLed ? null : connectStanding(name, v.rank, v.streak), v.best ? qualifyLine(v.best) : null, ...v.due],
       [ask],
     );
   if (!v.held && v.ask.kind === 'share' && v.moment && v.handle)
@@ -845,11 +848,12 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   if (!v.held && v.ask.kind === 'wallet_setup') return ask;
   const full = standingLine(name, v.rank, v.streak, v.earned ?? 0);
   // v3.1 cold read: the standing only when it changed since the builder last saw it, the points line at most once a week.
-  const standing = v.standingShown === false ? null : full;
+  // v4.7 T2: the score reply's standing paragraph leads (benchScore), so it says no standing line of its own.
+  const standing = v.standingShown === false || v.standingLed ? null : full;
   const nag = v.nagShown !== false;
   const ship = shipLine(v.target);
   // A reply with nothing else to say still says where the builder stands (never an empty reply); the ship line alone is no reply either.
-  const orStanding = (lines: (string | null | undefined)[]) => (lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
+  const orStanding = (lines: (string | null | undefined)[]) => (v.standingLed || lines.some((l) => l && l !== ship) ? lines : [full, ...lines.filter((l) => l !== full)]);
   if (!v.held && v.ask.kind === 'apply') return paras(orStanding([standing, ...v.due, nag ? shipLine(null) : null, ask]));
   // v3.1 wallet proof: the standing, then the step; no money line (the step's link is the reply's one link) and no points.
   // 2026-10-23: the new-repo nudge, the same way (a light nudge, nothing else).

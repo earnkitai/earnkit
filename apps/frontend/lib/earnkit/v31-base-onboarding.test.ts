@@ -213,8 +213,11 @@ test('GitHub no, then yes to Base: step 2 never repeats, the steps once, setup s
   assert.equal((step3.reply?.move_up as { kind: string }).kind, 'wallet_setup');
   // v3.1 cold read round 2: once the prompt was written, every find and score
   // gives the next step (build it, then connect GitHub here, with the link), never "Is your app's code on GitHub yet?".
-  for (const r of [await find(p.ctx), await find(p.ctx), await mcpCall(p.ctx, 'score', {})]) {
-    const s = rule(show(r));
+  for (const [i, r] of [await find(p.ctx), await find(p.ctx), await mcpCall(p.ctx, 'score', {})].entries()) {
+    // v4.7 T2: score leads with the standing paragraph.
+    const lead = i === 2 ? `${r.reply?.standing}\n\n` : '';
+    assert.ok(rule(show(r)).startsWith(lead), show(r));
+    const s = rule(show(r)).slice(lead.length);
     assert.match(s, /^Next: build your app in Lovable or Bolt, then connect GitHub here: https:\/\/earnkit\.com\/github\/verify\?n=\S+\nDone\?$/, s);
     assert.notEqual(s, NEXT_STEP_ASK);
     assert.deepEqual(r.reply?.move_up, { kind: 'pick_repo', project_key: null, agent_note: PICK_REPO_NOTE });

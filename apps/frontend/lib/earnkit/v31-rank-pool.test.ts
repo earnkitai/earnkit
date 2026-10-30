@@ -89,8 +89,9 @@ test('(b) 10 ranked builders: "#3 of 10 builders" as today', db, async () => {
   const s = show(f);
   // v4.0 Task 7: the Monday block (no rank); the rank stays on the standing line.
   assert.match(s.split('\n')[0], /^Your week is ready, /, s);
+  // v4.7 T2: score leads with the standing paragraph, the page's score and rank.
   const t = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(t, /^App · #3 of 10 builders/, t);
+  assert.match(t, /^Score \d+ · #3 of 10 builders\. /, t);
   assert.match(t, /\nShip code this week to move toward #1\.(\n[^\n]*\?)?$/, t);
   assert.equal(shownRankLine({ ranked: true, rank: 3, total: 10 }), '#3 of 10 builders');
 });

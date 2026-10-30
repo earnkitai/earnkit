@@ -202,8 +202,12 @@ test('(g) score names the same Best fit as find', db, async () => {
   // Every other open program asked already, so score's step is to ship and its money line is the Best fit.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
     || jsonb_build_object('apply_asked', (SELECT jsonb_object_agg(id, now()::text) FROM programs)) WHERE builder_id = ${b.id}`;
-  const s = show(keep(await mcpCall(b.ctx, 'score', {})));
-  assert.equal(s.split('\n')[1], qualifyLine({ title: p.title, amount: '$5,000', when: `closes ${p.when}` }), s);
+  const r = keep(await mcpCall(b.ctx, 'score', {}));
+  const s = show(r);
+  // v4.7 T2: the standing paragraph leads, and its next deadline is the same program.
+  assert.ok(s.startsWith(`${r.reply?.standing}\n\n`), s);
+  assert.ok(String(r.reply?.standing).endsWith(`Next: ${p.title} closes ${p.when}.`), String(r.reply?.standing));
+  assert.equal(s.split('\n')[2], qualifyLine({ title: p.title, amount: '$5,000', when: `closes ${p.when}` }), s);
 });
 
 test('(f) one https link and one question in every reply above', () => {

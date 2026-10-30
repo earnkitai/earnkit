@@ -255,8 +255,12 @@ test('the status line only when it changed, the points line once a week; score a
   const st = await seen(b.id);
   assert.equal(typeof st.status_seen, 'string');
   assert.equal(typeof st.nag_week, 'string');
-  const score = show(await mcpCall(b.ctx, 'score', {}));
-  assert.match(score, /^Kit is on EarnKit\./, score);
+  // v4.7 T2: score always says where they stand: its standing paragraph first (never points).
+  const sr = await mcpCall(b.ctx, 'score', {});
+  const score = show(sr);
+  assert.ok(score.startsWith(String(sr.reply?.standing)), score);
+  assert.match(score, /^Score \d+\. No grants won yet\./, score);
+  assert.doesNotMatch(score, /points/, score);
 });
 
 test('the wallet step (v4.0 setup step 3): every builder once the App connects, Base contracts or not; the older Base step never shows', db, async () => {
@@ -279,7 +283,8 @@ test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in ev
   const r = await tell(b, { repo_facts: [{ repo: b.key, mainnet_chains: ['base'], has_users: true }] });
   assert.equal(show(r), 'Noted: live on Base with users.');
   await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project: { name: 'KitFlow', repo_url: `https://github.com/${b.key}` } }).catch(() => null);
-  const s = show(await mcpCall(b.ctx, 'score', {}));
+  // v4.7 T2: score leads with the standing paragraph (no name), so find's standing line carries the name.
+  const s = show(await find(b));
   assert.match(s, /^KitFlow is on EarnKit\./, s);
   // Security review: the name is used for an eligibility line only about the builder's own one project.
   assert.equal(await mainProjectNameFor(b.id, `https://github.com/${b.key}`), 'KitFlow');
@@ -367,8 +372,11 @@ test('round 2: after the walk-through, its question stands until the Lovable pro
   assert.equal(asks(show(before)), LOVABLE_PROMPT_ASK);
   assert.equal((before.reply?.move_up as { kind: string }).kind, 'base_help');
   assert.equal(show(await mcpCall(p.ctx, 'tell', { move_up: { kind: 'base_help', project_key: null, answer: 'yes' } })), '');
-  for (const r of [await mcpCall(p.ctx, 'find', { agent_can_build: false }), await mcpCall(p.ctx, 'score', {})]) {
-    const s = asks(show(r));
+  for (const [i, r] of [await mcpCall(p.ctx, 'find', { agent_can_build: false }), await mcpCall(p.ctx, 'score', {})].entries()) {
+    // v4.7 T2: score leads with the standing paragraph.
+    const lead = i === 1 ? `${r.reply?.standing}\n\n` : '';
+    assert.ok(show(r).startsWith(lead), show(r));
+    const s = asks(show(r).slice(lead.length));
     const link = links(s)[0];
     assert.ok(link?.startsWith('https://earnkit.com/github/verify?n='), s);
     assert.equal(s, nextBuild(link!));

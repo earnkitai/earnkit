@@ -118,7 +118,8 @@ test('8.10 score under the flag: the same reply as find, with rank_lines and the
   benchOn(async () => {
     const id = await person({ main: `mayas${RUN}/recipes`, claimed: `ms${RUN}`, ranked: true, score: 60, projects: [{ key: `mayas${RUN}/recipes`, name: 'Recipe planner', confirmed: true, weeks_shipping: 3, streak: 3 }] });
     const r = (await tools.score({}, { installationId: id } as never)) as { show_to_builder: string; rank_lines: string[]; streak: number };
-    assert.match(r.show_to_builder.split('\n')[0], /^Recipe planner · .*3 weeks in a row$/);
+    // v4.7 T2: score leads with the standing paragraph (the page's score and rank, the weeks).
+    assert.match(r.show_to_builder.split('\n')[0], /^Score 60(?: · [^.]+)?\. 3 weeks shipping in a row\. /);
     assert.equal(r.streak, 3);
     assert.ok(Array.isArray(r.rank_lines));
   }),

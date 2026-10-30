@@ -370,6 +370,13 @@ apps/frontend/
                                closeDay (ends_at's day in that zone: the one close day for the site tiles and replies;
                                ends_at wins over summary text). Program files take an optional IANA `tz` (programs.tz).
                                Tested in v47-numbers.test.ts with the stats-figure hero chip (heroChipText(open_money_usd))
+    standing.ts                v4.7 T2: where the builder stands. Standing type; standingText (exact copy: "Score 77 · #1 of 40
+                               builders. 6 weeks shipping in a row. $5,000 won so far. 2 applications in, 1 draft ready. Next:
+                               X closes Nov 1."); pageScore (the page's score rule, used by bench-data profileData too);
+                               applicationCounts (R3: Task 3's token gate reuses it); wonUsdOf (earned.ts prizesWonSql);
+                               nextDeadline (deadline.ts closeDay over the fits); readStanding. bench-find benchView puts it in
+                               every find/score reply's fields (standingFields), and benchScore leads with it (view.standingLed).
+                               Tested in v47-standing.test.ts
     cli.ts(+test)              pure helpers for scripts/campaign.mts: USAGE, cliErrorLine (one
                                readable line per error), operatorKeyProblem, fallbackProblem,
                                parseFallbackPicks (--winners ranking [--split] or id:amount[:reason])
@@ -1511,7 +1518,8 @@ apps/frontend/
                                v4.0 Task 9: indexBackers also indexes launched builder_tokens coins (start block from tx_hash's receipt,
                                else from builder_tokens.created_at, set when the claim starts and never after the mint; the token's
                                wallet counts as the creator, never a holder); a coin in both tables is read once
-    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), earnedUsd (v4.0 final review 9:
+    earned.ts                  v3 Stage 2: indexCreatorFees (creator_fees, capped by creator_deposits), prizesWonSql (v4.7 T2: the
+                               announced-prize sum, shared with standing.ts), earnedUsd (v4.0 final review 9:
                                plus the creator fee_claims paid to the builder token's wallet, not already in creator_fees)
     week-links.ts              v3 Stage 1 (spec 5.4): the Monday email's links. weekToken/weekTarget/weekVerify (HMAC,
                                the key only in the mac), weekUrl, WEEK_TEXT, weekGet (page, no change) / weekPost

@@ -29,8 +29,6 @@ after(async () => { if (process.env.DATABASE_URL) await sql().end(); });
 const RUN = String(process.pid % 100000);
 const NO_MATCH = (async () => ({ checked: 1, scored: 0, fits: [] })) as never;
 const links = (s: string) => s.match(/https?:\/\/\S+/g) ?? [];
-/** D12, Task 16: the ranked standing line, "Kit · #N of M builders" or a top percent. */
-const RANK = ' · (#\\d+ of \\d+ builders?|Top \\d+(\\.\\d)?% of builders)';
 /** Task 16: at most one https link and exactly one question in every reply. */
 function rule(reply: Record<string, unknown> | null) {
   const s = String(reply?.show_to_builder ?? '');
@@ -94,8 +92,9 @@ test('9.11 R16a: shipping weekly is the ranked state; Task 16: the standing line
   await sql()`UPDATE builder_projects SET streak = 3, ship_weeks = ${weeks}::text[], commit_weeks = ${weeks}::text[] WHERE builder_id = ${a.id} AND lower(project_key) = ${key}`;
   const reply = (await mcpCall(a.ctx, 'score', {})).reply;
   const s = rule(reply);
-  // Task 16: the standing line carries the streak.
-  assert.match(s, new RegExp(`^App${RANK} · 3 weeks in a row\n`, 'm'));
+  // Task 16: the standing line carries the streak. v4.7 T2: score's standing paragraph does, first.
+  assert.match(s, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. 3 weeks shipping in a row\. /);
+  assert.ok(s.startsWith(`${reply?.standing}\n\n`), s);
   assert.ok(endsOnRankedStep(s), s);
   assert.equal(reply?.streak, 3);
 });
