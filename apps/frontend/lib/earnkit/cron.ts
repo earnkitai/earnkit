@@ -108,7 +108,7 @@ export type CronDeps = {
   /** v2.9 E19: the weekly email's mailer and installations (tests); with `only`, the step runs only when given. */
   digest?: { mail?: Mailer; only?: number[] };
   /** v4.7 T5: the alert emails' mailer, events and builders (tests); with `only`, the step runs only when given. */
-  alertMail?: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[]; force?: boolean };
+  alertMail?: { mail?: Mailer; events?: (builderId: number, now: Date) => Promise<AlertEvent[]>; only?: number[] };
   /**
    * v2.10 fix round 1: the cleanup step (expired sign-in links over a day old, public repo reads past
    * their 7 days), at most `limit` rows each a run; with `only`, the step runs only when given.
