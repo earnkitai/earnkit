@@ -464,7 +464,7 @@ const v271Texts: [string, string][] = [
   ['eachLine USDC', eachLine({ title: 'Arc Microgrants', reward: '500 USDC per microgrant', max_award_usd: 500, min_award_usd: null })!],
   ['eachLine grant', eachLine({ title: 'Base Builder Grant Program', reward: 'Up to $5,000 in grants', max_award_usd: 5000, min_award_usd: null })!],
   ['eachLine winner', eachLine({ title: 'Hackathon', reward: '$30,000 grand prize', max_award_usd: 30000, min_award_usd: null })!],
-  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
+  ['statsLine', statsLine({ open_money_usd: 0, open_money_text: null, programs_open: 5, bonus_programs_open: 4, coins_launched: 3, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0.42, bonus_pools_eth: 1, installs: 312, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 })!],
   ['poolLine prizes', poolLine(250000, { plus: true, usdc: false }, 'Monad Metropolis Hackathon')],
   ['poolLine grants', poolLine(200000, { plus: false, usdc: false }, 'Circle Developer Grants')],
   ['poolLine USDC', poolLine(10000, { plus: false, usdc: true }, 'Arc Microgrants')],
@@ -1319,7 +1319,7 @@ test('11.3 (F21): one money figure on the landing, /programs, the no-repo first 
   const cards: Card[] = [{ ...arc, pool_usd: 10000 }, { ...base, pool_usd: 2_000_000 }, sponsored, campaign];
   const fig = moneyText(openMoneyUsd(cards, now));
   assert.equal(fig, '$5.5K');
-  const zero = { open_money_usd: 0, open_money_text: null, open_pools_usd: 0, open_pools_plus: false, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, points_total: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
+  const zero = { open_money_usd: 0, open_money_text: null, programs_open: 0, bonus_programs_open: 0, coins_launched: 0, tokens_declined: 0, fees_to_safe_eth: 0, bonus_paid_eth: 0, bonus_pools_eth: 0, installs: 0, installs_used: 0, builders: 0, activated: 0, weekly_active: 0, shared: 0, posts_drafted: 0, posts_tapped: 0, backers_after_post: 0, labelled_entries: 0, entries_won: 0, builders_won_usd: 0, applications: 0, accepted: 0, backing_open: 0, backers: 0, earned_usd: 0 };
   // v4.7 T1 fix round 1: the landing carries /api/stats' figure (open_money_usd over the same rows).
   const landing = landingFrom(cards, { ...zero, open_money_usd: openMoneyUsd(cards, now) }, now);
   // v3 Stage 2: the landing, /programs and /api/stats read "$5.5K in grants and prizes open"; the first reply keeps the figure.

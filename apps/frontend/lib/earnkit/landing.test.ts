@@ -26,8 +26,6 @@ import { ACTIVITY_INVITE_TITLE, CTA_INSTALL, EARN_TITLE, HERO_SUB, HERO_TITLE, N
 const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   open_money_usd: 0,
   open_money_text: null,
-  open_pools_usd: 0,
-  open_pools_plus: false,
   programs_open: 5,
   bonus_programs_open: 4,
   coins_launched: 0, tokens_declined: 0,
@@ -46,7 +44,6 @@ const stats = (o: Partial<PublicStats> = {}): PublicStats => ({
   labelled_entries: 0,
   entries_won: 0,
   builders_won_usd: 0,
-  points_total: 0,
   applications: 0,
   accepted: 0,
   backing_open: 0,

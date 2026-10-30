@@ -92,15 +92,8 @@ test('profileData.points; v3.1 F4: the reply has no points line', db, async () =
   assert.doesNotMatch(s, /—/);
 });
 
-test('readStats points_total', db, async () => {
-  assert.ok(STATS_KEYS.includes('points_total'));
-  assert.equal(STATS_LABELS.points_total, 'points awarded for approved weeks');
-  const a = await readStats(new Date());
-  await freshBoard();
-  const me = await ranked('pte');
-  const monday = lastFinishedMonday(new Date());
-  await facts(me.id, me.key, monday, { checked: true, shipped_code: { n: 1 } });
-  await approveWeek(me.id, me.key, monday, new Date());
-  const b = await readStats(new Date());
-  assert.equal(b.points_total - a.points_total, 100);
+test('v4.7.1 T2: points_total left the public stats (the ledger stays internal)', db, async () => {
+  assert.ok(!(STATS_KEYS as readonly string[]).includes('points_total'));
+  assert.ok(!('points_total' in STATS_LABELS));
+  assert.ok(!('points_total' in (await readStats(new Date()))));
 });
