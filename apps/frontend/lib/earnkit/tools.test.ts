@@ -1179,7 +1179,7 @@ test('10.9, v3 spec 5.4: an entry never asks (the question is the first yes afte
       assert.deepEqual(yes.saved, ['weekly email: on']);
       assert.deepEqual(await subscription(t.inst), { email: 'alice@example.com', opted: true });
       const no = (await handlers.tell_earnkit({ weekly_email: { answer: 'no' } }, t.ctx)) as { show_to_builder: string };
-      assert.equal(no.show_to_builder, 'No weekly email.');
+      assert.equal(no.show_to_builder, 'No EarnKit emails.');
       // The address goes; the row stays.
       assert.deepEqual(await subscription(t.inst), { email: null, opted: false });
     }),

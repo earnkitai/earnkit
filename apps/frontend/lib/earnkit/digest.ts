@@ -52,10 +52,11 @@ export const EMAIL_NOTE = "Pass the builder's answer to tell as weekly_email.";
 export const WHICH_EMAIL = 'Which email should your Monday summary go to?';
 /** v4.7 T5 (R17): one subscription carries the alerts and the summary. */
 export const EMAIL_ON = "Done. You'll get deadline alerts and a Monday summary.";
-export const EMAIL_OFF = 'No weekly email.';
-export const EMAIL_UNAVAILABLE = 'The weekly email is not available yet.';
-/** Ruling G21: a hosted agent has no verified caller, so it can't keep a weekly email. */
-export const EMAIL_SIGN_IN = "The weekly email isn't available on this agent.";
+/** v4.7 T5 fix round 1: the no, the off and the hosted-agent lines name EarnKit emails (the alerts and the summary), not a weekly one. */
+export const EMAIL_OFF = 'No EarnKit emails.';
+export const EMAIL_UNAVAILABLE = 'EarnKit emails are not available yet.';
+/** Ruling G21: a hosted agent has no verified caller, so it can't keep an email subscription. */
+export const EMAIL_SIGN_IN = "EarnKit emails aren't available on this agent.";
 /** Send failures in a row that stop a run (a Resend outage never burns the day's slots). */
 export const MAX_SEND_FAILURES = 3;
 

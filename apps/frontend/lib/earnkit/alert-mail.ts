@@ -1,6 +1,7 @@
 import { sql } from './db';
 import { alertFit, DEADLINE_DAYS, newProgramOf, openCuratedRows, type NewProgramRow } from './alerts';
-import { awardAmount } from './bench-reply';
+import { awardAmount, benchStepKey } from './bench-reply';
+import { DECLINE_MS } from './bench-find';
 import { openFitsFor } from './best-fit';
 import { closeDay } from './deadline';
 import { cleanName, digestFrom, mailFooter, MailError, MAX_SEND_FAILURES, resendMailer, unsubHeaders, unsubUrl, weekStart, type Mailer } from './digest';
@@ -96,8 +97,9 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
         AND pr.ends_at > ${now} AND pr.ends_at <= ${soon}
         AND NOT EXISTS (SELECT 1 FROM builder_program_status s WHERE s.installation_id = p.installation_id AND s.program_id = p.program_id AND s.status = 'applied')
       ORDER BY p.program_id, p.id DESC`.catch(fail('entries', [] as EntryRow[])),
-    sql()<{ handle: string | null; drafted: Record<string, string> | null }[]>`
-      SELECT x_handle AS handle, standing_seen->'apply_yes' AS drafted FROM builder_profiles WHERE builder_id = ${builderId}`.catch(fail('profile', [])),
+    sql()<{ handle: string | null; drafted: Record<string, string> | null; declined: Record<string, string> | null }[]>`
+      SELECT x_handle AS handle, standing_seen->'apply_yes' AS drafted, standing_seen->'declined' AS declined
+      FROM builder_profiles WHERE builder_id = ${builderId}`.catch(fail('profile', [])),
     sql()<DraftRow[]>`
       SELECT DISTINCT ON (g.id) g.id AS program_id, g.title, d.code
       FROM post_drafts d JOIN programs g ON g.id = substr(d.moment_key, length(d.moment) + 2)
@@ -109,6 +111,13 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
   ]);
   const handle = profile[0]?.handle ?? null;
   const drafted = profile[0]?.drafted ?? {};
+  // Fix round 1 (minor 6): a program the builder said no to (or let stand aside unanswered, R12) within DECLINE_MS, as
+  // find's applyCandidates reads it, never arrives as a new fit.
+  const declined = profile[0]?.declined ?? {};
+  const saidNo = (id: string) => {
+    const at = declined[benchStepKey('apply', id)];
+    return typeof at === 'string' && now.getTime() - Date.parse(at) < DECLINE_MS;
+  };
   const cards = new Map(open.cards.map((c) => [c.id, c]));
   const out: AlertEvent[] = [];
 
@@ -136,7 +145,7 @@ export async function alertEvents(builderId: number, now: Date): Promise<AlertEv
     .sort((a, b) => b.opened_at.getTime() - a.opened_at.getTime());
   for (const r of fresh) {
     const card = cards.get(r.id);
-    if (!card || closing.has(r.id)) continue;
+    if (!card || closing.has(r.id) || saidNo(r.id)) continue;
     const repo = alertFit(newProgramOf(r), repos, { entered: open.skip, hidden: new Set() }, now);
     if (!repo) continue;
     out.push({ kind: 'new', key: `new:${r.id}`, program: card.title, amount: awardAmount(card), when: fundWhen(card), project: cleanName(repo.name, 'Your project') });
@@ -151,10 +160,10 @@ type SubRow = { builder_id: number; installation_id: number; email: string };
 
 /**
  * v4.7 T5: the cron's daily alert step. Runs only in the ALERT_HOUR_UTC hour (`deps.force`: tests). For each builder
- * (the group root) with an opted-in, subscribed, own subscription (never a shared client's or a per-login one) and no
- * alert mailed this UTC day: the events (`deps.events`, default alertEvents) minus those mailed before, the highest
+ * (the group root) with an opted-in, subscribed, own subscription (never a per-login one), no unbound hosted member and
+ * no unsubscribed row anywhere in the group (fix round 1), and no alert mailed this UTC day: the events (`deps.events`, default alertEvents) minus those mailed before, the highest
  * (pickAlert), then one email. Room first: the day's and the month's caps must hold this email plus every digest still
- * due this week (the digest takes priority); a refused cap stops the run. The send runs in one transaction that locks
+ * due this week (the digest takes priority), and the month also every opted-in subscription's next digest; a refused cap stops the run. The send runs in one transaction that locks
  * the builder (pg_advisory_xact_lock), re-checks today's and this event's rows and writes the sent row, so two runs
  * never send twice and a failed send stores nothing. A 429 stops (`capped`); a 401 or 403 is the account (`stopped`);
  * MAX_SEND_FAILURES failures in a row stop. `deps.only`: builders (tests).
@@ -176,17 +185,24 @@ export async function runAlertMail(
     SELECT DISTINCT ON (b.builder_id) b.builder_id, b.installation_id, b.email
     FROM (SELECT COALESCE(i.builder_id, i.id) AS builder_id, d.installation_id, d.email, d.opted_in_at
           FROM digest_subscriptions d JOIN installations i ON i.id = d.installation_id
-          WHERE d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL AND d.email IS NOT NULL AND d.login = ''
-            AND NOT (i.shared_client AND i.x_user_id IS NULL)) b
+          WHERE d.opted_in_at IS NOT NULL AND d.unsubscribed_at IS NULL AND d.email IS NOT NULL AND d.login = '') b
     WHERE NOT EXISTS (SELECT 1 FROM alert_mail_sent a WHERE a.builder_id = b.builder_id AND a.sent_at >= ${today})
+      -- Fix round 1 (C2's group rule, as installations.ts sharedGroup): the alerts read the whole group, so a group with
+      -- any unbound hosted member gets none.
+      AND NOT EXISTS (SELECT 1 FROM installations s WHERE (s.id = b.builder_id OR s.builder_id = b.builder_id)
+        AND s.shared_client AND s.x_user_id IS NULL)
+      -- Fix round 1 (minor 1): one unsubscribe anywhere in the group stops the person's alerts.
+      AND NOT EXISTS (SELECT 1 FROM digest_subscriptions u JOIN installations j ON j.id = u.installation_id
+        WHERE COALESCE(j.builder_id, j.id) = b.builder_id AND u.unsubscribed_at IS NOT NULL)
       ${deps.only ? sql()`AND b.builder_id = ANY(${deps.only}::int[])` : sql()``}
     ORDER BY b.builder_id, b.opted_in_at DESC
     LIMIT ${RUN_MAX}`;
   let failures = 0;
   for (const s of subs) {
     if (Date.now() >= deadline) break;
-    const reserve = 1 + (await digestsDue(now));
-    if (!(await freeTierRoom('resendDay', reserve, now)) || !(await freeTierRoom('resendMonth', reserve, now))) {
+    // Fix round 1 (minor 3): the month also keeps room for next Monday's digests (every opted-in subscription).
+    const room = await digestRoom(now);
+    if (!(await freeTierRoom('resendDay', 1 + room.due, now)) || !(await freeTierRoom('resendMonth', 1 + room.due + room.subscribed, now))) {
       out.capped = true;
       break;
     }
@@ -254,12 +270,17 @@ export async function runAlertMail(
 
 class Capped extends Error {}
 
-/** The Monday digests still due this week (digest.ts sendDigests' rule), the room the alerts leave them. */
-async function digestsDue(now: Date): Promise<number> {
+/**
+ * The room the alerts leave the digests: `due`, the Monday digests still due this week (digest.ts sendDigests' rule;
+ * held in the day's and the month's caps), and `subscribed`, every opted-in subscription (next Monday's digests; held
+ * in the month's cap, fix round 1).
+ */
+async function digestRoom(now: Date): Promise<{ due: number; subscribed: number }> {
   const start = weekStart(now);
-  const [r] = await sql()<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM digest_subscriptions
-    WHERE opted_in_at IS NOT NULL AND opted_in_at < ${start} AND unsubscribed_at IS NULL
-      AND (last_sent_at IS NULL OR last_sent_at < ${start}) AND (last_considered_at IS NULL OR last_considered_at < ${start})`;
-  return r?.n ?? 0;
+  const [r] = await sql()<{ due: number; subscribed: number }[]>`
+    SELECT count(*) FILTER (WHERE opted_in_at < ${start}
+        AND (last_sent_at IS NULL OR last_sent_at < ${start}) AND (last_considered_at IS NULL OR last_considered_at < ${start}))::int AS due,
+      count(*)::int AS subscribed
+    FROM digest_subscriptions WHERE opted_in_at IS NOT NULL AND unsubscribed_at IS NULL`;
+  return { due: r?.due ?? 0, subscribed: r?.subscribed ?? 0 };
 }

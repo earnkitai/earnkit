@@ -307,3 +307,64 @@ test('R16: one score per email: with the standing on top, the week block and the
   const w = digestBody({ week, handle: null, money: [], newPrograms: [], wins: [], deadlines: [] })!;
   assert.match(w.text, /Shipping score: 82, up 4/);
 });
+
+test('fix round 1: a group with an unbound hosted member gets no alert (C2, sharedGroup)', { skip: db.skip }, async () => {
+  await setDayUsed(T0, 0);
+  const id = await subscriber();
+  await sql()`INSERT INTO installations (token_hash, shared_client, builder_id) VALUES (${`v47ro-host-${RUN}-${id}`}, true, ${id})`;
+  const { sent, mail } = recorder();
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 0);
+  assert.equal(sent.length, 0);
+  // Bound to X, the hosted member is a person: the group gets its alert.
+  await sql()`UPDATE installations SET x_user_id = ${`x-${RUN}-${id}`} WHERE builder_id = ${id}`;
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+});
+
+test('fix round 1: an unsubscribe anywhere in the group stops the person\'s alerts', { skip: db.skip }, async () => {
+  await setDayUsed(T0, 0);
+  const id = await subscriber();
+  const [m] = await sql()<{ id: number }[]>`INSERT INTO installations (token_hash, builder_id) VALUES (${`v47ro-m-${RUN}-${id}`}, ${id}) RETURNING id`;
+  await sql()`INSERT INTO digest_subscriptions (installation_id, login, email, asked_at, opted_in_at, unsubscribed_at)
+    VALUES (${m.id}, '', 'other@example.com', now(), ${new Date('2026-10-01')}, ${new Date('2026-10-03')})`;
+  const { sent, mail } = recorder();
+  assert.equal((await runAlertMail(at(0), { mail, events: fixed([closing()]), only: [id], force: true })).sent, 0);
+  assert.equal(sent.length, 0);
+});
+
+test('fix round 1: the month keeps room for next Monday\'s digests (every opted-in subscription)', { skip: db.skip }, async () => {
+  const d = at(9);
+  const id = await subscriber();
+  // None due this week (that room is the day test's): only next Monday's digests are held here.
+  await sql()`UPDATE digest_subscriptions SET last_sent_at = '2099-01-01'`;
+  const [{ n }] = await sql()<{ n: number }[]>`SELECT count(*)::int AS n FROM digest_subscriptions WHERE opted_in_at IS NOT NULL AND unsubscribed_at IS NULL`;
+  await sql()`DELETE FROM free_tier_usage WHERE name IN ('resendDay', 'resendMonth')`;
+  // Exactly the alert plus every subscription's next digest would cross 3,000 by one.
+  await sql()`INSERT INTO free_tier_usage (name, period, used) VALUES ('resendMonth', ${periodKey('month', d)}, ${3000 - n})`;
+  const { mail } = recorder();
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true })).capped, true);
+  await sql()`UPDATE free_tier_usage SET used = ${3000 - n - 1} WHERE name = 'resendMonth'`;
+  assert.equal((await runAlertMail(d, { mail, events: fixed([closing()]), only: [id], force: true })).sent, 1);
+});
+
+test('fix round 1: a program declined within 30 days never arrives as a new fit', { skip: db.skip }, async () => {
+  const now = new Date();
+  const tipjar = {
+    key: 'alice/tipjar', name: 'TipJar', url: 'https://github.com/alice/tipjar', homepage: 'https://tipjar.xyz',
+    created_at: '2026-01-01T00:00:00Z', chains: { base: { mainnet: true, testnet: false, evidence: 'x', basis: 'deployed' } },
+    product: { score: 6, tier: 'product', missing: [] }, live_verified: true, said: null,
+  };
+  const [i] = await sql()<{ id: number }[]>`
+    INSERT INTO installations (token_hash, fit_repos) VALUES (${`v47ro-dec-${RUN}`}, ${sql().json([tipjar] as never)}) RETURNING id`;
+  const pid = `v47-ro-${process.pid}-declined`;
+  await sql()`
+    INSERT INTO programs (id, organizer, title, description, source_url, submission_url, reward, summary, status, existing_work, chains, opened_at, ends_at, max_award_usd)
+    VALUES (${pid}, 'o', ${`Declined Grant ${RUN}`}, 'd', 'https://x', 'https://x', 'up to $10,000', 'up to $10,000', 'active', 'allowed', '{base}',
+      ${new Date(now.getTime() - DAY)}, ${new Date(now.getTime() + 20 * DAY)}, 10000)`;
+  const mine = async () => (await alertEvents(i.id, now)).filter((e) => e.key === `new:${pid}`);
+  assert.equal((await mine()).length, 1, 'a fit before the no');
+  await sql()`INSERT INTO builder_profiles (builder_id, slug, standing_seen) VALUES (${i.id}, ${`v47rodec${i.id}`},
+    ${sql().json({ declined: { [`apply:${pid}`]: new Date(now.getTime() - 2 * DAY).toISOString() } } as never)})`;
+  assert.equal((await mine()).length, 0, 'declined 2 days ago');
+  await sql()`UPDATE builder_profiles SET standing_seen = ${sql().json({ declined: { [`apply:${pid}`]: new Date(now.getTime() - 31 * DAY).toISOString() } } as never)} WHERE builder_id = ${i.id}`;
+  assert.equal((await mine()).length, 1, 'the no is over 30 days old');
+});

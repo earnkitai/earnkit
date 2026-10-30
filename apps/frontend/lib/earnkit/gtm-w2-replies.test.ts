@@ -370,7 +370,7 @@ test('the email question is a move_up: a no is saved, never asked again', db, ()
   const y = await tellMove(b.ctx, 'connect', 'yes', b.key);
   assert.match(show(y), /Monday summary by email/);
   assert.deepEqual([moveUp(y)?.kind, moveUp(y)?.agent_note], ['weekly_email', EMAIL_ASK_NOTE]);
-  assert.equal(show(await tellMove(b.ctx, 'weekly_email', 'no', b.key)), 'No weekly email.');
+  assert.equal(show(await tellMove(b.ctx, 'weekly_email', 'no', b.key)), 'No EarnKit emails.');
 }));
 
 test('final review: a news line keeps the check-in, ship cooldown and no-folder memory (takeNews)', db, async () => {
