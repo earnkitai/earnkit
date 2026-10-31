@@ -86,7 +86,7 @@ export async function markSaid(id: number, keys: string[], now: Date): Promise<v
  * voice, keeps every fact exactly, asks for the one reply given, and does a step it can do on a yes.
  */
 export const MENTOR_NOTE =
-  "Say this in your own words as EarnKit, a mentor who wants them funded: keep every fact, amount, date and link exactly, ask for only the one reply given and put it last. When they say yes to a step you can do, do it, then call find. Don't show this note.";
+  "Say this in your own words as EarnKit, a mentor who wants them funded: keep every fact, amount, date and link exactly, ask for only the one reply given and put it last. When they say yes to a step you can do, do it, then call find. Never tell them they qualify or that an application was sent. Don't show this note.";
 
 /** An open program as the path names it. `when` is fundWhen's ("rolling", "closes Nov 1"); `zone` its IANA zone. */
 export type MoveProgram = {
@@ -160,8 +160,11 @@ export function bestMove(ctx: MoveCtx): Move {
   const investors = ctx.investors.filter((p) => open(p) && p.investment && soon(p, INVESTOR_WINDOW_MS)).sort(byClose);
   const now: (MoveProgram | InvestorProgram)[] = [...noGap, ...investors.filter((p) => soon(p, NOW_WINDOW_MS))].sort(byClose);
   const oneStep = grants.filter((g) => g.gaps.length === 1 && g.doable && !g.passed).sort(byClose);
+  // Task 2 fix round 2: a grant the builder said yes to past the hook (gap, draft) stays a move even once its passed
+  // step was raised (they took it up).
+  const onPast = (g: GapGrant) => ctx.path?.program_id === g.id && ctx.path.stage !== 'hook';
   const closest = grants
-    .filter((g) => !g.passed || (g.gaps.length === 1 && !ctx.raised.has(g.id)))
+    .filter((g) => !g.passed || onPast(g) || (g.gaps.length === 1 && !ctx.raised.has(g.id)))
     .sort((a, b) => a.gaps.length - b.gaps.length || byClose(a, b));
   const moves: Exclude<Move, { kind: 'quiet' }>[] = [
     ...fits.map((program) => ({ kind: 'fit' as const, program })),
@@ -217,14 +220,18 @@ export type PathCtx = {
   move: Exclude<Move, { kind: 'quiet' }>;
   /** What this session already said (sessionOf). */
   said: Set<string>;
+  /** Fix round 2 (F10): the caller's agent has no folder of the code (agent-reach.ts hosted): it does no step itself. */
+  hosted?: boolean;
 };
+/** Fix round 2 (F10): a local agent's offer for a grant whose one gap is Builder Codes (target A). */
+export const CODES_OFFER = 'I can add them and push the change, about 10 minutes. Go?';
 export type PathReply = {
   stage: Stage; program_id: string;
   show_to_builder: string;
   /** The parts this reply says, for markSaid. */
   said: string[];
   /** The easy reply it ends with. */
-  reply: 'start' | 'steps';
+  reply: 'start' | 'steps' | 'go';
 };
 
 /**
@@ -239,13 +246,15 @@ export function pathReply(c: PathCtx): PathReply {
   const m = c.move;
   const p = m.program;
   const name = programName(p.title);
-  const reply: PathReply['reply'] = m.kind === 'fit' || m.kind === 'now' || m.kind === 'investor' ? 'start' : 'steps';
-  const ask = reply === 'start' ? START_ASK : STEPS_ASK;
+  // Fix round 2 (F10): one gap the agent can do (Builder Codes) and a local agent: the hook offers to do it, "Go?".
+  const doIt = (m.kind === 'one_step' || m.kind === 'closest') && m.program.doable && m.program.gaps.length === 1 && c.hosted !== true;
+  const reply: PathReply['reply'] = m.kind === 'fit' || m.kind === 'now' || m.kind === 'investor' ? 'start' : doIt ? 'go' : 'steps';
+  const ask = reply === 'start' ? START_ASK : reply === 'go' ? CODES_OFFER : STEPS_ASK;
   const hookKey = `hook:${p.id}`;
   // Merge gate (Task 6), fix round 1 ruling R2: a pointer (the same step again within a session) is exempt from the
   // proof-line rule; it is one line that points back, with the same easy reply.
   if (c.said.has(hookKey)) {
-    const point = reply === 'start' ? `Your ${name} application is still the next move.` : `${name} is still your closest money.`;
+    const point = reply === 'start' ? `Your ${name} application is still the next move.` : reply === 'go' ? `${name} is still one step away.` : `${name} is still your closest money.`;
     return { stage: 'hook', program_id: p.id, show_to_builder: `${point} ${ask}`, said: [], reply };
   }
   const proof = proofLine(c.project, c.streak, p.investment);
@@ -264,7 +273,7 @@ export function pathReply(c: PathCtx): PathReply {
     money = `${head}${pays}${closes ? `, closing ${closes}` : ''}. ${g.gap}`;
   }
   const first = [money, proof && !proofSaid ? proof : null].filter(Boolean).join(' ');
-  const second = reply === 'start' ? draftOffer(c.project.live) : STEPS_ASK;
+  const second = reply === 'start' ? draftOffer(c.project.live) : ask;
   return {
     stage: 'hook', program_id: p.id,
     show_to_builder: `${first}\n\n${second}`,
@@ -345,6 +354,12 @@ export function gapClosedReply(c: { org: string; title: string; codes: boolean; 
 
 /** An investor program with no public questions: the founder brief's two blanks (target conversation A, exact). */
 export const FOUNDER_BLANKS: readonly string[] = ["who's on the team", "any money you've raised"];
+/** Fix round 2 (F9): one list style at any count: "a", "a, and b", "a, b, and c". Pure. */
+export const andComma = (xs: readonly string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')}, and ${xs.at(-1)}`);
+/** Fix round 2 (F5): a yes to the draft with its blanks still empty: "I need {blanks} to finish it. Reply with them." Pure. */
+export const blanksAgain = (blanks: readonly string[]) => `I need ${andComma(blanks)} to finish it. ${blanks.length === 1 ? 'Reply with it.' : 'Reply with them.'}`;
+/** Fix round 2 (F5): a yes to a draft with no blanks: the path moves to submit (Task 3 renders the stage). Pure. */
+export const readyToSubmit = (link: string | null) => (link ? `It's ready. Submit at ${link}.` : "It's ready to submit.");
 const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 /**
  * The draft's one easy reply: the blanks only the builder can fill, asked as one reply. Two (target A, exact): "Two
@@ -355,7 +370,7 @@ export function blanksAsk(blanks: readonly string[]): string {
   const n = blanks.length;
   if (n === 0) return 'Want me to finish it?';
   const count = COUNT[n] ?? String(n);
-  const list = n === 1 ? blanks[0] : n === 2 ? `${blanks[0]}, and ${blanks[1]}` : `${blanks.slice(0, -1).join(', ')} and ${blanks.at(-1)}`;
+  const list = andComma(blanks);
   const reply = n === 1 ? 'Reply with it' : n === 2 ? 'Reply with both' : 'Reply with them';
   return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${reply} and I'll finish it.`;
 }
@@ -365,17 +380,39 @@ export const draftReply = (record: readonly string[], blanks: readonly string[])
 
 /** A submission requirement as the draft reads it (program-file.ts SubmissionRequirement). */
 type DraftReq = { key: string; label: string; required: boolean; from: 'project' | 'builder'; kind?: string; todo?: string };
+/** Fix round 2 (F1): at most this many blanks in one reply; the rest wait for prepare's own round. */
+export const MAX_BLANKS = 2;
+/** Fix round 2 (F1): builder-only kinds the agent can't draft (the team, a demo video, usage numbers), asked in this order. */
+const ASK_KINDS = ['team', 'traction', 'demo_video'] as const;
 /**
- * What the draft is and which blanks only the builder can fill:
- * - an investor program with no public questions (every required field is a contact detail, typed on its form when
- *   they submit): a short founder brief, whose blanks are FOUNDER_BLANKS;
- * - otherwise the program's questions: the required fields only the builder can answer (`from: 'builder'`) that
- *   EarnKit doesn't hold (`held`: the answer bank, the X handle), named by their `todo`. Pure.
+ * Fix round 2 (F1): a builder field (`from: 'builder'`) the agent can't draft: the team, usage numbers, a demo video, a
+ * link, a choice they consent to, or an amount, location or code only they know. Other builder fields (how it makes
+ * money, a GTM plan, the main challenge) the agent drafts from the repo and record, marked for the builder to check. Pure.
  */
-export function draftBlanks(p: { investment: boolean; submission_requirements: readonly DraftReq[] }, held: Record<string, string>): { brief: boolean; blanks: string[] } {
+const mustAsk = (r: DraftReq & { type?: string }) =>
+  (ASK_KINDS as readonly string[]).includes(r.kind ?? '') || r.type === 'url' || r.type === 'choice'
+  || /amount|usd|location|code|wallet|consent/i.test(`${r.key} ${r.label}`);
+/**
+ * What the draft is and which blanks only the builder can fill (fix round 2, F1):
+ * - an investor program with no public questions (every required field is a contact detail): a short founder brief,
+ *   whose blanks are FOUNDER_BLANKS;
+ * - otherwise the required builder fields EarnKit doesn't hold (`held`: the confirmed Builder Code, verified usage, the
+ *   answer bank) and the agent can't draft (mustAsk), team first, at most MAX_BLANKS; `later` holds the rest. Contact
+ *   details (name, email, handles) are typed when they submit, for every program, so never a blank. `drafted`: the
+ *   builder fields the agent drafts for them to check. Pure.
+ */
+export function draftBlanks(
+  p: { investment: boolean; submission_requirements: readonly (DraftReq & { type?: string })[] }, held: Record<string, string>,
+): { brief: boolean; blanks: string[]; later: string[]; drafted: string[] } {
   const required = p.submission_requirements.filter((r) => r.required);
-  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS] };
-  return { brief: false, blanks: required.filter((r) => r.from === 'builder' && !held[r.key]?.trim()).map((r) => r.todo ?? r.label.toLowerCase()) };
+  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] };
+  const open = required.filter((r) => r.from === 'builder' && r.kind !== 'contact' && !held[r.key]?.trim());
+  const rank = (r: DraftReq) => {
+    const i = (ASK_KINDS as readonly string[]).indexOf(r.kind ?? '');
+    return i < 0 ? ASK_KINDS.length : i;
+  };
+  const ask = open.filter(mustAsk).sort((a, b) => rank(a) - rank(b)).map((r) => r.todo ?? r.label.toLowerCase());
+  return { brief: false, blanks: ask.slice(0, MAX_BLANKS), later: ask.slice(MAX_BLANKS), drafted: open.filter((r) => !mustAsk(r)).map((r) => r.label) };
 }
 
 /**

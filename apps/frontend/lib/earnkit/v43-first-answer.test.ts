@@ -20,7 +20,7 @@ import {
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { qualifyGapSteps } from './bench-reply';
-import { MENTOR_NOTE, gapReply } from './conversation';
+import { CODES_OFFER, MENTOR_NOTE, gapReply } from './conversation';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
@@ -197,7 +197,8 @@ async function ownerBuilder(tag: string, o: { hosted?: boolean; codes?: boolean 
   return { c, ctx, key };
 }
 /** v4.8 Task 1: the path's hook for Base's grant, its gap sentence `gap` (bench-reply.ts qualifyGap). */
-const BASE_HOOK = (gap: string) => new RegExp(`^Ek, Base Builder Grant pays up to \\$5,000\\. ${gap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( [^\n]+)?\n\nWant the steps\\?$`);
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const BASE_HOOK = (gap: string, end = 'Want the steps?') => new RegExp(`^Ek, Base Builder Grant pays up to \\$5,000\\. ${esc(gap)}( [^\n]+)?\n\n${esc(end)}$`);
 const CODES_GAP = "EarnKit is one step away: add Builder Codes, a one-line tag that credits your app's Base transactions to you.";
 const start = async () => {
   mock.timers.reset();
@@ -205,20 +206,19 @@ const start = async () => {
   await padPool(12);
 };
 
-test("the owner's state through find: the path's Base hook with the approved gap; the yes gives the steps", db, async () => {
+test("the owner's state through find: the path's Base hook offers to add Builder Codes; the yes is the agent doing it", db, async () => {
   await start();
   const { c, ctx, key } = await ownerBuilder('y');
   const r = await mcpCall(ctx, 'find', {});
-  // v4.8 Task 1: the path's hook (the v4.3 qualify reply's head and question are retired for a plain find).
-  assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
+  // v4.8 Task 2 fix round 2 (F10): one gap a local agent can do: the hook offers to do it.
+  assert.match(show(r), BASE_HOOK(CODES_GAP, CODES_OFFER), show(r));
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
-  // v4.8 Task 2: the hook asked "Want the steps?", so the yes is the gap stage: the one step, marked, then "Go?".
+  // Its yes is the agent adding them (then push and find).
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false, "You're live on Base.").show_to_builder);
-  assert.ok(show(yes).endsWith("I can do this. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes\n\nYou're live on Base. I can add them and push the change, about 10 minutes. Go?"), show(yes));
+  assert.match(show(yes), /^Adding Builder Codes to EarnKit/, show(yes));
+  assert.match(String(yes.reply?.agent_note), /commit and push it/);
   assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
-  assert.equal((yes.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
   const [{ g }] = await sql()<{ g: Record<string, string> | null }[]>`SELECT standing_seen->'qualify_given' AS g FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(typeof g?.[key], 'string');
   // Mid-path (fix round 1, T2-4): the next find stays on Base's gap with its first remaining step, never "Want the steps?".
@@ -263,7 +263,7 @@ test('fix round 1: Builder Codes unknown: the gap says "To qualify", the yes tel
   const s = show(await mcpCall(ctx, 'find', {}));
   // v4.8 Task 1: the path's hook says the honest gap ("To qualify", never "one step away" on a guess).
   assert.match(s, /^Ek, Base Builder Grant pays up to \$5,000\. To qualify, EarnKit needs to add Builder Codes, /, s);
-  assert.ok(s.endsWith('\n\nWant the steps?'), s);
+  assert.ok(s.endsWith(`\n\n${CODES_OFFER}`), s);
   // A stored ask from v4.3's find (the doing, codes unknown): its yes tells the agent to check before adding.
   const old = { kind: 'qualify', key, program_id: BASE_GRANTS_ID, qualify: { grant: BASE, steps: ['codes'], first: 'codes', name: 'EarnKit', hosted: false, codes_missing: false } };
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(old as never)}::jsonb) WHERE builder_id = (SELECT builder_id FROM builder_profiles WHERE main_project_key = ${key} LIMIT 1)`;

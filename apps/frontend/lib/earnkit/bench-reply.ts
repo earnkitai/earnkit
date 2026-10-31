@@ -707,6 +707,8 @@ export type BenchView = {
   path?: string;
   /** v4.8 Task 1: the program the path's yes drafts (find's `lead`), null for a step. */
   pathLead?: { program_id: string; repo?: string } | null;
+  /** v4.8 Task 2 fix round 2 (F3): a note before MENTOR_NOTE on this path reply. */
+  pathNote?: string;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */

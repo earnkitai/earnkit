@@ -2659,7 +2659,7 @@ async function draftWithSteps(
 export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
   const r = reply as T & { note?: unknown; agent_note?: unknown };
   // v4.8 Task 1: a path reply's mentor note asks the agent to reword it, so the "exactly as written" note never joins it.
-  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n === MENTOR_NOTE));
+  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n.endsWith(MENTOR_NOTE)));
   return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
 }
 

@@ -8686,4 +8686,18 @@ A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored wit
   step}. {proof} Want me to do it now?" (help ask when the agent can't), never "Want the steps?" again. The steps reply
   and the steps-done reply carry one proof line (conversation.ts gapProof: "You're live on Base." / "You're on Base."
   from Base's remaining steps, else the streak and live line).
+- Fix round 2: a grant whose one gap a local agent can do (Builder Codes) is hooked with "... I can add them and push
+  the change, about 10 minutes. Go?" (pathReply `go`, stored as the gap ask), skipping the steps turn; hosted agents
+  keep "Want the steps?". The Builder Codes re-check runs when the stored answer is older than the builder's yes
+  (gap_did), waits RECHECK_WAIT (8 s) inside find, then continues in the background (one per repo; a failed read stamps
+  gap_check_failed, 2 minute backoff) with "I'm checking the code now. Give it a minute, then say ok.". Base's gap
+  closes only when qualifyOffer reports every step met (allMet), never on a failed read. Another grant's steps are only
+  its unmet programNeeds gaps (setup items dropped). Draft blanks are only what EarnKit doesn't hold (confirmed Builder
+  Code, verified usage, the bank) and the agent can't draft (team, usage numbers, a demo video, links, choices,
+  amounts, codes), at most 2 (`later` waits for prepare's round); contact details are typed at submit for every
+  program; narrative builder fields are drafted and marked for the builder to check. A yes to the draft's ask re-asks
+  its blanks ("I need ... Reply with them.") or, with none, moves the path to submit ("It's ready. Submit at {link}.").
+  MENTOR_NOTE and the draft notes carry "Never tell them they qualify or that an application was sent."; with no record
+  the draft notes say to leave traction out. Lists use ", and" at any count. A grant the builder took up past the hook
+  stays a bestMove move after its passed step was raised.
 

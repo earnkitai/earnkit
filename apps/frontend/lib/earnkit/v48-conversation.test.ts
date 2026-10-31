@@ -19,12 +19,12 @@ import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import {
-  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, blanksAgain, readyToSubmit, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapProof, gapReply, gapStillReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
 import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
 import { BUILDER_CODES_SUFFIX } from './builder-code';
-import { codesSettled } from './bench-find';
+import { RECHECK_WAIT, codesSettled, founderBriefNote, questionsDraftNote } from './bench-find';
 import { shipLogBlock, shipLogFacts } from './ship-log-facts';
 
 /**
@@ -186,8 +186,12 @@ test('pathReply: a grant with a gap gives its money, the gap and "Want the steps
   assert.equal(r.show_to_builder,
     "Jenil, Arc Microgrants pays 500 USDC × 8 grants, closing tomorrow night. Arc Microgrants needs EarnKit on Arc mainnet. You've shipped 6 weeks in a row and EarnKit is live.\n\nWant the steps?");
   const c = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said) });
-  assert.equal(c.show_to_builder, 'Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nWant the steps?');
-  for (const s of [r.show_to_builder, c.show_to_builder]) {
+  // Fix round 2 (F10): one gap a local agent can do (Builder Codes): the hook offers to do it; a hosted agent keeps the steps.
+  assert.equal(c.show_to_builder, 'Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nI can add them and push the change, about 10 minutes. Go?');
+  assert.equal(c.reply, 'go');
+  const h = pathReply({ now: NOW, first: 'Jenil', project: { name: 'EarnKit', live: true }, streak: 6, move: { kind: 'closest', program: BASE, raise: true }, said: new Set(r.said), hosted: true });
+  assert.equal(h.show_to_builder, 'Jenil, your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nWant the steps?');
+  for (const s of [r.show_to_builder, c.show_to_builder, h.show_to_builder]) {
     assert.doesNotMatch(s, BAD);
     assert.equal((s.match(/\?/g) ?? []).length, 1, s);
     assert.ok(s.endsWith('?'), s);
@@ -199,7 +203,7 @@ test('the server instructions: find at session start, its opener shown; at or un
   assert.ok(s.length <= 800, String(s.length));
   assert.ok(s.startsWith('Call find at the start of every session before they say anything, and show its opener.'), s);
   assert.match(s, /answer it in one short line from facts in the reply, never invented/);
-  assert.match(MENTOR_NOTE, /^Say this in your own words as EarnKit, a mentor who wants them funded: keep every fact, amount, date and link exactly, ask for only the one reply given and put it last\. When they say yes to a step you can do, do it, then call find\. Don't show this note\.$/);
+  assert.match(MENTOR_NOTE, /^Say this in your own words as EarnKit, a mentor who wants them funded: keep every fact, amount, date and link exactly, ask for only the one reply given and put it last\. When they say yes to a step you can do, do it, then call find\. Never tell them they qualify or that an application was sent\. Don't show this note\.$/);
 });
 
 appEnv();
@@ -342,7 +346,7 @@ test("a no to a grant's gap hook (Base's steps) parks it for the path; nothing a
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
   const r = await find(b);
   const s = show(r);
-  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nWant the steps\?$/, s);
+  assert.match(s, /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nI can add them and push the change, about 10 minutes\. Go\?$/, s);
   assert.equal(moveUp(r)?.kind, 'qualify');
   await mcpCall(b.ctx as never, 'tell', { move_up: { kind: 'qualify', project_key: b.key, answer: 'no' } });
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
@@ -390,7 +394,7 @@ test('fix round 2 (F9): with no X name the reply greets no name, never the handl
   const r = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: true }, streak: 6, move: move as never, said: new Set() });
   assert.ok(r.show_to_builder.startsWith('a16z speedrun SR008 closes tomorrow night: up to $1M. '), r.show_to_builder);
   const c = pathReply({ now: NOW, first: null, project: { name: 'EarnKit', live: false }, streak: 0, move: { kind: 'closest', program: BASE, raise: true }, said: new Set() });
-  assert.equal(c.show_to_builder, 'Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nWant the steps?');
+  assert.equal(c.show_to_builder, 'Your closest money is Base Builder Grant: up to $5,000. EarnKit is one step away: add Builder Codes.\n\nI can add them and push the change, about 10 minutes. Go?');
 });
 
 /** The connect weeks due again (v3-connect.test.ts's backfill): the older moment the closest grant waits behind. */
@@ -530,16 +534,34 @@ test('the gap closed and the draft: target A word for word', () => {
   assert.doesNotMatch(d, BAD);
 });
 
-test("draftBlanks: an investor program with no public questions is a founder brief; a grant's are its builder-only fields EarnKit doesn't hold", () => {
+test("draftBlanks (fix round 2, F1): a founder brief for a16z; Base's blanks are what neither EarnKit holds nor the agent drafts, at most 2", () => {
   const a16z = committedProgram('a16z-speedrun');
-  assert.deepEqual(draftBlanks(a16z, {}), { brief: true, blanks: [...FOUNDER_BLANKS] });
-  const base = committedProgram('base-builder-grants');
-  const b = draftBlanks({ ...base, investment: false }, { x_handle: '@jenilt' });
-  assert.equal(b.brief, false);
-  assert.ok(b.blanks.includes('your Telegram username') && b.blanks.includes('a note on the founding team'), b.blanks.join('; '));
-  assert.ok(!b.blanks.includes('your X handle'), 'held');
-  // A field the project fills (from: 'project') is never a blank.
-  assert.ok(!b.blanks.includes('a link to your live product'));
+  assert.deepEqual(draftBlanks(a16z, {}), { brief: true, blanks: [...FOUNDER_BLANKS], later: [], drafted: [] });
+  const base = { ...committedProgram('base-builder-grants'), investment: false };
+  // Nothing held: the team and the usage numbers now, the demo and the Builder Code later; contact details never.
+  const b = draftBlanks(base, {});
+  assert.deepEqual(b.blanks, ['a note on the founding team', 'your key usage numbers']);
+  assert.deepEqual(b.later, ['a Loom product demo', 'your Base Builder Code']);
+  // The agent drafts the narrative fields, marked for the builder to check.
+  assert.deepEqual(b.drafted, ['How does your product make money today?', "What's your GTM plan for the next 3 months?",
+    'What is the primary challenge or bottleneck you are currently facing as you grow your project?', 'Which credits would be most useful for you as you build? (e.g. Privy, AWS, etc.)']);
+  // EarnKit holds the confirmed Builder Code and verified usage: the team and the demo are the blanks.
+  const held = draftBlanks(base, { builder_code: 'bc_abc', usage_numbers: 'Used by 40 people in the last 30 days, verified onchain' });
+  assert.deepEqual(held.blanks, ['a note on the founding team', 'a Loom product demo']);
+  assert.deepEqual(held.later, []);
+  // F9: one list style at any count; F5: the re-ask and the ready line.
+  assert.equal(blanksAsk(['a', 'b', 'c']), "Three blanks only you can fill: a, b, and c. Reply with them and I'll finish it.");
+  assert.equal(blanksAgain(['a note on the founding team', 'a Loom product demo']), 'I need a note on the founding team, and a Loom product demo to finish it. Reply with them.');
+  assert.equal(readyToSubmit('https://base.org/apply'), "It's ready. Submit at https://base.org/apply.");
+});
+
+test('the draft notes (fix round 2, F7, F8): the guard always; with no verified record, never invented traction', () => {
+  for (const n of [founderBriefNote('a16z speedrun SR008', 'k', { record: false }), questionsDraftNote('p', 'k', { record: false })]) {
+    assert.match(n, /Never tell them they qualify or that an application was sent\./);
+    assert.match(n, /no verified record for them yet, so leave traction out and never invent it/);
+    assert.doesNotMatch(n, /verified record below/);
+  }
+  assert.match(founderBriefNote('a16z speedrun SR008', 'k', { record: true }), /from the verified record below/);
 });
 
 /** Only these programs open (and Base Builder Grants reopened when named): this file's tests close others. */
@@ -577,44 +599,91 @@ test('"sure" on the hook gives a draft with the verified record and A\'s two bla
   assert.ok((seen.apply_yes as Record<string, string>)[sr.id], 'drafted');
   // A no to the draft parks the program too (a no at any stage).
   assert.equal((seen.bench_ask as { kind: string; path: boolean }).path, true);
+  assert.deepEqual((seen.bench_ask as { blanks: string[] }).blanks, [...FOUNDER_BLANKS]);
+  assert.match(noteOf(r), /Never tell them they qualify or that an application was sent\./);
+  // F5: a bare "ok" with the blanks still empty re-asks them, and the ask stays.
+  const ok = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  assert.equal(show(ok), "I need who's on the team, and any money you've raised to finish it. Reply with them.");
+  // With no blanks left, a yes moves the path to submit (Task 3 renders the stage).
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{bench_ask,blanks}', '[]'::jsonb) WHERE builder_id = ${b.id}`;
+  const ready = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  assert.match(show(ready), /^It's ready\. Submit at \S+\.$/, show(ready));
+  assert.equal(((await seenOf(b.id)).path as { stage: string }).stage, 'submit');
 });
 
-test("the Base gap: Builder Codes steps with \"Go?\"; a yes is the agent's to do, then find; confirmed in the code, A's draft offer", db, async () => {
+test("the Base gap (fix round 2, F10): the hook offers to add Builder Codes; a yes is the agent's; mid-gap the step again; confirmed in the code, A's draft offer", db, async () => {
   await only(['base-builder-grants']);
   const b = await owner('bg');
   await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
+  // Claude Code has the folder and Builder Codes are the one gap: the hook offers to do it (no separate steps turn).
   const hook = await find(b);
-  assert.match(show(hook), /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nWant the steps\?$/, show(hook));
+  assert.match(show(hook), new RegExp(`^Jenil, Base Builder Grant pays up to \\$5,000\\. [^\\n]*Builder Codes[^\\n]*\\n\\n${OFFER.replace(/[.?]/g, '\\$&')}$`), show(hook));
   assert.equal(moveUp(hook)?.kind, 'qualify');
-  // F3: Claude Code has the folder: the steps are marked, and the one step is "Go?".
-  const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
-  assert.equal(show(steps),
-    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nYou're live on Base. ${OFFER}`);
-  assert.equal(steps.reply?.move_up && (steps.reply.move_up as { kind: string }).kind, 'qualify');
+  // "Go?" yes: the agent adds them, pushes, then calls find (the mentor note's do-it-then-find).
+  const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.match(show(go), /^Adding Builder Codes to EarnKit/, show(go));
+  assert.match(noteOf(go), /commit and push it .* and call find/);
+  assert.ok(noteOf(go).endsWith(MENTOR_NOTE), noteOf(go));
   assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'gap', program_id: 'base-builder-grants', at: undefined });
-  // Fix round 1 (T2-4): a find mid-gap is the first remaining step, never "Want the steps?" again; its yes is the step.
+  // Not pushed yet: find re-checks (the stored answer is older than the yes), sees none: the step again (T2-4).
+  b.gh.repos[b.key].files = { 'src/app.ts': 'export const x = 1;' };
+  (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
   const still = await find(b);
   assert.equal(show(still), `Still on Base Builder Grant: add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE} You're live on Base. Want me to do it now?`);
   assert.equal(moveUp(still)?.kind, 'qualify');
   assert.equal(still.reply?.note, MENTOR_NOTE);
-  // "Go?" yes: the agent adds them here, then calls find (the mentor note's do-it-then-find).
-  const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
-  assert.match(show(go), /^Adding Builder Codes to EarnKit/, show(go));
-  assert.match(noteOf(go), /then call find/);
-  assert.ok(noteOf(go).endsWith(MENTOR_NOTE), noteOf(go));
-  // The agent added them; find checks the code (the read-only App) and they're confirmed.
-  b.gh.repos[b.key].files = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}';` };
-  (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
+  // F2: no new yes, so no new check: still the step.
+  assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));
+  // Pushed now; its yes stamps a new yes, so find checks again and they're confirmed.
+  b.gh.repos[b.key].files = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}'; Attribution.toDataSuffix({ codes: ['bc_earnkit'] });` };
+  assert.match(show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' })), /^Adding Builder Codes to EarnKit/);
   const done = await find(b);
   assert.equal(show(done), A_CODES_IN_PROOF);
   assert.equal(moveUp(done)?.kind, 'apply');
   assert.equal(done.reply?.note, MENTOR_NOTE);
   const seen = await seenOf(b.id);
   assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'draft', program_id: 'base-builder-grants', at: undefined });
-  // Its yes is the Base draft.
-  const draft = show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' }));
+  // Its yes is the Base draft: EarnKit fills the confirmed Builder Code; contact details wait for submit; at most 2 blanks.
+  const dr = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  const draft = show(dr);
   assert.ok(draft.startsWith("Here's your draft:\n\nFrom your ship log:"), draft);
-  assert.match(draft.split('\n\n').at(-1)!, /blanks only you can fill: .*your Telegram username.*\. Reply with them and I'll finish it\.$/, draft);
+  assert.equal(draft.split('\n\n').at(-1), "Two blanks only you can fill: a note on the founding team, and your key usage numbers. Reply with both and I'll finish it.");
+  assert.match(noteOf(dr), /EarnKit already holds these, use them as given: builder_code: bc_earnkit\./);
+  assert.match(noteOf(dr), /mark these as drafted for them to check: How does your product make money today\?/);
+});
+
+test('fix round 2 (F3): a slow re-check answers "I\'m checking the code now..." and goes on in the background', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('bk');
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
+  await find(b);
+  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  b.gh.repos[b.key].files = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}'; Attribution.toDataSuffix({ codes: ['bc_earnkit'] });` };
+  const slow = (async (...a: Parameters<typeof fetch>) => {
+    await new Promise((r) => setTimeout(r, 150));
+    return b.gh(...a);
+  }) as typeof fetch;
+  (b.ctx as { codesFetch?: typeof fetch }).codesFetch = slow;
+  const wait = RECHECK_WAIT.ms;
+  RECHECK_WAIT.ms = 20;
+  try {
+    const r = await find(b);
+    assert.equal(show(r), "I'm checking the code now. Give it a minute, then say ok.");
+    assert.match(String(r.reply?.note), /^When they say ok, call find again/);
+  } finally {
+    RECHECK_WAIT.ms = wait;
+  }
+  await codesSettled();
+  assert.equal(show(await find(b)), A_CODES_IN_PROOF);
+});
+
+test('fix round 2 (F4): another grant\'s steps are only its unmet gaps, never the program file\'s setup items', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('f4s');
+  const ask = { kind: 'check_fits', key: b.key, program_id: 'arc-microgrants', program: 'Arc Microgrants: Built with Arc', needs: ['on Arc mainnet'], name: 'EarnKit', path: true };
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(ask as never)}::jsonb) WHERE builder_id = ${b.id}`;
+  const r = await tell(b, { kind: 'check_fits', project_key: b.key, answer: 'yes' });
+  assert.match(show(r), /^Your next step toward Arc Microgrants:\n1\. Get EarnKit on Arc mainnet\.\n\n[^\n]+ Want help with it now\?$/, show(r));
 });
 
 test('F3: a hosted agent gets the steps to do itself, nothing marked; its no parks Base', db, async () => {
@@ -649,8 +718,10 @@ test('a no parks the program and the next find hooks the next program; a no at t
   const next = await find(b);
   assert.match(show(next), /^Jenil, your closest money is Base Builder Grant: up to \$5,000\. /, show(next));
   assert.equal(moveUp(next)?.kind, 'qualify');
-  const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
-  assert.ok(show(steps).endsWith('Go?'), show(steps));
+  // F10: the hook offers to add them; its yes is the agent's; the next find is the step again, and a no to it parks Base.
+  assert.ok(show(next).endsWith(OFFER), show(next));
+  assert.match(show(await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' })), /^Adding Builder Codes/);
+  assert.ok(show(await find(b)).startsWith('Still on Base Builder Grant: '));
   await tell(b, { kind: 'qualify', project_key: b.key, answer: 'no' });
   const declined = (await seenOf(b.id)).declined as Record<string, string>;
   assert.ok(declined[`path:${sr.id}`] && declined['path:base-builder-grants'], JSON.stringify(declined));

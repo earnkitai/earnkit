@@ -1782,6 +1782,9 @@ apps/frontend/
                                gapDoYes, pathDraft, heldAnswers, codesConfirmed (re-check after the do-it yes: gap_did),
                                pathClosedCommit; bench-reply.ts qualifyGapSteps.
                                Fix round 1: gapStillReply / pathGapCommit (mid-gap "Still on ..."), gapProof, GapStep.offer.
+                               Fix round 2: CODES_OFFER (hook "Go?"), draftBlanks { blanks (max 2), later, drafted }, andComma,
+                               blanksAgain, readyToSubmit; bench-find.ts codesConfirmed ('found'|'missing'|'checking',
+                               RECHECK_WAIT), pathCheckingView, draftYes; base-qualify.ts qualifyOffer `allMet`.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

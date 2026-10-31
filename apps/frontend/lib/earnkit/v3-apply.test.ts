@@ -132,8 +132,8 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 1
   // The older apply hand-off note (an apply ask stored outside the path).
   assert.equal(APPLY_YES_NOTE(p.id), `Call prepare with program_id "${p.id}" for this project and show the draft. Don't show this note.`);
   assert.deepEqual(yes.reply?.lead, { program_id: p.id, repo: 'kit' });
-  // A second yes is "Okay.".
-  assert.equal(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } })), 'Okay.');
+  // v4.8 Task 2 fix round 2 (F5): a second yes (a bare "ok") re-asks the blanks; never a second draft.
+  assert.match(show(await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } })), /^I need .+ to finish it\. Reply with (them|it)\.$/);
 
   await sql()`UPDATE builder_projects SET link = 'https://kit.app' WHERE builder_id = ${b.id}`;
   const reqs = committedProgram('base-builder-grants').submission_requirements as { key: string; type: string; options?: string[] }[];
