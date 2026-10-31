@@ -8653,3 +8653,32 @@ standAside, APPLY_UNANSWERED_MAX). Base's v4.3 qualify reply no longer shows on 
 (it still answers find {more: true}); R6 (never pitch a program told applied or drafted) stays on the older reply's
 fit lines.
 
+## v4.8 Task 2: the gap and draft stages (2026-10-31)
+
+A yes on the path moves the stage on (bench-find.ts benchMoveUp, asks stored with `path: true`):
+- **hook to gap.** The yes to "Want the steps?" (qualify for Base, check_fits for another grant) is the gap stage
+  (gapYes, conversation.ts gapReply): "Your next step toward {program}:" and the numbered steps (Base: bench-reply.ts
+  qualifyGapSteps; another grant: programNeeds' gaps as lines plus the program file's `setup`). Each step the agent can
+  do in the repo (only Builder Codes) is marked "I can do this." and listed first; the reply ends "Go?" (one step),
+  "Want me to do the first one now?" (several) or, when the agent can do none or is hosted (agent-reach.ts, read now:
+  F3), the help ask. The steps' question is stored again (gap: true). Its yes (gapDoYes) is the agent adding Builder
+  Codes, pushing, then calling find (MENTOR_NOTE), with standing_seen.gap_did stamped; a hosted agent walks the builder
+  through it instead.
+- **gap closed.** On each find while the path is at gap on Base (or at draft, not yet drafted), pathPlan reads Builder
+  Codes (codesConfirmed: the stored answer; within SESSION_MS of gap_did, a not-found answer over a minute old is
+  checked again now, awaited, without spending the daily claim). Confirmed with no Base step left, the reply is
+  pathClosedCommit's "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application
+  next?" (another grant whose needs are all known met: "{program}'s steps are done." + the same offer); the path moves
+  to draft and the apply ask (path) is stored. On Base's gap, qualify_given no longer hides Base from the path.
+- **hook to draft.** The yes to "Want me to start?" (or the draft offer) is pathDraft: "Here's your draft:", the
+  verified record (ship-log-facts.ts shipLogBlock: score, streak, live link, page link, verified usage and revenue
+  under its own freshness and minimum rules; none on a shared client), then the blanks only the builder can fill
+  (conversation.ts draftBlanks / blanksAsk) as one reply ("Two blanks only you can fill: ... Reply with both and I'll
+  finish it."). An investor program whose required fields are all contact details (questions not public) gets a short
+  founder brief whose blanks are FOUNDER_BLANKS (team, money raised); any other program's blanks are its required
+  `from: 'builder'` fields EarnKit doesn't hold (the answer bank, the X handle). The note tells the agent to draft
+  through prepare (questionsDraftNote) or write the brief (founderBriefNote), then MENTOR_NOTE. The draft's own ask is
+  stored (draft: true): a yes to it is "Okay.", a no parks the program.
+- A no at any stage parks the program ('path:<id>', DECLINE_MS); the next find hooks the next bestMove program. A
+  builder past the hook on a program keeps that stage when the hook's words are repeated (pathCommit).
+

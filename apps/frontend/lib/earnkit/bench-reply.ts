@@ -1,5 +1,6 @@
 import { pageUrl } from './reserved-routes';
 import { CHEER_LINE, communityRow, mondayOpener, mondayRows } from './weekly-moment';
+import type { GapStep } from './conversation';
 
 /**
  * v3.1 Task 16 (owner-approved copy, 2026-10-21): every reply written for a busy builder. Plain text, no headers,
@@ -428,6 +429,15 @@ const STEP_LINE: Record<QualifyStep, string> = {
   codes: `Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic: https://${BUILDER_CODES_GUIDE}`,
   use: 'Have a live product people use.',
 };
+/**
+ * v4.8 Task 2: Base's steps for the path's gap stage (conversation.ts gapReply), from the same program-file rules as
+ * STEP_LINE. Builder Codes are the one step the agent can do in the repo; its guide link goes after the mark. Pure.
+ */
+export const qualifyGapSteps = (steps: readonly QualifyStep[]): GapStep[] =>
+  QUALIFY_STEPS.filter((s) => steps.includes(s)).map((s) =>
+    s === 'codes'
+      ? { text: "Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic.", link: `https://${BUILDER_CODES_GUIDE}`, doable: true }
+      : { text: STEP_LINE[s], doable: false });
 /** The steps reply's one question: help with the first step listed (always "step 1"). */
 export const QUALIFY_HELP_ASK = 'Want help with step 1 now?';
 /** Cold read: one step left has no "step 1" to point at. */

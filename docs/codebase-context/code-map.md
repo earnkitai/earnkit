@@ -1776,6 +1776,11 @@ apps/frontend/
                                gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
                                the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
                                fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
+                               v4.8 Task 2: gapReply (the steps, "I can do this." marks, Go? / first one / help), gapClosedReply,
+                               draftReply, blanksAsk, draftBlanks (founder brief for an investor program with no public
+                               questions, else required builder-only fields not held), FOUNDER_BLANKS. bench-find.ts gapYes,
+                               gapDoYes, pathDraft, heldAnswers, codesConfirmed (re-check after the do-it yes: gap_did),
+                               pathClosedCommit; bench-reply.ts qualifyGapSteps.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

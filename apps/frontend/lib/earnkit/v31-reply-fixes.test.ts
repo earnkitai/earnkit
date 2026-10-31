@@ -8,10 +8,12 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
+import { TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
 import {
   TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
+import { qualifyGapSteps } from './bench-reply';
+import { MENTOR_NOTE, gapReply } from './conversation';
 import { grantOf, qualifyOffer, qualifyPlan, qualifyStatus } from './base-qualify';
 import { BASE_GRANTS_ID } from './builder-code';
 import { UPDATE_LINES, titlesAskDue } from './updates';
@@ -231,11 +233,14 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   assert.ok(s.endsWith('\n\nWant the steps?'), s);
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
-  // The hook asked for the steps, so its yes is the steps (Task 2's gap stage does them).
+  // v4.8 Task 2: the hook asked for the steps, so its yes is the gap stage: the steps, the one the agent can do marked
+  // and first, then "Want me to do the first one now?".
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), qualifySteps(BASE, ['codes', 'use']));
-  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
-  // Answered once.
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes', 'use']), false).show_to_builder);
+  assert.ok(show(yes).endsWith('\n\nWant me to do the first one now?'), show(yes));
+  assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
+  // Its yes is the agent adding Builder Codes (then find); a third yes is "Okay.".
+  assert.match(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), /^Adding Builder Codes to Kit/);
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), 'Okay.');
   // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
   await checkFitsAsked(c.id);
@@ -295,11 +300,10 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');
-  // v4.3 final review F4: the yes to "Want help putting Kit on Base?" is the steps with no second question, and a
-  // note to help with step 1 now.
+  // v4.8 Task 2: the hook's yes is the gap stage: the 3 steps, Builder Codes (the agent's) marked and first.
   const yes2 = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(rule(show(yes2), 0), qualifySteps(BASE, ['base', 'codes', 'use'], false));
-  assert.equal(yes2.reply?.agent_note, QUALIFY_BASE_YES_NOTE);
+  assert.equal(rule(show(yes2)), gapReply('Base Builder Grant Program', qualifyGapSteps(['base', 'codes', 'use']), false).show_to_builder);
+  assert.ok(String(yes2.reply?.agent_note).endsWith(MENTOR_NOTE));
 });
 
 test('a private repo with a Best fit: the connect yes offers the draft, never the titles question', db, async () => {

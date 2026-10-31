@@ -6,7 +6,8 @@ import { zoneParts } from './deadline';
  * Each builder walks one path toward a submitted application (standing_seen.path), every reply ends in one easy reply
  * (a yes, a number or "sent"), and a part already said in this session is never said again (standing_seen.said).
  * bench-find.ts gathers the facts (fits, open grants and their gaps, investor programs, what to skip); everything here is
- * pure except setPath and markSaid, the two writes. Task 1 builds the `hook` stage only; Tasks 2 to 5 add the rest.
+ * pure except setPath and markSaid, the two writes. Task 1 builds the `hook` stage; Task 2 the `gap` and `draft` stages
+ * (below); Tasks 3 to 5 add the rest.
  */
 
 /** The path's stages: hook (an open program named for them), gap, draft, submit (waiting for "sent"), track. */
@@ -270,4 +271,88 @@ export function pathReply(c: PathCtx): PathReply {
     said: [hookKey, `money:${p.id}`, ...(proofKey && !proofSaid ? [proofKey] : [])],
     reply,
   };
+}
+
+/*
+ * v4.8 Task 2: the gap and draft stages.
+ * - gap: a yes to the hook's "Want the steps?" gives the steps (Base: base-qualify.ts's; another grant: programNeeds'
+ *   gaps and the program file's setup), each step the agent can do marked, ending in one easy reply. A yes to that is
+ *   the agent doing the step, then calling find (MENTOR_NOTE). When the last gap is closed, the path moves to `draft`.
+ * - draft: a yes to "Want me to start?" is the draft: the verified record (ship-log-facts.ts shipLogBlock: score,
+ *   streak, live link, page link, revenue under its own rules), and the blanks only the builder can fill, asked once.
+ */
+
+/** One step toward a grant: its line, the guide link (shown after the mark) and whether the agent can do it in the repo. */
+export type GapStep = { text: string; link?: string; doable: boolean };
+/** The gap stage's easy replies: one step the agent can do; the first of several it can do; help (it can do none). */
+export const GAP_GO = 'Go?';
+export const GAP_FIRST_ASK = 'Want me to do the first one now?';
+export const GAP_HELP_ASK = 'Want help with step 1 now?';
+export const GAP_HELP_ASK_ONE = 'Want help with it now?';
+/** The mark on a step the agent can do (target conversation B). */
+export const CAN_DO = 'I can do this.';
+export type GapReply = { show_to_builder: string; reply: 'go' | 'first' | 'help'; steps: GapStep[] };
+
+/**
+ * The gap stage's reply: "Your next step toward {program}:" (or "Your next {n} steps"), the numbered steps, each one
+ * the agent can do marked "I can do this." and listed first, then one easy reply: "Go?" (one step, the agent can do
+ * it), "Want me to do the first one now?" (several, the first one the agent's), else the help ask. A `hosted` agent
+ * (agent-reach.ts: no folder of the code) can do none, so nothing is marked (fix F3). Pure.
+ */
+export function gapReply(program: string, steps: GapStep[], hosted: boolean): GapReply {
+  const can = (s: GapStep) => s.doable && !hosted;
+  const ordered = [...steps.filter(can), ...steps.filter((s) => !can(s))];
+  const n = ordered.length;
+  const head = `${n === 1 ? 'Your next step' : `Your next ${n} steps`} toward ${programName(program)}:`;
+  const lines = ordered.map((s, i) => `${i + 1}. ${s.text}${can(s) ? ` ${CAN_DO}` : ''}${s.link ? ` Guide: ${s.link}` : ''}`);
+  const reply: GapReply['reply'] = ordered.length > 0 && can(ordered[0]) ? (n === 1 ? 'go' : 'first') : 'help';
+  const ask = reply === 'go' ? GAP_GO : reply === 'first' ? GAP_FIRST_ASK : n === 1 ? GAP_HELP_ASK_ONE : GAP_HELP_ASK;
+  return { show_to_builder: `${[head, ...lines].join('\n')}\n\n${ask}`, reply, steps: ordered };
+}
+
+/** The draft offer once a grant's last gap is closed: "Want me to draft the Base application next?". */
+export const draftNextAsk = (org: string) => `Want me to draft the ${org} application next?`;
+/**
+ * The reply once the path's gap is closed (the path moves to `draft`). Base, Builder Codes confirmed in the code
+ * (target conversation A, exact): "Builder Codes are in. You now meet Base's first requirement. Want me to draft the
+ * Base application next?". Another grant: "{program}'s steps are done." and the same offer. Pure.
+ */
+export function gapClosedReply(c: { org: string; title: string; codes: boolean }): string {
+  const done = c.codes ? `Builder Codes are in. You now meet ${c.org}'s first requirement.` : `${programName(c.title)}'s steps are done.`;
+  return `${done} ${draftNextAsk(c.org)}`;
+}
+
+/** An investor program with no public questions: the founder brief's two blanks (target conversation A, exact). */
+export const FOUNDER_BLANKS: readonly string[] = ["who's on the team", "any money you've raised"];
+const COUNT = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+/**
+ * The draft's one easy reply: the blanks only the builder can fill, asked as one reply. Two (target A, exact): "Two
+ * blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it." None:
+ * "Want me to finish it?". Pure.
+ */
+export function blanksAsk(blanks: readonly string[]): string {
+  const n = blanks.length;
+  if (n === 0) return 'Want me to finish it?';
+  const count = COUNT[n] ?? String(n);
+  const list = n === 1 ? blanks[0] : n === 2 ? `${blanks[0]}, and ${blanks[1]}` : `${blanks.slice(0, -1).join(', ')} and ${blanks.at(-1)}`;
+  const reply = n === 1 ? 'Reply with it' : n === 2 ? 'Reply with both' : 'Reply with them';
+  return `${count} ${n === 1 ? 'blank' : 'blanks'} only you can fill: ${list}. ${reply} and I'll finish it.`;
+}
+/** The draft stage's reply: "Here's your draft:", the verified record's lines, then the blanks ask (last). Pure. */
+export const draftReply = (record: readonly string[], blanks: readonly string[]) =>
+  [`Here's your draft:`, record.join('\n'), blanksAsk(blanks)].filter((x) => x.length > 0).join('\n\n');
+
+/** A submission requirement as the draft reads it (program-file.ts SubmissionRequirement). */
+type DraftReq = { key: string; label: string; required: boolean; from: 'project' | 'builder'; kind?: string; todo?: string };
+/**
+ * What the draft is and which blanks only the builder can fill:
+ * - an investor program with no public questions (every required field is a contact detail, typed on its form when
+ *   they submit): a short founder brief, whose blanks are FOUNDER_BLANKS;
+ * - otherwise the program's questions: the required fields only the builder can answer (`from: 'builder'`) that
+ *   EarnKit doesn't hold (`held`: the answer bank, the X handle), named by their `todo`. Pure.
+ */
+export function draftBlanks(p: { investment: boolean; submission_requirements: readonly DraftReq[] }, held: Record<string, string>): { brief: boolean; blanks: string[] } {
+  const required = p.submission_requirements.filter((r) => r.required);
+  if (p.investment && required.every((r) => r.kind === 'contact')) return { brief: true, blanks: [...FOUNDER_BLANKS] };
+  return { brief: false, blanks: required.filter((r) => r.from === 'builder' && !held[r.key]?.trim()).map((r) => r.todo ?? r.label.toLowerCase()) };
 }

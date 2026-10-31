@@ -126,8 +126,10 @@ test('(b) yes returns the prepare note and lead; prepare shows the draft (Task 1
   const b = await builder('b', [p.id]);
   assert.match(show(await find(b)), /Want me to start\?$/);
   const yes = await tell(b, { move_up: { kind: 'apply', project_key: b.key, answer: 'yes' } });
-  assert.equal(show(yes), '');
-  assert.equal(yes.reply?.agent_note, APPLY_YES_NOTE(p.id));
+  // v4.8 Task 2: the path's yes is the draft stage: the verified record and the blanks; the agent drafts through prepare.
+  assert.ok(show(yes).startsWith("Here's your draft:\n\nFrom your ship log:\n"), show(yes));
+  assert.match(String(yes.reply?.agent_note), new RegExp(`^The builder said yes to drafting this application\\. First call prepare with program_id "${p.id}"`));
+  // The older apply hand-off note (an apply ask stored outside the path).
   assert.equal(APPLY_YES_NOTE(p.id), `Call prepare with program_id "${p.id}" for this project and show the draft. Don't show this note.`);
   assert.deepEqual(yes.reply?.lead, { program_id: p.id, repo: 'kit' });
   // A second yes is "Okay.".

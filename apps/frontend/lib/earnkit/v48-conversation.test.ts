@@ -19,9 +19,13 @@ import type { RepoFit } from './present';
 import { isoWeekOf } from './weeks';
 import { backfillMondays } from './week-facts';
 import {
-  MENTOR_NOTE, SESSION_MS, bestMove, closeWords, pathReply, programName, proofLine, readPath, sessionOf,
+  CAN_DO, FOUNDER_BLANKS, MENTOR_NOTE, SESSION_MS, bestMove, blanksAsk, closeWords, draftBlanks, draftReply, gapClosedReply, gapReply, pathReply, programName, proofLine, readPath, sessionOf,
   type GapGrant, type InvestorProgram, type MoveCtx, type MoveProgram,
 } from './conversation';
+import { qualifyGapSteps, BUILDER_CODES_GUIDE } from './bench-reply';
+import { BUILDER_CODES_SUFFIX } from './builder-code';
+import { codesSettled } from './bench-find';
+import { shipLogBlock, shipLogFacts } from './ship-log-facts';
 
 /**
  * v4.8 Task 1: the path, session memory and the agent note. The copy is the target conversation's (section A's
@@ -206,6 +210,7 @@ process.env.EARNKIT_AUTH_SECRET ??= 'v48-conversation-secret';
 const db = { skip: !process.env.DATABASE_URL && 'no DATABASE_URL' };
 after(async () => {
   if (!process.env.DATABASE_URL) return;
+  await codesSettled();
   await dropRunPrograms();
   await sql().end();
 });
@@ -256,13 +261,14 @@ async function owner(tag: string) {
   const ctx = { installationId: c.id, ownInstallationId: c.own, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 1, fits })) as never };
   await mcpCall(ctx, 'find', { identity: { project: { name: 'EarnKit', repo: `https://github.com/${key}`, live_url: 'https://earnkit.com' } } });
   const gid = 48000 + n * 10 + (Number(RUN) % 7);
-  await installApp({ builderId: c.id, repoKey: key, login: handle, gh: fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } }) });
+  const gh = fakeGitHub({ [key]: { id: gid, owner: handle, installation: gid + 1 } });
+  await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   // Six weeks shipping in a row (this week and the five before), live as an app.
   const weeks = Array.from({ length: 6 }, (_, k) => isoWeekOf(new Date(Date.now() - k * 7 * 86_400_000)));
   await sql()`UPDATE builder_projects SET commit_weeks = ${weeks}::text[], shipped = true, kind = 'app' WHERE builder_id = ${c.id} AND lower(project_key) = lower(${key})`;
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text,
       'declined', jsonb_build_object(${`qualify:${key}`}::text, now()::text)) WHERE builder_id = ${c.id}`;
-  return { ctx, id: c.id, key };
+  return { ctx, id: c.id, key, gh, handle };
 }
 const find = (b: { ctx: unknown }) => mcpCall(b.ctx as never, 'find', {});
 
@@ -466,4 +472,170 @@ test('fix round 3: the closest grant never waits for an older moment once the bu
   const s = show(await find(b));
   assert.ok(s.startsWith(`Jenil, your closest money is Arc Mid ${RUN}: `), s);
   assert.doesNotMatch(s, /Make your shipping log public/, s);
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// v4.8 Task 2: the gap and draft stages.
+
+const GUIDE = `https://${BUILDER_CODES_GUIDE}`;
+/** Target conversation A, exact: the draft's one easy reply for an investor program with no public questions. */
+const A_BLANKS = "Two blanks only you can fill: who's on the team, and any money you've raised. Reply with both and I'll finish it.";
+const A_CODES_IN = "Builder Codes are in. You now meet Base's first requirement. Want me to draft the Base application next?";
+
+test('gapReply: the steps, each one the agent can do marked and first; "Go?" for one, the first one for several, help when it can do none', () => {
+  const one = gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false);
+  assert.equal(one.show_to_builder,
+    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nGo?`);
+  assert.equal(one.reply, 'go');
+  // F3: a hosted agent (no folder of the code) can do none: nothing is marked, the help ask.
+  const hosted = gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true);
+  assert.doesNotMatch(hosted.show_to_builder, /I can do this/);
+  assert.ok(hosted.show_to_builder.endsWith('\n\nWant help with it now?'), hosted.show_to_builder);
+  assert.equal(hosted.reply, 'help');
+  const three = gapReply('Base Builder Grant Program', qualifyGapSteps(['base', 'codes', 'use']), false);
+  const lines = three.show_to_builder.split('\n');
+  assert.equal(lines[0], 'Your next 3 steps toward Base Builder Grant:');
+  assert.ok(lines[1].startsWith("1. Add Base's Builder Code") && lines[1].includes(CAN_DO), lines[1]);
+  assert.equal(lines[2], '2. Put your app on Base.');
+  assert.equal(lines[3], '3. Have a live product people use.');
+  assert.equal(lines.at(-1), 'Want me to do the first one now?');
+  const none = gapReply('Arc Microgrants: Built with Arc Studio', [{ text: 'Get EarnKit on Arc mainnet.', doable: false }, { text: 'Log in to DoraHacks.', doable: false }], false);
+  assert.ok(none.show_to_builder.startsWith('Your next 2 steps toward Arc Microgrants:\n1. Get EarnKit on Arc mainnet.\n2. Log in to DoraHacks.'), none.show_to_builder);
+  assert.ok(none.show_to_builder.endsWith('Want help with step 1 now?'));
+  for (const r of [one, hosted, three, none]) {
+    assert.doesNotMatch(r.show_to_builder, BAD);
+    assert.equal((r.show_to_builder.match(/\?/g) ?? []).length, 1, r.show_to_builder);
+  }
+});
+
+test('the gap closed and the draft: target A word for word', () => {
+  assert.equal(gapClosedReply({ org: 'Base', title: 'Base Builder Grant Program', codes: true }), A_CODES_IN);
+  assert.equal(blanksAsk(FOUNDER_BLANKS), A_BLANKS);
+  assert.equal(blanksAsk(['your Telegram username']), "One blank only you can fill: your Telegram username. Reply with it and I'll finish it.");
+  const d = draftReply(['From your ship log:', '6 weeks in a row', 'Page: earnkit.com/jenilt'], FOUNDER_BLANKS);
+  assert.equal(d, `Here's your draft:\n\nFrom your ship log:\n6 weeks in a row\nPage: earnkit.com/jenilt\n\n${A_BLANKS}`);
+  assert.doesNotMatch(d, BAD);
+});
+
+test("draftBlanks: an investor program with no public questions is a founder brief; a grant's are its builder-only fields EarnKit doesn't hold", () => {
+  const a16z = committedProgram('a16z-speedrun');
+  assert.deepEqual(draftBlanks(a16z, {}), { brief: true, blanks: [...FOUNDER_BLANKS] });
+  const base = committedProgram('base-builder-grants');
+  const b = draftBlanks({ ...base, investment: false }, { x_handle: '@jenilt' });
+  assert.equal(b.brief, false);
+  assert.ok(b.blanks.includes('your Telegram username') && b.blanks.includes('a note on the founding team'), b.blanks.join('; '));
+  assert.ok(!b.blanks.includes('your X handle'), 'held');
+  // A field the project fills (from: 'project') is never a blank.
+  assert.ok(!b.blanks.includes('a link to your live product'));
+});
+
+/** Only these programs open (and Base Builder Grants reopened when named): this file's tests close others. */
+async function only(ids: string[]) {
+  await sql()`UPDATE programs SET status = 'closed' WHERE NOT (id = ANY(${ids}::text[]))`;
+  await sql()`UPDATE programs SET status = 'active' WHERE id = ANY(${ids}::text[])`;
+}
+const noteOf = (r: R) => String(r.reply?.agent_note ?? '');
+const tell = (b: { ctx: unknown }, move_up: Record<string, unknown>) => mcpCall(b.ctx as never, 'tell', { move_up });
+
+test('"sure" on the hook gives a draft with the verified record and A\'s two blanks; the path is at draft', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants']);
+  const b = await owner('dr');
+  assert.equal(moveUp(await find(b))?.kind, 'apply');
+  const r = await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' });
+  const s = show(r);
+  const parts = s.split('\n\n');
+  assert.equal(parts[0], "Here's your draft:", s);
+  // The verified record (ship-log-facts.ts shipLogBlock): the streak, the live link, the page link.
+  assert.match(parts[1], /^From your ship log:\n/, s);
+  assert.match(parts[1], /\n6 weeks in a row\n/, s);
+  // Exactly the page's facts, nothing invented (a live link and revenue only when the page shows them).
+  assert.equal(parts[1], shipLogBlock((await shipLogFacts(b.id, new Date()))!).join('\n'));
+  assert.match(parts[1], new RegExp(`\\nPage: \\S*${b.handle}$`, 'i'), s);
+  assert.equal(parts.at(-1), A_BLANKS);
+  assert.equal(parts.length, 3, s);
+  assert.doesNotMatch(s, BAD);
+  // The agent writes the founder brief from the record (a16z's questions aren't public), then follows the mentor note.
+  assert.match(noteOf(r), /founder brief/);
+  assert.ok(noteOf(r).endsWith(MENTOR_NOTE), noteOf(r));
+  assert.equal((r.reply?.lead as { program_id: string }).program_id, sr.id);
+  const seen = await seenOf(b.id);
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'draft', program_id: sr.id, at: undefined });
+  assert.ok((seen.apply_yes as Record<string, string>)[sr.id], 'drafted');
+  // A no to the draft parks the program too (a no at any stage).
+  assert.equal((seen.bench_ask as { kind: string; path: boolean }).path, true);
+});
+
+test("the Base gap: Builder Codes steps with \"Go?\"; a yes is the agent's to do, then find; confirmed in the code, A's draft offer", db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('bg');
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'declined' WHERE builder_id = ${b.id}`;
+  const hook = await find(b);
+  assert.match(show(hook), /^Jenil, Base Builder Grant pays up to \$5,000\. [^\n]*Builder Codes[^\n]*\n\nWant the steps\?$/, show(hook));
+  assert.equal(moveUp(hook)?.kind, 'qualify');
+  // F3: Claude Code has the folder: the steps are marked, and the one step is "Go?".
+  const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.equal(show(steps),
+    `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. ${CAN_DO} Guide: ${GUIDE}\n\nGo?`);
+  assert.equal(steps.reply?.move_up && (steps.reply.move_up as { kind: string }).kind, 'qualify');
+  assert.deepEqual({ ...((await seenOf(b.id)).path as object), at: undefined }, { stage: 'gap', program_id: 'base-builder-grants', at: undefined });
+  // "Go?" yes: the agent adds them here, then calls find (the mentor note's do-it-then-find).
+  const go = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.match(show(go), /^Adding Builder Codes to EarnKit/, show(go));
+  assert.match(noteOf(go), /then call find/);
+  assert.ok(noteOf(go).endsWith(MENTOR_NOTE), noteOf(go));
+  // The agent added them; find checks the code (the read-only App) and they're confirmed.
+  b.gh.repos[b.key].files = { 'src/codes.ts': `export const SUFFIX = '0x046d617961000a${BUILDER_CODES_SUFFIX}';` };
+  (b.ctx as { codesFetch?: typeof fetch }).codesFetch = b.gh;
+  const done = await find(b);
+  assert.equal(show(done), A_CODES_IN);
+  assert.equal(moveUp(done)?.kind, 'apply');
+  assert.equal(done.reply?.note, MENTOR_NOTE);
+  const seen = await seenOf(b.id);
+  assert.deepEqual({ ...(seen.path as object), at: undefined }, { stage: 'draft', program_id: 'base-builder-grants', at: undefined });
+  // Its yes is the Base draft.
+  const draft = show(await tell(b, { kind: 'apply', project_key: b.key, answer: 'yes' }));
+  assert.ok(draft.startsWith("Here's your draft:\n\nFrom your ship log:"), draft);
+  assert.match(draft.split('\n\n').at(-1)!, /blanks only you can fill: .*your Telegram username.*\. Reply with them and I'll finish it\.$/, draft);
+});
+
+test('F3: a hosted agent gets the steps to do itself, nothing marked; its no parks Base', db, async () => {
+  await only(['base-builder-grants']);
+  const b = await owner('bh');
+  await sql()`UPDATE builder_profiles SET standing_seen = (standing_seen - 'declined') || '{"no_folder": true}'::jsonb WHERE builder_id = ${b.id}`;
+  assert.equal(moveUp(await find(b))?.kind, 'qualify');
+  const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.equal(show(steps), `Your next step toward Base Builder Grant:\n1. Add Base's Builder Code to your app, a one-line tag Base uses to see your traffic. Guide: ${GUIDE}\n\nWant help with it now?`);
+  // Its yes: the agent walks them through it (never "here in this folder"), then calls find.
+  const help = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.match(noteOf(help), /in short plain steps they can do themselves.*then call find/);
+  assert.doesNotMatch(noteOf(help), /this folder|in their code here/);
+  // Asked again (the hook, then its steps), a no parks Base.
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen - 'said' - 'qualify_given' WHERE builder_id = ${b.id}`;
+  assert.equal(moveUp(await find(b))?.kind, 'qualify');
+  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'no' });
+  assert.ok(((await seenOf(b.id)).declined as Record<string, string>)['path:base-builder-grants']);
+  assert.doesNotMatch(show(await find(b)), /Base Builder Grant|Builder Codes/);
+});
+
+test('a no parks the program and the next find hooks the next program; a no at the gap parks that one too', db, async () => {
+  const sr = await speedrun(30);
+  await only([sr.id, 'base-builder-grants']);
+  const b = await owner('nx');
+  // One older moment already said this session, so the closest grant is never put behind one (fix round 2, F1).
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('said', jsonb_build_object('at', now()::text, 'keys', '["older"]'::jsonb)) WHERE builder_id = ${b.id}`;
+  assert.ok(show(await find(b)).includes(sr.title));
+  await tell(b, { kind: 'apply', project_key: b.key, answer: 'no' });
+  // The next bestMove program: Base, whose passed step is raised once as its one gap.
+  const next = await find(b);
+  assert.match(show(next), /^Jenil, your closest money is Base Builder Grant: up to \$5,000\. /, show(next));
+  assert.equal(moveUp(next)?.kind, 'qualify');
+  const steps = await tell(b, { kind: 'qualify', project_key: b.key, answer: 'yes' });
+  assert.ok(show(steps).endsWith('Go?'), show(steps));
+  await tell(b, { kind: 'qualify', project_key: b.key, answer: 'no' });
+  const declined = (await seenOf(b.id)).declined as Record<string, string>;
+  assert.ok(declined[`path:${sr.id}`] && declined['path:base-builder-grants'], JSON.stringify(declined));
+  const after = show(await find(b));
+  assert.doesNotMatch(after, /speedrun|Base Builder Grant/, after);
 });

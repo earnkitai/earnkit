@@ -35,7 +35,7 @@ import type { ToolContext } from './tools';
 import { CHAIN_NAMES, type Chain } from './chains';
 import {
   APPLY_WINDOW_DAYS, withWhy, BASE_START_ASK, CHECKIN_ASK, CHECKIN_WHY, askWhy, bestFitWhy, closestWhy, CHECKIN_ON, NEXT_STEP_LATER, SHIP_ASK_DAYS, NEXT_STEP_ASK, STALE_WEEKS, STATE_COPY, TEMPLATE_NOTICE, TITLES_ASK, TITLES_NO_LINE, awardAmount, baseStartSteps, benchReply, NO_GITHUB_HINT, builtWith, liveNoGithub, namesAccount, benchStepKey, qualifySteps, rankedState, replyState, stateAsk, standingLine, walletOffer, walletSetupAsk, welcomeFits,
-  TOKEN_NO_LINE, STRIPE_NEVER_KEY, needsWhy, qualifyGap, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
+  TOKEN_NO_LINE, STRIPE_NEVER_KEY, needsWhy, qualifyGap, qualifyGapSteps, STRIPE_NO_LINK, stripeConnectLine, QUALIFY_HELP_ASK_ONE, QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, qualifyCodesYes, type AlsoOpen,
   type FitBar, fitBar, keyName, type QualifyOffer, type QualifyStep, type BenchAskKind, type BenchProject, type BenchView, type BestFit, type ConnectOffer, type FundLine, type MomentView, type OpenGrant, type Variant,
 } from './bench-reply';
 import { liveSite, type LiveSite } from './live-check';
@@ -57,7 +57,10 @@ import { pagePath } from './reserved-routes';
 import { prizeOf, shortWallet, siteUrl, upToCell } from './entry-text';
 import { programKind } from './site-copy';
 import { BASE_GRANTS_ID } from './builder-code';
-import { appProvenRepo, builderCodesKnown, builderCodesWords, codesSettled, refreshBuilderCodes } from './builder-codes-check';
+import { appProvenRepo, builderCodesKnown, builderCodesWords, checkBuilderCodes, codesSettled, refreshBuilderCodes, storedBuilderCode } from './builder-codes-check';
+import { projectKey, readBank } from './answer-bank';
+import { bankFill } from './coach';
+import type { SubmissionRequirement } from './program-file';
 import { WALLET_NOTE, type WalletAnswer, answerWallet, takeWalletAsk, takeWalletNotice, tokenOffered, walletChangeReply, walletOfferDue, walletSetupDue, walletSetupNote, takeTokenOffer, tokenOfferDue } from './wallet-offer';
 import { builderToken, builderTokensOn, declineBuilderToken, launchBuilderToken, recordExistingToken, reopenDeclinedToken, tradeUrl, type LaunchResult } from './builder-token';
 import { TOKEN_EXPLAINER, TOKEN_OFF, tokenAnswerFor, tokenAnswerState, tokenAnswerText } from './token-answers';
@@ -67,7 +70,8 @@ import { agentReach, rememberNoFolder, type AgentReach } from './agent-reach';
 import { DECLINE_MS, draftedRecently } from './policy-constants';
 import { programZone } from './deadline';
 import {
-  MENTOR_NOTE, OLDER_SAID, bestMove, markSaid, pathReply, readPath, saidSql, sessionOf,
+  MENTOR_NOTE, OLDER_SAID, SESSION_MS, bestMove, draftBlanks, draftReply, gapClosedReply, gapReply, markSaid, pathReply, programName, readPath, saidSql, sessionOf,
+  type GapStep,
   type GapGrant, type InvestorProgram, type Move, type MoveProgram, type Path,
 } from './conversation';
 export { displayName };
@@ -216,7 +220,13 @@ export type Seen = StandSeen & {
     setup?: boolean;
     /** v4.8 Task 1: the path's hook asked it (pathView); a no also parks program_id for the path. */
     path?: boolean;
+    /** v4.8 Task 2: the gap stage asked it (its yes: the agent does the step, then calls find); `draft`, the draft stage. */
+    gap?: boolean; draft?: boolean;
+    /** v4.8 Task 2 (kind 'check_fits' on the path): the project's name, for the gap stage's steps. */
+    name?: string;
   };
+  /** v4.8 Task 2: when the builder said yes to the agent doing a gap step ({ [program_id]: iso }); find checks the code again. */
+  gap_did?: Record<string, string>;
   /** v4.6 Task 3: when the Stripe ask was shown (once) and when a broken connection was re-offered (once). */
   stripe_asked?: string;
   stripe_reoffered?: string;
@@ -580,7 +590,27 @@ type PathFacts = { state: BenchView['state']; variant: Variant; project: BenchPr
 /** v4.8 Task 1: what bestMove chose and what the reply needs to say and store it (pathPlan's result). */
 type PathPlan = {
   move: Move; facts: PathFacts; fitRows: Fit[]; extra: Map<string, { qualify?: QualifyOffer; needs?: string[] }>; path: Path | null;
+  /** v4.8 Task 2: the path's gap is closed (Base: Builder Codes confirmed in the code): the draft offer leads. */
+  closed: { program: MoveProgram; org: string; codes: boolean } | null;
 };
+/** v4.8 Task 2: after a yes to the agent adding a step, find checks the code again for this long, at most once a minute. */
+const RECHECK_MS = 60_000;
+/**
+ * v4.8 Task 2: Builder Codes confirmed in `key`'s code. After a yes to the agent adding them (standing_seen.gap_did,
+ * within SESSION_MS), a stored answer that isn't found and is over RECHECK_MS old is checked again now through the
+ * read-only App (checkBuilderCodes, awaited; the daily refresh's claim is not spent), so the agent's push is seen on the
+ * next find. Only for a repo this builder proved through the App. Never throws.
+ */
+async function codesConfirmed(o: ViewIn, key: string): Promise<boolean> {
+  const { id, now } = o;
+  if (!(await appProvenRepo(id, key))) return false;
+  const did = o.read.seen.gap_did?.[BASE_GRANTS_ID];
+  const stored = await storedBuilderCode(key.toLowerCase());
+  if (stored?.found) return true;
+  const recent = did !== undefined && now.getTime() - Date.parse(did) < SESSION_MS;
+  if (!recent || (stored && now.getTime() - new Date(stored.checked_at).getTime() < RECHECK_MS)) return false;
+  return (await checkBuilderCodes(id, key, now, { fetch: o.codesFetch })) === true;
+}
 
 /**
  * v4.8 Task 1: the path's facts for a ranked builder (reads only): the real fits, each open grant's gaps (Base from
@@ -613,13 +643,24 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
   const known = others.length > 0
     ? await needsKnown(id, key, { chains: [...v.chains, ...(o.known?.onBase ? ['base'] : [])], live: v.project.live || v.siteLive || o.known?.live === true })
     : null;
+  const path = readPath(seen);
+  // v4.8 Task 2: the program the builder is closing a gap on (gap), or was offered the draft of once its gap closed
+  // (draft, not drafted yet): its closure is checked on every find.
+  const closing = path?.program_id && (path.stage === 'gap' || (path.stage === 'draft' && !skip.has(path.program_id))) ? path.program_id : null;
+  let closed: PathPlan['closed'] = null;
   const grants = (await Promise.all(grantCards.map(async (c): Promise<GapGrant | null> => {
     if (c.id === BASE_GRANTS_ID) {
       // A no to Base's steps (declined 'qualify:<key>') is a passed step, raised once when it is the one gap.
       const noKey = benchStepKey('qualify', key);
       const passed = recent(seen.declined?.[noKey]);
       const { [noKey]: _no, ...declined } = seen.declined ?? {};
-      const offer = await qualifyOffer(id, key, { cards: o.cards, skip, seen: { ...seen, declined }, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known });
+      // Task 2: on Base's gap, the steps given (qualify_given) never hide it: the path tracks its gaps until closed.
+      const { [key.toLowerCase()]: _given, ...given } = seen.qualify_given ?? {};
+      const onIt = closing === c.id;
+      const codes = onIt ? await codesConfirmed(o, key) : false;
+      const offer = await qualifyOffer(id, key, { cards: o.cards, skip, seen: { ...seen, declined, ...(onIt && { qualify_given: given }) }, now, declineMs: DECLINE_MS, codesFetch: o.codesFetch, known: o.known });
+      // Builder Codes confirmed and no step left: Base's gap is closed (a null offer is every step known met here).
+      if (onIt && codes && (!offer || offer.steps.length === 0)) closed = { program: moveProgram(c), org: grantOf(c)?.org ?? programName(c.title), codes: true };
       if (!offer || offer.steps.length === 0) return null;
       extra.set(c.id, { qualify: offer });
       // Fix round 1 (R1): a one-step only when that step is one the agent can do in the repo (Builder Codes).
@@ -632,13 +673,14 @@ async function pathPlan(o: ViewIn, v: PathFacts, told: Set<string>): Promise<Pat
     if (!facts || !known) return null;
     const needs = programNeeds(facts, known);
     extra.set(c.id, { needs });
+    // Task 2: the path's grant with no gap left: closed.
+    if (closing === c.id && needs.length === 0) closed = { program: moveProgram(c), org: programName(c.title), codes: false };
     // programNeeds' gaps (a chain's mainnet, a public repo, a live link) are never steps the agent does in the repo, so
     // never a one-step (fix round 1, R1). None: it can apply now (bestMove names it only when closing within 48 hours).
     return { ...moveProgram(c), gaps: needs, gap: needs.length > 0 ? needsWhy(v.project.name, c.title, needs) : '', passed: recent(seen.declined?.[benchStepKey('needs', c.id)]), doable: false };
   }))).filter((g): g is GapGrant => g !== null);
-  const path = readPath(seen);
   const move = bestMove({ now, fits, grants, investors, skip, raised: new Set(Object.keys(seen.path_raised ?? {})), path });
-  return { move, facts: v, fitRows, extra, path };
+  return { move, facts: v, fitRows, extra, path, closed };
 }
 
 /**
@@ -657,18 +699,21 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
   const out = pathReply({ now, first: first === 'there' ? null : first, project: { name: v.project.name, live: v.project.live || v.siteLive }, streak: v.streak, move, said: session.said });
   const fit = fitRows.find((f) => f.program_id === out.program_id);
   const more = extra.get(out.program_id);
+  // Task 2 (F3, as before v4.8): what the caller's agent can do (agent-reach.ts); a hosted one does no step itself.
+  const hosted = (o.reach ?? (await agentReach(o.own, id))).hosted;
   // `path`: a no to it also parks the program for the path ('path:<id>', DECLINE_MS): never asked again this session.
+  // The hook asked "Want the steps?", so its yes is the gap stage's steps (Task 2), for either agent.
   const stored: Record<string, unknown> = out.reply === 'start'
     ? { kind: 'apply', key, program_id: out.program_id, path: true, ...(fit?.repo && { repo: fit.repo }) }
     : more?.qualify
       ? {
-          kind: 'qualify', key, program_id: out.program_id, path: true,
-          // hosted: the hook asked "Want the steps?", so its yes gives the steps (Task 2's gap stage does the step).
-          qualify: { grant: more.qualify.grant, steps: more.qualify.steps, first: more.qualify.steps[0], name: v.project.name, hosted: true, codes_missing: more.qualify.missing.includes('codes') },
+          kind: 'qualify', key, program_id: out.program_id, program: move.program.title, path: true,
+          qualify: { grant: more.qualify.grant, steps: more.qualify.steps, first: more.qualify.steps[0], name: v.project.name, hosted, codes_missing: more.qualify.missing.includes('codes') },
         }
-      : { kind: 'check_fits', key, program: move.program.title, program_id: out.program_id, needs: more?.needs ?? [], path: true };
+      : { kind: 'check_fits', key, program: move.program.title, program_id: out.program_id, needs: more?.needs ?? [], name: v.project.name, path: true };
+  // Task 2: a builder past the hook on this program keeps their stage (the hook's words again are its pointer).
   const nextPath: Path = {
-    stage: out.stage, program_id: out.program_id, at: now.toISOString(),
+    stage: path && path.program_id === out.program_id && path.stage !== 'hook' ? path.stage : out.stage, program_id: out.program_id, at: now.toISOString(),
     ...(path?.picked && path.program_id === out.program_id && { picked: true as const }),
   };
   const raise = move.kind === 'closest' && move.raise && out.said.length > 0;
@@ -693,6 +738,33 @@ async function pathCommit(o: ViewIn, plan: PathPlan & { move: Exclude<Move, { ki
     ...standingFields(v.stand),
   };
   return { view, fields, stand: v.stand };
+}
+
+/**
+ * v4.8 Task 2: the reply once the path's gap is closed (conversation.ts gapClosedReply: Base, "Builder Codes are in. You
+ * now meet Base's first requirement. Want me to draft the Base application next?"). The path moves to `draft`; the
+ * question is stored as the apply ask (path), so a yes is the draft and a no parks the program. Said once a session;
+ * again, the hook's one-line pointer. One UPDATE. Never throws on its own writes.
+ */
+async function pathClosedCommit(o: ViewIn, plan: PathPlan & { closed: NonNullable<PathPlan['closed']> }): Promise<{ view: BenchView; fields: Reply; stand: Standing }> {
+  const { id, now, read } = o;
+  const { closed, facts: v } = plan;
+  const key = v.project.key;
+  const pid = closed.program.id;
+  const saidKey = `closed:${pid}`;
+  const again = sessionOf(read.seen, now).said.has(saidKey);
+  const show = again ? `Your ${programName(closed.program.title)} application is still the next move. Want me to start?` : gapClosedReply({ org: closed.org, title: closed.program.title, codes: closed.codes });
+  const stored = { kind: 'apply', key, program_id: pid, path: true };
+  const nextPath: Path = { stage: 'draft', program_id: pid, at: now.toISOString(), ...(plan.path?.picked && plan.path.program_id === pid && { picked: true as const }) };
+  await sql()`UPDATE builder_profiles SET standing_seen = (COALESCE(standing_seen, '{}'::jsonb) - 'gap_did')
+      || jsonb_build_object('path', ${sql().json(nextPath as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb, 'said', ${saidSql(again ? [] : [saidKey], now)})
+    WHERE builder_id = ${id}`.catch(logged('path closed'));
+  const view: BenchView = {
+    state: v.state, variant: v.variant, project: v.project, rank: read.ranks.bench, streak: v.streak, target: null, handle: v.handle, link: null,
+    fund: [], due: [], ask: { kind: 'apply', project_key: key, line: '', program_id: pid }, held: null, path: show, pathLead: { program_id: pid },
+  };
+  const rankLines = [read.ranks.bench, ...read.ranks.chains.map((c) => c.line)].filter((x): x is string => Boolean(x));
+  return { view, fields: { move_up: { kind: 'apply', project_key: key, agent_note: APPLY_NOTE }, ...(rankLines.length > 0 && { rank_lines: rankLines }), ...standingFields(v.stand) }, stand: v.stand };
 }
 
 /**
@@ -809,6 +881,8 @@ async function benchView(o: ViewIn): Promise<{ view: BenchView; fields: Reply; s
       // Fix round 3: an older moment waits for the closest grant only at the hook, never for a builder already on that
       // program (mid-path), and once a session.
       const midPath = move.kind !== 'quiet' && plan.path !== null && (plan.path.stage !== 'hook' || plan.path.program_id === move.program.id);
+      // Task 2: the path's gap closed: the draft offer leads (mid-path).
+      if (plan.closed) return pathClosedCommit(o, { ...plan, closed: plan.closed });
       if (move.kind === 'quiet') pathQuiet = true;
       else if (move.kind !== 'closest' || midPath || sessionOf(read.seen, now).said.has(OLDER_SAID)) return pathCommit(o, { ...plan, move });
       else deferred = { ...plan, move };
@@ -1732,7 +1806,7 @@ const declineKeyOf = (asked: NonNullable<Seen['bench_ask']>) =>
  * The builder's yes or no to the Bench's question (tools.ts moveUpAnswer routes it here). Only the ask stored with the last reply is answered; anything else is
  * "Okay." with nothing changed. A no is noted (standing_seen.declined) and clears the ask; the next reply asks its state's step again.
  */
-export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin' }): Promise<Reply> {
+export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'ownInstallationId' | 'tokenDeps' | 'builderTokenDeps'> & Partial<Pick<ToolContext, 'sharedClient'>>, m: { kind?: string; project_key?: string | null; answer: 'yes' | 'no'; live_url?: string; via?: 'coin' }): Promise<Reply> {
   const id = ctx.installationId;
   const now = new Date();
   const okay = { show_to_builder: NOTED_LINE };
@@ -1880,6 +1954,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{qualify_given}',
           COALESCE(standing_seen->'qualify_given', '{}'::jsonb) || jsonb_build_object(${asked.key.toLowerCase()}::text, ${now.toISOString()}::text))
         WHERE builder_id = ${id}`.catch(logged('qualify given'));
+      // v4.8 Task 2: the path's gap stage (the hook's yes: the steps; the steps' yes: the agent does the first one).
+      if (asked.path === true && asked.program_id) return asked.gap === true ? gapDoYes(ctx, id, asked, now) : gapYes(ctx, id, asked, now);
       // v4.3 (owner-approved): "Want me to add Builder Codes to EarnKit?": its yes is the doing, never another question.
       // Fix round 1 (R1): a hosted agent was asked for the steps (it can't add code), so its yes is the steps reply below.
       if (asked.qualify.first === 'codes' && asked.qualify.name && asked.qualify.hosted !== true)
@@ -1898,6 +1974,8 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
         };
       }
     case 'check_fits':
+      // v4.8 Task 2: the path's hook of a grant other than Base's: its yes is the gap stage's steps.
+      if (asked.path === true && asked.program_id) return asked.gap === true ? gapDoYes(ctx, id, asked, now) : gapYes(ctx, id, asked, now);
       // v4.2 (setup done, final review 3's own kind): the yes is find run again, to check which programs fit. v4.7.1 T1:
       // the ask named an open grant (asked.program; v4.8: the path's hook of a grant with a gap); final review 4: its
       // note lists the program's needs, with no find again. (v4.8: needs_yes is no longer written or read.)
@@ -1924,6 +2002,13 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // v3 Stage 2: prepare drafts the entry; the lead names the program (and the repo find matched). v4.7 T3: the yes is
       // kept (apply_yes), so money first never asks to draft it again.
       if (asked.program_id) await recordApplyYes(id, asked.program_id, now);
+      // v4.8 Task 2: the path's "Want me to start?": the draft stage. A yes to the draft's own ask (its answer is the
+      // blanks, through prepare) drafts nothing twice: "Okay.", and the ask stays so a no still parks the program.
+      if (asked.path === true && asked.draft === true) {
+        await storeAsk(id, asked);
+        return okay;
+      }
+      if (asked.path === true && asked.program_id) return pathDraft(ctx, id, asked, now);
       return asked.program_id
         ? { show_to_builder: '', agent_note: APPLY_YES_NOTE(asked.program_id), lead: { program_id: asked.program_id, ...(asked.repo && { repo: asked.repo }) } }
         : okay;
@@ -1932,6 +2017,142 @@ export async function benchMoveUp(ctx: Pick<ToolContext, 'installationId' | 'own
       // A retired ask (OLD_ASKS): nothing to do; the next reply asks the state's step.
       return okay;
   }
+}
+
+/** v4.8 Task 2: a path reply's agent note: `note` (its own "Don't show this note." dropped), then MENTOR_NOTE. Pure. */
+const withMentor = (note: string) => `${note.replace(/\s*Don't show this note\.$/, '')} ${MENTOR_NOTE}`;
+/** v4.8 Task 2: the gap step's yes for an agent with the code: do the step here, push it, then call find (EarnKit checks it on GitHub). */
+export const GAP_DO_NOTE =
+  'The builder said yes to the step marked "I can do this": do it now in their code here, show them the change, then commit and push it (EarnKit checks the code on GitHub) and call find. ' +
+  'Never tell them they qualify or that an application was sent.';
+/** v4.8 Task 2: the gap step's yes for an agent with no folder of the code (agent-reach.ts hosted). */
+export const GAP_HELP_NOTE_HOSTED =
+  'The builder said yes to help with the first step listed: walk them through it in short plain steps they can do themselves (follow the guide linked), then call find once they say it is done. ' +
+  'Never tell them they qualify or that an application was sent.';
+/** v4.8 Task 2: the gap step's yes when no step is one the agent can do in the repo (a chain deployment, a sign-in). */
+export const GAP_HELP_NOTE =
+  'The builder said yes to help with the first step listed: help them with it now, here (follow the guide linked), then call find once it is done. ' +
+  'Never tell them they qualify or that an application was sent.';
+/** v4.8 Task 2: a step programNeeds names ("on Arc mainnet", "in a public repo", "live at a link") as a line. Pure. */
+const needStep = (name: string, need: string) => `${need === 'in a public repo' ? 'Put' : 'Get'} ${name} ${need}.`;
+/** v4.8 Task 2: a program file's setup item ("log in to DoraHacks") as a line. Pure. */
+const setupStep = (x: string) => {
+  const t = x.trim();
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}`;
+};
+
+/**
+ * v4.8 Task 2: the yes to the path's "Want the steps?": the gap stage. Base's steps from the stored offer
+ * (bench-reply.ts qualifyGapSteps), another grant's from programNeeds' gaps (stored with the ask) plus its program
+ * file's setup. Each step the agent can do is marked, unless the agent is hosted (F3: agent-reach.ts, read now). The
+ * path moves to `gap` and the steps' question is stored (gap: true, path), so a yes is the agent doing it and a no parks
+ * the program. One UPDATE. Never throws on its own reads and writes.
+ */
+async function gapYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+  const pid = asked.program_id!;
+  const hosted = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
+  let title = asked.program ?? pid;
+  let steps: GapStep[];
+  if (asked.kind === 'qualify' && asked.qualify?.steps?.length) {
+    steps = qualifyGapSteps(asked.qualify.steps as QualifyStep[]);
+    title = asked.program ?? asked.qualify.grant.name ?? title;
+  } else {
+    const row = await getProgramRow(pid).catch(() => null);
+    title = asked.program ?? row?.title ?? title;
+    const name = asked.name?.trim() || 'your project';
+    steps = [...(Array.isArray(asked.needs) ? asked.needs : []).map((n) => ({ text: needStep(name, n), doable: false })), ...(row?.setup ?? []).map((x) => ({ text: setupStep(x), doable: false }))];
+  }
+  if (steps.length === 0) return { show_to_builder: NOTED_LINE };
+  const g = gapReply(title, steps, hosted);
+  const stored = { ...asked, gap: true, ...(asked.qualify && { qualify: { ...asked.qualify, hosted } }) };
+  const path: Path = { stage: 'gap', program_id: pid, at: now.toISOString() };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('gap'));
+  const note = asked.kind === 'qualify' ? QUALIFY_NOTE : CHECK_FITS_ASK_NOTE;
+  return { show_to_builder: g.show_to_builder, agent_note: withMentor(note), move_up: { kind: asked.kind, project_key: asked.key, agent_note: note } };
+}
+
+/**
+ * v4.8 Task 2: the yes to the gap stage's question. An agent with the code and Builder Codes first: it adds them
+ * (bench-reply.ts qualifyCodesYes), pushes, then calls find; standing_seen.gap_did is stamped so that find checks the
+ * code again (codesConfirmed). Otherwise the agent helps with (or, hosted, walks them through) the first step, then
+ * calls find. Never throws on its own writes.
+ */
+async function gapDoYes(ctx: Pick<ToolContext, 'ownInstallationId'>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+  const hosted = (await agentReach(ctx.ownInstallationId ?? id, id)).hosted;
+  const q = asked.qualify;
+  if (!hosted && asked.kind === 'qualify' && q?.name && qualifyGapSteps(q.steps as QualifyStep[]).some((s) => s.doable)) {
+    await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{gap_did}',
+        COALESCE(standing_seen->'gap_did', '{}'::jsonb) || jsonb_build_object(${asked.program_id!}::text, ${now.toISOString()}::text))
+      WHERE builder_id = ${id}`.catch(logged('gap did'));
+    const codesNote = q.codes_missing === false ? QUALIFY_CODES_CHECK_NOTE : QUALIFY_CODES_NOTE;
+    return {
+      show_to_builder: qualifyCodesYes(q.name, q.codes_missing !== false),
+      agent_note: withMentor(`${codesNote.replace(/\s*Don't show this note\.$/, '')} ${GAP_DO_NOTE}`),
+    };
+  }
+  return { show_to_builder: '', agent_note: withMentor(hosted ? GAP_HELP_NOTE_HOSTED : GAP_HELP_NOTE) };
+}
+
+/** v4.8 Task 2: the draft's agent note, an investor program with no public questions: the short founder brief. Pure. */
+export const founderBriefNote = (program: string, key: string | null) =>
+  `The builder said yes to drafting their ${program} application. Its questions aren't public, so write a short founder brief right under "Here's your draft:": ` +
+  'what the project does, who it is for, its traction from the verified record below (keep every number, date and link exactly) and why now. ' +
+  "Keep the verified record's lines. Never fill the blanks yourself; once they reply with them, add them to the brief and show it ready to paste. " +
+  `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
+/** v4.8 Task 2: the draft's agent note for a program with questions: prepare's fields, drafted. Pure. */
+export const questionsDraftNote = (programId: string, key: string | null) =>
+  `The builder said yes to drafting this application. First call prepare with program_id "${programId}" for this project and draft an answer to every field it lists ` +
+  'from the verified record below and their commits, except the blanks this reply names. Put your answers right under "Here\'s your draft:" and keep the verified record\'s lines; ' +
+  "never show prepare's own questions and never fill a blank yourself. Once they reply with the blanks, call prepare again with every answer and coach_asked: true, and show its draft. " +
+  `A no: call tell with move_up: { kind: 'apply', project_key: ${JSON.stringify(key)}, answer: 'no' }.`;
+
+/**
+ * v4.8 Task 2: the held answers for a program's fields (conversation.ts draftBlanks' `held`): the answer bank for this
+ * project (coach.ts bankFill: filled and suggested) and the builder's X handle. A failed read holds nothing. Never throws.
+ */
+async function heldAnswers(id: number, key: string | null, reqs: SubmissionRequirement[]): Promise<Record<string, string>> {
+  const [p] = await sql()<{ handle: string | null }[]>`SELECT x_handle AS handle FROM builder_profiles WHERE builder_id = ${id}`.catch(() => []);
+  const name = (await mainProjectName(id).catch(() => null)) ?? (key ? keyName(key) : '');
+  const bankKey = key && REPO_KEY.test(key.toLowerCase()) ? projectKey({ repo_url: `https://github.com/${key}`, name }) : name ? projectKey({ name }) : null;
+  const bank = bankKey ? await readBank(id, bankKey).catch(() => new Map()) : new Map();
+  const filled = bankFill(reqs, {}, bank);
+  const handle = p?.handle ? `@${p.handle}` : null;
+  const x = handle ? Object.fromEntries(reqs.filter((r) => r.key === 'x_handle' || /\bX \(Twitter\)/.test(r.label)).map((r) => [r.key, handle])) : {};
+  return { ...filled.suggested, ...filled.answers, ...x };
+}
+
+/**
+ * v4.8 Task 2: the yes to the path's "Want me to start?" (or the draft offer once a gap closed): the draft stage.
+ * "Here's your draft:", the verified record (ship-log-facts.ts shipLogBlock: score, streak, live link, page link,
+ * verified usage and revenue under its own rules; none on a shared client) and the blanks only the builder can fill
+ * (draftBlanks), asked as one reply. The agent writes the draft (prepare's fields, or the founder brief for an investor
+ * program with no public questions). The path moves to `draft`; the draft's ask is stored (a no parks the program).
+ * Never throws on its own reads and writes.
+ */
+async function pathDraft(ctx: Partial<Pick<ToolContext, 'sharedClient'>>, id: number, asked: NonNullable<Seen['bench_ask']>, now: Date): Promise<Reply> {
+  const pid = asked.program_id!;
+  const lead = { program_id: pid, ...(asked.repo && { repo: asked.repo }) };
+  const program = await getProgramRow(pid).catch(() => null);
+  if (!program) return { show_to_builder: '', agent_note: APPLY_YES_NOTE(pid), lead };
+  // ship-log-facts.ts is loaded here (bench-data.ts, which it reads, imports this file).
+  const { shipLogBlock, shipLogFacts, SHIP_LOG_NOTE } = await import('./ship-log-facts');
+  const facts = ctx.sharedClient ? null : await shipLogFacts(id, now).catch(logged('draft record'));
+  const record = facts ? shipLogBlock(facts) : [];
+  const { brief, blanks } = draftBlanks(program, await heldAnswers(id, asked.key, program.submission_requirements));
+  const stored = { kind: 'apply', key: asked.key, program_id: pid, path: true, draft: true, ...(asked.repo && { repo: asked.repo }) };
+  const path: Path = { stage: 'draft', program_id: pid, at: now.toISOString() };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb)
+      || jsonb_build_object('path', ${sql().json(path as never)}::jsonb, 'bench_ask', ${sql().json(stored as never)}::jsonb)
+    WHERE builder_id = ${id}`.catch(logged('draft'));
+  const note = brief ? founderBriefNote(programName(program.title), asked.key) : questionsDraftNote(pid, asked.key);
+  return {
+    show_to_builder: draftReply(record, blanks),
+    agent_note: withMentor(`${note}${record.length > 0 ? SHIP_LOG_NOTE : ''}`),
+    move_up: { kind: 'apply', project_key: asked.key, agent_note: APPLY_NOTE },
+    lead,
+  };
 }
 
 /** Stores `ask` as the Bench's question (its yes or no is answered as asked). */

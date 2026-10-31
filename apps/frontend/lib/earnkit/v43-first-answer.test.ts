@@ -9,7 +9,7 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, QUALIFY_STEPS_NOTE_HOSTED, alsoOpen, standingFields, whyNote } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_NOTE, QUALIFY_STEPS_NOTE, alsoOpen, standingFields, whyNote } from './bench-find';
 import { randomBytes } from 'node:crypto';
 import { tokenOfferDue } from './wallet-offer';
 import { isoWeekOf } from './weeks';
@@ -19,6 +19,8 @@ import {
   QUALIFY_CODES_CHECK_NOTE, QUALIFY_CODES_NOTE, alsoLine, walletSetupAsk, TOKEN_OFFER, benchReply, qualifyAsk, qualifyCodesYes, qualifyGap, qualifyHead, qualifySteps, stateAsk,
   type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
+import { qualifyGapSteps } from './bench-reply';
+import { MENTOR_NOTE, gapReply } from './conversation';
 import { BASE_GRANTS_ID } from './builder-code';
 import { productOdds, productScore, traction, type Detection } from './match';
 import { presentFirstMessage, programUpdates, type Card, type RepoFit } from './present';
@@ -211,17 +213,17 @@ test("the owner's state through find: the path's Base hook with the approved gap
   assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
   assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
-  // The hook asked "Want the steps?", so the yes is the steps (Task 2's gap stage does the step itself).
+  // v4.8 Task 2: the hook asked "Want the steps?", so the yes is the gap stage: the one step, marked, then "Go?".
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), qualifySteps(BASE, ['codes']));
-  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
-  assert.equal(yes.reply?.move_up, undefined);
-  // Remembered: the next find asks nothing about qualifying.
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), false).show_to_builder);
+  assert.ok(show(yes).endsWith('I can do this. Guide: https://docs.base.org/base-chain/builder-codes/builder-codes\n\nGo?'), show(yes));
+  assert.ok(String(yes.reply?.agent_note).endsWith(MENTOR_NOTE));
+  assert.equal((yes.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
   const [{ g }] = await sql()<{ g: Record<string, string> | null }[]>`SELECT standing_seen->'qualify_given' AS g FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(typeof g?.[key], 'string');
-  const next = await mcpCall(ctx, 'find', {});
-  assert.notEqual((next.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
-  assert.doesNotMatch(show(next), /Builder Codes/);
+  // Mid-path: the next find in the session stays on Base's gap with a one-line pointer, never the same block.
+  const next = show(await mcpCall(ctx, 'find', {}));
+  assert.equal(next, 'Base Builder Grant is still your closest money. Want the steps?');
 });
 
 test('a no to the codes question is remembered and never asked again', db, async () => {
@@ -246,10 +248,13 @@ test('fix round 1 (R1): a hosted agent is asked for the steps; its yes is the st
   const r = await mcpCall(ctx, 'find', {});
   assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'qualify');
+  // v4.8 Task 2 (F3): the gap stage's steps, nothing marked for a hosted agent; its yes walks the builder through it.
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), qualifySteps(BASE, ['codes']));
-  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE_HOSTED);
-  assert.doesNotMatch(show(yes), /Adding Builder Codes/);
+  assert.equal(show(yes), gapReply('Base Builder Grant Program', qualifyGapSteps(['codes']), true).show_to_builder);
+  assert.doesNotMatch(show(yes), /Adding Builder Codes|I can do this/);
+  const help = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
+  assert.match(String(help.reply?.agent_note), /in short plain steps they can do themselves/);
+  assert.doesNotMatch(show(help), /Adding Builder Codes/);
 });
 
 test('fix round 1: Builder Codes unknown: the gap says "To qualify", the yes tells the agent to check before adding', db, async () => {
