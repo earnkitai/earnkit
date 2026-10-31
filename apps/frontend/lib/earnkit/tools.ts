@@ -143,6 +143,7 @@ import { scoreReply } from './score-tool';
 import { aboutFacts, replyFacts, type ReplyFacts } from './reply-facts';
 import { agentReach } from './agent-reach';
 import { ANSWER_FIRST_NOTE, NOTED_LINE } from './stand-text';
+import { MENTOR_NOTE } from './conversation';
 import { startRefresh } from './stand-view';
 import { attributionFor, chainOf } from './attribution';
 import type { ReaderDeps } from './source-readers';
@@ -590,6 +591,9 @@ const ListProgramsInput = z
     more: z.boolean().optional(),
     // v2.13.3 (1): an older agent's live link for its project; read only under the Bench (benchIdentity).
     live_url: z.unknown().optional(),
+    // v4.8 Task 1: a direct question (mcp.ts find), and a program the builder named; read by the Bench (benchFind).
+    ask: z.enum(['standing', 'programs']).optional(),
+    program: z.string().max(100).optional(),
   })
   .strict();
 
@@ -834,7 +838,7 @@ export const handlers = {
   // One answer to "what can I earn?": the builder's projects first, then what's worth building,
   // opening with what changed since their last check.
   list_programs: async (input: unknown, ctx: ToolContext) => {
-    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, more, identity, project } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
+    const { agent_can_build, github_user, repos, local_repos, wallet, walletNote, more, identity, project, ask: question, program: named } = listProgramsInput(input, { shared: Boolean(ctx.sharedClient) });
     // v2.14: an installation joins a page only by signing in with its X (x-install.ts attachToX), so find
     // never asks anyone to join and what the agent reports is only a clue. A shared client has no page (R2).
     const scoring = !ctx.sharedClient;
@@ -1115,6 +1119,7 @@ export const handlers = {
         localRepos: local_repos?.length ? local_repos : own ? (memory.local_repos ?? undefined) : undefined,
         upcoming: upcoming.filter((c) => !hide.has(c.id)),
         more: more === true,
+        ...(question && { question }), ...(named && { named }),
       });
       if (r) return {
         ...r,
@@ -2653,7 +2658,8 @@ async function draftWithSteps(
  */
 export function withFacts<T extends object>(reply: T, facts: ReplyFacts): T {
   const r = reply as T & { note?: unknown; agent_note?: unknown };
-  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && n.includes(ANSWER_FIRST_NOTE));
+  // v4.8 Task 1: a path reply's mentor note asks the agent to reword it, so the "exactly as written" note never joins it.
+  const noted = [r.note, r.agent_note].some((n) => typeof n === 'string' && (n.includes(ANSWER_FIRST_NOTE) || n === MENTOR_NOTE));
   return { ...reply, facts, ...(!noted && { note: typeof r.note === 'string' && r.note ? `${ANSWER_FIRST_NOTE} ${r.note}` : ANSWER_FIRST_NOTE }) } as T;
 }
 

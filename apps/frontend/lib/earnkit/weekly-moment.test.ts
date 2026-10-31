@@ -28,10 +28,10 @@ const SHIP_WHY_RE = /Shipping this week (keeps your \d+-week streak|starts your 
 const TARGET_WHY = (t: string) => new RegExp(`\n\n${t.replace(/[.#]/g, '\\$&')}\n\n${RANKED_ASK_RE.source}$`);
 import { pointsTotal } from './points';
 import { momentPlace, weekNumber } from './weekly-moment';
-/** v4.7.1 T1 (money always shows): the open grants paragraph before the why, checked here, then set aside for the Monday copy. */
+/** v4.7.1 T1 put the open grants paragraph before the why; v4.8 Task 1 retired it (the path names the money). */
 const noOpen = (s: string) => {
-  assert.match(s, /\n\nOpen now: [^\n]+\.\n\nBuilders who share wins/, s);
-  return s.replace(/\n\nOpen now: [^\n]+(?=\n\n)/, '');
+  assert.doesNotMatch(s, /Open now:/, s);
+  return s;
 };
 
 /**
@@ -112,14 +112,15 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   const s = show(f);
   // v4.3: Base's grant steps declined (builder()), so the ship step is the question; v4.7 T4: led by its why line.
   // v4.7.1 T1: no fit, so the open grants lead; the standing is v4.7's paragraph, never "App · #2 of 10 builders".
-  assert.match(s, new RegExp(`^Open now: [^\\n]+\\n\\nScore \\d+ · #2 of 10 builders\\. [^\\n]+${TARGET_WHY('Ship code this week to pass #1.').source}`), s);
+  // v4.8 Task 1: the "Open now:" paragraph is retired.
+  assert.match(s, new RegExp(`^Score \\d+ · #2 of 10 builders\\. [^\\n]+${TARGET_WHY('Ship code this week to pass #1.').source}`), s);
   assert.doesNotMatch(s, /Code in \d+ of the last 12 weeks/, 'v3.1 F4: no why sentence in the reply');
   assert.equal(links(s).length, 0, s);
   assert.equal(questions(s), 1, s);
   assert.equal((f.reply?.move_up as { kind: string }).kind, 'ship');
   // v4.7 T4: the weekly target stays on the quiet reply (the ship question just asked).
   await quiet(me.id);
-  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/);
+  assert.match(show(await mcpCall(ctx(me.id), 'score', {})), /\nShip code this week to pass #1\.$/);
   // No ranked day last week: the moment is skipped and the week stays unclaimed.
   assert.doesNotMatch(s, /Last week|Week \d+ done/);
   assert.equal((await sql()<{ w: string | null }[]>`SELECT moment_week AS w FROM installations WHERE id = ${me.id}`)[0].w, null);
@@ -133,7 +134,7 @@ test('L5.4 through find and score: a ranked builder mid-week gets the weekly tar
   await setWeeks(ana.id, [1, 2, 3, 4, 5, 6, 7, 8]);
   await quiet(me.id);
   const behind = show(await mcpCall(ctx(me.id), 'score', {}));
-  assert.match(behind, /\nShip code this week to move toward #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, behind);
+  assert.match(behind, /\nShip code this week to move toward #1\.$/, behind);
 
   // After shipping (this week has commits): done, and what next week adds.
   await setWeeks(me.id, [0, 1, 2, 3]);
@@ -152,11 +153,11 @@ test('L5.5 #1 holds; tied at the top holds too', db, async () => {
   assert.match(show(await mcpCall(ctx(top.id), 'find', {})), TARGET_WHY('Ship code this week to hold #1.'));
   await quiet(top.id);
   const t = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(t, /\nShip code this week to hold #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, t);
+  assert.match(t, /\nShip code this week to hold #1\.$/, t);
   await builder('wttie', 'Tie', [1, 2]);
   await quiet(top.id);
   const tied = show(await mcpCall(ctx(top.id), 'score', {}));
-  assert.match(tied, /\nShip code this week to hold #1\.\n\nAsk me anytime: where do I stand, what can I apply to, or draft my application\.$/, tied);
+  assert.match(tied, /\nShip code this week to hold #1\.$/, tied);
   assert.equal((await profileData(top.id, new Date()))!.target, 'Code this week holds #1.');
 });
 

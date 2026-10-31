@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, pathUnquiet, walletOffered } from './fixtures/wallet-step';
 import { registerClient } from './oauth';
 import { authorizeGet, tokenPost } from './oauth-routes';
 import { xSignInCallback } from './x-install';
@@ -172,12 +172,16 @@ test('12.4 acceptance 3: the App installed on the org repo; the next reply says 
   const res = await appSetup(new Request(`https://earnkit.com/github/verify/app?installation_id=${GH_INSTALL}&state=${nonce}`, {
     headers: { cookie: `${csrfCookieName(nonce)}=x` } }), { fetch: gh, ...noLimit });
   assert.equal(res.status, 200);
-  // v4.0: setup step 3 answered (this test is about another reply).
+  // v4.0: setup step 3 answered (this test is about another reply). v4.8 Task 1: the path parked, so the reply is the
+  // standing paragraph and its step.
   await walletOffered(first.id);
+  await pathQuiet(first.id);
   const s = rule(await mcpCall(first.ctx, 'find', {}));
   // Task 16: ranked, with a rank on the standing line (no backfilled weeks here, so no connect offer).
   // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
   assert.match(s, /^(?:EarnKit is on the leaderboard: |Score \d+ · )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, s);
+  // The path names programs again for the rest of the journey.
+  await pathUnquiet(first.id);
 });
 
 test('12.5 acceptance 4: the next Monday the profile shows the week from its titles; nobody scheduled anything', db, async () => {

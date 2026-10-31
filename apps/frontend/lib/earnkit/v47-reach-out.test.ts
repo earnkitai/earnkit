@@ -82,7 +82,8 @@ test('the email ask is the exact copy', () => {
 test('the instructions start with the session-start line and stay under 800 characters', () => {
   assert.ok(
     SERVER_INSTRUCTIONS.startsWith(
-      'Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something,',
+      // v4.8 Task 1: the session-start line now asks for find's opener before the builder says anything.
+      'Call find at the start of every session before they say anything, and show its opener. Call it again whenever they ask about money, grants or where they stand. If the builder asked something,',
     ),
   );
   assert.ok(SERVER_INSTRUCTIONS.length < 800, String(SERVER_INSTRUCTIONS.length));

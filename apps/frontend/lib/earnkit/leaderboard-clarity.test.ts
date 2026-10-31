@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
@@ -213,6 +213,8 @@ test('R10: signed out while ranked (an anonymous ranked row): "not on the leader
 
 test('R10: ranked, the move-up news shows with the rank; once the project is not counted (a stale ranked row) no rank, no news, anywhere', db, async () => {
   const a = await rankedBuilder('nws', 'Newsy', 'newsy', 7102);
+  // v4.8 Task 1: the path parked, so the ranked reply is the standing paragraph and its step (this test is about the rank).
+  await pathQuiet(a.id);
   // v3.1 F3: the news names a rank only from RANK_MIN_POOL ranked builders.
   await padPool(9);
   const seen = (rank: number) => sql()`
@@ -264,10 +266,11 @@ test('R10: ranked, the move-up news shows with the rank; once the project is not
 test('R11: a long project name is whole in the reply and on the leaderboard', db, async () => {
   const name = 'The Recipe Planner For Busy Families Who Cook Every Night';
   const a = await rankedBuilder('lng', name, 'recipes', 7103);
+  // v4.8 Task 1: the path's hook for Base's grant (the only program left) names the project whole in its gap.
+  await pathQuiet(a.id, { except: ['base-builder-grants'] });
   const s = oneStatusOneStep((await mcpCall(a.ctx, 'find', {})).reply);
-  // v4.7.1 T1: the standing paragraph names no project; the reply's step names it whole.
   assert.ok(s.includes(`To qualify, ${name} needs to `), s);
-  assert.equal(s.split('\n').at(-1), `Want help putting ${name} on Base?`, s);
+  assert.equal(s.split('\n').at(-1), 'Want the steps?', s);
   const { rows } = await benchRows({ chain: null, weekly: false }, { only: [a.id] });
   assert.equal(rows[0].project, name);
 });

@@ -4,15 +4,16 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { isoWeekOf, lastFinishedMonday } from './weeks';
 import { setFeeSource } from './fees';
 import { periodKey } from './free-tier';
 import { CHEER_LINE, communityRow, mondayLines, mondayOpener, mondayRows } from './weekly-moment';
-/** v4.7.1 T1 (money always shows): the open grants paragraph before the why, checked here, then set aside for the Monday copy. */
+/** v4.7.1 T1 put the open grants paragraph before the why; v4.8 Task 1 retired it (the path names the money). */
 const noOpen = (s: string) => {
-  assert.match(s, /\n\nOpen now: [^\n]+\.\n\nBuilders who share wins/, s);
-  return s.replace(/\n\nOpen now: [^\n]+(?=\n\n)/, '');
+  assert.doesNotMatch(s, /Open now:/, s);
+  return s;
 };
 import { weekCommunityUsd } from './community';
 import { MOMENT_ASK, mondayReply, type MomentView } from './bench-reply';
@@ -192,6 +193,8 @@ async function maya(tag: string) {
   await token(id, wallet);
   await claim(wallet, 46, LAST_T + 3 * DAY);
   await claim(wallet, 40, LAST_T - 3 * DAY);
+  // v4.8 Task 1: the Monday block is one of the older ranked replies, after the path has no program to name.
+  await pathQuiet(id);
   return { id, key, handle };
 }
 

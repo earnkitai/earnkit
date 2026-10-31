@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person, withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { periodKey } from './free-tier';
 import { LIVE_CALIBRATION_V2 } from './score-calibration';
 import { openShare } from './weekly-moment';
@@ -294,6 +295,8 @@ test('(f) the connect yes asks for the address once; tell weekly_email yes with 
     assert.equal(EMAIL_ON, "Done. You'll get deadline alerts and a Monday summary.");
     await freshBoard();
     const me = await builder('mef');
+    // v4.8 Task 1: the connect offer is one of the older ranked asks, after the path has no program to name.
+    await pathQuiet(me.id);
     // Backfill-style weeks to confirm at connect.
     await sql()`INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES
       (${me.id}, ${me.key}, ${BEFORE}, ${sql().json({ checked: true, shipped_code: { n: 2 } } as never)})`;

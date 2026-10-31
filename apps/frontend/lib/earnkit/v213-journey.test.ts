@@ -46,7 +46,6 @@ import BenchView from '../../app/leaderboard/BenchView';
 import HomeView from '../../app/HomeView';
 import TermsPage from '../../app/terms/page';
 import { GET as llms } from '../../app/llms.txt/route';
-import { endsOnRankedStep } from './fixtures/ranked-step';
 import { padPool } from './fixtures/rank-pool';
 
 /**
@@ -544,13 +543,14 @@ test('16.1 acceptance 1, with a project: the first reply names it (v2.14 T7: no 
   // v4.6 Task 3: the builder has a verified site, so the one-time Stripe ask would take the quiet slot; this journey is about the ship and qualify steps.
   await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('stripe_asked', now()::text) WHERE builder_id = ${id}`;
   const r2 = await call('find', {}, ctx(id));
-  // v4.7.1 T1: the standing paragraph (the page's score, rank and weeks), never the old name line.
-  assert.match(r2.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks? shipping( in a row)?\.)?/m, r2.show_to_builder);
-  // R8 (supersedes owner ruling A): find never offers a community round; the step is to ship.
-  assert.ok(endsOnRankedStep(r2.show_to_builder), r2.show_to_builder);
+  // v4.7.1 T1: the standing (the page's score, rank and weeks) rides in the reply's facts (v4.8 Task 1: the path's hook is
+  // the shown reply).
+  assert.match(String((r2 as { standing?: string }).standing), /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\.( \d+ weeks? shipping( in a row)?\.)?/, String((r2 as { standing?: string }).standing));
+  // R8 (supersedes owner ruling A): find never offers a community round. v4.8 Task 1: the path's hook, one easy reply.
+  assert.ok(/(Want me to start|Want the steps)\?$/.test(r2.show_to_builder), r2.show_to_builder);
   assert.doesNotMatch(r2.show_to_builder, /community round|coin|token/i);
-  // v3.1 cold read: long shots (the investments this repo matches) never lead, so with no real fit the step is Base's path.
-  assert.equal(r2.move_up?.kind, 'qualify');
+  // v3.1 cold read: long shots (the investments this repo matches) never lead as a fit.
+  assert.doesNotMatch(r2.show_to_builder, /You qualify/, r2.show_to_builder);
   // v4.0 Task 11: an older agent's tell token ask is the builder token's answer, never a project coin offer.
   await sql()`
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${id}, 'maya/recipes', ${lastFinishedMonday(new Date())}, ${sql().json({ shipped_code: { n: 2 }, approved: true } as never)})

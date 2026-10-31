@@ -219,8 +219,6 @@ export const withWhy = <M extends { agent_note: string }>(m: M, why: string | nu
  */
 export const shipWhyOf = (target: string | null | undefined, streak: number) =>
   target?.startsWith('Ship code this week to ') ? target : shipWhy(streak);
-/** v4.7 T4 (exact copy): the setup-done reply's first-run line, a statement, said once (standing_seen.asks_hint). */
-export const ASKS_HINT = 'Ask me anytime: where do I stand, what can I apply to, or draft my application.';
 /**
  * v3.1 wallet proof (owner-approved 2026-10-23): the optional step right after setup, offered once a person. Its one
  * question takes "done" (a yes: the proof is checked) or "skip" (a no: remembered, never asked again). Pure.
@@ -299,11 +297,11 @@ export const closestWhy = (program: string, step: string) => `${program} is the 
  * v4.0 Task 5: the setup-done reply: the lead, the table and the draft question; with no open fit, the lead alone and
  * `noFit` (never an empty table). Pure.
  */
-export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean; hint?: string | null } = {}) =>
-  // v4.7 T4: the first-run line (`hint`, ASKS_HINT) is a statement before the question, so the question stays last.
+export const setupDoneReply = (first: string, outcome: SetupOutcome, rows: ProgramRow[], noFit: string, opts: { trade?: string | null; closest?: { program: string; step: string } | null; check?: string | null; noAsk?: boolean } = {}) =>
+  // v4.8 Task 1: the v4.7 first-run line (ASKS_HINT) is retired.
   rows.length === 0
-    ? [setupDoneLead(first, outcome, false, opts.trade), noFit, opts.hint].filter((x): x is string => Boolean(x)).join('\n\n')
-    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows), opts.hint,
+    ? [setupDoneLead(first, outcome, false, opts.trade), noFit].filter((x): x is string => Boolean(x)).join('\n\n')
+    : [setupDoneLead(first, outcome, true, opts.trade), programsTable(rows),
         opts.noAsk ? null : opts.closest ? closestAsk(opts.closest.program, opts.closest.step) : opts.check ? checkFitsAsk(opts.check) : bestFitAsk(rows[0].program)]
         .filter((x): x is string => Boolean(x)).join('\n\n');
 /** v4.2 Task 10: fits not known yet: the question (a yes runs the fit check, find). Pure. */
@@ -386,27 +384,7 @@ export const alsoLine = (a: AlsoOpen[]) =>
 /** A program's title before its first ':' (alsoLine's cut). Pure. */
 export const shortTitle = (title: string) => title.split(':')[0].trim();
 /**
- * v4.7.1 T1 (exact copy, "Open money paragraph"): a ranked reply with no unapplied fit names the open grants closing
- * soonest (bench-find.ts openNowGrants): "Open now: Arc Microgrants, 500 USDC × 8 grants, closes Nov 1. Base Builder Grant
- * Program, $5,000, rolling." (fix round 1, R1: "Open now:" once, the grants joined by a space); the cells as alsoLine's.
- * Null with none. Pure.
- */
-export const openNowLine = (a: AlsoOpen[] | null | undefined, o: { total?: string | null; invest?: AlsoOpen | null } = {}) =>
-  // v4.7.2 T2 fix round 1 (ruling B): with no open grant, an open investment still makes the line; final review 8: then
-  // without the total sentence (no grant listed to back it). Null with nothing left.
-  (!a || a.length === 0) && !o.invest ? null : [
-    'Open now:',
-    // v4.7.3 T3 (exact copy): the investment right after the total: "$105.5K in grants, plus a16z speedrun SR008, up to $1M investment, closes Nov 1."
-    ...(() => {
-      const inv = o.invest ? `${shortTitle(o.invest.title)}, ${o.invest.amount} investment, ${o.invest.when}.` : null;
-      const total = o.total && a && a.length > 0 ? o.total : null;
-      if (total && inv) return [`${total} in grants, plus ${inv}`];
-      return [...(total ? [`${total} in grants.`] : []), ...(inv ? [inv] : [])];
-    })(),
-    ...(a ?? []).map((x) => `${shortTitle(x.title)}, ${x.amount}, ${x.when}.`),
-  ].join(' ');
-/**
- * v4.7.2 T2 (exact copy, "Needs why"): the ranked check_fits ask's why names the gap: "Arc Microgrants needs EarnKit on
+ * v4.7.2 T2 (exact copy, "Needs why"), v4.8 Task 1 (the path's gap sentence for a grant other than Base's): the gap: "Arc Microgrants needs EarnKit on
  * Arc mainnet." (1 to 3 needs, ", " and a final " and "); with none known missing, "Nothing EarnKit can see rules
  * EarnKit out of Arc Microgrants.". `program`: its title (shortTitle). Pure.
  */
@@ -417,16 +395,6 @@ export function needsWhy(name: string, program: string, needs: string[]): string
   const list = needs.length === 1 ? needs[0] : `${needs.slice(0, -1).join(', ')} and ${needs.at(-1)}`;
   return `${p} needs ${name} ${list}.`;
 }
-/**
- * v4.7.2 T2 (exact copy, "Needs question"): the ranked check_fits ask's question; final review 3 (ruled copy): with no
- * known gap, "Want me to check Arc Microgrants's requirements for Kit?". Pure.
- */
-export const needsAsk = (name: string, program: string, needs: string[], later = false) =>
-  needs.length === 0
-    ? `Want me to check ${possessive(shortTitle(program))} requirements${later ? '' : ` for ${name}`}?`
-    : later ? `Want the ${shortTitle(program)} steps?` : `Want the steps to get ${name} ready for ${shortTitle(program)}?`;
-/** v4.7.3 T3: a title's possessive: "Arc Microgrants'" after an "s", "Kit's" otherwise. Pure. */
-export const possessive = (title: string) => (title.endsWith('s') ? `${title}'` : `${title}'s`);
 /**
  * The no-fit reply's one question, by the first step left (v4.3, owner-approved): Builder Codes, "Want me to add
  * Builder Codes to EarnKit?" (fix round 1, ruling R1: an agent with no folder of the code (`hosted`) can't add it, so
@@ -658,8 +626,6 @@ export function replyState(i: { signedIn: boolean; project: BenchProject | null;
 /** R10: only the ranked state shows a rank (the one project counts); the others carry no rank and no rank news. Pure. */
 export const rankedState = (s: ReplyState) => s === 'ranked';
 
-/** v4.7.2 T2: the open program the ranked needs ask names, and what it needs that EarnKit doesn't see (bench-find.ts programNeeds). */
-export type NeedsAsk = { id: string; title: string; needs: string[]; /** v4.7.3 T3: shown before and unanswered: the short ask, no why paragraph. */ later?: boolean };
 export type BenchView = {
   state: ReplyState; variant: Variant; project: BenchProject | null;
   /** The rank phrase (rank.ts shownRankLine: "#3 of 40 builders", "Top 4% of builders"; null under RANK_MIN_POOL), ranked only. */
@@ -715,18 +681,6 @@ export type BenchView = {
    * Absent (a pure caller): standingLine.
    */
   standingText?: string;
-  /** v4.7.1 T1: ranked with no unapplied fit: up to two open grants, soonest deadline first (bench-find.ts openNowGrants). */
-  openNow?: AlsoOpen[];
-  /** v4.7.2 T1: the money paragraph's total (moneyText of the open grants) and the soonest open investment. */
-  openTotal?: string | null;
-  openInvest?: AlsoOpen | null;
-  /** v4.7.2 T2: the ranked check_fits ask's program and what it needs (needsWhy); null or absent: not asked. */
-  checkFits?: NeedsAsk | null;
-  /**
-   * v4.7.1 T1 fix round 2 (R6): the fit moneyPara pitches: the first shown fit not applied to nor drafted; null: none (the
-   * open grants instead). Absent (a pure caller): the Best fit, else the first fit line.
-   */
-  pitch?: Extract<FundLine, { kind: 'fits' }> | null;
   /** v3.1 cold read: the shipping points line is shown (at most once an ISO week); absent: shown. */
   nagShown?: boolean;
   /** v3.1 cold read: a live link with no GitHub (the builder said no once): its tool's GitHub steps (liveNoGithub). */
@@ -739,6 +693,10 @@ export type BenchView = {
   nudgeOwns?: boolean;
   /** v4.0 Task 5: the setup-done reply (setupDoneReply), said once in place of the state's reply. */
   setupDone?: string;
+  /** v4.8 Task 1: the path's reply (conversation.ts pathReply), the whole ranked reply when set (under any notice). */
+  path?: string;
+  /** v4.8 Task 1: the program the path's yes drafts (find's `lead`), null for a step. */
+  pathLead?: { program_id: string; repo?: string } | null;
 };
 
 /** v3 Stage 2: the program the apply step offers to draft for (its deadline's day, "Nov 18"; v3.1: null, rolling). */
@@ -768,8 +726,6 @@ export function stateAsk(
     newRepo?: boolean;
     /** GTM W2: the Monday check-in is due (once, a client that can schedule, after setup). */
     checkin?: boolean;
-    /** v4.7.1 T1: no fit, so the ranked check_fits ask; v4.7.2 T2: the open program it names and what it needs (programNeeds). */
-    checkFits?: NeedsAsk | null;
     /** GTM W2: the ship question was asked within SHIP_ASK_DAYS (the quiet reply then asks nothing). */
     shipAsked?: boolean;
     /** GTM W2: the builder already connected a repo with the App (setup is done): never "Step 2 of 2" again. */
@@ -826,8 +782,6 @@ export function stateAsk(
   // v3.1 one-tap posts: an event's post.
   if (v.state === 'ranked' && v.post) return { kind: 'post', project_key: key, line: POST_ASK };
   if (v.state === 'ranked' && v.share) return { kind: 'share', project_key: key, line: MOMENT_ASK };
-  // v4.7.1 T1: no fit, so what the project would need for the first open grant, once, ahead of the quieter asks.
-  if (v.state === 'ranked' && v.checkFits) return { kind: 'check_fits', project_key: key, line: needsAsk(name, v.checkFits.title, v.checkFits.needs, v.checkFits.later === true) };
   // GTM W2: the Monday check-in, once, on a client that can schedule (before the optional wallet step).
   if (v.state === 'ranked' && v.checkin) return { kind: 'checkin', project_key: key, line: CHECKIN_ASK };
   // v3.1 wallet proof: the optional wallet step, once, in the first reply after setup with no other question.
@@ -850,13 +804,15 @@ export function stateAsk(
   return { kind: 'install_app', project_key: key, line: STATE_COPY.not_counted.ask(v.link, v.noGithub === true) };
 }
 
-/**
- * Ranked: the money line: the fit benchView pitches (v4.7.1 final review, R6: null, none: never an applied or drafted
- * fit); absent (moneyFirst, a pure caller), the Best fit, else the first fit; else the upcoming program.
- */
+/** v4.8 Task 1: the fit line a ranked reply off the path may say: the Best fit, else the first fit line. Pure. */
+const fitLine = (v: BenchView): string | null => {
+  const fit = v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits');
+  return fit ? qualifyLine(fit) : null;
+};
+/** Ranked: the money line: the fit line, else the upcoming program. */
 function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }): string | null {
-  const fit = v.pitch !== undefined ? v.pitch : (v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits'));
-  if (fit) return qualifyLine(fit);
+  const fit = fitLine(v);
+  if (fit) return fit;
   const u = o.upcoming ? v.fund.find((f): f is Extract<FundLine, { kind: 'upcoming' }> => f.kind === 'upcoming') : undefined;
   return u ? upcomingLine(u.title, u.prize, u.note) : null;
 }
@@ -866,26 +822,12 @@ function moneyLine(v: BenchView, o: { upcoming: boolean } = { upcoming: true }):
  */
 const standingOf = (v: BenchView, name: string) =>
   v.standingText === undefined ? standingLine(name, v.rank, v.streak, v.earned ?? 0) : v.standingText || `${name} is on EarnKit.`;
-/** v4.7.2 T1: the money paragraph's total and investment, as openNowLine takes them. Pure. */
-const openOf = (v: Pick<BenchView, 'openTotal' | 'openInvest'>) => ({ total: v.openTotal, invest: v.openInvest });
-/**
- * v4.7.1 T1: the open grants paragraph, only with no fit line (moneyLine's fit), so a fit's reply stays v4.7's. Final
- * review (R6): a pitch of null (every fit applied or drafted) shows it too. Pure.
- */
-const openNowOf = (v: BenchView) =>
-  v.held ? null
-    : v.pitch === null ? openNowLine(v.openNow, openOf(v))
-    : v.pitch || v.best || v.fund.some((f) => f.kind === 'fits') ? null : openNowLine(v.openNow, openOf(v));
 /**
  * v4.7.1 T1 fix round 1: the money for a reply shape that shows no moneyLine (wallet, token, new repo, the Monday block,
- * a post, connect without a Best fit): the fit line (a builder whose fits are all drafted or applied), else the open
- * grants. Null when held. Pure.
+ * a post, connect without a Best fit): the fit line. v4.8 Task 1: the open grants paragraph that stood in for it is
+ * retired (the path names the money). Null when held. Pure.
  */
-const moneyPara = (v: BenchView) => {
-  if (v.held) return null;
-  const fit = v.pitch !== undefined ? v.pitch : (v.best ?? v.fund.find((f): f is Extract<FundLine, { kind: 'fits' }> => f.kind === 'fits'));
-  return fit ? qualifyLine(fit) : openNowLine(v.openNow, openOf(v));
-};
+const moneyPara = (v: BenchView) => (v.held ? null : fitLine(v));
 /** v4.7.1 T1 fix round 1: the project's name as every ranked line says it (rankedBody, stateAsk and askWhy). Pure. */
 export const replyName = (v: Pick<BenchView, 'project'>) => v.project?.name ?? '';
 /** Paragraphs, each its lines; empty ones dropped. */
@@ -931,6 +873,8 @@ export function benchReply(v: BenchView): string {
     const body = [v.variant ? VARIANT_COPY[v.variant].stand(name) : STATE_COPY.not_counted.stand(name), notice, money, ...v.due];
     return sWhy ? paras(hi, body, [sWhy], [ask]) : paras(hi, [...body, ask]);
   }
+  // v4.8 Task 1: the path's reply is the ranked reply (only a one-time notice goes above it).
+  if (v.state === 'ranked' && v.path) return paras(...[notice, v.path].filter((l): l is string => Boolean(l)).map((l) => [l]));
   // v4.0 Task 8: the week's nudge leads the ranked reply.
   const lead = [v.state === 'ranked' ? v.nudge : null, notice].filter((l): l is string => Boolean(l));
   // Fix round 1 (ruling 2): a nudge that asks is the reply's one question; the standing only when it changed.
@@ -942,7 +886,7 @@ export function benchReply(v: BenchView): string {
   // fit line), a non-owning nudge goes right after it; the notice stays on top.
   const nudge = v.state === 'ranked' && v.nudge ? v.nudge : null;
   const [first, ...rest] = body.split('\n\n');
-  const says = [openNowOf(v), moneyPara(v), moneyLine(v)].filter((m): m is string => Boolean(m));
+  const says = [moneyPara(v), moneyLine(v)].filter((m): m is string => Boolean(m));
   if (nudge && rest.length > 0 && says.some((m) => first.includes(m)))
     return paras(...[notice, first, nudge].filter((l): l is string => Boolean(l)).map((l) => [l])) + '\n\n' + rest.join('\n\n');
   return lead.length > 0 ? paras(...lead.map((l) => [l])) + '\n\n' + body : body;
@@ -982,20 +926,11 @@ function withTable(reply: string, table: string | null | undefined, ask: string)
 function rankedReply(v: BenchView, name: string, ask: string): string {
   // The qualify reply carries the table in place of "Also open" (rankedBody); fix round 1 (R3): step 3 stays word for word.
   if (!v.held && ((v.ask.kind === 'qualify' && v.qualify) || v.ask.kind === 'wallet_setup')) return rankedBody(v, name, ask);
-  // v4.7.2 T2: the table goes before ASKS_HINT, which stays the quiet reply's last paragraph.
-  return withTable(rankedBody(v, name, ask), v.fullTable, quietHint(v) ? ASKS_HINT : ask);
+  return withTable(rankedBody(v, name, ask), v.fullTable, ask);
 }
-/**
- * v4.7.2 T2 (exact copy, "No program left"): the quiet ranked reply (no question, nothing held) that shows the open
- * grants ends with ASKS_HINT. Pure.
- */
-const quietHint = (v: BenchView) => v.state === 'ranked' && !v.held && v.ask.kind === 'none' && Boolean(openNowOf(v));
 
 function rankedBody(v: BenchView, name: string, ask: string): string {
-  // v4.7.1 T1 (money always shows): with no fit, the open grants closing soonest lead every non-money ask (and the quiet
-  // reply); a fit's reply is v4.7's, word for word.
-  const open = openNowOf(v);
-  // Fix round 1: shapes with no moneyLine of their own carry the fit line, else the open grants.
+  // Fix round 1: shapes with no moneyLine of their own carry the fit line.
   const money = moneyPara(v);
   if (!v.held && v.ask.kind === 'connect' && v.connect)
     return paras(
@@ -1034,14 +969,9 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
   // most once in SHIP_ASK_DAYS), and (R13) the weekly rank target is that why when there is one. The quiet reply keeps
   // the ship line. The check-in's why always shows. Each is its own paragraph before the question.
   const target = nag && !v.held && v.ask.kind === 'none' ? ship : null;
-  // v4.7.2 T2: the check_fits ask's why names the program's gap (needsWhy).
-  const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY
-    : v.ask.kind === 'check_fits' && v.checkFits && !v.checkFits.later ? needsWhy(name, v.checkFits.title, v.checkFits.needs) : null;
-  // The why and its question are something to say, so no standing is added for them (orStanding). v4.7.1 T1: nor for
-  // the open grants, which lead.
-  if (why) return paras([open], [standing, ...v.due, moneyLine(v), target], [why], [ask]);
-  // v4.7.2 T2 (no program left): the quiet reply with the open grants ends with ASKS_HINT, its own paragraph, no question.
-  if (open) return paras([open], [standing, ...v.due, moneyLine(v), target], [quietHint(v) ? ASKS_HINT : ask]);
+  const why = v.held ? null : v.ask.kind === 'ship' ? shipWhyOf(v.target, v.streak) : v.ask.kind === 'checkin' ? CHECKIN_WHY : null;
+  // The why and its question are something to say, so no standing is added for them (orStanding).
+  if (why) return paras([standing, ...v.due, moneyLine(v), target], [why], [ask]);
   return paras(orStanding([standing, ...v.due, moneyLine(v), target, ask]));
 }
 
@@ -1050,11 +980,10 @@ function rankedBody(v: BenchView, name: string, ask: string): string {
  * and qualify, their own reason sentence (applyWhy; the qualify head and gap); an owning nudge's apply, the nudge's
  * statements; v4.7.1 T1: check_fits (v4.7.2 T2: needsWhy). Null for `none` and the other asks. Pure.
  */
-export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'target' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns' | 'openNow' | 'checkFits'>): string | null {
+export function askWhy(v: Pick<BenchView, 'ask' | 'streak' | 'target' | 'qualify' | 'project' | 'nudge' | 'nudgeOwns'>): string | null {
   switch (v.ask.kind) {
     // v4.7.1 T1: no question, so no why (never a stale one on a quiet reply).
     case 'none': return null;
-    case 'check_fits': return v.checkFits ? needsWhy(replyName(v), v.checkFits.title, v.checkFits.needs) : null;
     case 'ship': return shipWhyOf(v.target, v.streak);
     case 'checkin': return CHECKIN_WHY;
     case 'share': return SHARE_WHY;

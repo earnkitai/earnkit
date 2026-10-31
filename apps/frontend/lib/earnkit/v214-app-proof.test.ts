@@ -1,5 +1,5 @@
 import { after, test } from 'node:test';
-import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, checkFitsAsked, walletOffered } from './fixtures/wallet-step';
 import { connectAsk } from './connect-moment';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -73,6 +73,8 @@ test('6.2 the setup URL proves the repo (github_app), rescoring at once: the nex
     SELECT state, proof, gh_repo_id::text, gh_owner, public_at FROM builder_sources WHERE builder_id = ${p.id} AND kind = 'repo' AND lower(ref) = ${key}`;
   assert.deepEqual({ ...s, public_at: s.public_at === null }, { state: 'verified', proof: 'github_app', gh_repo_id: '9001', gh_owner: `nia${RUN}`, public_at: true });
   assert.deepEqual(await repoProof(p.id, key), { ok: true, via: 'app', owner: `nia${RUN}`, private: true });
+  // v4.8 Task 1: the path parked, so the ranked reply is the standing paragraph and its step.
+  await pathQuiet(p.id);
   const r = await mcpCall(p.ctx, 'find', {});
   // R4, R16c: read at connect with no commits, it ranks at 0 and the stand line is the score line.
   // v4.7.1 T1: the standing paragraph ("Score 0 · #1 of 10 builders. ..."), never "Notes · #1 of 10 builders".
@@ -98,6 +100,7 @@ test('6.2b R5 scored at connect: right after the App setup, a repo with commits 
   const commits = [0, 1, 2, 5].map((w, i) => ({ sha: `c${i}`, message: `change ${i}`, date: ago(w) }));
   const gh = fakeGitHub({ [key]: { id: 9101, owner: `gwen${RUN}`, installation: 91, private: true, commits } });
   const p = await connected(key, 'gwen', gh, 91);
+  await pathQuiet(p.id);
   await walletOffered(p.id);
   // Weeks 0, 1, 2 and 5: weights 12 + 11 + 10 + 7 = 40 of 78, so round(90 x 40 / 78) = 46.
   assert.equal(p.live.score, 46);

@@ -124,8 +124,11 @@ export const OWNERSHIP_FOR_TOKEN = 'A token needs a repo proven yours; EarnKit g
  * note is followed. Under 800 characters (mcp.test.ts 2.8).
  */
 export const FIND_DESCRIPTION_BENCH =
-  'Where they stand (answer from standing), how to get funded. Pass identity.project (name, what, repo, live_url; never a list) and identity.github_login (not github_user or repos); never ask. ' +
-  'Follow every agent_note. A yes or no to the question goes to tell move_up. program_id: one program\'s guide. ' +
+  // v4.8 Task 1: find opens the session (the server instructions say so); `ask` and `program` carry a direct question,
+  // so the description names when to send them (the identity and program_id fields describe themselves).
+  'Pass identity.project (one, never a list) and identity.github_login (not github_user or repos); never ask. ' +
+  'Follow every agent_note. A yes or no to the question goes to tell move_up. ' +
+  'ask: standing (answer from standing) or programs, for where they stand or what to apply to; program: one they name. ' +
   'more: true only on a full-list ask, not for what can I earn. ' +
   SAFETY_TEXT;
 
@@ -196,7 +199,8 @@ export const BENCH_INSTRUCTION_LINES = [
   // under 800 with it, so "Call score when they ask where they stand." (the score description carries it) and "A yes or
   // no to the question goes to tell move_up." (find's and tell's descriptions carry it) are dropped, and the last line's
   // "to the builder" is implied.
-  'Call find at the start of every session, before the builder asks, and whenever they ask about money, grants or where they stand. If the builder asked something, answer it in one short line from facts in the reply, never invented; then show show_to_builder exactly as written and follow every agent_note.',
+  // v4.8 Task 1: EarnKit leads, so the agent opens every session with find's opener (MENTOR_NOTE says how to word it).
+  'Call find at the start of every session before they say anything, and show its opener. Call it again whenever they ask about money, grants or where they stand. If the builder asked something, answer it in one short line from facts in the reply, never invented; then follow every agent_note.',
   'Never name tools, fields or files, or invent personal details.',
 ];
 
@@ -342,6 +346,9 @@ export function createMcpServer(ctx: ToolContext, opts: { campaignOpen?: boolean
         // v2.10 item 2: "show more".
         more: z.boolean().optional().describe('true for the full tables, only when the builder asks for the full list or everything open, or says yes to "Want the 3 easiest?". What can I earn is a plain find (never more, never for a yes to the lead)'),
         program_id: z.string().optional().describe("One program's details; for a curated program show_to_builder is its guide"),
+        // v4.8 Task 1: a direct question. Without `ask`, the reply is the path's next step (EarnKit leads).
+        ask: z.enum(['standing', 'programs']).optional().describe("'standing' when they ask where they stand or how they're doing; 'programs' when they ask what they can apply to. Leave it out at session start and for a yes"),
+        program: z.string().max(100).optional().describe('A program the builder named or picked, in their words or its number from the list'),
         repo: z.string().optional().describe('With program_id: "owner/repo" or a github.com link to check against that program'),
       },
       annotations: { readOnlyHint: true },

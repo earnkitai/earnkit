@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as React from 'react';
@@ -169,6 +169,8 @@ async function builder(tag: string): Promise<B> {
     INSERT INTO project_updates (builder_id, project_key, week, facts) VALUES (${c.id}, ${key}, ${lastFinishedMonday(new Date())},
       ${sql().json({ shipped_code: { n: 3 }, checked: true, approved: true } as never)})
     ON CONFLICT (project_key, week) DO UPDATE SET facts = project_updates.facts || EXCLUDED.facts`;
+  // v4.8 Task 1: the path parked, so find's reply is the older ranked one (its standing paragraph, this file's subject).
+  await pathQuiet(c.id);
   return { ctx, id: c.id, key, handle };
 }
 const find = (b: B) => mcpCall(b.ctx, 'find', {});

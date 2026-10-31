@@ -3,7 +3,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { sql } from './db';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { tools, listProgramsInput } from './tools';
 import { bindX } from './x-install';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -318,8 +318,10 @@ test('5.2 App on, a private org repo: unclaimed, no App link (v2.14 T7: no claim
       assert.deepEqual(gh.minted[0], { repositories: ['earnkit'], permissions: { contents: 'read', metadata: 'read' } });
       const [s] = await sql()<{ state: string; proof: string }[]>`SELECT state, proof FROM builder_sources WHERE builder_id = ${id} AND kind = 'repo' AND lower(ref) = ${key}`;
       assert.deepEqual({ ...s }, { state: 'verified', proof: 'github_app' });
-      // v4.0: setup step 3 answered (this test is about another reply).
+      // v4.0: setup step 3 answered (this test is about another reply). v4.8 Task 1: the path parked, so the ranked
+      // reply is the standing paragraph and its step.
       await walletOffered(id);
+      await pathQuiet(id);
       const r3 = await find(id, {}, NO_MATCH);
       // v4.7.1 T1: the standing is v4.7's paragraph ("Score 14 · #1 of 10 builders. ..."), never the old name line.
       assert.match(r3.show_to_builder, /^(?:Earnkit is on the leaderboard: |Score \d+ · )(#\d+ of \d+ builders?|Top [\d.]+% of builders)/m, r3.show_to_builder);
@@ -388,13 +390,16 @@ test('A.2 through find (R8, R12, v3.1 spec 3.2): a project with a fit is offered
     const key = `${uniq('maya')}/recipes`;
     const id = await person({ main: key, claimed: uniq('mf').slice(0, 15), ranked: true, score: 60, projects: [{ key, name: 'Recipe planner', confirmed: true, weeks_shipping: 2 }] });
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
-    // v3.1 spec 3.2: the rolling fit is first offered as a draft. v4.7 T3 (money first): the money alone, and asked again
-    // while it is open and unapplied; once declined, the step is to ship with the fit named.
-    assert.ok(r.show_to_builder.endsWith(applyAsk(prog.title, '$10,000', null)), r.show_to_builder);
+    // v3.1 spec 3.2: the rolling fit is first offered as a draft. v4.8 Task 1: the path's hook (its money, then the draft
+    // offer), and the same step again this session is its pointer; once declined (and the path parked), the step is to
+    // ship with the fit named.
+    assert.ok(r.show_to_builder.includes(` ${prog.title.split(':')[0]} is open now: up to $10,000.`), r.show_to_builder);
+    assert.ok(r.show_to_builder.endsWith('Want me to start?'), r.show_to_builder);
     assert.equal(r.move_up?.kind, 'apply');
     const again = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     assert.equal(again.move_up?.kind, 'apply');
     await tools.tell({ move_up: { kind: 'apply', project_key: key, answer: 'no' } }, { installationId: id } as never);
+    await pathQuiet(id);
     const next = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(prog.id, key) }) });
     assert.ok(next.show_to_builder.includes(`You qualify for the ${prog.title}, up to $10,000.\n`), next.show_to_builder);
     assert.ok(next.show_to_builder.endsWith(SHIP_ASK), next.show_to_builder);

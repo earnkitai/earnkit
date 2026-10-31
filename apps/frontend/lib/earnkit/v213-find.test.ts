@@ -12,6 +12,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
 import { X_ON, avalanche, dropAvalanche, dropPrograms, find, fitsFor, install, person, withEnv } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import type { Starter } from './starters';
 import { INTRO_LINE } from './bench-reply';
 import { endsOnRankedStep } from './fixtures/ranked-step';
@@ -77,6 +78,8 @@ test('8.7 a confirmed, claimed, ranked project: the ship step with its fit (Task
     // open fit asked once is asked again (money first), so it is declined too, and the step is to ship.
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text),
       'declined', jsonb_build_object(${`apply:${p.id}`}::text, now()::text)) WHERE builder_id = ${id}`;
+    // v4.8 Task 1: and the path parked (every program), so the older ranked step answers.
+    await pathQuiet(id);
     const r = await find(id, {}, { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, `mayaf${RUN}/recipes`) }) });
     // v4.7.1 T1: the standing paragraph, never "Recipe planner · #1 of 10 builders".
     assert.match(r.show_to_builder, /^Score \d+ · (#\d+ of \d+ builders?|Top [\d.]+% of builders)\. /m);
@@ -137,6 +140,8 @@ test('8.11 the yes is answered as asked (R8: the ship step): another kind is "Ok
     // open fit asked once is asked again (money first), so it is declined too, and the step is to ship.
     await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('apply_asked', jsonb_build_object(${p.id}::text, now()::text),
       'declined', jsonb_build_object(${`apply:${p.id}`}::text, now()::text)) WHERE builder_id = ${id}`;
+    // v4.8 Task 1: and the path parked (every program), so the older ranked step answers.
+    await pathQuiet(id);
     const match = { matchProjects: async () => ({ checked: 1, scored: 1, fits: fitsFor(p.id, key) }) };
     const r = await find(id, {}, match);
     // R8: the ranked step, to ship.

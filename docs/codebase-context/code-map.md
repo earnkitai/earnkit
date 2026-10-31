@@ -1764,6 +1764,18 @@ apps/frontend/
     agent-reach.ts             GTM W2 (2026-10-23): agentReach(own, builder) -> { hosted, schedules } from installations.client_name
                                (hosted: grok, muse, meta, instinct, openclaw; schedules: grok, cursor, openclaw, hermes) and
                                standing_seen.no_folder (find told agent_can_build: false: rememberNoFolder; both true); reachOf (pure)
+    conversation.ts(+test v48-conversation.test.ts)  v4.8 Task 1 (the launch conversation): Stage (hook, gap, draft,
+                               submit, track), Path { stage, program_id, at, picked? } in standing_seen.path (readPath, setPath;
+                               a program may be set before ranking: Task 4's pick), the session (SESSION_MS 2 h; sessionOf ->
+                               { fresh, said }, markSaid into standing_seen.said { at, keys }), MENTOR_NOTE (the agent rewords in a
+                               mentor's voice), bestMove (fit closing first; a grant one step away, a passed step not counted;
+                               an investor program closing within 7 days with difficulty_override.basis odds; the closest grant
+                               by gaps, a passed one-gap step raised once (standing_seen.path_raised); else quiet), pathReply
+                               (Task 1: the hook only: A's opener for a fit or investor, "Want the steps?" for a gap; a hook said
+                               this session is a one-line pointer), closeWords, proofLine, programName. bench-find.ts pathView
+                               gathers the facts (pathSkip: entered, hidden, told, drafted, 'apply:'/'path:' nos) and stores
+                               the hook's ask as apply, qualify or check_fits (path: true; a no also parks 'path:<id>').
+                               fixtures/wallet-step.ts pathQuiet / pathUnquiet park every program for a test of an older ask.
     bench-find.ts(+test)       GTM W2 (2026-10-23): link-only projects (a Lovable or Bolt live_url, no repo) take the no-GitHub path
                                (noCode: the picker link, github_no, the walk-through; linkName/YOUR_APP, reportedName: never the
                                host); backing before hot post and apply (boundedBacking first), connectBacking in the connect yes;

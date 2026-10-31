@@ -1,6 +1,6 @@
 import { after, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { moneyStepDone, walletOffered } from './fixtures/wallet-step';
+import { moneyStepDone, pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
@@ -185,29 +185,36 @@ async function ownerBuilder(tag: string, o: { hosted?: boolean; codes?: boolean 
   if (o.hosted) await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || '{"no_folder": true}'::jsonb WHERE builder_id = ${c.id}`;
   await sql()`INSERT INTO builder_repo_facts (installation_id, login, repo_key, mainnet_chains, testnet_chains, live_url, has_users, not_mine, at)
     VALUES (${c.id}, '', ${key}, ${['base']}, ${[]}, null, true, false, now())`;
+  // v4.8 Task 1: the path leads while it has a program to name: parked for the connect weeks, then left only Base's
+  // grant (the owner's one gap), so the path's hook is Base's.
+  await pathQuiet(c.id);
   const r3 = await mcpCall(ctx, 'find', {});
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect', show(r3));
   await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } });
+  await pathQuiet(c.id, { except: [BASE_GRANTS_ID] });
   return { c, ctx, key };
 }
+/** v4.8 Task 1: the path's hook for Base's grant, its gap sentence `gap` (bench-reply.ts qualifyGap). */
+const BASE_HOOK = (gap: string) => new RegExp(`^Ek, Base Builder Grant pays up to \\$5,000\\. ${gap.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( [^\n]+)?\n\nWant the steps\\?$`);
+const CODES_GAP = "EarnKit is one step away: add Builder Codes, a one-line tag that credits your app's Base transactions to you.";
 const start = async () => {
   mock.timers.reset();
   mock.timers.enable({ apis: ['Date'], now: WEDNESDAY });
   await padPool(12);
 };
 
-test("the owner's state through find: the approved copy, byte for byte; the yes adds Builder Codes, no question", db, async () => {
+test("the owner's state through find: the path's Base hook with the approved gap; the yes gives the steps", db, async () => {
   await start();
   const { c, ctx, key } = await ownerBuilder('y');
   const r = await mcpCall(ctx, 'find', {});
-  assert.equal(show(r), OWNER_COPY);
-  // v4.7 T4: the qualify step's why is its own head and gap (the reply's first paragraph).
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: OWNER_COPY.split('\n')[0] });
+  // v4.8 Task 1: the path's hook (the v4.3 qualify reply's head and question are retired for a plain find).
+  assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
+  // The hook asked "Want the steps?", so the yes is the steps (Task 2's gap stage does the step itself).
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), qualifyCodesYes('EarnKit'));
-  assert.doesNotMatch(show(yes), /\?/);
-  assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
+  assert.equal(show(yes), qualifySteps(BASE, ['codes']));
+  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
   assert.equal(yes.reply?.move_up, undefined);
   // Remembered: the next find asks nothing about qualifying.
   const [{ g }] = await sql()<{ g: Record<string, string> | null }[]>`SELECT standing_seen->'qualify_given' AS g FROM builder_profiles WHERE builder_id = ${c.id}`;
@@ -225,6 +232,8 @@ test('a no to the codes question is remembered and never asked again', db, async
   await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'no' } });
   const [{ d }] = await sql()<{ d: Record<string, string> | null }[]>`SELECT standing_seen->'declined' AS d FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.equal(typeof d?.[`qualify:${key}`], 'string');
+  // v4.8 Task 1 (Review Focus 2): the path's own no parks the program too.
+  assert.equal(typeof d?.[`path:${BASE_GRANTS_ID}`], 'string');
   const next = await mcpCall(ctx, 'find', {});
   assert.notEqual((next.reply?.move_up as { kind?: string } | undefined)?.kind, 'qualify');
   assert.doesNotMatch(show(next), /Builder Codes|qualify/);
@@ -233,13 +242,9 @@ test('a no to the codes question is remembered and never asked again', db, async
 test('fix round 1 (R1): a hosted agent is asked for the steps; its yes is the steps reply with the hosted note', db, async () => {
   await start();
   const { ctx, key } = await ownerBuilder('h', { hosted: true });
-  // A hosted agent can schedule: the one-time Monday check-in comes first; its no.
-  const first = await mcpCall(ctx, 'find', {});
-  const m = first.reply?.move_up as { kind: string } | undefined;
-  if (m?.kind === 'checkin') await mcpCall(ctx, 'tell', { move_up: { kind: 'checkin', project_key: key, answer: 'no' } });
-  const r = m?.kind === 'checkin' ? await mcpCall(ctx, 'find', {}) : first;
-  const s = show(r);
-  assert.equal(s, OWNER_COPY.replace('Want me to add Builder Codes to EarnKit?', 'Want the steps to add Builder Codes to EarnKit?'));
+  // v4.8 Task 1: the path's Base hook leads (the Monday check-in waits for a quiet path).
+  const r = await mcpCall(ctx, 'find', {});
+  assert.match(show(r), BASE_HOOK(CODES_GAP), show(r));
   assert.equal((r.reply?.move_up as { kind: string }).kind, 'qualify');
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), qualifySteps(BASE, ['codes']));
@@ -251,8 +256,12 @@ test('fix round 1: Builder Codes unknown: the gap says "To qualify", the yes tel
   await start();
   const { ctx, key } = await ownerBuilder('u', { codes: null });
   const s = show(await mcpCall(ctx, 'find', {}));
-  assert.match(s, /^Base Builder Grants: \$5,000, rolling\. To qualify, EarnKit needs to add Builder Codes, /, s);
-  assert.ok(s.endsWith('\n\nWant me to add Builder Codes to EarnKit?'), s);
+  // v4.8 Task 1: the path's hook says the honest gap ("To qualify", never "one step away" on a guess).
+  assert.match(s, /^Ek, Base Builder Grant pays up to \$5,000\. To qualify, EarnKit needs to add Builder Codes, /, s);
+  assert.ok(s.endsWith('\n\nWant the steps?'), s);
+  // A stored ask from v4.3's find (the doing, codes unknown): its yes tells the agent to check before adding.
+  const old = { kind: 'qualify', key, program_id: BASE_GRANTS_ID, qualify: { grant: BASE, steps: ['codes'], first: 'codes', name: 'EarnKit', hosted: false, codes_missing: false } };
+  await sql()`UPDATE builder_profiles SET standing_seen = standing_seen || jsonb_build_object('bench_ask', ${sql().json(old as never)}::jsonb) WHERE builder_id = (SELECT builder_id FROM builder_profiles WHERE main_project_key = ${key} LIMIT 1)`;
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   // Final review F2: the check is unknown, so "if they're not there yet".
   assert.equal(show(yes), `Adding Builder Codes to EarnKit if they're not there yet. Base's guide: ${GUIDE}`);
@@ -551,8 +560,10 @@ test('final review F2: the codes yes, known missing and unknown', () => {
 
 test('final review F2: through tell, Builder Codes known missing keeps "Adding Builder Codes to EarnKit."', db, async () => {
   await start();
-  const { ctx, key } = await ownerBuilder('k2');
-  assert.equal(show(await mcpCall(ctx, 'find', {})), OWNER_COPY);
+  const { c, ctx, key } = await ownerBuilder('k2');
+  // v4.8 Task 1: v4.3's find no longer asks it (the path's hook does); a stored v4.3 ask still answers as asked.
+  const asked = { kind: 'qualify', key, program_id: BASE_GRANTS_ID, qualify: { grant: BASE, steps: ['codes'], first: 'codes', name: 'EarnKit', hosted: false, codes_missing: true } };
+  await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('bench_ask', ${sql().json(asked as never)}::jsonb) WHERE builder_id = ${c.id}`;
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
   assert.equal(show(yes), `Adding Builder Codes to EarnKit. Base's guide: ${GUIDE}`);
   assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
@@ -595,6 +606,8 @@ test('final review F3: find {more: true} never shows or claims a due token offer
     const [{ legacy }] = await sql()<{ legacy: string | null }[]>`SELECT standing_seen->>'token_offer_legacy' AS legacy FROM builder_profiles WHERE builder_id = ${c.id}`;
     assert.equal(legacy, null, 'not claimed');
     assert.equal(await tokenOfferDue(c.id), true);
+    // v4.8 Task 1: the token offer is one of the quieter asks, after the path has no program to name.
+    await pathQuiet(c.id);
     const next = await mcpCall(ctx, 'find', {});
     assert.ok(show(next).includes(TOKEN_OFFER), show(next));
     assert.equal((next.reply?.move_up as { kind: string }).kind, 'token');
@@ -627,6 +640,8 @@ test('final review F3 and F9: find {more: true} never drafts or shows a due even
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`fp${id}`}, 'kit', ${key}, ${id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
   const drafts = async () => Number((await sql()<{ n: string }[]>`SELECT count(*) AS n FROM post_drafts WHERE builder_id = ${id}`)[0].n);
+  // v4.8 Task 1: an event post is one of the older asks, after the path has no program to name.
+  await pathQuiet(id);
   const r = await mcpCall(ctx, 'find', { more: true });
   const s = show(r);
   assert.doesNotMatch(s, /went live|Your post for X|Post it in one tap|Want a different version/, s);

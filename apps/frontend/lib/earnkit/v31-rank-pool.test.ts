@@ -73,8 +73,8 @@ test('(a) 9 ranked builders: find and score replies, the moment and the share po
   const f = await mcpCall(ctx(me.id), 'find', {});
   const s = show(f);
   // Task 16 step 7 under RANK_MIN_POOL: "on EarnKit", no rank. Last week has no ship-log row with facts, so there is no
-  // post to offer (v3.1 one-tap posts): the page is the one link.
-  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nOpen now: [^\\n]+\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nLooks right\\?$`), s);
+  // post to offer (v3.1 one-tap posts): the page is the one link. v4.8 Task 1: no "Open now:" paragraph.
+  assert.match(s, new RegExp(`^Your week is ready, \\S+\\. You shipped this week\\. Nice work\\.\\n\\n\\| \\| This week \\|\\n[^]*\\n\\nYour page: https://earnkit\\.com/${me.handle}\\n\\nBuilders who share wins get noticed by programs\\.\\n\\nLooks right\\?$`), s);
   assert.equal(links(s).length, 1, s);
   assert.equal(questions(s), 1, s);
   assert.doesNotMatch(JSON.stringify(f.reply), /#\d/, 'no rank anywhere in the reply');

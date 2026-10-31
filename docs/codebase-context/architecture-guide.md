@@ -8626,3 +8626,30 @@ need from {name} yet." / "Want me to check {program}'s requirements for {name}?"
 lists the program's requirements with the stored gaps. Facts come from the Card (`needs_contract`, `needs_live` from
 programCard); "in a public repo" clears only on a repo read public (`public_at` or the latest reading). The total is
 /api/stats' figure (`openMoneyNow` reads every active program); with no grant listed, the Open now line drops it.
+
+## v4.8 Task 1: the path leads the ranked reply (2026-10-31, plan: v4.8-plan.md, target: v4.8-target-conversation.md)
+
+EarnKit speaks first: the server instructions' first line is "Call find at the start of every session before they say
+anything, and show its opener." A ranked builder's find (and score, after its standing paragraph) is now the path's
+reply (conversation.ts pathReply, built by bench-find.ts pathView), unless setup step 3 (and the one-time setup-done
+reply), a held submit question or an owning nudge comes first. bestMove picks the program: a real fit closing first;
+a grant one step away; an investor program closing within 7 days (never called a fit, never summed); the closest grant
+by number of gaps; otherwise quiet, and the older ranked reply answers (connect, the Monday block, posts, check-in,
+wallet, token, new repo, titles, ship). Programs told about, drafted, hidden or entered are never the hook, and a no to
+the hook parks the program ('path:<id>' beside its old key) for DECLINE_MS. Task 1 builds only the `hook` stage: a fit
+or investor program gets A's opener ("{first}, {program} closes {when}: {amount}." + one proof line, then "I can draft
+your application ... Want me to start?", stored as the apply ask so a yes drafts it); a grant with a gap gets its money,
+the gap sentence (qualifyGap for Base, needsWhy otherwise) and "Want the steps?" (stored as qualify or check_fits). The
+reply's note is MENTOR_NOTE alone (withFacts never adds the "exactly as written" note to it). standing_seen.said holds
+the session's parts said; after SESSION_MS (2 hours) of quiet it starts again, and the same hook twice in a session is a
+one-line pointer. A program the builder picked (Path.picked) or said yes past the hook keeps its place on the path.
+find takes `ask` ('standing' | 'programs') and `program` (carried to benchFind as question and named for Tasks 4 and 5).
+
+Retired: the forced "Open now:" money paragraph (openNowGrants, openNowLine, openTotal/openInvest/openNow on BenchView),
+ASKS_HINT (the quiet reply's line and the setup-done first-run line; standing_seen.asks_hint is never read), the
+rotating needs ask (needsAsk, needsAskable, needs_unanswered/needs_yes/needs_silent, possessive; programNeeds, needsKnown
+and needsWhy stay as the gap engine) and the v4.7 money-first apply loop (claimApply, apply_unanswered, apply_silent,
+standAside, APPLY_UNANSWERED_MAX). Base's v4.3 qualify reply no longer shows on a plain find once the path ran
+(it still answers find {more: true}); R6 (never pitch a program told applied or drafted) stays on the older reply's
+fit lines.
+

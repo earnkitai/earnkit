@@ -5,6 +5,7 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub, type FakeCommit } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
+import { pathQuiet } from './fixtures/wallet-step';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
 import { productOdds, productScore, traction, type Detection, type Verdict } from './match';
@@ -17,7 +18,7 @@ import {
   grantProgramName, liveNoGithub, pickRepoAsk, qualifySteps, walletOffer, youreIn,
   type BenchView,
 } from './bench-reply';
-import { ASKS_HINT, walletSetupAsk } from './bench-reply';
+import { walletSetupAsk } from './bench-reply';
 import { proofAsk } from './post-reply';
 import { factsAck } from './builder-memory';
 import { siteFormLine, youAddLine } from './submit-kit';
@@ -238,12 +239,12 @@ test('a live Lovable app and a GitHub no: its GitHub steps with the link, never 
 
 test('the status line only when it changed, the points line once a week; score always shows where they stand', db, async () => {
   const b = await builder('s', { wallet: true });
+  // v4.8 Task 1: the path leads while it has a program to name; parked, the older ranked reply answers.
+  await pathQuiet(b.id);
   const one = show(await find(b));
   clean(one);
   // v4.7.1 T1: the standing is v4.7's paragraph, never the old "Kit is on EarnKit." line while it has a part.
   assert.match(one, /^Score \d+\. No grants won yet\./, one);
-  // v4.3: with no fit, Base's grant reply (its money and gap, then its question); it carries no ship line.
-  assert.match(one, /\nBase Builder Grants: \$5,000, rolling\. [^\n]+\n\n(?:Also open: [^\n]+\n\n)?Want [^\n]*\?$/, one);
   // Later replies this week: once the one-time questions are asked, nothing else to say, so the unchanged standing alone
   // (no points line again this week).
   let r2 = await find(b);
@@ -254,9 +255,9 @@ test('the status line only when it changed, the points line once a week; score a
   }
   const two = show(r2);
   assert.doesNotMatch(two, /points/, two);
-  // v4.7.2 T2 (no program left): the quiet reply ends with ASKS_HINT, its own paragraph, after the one money line.
-  assert.equal(two.split('\n\n').at(-1), ASKS_HINT, two);
-  assert.equal(two.slice(0, -ASKS_HINT.length).trim().split('\n').length, 1, two);
+  // v4.8 Task 1: the quiet reply is the unchanged standing alone (no question; ASKS_HINT is retired).
+  assert.ok(!two.includes('?'), two);
+  assert.equal(two.split('\n').length, 1, two);
   const st = await seen(b.id);
   assert.equal(typeof st.status_seen, 'string');
   assert.equal(typeof st.nag_week, 'string');
@@ -288,10 +289,10 @@ test('bug 2 and 3: repo facts acknowledged; the name given in prepare wins in ev
   const r = await tell(b, { repo_facts: [{ repo: b.key, mainnet_chains: ['base'], has_users: true }] });
   assert.equal(show(r), 'Noted: live on Base with users.');
   await mcpCall(b.ctx, 'prepare', { program_id: 'base-builder-grants', project: { name: 'KitFlow', repo_url: `https://github.com/${b.key}` } }).catch(() => null);
-  // v4.7 T2: score leads with the standing paragraph (no name). v4.7.1 T1: so does find's; its step carries the name.
+  // v4.8 Task 1: the path's hook names the project as the builder named it (its gap sentence).
   const s = show(await find(b));
-  assert.match(s, /\. To qualify, KitFlow needs to add Builder Codes, /, s);
-  assert.equal(s.split('\n').at(-1), 'Want me to add Builder Codes to KitFlow?', s);
+  assert.match(s, /KitFlow/, s);
+  assert.doesNotMatch(s, /\bKit\b/, s);
   // Security review: the name is used for an eligibility line only about the builder's own one project.
   assert.equal(await mainProjectNameFor(b.id, `https://github.com/${b.key}`), 'KitFlow');
   assert.equal(await mainProjectNameFor(b.id, 'someone/else'), null);

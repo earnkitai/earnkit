@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { dropPrograms } from './fixtures/programs-cleanup';
 import { isoWeekOf } from './weeks';
 import { acceptedNudge, closingNudge, fridayNudge, milestoneNudge, nudgeFor } from './nudges';
@@ -189,6 +190,8 @@ test('(f) the Friday rule: Friday to Sunday UTC only, and only with a streak of 
 test('the nudge leads a ranked find reply, once that week', db, async () => {
   await sql()`UPDATE builder_profiles SET hidden = true`;
   const me = await builder('v4ny', { streak: 3 });
+  // v4.8 Task 1: a nudge with no question leads the older ranked reply; the path (which it waits behind) is parked.
+  await pathQuiet(me.id);
   // Scored "just now" on the mocked clock (a live row older than its refresh window is rescored, without GitHub here).
   await sql()`UPDATE builder_live SET computed_at = ${at(FRIDAY)}, read_at = ${at(FRIDAY)} WHERE builder_id = ${me.id}`;
   const ctx = { installationId: me.id, ownInstallationId: me.id, sharedClient: false, matchProjects: (async () => ({ checked: 1, scored: 0, fits: [] })) as never };
@@ -269,6 +272,7 @@ test('fix round 1 (2): the accepted nudge owns the reply\'s one question; its ye
 
 test('fix round 1 (2): the Friday line is rhetorical: it leads beside the ranked ask', db, async () => {
   const me = await fresh('v4ni', { streak: 3 });
+  await pathQuiet(me.id);
   const r = await mcpCall(findCtx(me.id), 'find', {});
   const s = String(r.reply?.show_to_builder ?? '');
   assert.ok(s.startsWith('Quiet week, no stress.'), s);

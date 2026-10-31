@@ -1,5 +1,5 @@
 import { after, mock, test } from 'node:test';
-import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet, walletOffered } from './fixtures/wallet-step';
 import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
@@ -8,9 +8,9 @@ import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
-import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE, whyNote } from './bench-find';
+import { QUALIFY_BASE_YES_NOTE, QUALIFY_STEPS_NOTE, TITLES_NOTE, QUALIFY_NOTE } from './bench-find';
 import {
-  QUALIFY_CODES_NOTE, TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
+  TITLES_ASK, benchReply, grantHook, qualifyAsk, qualifyGap, qualifySteps, stateAsk, type BenchView, type OpenGrant, type QualifyOffer, type QualifyStep,
 } from './bench-reply';
 import { grantOf, qualifyOffer, qualifyPlan, qualifyStatus } from './base-qualify';
 import { BASE_GRANTS_ID } from './builder-code';
@@ -203,6 +203,8 @@ async function rankedBuilder(tag: string, o: { private: boolean; chains: Detecti
   await mcpCall(ctx, 'find', { identity: { project: { name: 'Kit', repo: `https://github.com/${key}` } } });
   await installApp({ builderId: c.id, repoKey: key, login: handle, gh });
   if (o.codes !== null) await sql()`INSERT INTO repo_builder_codes (repo_key, found, checked_at) VALUES (${key}, ${o.codes}, ${new Date()}) ON CONFLICT (repo_key) DO UPDATE SET found = EXCLUDED.found, checked_at = EXCLUDED.checked_at`;
+  // v4.8 Task 1: the path leads while it has a program to name; parked here, so the connect offer shows.
+  await pathQuiet(c.id);
   const r3 = await mcpCall(ctx, 'find', {});
   assert.equal((r3.reply?.move_up as { kind: string }).kind, 'connect', show(r3));
   return { c, ctx, key, handle };
@@ -221,31 +223,21 @@ test('no fit: the path to Base\'s grant; its yes returns the remaining steps and
   // The connect yes (no Best fit, a public repo: no titles question).
   assert.doesNotMatch(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'connect', project_key: key, answer: 'yes' } })), /Your code stays private/);
 
+  // v4.8 Task 1: the path names Base's grant (the only program left unparked), its approved gap, then "Want the steps?".
+  await pathQuiet(c.id, { except: [BASE_GRANTS_ID] });
   const r = await mcpCall(ctx, 'find', {});
   const s = rule(show(r));
-  const lines = s.split('\n');
-  // v3.1 cold read: the standing was said in the connect reply and hasn't changed, so it isn't repeated.
-  // v4.3 (owner-approved): the head and the gap, Also open, then the question by the first step; no ship line.
-  assert.equal(lines[0], "Base Builder Grants: $5,000, rolling. Kit is 2 steps away: add Builder Codes and get people using it. Builder Codes are a one-line tag that credits your app's Base transactions to you.");
-  assert.match(lines[2], /^Also open: /);
-  assert.equal(lines.at(-1), 'Want me to add Builder Codes to Kit?');
-  assert.equal(lines.length, 5);
-  // v4.7 T4: the qualify step's why is its own head and gap.
-  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: whyNote(QUALIFY_NOTE), why: lines[0] });
+  assert.ok(s.startsWith("Kit, your closest money is Base Builder Grant: up to $5,000. Kit is 2 steps away: add Builder Codes and get people using it. Builder Codes are a one-line tag that credits your app's Base transactions to you."), s);
+  assert.ok(s.endsWith('\n\nWant the steps?'), s);
+  assert.deepEqual(r.reply?.move_up, { kind: 'qualify', project_key: key, agent_note: QUALIFY_NOTE });
 
-  // v4.3: Builder Codes first, so the yes is the doing: a statement with Base's guide, no question.
+  // The hook asked for the steps, so its yes is the steps (Task 2's gap stage does them).
   const yes = await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } });
-  assert.equal(show(yes), `Adding Builder Codes to Kit. Base's guide: ${GUIDE}`);
-  assert.equal(yes.reply?.agent_note, QUALIFY_CODES_NOTE);
+  assert.equal(show(yes), qualifySteps(BASE, ['codes', 'use']));
+  assert.equal(yes.reply?.agent_note, QUALIFY_STEPS_NOTE);
   // Answered once.
   assert.equal(show(await mcpCall(ctx, 'tell', { move_up: { kind: 'qualify', project_key: key, answer: 'yes' } })), 'Okay.');
-  // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question. v4.7.1 T1: with
-  // no fit, check_fits comes first (the open grants lead, never naming Base's grant), then the ship step.
-  const cf = await mcpCall(ctx, 'find', {});
-  assert.equal((cf.reply?.move_up as { kind: string }).kind, 'check_fits', show(cf));
-  assert.match(show(cf), /^Open now: /);
-  assert.doesNotMatch(show(cf).split('\n').at(-1)!, /Base Builder/);
-  // v4.7.2 T2: the needs ask is per open program; every one answered, the ship step.
+  // Fix round 1: the yes is remembered: the next find moves on to the ship step, never the same question.
   await checkFitsAsked(c.id);
   const next = await mcpCall(ctx, 'find', {});
   const n = rule(show(next));
@@ -293,12 +285,13 @@ test('a private repo: the titles question after the connect yes, once; its yes t
   assert.equal(show(yes), UPDATE_LINES.titlesOn);
   const [p] = await sql()<{ on: boolean }[]>`SELECT ship_titles_at IS NOT NULL AS on FROM builder_profiles WHERE builder_id = ${c.id}`;
   assert.ok(p.on, 'titles on');
-  // Never asked again; the next reply is the no-fit path. Not on Base is known, Builder Codes and users are not, so
-  // v4.3: "To qualify, ... needs to" (never "3 steps away"), and the question by the first step: Base.
+  // Never asked again; the next reply is the path's Base hook (v4.8 Task 1). Not on Base is known, Builder Codes and
+  // users are not, so v4.3's gap: "To qualify, ... needs to" (never "3 steps away").
+  await pathQuiet(c.id, { except: [BASE_GRANTS_ID] });
   const next = rule(show(await mcpCall(ctx, 'find', {})));
   assert.doesNotMatch(next, /Your code stays private|still needs|steps away/);
   assert.ok(next.includes('To qualify, Kit needs to put the app on Base, add Builder Codes and get people using it.'), next);
-  assert.ok(next.endsWith('\n\nWant help putting Kit on Base?'), next);
+  assert.ok(next.endsWith('\n\nWant the steps?'), next);
   // Fix round 1: the offer started the Builder Codes check for the App-proven repo (once a day, the attempts table).
   await codesSettled();
   assert.equal((await sql()`SELECT 1 FROM repo_builder_codes_attempts WHERE repo_key = ${key}`).length, 1, 'the check was attempted');

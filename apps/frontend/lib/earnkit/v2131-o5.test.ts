@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { sql } from './db';
-import { checkFitsAsked } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet } from './fixtures/wallet-step';
 import { tools } from './tools';
 import { EVENT_LOG_FLAG } from './events';
 import { TESTED_STARTERS } from './fixtures/fresh-build';
@@ -174,19 +174,14 @@ test('O5 N5, v2.14 A16, R8: a confirmed project moves up by shipping (Task 16: t
   on(async () => {
     const key = `${uniq('gq')}/hello-world`;
     const id = await person({ main: key, claimed: uniq('gq'), projects: [{ key, name: 'Hello-World', confirmed: true }] });
-    // 2026-10-22: with no fit, Base's grant steps first; a no to them brings the ship step back.
+    // v4.8 Task 1: the path's hook names a program first; a no parks it, and with every program parked the ship step
+    // (the v4.7.1 "Open now:" paragraph and check_fits are retired).
     const q = await find(id, {}, NO_MATCH);
-    assert.ok(endsOnRankedStep(q.show_to_builder), q.show_to_builder);
-    assert.equal(q.move_up?.kind, 'qualify');
-    await tools.tell({ move_up: { kind: 'qualify', project_key: key, answer: 'no' } }, { installationId: id } as never);
-    // v4.7.1 T1 (money always shows): the next find leads with the open grants and asks check_fits once; then the ship step.
-    const cf = await find(id, {}, NO_MATCH);
-    assert.equal(cf.move_up?.kind, 'check_fits', cf.show_to_builder);
-    assert.match(cf.show_to_builder, /^Open now: /);
-    // v4.7.2 T2: the needs ask is per open program; every one answered, the ship step.
+    assert.ok(q.show_to_builder.endsWith('Want me to start?') || q.show_to_builder.endsWith('Want the steps?'), q.show_to_builder);
+    await tools.tell({ move_up: { kind: q.move_up?.kind, project_key: key, answer: 'no' } }, { installationId: id } as never);
     await checkFitsAsked(id);
     const r = await find(id, {}, NO_MATCH);
-    assert.match(r.show_to_builder, /^Open now: /);
+    assert.doesNotMatch(r.show_to_builder, /Open now/);
     // v3.1 cold read: the points line was this week's already (at most once an ISO week): the reply ends on the question.
     assert.ok(r.show_to_builder.endsWith(SHIP_ASK), r.show_to_builder);
     assert.doesNotMatch(r.show_to_builder, /community round|coin|token/i);
@@ -268,6 +263,8 @@ test('O5 P2 (reversed in v2.13.4, v3.1 F3): the reply names the rank from RANK_M
     const alone = await rankLines(id, { only: [id] });
     assert.deepEqual([alone.bench, alone.line], [null, 'Shipping 100'], 'one ranked: the score alone');
     await padPool(9);
+    // v4.8 Task 1: the path parked, so the reply is the standing paragraph and its step.
+    await pathQuiet(id);
     const r = await find(id, {}, NO_MATCH);
     // Task 16: the standing line names the rank ("#N of M" under 20 ranked; "Top P%" in the top half from 20).
     // v4.7.1 T1: the standing paragraph names the rank (never "Hello-World · #1 of 10 builders").

@@ -9,7 +9,7 @@ import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
 import { padPool } from './fixtures/rank-pool';
-import { walletOffered } from './fixtures/wallet-step';
+import { pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { productOdds, productScore, traction } from './match';
 import type { RepoFit } from './present';
 import { connectInstallation, saveInstallation } from './installations';
@@ -322,6 +322,8 @@ test('the picker refused only forks or templates: the next reply says the way ou
 test('a ranked main project with no commits in 8 weeks: one light nudge, remembered; its yes asks for the new repo', db, async () => {
   await padPool(12);
   const { ctx, key, id } = await rankedOld();
+  // v4.8 Task 1: the new-repo nudge is one of the quieter asks, after the path has no program to name.
+  await pathQuiet(id);
   // Fix round: never within 14 days of connecting it.
   assert.doesNotMatch(show(await mcpCall(ctx as never, 'find', {})), /Working on something new/, 'just connected');
   assert.equal((await seen(id)).new_repo_asked, undefined, 'not claimed');
@@ -329,10 +331,8 @@ test('a ranked main project with no commits in 8 weeks: one light nudge, remembe
   const r = await mcpCall(ctx as never, 'find', {});
   const s = rule(show(r));
   // v3.1 cold read: the standing line was shown by the reply before (unchanged since), so the nudge alone.
-  // v4.7.1 T1 (money always shows): no fit, so the open grants closing soonest lead the light nudge (no points).
-  const [money, ...rest] = show(r).split('\n\n');
-  assert.match(money, /^Open now: [^\n]+\.$/, s);
-  assert.equal(rest.join('\n\n'), NEW_REPO_ASK, 'a light nudge after the money, no points');
+  // v4.8 Task 1: the nudge alone (the "Open now:" paragraph is retired; no points).
+  assert.equal(s, NEW_REPO_ASK, 'a light nudge, no points');
   assert.deepEqual(r.reply?.move_up, { kind: 'new_repo', project_key: key, agent_note: NEW_REPO_NOTE });
   const yes = await mcpCall(ctx as never, 'tell', { move_up: { kind: 'new_repo', project_key: key, answer: 'yes' } });
   assert.equal(yes.reply?.agent_note, NEW_REPO_YES_NOTE);

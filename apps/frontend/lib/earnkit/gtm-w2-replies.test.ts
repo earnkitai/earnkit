@@ -7,7 +7,7 @@ import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { fakeGitHub } from './fixtures/fake-github';
 import { appEnv, installApp } from './fixtures/app-install';
-import { checkFitsAsked, walletOffered } from './fixtures/wallet-step';
+import { checkFitsAsked, pathQuiet, walletOffered } from './fixtures/wallet-step';
 import { withEnv } from './fixtures/find';
 import { connectInstallation, saveInstallation } from './installations';
 import { attachToX } from './x-install';
@@ -332,6 +332,8 @@ async function coinBuilder(tag: string, o: { name?: string; private?: boolean; p
   if (!o.connect) await sql()`UPDATE builder_profiles SET standing_seen = COALESCE(standing_seen, '{}'::jsonb) || jsonb_build_object('connect_done', now()::text) WHERE builder_id = ${c.id}`;
   if (!o.private) await sql()`UPDATE builder_sources SET public_at = now() WHERE builder_id = ${c.id} AND kind = 'repo'`;
   await sql()`INSERT INTO person_wallets (wallet, builder_id) VALUES (${`0x${(c.id + 2000).toString(16).padStart(40, '0')}`}, ${c.id}) ON CONFLICT DO NOTHING`;
+  // v4.8 Task 1: the path parked, so the older ranked asks (connect, and what follows it) answer here.
+  await pathQuiet(c.id);
   return { ctx, id: c.id, key, handle };
 }
 /** Last week's ship-log row of the one project, with code (approved unless `approved: false`). */

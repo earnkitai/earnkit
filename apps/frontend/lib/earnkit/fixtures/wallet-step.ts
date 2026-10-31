@@ -10,12 +10,38 @@ export async function walletOffered(builderId: number): Promise<void> {
 }
 
 /**
- * v4.7.1 T1: marks the ranked check_fits ask as asked already, for a test about another ranked step of a builder with no
- * fit (v471-money.test.ts and v472-next-step.test.ts cover check_fits itself). The open grants still lead. v4.7.2 T2: the
- * ask is per program now (check_fits_asked is never read), so this says no to it ('needs:<id>', at `at`) for every
- * program in the table; a program added after this call can still be asked.
+ * v4.8 Task 1: the path (conversation.ts bestMove) leads every ranked reply that has a program to name, so a test about
+ * another ranked step (connect, the Monday block, a post, the check-in, the wallet, the token offer, titles, the ship
+ * line, the standing paragraph) parks every program in the table for the path ('path:<id>', a no to the path's step
+ * within DECLINE_MS; the older asks never read that key): the path is quiet and the older reply answers.
+ * v48-conversation.test.ts covers the path itself. A program added after this call can still be named.
+ */
+export async function pathQuiet(builderId: number, o: { at?: string; except?: string[] } = {}): Promise<void> {
+  const at = o.at ?? new Date().toISOString();
+  const rows = await sql()<{ id: string }[]>`SELECT id FROM programs`;
+  const declined = Object.fromEntries(rows.filter((r) => !o.except?.includes(r.id)).map((r) => [`path:${r.id}`, at]));
+  // `except`: those programs are left (unparked), so the path names only them.
+  if (o.except?.length)
+    await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}', (standing_seen->'declined') - ${o.except.map((x) => `path:${x}`)}::text[])
+      WHERE builder_id = ${builderId} AND standing_seen ? 'declined'`;
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',
+    COALESCE(standing_seen->'declined', '{}'::jsonb) || ${sql().json(declined as never)}::jsonb) WHERE builder_id = ${builderId}`;
+}
+
+/** v4.8 Task 1: undoes pathQuiet (every 'path:<id>' no removed), so the path names programs again. */
+export async function pathUnquiet(builderId: number): Promise<void> {
+  await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(standing_seen, '{declined}',
+      (SELECT COALESCE(jsonb_object_agg(k, v), '{}'::jsonb) FROM jsonb_each(standing_seen->'declined') AS e(k, v) WHERE k NOT LIKE 'path:%'))
+    WHERE builder_id = ${builderId} AND jsonb_typeof(standing_seen->'declined') = 'object'`;
+}
+
+/**
+ * v4.7.1 T1: marks the ranked program asks as answered already, for a test about another ranked step (the check-in, the
+ * wallet, the token offer, titles, the ship line). v4.7.2 T2: per program ('needs:<id>', at `at`). v4.8 Task 1: and the
+ * path parked (pathQuiet), so the older asks answer. A program added after this call can still be named.
  */
 export async function checkFitsAsked(builderId: number, at = new Date().toISOString()): Promise<void> {
+  await pathQuiet(builderId, { at });
   const rows = await sql()<{ id: string }[]>`SELECT id FROM programs`;
   const declined = Object.fromEntries(rows.map((r) => [`needs:${r.id}`, at]));
   await sql()`UPDATE builder_profiles SET standing_seen = jsonb_set(COALESCE(standing_seen, '{}'::jsonb), '{declined}',

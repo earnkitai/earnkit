@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { sql } from './db';
 import { mcpCall } from './fixtures/mcp-call';
 import { person } from './fixtures/find';
+import { pathQuiet } from './fixtures/wallet-step';
 import { BASE_GRANTS_ID } from './builder-code';
 import { isoWeekOf, mondayOf } from './weeks';
 import { productOdds, productScore, traction, type Detection } from './match';
@@ -66,25 +67,22 @@ test('went live: v4.7 T3, behind an unapplied fit; then for 48 hours, word for w
   // Live 3 days ago (settled a day ago: under 48 hours since it could be posted).
   await sql()`INSERT INTO hosted_sites (slug, login, repo_key, installation_id, bytes, files, status, deployed_at)
     VALUES (${`pl${k.id}`}, 'kit', ${k.key}, ${k.id}, 1, 1, 'live', ${new Date(Date.now() - 3 * DAY)})`;
-  // v4.7 T3 fix round 1 (R11): money first: while Base's grant is open and unapplied, its ask comes first and the post waits.
+  // v4.7 T3 fix round 1 (R11): money first: while Base's grant is open and unapplied, its ask comes first and the post
+  // waits. v4.8 Task 1: the path's hook is that ask; the post is one of the older asks, after the path is parked.
   assert.equal(moveUp(await mcpCall(k.ctx, 'find', {}))?.kind, 'apply');
   await mcpCall(k.ctx, 'tell', { submitted: { program_id: BASE_GRANTS_ID } });
+  await pathQuiet(k.id);
   const r1 = await mcpCall(k.ctx, 'find', {});
   const s1 = rule(show(r1));
   const tap1 = links(s1)[0]!;
-  // v4.7.1 T1 fix round 2 (R6): never "You qualify" for the program told applied; the open grants, without it.
-  assert.doesNotMatch(s1, /You qualify for the Base Builder Grant Program|Open now: [^\n]*Base Builder/, s1);
-  const openLine = s1.split('\n').find((l) => l.startsWith('Open now: '))!;
-  assert.ok(openLine, s1);
+  // v4.7.1 T1 fix round 2 (R6): never "You qualify" for the program told applied (v4.8: no "Open now:" either).
+  assert.doesNotMatch(s1, /You qualify for the Base Builder Grant Program|Open now:/, s1);
   assert.match(tap1, shortLink(k.handle));
   assert.equal(s1, [
     'Kit went live this week.',
     'Your post for X:',
     '"Kit is live. 8 weeks from first commit."',
     `Post it in one tap: ${tap1}`,
-    // v4.7.1 T1 fix round 2 (R6): Base's grant was told applied, so it is never pitched: the open grants instead.
-    '',
-    openLine,
     // v4.7 T4: the post step's why, its own paragraph before the question.
     '',
     'A post with real numbers is what reviewers read.',
