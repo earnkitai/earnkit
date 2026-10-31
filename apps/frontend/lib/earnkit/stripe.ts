@@ -18,10 +18,13 @@ import { linkPerson, upgradeOf, upgradeToken } from './wallet-proof';
  * shows only GET /v1/accounts/{id}. We call /v1/account (it returns our own id) and name that permission "Account" in
  * the page copy, as the plan's exact copy does. Write permissions imply read, so a Write key also passes the reads.
  *
- * v4.7.1 T3: a key must also be unable to move money. After the reads, checkKey POSTs /v1/refunds, /v1/payouts and
- * (final review) /v1/transfers with no parameters: a restricted key without that Write permission gets 403 (permission
- * error); a key with it gets 400 (refunds need a charge or payment_intent, payouts an amount and currency, transfers an
- * amount, currency and destination), so nothing is ever created. All three must be 403. A 400 is refused as write access; any other answer or a failed call is refused as "try again" (fail closed).
+ * v4.7.3 T2: a key must also be unable to change anything. After the reads, checkKey POSTs an empty update to each of
+ * WRITE_PROBES (one made-up object id per write permission, e.g. /v1/customers/cus_ekprobe), in parallel. Stripe checks
+ * the key's permission before it looks up the object (community sources in the v4.7.1 notes; not confirmed by official
+ * docs, the owner's real-key test confirms it), so a key without that Write permission gets 403. A key with it passes the
+ * permission check, then finds no such object (404) or no parameters (400). An update of an object that does not exist
+ * can neither create nor change anything, so a probe is harmless whatever the key can do. All must be 403. A 400 or 404
+ * is refused as write access; a 401 is a rejected key; any other answer or a failed call is refused as "try again".
  *
  * v4.7.3 T1: the key is sealed with EARNKIT_STRIPE_SECRET (secret-box.ts, no fallback). Unset, Stripe is off: no link,
  * the page and the POST say STRIPE_TEXT.off, the daily read skips. A link connects once: a stored connection records
@@ -127,11 +130,20 @@ export const hostMatches = (stripeHost: string, siteHosts: string[]) =>
       (stripeHost.split('.').length >= 2 && !SHARED_SUFFIXES.has(stripeHost) && s.endsWith(`.${stripeHost}`)),
   );
 
+/** One update of a made-up object per write permission. A 403 means the key cannot write there. Paths join to /v1/. */
+export const WRITE_PROBES = [
+  'customers/cus_ekprobe', 'products/prod_ekprobe', 'prices/price_ekprobe', 'plans/ekprobe', 'coupons/ekprobe',
+  'promotion_codes/promo_ekprobe', 'subscriptions/sub_ekprobe', 'invoices/in_ekprobe', 'invoiceitems/ii_ekprobe',
+  'payment_intents/pi_ekprobe', 'setup_intents/seti_ekprobe', 'payment_links/plink_ekprobe', 'charges/ch_ekprobe',
+  'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'disputes/dp_ekprobe',
+  'webhook_endpoints/we_ekprobe', 'tax_rates/txr_ekprobe', 'credit_notes/cn_ekprobe', 'billing_portal/configurations/bpc_ekprobe',
+];
+
 export type CheckResult = { ok: true; accountId: string; host: string } | { ok: false; line: string };
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
 
 /**
- * Runs the four reads, the ownership rule, then the three write probes. A 401 is a rejected key, a 403 names the missing
+ * Runs the four reads, the ownership rule, then the write probes. A 401 is a rejected key, a 403 names the missing
  * permission, anything else (a thrown call, 5xx, an odd answer) is "try again". On the probes a 403 is the pass, a 400
  * is write access, anything else is "try again". Nothing here returns or logs the key.
  */
@@ -169,14 +181,11 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
     if (r.status === 403) return { ok: false, line: missing };
     if (r.status !== 200) return { ok: false, line: STRIPE_TEXT.unreachable };
   }
-  // v4.7.1 T3: the key must not move money. Each probe is a POST with no params; only a 403 passes (see the header).
-  // v4.7.1 final review: transfers too (a Connect platform key could move money to a connected account).
-  for (const path of ['/v1/refunds', '/v1/payouts', '/v1/transfers'] as const) {
-    const r = await get(path, 'POST');
-    if (!r) return { ok: false, line: STRIPE_TEXT.unreachable };
-    if (r.status === 400) return { ok: false, line: STRIPE_TEXT.writeAccess };
-    if (r.status !== 403) return { ok: false, line: STRIPE_TEXT.unreachable };
-  }
+  // v4.7.3 T2: the key must not change anything. Every probe is a bodiless update of a made-up object; only 403 passes.
+  const probes = await Promise.all(WRITE_PROBES.map((p) => get(`/v1/${p}`, 'POST')));
+  if (probes.some((r) => r && (r.status === 400 || r.status === 404))) return { ok: false, line: STRIPE_TEXT.writeAccess };
+  if (probes.some((r) => r && r.status === 401)) return { ok: false, line: STRIPE_TEXT.rejected };
+  if (probes.some((r) => !r || r.status !== 403)) return { ok: false, line: STRIPE_TEXT.unreachable };
   return { ok: true, accountId: acct.id, host };
 }
 
@@ -221,7 +230,9 @@ export async function connectStripe(token: string, key: string, now: Date, call:
     });
   } catch (err) {
     if (err instanceof StoreRefused) return { ok: false, line: err.line };
-    if ((err as { code?: string })?.code === '23505') return { ok: false, line: STRIPE_TEXT.taken };
+    // The unique account index can fire in a race on one link before the use mark is reached: if this link is now used,
+    // say so; otherwise another builder took the account.
+    if ((err as { code?: string })?.code === '23505') return { ok: false, line: (await linkUsed(token)) ? STRIPE_TEXT.used : STRIPE_TEXT.taken };
     console.error('[stripe] store', err instanceof Error ? err.name : 'error');
     return { ok: false, line: STRIPE_TEXT.failed };
   }

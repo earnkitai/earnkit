@@ -26,7 +26,7 @@ import { committedProgram } from './fixtures/program-file';
 import { ProgramFile } from './program-file';
 import { upsertProgram } from './programs';
 import { STRIPE_DISCONNECTED, STRIPE_NEVER_KEY, STRIPE_NOT_CONNECTED, STRIPE_NO_LINK, benchStepKey, stateAsk, stripeDraftLine, stripeDraftNote } from './bench-reply';
-import { STRIPE_DECLINED_KEY, stripeAskDue } from './stripe';
+import { WRITE_PROBES, STRIPE_DECLINED_KEY, stripeAskDue } from './stripe';
 import { TELL_DESCRIPTION_BENCH } from './mcp';
 import { RESERVED_ROUTES } from './reserved-routes';
 import StripeForm from '../../app/connect/stripe/StripeForm';
@@ -121,7 +121,7 @@ test('checkKey: ok; subdomain match; each missing permission; site mismatch; no 
   assert.equal(sub.ok, true);
   const c = fake({ url: 'https://myapp.com' });
   await checkKey(id, KEY, c);
-  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', 'POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers']);
+  assert.deepEqual(c.calls, ['/v1/account', '/v1/balance_transactions?limit=1', '/v1/charges?limit=1', '/v1/subscriptions?limit=1', ...WRITE_PROBES.map((p) => `POST /v1/${p}`)]);
   for (const [path, line] of [['/v1/account', missingReadLine('account')], ['/v1/balance_transactions', missingReadLine('balance')], ['/v1/charges', missingLine('Charges')], ['/v1/subscriptions', missingLine('Subscriptions')]] as const)
     assert.deepEqual(await checkKey(id, KEY, fake({ url: 'https://myapp.com' }, { [path]: { status: 403 } })), { ok: false, line });
   // v4.7.1 T3 fix 1: no invented permission label in builder copy.
@@ -142,33 +142,34 @@ test('v4.7.1 T3: write access is refused (400 on any probe); read-only (403 on a
   const url = 'https://probe.example.com';
   const write = 'This key can change your Stripe account. Make a restricted key with read access only, then paste it here.';
   assert.equal(STRIPE_TEXT.writeAccess, write);
-  // Read-only: all three probes 403, accepted; the probes are exactly three bodiless POSTs, after the reads.
+  // Read-only: every probe 403, accepted; the probes are bodiless POSTs to WRITE_PROBES, after the reads.
   const seen: [string, string | undefined][] = [];
   const base = fake({ url });
   const spy: StripeCall = async (...a) => { seen.push([a[0], a[2]]); return base(...a); };
   assert.equal((await checkKey(id, KEY, spy)).ok, true);
-  assert.deepEqual(seen.filter((s) => s[1] === 'POST').map((s) => s[0]), ['/v1/refunds', '/v1/payouts', '/v1/transfers']);
+  assert.deepEqual(seen.filter((s) => s[1] === 'POST').map((s) => s[0]).sort(), WRITE_PROBES.map((p) => `/v1/${p}`).sort());
   assert.ok(seen.filter((s) => s[1] !== 'POST').every((s) => s[1] === undefined || s[1] === 'GET'), 'reads stay GETs');
-  // Write access on refunds, on payouts only, on transfers only (final review), or on all: refused with the exact copy.
-  for (const over of [{ 'POST /v1/refunds': { status: 400 } }, { 'POST /v1/payouts': { status: 400 } }, { 'POST /v1/transfers': { status: 400 } },
-    { 'POST /v1/refunds': { status: 400 }, 'POST /v1/payouts': { status: 400 }, 'POST /v1/transfers': { status: 400 } }])
+  // Write access on refunds, on payouts only, on transfers only, or on all: refused with the exact copy (400 or 404).
+  for (const over of [{ 'POST /v1/refunds/re_ekprobe': { status: 400 } }, { 'POST /v1/payouts/po_ekprobe': { status: 404 } }, { 'POST /v1/transfers/tr_ekprobe': { status: 400 } },
+    { 'POST /v1/refunds/re_ekprobe': { status: 400 }, 'POST /v1/payouts/po_ekprobe': { status: 404 }, 'POST /v1/transfers/tr_ekprobe': { status: 400 } }])
     assert.deepEqual(await checkKey(id, KEY, fake({ url }, over)), { ok: false, line: write }, JSON.stringify(over));
-  // Any other status, or a thrown probe, fails closed with the generic copy.
-  for (const status of [500, 200, 401, 429])
-    for (const path of ['POST /v1/refunds', 'POST /v1/payouts', 'POST /v1/transfers'])
+  // Any other status, or a thrown probe, fails closed (401 is rejected, the rest generic).
+  for (const status of [500, 200, 429])
+    for (const path of ['POST /v1/refunds/re_ekprobe', 'POST /v1/payouts/po_ekprobe', 'POST /v1/transfers/tr_ekprobe'])
       assert.deepEqual(await checkKey(id, KEY, fake({ url }, { [path]: { status } })), { ok: false, line: STRIPE_TEXT.unreachable }, `${path} ${status}`);
+  assert.deepEqual(await checkKey(id, KEY, fake({ url }, { 'POST /v1/refunds/re_ekprobe': { status: 401 } })), { ok: false, line: STRIPE_TEXT.rejected });
   const probeBoom = (which: string): StripeCall => async (path, key, method) => {
     if (method === 'POST' && path === which) throw new Error(`timeout ${key}`);
     return fake({ url })(path, key, method);
   };
-  for (const which of ['/v1/refunds', '/v1/payouts', '/v1/transfers']) assert.deepEqual(await checkKey(id, KEY, probeBoom(which)), { ok: false, line: STRIPE_TEXT.unreachable });
+  for (const which of ['/v1/refunds/re_ekprobe', '/v1/payouts/po_ekprobe', '/v1/transfers/tr_ekprobe']) assert.deepEqual(await checkKey(id, KEY, probeBoom(which)), { ok: false, line: STRIPE_TEXT.unreachable });
   // Nothing stored on any refusal (connectStripe path), and the probes never run before the ownership check.
   const t = upgradeToken(id, NOW, undefined, 'stripe')!;
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/payouts': { status: 400 } })), { ok: false, line: write });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/payouts/po_ekprobe': { status: 400 } })), { ok: false, line: write });
   // Final review: a key whose only write is transfers is refused, nothing stored.
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/transfers': { status: 400 } })), { ok: false, line: write });
-  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/refunds': { status: 500 } })), { ok: false, line: STRIPE_TEXT.unreachable });
-  assert.deepEqual(await connectStripe(t, KEY, NOW, probeBoom('/v1/payouts')), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/transfers/tr_ekprobe': { status: 400 } })), { ok: false, line: write });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, fake({ url }, { 'POST /v1/refunds/re_ekprobe': { status: 500 } })), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await connectStripe(t, KEY, NOW, probeBoom('/v1/payouts/po_ekprobe')), { ok: false, line: STRIPE_TEXT.unreachable });
   assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`).length, 0, 'nothing stored');
   const m = fake({ url: 'https://friend.io' });
   await checkKey(id, KEY, m);

@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from './db';
 import { boxReady, open, seal } from './secret-box';
-import { STRIPE_TEXT, connectStripe, runStripeRevenue, stripeLink, stripePageState, stripePost, stripeUseKey, type StripeCall } from './stripe';
+import { STRIPE_TEXT, WRITE_PROBES, checkKey, connectStripe, runStripeRevenue, stripeLink, stripePageState, stripePost, stripeUseKey, type StripeCall } from './stripe';
 import { upgradeToken } from './wallet-proof';
 
 /**
@@ -218,4 +218,69 @@ test('the form: a password field, no text-security style, cleared before the req
   const clear = src.indexOf("field.current.value = ''");
   const send = src.indexOf('await fetch(');
   assert.ok(clear > 0 && send > 0 && clear < send, 'cleared before the fetch');
+});
+
+/** A read-only key's answers, with per-probe overrides keyed by the bare probe path (a thrown override throws). */
+const probeFake = (url: string, over: Record<string, number | 'throw'> = {}) => {
+  const seen: { path: string; method: string | undefined }[] = [];
+  const f: StripeCall = async (path, _key, method) => {
+    seen.push({ path, method });
+    if (method === 'POST') {
+      const o = over[path.replace('/v1/', '')];
+      if (o === 'throw') throw new Error('timeout');
+      return { status: o ?? 403, body: {} };
+    }
+    if (path === '/v1/account') return { status: 200, body: { id: 'acct_PROBE1', business_profile: { url } } };
+    return { status: 200, body: { data: [] } };
+  };
+  return Object.assign(f, { seen });
+};
+
+test('v4.7.3 T2: WRITE_PROBES is the exact update list, all with ids that cannot exist', () => {
+  assert.equal(WRITE_PROBES.length, 21);
+  assert.equal(new Set(WRITE_PROBES).size, 21);
+  for (const p of ['customers/cus_ekprobe', 'plans/ekprobe', 'refunds/re_ekprobe', 'payouts/po_ekprobe', 'transfers/tr_ekprobe', 'billing_portal/configurations/bpc_ekprobe'])
+    assert.ok(WRITE_PROBES.includes(p), p);
+  assert.ok(WRITE_PROBES.every((p) => /\/[a-z_]*ekprobe$/.test(p)), 'every probe targets a made-up object');
+});
+
+test('v4.7.3 T2: a read-only key (403 on every probe) passes; the probes are bodiless POSTs to exactly WRITE_PROBES, never a collection', dbTest, async () => {
+  const id = await builder('https://probe73.example.com');
+  const f = probeFake('https://probe73.example.com');
+  assert.equal((await checkKey(id, 'rk_live_X1', f)).ok, true);
+  const posts = f.seen.filter((s) => s.method === 'POST').map((s) => s.path);
+  assert.deepEqual([...posts].sort(), WRITE_PROBES.map((p) => `/v1/${p}`).sort());
+  for (const p of posts) assert.ok(WRITE_PROBES.some((w) => p === `/v1/${w}`) && p.split('/').length >= 4, `not a collection: ${p}`);
+  assert.ok(!f.seen.some((s) => s.method === 'POST' && /\/v1\/(refunds|payouts|transfers)$/.test(s.path)));
+});
+
+test('v4.7.3 T2: a 404 or 400 on any one probe refuses with writeAccess; a 500 or a throw is unreachable; a 401 is rejected', dbTest, async () => {
+  const id = await builder('https://probe73b.example.com');
+  const url = 'https://probe73b.example.com';
+  for (const p of WRITE_PROBES) {
+    for (const status of [404, 400])
+      assert.deepEqual(await checkKey(id, 'rk_live_X1', probeFake(url, { [p]: status })), { ok: false, line: STRIPE_TEXT.writeAccess }, `${p} ${status}`);
+    assert.deepEqual(await checkKey(id, 'rk_live_X1', probeFake(url, { [p]: 500 })), { ok: false, line: STRIPE_TEXT.unreachable }, `${p} 500`);
+  }
+  assert.deepEqual(await checkKey(id, 'rk_live_X1', probeFake(url, { [WRITE_PROBES[3]]: 'throw' })), { ok: false, line: STRIPE_TEXT.unreachable });
+  assert.deepEqual(await checkKey(id, 'rk_live_X1', probeFake(url, { [WRITE_PROBES[7]]: 401 })), { ok: false, line: STRIPE_TEXT.rejected });
+  assert.deepEqual(await checkKey(id, 'rk_live_X1', probeFake(url, { [WRITE_PROBES[7]]: 200 })), { ok: false, line: STRIPE_TEXT.unreachable });
+});
+
+test('v4.7.3 T2: three pastes at once on one link: one success, one connection, one use mark, the rest get the used copy', dbTest, async () => {
+  for (let i = 0; i < 5; i++) {
+    const id = await builder('https://race73.example.com');
+    const acct = `acct_${hex()}`;
+    const call: StripeCall = async (path, _k, m) => {
+      await new Promise((r) => setTimeout(r, Math.random() * 5));
+      if (m === 'POST') return { status: 403, body: {} };
+      return path === '/v1/account' ? { status: 200, body: { id: acct, business_profile: { url: 'https://race73.example.com' } } } : { status: 200, body: { data: [] } };
+    };
+    const t = upgradeToken(id, new Date(), undefined, 'stripe')!;
+    const rs = await Promise.all(['rk_live_A1', 'rk_live_B2', 'rk_live_C3'].map((k) => connectStripe(t, k, new Date(), call)));
+    assert.equal(rs.filter((r) => r.ok).length, 1, JSON.stringify(rs));
+    for (const r of rs.filter((r) => !r.ok)) assert.equal(r.line, STRIPE_TEXT.used);
+    assert.equal((await sql()`SELECT 1 FROM wallet_proof_uses WHERE use_hash = ${stripeUseKey(t)}`).length, 1);
+    assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`).length, 1);
+  }
 });
