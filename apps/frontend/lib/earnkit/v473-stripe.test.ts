@@ -284,3 +284,53 @@ test('v4.7.3 T2: three pastes at once on one link: one success, one connection, 
     assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE builder_id = ${id}`).length, 1);
   }
 });
+
+test('v4.7.3 T2 fix: checkKey logs one line of 21 probe statuses, never the key or the account id', dbTest, async () => {
+  const id = await builder('https://log73.example.com');
+  const key = 'rk_live_LOGSECRET99';
+  const lines: string[] = [];
+  const orig = console.info;
+  console.info = (...a: unknown[]) => { lines.push(a.join(' ')); };
+  try {
+    assert.equal((await checkKey(id, key, probeFake('https://log73.example.com'))).ok, true);
+  } finally {
+    console.info = orig;
+  }
+  const l = lines.filter((x) => x.startsWith('[stripe] probes'));
+  assert.equal(l.length, 1);
+  assert.equal((l[0].match(/:403/g) ?? []).length, 21);
+  assert.ok(!l[0].includes(key) && !l[0].includes('LOGSECRET') && !l[0].includes('acct_'));
+});
+
+test('v4.7.3 T2 fix: the unique-account index firing on a store gives taken, or used when the link was already used', dbTest, async () => {
+  for (const linkAlreadyUsed of [false, true]) {
+    const id = await builder('https://idx73.example.com');
+    const other = await builder('https://idx73.example.com');
+    const acct = `acct_${hex()}`;
+    const t = upgradeToken(id, new Date(), undefined, 'stripe')!;
+    // A trigger plays the race: in the store's own transaction another builder takes the account first, so the upsert hits
+    // the unique index (23505) after every pre-check has passed. The transaction then rolls back.
+    const fn = `v473_race_${id}`;
+    await sql().unsafe(`CREATE FUNCTION ${fn}() RETURNS trigger AS $$ BEGIN
+      INSERT INTO stripe_connections (builder_id, sealed_key, account_id, site_host, state, connected_at) VALUES (${other}, 'x', NEW.account_id, 'idx73.example.com', 'ok', now()); RETURN NEW; END $$ LANGUAGE plpgsql`);
+    await sql().unsafe(`CREATE TRIGGER ${fn} BEFORE INSERT ON stripe_connections FOR EACH ROW WHEN (NEW.builder_id = ${id}) EXECUTE FUNCTION ${fn}()`);
+    const call: StripeCall = async (path, _k, m) => {
+      if (m === 'POST') {
+        // The link is marked used only after this paste's own "already used" check has passed.
+        if (linkAlreadyUsed && path === `/v1/${WRITE_PROBES[0]}`) await sql()`INSERT INTO wallet_proof_uses (use_hash, used_at) VALUES (${stripeUseKey(t)}, now()) ON CONFLICT DO NOTHING`;
+        return { status: 403, body: {} };
+      }
+      return path === '/v1/account' ? { status: 200, body: { id: acct, business_profile: { url: 'https://idx73.example.com' } } } : { status: 200, body: { data: [] } };
+    };
+    const orig = console.info; console.info = () => {};
+    try {
+      const r = await connectStripe(t, 'rk_live_IDX1', new Date(), call);
+      assert.deepEqual(r, { ok: false, line: linkAlreadyUsed ? STRIPE_TEXT.used : STRIPE_TEXT.taken });
+      assert.equal((await sql()`SELECT 1 FROM stripe_connections WHERE account_id = ${acct}`).length, 0);
+    } finally {
+      console.info = orig;
+      await sql().unsafe(`DROP TRIGGER ${fn} ON stripe_connections`);
+      await sql().unsafe(`DROP FUNCTION ${fn}()`);
+    }
+  }
+});

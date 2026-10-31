@@ -145,7 +145,8 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 /**
  * Runs the four reads, the ownership rule, then the write probes. A 401 is a rejected key, a 403 names the missing
  * permission, anything else (a thrown call, 5xx, an odd answer) is "try again". On the probes a 403 is the pass, a 400
- * is write access, anything else is "try again". Nothing here returns or logs the key.
+ * or 404 is write access, a 401 is a rejected key, anything else is "try again". It logs one line of probe statuses
+ * (resource:status, no key, no account id) for the real-key test. Nothing here returns or logs the key.
  */
 export async function checkKey(builderId: number, key: string, call: StripeCall): Promise<CheckResult> {
   const get = async (path: string, method?: 'POST'): Promise<{ status: number; body: unknown } | null> => {
@@ -183,6 +184,7 @@ export async function checkKey(builderId: number, key: string, call: StripeCall)
   }
   // v4.7.3 T2: the key must not change anything. Every probe is a bodiless update of a made-up object; only 403 passes.
   const probes = await Promise.all(WRITE_PROBES.map((p) => get(`/v1/${p}`, 'POST')));
+  console.info('[stripe] probes', WRITE_PROBES.map((p, i) => `${p.split('/')[0]}:${probes[i]?.status ?? 'err'}`).join(' '));
   if (probes.some((r) => r && (r.status === 400 || r.status === 404))) return { ok: false, line: STRIPE_TEXT.writeAccess };
   if (probes.some((r) => r && r.status === 401)) return { ok: false, line: STRIPE_TEXT.rejected };
   if (probes.some((r) => !r || r.status !== 403)) return { ok: false, line: STRIPE_TEXT.unreachable };
@@ -232,7 +234,13 @@ export async function connectStripe(token: string, key: string, now: Date, call:
     if (err instanceof StoreRefused) return { ok: false, line: err.line };
     // The unique account index can fire in a race on one link before the use mark is reached: if this link is now used,
     // say so; otherwise another builder took the account.
-    if ((err as { code?: string })?.code === '23505') return { ok: false, line: (await linkUsed(token)) ? STRIPE_TEXT.used : STRIPE_TEXT.taken };
+    if ((err as { code?: string })?.code === '23505') {
+      try {
+        return { ok: false, line: (await linkUsed(token)) ? STRIPE_TEXT.used : STRIPE_TEXT.taken };
+      } catch {
+        return { ok: false, line: STRIPE_TEXT.failed };
+      }
+    }
     console.error('[stripe] store', err instanceof Error ? err.name : 'error');
     return { ok: false, line: STRIPE_TEXT.failed };
   }
